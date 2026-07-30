@@ -83,6 +83,17 @@ public static class Program
         Mode = DecideMode(args);
         Log.Info($"Run mode: {Mode}");
 
+        if (Mode is RunMode.Shell or RunMode.OverlayTest)
+        {
+            // Must run before the shell mutex: the elevated copy takes the mutex,
+            // this process only lingers as Winlogon's watched shell process.
+            var handedOver = SelfElevation.EnsureElevatedIfConfigured(args);
+            if (handedOver is not null)
+            {
+                return handedOver.Value;
+            }
+        }
+
         if (Mode == RunMode.Shell)
         {
             if (!AcquireShellMutex())
