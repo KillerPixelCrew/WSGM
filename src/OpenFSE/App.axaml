@@ -2,7 +2,170 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="OpenFSE.App"
              RequestedThemeVariant="Dark">
+    <Application.Resources>
+        <!-- Cyberglass design tokens. Keep the effects restrained so focused gamepad
+             targets remain more prominent than the decoration around them. -->
+        <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F5F8FF" />
+        <SolidColorBrush x:Key="TextSecondaryBrush" Color="#AEBBD2" />
+        <SolidColorBrush x:Key="TextMutedBrush" Color="#71809A" />
+        <SolidColorBrush x:Key="GlassPanelBrush" Color="#B3182032" />
+        <SolidColorBrush x:Key="GlassControlBrush" Color="#2AFFFFFF" />
+        <SolidColorBrush x:Key="GlassControlHoverBrush" Color="#3DFFFFFF" />
+        <SolidColorBrush x:Key="GlassControlPressedBrush" Color="#18FFFFFF" />
+        <SolidColorBrush x:Key="GlassBorderBrush" Color="#22FFFFFF" />
+        <SolidColorBrush x:Key="GlassBorderStrongBrush" Color="#4DFFFFFF" />
+        <SolidColorBrush x:Key="AccentCyanBrush" Color="#39E7FF" />
+        <SolidColorBrush x:Key="AccentMagentaBrush" Color="#F15BFF" />
+        <SolidColorBrush x:Key="DangerBrush" Color="#FF6F91" />
+        <SolidColorBrush x:Key="WarningBrush" Color="#FFC66D" />
+
+        <LinearGradientBrush x:Key="AccentGradient" StartPoint="0%,0%" EndPoint="100%,100%">
+            <GradientStop Color="#36E4FF" Offset="0" />
+            <GradientStop Color="#8B7CFF" Offset="0.54" />
+            <GradientStop Color="#EE62E8" Offset="1" />
+        </LinearGradientBrush>
+        <LinearGradientBrush x:Key="AccentWashGradient" StartPoint="0%,0%" EndPoint="100%,100%">
+            <GradientStop Color="#2636E4FF" Offset="0" />
+            <GradientStop Color="#1AEE62E8" Offset="1" />
+        </LinearGradientBrush>
+    </Application.Resources>
+
     <Application.Styles>
         <FluentTheme />
+
+        <Style Selector="Window">
+            <Setter Property="FontFamily" Value="avares://Avalonia.Fonts.Inter/Assets#Inter" />
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+            <Setter Property="Background" Value="#FF0D1220" />
+        </Style>
+
+        <Style Selector="TextBlock.eyebrow">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{StaticResource AccentCyanBrush}" />
+            <Setter Property="LetterSpacing" Value="1.8" />
+        </Style>
+        <Style Selector="TextBlock.page-title">
+            <Setter Property="FontSize" Value="32" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+        </Style>
+        <Style Selector="TextBlock.section-title">
+            <Setter Property="FontSize" Value="18" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+        </Style>
+        <Style Selector="TextBlock.caption">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+
+        <Style Selector="Border.glass-panel">
+            <Setter Property="Background" Value="{StaticResource GlassPanelBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource GlassBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="16" />
+            <Setter Property="Padding" Value="20" />
+        </Style>
+        <Style Selector="Border.glass-row">
+            <Setter Property="Background" Value="#18FFFFFF" />
+            <Setter Property="BorderBrush" Value="{StaticResource GlassBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="12" />
+            <Setter Property="Padding" Value="12" />
+        </Style>
+        <Style Selector="Border.warning-panel">
+            <Setter Property="Background" Value="#2BFFC66D" />
+            <Setter Property="BorderBrush" Value="#88FFC66D" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="12" />
+            <Setter Property="Padding" Value="14" />
+        </Style>
+
+        <Style Selector="Button">
+            <Setter Property="MinHeight" Value="40" />
+            <Setter Property="Padding" Value="16,9" />
+            <Setter Property="Background" Value="{StaticResource GlassControlBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource GlassBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="12" />
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.14" />
+                    <BrushTransition Property="BorderBrush" Duration="0:0:0.14" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Button:pointerover">
+            <Setter Property="Background" Value="{StaticResource GlassControlHoverBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource GlassBorderStrongBrush}" />
+        </Style>
+        <Style Selector="Button:pressed">
+            <Setter Property="Background" Value="{StaticResource GlassControlPressedBrush}" />
+        </Style>
+        <Style Selector="Button:focus /template/ ContentPresenter">
+            <Setter Property="BorderBrush" Value="{StaticResource AccentCyanBrush}" />
+            <Setter Property="BorderThickness" Value="2" />
+        </Style>
+        <Style Selector="Button.primary">
+            <Setter Property="Background" Value="{StaticResource AccentGradient}" />
+            <Setter Property="BorderBrush" Value="#66FFFFFF" />
+            <Setter Property="Foreground" Value="#FF07101C" />
+        </Style>
+        <Style Selector="Button.primary:pointerover">
+            <Setter Property="Background" Value="#FF6BEDFF" />
+        </Style>
+        <Style Selector="Button.danger">
+            <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
+        </Style>
+        <Style Selector="Button.icon">
+            <Setter Property="MinWidth" Value="40" />
+            <Setter Property="Padding" Value="8" />
+        </Style>
+
+        <Style Selector="TextBox">
+            <Setter Property="MinHeight" Value="40" />
+            <Setter Property="Padding" Value="12,8" />
+            <Setter Property="Background" Value="#1A07101D" />
+            <Setter Property="BorderBrush" Value="{StaticResource GlassBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+        </Style>
+        <Style Selector="TextBox:focus">
+            <Setter Property="BorderBrush" Value="{StaticResource AccentCyanBrush}" />
+            <Setter Property="BorderThickness" Value="2" />
+        </Style>
+        <Style Selector="ComboBox">
+            <Setter Property="MinHeight" Value="40" />
+            <Setter Property="Background" Value="#1A07101D" />
+            <Setter Property="BorderBrush" Value="{StaticResource GlassBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+        </Style>
+        <Style Selector="ComboBox:focus-within">
+            <Setter Property="BorderBrush" Value="{StaticResource AccentCyanBrush}" />
+            <Setter Property="BorderThickness" Value="2" />
+        </Style>
+        <Style Selector="NumericUpDown">
+            <Setter Property="MinHeight" Value="40" />
+            <Setter Property="Background" Value="#1A07101D" />
+            <Setter Property="BorderBrush" Value="{StaticResource GlassBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+        </Style>
+        <Style Selector="NumericUpDown:focus-within">
+            <Setter Property="BorderBrush" Value="{StaticResource AccentCyanBrush}" />
+            <Setter Property="BorderThickness" Value="2" />
+        </Style>
+        <Style Selector="CheckBox">
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+        </Style>
+        <Style Selector="CheckBox:focus /template/ Border">
+            <Setter Property="BorderBrush" Value="{StaticResource AccentCyanBrush}" />
+            <Setter Property="BorderThickness" Value="2" />
+        </Style>
     </Application.Styles>
 </Application>

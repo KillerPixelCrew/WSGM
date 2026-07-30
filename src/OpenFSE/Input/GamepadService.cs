@@ -98,12 +98,14 @@ public sealed partial class GamepadService : IDisposable
                                     GamepadButtons.DPadLeft | GamepadButtons.DPadRight);
         if (directions != 0)
         {
-            if ((pressed & directions) != 0)
+            // Re-arm whenever the held direction set changes. The prior equality
+            // check left _repeating stale after, for example, changing Up to Right.
+            if (directions != _repeating)
             {
                 _repeating = directions;
                 _nextRepeat = DateTime.UtcNow + RepeatInitial;
             }
-            else if (directions == _repeating && DateTime.UtcNow >= _nextRepeat)
+            else if (DateTime.UtcNow >= _nextRepeat)
             {
                 _nextRepeat = DateTime.UtcNow + RepeatRate;
                 ButtonPressed?.Invoke(directions);

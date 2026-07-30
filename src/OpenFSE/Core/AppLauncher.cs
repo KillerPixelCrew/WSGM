@@ -38,7 +38,7 @@ public static class AppLauncher
         }
     }
 
-    private static LaunchResult StartNormal(string path, string args)
+    private static LaunchResult StartNormal(string path, string args, bool retryWithElevation = true)
     {
         try
         {
@@ -51,11 +51,16 @@ public static class AppLauncher
             Log.Info($"Started: {path} {args} (pid {process?.Id.ToString() ?? "?"})");
             return new LaunchResult(process, process is not null, false);
         }
-        catch (Win32Exception ex) when (ex.NativeErrorCode == ErrorElevationRequired)
+        catch (Win32Exception ex) when (ex.NativeErrorCode == ErrorElevationRequired && retryWithElevation)
         {
             // Exe has the "Run as administrator" compat flag — honor it.
             Log.Warn($"{path} requires elevation (740), retrying via runas");
             return StartElevated(path, args);
+        }
+        catch (Win32Exception ex) when (ex.NativeErrorCode == ErrorElevationRequired)
+        {
+            Log.Error($"{path} still requires elevation after the UAC prompt was declined", ex);
+            return new LaunchResult(null, false, true);
         }
         catch (Exception ex)
         {
@@ -82,7 +87,9 @@ public static class AppLauncher
         {
             Log.Warn($"Elevation DECLINED for {path} — falling back to a normal start. " +
                      "Controller input over elevated windows will NOT work this session.");
-            var fallback = StartNormal(path, args);
+            // Do not retry StartElevated from the fallback: a compatibility flag
+            // can return 740 again, otherwise creating a 740 -> cancel loop.
+            var fallback = StartNormal(path, args, retryWithElevation: false);
             return fallback with { ElevationDeclined = true };
         }
         catch (Exception ex)

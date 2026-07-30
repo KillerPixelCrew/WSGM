@@ -27,13 +27,16 @@ public partial class SettingsWindow : Window
         Opened += (_, _) =>
         {
             _navigation = new GamepadNavigation(_gamepad, this, back: Close,
-                nintendoLayout: _viewModel.GlyphStyleIndex == 2);
+                isNintendoLayout: () => _viewModel.GlyphStyleIndex == 2);
             _gamepad.Start();
         };
         Closed += (_, _) =>
         {
             _gamepad.Stop();
             _navigation?.Dispose();
+            _navigation = null;
+            _testOverlay?.Dispose();
+            _testOverlay = null;
         };
     }
 
@@ -111,8 +114,10 @@ public partial class SettingsWindow : Window
 
     private void OnTestOverlay(object? sender, RoutedEventArgs e)
     {
-        // Reuse the real controller so behavior matches shell mode exactly.
-        _testOverlay ??= new OverlayController(_viewModel.SnapshotForTest(), monitor: null);
+        // Use the real controller so behavior matches shell mode exactly. Rebuild it
+        // for every test so unsaved glyph/input changes take effect immediately.
+        _testOverlay?.Dispose();
+        _testOverlay = new OverlayController(_viewModel.SnapshotForTest(), monitor: null);
         _testOverlay.ShowOverlay();
     }
 

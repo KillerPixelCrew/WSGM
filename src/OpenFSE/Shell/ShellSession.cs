@@ -11,8 +11,13 @@ public sealed class ShellSession
 {
     private readonly AppConfig _config;
     private readonly bool _overlayTestOnly;
+    private readonly object _homeLaunchGate = new();
     private HomeAppMonitor? _monitor;
     private OverlayController? _overlay;
+    private bool _homeLaunchInProgress;
+    private DateTime _lastHomeLaunchUtc;
+
+    private static readonly TimeSpan HomeLaunchCooldown = TimeSpan.FromSeconds(5);
 
     public ShellSession(AppConfig config, bool overlayTestOnly = false)
     {
@@ -102,11 +107,51 @@ public sealed class ShellSession
             return;
         }
 
-        Log.Info($"Starting home app: {home.Path} {home.Args}{(home.Elevated ? " (elevated)" : "")}");
-        var result = AppLauncher.Start(home.Path, home.Args, home.Elevated);
+        var result = StartHomeApp(home);
+        if (result is null)
+        {
+            return;
+        }
+        if (!result.Started)
+        {
+            Log.Error($"Home app failed to start: {home.Path}");
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                _overlay?.SetWarning($"Couldn't start {System.IO.Path.GetFileNameWithoutExtension(home.Path)}. Check its path and permissions.");
+                _overlay?.ShowOverlay();
+            });
+            return;
+        }
         if (result.ElevationDeclined)
         {
             _overlay?.SetWarning("Home app started WITHOUT elevation (UAC declined).");
+        }
+    }
+
+    private AppLauncher.LaunchResult? StartHomeApp(HomeAppConfig home)
+    {
+        lock (_homeLaunchGate)
+        {
+            if (_homeLaunchInProgress || DateTime.UtcNow - _lastHomeLaunchUtc < HomeLaunchCooldown)
+            {
+                Log.Warn("Skipping duplicate home-app start request.");
+                return null;
+            }
+            _homeLaunchInProgress = true;
+        }
+
+        try
+        {
+            Log.Info($"Starting home app: {home.Path} {home.Args}{(home.Elevated ? " (elevated)" : "")}");
+            return AppLauncher.Start(home.Path, home.Args, home.Elevated);
+        }
+        finally
+        {
+            lock (_homeLaunchGate)
+            {
+                _homeLaunchInProgress = false;
+                _lastHomeLaunchUtc = DateTime.UtcNow;
+            }
         }
     }
 }

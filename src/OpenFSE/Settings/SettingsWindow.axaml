@@ -4,118 +4,167 @@
         x:Class="OpenFSE.Settings.SettingsWindow"
         x:DataType="s:SettingsViewModel"
         Title="OpenFSE Settings"
-        Width="820" Height="720"
-        WindowStartupLocation="CenterScreen">
+        Width="980" Height="780" MinWidth="760" MinHeight="600"
+        WindowStartupLocation="CenterScreen"
+        TransparencyLevelHint="AcrylicBlur"
+        Background="Transparent">
 
-    <Window.Styles>
-        <Style Selector="TextBlock.section">
-            <Setter Property="FontSize" Value="20" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Margin" Value="0,8,0,0" />
-        </Style>
-        <Style Selector="Button">
-            <Setter Property="MinHeight" Value="36" />
-        </Style>
-        <Style Selector="Button:focus /template/ ContentPresenter">
-            <Setter Property="BorderBrush" Value="#FF60A5FA" />
-            <Setter Property="BorderThickness" Value="2" />
-        </Style>
-    </Window.Styles>
+    <ExperimentalAcrylicBorder CornerRadius="16" Margin="1">
+        <ExperimentalAcrylicBorder.Material>
+            <ExperimentalAcrylicMaterial BackgroundSource="Digger"
+                                         TintColor="#101729"
+                                         TintOpacity="0.88"
+                                         MaterialOpacity="0.72"
+                                         FallbackColor="#FF101729" />
+        </ExperimentalAcrylicBorder.Material>
 
-    <ScrollViewer>
-        <StackPanel Margin="24" Spacing="12">
-
-            <TextBlock Text="OpenFSE" FontSize="28" FontWeight="Bold" />
-
-            <!-- Shell status -->
-            <Border CornerRadius="8" Padding="16" Background="#33555555">
-                <StackPanel Spacing="8">
-                    <TextBlock Text="{Binding ShellStatusText}" FontSize="15" FontWeight="SemiBold"
-                               TextWrapping="Wrap" />
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button Content="Install as shell" Click="OnInstall"
-                                IsEnabled="{Binding !ShellInstalled}" />
-                        <Button Content="Uninstall (restore previous shell)" Click="OnUninstall"
-                                IsEnabled="{Binding ShellInstalled}" />
+        <Grid RowDefinitions="Auto,*,Auto">
+            <Border Grid.Row="0" Padding="28,24,28,20" BorderBrush="#22FFFFFF" BorderThickness="0,0,0,1">
+                <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Spacing="5">
+                        <TextBlock Classes="eyebrow" Text="HANDHELD SHELL • CONTROL CENTER" />
+                        <TextBlock Classes="page-title" Text="OpenFSE" />
+                        <TextBlock Classes="caption" Text="A quiet, controller-first Windows session — configured your way." />
                     </StackPanel>
-                    <TextBlock TextWrapping="Wrap" Opacity="0.75" FontSize="12"
-                               Text="Recovery: Ctrl+Alt+Del → Task Manager → Run new task → explorer.exe (desktop for this session) or OpenFSE.exe --restore-shell (permanent). Crashing 3× within 2 minutes at logon restores your previous shell automatically." />
-                </StackPanel>
+                    <Border Grid.Column="1" Classes="glass-row" Padding="12,7" VerticalAlignment="Center">
+                        <TextBlock Text="SETTINGS" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource AccentCyanBrush}" />
+                    </Border>
+                </Grid>
             </Border>
 
-            <!-- Home app -->
-            <TextBlock Classes="section" Text="Home app" />
-            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" Margin="0,0,0,0">
-                <TextBox Grid.Column="0" Grid.Row="0" Watermark="Path to launcher exe (e.g. C:\Program Files (x86)\Steam\Steam.exe)"
-                         Text="{Binding HomeAppPath}" />
-                <Button Grid.Column="1" Grid.Row="0" Content="Browse..." Margin="8,0,0,0" Click="OnBrowseHomeApp" />
-                <TextBox Grid.Column="0" Grid.Row="1" Grid.ColumnSpan="2" Margin="0,8,0,0"
-                         Watermark="Arguments (e.g. steam://open/bigpicture)"
-                         Text="{Binding HomeAppArgs}" />
-            </Grid>
-            <StackPanel Orientation="Horizontal" Spacing="24">
-                <CheckBox Content="Run as administrator" IsChecked="{Binding HomeAppElevated}" />
-                <CheckBox Content="Auto-relaunch when it exits" IsChecked="{Binding HomeAppAutoRelaunch}" />
-            </StackPanel>
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="28,22" Spacing="18">
 
-            <!-- Startup apps -->
-            <TextBlock Classes="section" Text="Startup apps" />
-            <ItemsControl ItemsSource="{Binding StartupApps}">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="s:StartupAppRow">
-                        <Border CornerRadius="6" Padding="8" Margin="0,2" Background="#22555555">
-                            <Grid ColumnDefinitions="Auto,*,220,Auto,Auto,Auto,Auto,Auto">
-                                <CheckBox Grid.Column="0" IsChecked="{Binding Enabled}" VerticalAlignment="Center"
-                                          ToolTip.Tip="Enabled" />
-                                <TextBox Grid.Column="1" Text="{Binding Path}" Watermark="Path" Margin="4,0" />
-                                <TextBox Grid.Column="2" Text="{Binding Args}" Watermark="Args" Margin="4,0" />
-                                <CheckBox Grid.Column="3" IsChecked="{Binding Elevated}" Content="Admin"
-                                          VerticalAlignment="Center" Margin="4,0" />
-                                <Button Grid.Column="4" Content="▲" Click="OnMoveUp" Margin="2,0" />
-                                <Button Grid.Column="5" Content="▼" Click="OnMoveDown" Margin="2,0" />
-                                <Button Grid.Column="6" Content="Browse" Click="OnBrowseStartupApp" Margin="2,0" />
-                                <Button Grid.Column="7" Content="✕" Click="OnRemoveApp" Margin="2,0" />
+                    <!-- Shell status -->
+                    <Border Classes="glass-panel">
+                        <StackPanel Spacing="14">
+                            <Grid ColumnDefinitions="5,*,Auto" ColumnSpacing="12">
+                                <Border Background="{StaticResource AccentGradient}" CornerRadius="3" />
+                                <StackPanel Grid.Column="1" Spacing="3">
+                                    <TextBlock Classes="section-title" Text="Windows shell" />
+                                    <TextBlock Classes="caption" Text="Choose whether OpenFSE starts in place of Explorer for this account." />
+                                </StackPanel>
+                                <TextBlock Grid.Column="2" Text="SYSTEM" Classes="eyebrow" VerticalAlignment="Center" />
                             </Grid>
-                        </Border>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-            <StackPanel Orientation="Horizontal" Spacing="12">
-                <Button Content="Add startup app" Click="OnAddApp" />
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <TextBlock Text="Delay between apps (ms):" VerticalAlignment="Center" />
-                    <NumericUpDown Value="{Binding StaggerDelayMs}" Minimum="0" Maximum="30000" Increment="250"
-                                   Width="140" FormatString="0" />
+                            <Border Classes="glass-row">
+                                <TextBlock Text="{Binding ShellStatusText}" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" />
+                            </Border>
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <Button Classes="primary" Content="Install as shell" Click="OnInstall" IsEnabled="{Binding !ShellInstalled}" />
+                                <Button Classes="danger" Content="Restore previous shell" Click="OnUninstall" IsEnabled="{Binding ShellInstalled}" />
+                            </StackPanel>
+                            <TextBlock Classes="caption"
+                                       Text="Recovery: Ctrl+Alt+Del → Task Manager → Run new task → explorer.exe for this session, or OpenFSE.exe --restore-shell to restore permanently. Three shell crashes in two minutes also restore your prior shell automatically." />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Home app -->
+                    <Border Classes="glass-panel">
+                        <StackPanel Spacing="14">
+                            <Grid ColumnDefinitions="5,*" ColumnSpacing="12">
+                                <Border Background="{StaticResource AccentGradient}" CornerRadius="3" />
+                                <StackPanel Grid.Column="1" Spacing="3">
+                                    <TextBlock Classes="section-title" Text="Home app" />
+                                    <TextBlock Classes="caption" Text="The launcher OpenFSE returns to when you leave the desktop." />
+                                </StackPanel>
+                            </Grid>
+                            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                                <TextBox Grid.Column="0" Grid.Row="0"
+                                         Watermark="Path to launcher exe (for example, Steam.exe)"
+                                         Text="{Binding HomeAppPath}" />
+                                <Button Grid.Column="1" Grid.Row="0" Content="Browse…" Click="OnBrowseHomeApp" />
+                                <TextBox Grid.Column="0" Grid.Row="1" Grid.ColumnSpan="2"
+                                         Watermark="Arguments (for example, steam://open/bigpicture)"
+                                         Text="{Binding HomeAppArgs}" />
+                            </Grid>
+                            <StackPanel Orientation="Horizontal" Spacing="28">
+                                <CheckBox Content="Run as administrator" IsChecked="{Binding HomeAppElevated}" />
+                                <CheckBox Content="Auto-relaunch when it exits" IsChecked="{Binding HomeAppAutoRelaunch}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Startup apps -->
+                    <Border Classes="glass-panel">
+                        <StackPanel Spacing="14">
+                            <Grid ColumnDefinitions="5,*" ColumnSpacing="12">
+                                <Border Background="{StaticResource AccentGradient}" CornerRadius="3" />
+                                <StackPanel Grid.Column="1" Spacing="3">
+                                    <TextBlock Classes="section-title" Text="Startup apps" />
+                                    <TextBlock Classes="caption" Text="Launch supporting utilities in order before your home app starts." />
+                                </StackPanel>
+                            </Grid>
+                            <ItemsControl ItemsSource="{Binding StartupApps}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="s:StartupAppRow">
+                                        <Border Classes="glass-row" Margin="0,3">
+                                            <Grid ColumnDefinitions="Auto,*,180,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="6">
+                                                <CheckBox Grid.Column="0" IsChecked="{Binding Enabled}" VerticalAlignment="Center" ToolTip.Tip="Enabled" />
+                                                <TextBox Grid.Column="1" Text="{Binding Path}" Watermark="Application path" />
+                                                <TextBox Grid.Column="2" Text="{Binding Args}" Watermark="Arguments" />
+                                                <CheckBox Grid.Column="3" IsChecked="{Binding Elevated}" Content="Admin" VerticalAlignment="Center" />
+                                                <Button Grid.Column="4" Classes="icon" Content="↑" Click="OnMoveUp" ToolTip.Tip="Move up" />
+                                                <Button Grid.Column="5" Classes="icon" Content="↓" Click="OnMoveDown" ToolTip.Tip="Move down" />
+                                                <Button Grid.Column="6" Content="Browse" Click="OnBrowseStartupApp" />
+                                                <Button Grid.Column="7" Classes="icon danger" Content="×" Click="OnRemoveApp" ToolTip.Tip="Remove" />
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="18">
+                                <Button Classes="primary" Content="Add startup app" Click="OnAddApp" />
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="9" VerticalAlignment="Center">
+                                    <TextBlock Text="Delay between apps (ms)" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" />
+                                    <NumericUpDown Value="{Binding StaggerDelayMs}" Minimum="0" Maximum="30000" Increment="250" Width="150" FormatString="0" />
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Overlay -->
+                    <Border Classes="glass-panel">
+                        <StackPanel Spacing="14">
+                            <Grid ColumnDefinitions="5,*" ColumnSpacing="12">
+                                <Border Background="{StaticResource AccentGradient}" CornerRadius="3" />
+                                <StackPanel Grid.Column="1" Spacing="3">
+                                    <TextBlock Classes="section-title" Text="Overlay &amp; input" />
+                                    <TextBlock Classes="caption" Text="Use a desktop hotkey, touch-edge gestures, or your controller to summon the quick menu." />
+                                </StackPanel>
+                            </Grid>
+                            <Border Classes="glass-row">
+                                <StackPanel Spacing="12">
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <TextBlock Text="Hotkey" Width="70" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" />
+                                        <CheckBox Content="Ctrl" IsChecked="{Binding HotkeyCtrl}" />
+                                        <CheckBox Content="Alt" IsChecked="{Binding HotkeyAlt}" />
+                                        <CheckBox Content="Shift" IsChecked="{Binding HotkeyShift}" />
+                                        <CheckBox Content="Win" IsChecked="{Binding HotkeyWin}" />
+                                        <ComboBox ItemsSource="{Binding HotkeyKeys}" SelectedIndex="{Binding HotkeyKeyIndex}" Width="130" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="28">
+                                        <CheckBox Content="Swipe from bottom edge" IsChecked="{Binding GestureBottom}" />
+                                        <CheckBox Content="Swipe from right edge" IsChecked="{Binding GestureRight}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                            <Grid ColumnDefinitions="Auto,170,Auto,Auto" ColumnSpacing="10">
+                                <TextBlock Text="Button glyphs" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" />
+                                <ComboBox Grid.Column="1" ItemsSource="{Binding GlyphStyles}" SelectedIndex="{Binding GlyphStyleIndex}" />
+                                <Button Grid.Column="2" Content="Test overlay" Click="OnTestOverlay" />
+                                <Button Grid.Column="3" Content="Touch keyboard" Click="OnTouchKeyboard" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
-            </StackPanel>
+            </ScrollViewer>
 
-            <!-- Overlay -->
-            <TextBlock Classes="section" Text="Overlay" />
-            <StackPanel Orientation="Horizontal" Spacing="12">
-                <TextBlock Text="Hotkey:" VerticalAlignment="Center" />
-                <CheckBox Content="Ctrl" IsChecked="{Binding HotkeyCtrl}" />
-                <CheckBox Content="Alt" IsChecked="{Binding HotkeyAlt}" />
-                <CheckBox Content="Shift" IsChecked="{Binding HotkeyShift}" />
-                <CheckBox Content="Win" IsChecked="{Binding HotkeyWin}" />
-                <ComboBox ItemsSource="{Binding HotkeyKeys}" SelectedIndex="{Binding HotkeyKeyIndex}" Width="130" />
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" Spacing="24">
-                <CheckBox Content="Swipe from bottom edge" IsChecked="{Binding GestureBottom}" />
-                <CheckBox Content="Swipe from right edge" IsChecked="{Binding GestureRight}" />
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" Spacing="12">
-                <TextBlock Text="Button glyphs:" VerticalAlignment="Center" />
-                <ComboBox ItemsSource="{Binding GlyphStyles}" SelectedIndex="{Binding GlyphStyleIndex}" Width="160" />
-                <Button Content="Test overlay" Click="OnTestOverlay" />
-                <Button Content="Touch keyboard" Click="OnTouchKeyboard" />
-            </StackPanel>
-
-            <!-- Save -->
-            <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,16,0,0">
-                <Button Content="Save" FontWeight="SemiBold" MinWidth="120" Click="OnSave" />
-                <TextBlock x:Name="SaveStatus" VerticalAlignment="Center" Opacity="0.8" />
-            </StackPanel>
-
-        </StackPanel>
-    </ScrollViewer>
+            <Border Grid.Row="2" Padding="28,16" BorderBrush="#22FFFFFF" BorderThickness="0,1,0,0">
+                <StackPanel Orientation="Horizontal" Spacing="14">
+                    <Button Classes="primary" Content="Save changes" FontWeight="Bold" MinWidth="148" Click="OnSave" />
+                    <TextBlock x:Name="SaveStatus" Classes="caption" VerticalAlignment="Center" />
+                </StackPanel>
+            </Border>
+        </Grid>
+    </ExperimentalAcrylicBorder>
 </Window>

@@ -22,15 +22,17 @@ public static class Program
     [STAThread]
     public static int Main(string[] args)
     {
-        Log.Init();
-
         // Recovery path: must work even when Avalonia/GPU/config are broken.
+        // Keep this ahead of logging too: a broken profile directory must never
+        // prevent the user from getting their desktop back.
         if (args.Contains("--restore-shell", StringComparer.OrdinalIgnoreCase))
         {
             ShellRegistration.Uninstall();
             ExplorerControl.StartExplorer();
             return 0;
         }
+
+        Log.Init();
 
         if (args.Contains("--setup", StringComparer.OrdinalIgnoreCase))
         {

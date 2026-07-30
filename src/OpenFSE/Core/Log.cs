@@ -15,21 +15,29 @@ public static class Log
 
     public static void Init(string name = "openfse")
     {
-        System.IO.Directory.CreateDirectory(Directory);
-        _path = Path.Combine(Directory, $"{name}.log");
         try
         {
+            var directory = Directory;
+            System.IO.Directory.CreateDirectory(directory);
+            _path = Path.Combine(directory, $"{name}.log");
+
             // Rotate at 2 MB, keep one previous file.
             var fi = new FileInfo(_path);
             if (fi.Exists && fi.Length > 2 * 1024 * 1024)
             {
-                var old = Path.Combine(Directory, $"{name}.old.log");
+                var old = Path.Combine(directory, $"{name}.old.log");
                 File.Delete(old);
                 File.Move(_path, old);
             }
+
+            Info($"---- OpenFSE {typeof(Log).Assembly.GetName().Version} started, args: [{Environment.CommandLine}]");
         }
-        catch { /* rotation is best-effort */ }
-        Info($"---- OpenFSE {typeof(Log).Assembly.GetName().Version} started, args: [{Environment.CommandLine}]");
+        catch
+        {
+            // Logging is diagnostic only. In particular, it must not block the
+            // --restore-shell recovery route when a profile is damaged.
+            _path = null;
+        }
     }
 
     public static void Info(string message) => Write("info ", message);

@@ -14,17 +14,17 @@ public sealed class GamepadNavigation : IDisposable
     private readonly GamepadService _gamepad;
     private readonly Window _window;
     private readonly Action _back;
-    private readonly bool _nintendoLayout;
+    private readonly Func<bool>? _isNintendoLayout;
 
-    /// <param name="nintendoLayout">Nintendo labels are swapped relative to Xbox at
+    /// <param name="isNintendoLayout">Supplies the current layout. Nintendo labels are swapped relative to Xbox at
     /// the same physical positions: the button labeled A (east, XInput B) confirms
     /// and labeled B (south, XInput A) goes back.</param>
-    public GamepadNavigation(GamepadService gamepad, Window window, Action back, bool nintendoLayout = false)
+    public GamepadNavigation(GamepadService gamepad, Window window, Action back, Func<bool>? isNintendoLayout = null)
     {
         _gamepad = gamepad;
         _window = window;
         _back = back;
-        _nintendoLayout = nintendoLayout;
+        _isNintendoLayout = isNintendoLayout;
         _gamepad.ButtonPressed += OnButtons;
     }
 
@@ -35,8 +35,9 @@ public sealed class GamepadNavigation : IDisposable
             return;
         }
 
-        var confirm = _nintendoLayout ? GamepadButtons.B : GamepadButtons.A;
-        var back = _nintendoLayout ? GamepadButtons.A : GamepadButtons.B;
+        var nintendoLayout = _isNintendoLayout?.Invoke() ?? false;
+        var confirm = nintendoLayout ? GamepadButtons.B : GamepadButtons.A;
+        var back = nintendoLayout ? GamepadButtons.A : GamepadButtons.B;
 
         if (buttons.HasFlag(back))
         {

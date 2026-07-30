@@ -17,8 +17,15 @@ public sealed class OverlayController : IDisposable
     private EdgeSwipeWindow? _bottomStrip;
     private EdgeSwipeWindow? _rightStrip;
     private OverlayWindow? _overlay;
+    private OverlayViewModel? _overlayViewModel;
     private GamepadNavigation? _navigation;
     private string _pendingWarning = "";
+    private bool _reopenOverlayForWarning;
+    private readonly object _homeLaunchGate = new();
+    private bool _homeLaunchInProgress;
+    private DateTime _lastHomeLaunchUtc;
+
+    private static readonly TimeSpan HomeLaunchCooldown = TimeSpan.FromSeconds(5);
 
     public OverlayController(AppConfig config, HomeAppMonitor? monitor)
     {
@@ -64,7 +71,14 @@ public sealed class OverlayController : IDisposable
         }
     }
 
-    public void SetWarning(string warning) => _pendingWarning = warning;
+    public void SetWarning(string warning)
+    {
+        _pendingWarning = warning;
+        if (_overlayViewModel is not null)
+        {
+            _overlayViewModel.WarningText = warning;
+        }
+    }
 
     /// <summary>Applies a freshly loaded config (settings saved in another process).</summary>
     public void ApplyConfig(AppConfig config)
@@ -91,6 +105,7 @@ public sealed class OverlayController : IDisposable
     {
         if (_overlay is not null)
         {
+            _overlayViewModel?.WarningText = _pendingWarning;
             _overlay.Activate();
             return;
         }
@@ -104,6 +119,7 @@ public sealed class OverlayController : IDisposable
             WarningText = _pendingWarning,
         };
 
+        _overlayViewModel = vm;
         _overlay = new OverlayWindow(vm);
         _overlay.HomeAppRequested += () => { CloseOverlay(); StartOrFocusHomeApp(); };
         _overlay.DesktopRequested += () =>
@@ -123,14 +139,21 @@ public sealed class OverlayController : IDisposable
         _overlay.Dismissed += () => { CloseOverlay(); FocusHomeApp(); };
         _overlay.Closed += (_, _) =>
         {
+            var reopenForWarning = _reopenOverlayForWarning;
+            _reopenOverlayForWarning = false;
             _navigation?.Dispose();
             _navigation = null;
             _gamepad.Stop();
             _overlay = null;
+            _overlayViewModel = null;
+            if (reopenForWarning)
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(ShowOverlay);
+            }
         };
 
         _navigation = new GamepadNavigation(_gamepad, _overlay, () => { CloseOverlay(); FocusHomeApp(); },
-            nintendoLayout: _config.GlyphStyle == GlyphStyle.Nintendo);
+            isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo);
         _gamepad.Start();
         _overlay.Show();
         _overlay.Activate();
@@ -139,6 +162,7 @@ public sealed class OverlayController : IDisposable
     private void CloseOverlay()
     {
         _pendingWarning = "";
+        _reopenOverlayForWarning = false;
         _overlay?.Close();
     }
 
@@ -154,10 +178,60 @@ public sealed class OverlayController : IDisposable
         {
             return;
         }
-        var result = AppLauncher.Start(home.Path, home.Args, home.Elevated);
-        if (result.ElevationDeclined)
+
+        if (!TryBeginHomeLaunch())
         {
-            SetWarning("Home app started WITHOUT elevation (UAC declined).");
+            return;
+        }
+
+        try
+        {
+            var result = AppLauncher.Start(home.Path, home.Args, home.Elevated);
+            if (!result.Started)
+            {
+                SetWarning($"Couldn't start {System.IO.Path.GetFileNameWithoutExtension(home.Path)}. Check its path and permissions.");
+                // The request normally closes the overlay first. If that close is
+                // asynchronous, its Closed handler will recreate it with the error.
+                if (_overlay is null)
+                {
+                    ShowOverlay();
+                }
+                else
+                {
+                    _reopenOverlayForWarning = true;
+                }
+            }
+            else if (result.ElevationDeclined)
+            {
+                SetWarning("Home app started WITHOUT elevation (UAC declined).");
+            }
+        }
+        finally
+        {
+            EndHomeLaunch();
+        }
+    }
+
+    private bool TryBeginHomeLaunch()
+    {
+        lock (_homeLaunchGate)
+        {
+            if (_homeLaunchInProgress || DateTime.UtcNow - _lastHomeLaunchUtc < HomeLaunchCooldown)
+            {
+                Log.Warn("Skipping duplicate home-app start request.");
+                return false;
+            }
+            _homeLaunchInProgress = true;
+            return true;
+        }
+    }
+
+    private void EndHomeLaunch()
+    {
+        lock (_homeLaunchGate)
+        {
+            _homeLaunchInProgress = false;
+            _lastHomeLaunchUtc = DateTime.UtcNow;
         }
     }
 
@@ -180,6 +254,10 @@ public sealed class OverlayController : IDisposable
 
     public void Dispose()
     {
+        if (_monitor is not null)
+        {
+            _monitor.HomeAppExited -= OnHomeAppExited;
+        }
         _hotkey.Dispose();
         _gamepad.Dispose();
         _bottomStrip?.Close();

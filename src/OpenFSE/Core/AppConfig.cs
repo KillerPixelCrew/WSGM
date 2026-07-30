@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
+using Microsoft.Win32;
 
 namespace OpenFSE.Core;
 
@@ -61,9 +62,21 @@ public sealed class AppConfig
     public HotkeyConfig Hotkey { get; set; } = new();
     public GestureConfig Gestures { get; set; } = new();
     public GlyphStyle GlyphStyle { get; set; } = GlyphStyle.Xbox;
-    /// <summary>The Winlogon Shell value that existed before OpenFSE installed itself
-    /// (null/empty = there was none; restore means delete the value).</summary>
+    /// <summary>The Winlogon Shell snapshot that existed before OpenFSE installed itself.
+    /// Presence is separate from the string so an empty value remains distinguishable
+    /// from an absent value; kind preserves REG_EXPAND_SZ as well as REG_SZ.</summary>
     public string? PreviousShellValue { get; set; }
+    public bool PreviousShellSnapshotCaptured { get; set; }
+    public bool PreviousShellValueExists { get; set; }
+    public RegistryValueKind PreviousShellValueKind { get; set; } = RegistryValueKind.String;
+
+    /// <summary>Snapshot of GamingConfiguration\StartupToGamingHome, which is changed
+    /// while OpenFSE is installed to keep Xbox Full Screen Experience from competing
+    /// for the session.</summary>
+    public int PreviousStartupToGamingHomeValue { get; set; }
+    public bool PreviousStartupToGamingHomeSnapshotCaptured { get; set; }
+    public bool PreviousStartupToGamingHomeValueExists { get; set; }
+    public RegistryValueKind PreviousStartupToGamingHomeValueKind { get; set; } = RegistryValueKind.DWord;
 }
 
 [JsonSerializable(typeof(AppConfig))]

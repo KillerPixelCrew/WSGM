@@ -15,10 +15,13 @@ public static class ShellRegistration
 
     public static string OwnShellCommand => $"\"{Environment.ProcessPath}\" --shell";
 
+    private sealed record StringRegistryValue(bool Exists, string? Value, RegistryValueKind Kind);
+    private sealed record IntRegistryValue(bool Exists, int Value, RegistryValueKind Kind);
+
     public static string? CurrentValue()
     {
         using var key = Registry.CurrentUser.OpenSubKey(WinlogonKey);
-        return key?.GetValue(ShellValue) as string;
+        return ReadStringValue(key, ShellValue).Value;
     }
 
     public static bool IsInstalledForThisExe()
@@ -34,16 +37,31 @@ public static class ShellRegistration
     /// Shell value into config first so uninstall can restore it exactly.</summary>
     public static void Install(AppConfig config)
     {
-        var existing = CurrentValue();
-        if (existing is not null && !existing.Contains("OpenFSE", StringComparison.OrdinalIgnoreCase))
+        using var shell = Registry.CurrentUser.CreateSubKey(WinlogonKey);
+        var existingShell = ReadStringValue(shell, ShellValue);
+        var installingOverOurShell = IsOwnedByThisExe(existingShell.Value);
+
+        // Never overwrite the original snapshots during an idempotent install.
+        // Persist them before changing either registry value: if saving fails, the
+        // old shell is still intact and recovery remains possible.
+        if (!installingOverOurShell)
         {
-            config.PreviousShellValue = existing;
+            config.PreviousShellValue = existingShell.Value;
+            config.PreviousShellSnapshotCaptured = true;
+            config.PreviousShellValueExists = existingShell.Exists;
+            config.PreviousShellValueKind = existingShell.Kind;
+
+            using var gamingSnapshot = Registry.CurrentUser.CreateSubKey(GamingConfigKey);
+            var existingGaming = ReadIntValue(gamingSnapshot, StartupToGamingHome);
+            config.PreviousStartupToGamingHomeValue = existingGaming.Value;
+            config.PreviousStartupToGamingHomeSnapshotCaptured = true;
+            config.PreviousStartupToGamingHomeValueExists = existingGaming.Exists;
+            config.PreviousStartupToGamingHomeValueKind = existingGaming.Kind;
         }
 
-        using (var key = Registry.CurrentUser.CreateSubKey(WinlogonKey))
-        {
-            key.SetValue(ShellValue, OwnShellCommand, RegistryValueKind.String);
-        }
+        ConfigStore.Save(config);
+
+        shell.SetValue(ShellValue, OwnShellCommand, RegistryValueKind.String);
 
         // Prevent Xbox FSE from fighting us at boot.
         using (var gaming = Registry.CurrentUser.CreateSubKey(GamingConfigKey))
@@ -51,8 +69,7 @@ public static class ShellRegistration
             gaming.SetValue(StartupToGamingHome, 0, RegistryValueKind.DWord);
         }
 
-        ConfigStore.Save(config);
-        Log.Info($"Installed as shell: {OwnShellCommand} (previous: {config.PreviousShellValue ?? "<default>"})");
+        Log.Info($"Installed as shell: {OwnShellCommand} (previous: {DisplayShellSnapshot(config)})");
     }
 
     /// <summary>Restores the previous shell registration (delete our value, or write back
@@ -62,23 +79,95 @@ public static class ShellRegistration
     {
         try
         {
-            string? previous = null;
-            try { previous = ConfigStore.Load().PreviousShellValue; } catch { }
+            var config = new AppConfig();
+            try { config = ConfigStore.Load(); } catch { }
 
             using var key = Registry.CurrentUser.CreateSubKey(WinlogonKey);
-            if (!string.IsNullOrEmpty(previous))
+            var current = ReadStringValue(key, ShellValue);
+            if (IsOwnedByThisExe(current.Value))
             {
-                key.SetValue(ShellValue, previous, RegistryValueKind.String);
+                // Older config files stored a non-null value without an explicit
+                // presence bit. Keep them recoverable while all new snapshots use
+                // the precise captured/exists pair.
+                var hasPreviousShell = config.PreviousShellValueExists ||
+                    (!config.PreviousShellSnapshotCaptured && config.PreviousShellValue is not null);
+                if (hasPreviousShell)
+                {
+                    key.SetValue(ShellValue, config.PreviousShellValue ?? string.Empty,
+                        NormalizeStringKind(config.PreviousShellValueKind));
+                }
+                else
+                {
+                    key.DeleteValue(ShellValue, throwOnMissingValue: false);
+                }
             }
-            else
+
+            using var gaming = Registry.CurrentUser.CreateSubKey(GamingConfigKey);
+            if (config.PreviousStartupToGamingHomeSnapshotCaptured &&
+                config.PreviousStartupToGamingHomeValueExists)
             {
-                key.DeleteValue(ShellValue, throwOnMissingValue: false);
+                gaming.SetValue(StartupToGamingHome, config.PreviousStartupToGamingHomeValue,
+                    NormalizeDwordKind(config.PreviousStartupToGamingHomeValueKind));
             }
-            Log.Info($"Shell registration restored (previous: {previous ?? "<default explorer>"})");
+            else if (config.PreviousStartupToGamingHomeSnapshotCaptured)
+            {
+                gaming.DeleteValue(StartupToGamingHome, throwOnMissingValue: false);
+            }
+            Log.Info($"Shell registration restored (previous: {DisplayShellSnapshot(config)})");
         }
         catch (Exception ex)
         {
             Log.Error("Failed to restore shell registration", ex);
         }
     }
+
+    private static StringRegistryValue ReadStringValue(RegistryKey? key, string valueName)
+    {
+        if (key is null)
+        {
+            return new StringRegistryValue(false, null, RegistryValueKind.String);
+        }
+
+        var sentinel = new object();
+        var value = key.GetValue(valueName, sentinel, RegistryValueOptions.DoNotExpandEnvironmentNames);
+        if (ReferenceEquals(value, sentinel))
+        {
+            return new StringRegistryValue(false, null, RegistryValueKind.String);
+        }
+        return new StringRegistryValue(true, value as string ?? string.Empty, key.GetValueKind(valueName));
+    }
+
+    private static IntRegistryValue ReadIntValue(RegistryKey? key, string valueName)
+    {
+        if (key is null)
+        {
+            return new IntRegistryValue(false, 0, RegistryValueKind.DWord);
+        }
+
+        var sentinel = new object();
+        var value = key.GetValue(valueName, sentinel, RegistryValueOptions.DoNotExpandEnvironmentNames);
+        if (ReferenceEquals(value, sentinel))
+        {
+            return new IntRegistryValue(false, 0, RegistryValueKind.DWord);
+        }
+        return new IntRegistryValue(true, value is int number ? number : 0, key.GetValueKind(valueName));
+    }
+
+    private static bool IsOwnedByThisExe(string? value)
+    {
+        var exe = Environment.ProcessPath;
+        return value is not null && exe is not null && value.Contains(exe, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static RegistryValueKind NormalizeStringKind(RegistryValueKind kind)
+        => kind == RegistryValueKind.ExpandString ? RegistryValueKind.ExpandString : RegistryValueKind.String;
+
+    private static RegistryValueKind NormalizeDwordKind(RegistryValueKind kind)
+        => RegistryValueKind.DWord;
+
+    private static string DisplayShellSnapshot(AppConfig config)
+        => !(config.PreviousShellValueExists ||
+             (!config.PreviousShellSnapshotCaptured && config.PreviousShellValue is not null))
+            ? "<absent>"
+            : config.PreviousShellValue ?? string.Empty;
 }

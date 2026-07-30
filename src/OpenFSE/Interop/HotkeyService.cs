@@ -8,6 +8,7 @@ public sealed class HotkeyService : IDisposable
 {
     private const int HotkeyId = 1;
     private readonly MessageWindow _window;
+    private readonly Action<int> _hotkeyPressedHandler;
     private bool _registered;
 
     public event Action? Pressed;
@@ -15,13 +16,14 @@ public sealed class HotkeyService : IDisposable
     public HotkeyService(MessageWindow window)
     {
         _window = window;
-        _window.HotkeyPressed += id =>
+        _hotkeyPressedHandler = id =>
         {
             if (id == HotkeyId)
             {
                 Pressed?.Invoke();
             }
         };
+        _window.HotkeyPressed += _hotkeyPressedHandler;
     }
 
     public void Apply(HotkeyConfig config)
@@ -60,5 +62,6 @@ public sealed class HotkeyService : IDisposable
             NativeMethods.UnregisterHotKey(_window.Handle, HotkeyId);
             _registered = false;
         }
+        _window.HotkeyPressed -= _hotkeyPressedHandler;
     }
 }
