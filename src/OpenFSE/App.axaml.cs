@@ -36,7 +36,11 @@ public class App : Application
 
                 case RunMode.Settings:
                 default:
-                    desktop.MainWindow = new SettingsWindow();
+                    // Running portable (not from the install dir)? Offer the friendly
+                    // install/update dialog first — CLI flags are for scripts only.
+                    desktop.MainWindow = Core.Installer.IsRunningFromInstallDir
+                        ? new SettingsWindow()
+                        : new WelcomeWindow();
                     break;
             }
         }
