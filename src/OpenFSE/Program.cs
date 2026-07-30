@@ -51,6 +51,14 @@ public static class Program
         {
             return UacSettings.ApplyDirect(disablePrompts: false) ? 0 : 1;
         }
+        if (args.Contains("--disable-lock-on-wake", StringComparer.OrdinalIgnoreCase))
+        {
+            return LockScreenSettings.ApplyDirect(disableSignInOnWake: true) ? 0 : 1;
+        }
+        if (args.Contains("--restore-lock-on-wake", StringComparer.OrdinalIgnoreCase))
+        {
+            return LockScreenSettings.ApplyDirect(disableSignInOnWake: false) ? 0 : 1;
+        }
 
         if (args.Contains("--uninstall-app", StringComparer.OrdinalIgnoreCase))
         {

@@ -83,6 +83,10 @@ public sealed class AppConfig
     public bool PreviousUacSnapshotCaptured { get; set; }
     public int PreviousUacConsentPrompt { get; set; } = 5;
     public int PreviousUacSecureDesktop { get; set; } = 1;
+
+    /// <summary>Whether Windows required a sign-in on wake before OpenFSE changed it.</summary>
+    public bool PreviousLockOnWakeSnapshotCaptured { get; set; }
+    public bool PreviousLockOnWakeRequired { get; set; } = true;
 }
 
 [JsonSerializable(typeof(AppConfig))]

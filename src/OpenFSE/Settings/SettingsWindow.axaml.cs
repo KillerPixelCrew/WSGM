@@ -50,6 +50,13 @@ public partial class SettingsWindow : Window
 
     private void OnInstallApp(object? sender, RoutedEventArgs e) => _viewModel.InstallApp();
 
+    private void OnToggleLockOnWake(object? sender, RoutedEventArgs e)
+    {
+        var wanted = LockOnWakeCheckBox.IsChecked == true;
+        _viewModel.SetLockOnWake(wanted);
+        LockOnWakeCheckBox.IsChecked = _viewModel.LockOnWakeDisabled;
+    }
+
     private void OnToggleUac(object? sender, RoutedEventArgs e)
     {
         // The checkbox mirrors machine state, not a config value: ask Windows to

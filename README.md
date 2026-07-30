@@ -101,6 +101,22 @@ of stopping on a consent dialog you'd have to tap through on a handheld.
 - Ticking or unticking requires one administrator confirmation and takes effect
   immediately; the previous values are saved and restored exactly when you untick.
 
+## "Don't require sign-in after screen off / standby" (optional)
+
+Second checkbox in Settings. Sets Windows' "Require a password on wakeup"
+(`CONSOLELOCK`) to off for both AC and battery, written two ways:
+
+- as a machine **policy** (`HKLM\SOFTWARE\Policies\Microsoft\Power\PowerSettings\
+  {0e796bdb-100d-47d6-a2d5-f7d2daa51f51}` → `ACSettingIndex`/`DCSettingIndex` = 0), which
+  survives vendor software switching power plans — common on handhelds, and
+- on the active power scheme via `powercfg`.
+
+On modern-standby devices this setting is hidden from the classic power UI but still
+applies. It does **not** change what happens when you lock manually with Win+L.
+Anyone who picks the device up can use it without signing in — fine for a personal
+handheld, not for a shared or portable-and-losable machine. One administrator
+confirmation to change; unticking restores the previous behaviour.
+
 ## Notes & limitations
 
 - Custom shells are a legacy but functional Windows mechanism; it is not officially

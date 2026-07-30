@@ -79,6 +79,21 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         return ok;
     }
 
+    // --- Lock on wake ---
+    public bool LockOnWakeDisabled => LockScreenSettings.SignInOnWakeDisabled();
+
+    public string LockOnWakeStatusText => LockOnWakeDisabled
+        ? "Waking the device goes straight back to your game — no sign-in screen."
+        : "Windows currently asks you to sign in again after the screen sleeps (Windows default).";
+
+    public bool SetLockOnWake(bool disable)
+    {
+        var ok = LockScreenSettings.RequestChange(disable);
+        Raise(nameof(LockOnWakeDisabled));
+        Raise(nameof(LockOnWakeStatusText));
+        return ok;
+    }
+
     public bool AppInstalled => Installer.IsAppInstalled;
     public string AppStatusText => Installer.IsRunningFromInstallDir
         ? $"Installed at {Installer.InstallDir}."
