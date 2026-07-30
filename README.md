@@ -137,11 +137,22 @@ you want. *Clear* sets no shortcut at all.
   (~600 ms) for a hold-chord. Buttons accumulate until you release everything, so they
   don't have to be pressed on the same frame — the same approach Handheld Companion uses.
 
-Beyond the 14 buttons XInput exposes, OpenFSE reads a **Steam Deck controller over HID**
-(Valve `28DE:1205`) — which is what Handheld Companion's Steam Deck emulation presents —
-so the **L4/R4/L5/R5 paddles, the Steam button and Quick Access** are bindable too.
-Vendor buttons that send nothing Windows can see need Handheld Companion to remap them
-first.
+XInput only exposes 14 buttons and cannot see a virtual DualShock 4, DualSense or
+Switch Pro at all, so OpenFSE also reads controllers over HID. Every controller
+Handheld Companion can emulate is covered:
+
+| Emulated controller | How OpenFSE reads it | Extra buttons |
+|---|---|---|
+| Xbox 360 | XInput | — |
+| Steam Deck (`28DE:1205`) | Valve report format | L4/R4/L5/R5, Steam, Quick Access, trackpads |
+| Steam Controller (`28DE:1102`) | Valve report format | grips, Steam, trackpads |
+| DualShock 4 / DualSense | Windows HID parser | PS button, touchpad click, mute |
+| Switch Pro | Windows HID parser | Home, Capture |
+| any other HID pad | Windows HID parser | first 14 buttons |
+
+Non-Valve pads are read through Windows' own HID parser (`HidP_GetUsages`) rather than
+hardcoded report offsets, so unknown controllers still bind correctly. Vendor buttons
+that send nothing Windows can see need Handheld Companion to remap them first.
 
 ## Notes & limitations
 
