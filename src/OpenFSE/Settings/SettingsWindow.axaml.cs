@@ -1,37 +1,141 @@
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
 using OpenFSE.Core;
+using OpenFSE.Input;
+using OpenFSE.Overlay;
 
 namespace OpenFSE.Settings;
 
 public partial class SettingsWindow : Window
 {
+    private readonly SettingsViewModel _viewModel = new();
+    private readonly GamepadService _gamepad = new();
+    private GamepadNavigation? _navigation;
+    private OverlayController? _testOverlay;
+
     public SettingsWindow()
     {
         InitializeComponent();
-        UpdateStatus();
-    }
+        DataContext = _viewModel;
 
-    private void UpdateStatus()
-    {
-        var installed = ShellRegistration.IsInstalledForThisExe();
-        StatusText.Text = installed
-            ? "OpenFSE IS your Windows shell for this account. Sign out and back in for changes to take effect."
-            : "OpenFSE is NOT your Windows shell.";
-        InstallButton.IsEnabled = !installed;
-        UninstallButton.IsEnabled = installed;
+        // Controller navigation for the settings window itself.
+        Opened += (_, _) =>
+        {
+            _navigation = new GamepadNavigation(_gamepad, this, back: Close,
+                nintendoLayout: _viewModel.GlyphStyleIndex == 2);
+            _gamepad.Start();
+        };
+        Closed += (_, _) =>
+        {
+            _gamepad.Stop();
+            _navigation?.Dispose();
+        };
     }
 
     private void OnInstall(object? sender, RoutedEventArgs e)
     {
-        var config = ConfigStore.Load();
-        ShellRegistration.Install(config);
-        UpdateStatus();
+        _viewModel.Save();
+        _viewModel.Install();
     }
 
-    private void OnUninstall(object? sender, RoutedEventArgs e)
+    private void OnUninstall(object? sender, RoutedEventArgs e) => _viewModel.Uninstall();
+
+    private void OnSave(object? sender, RoutedEventArgs e)
     {
-        ShellRegistration.Uninstall();
-        UpdateStatus();
+        _viewModel.Save();
+        SaveStatus.Text = $"Saved {DateTime.Now:HH:mm:ss}";
+    }
+
+    private void OnAddApp(object? sender, RoutedEventArgs e) => _viewModel.AddStartupApp();
+
+    private void OnRemoveApp(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is StartupAppRow row)
+        {
+            _viewModel.RemoveStartupApp(row);
+        }
+    }
+
+    private void OnMoveUp(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is StartupAppRow row)
+        {
+            _viewModel.MoveStartupApp(row, -1);
+        }
+    }
+
+    private void OnMoveDown(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is StartupAppRow row)
+        {
+            _viewModel.MoveStartupApp(row, +1);
+        }
+    }
+
+    private async void OnBrowseHomeApp(object? sender, RoutedEventArgs e)
+    {
+        var path = await PickExeAsync();
+        if (path is not null)
+        {
+            _viewModel.HomeAppPath = path;
+        }
+    }
+
+    private async void OnBrowseStartupApp(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is StartupAppRow row)
+        {
+            var path = await PickExeAsync();
+            if (path is not null)
+            {
+                row.Path = path;
+            }
+        }
+    }
+
+    private async System.Threading.Tasks.Task<string?> PickExeAsync()
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Select application",
+            AllowMultiple = false,
+            FileTypeFilter = [new FilePickerFileType("Applications") { Patterns = ["*.exe"] }],
+        });
+        return files.FirstOrDefault()?.TryGetLocalPath();
+    }
+
+    private void OnTestOverlay(object? sender, RoutedEventArgs e)
+    {
+        // Reuse the real controller so behavior matches shell mode exactly.
+        _testOverlay ??= new OverlayController(_viewModel.SnapshotForTest(), monitor: null);
+        _testOverlay.ShowOverlay();
+    }
+
+    private void OnTouchKeyboard(object? sender, RoutedEventArgs e)
+    {
+        // Custom-shell sessions have no taskbar to summon the touch keyboard from.
+        var tabTip = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFiles),
+            @"microsoft shared\ink\TabTip.exe");
+        try
+        {
+            if (File.Exists(tabTip))
+            {
+                Process.Start(new ProcessStartInfo(tabTip) { UseShellExecute = true });
+            }
+            else
+            {
+                Process.Start(new ProcessStartInfo("osk.exe") { UseShellExecute = true });
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Failed to open touch keyboard", ex);
+        }
     }
 }

@@ -10,7 +10,7 @@ namespace OpenFSE.Overlay;
 /// window itself. Single entry point: ShowOverlay().</summary>
 public sealed class OverlayController : IDisposable
 {
-    private readonly AppConfig _config;
+    private AppConfig _config;
     private readonly HomeAppMonitor? _monitor;
     private readonly HotkeyService _hotkey;
     private readonly GamepadService _gamepad = new();
@@ -65,6 +65,15 @@ public sealed class OverlayController : IDisposable
     }
 
     public void SetWarning(string warning) => _pendingWarning = warning;
+
+    /// <summary>Applies a freshly loaded config (settings saved in another process).</summary>
+    public void ApplyConfig(AppConfig config)
+    {
+        _config = config;
+        _hotkey.Apply(config.Hotkey);
+        ApplyGestures(config.Gestures);
+        Log.Info("Config reloaded.");
+    }
 
     private void OnHomeAppExited()
     {

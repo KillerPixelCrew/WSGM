@@ -32,6 +32,8 @@ public sealed class ShellSession
             return;
         }
 
+        WatchConfig();
+
         Task.Run(async () =>
         {
             try
@@ -43,6 +45,35 @@ public sealed class ShellSession
                 Log.Error("Shell session launch sequence failed", ex);
             }
         });
+    }
+
+    private void WatchConfig()
+    {
+        try
+        {
+            var watcher = new System.IO.FileSystemWatcher(Log.Directory, "config.json")
+            {
+                EnableRaisingEvents = true,
+                NotifyFilter = System.IO.NotifyFilters.LastWrite | System.IO.NotifyFilters.FileName,
+            };
+            System.Threading.Timer? debounce = null;
+            void Reload(object? _)
+                => Avalonia.Threading.Dispatcher.UIThread.Post(() => _overlay?.ApplyConfig(ConfigStore.Load()));
+            watcher.Changed += (_, _) =>
+            {
+                debounce?.Dispose();
+                debounce = new System.Threading.Timer(Reload, null, 500, System.Threading.Timeout.Infinite);
+            };
+            watcher.Renamed += (_, _) =>
+            {
+                debounce?.Dispose();
+                debounce = new System.Threading.Timer(Reload, null, 500, System.Threading.Timeout.Infinite);
+            };
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Config watcher not available: {ex.Message}");
+        }
     }
 
     private async Task LaunchAppsAsync()
