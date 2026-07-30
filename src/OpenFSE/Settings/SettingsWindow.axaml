@@ -1,0 +1,30 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="OpenFSE.Settings.SettingsWindow"
+        Title="OpenFSE Settings"
+        Width="720" Height="560"
+        WindowStartupLocation="CenterScreen">
+    <ScrollViewer>
+        <StackPanel Margin="24" Spacing="16">
+
+            <TextBlock Text="OpenFSE" FontSize="28" FontWeight="Bold" />
+
+            <Border x:Name="StatusBanner" CornerRadius="8" Padding="16" Background="#33555555">
+                <StackPanel Spacing="8">
+                    <TextBlock x:Name="StatusText" FontSize="16" FontWeight="SemiBold"
+                               Text="Checking shell status..." />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="InstallButton" Content="Install as shell" Click="OnInstall" MinHeight="40" />
+                        <Button x:Name="UninstallButton" Content="Uninstall (restore previous shell)" Click="OnUninstall" MinHeight="40" />
+                    </StackPanel>
+                    <TextBlock TextWrapping="Wrap" Opacity="0.8" FontSize="12"
+                               Text="Recovery if anything goes wrong: press Ctrl+Alt+Del → Task Manager → Run new task → type explorer.exe (desktop for this session) or run OpenFSE.exe --restore-shell (permanent restore). If OpenFSE crashes 3 times within 2 minutes at logon, it restores your previous shell automatically." />
+                </StackPanel>
+            </Border>
+
+            <TextBlock Text="Configuration lives in %LOCALAPPDATA%\OpenFSE\config.json — full settings UI coming in M3. Sign out and back in after installing."
+                       TextWrapping="Wrap" Opacity="0.8" />
+
+        </StackPanel>
+    </ScrollViewer>
+</Window>
