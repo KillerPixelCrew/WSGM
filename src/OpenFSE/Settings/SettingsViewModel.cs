@@ -54,6 +54,56 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
                 Path = app.Path, Args = app.Args, Enabled = app.Enabled, Elevated = app.Elevated,
             });
         }
+
+        BuildLauncherChoices();
+        BuildStartupSuggestions();
+    }
+
+    // --- Startup app suggestions ---
+    /// <summary>Common handheld companions found on this PC, offered as one-click adds
+    /// instead of making the user hunt for exe paths.</summary>
+    public List<string> StartupSuggestions { get; private set; } = [];
+    private List<(string Path, bool Elevated)> _startupSuggestionTargets = [];
+
+    private int _selectedSuggestionIndex;
+    public int SelectedSuggestionIndex
+    {
+        get => _selectedSuggestionIndex;
+        set { _selectedSuggestionIndex = value; Raise(nameof(SelectedSuggestionIndex)); }
+    }
+
+    private void BuildStartupSuggestions()
+    {
+        var names = new List<string>();
+        var targets = new List<(string, bool)>();
+
+        foreach (var (label, path, elevated) in KnownStartupApps.Detected())
+        {
+            names.Add(label);
+            targets.Add((path, elevated));
+        }
+        names.Add("Choose a program…");
+        targets.Add(("", false));
+
+        StartupSuggestions = names;
+        _startupSuggestionTargets = targets;
+        _selectedSuggestionIndex = 0;
+    }
+
+    /// <summary>Adds the selected suggestion (or an empty row for a manual pick).</summary>
+    public bool AddSelectedStartupApp()
+    {
+        if (_selectedSuggestionIndex < 0 || _selectedSuggestionIndex >= _startupSuggestionTargets.Count)
+        {
+            return false;
+        }
+        var (path, elevated) = _startupSuggestionTargets[_selectedSuggestionIndex];
+        if (string.IsNullOrEmpty(path))
+        {
+            return false;   // caller opens the file picker
+        }
+        StartupApps.Add(new StartupAppRow { Path = path, Elevated = elevated, Enabled = true });
+        return true;
     }
 
     // --- Shell status ---
@@ -130,6 +180,118 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         Raise(nameof(ShellStatusText));
         Raise(nameof(AppInstalled));
         Raise(nameof(AppStatusText));
+    }
+
+    // --- Launcher picker ---
+    /// <summary>Detected launchers first, then any not-installed ones (marked), then
+    /// "Custom…". Selecting an entry fills in every technical field for the user.</summary>
+    public List<string> LauncherChoices { get; private set; } = [];
+    private List<LauncherPreset?> _launcherPresets = [];
+
+    private int _selectedLauncherIndex;
+    public int SelectedLauncherIndex
+    {
+        get => _selectedLauncherIndex;
+        set
+        {
+            if (_selectedLauncherIndex == value)
+            {
+                return;
+            }
+            _selectedLauncherIndex = value;
+            Raise(nameof(SelectedLauncherIndex));
+            ApplySelectedLauncher();
+        }
+    }
+
+    private void BuildLauncherChoices()
+    {
+        var choices = new List<string>();
+        var presets = new List<LauncherPreset?>();
+
+        var detected = KnownLaunchers.Detected();
+        foreach (var preset in detected)
+        {
+            choices.Add(preset.Name);
+            presets.Add(preset);
+        }
+        foreach (var preset in KnownLaunchers.All)
+        {
+            if (!detected.Contains(preset))
+            {
+                choices.Add($"{preset.Name}  (not installed)");
+                presets.Add(preset);
+            }
+        }
+        choices.Add("Custom…");
+        presets.Add(null);
+
+        LauncherChoices = choices;
+        _launcherPresets = presets;
+
+        // Preselect whatever the config already points at.
+        var current = KnownLaunchers.MatchByPath(_config.HomeApp.Path);
+        var index = current is null ? -1 : presets.IndexOf(current);
+        _selectedLauncherIndex = index >= 0
+            ? index
+            : string.IsNullOrWhiteSpace(_config.HomeApp.Path) && detected.Count > 0 ? 0 : choices.Count - 1;
+
+        // A fresh config with a detected launcher: fill it in immediately so the
+        // user can just hit "Install as shell".
+        if (string.IsNullOrWhiteSpace(_config.HomeApp.Path) && detected.Count > 0)
+        {
+            ApplySelectedLauncher();
+        }
+    }
+
+    private void ApplySelectedLauncher()
+    {
+        if (_selectedLauncherIndex < 0 || _selectedLauncherIndex >= _launcherPresets.Count)
+        {
+            return;
+        }
+        var preset = _launcherPresets[_selectedLauncherIndex];
+        if (preset is null)
+        {
+            IsCustomLauncher = true;
+            return;     // Custom: leave the user's own values alone
+        }
+
+        IsCustomLauncher = false;
+        HomeAppPath = preset.InstalledPath ?? preset.ExeName;
+        HomeAppArgs = preset.Args;
+        _config.HomeApp.ProcessNames = preset.ProcessNames;
+        _config.HomeApp.WindowClass = preset.WindowClass;
+        _config.HomeApp.ActivationProtocol = preset.ActivationProtocol;
+        Raise(nameof(LauncherHintText));
+    }
+
+    private bool _isCustomLauncher;
+    public bool IsCustomLauncher
+    {
+        get => _isCustomLauncher;
+        private set { _isCustomLauncher = value; Raise(nameof(IsCustomLauncher)); Raise(nameof(LauncherHintText)); }
+    }
+
+    public string LauncherHintText
+    {
+        get
+        {
+            if (IsCustomLauncher)
+            {
+                return "Custom: pick the executable yourself. Advanced settings below control how OpenFSE recognises its window.";
+            }
+            var preset = _selectedLauncherIndex >= 0 && _selectedLauncherIndex < _launcherPresets.Count
+                ? _launcherPresets[_selectedLauncherIndex]
+                : null;
+            if (preset is null)
+            {
+                return "";
+            }
+            return string.IsNullOrEmpty(preset.InstalledPath)
+                ? $"Not installed on this PC — get it from {preset.DownloadUrl}"
+                : $"Detected: {preset.InstalledPath}";
+        }
     }
 
     // --- Home app ---

@@ -72,7 +72,19 @@ public partial class SettingsWindow : Window
         SaveStatus.Text = $"Saved {DateTime.Now:HH:mm:ss}";
     }
 
-    private void OnAddApp(object? sender, RoutedEventArgs e) => _viewModel.AddStartupApp();
+    private async void OnAddApp(object? sender, RoutedEventArgs e)
+    {
+        // A detected suggestion adds itself; "Choose a program…" opens the picker.
+        if (_viewModel.AddSelectedStartupApp())
+        {
+            return;
+        }
+        var path = await PickExeAsync();
+        if (path is not null)
+        {
+            _viewModel.StartupApps.Add(new StartupAppRow { Path = path, Enabled = true });
+        }
+    }
 
     private void OnRemoveApp(object? sender, RoutedEventArgs e)
     {

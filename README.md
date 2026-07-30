@@ -55,7 +55,11 @@ Download and run **`OpenFSE-Setup-<version>.exe`** — a normal installer wizard
 (per-user, no administrator rights, no UAC). It installs to `%LOCALAPPDATA%\OpenFSE\bin`,
 adds a Start Menu entry, and shows up in Settings → Apps. Then:
 
-1. Open OpenFSE → configure your home app and startup apps.
+1. Open OpenFSE → pick your launcher from the list (Steam Big Picture, Playnite,
+   BigBox, RetroBat, Kodi, Razer Cortex, Armoury Crate, One Game Launcher). Installed
+   ones are detected automatically and everything technical — path, launch arguments,
+   window matching — is filled in for you. Add startup apps from the suggestions
+   (Handheld Companion and friends are detected too).
 2. Click **Install as shell** (this is the explicit, separate step that changes your shell).
 3. Sign out, sign back in.
 

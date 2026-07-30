@@ -72,15 +72,29 @@
                                     <TextBlock Classes="caption" Text="The launcher OpenFSE returns to when you leave the desktop." />
                                 </StackPanel>
                             </Grid>
-                            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="10">
-                                <TextBox Grid.Column="0" Grid.Row="0"
-                                         Watermark="Path to launcher exe (for example, Steam.exe)"
-                                         Text="{Binding HomeAppPath}" />
-                                <Button Grid.Column="1" Grid.Row="0" Content="Browse…" Click="OnBrowseHomeApp" />
-                                <TextBox Grid.Column="0" Grid.Row="1" Grid.ColumnSpan="2"
-                                         Watermark="Arguments (for example, steam://open/bigpicture)"
-                                         Text="{Binding HomeAppArgs}" />
-                            </Grid>
+                            <!-- Pick a launcher: everything technical is filled in for you -->
+                            <StackPanel Spacing="8">
+                                <ComboBox ItemsSource="{Binding LauncherChoices}"
+                                          SelectedIndex="{Binding SelectedLauncherIndex}"
+                                          HorizontalAlignment="Stretch" MinHeight="42" />
+                                <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding LauncherHintText}" />
+                            </StackPanel>
+
+                            <Expander Header="Advanced (path, arguments, window matching)">
+                                <StackPanel Spacing="10" Margin="0,8,0,0">
+                                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                                        <TextBox Grid.Column="0" Grid.Row="0"
+                                                 Watermark="Path to launcher exe"
+                                                 Text="{Binding HomeAppPath}" />
+                                        <Button Grid.Column="1" Grid.Row="0" Content="Browse…" Click="OnBrowseHomeApp" />
+                                        <TextBox Grid.Column="0" Grid.Row="1" Grid.ColumnSpan="2"
+                                                 Watermark="Arguments"
+                                                 Text="{Binding HomeAppArgs}" />
+                                    </Grid>
+                                    <TextBlock Classes="caption" TextWrapping="Wrap"
+                                               Text="Only needed for launchers OpenFSE doesn't know. Picking a launcher above fills these in, along with the process names and window class used to tell when it's running." />
+                                </StackPanel>
+                            </Expander>
                             <StackPanel Orientation="Horizontal" Spacing="28">
                                 <CheckBox Content="Run as administrator" IsChecked="{Binding HomeAppElevated}" />
                                 <CheckBox Content="Auto-relaunch when it exits" IsChecked="{Binding HomeAppAutoRelaunch}" />
@@ -142,9 +156,13 @@
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
-                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="18">
-                                <Button Classes="primary" Content="Add startup app" Click="OnAddApp" />
-                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="9" VerticalAlignment="Center">
+                            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                                <ComboBox Grid.Column="0" ItemsSource="{Binding StartupSuggestions}"
+                                          SelectedIndex="{Binding SelectedSuggestionIndex}"
+                                          HorizontalAlignment="Stretch" MinHeight="40"
+                                          ToolTip.Tip="Programs found on this PC that are commonly started before the launcher" />
+                                <Button Grid.Column="1" Classes="primary" Content="Add" Click="OnAddApp" />
+                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="9" VerticalAlignment="Center">
                                     <TextBlock Text="Delay between apps (ms)" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" />
                                     <NumericUpDown Value="{Binding StaggerDelayMs}" Minimum="0" Maximum="30000" Increment="250" Width="150" FormatString="0" />
                                 </StackPanel>
