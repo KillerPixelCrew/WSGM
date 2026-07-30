@@ -1,15 +1,18 @@
 using System;
 using System.Threading.Tasks;
 using OpenFSE.Core;
+using OpenFSE.Overlay;
 
 namespace OpenFSE.Shell;
 
-/// <summary>Shell-mode orchestrator: starts startup apps and the home app, stays
-/// resident for the whole session. Overlay wiring arrives in M2.</summary>
+/// <summary>Shell-mode orchestrator: starts startup apps and the home app, arms the
+/// overlay (hotkey + edge swipes + home-exit), stays resident for the session.</summary>
 public sealed class ShellSession
 {
     private readonly AppConfig _config;
     private readonly bool _overlayTestOnly;
+    private HomeAppMonitor? _monitor;
+    private OverlayController? _overlay;
 
     public ShellSession(AppConfig config, bool overlayTestOnly = false)
     {
@@ -19,10 +22,13 @@ public sealed class ShellSession
 
     public void Start()
     {
+        _monitor = new HomeAppMonitor(_config.HomeApp);
+        _overlay = new OverlayController(_config, _monitor);
+
         if (_overlayTestOnly)
         {
-            Log.Info("Overlay test mode (no apps started). Overlay arrives in M2.");
-            // M2: OverlayController.ShowOverlay();
+            Log.Info("Overlay test mode (no apps started).");
+            _overlay.ShowOverlay();
             return;
         }
 
@@ -37,8 +43,6 @@ public sealed class ShellSession
                 Log.Error("Shell session launch sequence failed", ex);
             }
         });
-
-        // M2: arm OverlayController (hotkey + edge strips) + HomeAppMonitor here.
     }
 
     private async Task LaunchAppsAsync()
@@ -62,7 +66,8 @@ public sealed class ShellSession
         var home = _config.HomeApp;
         if (string.IsNullOrWhiteSpace(home.Path))
         {
-            Log.Warn("No home app configured.");
+            Log.Warn("No home app configured — showing overlay instead.");
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => _overlay?.ShowOverlay());
             return;
         }
 
@@ -70,7 +75,7 @@ public sealed class ShellSession
         var result = AppLauncher.Start(home.Path, home.Args, home.Elevated);
         if (result.ElevationDeclined)
         {
-            Log.Warn("Home app is running WITHOUT elevation (declined).");
+            _overlay?.SetWarning("Home app started WITHOUT elevation (UAC declined).");
         }
     }
 }
