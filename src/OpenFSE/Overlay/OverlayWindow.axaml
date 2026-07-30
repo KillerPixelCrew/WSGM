@@ -1,114 +1,143 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ov="using:OpenFSE.Overlay"
+        xmlns:fa="using:FluentAvalonia.UI.Controls"
         x:Class="OpenFSE.Overlay.OverlayWindow"
         x:DataType="ov:OverlayViewModel"
-        Title="OpenFSE Overlay"
-        WindowState="FullScreen"
+        Title="OpenFSE Quick Access"
+        Width="360"
+        MinWidth="320"
         SystemDecorations="None"
+        CanResize="False"
         Topmost="True"
         ShowInTaskbar="False"
-        Background="#DC060A14"
-        TransparencyLevelHint="Transparent">
+        Background="{StaticResource HcBackgroundBrush}">
 
-    <Grid PointerPressed="OnBackgroundPressed">
-        <!-- A deep, translucent scrim keeps games recognizable behind the menu. -->
-        <Border Background="#A8080C18" />
-        <Border Background="{StaticResource AccentWashGradient}" Opacity="0.55" />
-
-        <Grid RowDefinitions="*,Auto,*" Margin="28">
-            <Border Grid.Row="1" Classes="glass-panel" Width="600" MaxWidth="600"
-                    HorizontalAlignment="Center" Padding="28" Background="#D9182032">
-                <StackPanel Spacing="16">
-                    <StackPanel Spacing="5" HorizontalAlignment="Center">
-                        <TextBlock Classes="eyebrow" Text="OPENFSE QUICK MENU" HorizontalAlignment="Center" />
-                        <TextBlock Text="Where to?" FontSize="34" FontWeight="Bold" HorizontalAlignment="Center" />
-                        <TextBlock Text="Controller-ready actions for your handheld session"
-                                   Classes="caption" HorizontalAlignment="Center" />
+    <!-- Ported from Handheld Companion QuickTools: compact status strip, grouped
+         SettingsCard-style rows, and a bottom controller-navigation bar. -->
+    <Border Background="{StaticResource HcBackgroundBrush}" CornerRadius="10,0,0,10">
+        <Grid RowDefinitions="Auto,*,Auto">
+            <Border Grid.Row="0" Background="#FF282828" BorderBrush="#FF343434" BorderThickness="0,0,0,1" Padding="10,6">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                    <StackPanel Orientation="Horizontal" Spacing="9">
+                        <TextBlock Text="OpenFSE" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <TextBlock Text="QUICK ACCESS" FontSize="10" Foreground="{StaticResource HcTextMutedBrush}" VerticalAlignment="Center" />
                     </StackPanel>
+                    <Button Grid.Column="1" Classes="icon close" Content="×" Click="OnClose" ToolTip.Tip="Close quick access" />
+                </Grid>
+            </Border>
 
-                    <Border IsVisible="{Binding HasWarning}" Classes="warning-panel">
-                        <StackPanel Orientation="Horizontal" Spacing="10">
-                            <TextBlock Text="!" FontWeight="Bold" FontSize="18" Foreground="{StaticResource WarningBrush}" />
-                            <TextBlock Text="{Binding WarningText}" TextWrapping="Wrap" Foreground="{StaticResource TextPrimaryBrush}" />
-                        </StackPanel>
-                    </Border>
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="8,8" Spacing="4">
+                    <fa:InfoBar IsOpen="{Binding HasWarning}" Title="OpenFSE" Message="{Binding WarningText}" Severity="Warning" IsClosable="False" Margin="0,0,0,4" />
 
-                    <Button x:Name="HomeAppButton" Classes="overlay-card primary" Click="OnHomeApp">
-                        <Grid ColumnDefinitions="48,*,Auto" ColumnSpacing="12">
-                            <Border Width="44" Height="44" CornerRadius="12" Background="#24000000">
-                                <TextBlock Text="◈" FontSize="24" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                            </Border>
-                            <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
-                                <TextBlock Text="{Binding HomeAppButtonText}" FontSize="19" FontWeight="Bold" />
-                                <TextBlock Text="Open your configured game launcher" FontSize="12" Opacity="0.78" />
+                    <TextBlock Text="Session" Classes="section-title" Margin="0,0,0,2" />
+                    <Button x:Name="HomeAppButton" Classes="quick-row primary" Click="OnHomeApp">
+                        <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="10">
+                            <TextBlock Text="▶" FontSize="15" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding HomeAppButtonText}" Classes="setting-title" />
+                                <TextBlock Text="Open your configured game launcher" Classes="caption" />
                             </StackPanel>
-                            <TextBlock Grid.Column="2" Text="A / Start" FontSize="12" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="2" Text="A" FontWeight="SemiBold" VerticalAlignment="Center" />
                         </Grid>
                     </Button>
-
-                    <Button x:Name="DesktopButton" Classes="overlay-card" Click="OnDesktop">
-                        <Grid ColumnDefinitions="48,*,Auto" ColumnSpacing="12">
-                            <Border Width="44" Height="44" CornerRadius="12" Background="#18FFFFFF">
-                                <TextBlock Text="⌘" FontSize="23" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                            </Border>
-                            <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
-                                <TextBlock Text="{Binding DesktopButtonText}" FontSize="19" FontWeight="Bold" />
-                                <TextBlock Text="Toggle the Explorer desktop for this session" FontSize="12" Opacity="0.72" />
+                    <Button x:Name="DesktopButton" Classes="quick-row" Click="OnDesktop">
+                        <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
+                            <TextBlock Text="▣" FontSize="15" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding DesktopButtonText}" Classes="setting-title" />
+                                <TextBlock Text="Show or hide the Windows desktop" Classes="caption" />
                             </StackPanel>
                         </Grid>
                     </Button>
 
-                    <Border BorderBrush="#22FFFFFF" BorderThickness="0,1,0,0" Padding="0,14,0,0">
-                        <StackPanel Spacing="10">
-                            <TextBlock Classes="caption" Text="POWER" HorizontalAlignment="Center" />
-                            <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
-                                <Button Classes="power" Content="☾  Sleep" Click="OnSleep" />
-                                <Button x:Name="RestartButton" Classes="power" Content="↻  Restart" Click="OnRestart" />
-                                <Button x:Name="ShutdownButton" Classes="power danger" Content="⏻  Shutdown" Click="OnShutdown" />
+                    <TextBlock Text="OpenFSE" Classes="section-title" Margin="0,4,0,2" />
+                    <Button Classes="quick-row" Click="OnSettings">
+                        <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
+                            <TextBlock Text="⚙" FontSize="16" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                <TextBlock Text="Settings" Classes="setting-title" />
+                                <TextBlock Text="Shell, startup, and quick access configuration" Classes="caption" />
                             </StackPanel>
-                        </StackPanel>
-                    </Border>
+                        </Grid>
+                    </Button>
 
-                    <Button Classes="dismiss" Content="Close menu" Click="OnClose" HorizontalAlignment="Center" />
+                    <TextBlock Text="Power" Classes="section-title" Margin="0,4,0,2" />
+                    <Button Classes="quick-row" Click="OnSleep">
+                        <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
+                            <TextBlock Text="☾" FontSize="16" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                <TextBlock Text="Sleep" Classes="setting-title" />
+                                <TextBlock Text="Put this handheld to sleep" Classes="caption" />
+                            </StackPanel>
+                        </Grid>
+                    </Button>
+                    <Button x:Name="RestartButton" Classes="quick-row" Click="OnRestart">
+                        <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
+                            <TextBlock Text="↻" FontSize="16" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                <TextBlock Text="Restart" Classes="setting-title" />
+                                <TextBlock Text="Restart Windows" Classes="caption" />
+                            </StackPanel>
+                        </Grid>
+                    </Button>
+                    <Button x:Name="ShutdownButton" Classes="quick-row danger" Click="OnShutdown">
+                        <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
+                            <TextBlock Text="⏻" FontSize="16" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                <TextBlock Text="Shut down" Classes="setting-title" />
+                                <TextBlock Text="Turn off this handheld" Classes="caption" />
+                            </StackPanel>
+                        </Grid>
+                    </Button>
                 </StackPanel>
+            </ScrollViewer>
+
+            <Border Grid.Row="2" Classes="hc-footer" Padding="8,5">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                    <StackPanel Orientation="Horizontal" Spacing="17">
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                            <ov:GlyphIcon Width="18" Height="18" Button="a" GlyphStyle="{Binding GlyphStyle}" VerticalAlignment="Center" />
+                            <TextBlock Text="Select" Classes="caption" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                            <ov:GlyphIcon Width="18" Height="18" Button="b" GlyphStyle="{Binding GlyphStyle}" VerticalAlignment="Center" />
+                            <TextBlock Text="Back" Classes="caption" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </StackPanel>
+                    <TextBlock Grid.Column="1" Text="D-pad  Navigate" Classes="caption" VerticalAlignment="Center" />
+                </Grid>
             </Border>
         </Grid>
-
-        <!-- Controller hint bar; GlyphIcon keeps the artwork native/AOT-safe. -->
-        <Border VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="0,0,0,28"
-                Classes="glass-row" Padding="14,9">
-            <StackPanel Orientation="Horizontal" Spacing="26">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <ov:GlyphIcon Width="32" Height="32" Button="a" GlyphStyle="{Binding GlyphStyle}" VerticalAlignment="Center" />
-                    <TextBlock Text="Select" FontSize="14" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" />
-                </StackPanel>
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <ov:GlyphIcon Width="32" Height="32" Button="b" GlyphStyle="{Binding GlyphStyle}" VerticalAlignment="Center" />
-                    <TextBlock Text="Back" FontSize="14" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" />
-                </StackPanel>
-                <TextBlock Text="D-pad  Navigate" FontSize="14" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" />
-            </StackPanel>
-        </Border>
-    </Grid>
+    </Border>
 
     <Window.Styles>
-        <Style Selector="Button.overlay-card">
-            <Setter Property="MinHeight" Value="82" />
+        <Style Selector="Button.quick-row">
+            <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource HcCardBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="MinHeight" Value="44" />
+            <Setter Property="Padding" Value="10,6" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-            <Setter Property="Padding" Value="16" />
-            <Setter Property="FontSize" Value="18" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
         </Style>
-        <Style Selector="Button.power">
-            <Setter Property="MinWidth" Value="142" />
-            <Setter Property="MinHeight" Value="46" />
-            <Setter Property="Padding" Value="14,9" />
+        <Style Selector="Button.quick-row:pointerover">
+            <Setter Property="Background" Value="#FF383838" />
         </Style>
-        <Style Selector="Button.dismiss">
+        <Style Selector="Button.quick-row.primary">
+            <Setter Property="Background" Value="{StaticResource HcAccentBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource HcAccentBrush}" />
+            <Setter Property="Foreground" Value="Black" />
+        </Style>
+        <Style Selector="Button.quick-row.primary TextBlock.caption">
+            <Setter Property="Foreground" Value="#CC000000" />
+        </Style>
+        <Style Selector="Button.close">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderBrush" Value="Transparent" />
-            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
-            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="Foreground" Value="{StaticResource HcTextMutedBrush}" />
         </Style>
     </Window.Styles>
 </Window>

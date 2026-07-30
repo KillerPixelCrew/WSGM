@@ -5,6 +5,7 @@ using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using FluentAvalonia.UI.Controls;
 using OpenFSE.Core;
 using OpenFSE.Input;
 using OpenFSE.Overlay;
@@ -44,6 +45,23 @@ public partial class SettingsWindow : Window
             _chordRecorder?.Dispose();
             _chordRecorder = null;
         };
+    }
+
+    /// <summary>NavigationView is the Avalonia equivalent of Handheld Companion's
+    /// AdaptiveNavigationView. Keep page selection in one place so touch, mouse,
+    /// keyboard, and controller navigation all land on the same settings page.</summary>
+    private void OnNavigationItemInvoked(object? sender, NavigationViewItemInvokedEventArgs e)
+    {
+        if (e.InvokedItemContainer?.Tag is not string tag ||
+            !int.TryParse(tag, out var page) || page is < 0 or > 3)
+        {
+            return;
+        }
+
+        SystemPage.IsVisible = page == 0;
+        HomePage.IsVisible = page == 1;
+        StartupPage.IsVisible = page == 2;
+        QuickAccessPage.IsVisible = page == 3;
     }
 
     private void OnInstall(object? sender, RoutedEventArgs e)

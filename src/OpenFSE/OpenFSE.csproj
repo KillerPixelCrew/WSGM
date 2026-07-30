@@ -29,5 +29,8 @@
     <PackageReference Include="Avalonia.Desktop" Version="11.3.*" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.*" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.*" />
+    <!-- WinUI-style NavigationView, SettingsCard, ToggleSwitch and InfoBar: the
+         Avalonia counterparts to the iNKORE Modern WPF controls used by Handheld Companion. -->
+    <PackageReference Include="FluentAvaloniaUI" Version="2.4.1" />
   </ItemGroup>
 </Project>

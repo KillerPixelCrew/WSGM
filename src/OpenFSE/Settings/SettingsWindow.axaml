@@ -1,227 +1,309 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:s="using:OpenFSE.Settings"
+        xmlns:fa="using:FluentAvalonia.UI.Controls"
         x:Class="OpenFSE.Settings.SettingsWindow"
         x:DataType="s:SettingsViewModel"
-        Title="OpenFSE Settings"
-        Width="980" Height="780" MinWidth="760" MinHeight="600"
+        Title="OpenFSE"
+        Width="1280" Height="720" MinWidth="640" MinHeight="480"
         WindowStartupLocation="CenterScreen"
-        TransparencyLevelHint="AcrylicBlur"
-        Background="Transparent">
+        Background="{StaticResource HcBackgroundBrush}">
 
-    <ExperimentalAcrylicBorder CornerRadius="16" Margin="1">
-        <ExperimentalAcrylicBorder.Material>
-            <ExperimentalAcrylicMaterial BackgroundSource="Digger"
-                                         TintColor="#101729"
-                                         TintOpacity="0.88"
-                                         MaterialOpacity="0.72"
-                                         FallbackColor="#FF101729" />
-        </ExperimentalAcrylicBorder.Material>
-
-        <Grid RowDefinitions="Auto,*,Auto">
-            <Border Grid.Row="0" Padding="28,24,28,20" BorderBrush="#22FFFFFF" BorderThickness="0,0,0,1">
-                <Grid ColumnDefinitions="*,Auto">
-                    <StackPanel Spacing="5">
-                        <TextBlock Classes="eyebrow" Text="HANDHELD SHELL • CONTROL CENTER" />
-                        <TextBlock Classes="page-title" Text="OpenFSE" />
-                        <TextBlock Classes="caption" Text="A quiet, controller-first Windows session — configured your way." />
+    <!-- Direct port of Handheld Companion's MainWindow composition: a top
+         NavigationView, full-width settings pages, and a gamepad action footer. -->
+    <Grid Background="{StaticResource HcBackgroundBrush}">
+        <fa:NavigationView x:Name="MainNavigation"
+                           PaneDisplayMode="Top"
+                           IsPaneToggleButtonVisible="False"
+                           IsSettingsVisible="False"
+                           SelectionFollowsFocus="True"
+                           ItemInvoked="OnNavigationItemInvoked">
+            <fa:NavigationView.MenuItems>
+                <fa:NavigationViewItem Tag="0" IsSelected="True">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="⌂" Classes="nav-icon" />
+                        <TextBlock Text="System" />
                     </StackPanel>
-                    <Border Grid.Column="1" Classes="glass-row" Padding="12,7" VerticalAlignment="Center">
-                        <TextBlock Text="SETTINGS" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource AccentCyanBrush}" />
-                    </Border>
-                </Grid>
-            </Border>
+                </fa:NavigationViewItem>
+                <fa:NavigationViewItem Tag="1">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="▶" Classes="nav-icon" />
+                        <TextBlock Text="Home" />
+                    </StackPanel>
+                </fa:NavigationViewItem>
+                <fa:NavigationViewItem Tag="2">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="▦" Classes="nav-icon" />
+                        <TextBlock Text="Startup" />
+                    </StackPanel>
+                </fa:NavigationViewItem>
+                <fa:NavigationViewItem Tag="3">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="☰" Classes="nav-icon" />
+                        <TextBlock Text="Quick access" />
+                    </StackPanel>
+                </fa:NavigationViewItem>
+            </fa:NavigationView.MenuItems>
 
-            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                <StackPanel Margin="28,22" Spacing="18">
+            <fa:NavigationView.Content>
+                <Grid>
+                    <!-- NavigationView owns navigation. Keep the four page views
+                         alive and switch their visibility directly. This avoids a
+                         second tab strip and preserves each page's scroll position. -->
+                    <ScrollViewer x:Name="SystemPage" IsVisible="True" VerticalScrollBarVisibility="Auto">
+                            <StackPanel Margin="12,4,16,46" Spacing="3">
+                                <TextBlock Text="System" Classes="page-title" />
 
-                    <!-- Shell status -->
-                    <Border Classes="glass-panel">
-                        <StackPanel Spacing="14">
-                            <Grid ColumnDefinitions="5,*,Auto" ColumnSpacing="12">
-                                <Border Background="{StaticResource AccentGradient}" CornerRadius="3" />
-                                <StackPanel Grid.Column="1" Spacing="3">
-                                    <TextBlock Classes="section-title" Text="Windows shell" />
-                                    <TextBlock Classes="caption" Text="Choose whether OpenFSE starts in place of Explorer for this account." />
-                                </StackPanel>
-                                <TextBlock Grid.Column="2" Text="SYSTEM" Classes="eyebrow" VerticalAlignment="Center" />
-                            </Grid>
-                            <Border Classes="glass-row">
-                                <StackPanel Spacing="6">
-                                    <TextBlock Text="{Binding ShellStatusText}" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" />
-                                    <TextBlock Classes="caption" Text="{Binding AppStatusText}" TextWrapping="Wrap" />
-                                </StackPanel>
-                            </Border>
-                            <StackPanel Orientation="Horizontal" Spacing="10">
-                                <Button Content="Install app" Click="OnInstallApp" ToolTip.Tip="Copy OpenFSE to its per-user install location and register it in Start Menu / Settings → Apps (does not change your shell)" />
-                                <Button Classes="primary" Content="Install as shell" Click="OnInstall" IsEnabled="{Binding !ShellInstalled}" />
-                                <Button Classes="danger" Content="Restore previous shell" Click="OnUninstall" IsEnabled="{Binding ShellInstalled}" />
-                            </StackPanel>
-                            <TextBlock Classes="caption"
-                                       Text="Recovery: Ctrl+Alt+Del → Task Manager → Run new task → explorer.exe for this session, or OpenFSE.exe --restore-shell to restore permanently. Three shell crashes in two minutes also restore your prior shell automatically." />
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Home app -->
-                    <Border Classes="glass-panel">
-                        <StackPanel Spacing="14">
-                            <Grid ColumnDefinitions="5,*" ColumnSpacing="12">
-                                <Border Background="{StaticResource AccentGradient}" CornerRadius="3" />
-                                <StackPanel Grid.Column="1" Spacing="3">
-                                    <TextBlock Classes="section-title" Text="Home app" />
-                                    <TextBlock Classes="caption" Text="The launcher OpenFSE returns to when you leave the desktop." />
-                                </StackPanel>
-                            </Grid>
-                            <!-- Pick a launcher: everything technical is filled in for you -->
-                            <StackPanel Spacing="8">
-                                <ComboBox ItemsSource="{Binding LauncherChoices}"
-                                          SelectedIndex="{Binding SelectedLauncherIndex}"
-                                          HorizontalAlignment="Stretch" MinHeight="42" />
-                                <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding LauncherHintText}" />
-                            </StackPanel>
-
-                            <Expander Header="Advanced (path, arguments, window matching)">
-                                <StackPanel Spacing="10" Margin="0,8,0,0">
-                                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="10">
-                                        <TextBox Grid.Column="0" Grid.Row="0"
-                                                 Watermark="Path to launcher exe"
-                                                 Text="{Binding HomeAppPath}" />
-                                        <Button Grid.Column="1" Grid.Row="0" Content="Browse…" Click="OnBrowseHomeApp" />
-                                        <TextBox Grid.Column="0" Grid.Row="1" Grid.ColumnSpan="2"
-                                                 Watermark="Arguments"
-                                                 Text="{Binding HomeAppArgs}" />
+                                <TextBlock Text="Shell" Classes="section-title" />
+                                <Border Classes="hc-device-card">
+                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
+                                        <TextBlock Text="⊞" FontSize="20" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="2">
+                                            <TextBlock Text="Windows shell" Classes="setting-title" />
+                                            <TextBlock Text="{Binding ShellStatusText}" Classes="caption" />
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="2" Text="{Binding AppStatusText}" Classes="caption" MaxWidth="520" TextAlignment="Right" VerticalAlignment="Center" />
                                     </Grid>
-                                    <TextBlock Classes="caption" TextWrapping="Wrap"
-                                               Text="Only needed for launchers OpenFSE doesn't know. Picking a launcher above fills these in, along with the process names and window class used to tell when it's running." />
-                                </StackPanel>
-                            </Expander>
-                            <StackPanel Orientation="Horizontal" Spacing="28">
-                                <CheckBox Content="Run as administrator" IsChecked="{Binding HomeAppElevated}" />
-                                <CheckBox Content="Auto-relaunch when it exits" IsChecked="{Binding HomeAppAutoRelaunch}" />
-                            </StackPanel>
+                                </Border>
 
-                            <!-- UAC prompt level -->
-                            <Border Classes="glass-row">
-                                <StackPanel Spacing="8">
-                                    <CheckBox x:Name="UacCheckBox"
-                                              Content="Never show UAC prompts on this PC"
-                                              IsChecked="{Binding UacPromptsDisabled, Mode=OneWay}"
-                                              Click="OnToggleUac" />
-                                    <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding UacStatusText}" />
-                                    <TextBlock Classes="caption" TextWrapping="Wrap" Foreground="#FFD08A3E"
-                                               Text="Security trade-off: this is the lowest position of the Windows UAC slider (&quot;Never notify&quot;). It applies to the whole PC and every administrator account, so ANY program that requests administrator rights gets them without asking you. Only enable this on a personal device you trust — it is what makes elevated launches silent at boot. Changing it needs one administrator confirmation and applies immediately; unticking restores your previous setting." />
-                                </StackPanel>
-                            </Border>
-
-                            <!-- Lock on wake -->
-                            <Border Classes="glass-row">
-                                <StackPanel Spacing="8">
-                                    <CheckBox x:Name="LockOnWakeCheckBox"
-                                              Content="No lock screen after screen off / standby"
-                                              IsChecked="{Binding LockOnWakeDisabled, Mode=OneWay}"
-                                              Click="OnToggleLockOnWake" />
-                                    <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding LockOnWakeStatusText}" />
-                                    <TextBlock Classes="caption" TextWrapping="Wrap" Foreground="#FFD08A3E"
-                                               Text="Turns off &quot;Require a password on wakeup&quot; — as a machine policy AND on every power plan, so tools like Handheld Companion switching plans can't bring the lock screen back — and sets the NoLockScreen policy to remove the lock screen UI (Windows 11 Home ignores that last part on some builds). Anyone who picks up the device can use it without signing in, so keep it for a personal handheld. Needs one administrator confirmation; unticking restores the previous behaviour." />
-                                </StackPanel>
-                            </Border>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Startup apps -->
-                    <Border Classes="glass-panel">
-                        <StackPanel Spacing="14">
-                            <Grid ColumnDefinitions="5,*" ColumnSpacing="12">
-                                <Border Background="{StaticResource AccentGradient}" CornerRadius="3" />
-                                <StackPanel Grid.Column="1" Spacing="3">
-                                    <TextBlock Classes="section-title" Text="Startup apps" />
-                                    <TextBlock Classes="caption" Text="Launch supporting utilities in order before your home app starts." />
-                                </StackPanel>
-                            </Grid>
-                            <ItemsControl ItemsSource="{Binding StartupApps}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate x:DataType="s:StartupAppRow">
-                                        <Border Classes="glass-row" Margin="0,3">
-                                            <Grid ColumnDefinitions="Auto,*,180,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="6">
-                                                <CheckBox Grid.Column="0" IsChecked="{Binding Enabled}" VerticalAlignment="Center" ToolTip.Tip="Enabled" />
-                                                <TextBox Grid.Column="1" Text="{Binding Path}" Watermark="Application path" />
-                                                <TextBox Grid.Column="2" Text="{Binding Args}" Watermark="Arguments" />
-                                                <CheckBox Grid.Column="3" IsChecked="{Binding Elevated}" Content="Admin" VerticalAlignment="Center" />
-                                                <Button Grid.Column="4" Classes="icon" Content="↑" Click="OnMoveUp" ToolTip.Tip="Move up" />
-                                                <Button Grid.Column="5" Classes="icon" Content="↓" Click="OnMoveDown" ToolTip.Tip="Move down" />
-                                                <Button Grid.Column="6" Content="Browse" Click="OnBrowseStartupApp" />
-                                                <Button Grid.Column="7" Classes="icon danger" Content="×" Click="OnRemoveApp" ToolTip.Tip="Remove" />
-                                            </Grid>
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
-                                <ComboBox Grid.Column="0" ItemsSource="{Binding StartupSuggestions}"
-                                          SelectedIndex="{Binding SelectedSuggestionIndex}"
-                                          HorizontalAlignment="Stretch" MinHeight="40"
-                                          ToolTip.Tip="Programs found on this PC that are commonly started before the launcher" />
-                                <Button Grid.Column="1" Classes="primary" Content="Add" Click="OnAddApp" />
-                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="9" VerticalAlignment="Center">
-                                    <TextBlock Text="Delay between apps (ms)" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" />
-                                    <NumericUpDown Value="{Binding StaggerDelayMs}" Minimum="0" Maximum="30000" Increment="250" Width="150" FormatString="0" />
-                                </StackPanel>
-                            </Grid>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Overlay -->
-                    <Border Classes="glass-panel">
-                        <StackPanel Spacing="14">
-                            <Grid ColumnDefinitions="5,*" ColumnSpacing="12">
-                                <Border Background="{StaticResource AccentGradient}" CornerRadius="3" />
-                                <StackPanel Grid.Column="1" Spacing="3">
-                                    <TextBlock Classes="section-title" Text="Overlay &amp; input" />
-                                    <TextBlock Classes="caption" Text="Use a desktop hotkey, touch-edge gestures, or your controller to summon the quick menu." />
-                                </StackPanel>
-                            </Grid>
-                            <Border Classes="glass-row">
-                                <StackPanel Spacing="12">
-                                    <Grid ColumnDefinitions="90,*,Auto,Auto" ColumnSpacing="10" RowDefinitions="Auto,Auto" RowSpacing="10">
-                                        <TextBlock Grid.Row="0" Text="Keyboard" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" />
-                                        <Border Grid.Row="0" Grid.Column="1" Classes="glass-row" Padding="12,8">
-                                            <TextBlock Text="{Binding HotkeyText}" FontWeight="SemiBold" />
-                                        </Border>
-                                        <Button Grid.Row="0" Grid.Column="2" Content="Record" Click="OnRecordHotkey" />
-                                        <Button Grid.Row="0" Grid.Column="3" Content="Clear" Click="OnClearHotkey" />
-
-                                        <TextBlock Grid.Row="1" Text="Controller" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" />
-                                        <Border Grid.Row="1" Grid.Column="1" Classes="glass-row" Padding="12,8">
-                                            <TextBlock Text="{Binding ChordText}" FontWeight="SemiBold" />
-                                        </Border>
-                                        <Button Grid.Row="1" Grid.Column="2" Content="Record" Click="OnRecordChord" />
-                                        <Button Grid.Row="1" Grid.Column="3" Content="Clear" Click="OnClearChord" />
+                                <Border Classes="hc-settings-card">
+                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
+                                        <TextBlock Text="↓" FontSize="20" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="2">
+                                            <TextBlock Text="Install or update OpenFSE" Classes="setting-title" />
+                                            <TextBlock Text="Copies OpenFSE to its stable per-user location. This does not change your shell." Classes="caption" />
+                                        </StackPanel>
+                                        <Button Grid.Column="2" Content="Install app" Click="OnInstallApp" VerticalAlignment="Center" />
                                     </Grid>
-                                    <TextBlock Classes="caption" TextWrapping="Wrap"
-                                               Text="Press Record, then press the shortcut you want — a key combination, or controller buttons together (hold them ~0.6 s to record a hold instead of a press). Esc cancels; Clear means no shortcut. Handheld OEM buttons usually send a key combination (the MSI Claw's QS button sends Win+G), so recording the keyboard shortcut captures them. Buttons that send nothing Windows can see need Handheld Companion to remap them first." />
-                                    <StackPanel Orientation="Horizontal" Spacing="28">
-                                        <CheckBox Content="Swipe from bottom edge" IsChecked="{Binding GestureBottom}" />
-                                        <CheckBox Content="Swipe from right edge" IsChecked="{Binding GestureRight}" />
+                                </Border>
+                                <Border Classes="hc-settings-card">
+                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
+                                        <TextBlock Text="↪" FontSize="20" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="2">
+                                            <TextBlock Text="Use OpenFSE as the Windows shell" Classes="setting-title" />
+                                            <TextBlock Text="Start directly in your handheld launcher after you sign in." Classes="caption" />
+                                        </StackPanel>
+                                        <Button Grid.Column="2" Classes="primary" Content="Install as shell" Click="OnInstall" IsEnabled="{Binding !ShellInstalled}" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                                <Border Classes="hc-settings-card">
+                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
+                                        <TextBlock Text="↶" FontSize="20" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="2">
+                                            <TextBlock Text="Restore the previous shell" Classes="setting-title" />
+                                            <TextBlock Text="Return this account to the Explorer shell saved before OpenFSE was installed." Classes="caption" />
+                                        </StackPanel>
+                                        <Button Grid.Column="2" Classes="danger" Content="Restore" Click="OnUninstall" IsEnabled="{Binding ShellInstalled}" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+
+                                <TextBlock Text="Recovery" Classes="section-title" />
+                                <Border Classes="hc-settings-card">
+                                    <Grid ColumnDefinitions="32,*" ColumnSpacing="12">
+                                        <TextBlock Text="!" FontSize="20" Foreground="{StaticResource HcWarningBrush}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1" Text="If OpenFSE does not start, press Ctrl+Alt+Del, open Task Manager, then run explorer.exe. Run OpenFSE.exe --restore-shell to restore your previous shell permanently." Classes="caption" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                            </StackPanel>
+                    </ScrollViewer>
+
+                    <ScrollViewer x:Name="HomePage" IsVisible="False" VerticalScrollBarVisibility="Auto">
+                            <StackPanel Margin="12,4,16,46" Spacing="3">
+                                <TextBlock Text="Home" Classes="page-title" />
+
+                                <TextBlock Text="Game launcher" Classes="section-title" />
+                                <Border Classes="hc-settings-card">
+                                    <Grid ColumnDefinitions="32,*,300" ColumnSpacing="12">
+                                        <TextBlock Text="▶" FontSize="18" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="2">
+                                            <TextBlock Text="Home app" Classes="setting-title" />
+                                            <TextBlock Text="The launcher OpenFSE starts and returns to when you leave the desktop." Classes="caption" />
+                                        </StackPanel>
+                                        <ComboBox Grid.Column="2" ItemsSource="{Binding LauncherChoices}" SelectedIndex="{Binding SelectedLauncherIndex}" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                                <TextBlock Text="{Binding LauncherHintText}" Classes="caption" Margin="12,0,12,2" />
+
+                                <fa:SettingsExpander Header="Advanced launcher settings"
+                                                     Description="Path, launch arguments, and window matching for a custom launcher."
+                                                     IsExpanded="False">
+                                    <StackPanel Margin="0,12,0,4" Spacing="8">
+                                        <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="8">
+                                            <TextBox Grid.Row="0" Watermark="Path to launcher executable" Text="{Binding HomeAppPath}" />
+                                            <Button Grid.Row="0" Grid.Column="1" Content="Browse" Click="OnBrowseHomeApp" />
+                                            <TextBox Grid.Row="1" Grid.ColumnSpan="2" Watermark="Launch arguments" Text="{Binding HomeAppArgs}" />
+                                        </Grid>
                                     </StackPanel>
-                                </StackPanel>
-                            </Border>
-                            <Grid ColumnDefinitions="Auto,170,Auto,Auto" ColumnSpacing="10">
-                                <TextBlock Text="Button glyphs" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" />
-                                <ComboBox Grid.Column="1" ItemsSource="{Binding GlyphStyles}" SelectedIndex="{Binding GlyphStyleIndex}" />
-                                <Button Grid.Column="2" Content="Test overlay" Click="OnTestOverlay" />
-                                <Button Grid.Column="3" Content="Touch keyboard" Click="OnTouchKeyboard" />
-                            </Grid>
-                        </StackPanel>
-                    </Border>
-                </StackPanel>
-            </ScrollViewer>
+                                </fa:SettingsExpander>
 
-            <Border Grid.Row="2" Padding="28,16" BorderBrush="#22FFFFFF" BorderThickness="0,1,0,0">
-                <StackPanel Orientation="Horizontal" Spacing="14">
-                    <Button Classes="primary" Content="Save changes" FontWeight="Bold" MinWidth="148" Click="OnSave" />
-                    <TextBlock x:Name="SaveStatus" Classes="caption" VerticalAlignment="Center" />
+                                <TextBlock Text="Session behaviour" Classes="section-title" />
+                                <Border Classes="hc-settings-card">
+                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
+                                        <TextBlock Text="↑" FontSize="20" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="2">
+                                            <TextBlock Text="Run home app as administrator" Classes="setting-title" />
+                                            <TextBlock Text="Use elevation for launchers that need to receive controller input through Steam Input." Classes="caption" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="2" IsChecked="{Binding HomeAppElevated}" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                                <Border Classes="hc-settings-card">
+                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
+                                        <TextBlock Text="↻" FontSize="20" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="2">
+                                            <TextBlock Text="Restart the home app when it exits" Classes="setting-title" />
+                                            <TextBlock Text="Automatically relaunch your configured launcher after it closes." Classes="caption" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="2" IsChecked="{Binding HomeAppAutoRelaunch}" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                                <Border Classes="hc-settings-card">
+                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
+                                        <TextBlock Text="!" FontSize="20" Foreground="{StaticResource HcWarningBrush}" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="2">
+                                            <TextBlock Text="Never show UAC prompts on this PC" Classes="setting-title" />
+                                            <TextBlock Text="Applies to every administrator account. Enable only on a personal device you trust." Classes="caption" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="2" x:Name="UacCheckBox" IsChecked="{Binding UacPromptsDisabled, Mode=OneWay}" Click="OnToggleUac" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                                <TextBlock Text="{Binding UacStatusText}" Classes="caption" Margin="12,0,12,2" />
+                                <Border Classes="hc-settings-card">
+                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
+                                        <TextBlock Text="☾" FontSize="20" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="2">
+                                            <TextBlock Text="No lock screen after standby" Classes="setting-title" />
+                                            <TextBlock Text="Keep a personal handheld ready after it wakes. Anyone with the device can use the current session." Classes="caption" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="2" x:Name="LockOnWakeCheckBox" IsChecked="{Binding LockOnWakeDisabled, Mode=OneWay}" Click="OnToggleLockOnWake" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                                <TextBlock Text="{Binding LockOnWakeStatusText}" Classes="caption" Margin="12,0,12,2" />
+                            </StackPanel>
+                    </ScrollViewer>
+
+                    <ScrollViewer x:Name="StartupPage" IsVisible="False" VerticalScrollBarVisibility="Auto">
+                            <StackPanel Margin="12,4,16,46" Spacing="3">
+                                <TextBlock Text="Startup" Classes="page-title" />
+                                <TextBlock Text="Startup apps" Classes="section-title" />
+                                <TextBlock Text="Applications run here, in order, before the home launcher starts." Classes="caption" Margin="0,0,0,4" />
+                                <ItemsControl ItemsSource="{Binding StartupApps}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="s:StartupAppRow">
+                                            <Border Classes="hc-settings-card" Margin="0,0,0,4">
+                                                <Grid ColumnDefinitions="Auto,*,180,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="6">
+                                                    <ToggleSwitch Grid.Column="0" IsChecked="{Binding Enabled}" OnContent="" OffContent="" MinWidth="42" VerticalAlignment="Center" />
+                                                    <TextBox Grid.Column="1" Text="{Binding Path}" Watermark="Application path" />
+                                                    <TextBox Grid.Column="2" Text="{Binding Args}" Watermark="Arguments" />
+                                                    <CheckBox Grid.Column="3" IsChecked="{Binding Elevated}" Content="Admin" VerticalAlignment="Center" />
+                                                    <Button Grid.Column="4" Classes="icon" Content="↑" Click="OnMoveUp" ToolTip.Tip="Move up" />
+                                                    <Button Grid.Column="5" Classes="icon" Content="↓" Click="OnMoveDown" ToolTip.Tip="Move down" />
+                                                    <Button Grid.Column="6" Content="Browse" Click="OnBrowseStartupApp" />
+                                                    <Button Grid.Column="7" Classes="icon danger" Content="×" Click="OnRemoveApp" ToolTip.Tip="Remove" />
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Border Classes="hc-settings-card">
+                                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                                        <ComboBox Grid.Column="0" ItemsSource="{Binding StartupSuggestions}" SelectedIndex="{Binding SelectedSuggestionIndex}" ToolTip.Tip="Programs found on this PC that can start before the launcher" />
+                                        <Button Grid.Column="1" Classes="primary" Content="Add app" Click="OnAddApp" />
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                            <TextBlock Text="Delay (ms)" Classes="caption" VerticalAlignment="Center" />
+                                            <NumericUpDown Value="{Binding StaggerDelayMs}" Minimum="0" Maximum="30000" Increment="250" Width="130" FormatString="0" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </StackPanel>
+                    </ScrollViewer>
+
+                    <ScrollViewer x:Name="QuickAccessPage" IsVisible="False" VerticalScrollBarVisibility="Auto">
+                            <StackPanel Margin="12,4,16,46" Spacing="3">
+                                <TextBlock Text="Quick access" Classes="page-title" />
+
+                                <TextBlock Text="Quick panel" Classes="section-title" />
+                                <Border Classes="hc-settings-card">
+                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
+                                        <TextBlock Text="☰" FontSize="20" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="2">
+                                            <TextBlock Text="Right-side quick panel" Classes="setting-title" />
+                                            <TextBlock Text="A Steam-QAM-style panel that slides in from the right edge and leaves the game visible." Classes="caption" />
+                                        </StackPanel>
+                                        <Button Grid.Column="2" Content="Test panel" Click="OnTestOverlay" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                                <Border Classes="hc-settings-card">
+                                    <Grid ColumnDefinitions="32,*,180,Auto" ColumnSpacing="12">
+                                        <TextBlock Text="⌁" FontSize="20" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="2">
+                                            <TextBlock Text="Controller button glyphs" Classes="setting-title" />
+                                            <TextBlock Text="Choose the labels shown in quick access and the settings footer." Classes="caption" />
+                                        </StackPanel>
+                                        <ComboBox Grid.Column="2" ItemsSource="{Binding GlyphStyles}" SelectedIndex="{Binding GlyphStyleIndex}" VerticalAlignment="Center" />
+                                        <Button Grid.Column="3" Content="Touch keyboard" Click="OnTouchKeyboard" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+
+                                <TextBlock Text="Open quick access" Classes="section-title" />
+                                <Border Classes="hc-settings-card">
+                                    <Grid ColumnDefinitions="32,*,Auto,Auto" ColumnSpacing="12">
+                                        <TextBlock Text="⌨" FontSize="20" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="2">
+                                            <TextBlock Text="Keyboard shortcut" Classes="setting-title" />
+                                            <TextBlock Text="{Binding HotkeyText}" Classes="caption" />
+                                        </StackPanel>
+                                        <Button Grid.Column="2" Content="Record" Click="OnRecordHotkey" VerticalAlignment="Center" />
+                                        <Button Grid.Column="3" Content="Clear" Click="OnClearHotkey" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                                <Border Classes="hc-settings-card">
+                                    <Grid ColumnDefinitions="32,*,Auto,Auto" ColumnSpacing="12">
+                                        <TextBlock Text="⌁" FontSize="20" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="2">
+                                            <TextBlock Text="Controller shortcut" Classes="setting-title" />
+                                            <TextBlock Text="{Binding ChordText}" Classes="caption" />
+                                        </StackPanel>
+                                        <Button Grid.Column="2" Content="Record" Click="OnRecordChord" VerticalAlignment="Center" />
+                                        <Button Grid.Column="3" Content="Clear" Click="OnClearChord" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                                <Border Classes="hc-settings-card">
+                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
+                                        <TextBlock Text="↑" FontSize="20" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="2">
+                                            <TextBlock Text="Swipe from the bottom edge" Classes="setting-title" />
+                                            <TextBlock Text="Open the panel with a short upward swipe." Classes="caption" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="2" IsChecked="{Binding GestureBottom}" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                                <Border Classes="hc-settings-card">
+                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
+                                        <TextBlock Text="←" FontSize="20" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="2">
+                                            <TextBlock Text="Swipe from the right edge" Classes="setting-title" />
+                                            <TextBlock Text="Open the panel with a short leftward swipe." Classes="caption" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="2" IsChecked="{Binding GestureRight}" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                            </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </fa:NavigationView.Content>
+        </fa:NavigationView>
+
+        <Border Classes="hc-footer" VerticalAlignment="Bottom">
+            <Grid Margin="12,4" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                <Button Classes="primary" Content="Save changes" Click="OnSave" MinWidth="120" />
+                <TextBlock Grid.Column="1" x:Name="SaveStatus" Classes="caption" VerticalAlignment="Center" />
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="22" VerticalAlignment="Center">
+                    <TextBlock Text="☰  Open navigation" Classes="caption" />
+                    <TextBlock Text="D-pad  Navigate" Classes="caption" />
+                    <TextBlock Text="A  Select" Classes="caption" />
                 </StackPanel>
-            </Border>
-        </Grid>
-    </ExperimentalAcrylicBorder>
+            </Grid>
+        </Border>
+    </Grid>
 </Window>
