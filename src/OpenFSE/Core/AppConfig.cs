@@ -87,6 +87,8 @@ public sealed class AppConfig
     /// <summary>Whether Windows required a sign-in on wake before OpenFSE changed it.</summary>
     public bool PreviousLockOnWakeSnapshotCaptured { get; set; }
     public bool PreviousLockOnWakeRequired { get; set; } = true;
+    /// <summary>Previous HKLM Personalization\NoLockScreen value (-1 = absent).</summary>
+    public int PreviousNoLockScreen { get; set; } = -1;
 }
 
 [JsonSerializable(typeof(AppConfig))]

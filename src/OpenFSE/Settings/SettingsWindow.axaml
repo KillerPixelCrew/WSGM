@@ -103,12 +103,12 @@
                             <Border Classes="glass-row">
                                 <StackPanel Spacing="8">
                                     <CheckBox x:Name="LockOnWakeCheckBox"
-                                              Content="Don't require sign-in after screen off / standby"
+                                              Content="No lock screen after screen off / standby"
                                               IsChecked="{Binding LockOnWakeDisabled, Mode=OneWay}"
                                               Click="OnToggleLockOnWake" />
                                     <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding LockOnWakeStatusText}" />
                                     <TextBlock Classes="caption" TextWrapping="Wrap" Foreground="#FFD08A3E"
-                                               Text="Sets Windows' &quot;Require a password on wakeup&quot; to off, as a machine policy so it survives power-plan changes by vendor software. Anyone who picks up the device can use it without signing in, so keep it for a personal handheld. It does not affect locking manually with Win+L. Needs one administrator confirmation; unticking restores the previous behaviour." />
+                                               Text="Turns off &quot;Require a password on wakeup&quot; — as a machine policy AND on every power plan, so tools like Handheld Companion switching plans can't bring the lock screen back — and sets the NoLockScreen policy to remove the lock screen UI (Windows 11 Home ignores that last part on some builds). Anyone who picks up the device can use it without signing in, so keep it for a personal handheld. Needs one administrator confirmation; unticking restores the previous behaviour." />
                                 </StackPanel>
                             </Border>
                         </StackPanel>

@@ -21,13 +21,16 @@ public static class LockScreenSettings
     private const string SubNoneGuid = "fea3413e-7e05-4911-9a71-700331f1c294";
     private const string PolicyKey = @"SOFTWARE\Policies\Microsoft\Power\PowerSettings\" + ConsoleLockGuid;
     private const string SchemesKey = @"SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes";
+    private const string PersonalizationKey = @"SOFTWARE\Policies\Microsoft\Windows\Personalization";
+    private const string NoLockScreen = "NoLockScreen";
 
-    /// <summary>True when waking the device does NOT require signing in again.</summary>
+    /// <summary>True when waking the device does NOT require signing in again — for
+    /// EVERY power scheme, since vendor tools switch schemes at will.</summary>
     public static bool SignInOnWakeDisabled()
     {
         try
         {
-            // Policy wins over the scheme value when present.
+            // Policy wins over the per-scheme values when present.
             using (var policy = Registry.LocalMachine.OpenSubKey(PolicyKey))
             {
                 if (policy?.GetValue("ACSettingIndex") is int policyAc)
@@ -38,18 +41,25 @@ public static class LockScreenSettings
             }
 
             using var schemes = Registry.LocalMachine.OpenSubKey(SchemesKey);
-            if (schemes?.GetValue("ActivePowerScheme") is not string active)
+            if (schemes is null)
             {
                 return false;
             }
-            using var setting = schemes.OpenSubKey($@"{active}\{SubNoneGuid}\{ConsoleLockGuid}");
-            if (setting is null)
+
+            var any = false;
+            foreach (var scheme in EnumerateSchemeGuids())
             {
-                return false;   // absent = Windows default = require sign-in
+                using var setting = schemes.OpenSubKey($@"{scheme}\{SubNoneGuid}\{ConsoleLockGuid}");
+                // Absent = Windows default = require sign-in.
+                var ac = setting?.GetValue("ACSettingIndex") as int? ?? 1;
+                var dc = setting?.GetValue("DCSettingIndex") as int? ?? 1;
+                if (ac != 0 || dc != 0)
+                {
+                    return false;
+                }
+                any = true;
             }
-            var ac = setting.GetValue("ACSettingIndex") as int? ?? 1;
-            var dc = setting.GetValue("DCSettingIndex") as int? ?? 1;
-            return ac == 0 && dc == 0;
+            return any;
         }
         catch (Exception ex)
         {
@@ -71,6 +81,7 @@ public static class LockScreenSettings
                 {
                     config.PreviousLockOnWakeSnapshotCaptured = true;
                     config.PreviousLockOnWakeRequired = !SignInOnWakeDisabled();
+                    config.PreviousNoLockScreen = ReadNoLockScreen();
                     ConfigStore.Save(config);
                 }
 
@@ -80,7 +91,8 @@ public static class LockScreenSettings
                     policy.SetValue("DCSettingIndex", 0, RegistryValueKind.DWord);
                 }
                 SetSchemeValue(0);
-                Log.Info("Sign-in on wake disabled (CONSOLELOCK=0, policy + active scheme).");
+                SetNoLockScreen(true);
+                Log.Info("Sign-in on wake disabled (CONSOLELOCK=0, policy + active scheme, NoLockScreen=1).");
             }
             else
             {
@@ -93,8 +105,10 @@ public static class LockScreenSettings
                 // before OpenFSE touched it.
                 var restoreToRequired = !config.PreviousLockOnWakeSnapshotCaptured || config.PreviousLockOnWakeRequired;
                 SetSchemeValue(restoreToRequired ? 1 : 0);
+                RestoreNoLockScreen(config.PreviousNoLockScreen);
 
                 config.PreviousLockOnWakeSnapshotCaptured = false;
+                config.PreviousNoLockScreen = -1;
                 ConfigStore.Save(config);
                 Log.Info($"Sign-in on wake restored (CONSOLELOCK={(restoreToRequired ? 1 : 0)}).");
             }
@@ -107,11 +121,105 @@ public static class LockScreenSettings
         }
     }
 
+    /// <summary>Current HKLM Personalization\NoLockScreen value, or -1 when absent.</summary>
+    private static int ReadNoLockScreen()
+    {
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(PersonalizationKey);
+            return key?.GetValue(NoLockScreen) as int? ?? -1;
+        }
+        catch
+        {
+            return -1;
+        }
+    }
+
+    /// <summary>Removes the lock screen UI itself. Note: Windows 11 Home ignores this
+    /// policy on several builds — treated as best-effort, never fatal.</summary>
+    private static void SetNoLockScreen(bool disable)
+    {
+        try
+        {
+            using var key = Registry.LocalMachine.CreateSubKey(PersonalizationKey);
+            key.SetValue(NoLockScreen, disable ? 1 : 0, RegistryValueKind.DWord);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not set NoLockScreen: {ex.Message}");
+        }
+    }
+
+    private static void RestoreNoLockScreen(int previous)
+    {
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(PersonalizationKey, writable: true);
+            if (key is null)
+            {
+                return;
+            }
+            if (previous < 0)
+            {
+                key.DeleteValue(NoLockScreen, throwOnMissingValue: false);
+            }
+            else
+            {
+                key.SetValue(NoLockScreen, previous, RegistryValueKind.DWord);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not restore NoLockScreen: {ex.Message}");
+        }
+    }
+
+    /// <summary>Applies the value to EVERY power scheme, not just the active one:
+    /// handheld vendor software (Handheld Companion, Armoury Crate, MSI Center)
+    /// switches power plans aggressively, and this setting is stored per scheme.
+    /// The HKLM policy above still covers schemes created later.</summary>
     private static void SetSchemeValue(int index)
     {
-        RunPowerCfg($"/setacvalueindex SCHEME_CURRENT SUB_NONE CONSOLELOCK {index}");
-        RunPowerCfg($"/setdcvalueindex SCHEME_CURRENT SUB_NONE CONSOLELOCK {index}");
+        var applied = 0;
+        foreach (var scheme in EnumerateSchemeGuids())
+        {
+            RunPowerCfg($"/setacvalueindex {scheme} SUB_NONE CONSOLELOCK {index}");
+            RunPowerCfg($"/setdcvalueindex {scheme} SUB_NONE CONSOLELOCK {index}");
+            applied++;
+        }
+        if (applied == 0)
+        {
+            RunPowerCfg($"/setacvalueindex SCHEME_CURRENT SUB_NONE CONSOLELOCK {index}");
+            RunPowerCfg($"/setdcvalueindex SCHEME_CURRENT SUB_NONE CONSOLELOCK {index}");
+        }
+        // Re-apply the active scheme so the change takes effect immediately.
         RunPowerCfg("/setactive SCHEME_CURRENT");
+        Log.Info($"CONSOLELOCK={index} applied to {applied} power scheme(s).");
+    }
+
+    private static System.Collections.Generic.List<string> EnumerateSchemeGuids()
+    {
+        var result = new System.Collections.Generic.List<string>();
+        try
+        {
+            using var schemes = Registry.LocalMachine.OpenSubKey(SchemesKey);
+            if (schemes is null)
+            {
+                return result;
+            }
+            foreach (var name in schemes.GetSubKeyNames())
+            {
+                if (Guid.TryParse(name, out _))
+                {
+                    result.Add(name);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not enumerate power schemes: {ex.Message}");
+        }
+        return result;
     }
 
     private static void RunPowerCfg(string arguments)

@@ -101,21 +101,25 @@ of stopping on a consent dialog you'd have to tap through on a handheld.
 - Ticking or unticking requires one administrator confirmation and takes effect
   immediately; the previous values are saved and restored exactly when you untick.
 
-## "Don't require sign-in after screen off / standby" (optional)
+## "No lock screen after screen off / standby" (optional)
 
-Second checkbox in Settings. Sets Windows' "Require a password on wakeup"
-(`CONSOLELOCK`) to off for both AC and battery, written two ways:
+Second checkbox in Settings. It writes three things:
 
-- as a machine **policy** (`HKLM\SOFTWARE\Policies\Microsoft\Power\PowerSettings\
-  {0e796bdb-100d-47d6-a2d5-f7d2daa51f51}` → `ACSettingIndex`/`DCSettingIndex` = 0), which
-  survives vendor software switching power plans — common on handhelds, and
-- on the active power scheme via `powercfg`.
+- `CONSOLELOCK` ("Require a password on wakeup") = 0 for AC and battery as a machine
+  **policy** (`HKLM\SOFTWARE\Policies\Microsoft\Power\PowerSettings\
+  {0e796bdb-100d-47d6-a2d5-f7d2daa51f51}` → `ACSettingIndex`/`DCSettingIndex`), which
+  survives vendor software switching power plans — common on handhelds,
+- the same value on **every** power plan on the machine via `powercfg` (not just the
+  active one — Handheld Companion and similar tools switch plans constantly, and this
+  setting is stored per plan), and
+- `HKLM\SOFTWARE\Policies\Microsoft\Windows\Personalization` → `NoLockScreen` = 1,
+  which removes the lock screen UI itself. **Windows 11 Home ignores this policy on
+  some builds** — the wake behaviour above is the part that reliably matters.
 
-On modern-standby devices this setting is hidden from the classic power UI but still
-applies. It does **not** change what happens when you lock manually with Win+L.
-Anyone who picks the device up can use it without signing in — fine for a personal
-handheld, not for a shared or portable-and-losable machine. One administrator
-confirmation to change; unticking restores the previous behaviour.
+On modern-standby devices `CONSOLELOCK` is hidden from the classic power UI but still
+applies. Anyone who picks the device up can use it without signing in — fine for a
+personal handheld, not for a shared or easily-lost machine. One administrator
+confirmation to change; unticking restores all three previous values exactly.
 
 ## Notes & limitations
 
