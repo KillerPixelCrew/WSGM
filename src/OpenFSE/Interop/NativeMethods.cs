@@ -61,16 +61,140 @@ internal static partial class NativeMethods
     [LibraryImport("kernel32.dll")]
     internal static partial nint GetModuleHandleW(nint lpModuleName);
 
-    // ---- Window styles (edge strips, no-activate) ----
-    internal const int GwlExStyle = -20;
-    internal const int WsExNoActivate = 0x08000000;
-    internal const int WsExToolWindow = 0x00000080;
+    [LibraryImport("user32.dll")]
+    internal static partial int GetSystemMetrics(int nIndex);
 
-    [LibraryImport("user32.dll", EntryPoint = "GetWindowLongW")]
-    internal static partial int GetWindowLongW(nint hWnd, int nIndex);
+    // ---- Raw touch input (edge swipes) ----
+    internal const ushort HidUsagePageGenericDesktop = 0x01;
+    internal const ushort HidUsagePageDigitizer = 0x0D;
+    internal const ushort HidUsageTouchScreen = 0x04;
+    internal const ushort HidUsageX = 0x30;
+    internal const ushort HidUsageY = 0x31;
+    internal const ushort HidUsageTipSwitch = 0x42;
+    internal const uint RidevRemove = 0x00000001;
+    internal const uint RidevInputSink = 0x00000100;
+    internal const uint RidevDevNotify = 0x00002000;
+    internal const uint WmInput = 0x00FF;
+    internal const uint WmInputDeviceChange = 0x00FE;
+    internal const nint GidcArrival = 1;
+    internal const nint GidcRemoval = 2;
+    internal const uint RidInput = 0x10000003;
+    internal const uint RidiPreparsedData = 0x20000005;
+    internal const uint RimTypeHid = 2;
+    internal const int HidpStatusSuccess = 0x00110000;
+    internal const int HidpInput = 0;
 
-    [LibraryImport("user32.dll", EntryPoint = "SetWindowLongW")]
-    internal static partial int SetWindowLongW(nint hWnd, int nIndex, int dwNewLong);
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct RawInputDevice
+    {
+        public ushort usUsagePage;
+        public ushort usUsage;
+        public uint dwFlags;
+        public nint hwndTarget;
+    }
+
+    /// <summary>The RAWHID payload follows this header in the WM_INPUT buffer:
+    /// uint dwSizeHid; uint dwCount; byte bRawData[dwSizeHid * dwCount].</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct RawInputHeader
+    {
+        public uint dwType;
+        public uint dwSize;
+        public nint hDevice;
+        public nint wParam;
+    }
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool RegisterRawInputDevices(
+        RawInputDevice[] pRawInputDevices, uint uiNumDevices, uint cbSize);
+
+    [LibraryImport("user32.dll")]
+    internal static partial uint GetRawInputData(
+        nint hRawInput, uint uiCommand, nint pData, ref uint pcbSize, uint cbSizeHeader);
+
+    [LibraryImport("user32.dll", EntryPoint = "GetRawInputDeviceInfoW", SetLastError = true)]
+    internal static partial uint GetRawInputDeviceInfoW(
+        nint hDevice, uint uiCommand, nint pData, ref uint pcbSize);
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe struct HidpCaps
+    {
+        public ushort Usage;
+        public ushort UsagePage;
+        public ushort InputReportByteLength;
+        public ushort OutputReportByteLength;
+        public ushort FeatureReportByteLength;
+        public fixed ushort Reserved[17];
+        public ushort NumberLinkCollectionNodes;
+        public ushort NumberInputButtonCaps;
+        public ushort NumberInputValueCaps;
+        public ushort NumberInputDataIndices;
+        public ushort NumberOutputButtonCaps;
+        public ushort NumberOutputValueCaps;
+        public ushort NumberOutputDataIndices;
+        public ushort NumberFeatureButtonCaps;
+        public ushort NumberFeatureValueCaps;
+        public ushort NumberFeatureDataIndices;
+    }
+
+    /// <summary>HIDP_VALUE_CAPS (72 bytes). The trailing fields are the Range variant
+    /// of the union; for NotRange caps, UsageMin holds the single usage.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct HidpValueCaps
+    {
+        public ushort UsagePage;
+        public byte ReportID;
+        public byte IsAlias;
+        public ushort BitField;
+        public ushort LinkCollection;
+        public ushort LinkUsage;
+        public ushort LinkUsagePage;
+        public byte IsRange;
+        public byte IsStringRange;
+        public byte IsDesignatorRange;
+        public byte IsAbsolute;
+        public byte HasNull;
+        public byte Reserved;
+        public ushort BitSize;
+        public ushort ReportCount;
+        public ushort Reserved2a;
+        public ushort Reserved2b;
+        public ushort Reserved2c;
+        public ushort Reserved2d;
+        public ushort Reserved2e;
+        public uint UnitsExp;
+        public uint Units;
+        public int LogicalMin;
+        public int LogicalMax;
+        public int PhysicalMin;
+        public int PhysicalMax;
+        public ushort UsageMin;
+        public ushort UsageMax;
+        public ushort StringMin;
+        public ushort StringMax;
+        public ushort DesignatorMin;
+        public ushort DesignatorMax;
+        public ushort DataIndexMin;
+        public ushort DataIndexMax;
+    }
+
+    [LibraryImport("hid.dll")]
+    internal static partial int HidP_GetCaps(nint preparsedData, out HidpCaps capabilities);
+
+    [LibraryImport("hid.dll")]
+    internal static partial int HidP_GetValueCaps(
+        int reportType, [Out] HidpValueCaps[] valueCaps, ref ushort valueCapsLength, nint preparsedData);
+
+    [LibraryImport("hid.dll")]
+    internal static partial int HidP_GetUsageValue(
+        int reportType, ushort usagePage, ushort linkCollection, ushort usage,
+        out uint usageValue, nint preparsedData, nint report, uint reportLength);
+
+    [LibraryImport("hid.dll")]
+    internal static partial int HidP_GetUsages(
+        int reportType, ushort usagePage, ushort linkCollection,
+        [Out] ushort[] usageList, ref uint usageLength, nint preparsedData, nint report, uint reportLength);
 
     // ---- Window finding / focus ----
     [LibraryImport("user32.dll")]
@@ -90,6 +214,9 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool SetForegroundWindow(nint hWnd);
+
+    [LibraryImport("user32.dll")]
+    internal static partial nint GetForegroundWindow();
 
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

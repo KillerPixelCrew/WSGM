@@ -41,11 +41,12 @@ without FSE, so both things work at once.
 - At logon it starts your **startup apps** (each optionally elevated — e.g. Handheld
   Companion) and then your **home app** (e.g. `Steam.exe steam://open/bigpicture`,
   optionally elevated), then waits in the background.
-- **Overlay** (swipe in from the bottom or right screen edge, press the configurable
-  hotkey — default Ctrl+Alt+Home — or automatically when the home app exits):
-  Return to Desktop / Back to Game Mode / Start home app / Sleep / Restart / Shutdown.
-  Fully controller-navigable (D-pad/stick + A/B) with Xbox, PlayStation, or Nintendo
-  button glyphs.
+- **Quick access panel** (swipe in from the bottom or right screen edge, press the
+  configurable hotkey — default Ctrl+Alt+Home — or open it automatically when the home
+  app exits): a right-side, Steam-QAM-style panel that leaves the game visible while you
+  return to Desktop, go back to Game Mode, start the home app, open settings, or manage
+  power. Fully controller-navigable (D-pad/stick + A/B) with Xbox, PlayStation, or
+  Nintendo button glyphs.
 - **Return to Desktop** simply starts `explorer.exe`; **Back to Game Mode** ends it again.
   OpenFSE stays resident the whole time.
 
@@ -159,7 +160,9 @@ that send nothing Windows can see need Handheld Companion to remap them first.
 - Custom shells are a legacy but functional Windows mechanism; it is not officially
   supported by Microsoft on consumer SKUs. After a Windows feature update, verify the
   shell registration survived (OpenFSE's settings shows the status).
-- True exclusive-fullscreen games can cover the edge-swipe strips; use the hotkey then.
+- Edge swipes are detected by observing the touch digitizer's raw input, so they work
+  over exclusive-fullscreen games and never interfere with mouse or touch input reaching
+  the game. They require a touchscreen; on non-touch devices use the hotkey or chord.
 - The overlay/hotkey cannot appear over the lock screen or UAC secure desktop (by design).
 - Without explorer there are no taskbar, toasts, or system tray. OpenFSE shows its own
   errors in the overlay, and the settings window has a button to open the touch keyboard.

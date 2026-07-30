@@ -2,12 +2,13 @@ using System;
 using OpenFSE.Core;
 using OpenFSE.Input;
 using OpenFSE.Interop;
+using OpenFSE.Settings;
 using OpenFSE.Shell;
 
 namespace OpenFSE.Overlay;
 
-/// <summary>Owns the overlay activation surfaces (hotkey, edge strips) and the overlay
-/// window itself. Single entry point: ShowOverlay().</summary>
+/// <summary>Owns the overlay activation surfaces (hotkey, raw-input touch swipes) and the
+/// overlay window itself. Single entry point: ShowOverlay().</summary>
 public sealed class OverlayController : IDisposable
 {
     private AppConfig _config;
@@ -15,8 +16,7 @@ public sealed class OverlayController : IDisposable
     private readonly HotkeyService _hotkey;
     private readonly GamepadService _gamepad = new();
     private readonly GamepadChordWatcher _chordWatcher;
-    private EdgeSwipeWindow? _bottomStrip;
-    private EdgeSwipeWindow? _rightStrip;
+    private TouchSwipeMonitor? _touchSwipes;
     private OverlayWindow? _overlay;
     private OverlayViewModel? _overlayViewModel;
     private GamepadNavigation? _navigation;
@@ -55,30 +55,30 @@ public sealed class OverlayController : IDisposable
 
     public void ApplyGestures(GestureConfig gestures)
     {
-        if (gestures.BottomEdge && _bottomStrip is null)
+        if (!gestures.BottomEdge && !gestures.RightEdge)
         {
-            _bottomStrip = new EdgeSwipeWindow(ScreenEdge.Bottom, gestures.StripThickness);
-            _bottomStrip.Triggered += ShowOverlay;
-            _bottomStrip.Show();
-        }
-        else if (!gestures.BottomEdge && _bottomStrip is not null)
-        {
-            _bottomStrip.Close();
-            _bottomStrip = null;
+            DisposeTouchEdges();
+            return;
         }
 
-        if (gestures.RightEdge && _rightStrip is null)
+        if (_touchSwipes is null)
         {
-            _rightStrip = new EdgeSwipeWindow(ScreenEdge.Right, gestures.StripThickness);
-            _rightStrip.Triggered += ShowOverlay;
-            _rightStrip.Show();
+            _touchSwipes = new TouchSwipeMonitor();
+            _touchSwipes.Triggered += OnSwipeTriggered;
         }
-        else if (!gestures.RightEdge && _rightStrip is not null)
+        _touchSwipes.Configure(gestures);
+
+        if (_overlay is not null)
         {
-            _rightStrip.Close();
-            _rightStrip = null;
+            HideTouchEdges();
+        }
+        else
+        {
+            ShowTouchEdges();
         }
     }
+
+    private void OnSwipeTriggered(ScreenEdge edge) => ShowOverlay();
 
     public void SetWarning(string warning)
     {
@@ -122,6 +122,7 @@ public sealed class OverlayController : IDisposable
 
     public void ShowOverlay()
     {
+        HideTouchEdges();
         if (_overlay is not null)
         {
             _overlayViewModel?.WarningText = _pendingWarning;
@@ -155,6 +156,13 @@ public sealed class OverlayController : IDisposable
                 ExplorerControl.StartExplorer();
             }
         };
+        _overlay.SettingsRequested += () =>
+        {
+            CloseOverlay();
+            // A shell session normally has no main window. Opening settings in this
+            // process keeps quick access responsive and avoids starting a second shell.
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => new SettingsWindow().Show());
+        };
         _overlay.Dismissed += () => { CloseOverlay(); FocusHomeApp(); };
         _overlay.Closed += (_, _) =>
         {
@@ -169,6 +177,7 @@ public sealed class OverlayController : IDisposable
             }
             _overlay = null;
             _overlayViewModel = null;
+            ShowTouchEdges();
             if (reopenForWarning)
             {
                 Avalonia.Threading.Dispatcher.UIThread.Post(ShowOverlay);
@@ -284,8 +293,27 @@ public sealed class OverlayController : IDisposable
         _hotkey.Dispose();
         _chordWatcher.Dispose();
         _gamepad.Dispose();
-        _bottomStrip?.Close();
-        _rightStrip?.Close();
+        DisposeTouchEdges();
         _overlay?.Close();
+    }
+
+    private void HideTouchEdges()
+    {
+        _touchSwipes?.Disarm();
+    }
+
+    private void ShowTouchEdges()
+    {
+        _touchSwipes?.Arm();
+    }
+
+    private void DisposeTouchEdges()
+    {
+        if (_touchSwipes is not null)
+        {
+            _touchSwipes.Triggered -= OnSwipeTriggered;
+            _touchSwipes.Dispose();
+            _touchSwipes = null;
+        }
     }
 }
