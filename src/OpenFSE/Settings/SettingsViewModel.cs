@@ -62,6 +62,23 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         ? "OpenFSE IS your Windows shell for this account. Sign out and back in for changes to take effect."
         : "OpenFSE is NOT your Windows shell.";
 
+    // --- UAC prompt level ---
+    public bool UacPromptsDisabled => UacSettings.Read().PromptsDisabled;
+
+    public string UacStatusText => UacPromptsDisabled
+        ? "UAC prompts are OFF — elevated apps start silently. Windows still runs with UAC enabled, but anything that asks for administrator rights gets them without asking you."
+        : "UAC prompts are ON (Windows default). Each elevated launch shows a consent dialog, which interrupts boot-to-game on a handheld.";
+
+    /// <summary>Toggles the machine UAC prompt level. Needs one elevation prompt.
+    /// Returns false when elevation was declined or the write failed.</summary>
+    public bool SetUacPrompts(bool disable)
+    {
+        var ok = UacSettings.RequestChange(disable);
+        Raise(nameof(UacPromptsDisabled));
+        Raise(nameof(UacStatusText));
+        return ok;
+    }
+
     public bool AppInstalled => Installer.IsAppInstalled;
     public string AppStatusText => Installer.IsRunningFromInstallDir
         ? $"Installed at {Installer.InstallDir}."

@@ -42,6 +42,16 @@ public static class Program
 
         Log.Init();
 
+        // Elevated one-shots for the UAC prompt-level toggle (see UacSettings).
+        if (args.Contains("--set-uac-silent", StringComparer.OrdinalIgnoreCase))
+        {
+            return UacSettings.ApplyDirect(disablePrompts: true) ? 0 : 1;
+        }
+        if (args.Contains("--restore-uac", StringComparer.OrdinalIgnoreCase))
+        {
+            return UacSettings.ApplyDirect(disablePrompts: false) ? 0 : 1;
+        }
+
         if (args.Contains("--uninstall-app", StringComparer.OrdinalIgnoreCase))
         {
             Installer.UninstallApp();

@@ -85,6 +85,22 @@ and Inno Setup 6) → `publish\OpenFSE-Setup-<version>.exe`.
 | `--setup` | Headless: install app + register as shell (for scripts) |
 | `--overlay-test` | Show the overlay without shell mode (development/testing) |
 
+## "Never show UAC prompts" (optional)
+
+Settings has a checkbox that sets Windows' UAC slider to its lowest position
+("Never notify"): `ConsentPromptBehaviorAdmin=0` + `PromptOnSecureDesktop=0` in
+`HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System`. That is what makes
+elevated launches (elevated Steam, Handheld Companion) start silently at boot instead
+of stopping on a consent dialog you'd have to tap through on a handheld.
+
+- UAC itself stays **enabled** (`EnableLUA=1` is never touched) — turning that off
+  would break Store/UWP apps and require a reboot.
+- **Security trade-off**: it applies machine-wide to every administrator account. Any
+  program that requests administrator rights then gets them without asking. Only use
+  it on a personal device you trust.
+- Ticking or unticking requires one administrator confirmation and takes effect
+  immediately; the previous values are saved and restored exactly when you untick.
+
 ## Notes & limitations
 
 - Custom shells are a legacy but functional Windows mechanism; it is not officially

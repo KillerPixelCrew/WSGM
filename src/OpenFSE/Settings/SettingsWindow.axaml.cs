@@ -50,6 +50,15 @@ public partial class SettingsWindow : Window
 
     private void OnInstallApp(object? sender, RoutedEventArgs e) => _viewModel.InstallApp();
 
+    private void OnToggleUac(object? sender, RoutedEventArgs e)
+    {
+        // The checkbox mirrors machine state, not a config value: ask Windows to
+        // change it (one elevation prompt), then re-read whatever actually stuck.
+        var wanted = UacCheckBox.IsChecked == true;
+        _viewModel.SetUacPrompts(wanted);
+        UacCheckBox.IsChecked = _viewModel.UacPromptsDisabled;
+    }
+
     private void OnSave(object? sender, RoutedEventArgs e)
     {
         _viewModel.Save();

@@ -77,6 +77,12 @@ public sealed class AppConfig
     public bool PreviousStartupToGamingHomeSnapshotCaptured { get; set; }
     public bool PreviousStartupToGamingHomeValueExists { get; set; }
     public RegistryValueKind PreviousStartupToGamingHomeValueKind { get; set; } = RegistryValueKind.DWord;
+
+    /// <summary>UAC prompt-level values as they were before OpenFSE lowered them,
+    /// so the change can be undone exactly.</summary>
+    public bool PreviousUacSnapshotCaptured { get; set; }
+    public int PreviousUacConsentPrompt { get; set; } = 5;
+    public int PreviousUacSecureDesktop { get; set; } = 1;
 }
 
 [JsonSerializable(typeof(AppConfig))]

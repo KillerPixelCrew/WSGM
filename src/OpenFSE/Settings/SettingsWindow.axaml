@@ -85,6 +85,19 @@
                                 <CheckBox Content="Run as administrator" IsChecked="{Binding HomeAppElevated}" />
                                 <CheckBox Content="Auto-relaunch when it exits" IsChecked="{Binding HomeAppAutoRelaunch}" />
                             </StackPanel>
+
+                            <!-- UAC prompt level -->
+                            <Border Classes="glass-row">
+                                <StackPanel Spacing="8">
+                                    <CheckBox x:Name="UacCheckBox"
+                                              Content="Never show UAC prompts on this PC"
+                                              IsChecked="{Binding UacPromptsDisabled, Mode=OneWay}"
+                                              Click="OnToggleUac" />
+                                    <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding UacStatusText}" />
+                                    <TextBlock Classes="caption" TextWrapping="Wrap" Foreground="#FFD08A3E"
+                                               Text="Security trade-off: this is the lowest position of the Windows UAC slider (&quot;Never notify&quot;). It applies to the whole PC and every administrator account, so ANY program that requests administrator rights gets them without asking you. Only enable this on a personal device you trust — it is what makes elevated launches silent at boot. Changing it needs one administrator confirmation and applies immediately; unticking restores your previous setting." />
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
                     </Border>
 
