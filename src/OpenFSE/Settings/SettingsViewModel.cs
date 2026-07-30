@@ -62,9 +62,26 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         ? "OpenFSE IS your Windows shell for this account. Sign out and back in for changes to take effect."
         : "OpenFSE is NOT your Windows shell.";
 
+    public bool AppInstalled => Installer.IsAppInstalled;
+    public string AppStatusText => Installer.IsRunningFromInstallDir
+        ? $"Installed at {Installer.InstallDir}."
+        : Installer.IsAppInstalled
+            ? $"Running portable — an installed copy exists at {Installer.InstallDir}. \"Install app\" updates it."
+            : "Running portable — not installed yet. Installing copies OpenFSE to a stable per-user location and adds it to Start Menu and Settings → Apps.";
+
+    /// <summary>Installs/updates the app files without touching the shell registration.</summary>
+    public void InstallApp()
+    {
+        Installer.InstallApp();
+        RaiseShellStatus();
+    }
+
     public void Install()
     {
         ApplyTo(_config);
+        // Always anchor the shell registration to the stable installed copy,
+        // never to a Downloads/dev path.
+        Installer.InstallApp();
         ShellRegistration.Install(_config);
         RaiseShellStatus();
     }
@@ -79,6 +96,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     {
         Raise(nameof(ShellInstalled));
         Raise(nameof(ShellStatusText));
+        Raise(nameof(AppInstalled));
+        Raise(nameof(AppStatusText));
     }
 
     // --- Home app ---

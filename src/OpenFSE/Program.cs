@@ -34,9 +34,22 @@ public static class Program
 
         Log.Init();
 
+        if (args.Contains("--uninstall-app", StringComparer.OrdinalIgnoreCase))
+        {
+            Installer.UninstallApp();
+            return 0;
+        }
+
+        if (args.Contains("--install", StringComparer.OrdinalIgnoreCase))
+        {
+            Installer.InstallApp();
+            return 0;
+        }
+
         if (args.Contains("--setup", StringComparer.OrdinalIgnoreCase))
         {
             var config = ConfigStore.Load();
+            Installer.InstallApp();
             ShellRegistration.Install(config);
             return 0;
         }

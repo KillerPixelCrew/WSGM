@@ -47,9 +47,13 @@
                                 <TextBlock Grid.Column="2" Text="SYSTEM" Classes="eyebrow" VerticalAlignment="Center" />
                             </Grid>
                             <Border Classes="glass-row">
-                                <TextBlock Text="{Binding ShellStatusText}" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="{Binding ShellStatusText}" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                    <TextBlock Classes="caption" Text="{Binding AppStatusText}" TextWrapping="Wrap" />
+                                </StackPanel>
                             </Border>
                             <StackPanel Orientation="Horizontal" Spacing="10">
+                                <Button Content="Install app" Click="OnInstallApp" ToolTip.Tip="Copy OpenFSE to its per-user install location and register it in Start Menu / Settings → Apps (does not change your shell)" />
                                 <Button Classes="primary" Content="Install as shell" Click="OnInstall" IsEnabled="{Binding !ShellInstalled}" />
                                 <Button Classes="danger" Content="Restore previous shell" Click="OnUninstall" IsEnabled="{Binding ShellInstalled}" />
                             </StackPanel>

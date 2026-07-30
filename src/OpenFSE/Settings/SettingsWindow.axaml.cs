@@ -48,6 +48,8 @@ public partial class SettingsWindow : Window
 
     private void OnUninstall(object? sender, RoutedEventArgs e) => _viewModel.Uninstall();
 
+    private void OnInstallApp(object? sender, RoutedEventArgs e) => _viewModel.InstallApp();
+
     private void OnSave(object? sender, RoutedEventArgs e)
     {
         _viewModel.Save();

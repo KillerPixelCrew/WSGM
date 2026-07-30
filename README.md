@@ -51,13 +51,22 @@ without FSE, so both things work at once.
 
 ## Install
 
-1. Copy `OpenFSE.exe` to a **stable path** (e.g. `C:\Program Files\OpenFSE\`). Do not run
-   it from Downloads and then move it — the shell registration points at the absolute path.
-2. Run it → Settings opens. Configure your home app and startup apps.
-3. Click **Install as shell**, sign out, sign back in.
+`OpenFSE.exe` is its own installer — run it from anywhere (even Downloads). Keep the
+few `.dll` files from the release zip next to it (they are part of the app and get
+installed along with it):
 
-Uninstall: run OpenFSE (settings open when a desktop is present) → **Uninstall**, or
-`OpenFSE.exe --restore-shell` from anywhere.
+1. Run it → Settings opens. Configure your home app and startup apps.
+2. Click **Install as shell**. This automatically installs OpenFSE to
+   `%LOCALAPPDATA%\OpenFSE\bin` (per-user, no admin), adds a Start Menu entry and an
+   entry in Settings → Apps, and points the shell registration at that stable copy.
+3. Sign out, sign back in.
+
+**Install app** installs/updates just the program files without touching your shell —
+also how you upgrade: run a newer `OpenFSE.exe` and click it (works even while the
+installed copy is running as the shell).
+
+Uninstall: Windows Settings → Apps → OpenFSE (restores your previous shell first), or
+run OpenFSE → **Restore previous shell**, or `OpenFSE.exe --restore-shell` from anywhere.
 
 ## Command line
 
@@ -67,7 +76,9 @@ Uninstall: run OpenFSE (settings open when a desktop is present) → **Uninstall
 | `--shell` | Force shell mode |
 | `--settings` | Force settings window |
 | `--restore-shell` | Restore previous shell registration, start explorer, exit (recovery; needs no working GUI) |
-| `--setup` | Headless install as shell (for scripts) |
+| `--install` | Headless: install/update app files only |
+| `--uninstall-app` | Headless: restore shell if ours, remove shortcut/registration/files |
+| `--setup` | Headless: install app + register as shell (for scripts) |
 | `--overlay-test` | Show the overlay without shell mode (development/testing) |
 
 ## Notes & limitations

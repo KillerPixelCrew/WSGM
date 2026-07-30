@@ -13,7 +13,10 @@ public static class ShellRegistration
     private const string GamingConfigKey = @"Software\Microsoft\Windows\CurrentVersion\GamingConfiguration";
     private const string StartupToGamingHome = "StartupToGamingHome";
 
-    public static string OwnShellCommand => $"\"{Environment.ProcessPath}\" --shell";
+    /// <summary>The registered command always prefers the INSTALLED copy (stable
+    /// path) over wherever the current process happens to run from.</summary>
+    public static string OwnShellCommand =>
+        $"\"{(Installer.IsAppInstalled ? Installer.InstalledExePath : Environment.ProcessPath)}\" --shell";
 
     private sealed record StringRegistryValue(bool Exists, string? Value, RegistryValueKind Kind);
     private sealed record IntRegistryValue(bool Exists, int Value, RegistryValueKind Kind);
@@ -24,14 +27,7 @@ public static class ShellRegistration
         return ReadStringValue(key, ShellValue).Value;
     }
 
-    public static bool IsInstalledForThisExe()
-    {
-        var current = CurrentValue();
-        var exe = Environment.ProcessPath;
-        return current is not null
-            && exe is not null
-            && current.Contains(exe, StringComparison.OrdinalIgnoreCase);
-    }
+    public static bool IsInstalledForThisExe() => IsOwnedByThisExe(CurrentValue());
 
     /// <summary>Registers OpenFSE as this user's shell. Saves any pre-existing custom
     /// Shell value into config first so uninstall can restore it exactly.</summary>
@@ -155,8 +151,14 @@ public static class ShellRegistration
 
     private static bool IsOwnedByThisExe(string? value)
     {
+        if (value is null)
+        {
+            return false;
+        }
+        // Ours if it points at either the running copy or the installed copy.
         var exe = Environment.ProcessPath;
-        return value is not null && exe is not null && value.Contains(exe, StringComparison.OrdinalIgnoreCase);
+        return (exe is not null && value.Contains(exe, StringComparison.OrdinalIgnoreCase))
+            || value.Contains(Installer.InstalledExePath, StringComparison.OrdinalIgnoreCase);
     }
 
     private static RegistryValueKind NormalizeStringKind(RegistryValueKind kind)
