@@ -24,6 +24,10 @@ public static class Installer
 
     public static bool IsAppInstalled => File.Exists(InstalledExePath);
 
+    /// <summary>True when the install was made by the Inno Setup installer, which then
+    /// owns the shortcut and the Settings → Apps entry.</summary>
+    public static bool IsInnoManaged => File.Exists(Path.Combine(InstallDir, "unins000.exe"));
+
     /// <summary>Copies the running exe into the install dir, creates the Start Menu
     /// shortcut and the Apps uninstall entry. Returns the installed exe path.</summary>
     public static string InstallApp()
@@ -68,8 +72,11 @@ public static class Installer
             }
         }
 
-        CreateShortcut();
-        RegisterUninstallEntry();
+        if (!IsInnoManaged)
+        {
+            CreateShortcut();
+            RegisterUninstallEntry();
+        }
         Log.Info($"Installed to {InstalledExePath}");
         return InstalledExePath;
     }

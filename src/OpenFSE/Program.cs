@@ -32,6 +32,14 @@ public static class Program
             return 0;
         }
 
+        // Quiet shell-registration restore for the Inno uninstaller: no explorer
+        // start, no UI — the uninstaller drives everything else.
+        if (args.Contains("--unregister-shell", StringComparer.OrdinalIgnoreCase))
+        {
+            ShellRegistration.Uninstall();
+            return 0;
+        }
+
         Log.Init();
 
         if (args.Contains("--uninstall-app", StringComparer.OrdinalIgnoreCase))

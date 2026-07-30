@@ -51,22 +51,26 @@ without FSE, so both things work at once.
 
 ## Install
 
-`OpenFSE.exe` is its own installer — run it from anywhere (even Downloads). Keep the
-few `.dll` files from the release zip next to it (they are part of the app and get
-installed along with it):
+Download and run **`OpenFSE-Setup-<version>.exe`** — a normal installer wizard
+(per-user, no administrator rights, no UAC). It installs to `%LOCALAPPDATA%\OpenFSE\bin`,
+adds a Start Menu entry, and shows up in Settings → Apps. Then:
 
-1. Run it → Settings opens. Configure your home app and startup apps.
-2. Click **Install as shell**. This automatically installs OpenFSE to
-   `%LOCALAPPDATA%\OpenFSE\bin` (per-user, no admin), adds a Start Menu entry and an
-   entry in Settings → Apps, and points the shell registration at that stable copy.
+1. Open OpenFSE → configure your home app and startup apps.
+2. Click **Install as shell** (this is the explicit, separate step that changes your shell).
 3. Sign out, sign back in.
 
-**Install app** installs/updates just the program files without touching your shell —
-also how you upgrade: run a newer `OpenFSE.exe` and click it (works even while the
-installed copy is running as the shell).
+Upgrading: just run the newer setup — settings and shell registration are kept, and it
+can update even while OpenFSE is running as the shell.
 
-Uninstall: Windows Settings → Apps → OpenFSE (restores your previous shell first), or
-run OpenFSE → **Restore previous shell**, or `OpenFSE.exe --restore-shell` from anywhere.
+Uninstall: Windows Settings → Apps → OpenFSE. The uninstaller restores your previous
+Windows shell **before** removing any files. (`OpenFSE.exe --restore-shell` also works
+from anywhere, any time.)
+
+Portable use: the standalone `OpenFSE.exe` + `.dll` files also run from any folder —
+on first run they offer to install, or you can keep running portable.
+
+Building a release yourself: `.\build.ps1` (needs the .NET 9 SDK, VS C++ build tools,
+and Inno Setup 6) → `publish\OpenFSE-Setup-<version>.exe`.
 
 ## Command line
 
