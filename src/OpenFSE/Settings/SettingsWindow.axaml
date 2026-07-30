@@ -182,14 +182,23 @@
                             </Grid>
                             <Border Classes="glass-row">
                                 <StackPanel Spacing="12">
-                                    <StackPanel Orientation="Horizontal" Spacing="12">
-                                        <TextBlock Text="Hotkey" Width="70" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" />
-                                        <CheckBox Content="Ctrl" IsChecked="{Binding HotkeyCtrl}" />
-                                        <CheckBox Content="Alt" IsChecked="{Binding HotkeyAlt}" />
-                                        <CheckBox Content="Shift" IsChecked="{Binding HotkeyShift}" />
-                                        <CheckBox Content="Win" IsChecked="{Binding HotkeyWin}" />
-                                        <ComboBox ItemsSource="{Binding HotkeyKeys}" SelectedIndex="{Binding HotkeyKeyIndex}" Width="130" />
-                                    </StackPanel>
+                                    <Grid ColumnDefinitions="90,*,Auto,Auto" ColumnSpacing="10" RowDefinitions="Auto,Auto" RowSpacing="10">
+                                        <TextBlock Grid.Row="0" Text="Keyboard" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" />
+                                        <Border Grid.Row="0" Grid.Column="1" Classes="glass-row" Padding="12,8">
+                                            <TextBlock Text="{Binding HotkeyText}" FontWeight="SemiBold" />
+                                        </Border>
+                                        <Button Grid.Row="0" Grid.Column="2" Content="Record" Click="OnRecordHotkey" />
+                                        <Button Grid.Row="0" Grid.Column="3" Content="Clear" Click="OnClearHotkey" />
+
+                                        <TextBlock Grid.Row="1" Text="Controller" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" />
+                                        <Border Grid.Row="1" Grid.Column="1" Classes="glass-row" Padding="12,8">
+                                            <TextBlock Text="{Binding ChordText}" FontWeight="SemiBold" />
+                                        </Border>
+                                        <Button Grid.Row="1" Grid.Column="2" Content="Record" Click="OnRecordChord" />
+                                        <Button Grid.Row="1" Grid.Column="3" Content="Clear" Click="OnClearChord" />
+                                    </Grid>
+                                    <TextBlock Classes="caption" TextWrapping="Wrap"
+                                               Text="Press Record, then press the shortcut you want — a key combination, or controller buttons together (hold them ~0.6 s to record a hold instead of a press). Esc cancels; Clear means no shortcut. Handheld OEM buttons usually send a key combination (the MSI Claw's QS button sends Win+G), so recording the keyboard shortcut captures them. Buttons that send nothing Windows can see need Handheld Companion to remap them first." />
                                     <StackPanel Orientation="Horizontal" Spacing="28">
                                         <CheckBox Content="Swipe from bottom edge" IsChecked="{Binding GestureBottom}" />
                                         <CheckBox Content="Swipe from right edge" IsChecked="{Binding GestureRight}" />

@@ -125,6 +125,24 @@ applies. Anyone who picks the device up can use it without signing in — fine f
 personal handheld, not for a shared or easily-lost machine. One administrator
 confirmation to change; unticking restores all three previous values exactly.
 
+## Overlay shortcuts
+
+Both shortcuts are **recorded**, not picked from a list: press *Record*, then press what
+you want. *Clear* sets no shortcut at all.
+
+- **Keyboard** — captured with a low-level hook, so it stores the real virtual-key code.
+  This also covers handheld OEM buttons, which usually send a key combination (the MSI
+  Claw's Quick Settings button sends `Win+G`, long-press `Win+Tab`).
+- **Controller** — press buttons together for a press-chord, or keep holding them
+  (~600 ms) for a hold-chord. Buttons accumulate until you release everything, so they
+  don't have to be pressed on the same frame — the same approach Handheld Companion uses.
+
+Beyond the 14 buttons XInput exposes, OpenFSE reads a **Steam Deck controller over HID**
+(Valve `28DE:1205`) — which is what Handheld Companion's Steam Deck emulation presents —
+so the **L4/R4/L5/R5 paddles, the Steam button and Quick Access** are bindable too.
+Vendor buttons that send nothing Windows can see need Handheld Companion to remap them
+first.
+
 ## Notes & limitations
 
 - Custom shells are a legacy but functional Windows mechanism; it is not officially

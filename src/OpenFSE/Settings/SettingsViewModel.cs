@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using OpenFSE.Core;
+using OpenFSE.Input;
 
 namespace OpenFSE.Settings;
 
@@ -38,11 +39,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         HomeAppElevated = _config.HomeApp.Elevated;
         HomeAppAutoRelaunch = _config.HomeApp.AutoRelaunch;
         StaggerDelayMs = _config.StaggerDelayMs;
-        HotkeyCtrl = _config.Hotkey.Ctrl;
-        HotkeyAlt = _config.Hotkey.Alt;
-        HotkeyShift = _config.Hotkey.Shift;
-        HotkeyWin = _config.Hotkey.Win;
-        HotkeyKeyIndex = Math.Max(0, KeyOptions.FindIndex(k => k.Vk == _config.Hotkey.VirtualKey));
+        _hotkey = _config.Hotkey;
+        _chord = _config.GamepadChord;
         GestureBottom = _config.Gestures.BottomEdge;
         GestureRight = _config.Gestures.RightEdge;
         GlyphStyleIndex = (int)_config.GlyphStyle;
@@ -323,32 +321,64 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         }
     }
 
-    // --- Hotkey ---
-    public sealed record KeyOption(string Name, int Vk)
+    // --- Overlay shortcuts (recorded, not picked from a list) ---
+    private HotkeyConfig _hotkey = new();
+    private GamepadChordConfig _chord = new();
+
+    public string HotkeyText => _hotkeyRecording ? "Press keys…" : KeyRecorder.Describe(_hotkey);
+    public string ChordText => _chordRecording
+        ? "Press buttons…"
+        : _chord.Enabled && _chord.Buttons != 0
+            ? GamepadService.Describe((GamepadButtons)_chord.Buttons, _chord.Hold)
+            : "None";
+
+    private bool _hotkeyRecording;
+    private bool _chordRecording;
+    public bool IsRecording => _hotkeyRecording || _chordRecording;
+
+    public void SetHotkeyRecording(bool recording)
     {
-        public override string ToString() => Name;
+        _hotkeyRecording = recording;
+        Raise(nameof(HotkeyText));
+        Raise(nameof(IsRecording));
     }
 
-    public static readonly List<KeyOption> KeyOptions =
-    [
-        new("Home", 0x24), new("End", 0x23), new("Insert", 0x2D), new("Delete", 0x2E),
-        new("Page Up", 0x21), new("Page Down", 0x22), new("Pause", 0x13),
-        new("F1", 0x70), new("F2", 0x71), new("F3", 0x72), new("F4", 0x73),
-        new("F5", 0x74), new("F6", 0x75), new("F7", 0x76), new("F8", 0x77),
-        new("F9", 0x78), new("F10", 0x79), new("F11", 0x7A), new("F12", 0x7B),
-        new("F13", 0x7C), new("F14", 0x7D), new("F15", 0x7E), new("F16", 0x7F),
-        new("O", 0x4F), new("G", 0x47),
-    ];
+    public void SetChordRecording(bool recording)
+    {
+        _chordRecording = recording;
+        Raise(nameof(ChordText));
+        Raise(nameof(IsRecording));
+    }
 
-    public List<KeyOption> HotkeyKeys => KeyOptions;
+    /// <summary>Stores a recorded keyboard shortcut. vk == 0 clears it.</summary>
+    public void ApplyRecordedHotkey(uint modifiers, int vk)
+    {
+        _hotkey = new HotkeyConfig
+        {
+            Enabled = vk != 0,
+            Ctrl = (modifiers & Interop.NativeMethods.ModControl) != 0,
+            Alt = (modifiers & Interop.NativeMethods.ModAlt) != 0,
+            Shift = (modifiers & Interop.NativeMethods.ModShift) != 0,
+            Win = (modifiers & Interop.NativeMethods.ModWin) != 0,
+            VirtualKey = vk,
+        };
+        SetHotkeyRecording(false);
+    }
 
-    private bool _hotkeyCtrl, _hotkeyAlt, _hotkeyShift, _hotkeyWin;
-    private int _hotkeyKeyIndex;
-    public bool HotkeyCtrl { get => _hotkeyCtrl; set { _hotkeyCtrl = value; Raise(nameof(HotkeyCtrl)); } }
-    public bool HotkeyAlt { get => _hotkeyAlt; set { _hotkeyAlt = value; Raise(nameof(HotkeyAlt)); } }
-    public bool HotkeyShift { get => _hotkeyShift; set { _hotkeyShift = value; Raise(nameof(HotkeyShift)); } }
-    public bool HotkeyWin { get => _hotkeyWin; set { _hotkeyWin = value; Raise(nameof(HotkeyWin)); } }
-    public int HotkeyKeyIndex { get => _hotkeyKeyIndex; set { _hotkeyKeyIndex = value; Raise(nameof(HotkeyKeyIndex)); } }
+    /// <summary>Stores a recorded controller chord. Empty buttons clears it.</summary>
+    public void ApplyRecordedChord(GamepadButtons buttons, bool hold)
+    {
+        _chord = new GamepadChordConfig
+        {
+            Enabled = buttons != 0,
+            Buttons = (int)buttons,
+            Hold = hold,
+        };
+        SetChordRecording(false);
+    }
+
+    public void ClearHotkey() => ApplyRecordedHotkey(0, 0);
+    public void ClearChord() => ApplyRecordedChord(0, false);
 
     // --- Gestures / glyphs ---
     private bool _gestureBottom, _gestureRight;
@@ -367,11 +397,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.HomeApp.Elevated = HomeAppElevated;
         config.HomeApp.AutoRelaunch = HomeAppAutoRelaunch;
         config.StaggerDelayMs = StaggerDelayMs;
-        config.Hotkey.Ctrl = HotkeyCtrl;
-        config.Hotkey.Alt = HotkeyAlt;
-        config.Hotkey.Shift = HotkeyShift;
-        config.Hotkey.Win = HotkeyWin;
-        config.Hotkey.VirtualKey = KeyOptions[Math.Clamp(HotkeyKeyIndex, 0, KeyOptions.Count - 1)].Vk;
+        config.Hotkey = _hotkey;
+        config.GamepadChord = _chord;
         config.Gestures.BottomEdge = GestureBottom;
         config.Gestures.RightEdge = GestureRight;
         config.GlyphStyle = (GlyphStyle)Math.Clamp(GlyphStyleIndex, 0, 2);

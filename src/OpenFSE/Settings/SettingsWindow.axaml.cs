@@ -17,6 +17,8 @@ public partial class SettingsWindow : Window
     private readonly GamepadService _gamepad = new();
     private GamepadNavigation? _navigation;
     private OverlayController? _testOverlay;
+    private KeyRecorder? _keyRecorder;
+    private GamepadChordRecorder? _chordRecorder;
 
     public SettingsWindow()
     {
@@ -37,6 +39,10 @@ public partial class SettingsWindow : Window
             _navigation = null;
             _testOverlay?.Dispose();
             _testOverlay = null;
+            _keyRecorder?.Dispose();
+            _keyRecorder = null;
+            _chordRecorder?.Dispose();
+            _chordRecorder = null;
         };
     }
 
@@ -49,6 +55,54 @@ public partial class SettingsWindow : Window
     private void OnUninstall(object? sender, RoutedEventArgs e) => _viewModel.Uninstall();
 
     private void OnInstallApp(object? sender, RoutedEventArgs e) => _viewModel.InstallApp();
+
+    private async void OnRecordHotkey(object? sender, RoutedEventArgs e)
+    {
+        // Small delay so the key/controller press that started recording (Enter, A)
+        // isn't the thing we record — same trick Handheld Companion uses.
+        _viewModel.SetHotkeyRecording(true);
+        await System.Threading.Tasks.Task.Delay(200);
+
+        _keyRecorder?.Dispose();
+        _keyRecorder = new KeyRecorder();
+        _keyRecorder.Recorded += (modifiers, vk) =>
+        {
+            _viewModel.ApplyRecordedHotkey(modifiers, vk);
+            _keyRecorder?.Dispose();
+            _keyRecorder = null;
+        };
+        _keyRecorder.Start();
+    }
+
+    private void OnClearHotkey(object? sender, RoutedEventArgs e)
+    {
+        _keyRecorder?.Dispose();
+        _keyRecorder = null;
+        _viewModel.ClearHotkey();
+    }
+
+    private async void OnRecordChord(object? sender, RoutedEventArgs e)
+    {
+        _viewModel.SetChordRecording(true);
+        await System.Threading.Tasks.Task.Delay(200);
+
+        _chordRecorder?.Dispose();
+        _chordRecorder = new GamepadChordRecorder();
+        _chordRecorder.Recorded += (buttons, hold) =>
+        {
+            _viewModel.ApplyRecordedChord(buttons, hold);
+            _chordRecorder?.Dispose();
+            _chordRecorder = null;
+        };
+        _chordRecorder.Start();
+    }
+
+    private void OnClearChord(object? sender, RoutedEventArgs e)
+    {
+        _chordRecorder?.Dispose();
+        _chordRecorder = null;
+        _viewModel.ClearChord();
+    }
 
     private void OnToggleLockOnWake(object? sender, RoutedEventArgs e)
     {

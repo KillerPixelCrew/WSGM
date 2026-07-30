@@ -14,6 +14,7 @@ public sealed class OverlayController : IDisposable
     private readonly HomeAppMonitor? _monitor;
     private readonly HotkeyService _hotkey;
     private readonly GamepadService _gamepad = new();
+    private readonly GamepadChordWatcher _chordWatcher;
     private EdgeSwipeWindow? _bottomStrip;
     private EdgeSwipeWindow? _rightStrip;
     private OverlayWindow? _overlay;
@@ -35,6 +36,14 @@ public sealed class OverlayController : IDisposable
         _hotkey = new HotkeyService(MessageWindow.Create());
         _hotkey.Pressed += ShowOverlay;
         _hotkey.Apply(config.Hotkey);
+
+        // Controller chord: needs polling even with no OpenFSE window on screen.
+        _chordWatcher = new GamepadChordWatcher(_gamepad, config.GamepadChord);
+        _chordWatcher.Triggered += ShowOverlay;
+        if (config.GamepadChord.Enabled && config.GamepadChord.Buttons != 0)
+        {
+            _gamepad.Start();
+        }
 
         ApplyGestures(config.Gestures);
 
@@ -85,6 +94,16 @@ public sealed class OverlayController : IDisposable
     {
         _config = config;
         _hotkey.Apply(config.Hotkey);
+        _chordWatcher.ApplyConfig(config.GamepadChord);
+        var chordActive = config.GamepadChord.Enabled && config.GamepadChord.Buttons != 0;
+        if (chordActive && !_gamepad.IsRunning)
+        {
+            _gamepad.Start();
+        }
+        else if (!chordActive && _overlay is null && _gamepad.IsRunning)
+        {
+            _gamepad.Stop();
+        }
         ApplyGestures(config.Gestures);
         Log.Info("Config reloaded.");
     }
@@ -143,7 +162,11 @@ public sealed class OverlayController : IDisposable
             _reopenOverlayForWarning = false;
             _navigation?.Dispose();
             _navigation = null;
-            _gamepad.Stop();
+            // Keep polling if the controller chord still needs to be watched.
+            if (!(_config.GamepadChord.Enabled && _config.GamepadChord.Buttons != 0))
+            {
+                _gamepad.Stop();
+            }
             _overlay = null;
             _overlayViewModel = null;
             if (reopenForWarning)
@@ -259,6 +282,7 @@ public sealed class OverlayController : IDisposable
             _monitor.HomeAppExited -= OnHomeAppExited;
         }
         _hotkey.Dispose();
+        _chordWatcher.Dispose();
         _gamepad.Dispose();
         _bottomStrip?.Close();
         _rightStrip?.Close();

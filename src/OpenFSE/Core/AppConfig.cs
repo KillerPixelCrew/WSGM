@@ -29,13 +29,27 @@ public sealed class StartupAppConfig
 
 public sealed class HotkeyConfig
 {
+    /// <summary>False = no keyboard shortcut at all.</summary>
     public bool Enabled { get; set; } = true;
     public bool Ctrl { get; set; } = true;
     public bool Alt { get; set; } = true;
     public bool Shift { get; set; }
     public bool Win { get; set; }
-    /// <summary>Win32 virtual-key code. Default VK_HOME (0x24).</summary>
+    /// <summary>Win32 virtual-key code. Default VK_HOME (0x24). 0 = unset.</summary>
     public int VirtualKey { get; set; } = 0x24;
+}
+
+/// <summary>Controller shortcut: a set of buttons pressed together, optionally held.
+/// Modelled on Handheld Companion's chords — buttons accumulate until every button is
+/// released, so they don't have to be pressed on the same frame.</summary>
+public sealed class GamepadChordConfig
+{
+    /// <summary>False = no controller shortcut.</summary>
+    public bool Enabled { get; set; }
+    /// <summary>Bit mask of XInput buttons (see Input.GamepadButtons).</summary>
+    public int Buttons { get; set; }
+    /// <summary>True = must be held (~600 ms); false = a normal press.</summary>
+    public bool Hold { get; set; }
 }
 
 public sealed class GestureConfig
@@ -60,6 +74,7 @@ public sealed class AppConfig
     public int StaggerDelayMs { get; set; } = 1500;
     public int HomeAppDelayMs { get; set; } = 0;
     public HotkeyConfig Hotkey { get; set; } = new();
+    public GamepadChordConfig GamepadChord { get; set; } = new();
     public GestureConfig Gestures { get; set; } = new();
     public GlyphStyle GlyphStyle { get; set; } = GlyphStyle.Xbox;
     /// <summary>The Winlogon Shell snapshot that existed before OpenFSE installed itself.
