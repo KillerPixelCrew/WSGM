@@ -10,6 +10,9 @@ public sealed class StartupAppConfig
     public string Args { get; set; } = "";
     public bool Enabled { get; set; } = true;
     public bool Elevated { get; set; }
+    /// <summary>Relaunch this tool automatically when its process dies (e.g. a
+    /// crashed Handheld Companion leaves the device without controller input).</summary>
+    public bool AutoRelaunch { get; set; }
 }
 
 public sealed class HotkeyConfig

@@ -15,11 +15,13 @@ public sealed class StartupAppRow : INotifyPropertyChanged
     private string _args = "";
     private bool _enabled = true;
     private bool _elevated;
+    private bool _autoRelaunch;
 
     public string Path { get => _path; set { _path = value; Raise(nameof(Path)); } }
     public string Args { get => _args; set { _args = value; Raise(nameof(Args)); } }
     public bool Enabled { get => _enabled; set { _enabled = value; Raise(nameof(Enabled)); } }
     public bool Elevated { get => _elevated; set { _elevated = value; Raise(nameof(Elevated)); } }
+    public bool AutoRelaunch { get => _autoRelaunch; set { _autoRelaunch = value; Raise(nameof(AutoRelaunch)); } }
 
     private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
@@ -47,6 +49,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             StartupApps.Add(new StartupAppRow
             {
                 Path = app.Path, Args = app.Args, Enabled = app.Enabled, Elevated = app.Elevated,
+                AutoRelaunch = app.AutoRelaunch,
             });
         }
 
@@ -286,6 +289,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             .Select(r => new StartupAppConfig
             {
                 Path = r.Path.Trim(), Args = r.Args.Trim(), Enabled = r.Enabled, Elevated = r.Elevated,
+                AutoRelaunch = r.AutoRelaunch,
             })
             .ToList();
     }

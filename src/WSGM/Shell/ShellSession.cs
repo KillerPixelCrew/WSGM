@@ -12,6 +12,7 @@ public sealed class ShellSession
     private readonly AppConfig _config;
     private readonly bool _overlayTestOnly;
     private SteamMonitor? _monitor;
+    private StartupAppWatcher? _startupWatcher;
     private OverlayController? _overlay;
 
     public ShellSession(AppConfig config, bool overlayTestOnly = false)
@@ -35,6 +36,7 @@ public sealed class ShellSession
         // Boot recomputes the posture value, so game mode re-applies it each start.
         SlateMode.ApplyGameMode();
         DisplayScale.ApplyGameMode(_config);
+        _startupWatcher = new StartupAppWatcher(_config.StartupApps);
         WatchConfig();
 
         Task.Run(async () =>
@@ -61,7 +63,12 @@ public sealed class ShellSession
             };
             System.Threading.Timer? debounce = null;
             void Reload(object? _)
-                => Avalonia.Threading.Dispatcher.UIThread.Post(() => _overlay?.ApplyConfig(ConfigStore.Load()));
+                => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    var config = ConfigStore.Load();
+                    _overlay?.ApplyConfig(config);
+                    _startupWatcher?.Apply(config.StartupApps);
+                });
             watcher.Changed += (_, _) =>
             {
                 debounce?.Dispose();

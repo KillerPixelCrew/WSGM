@@ -168,15 +168,17 @@
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="s:StartupAppRow">
                                             <Border Classes="hc-settings-card" Margin="0,0,0,4">
-                                                <Grid ColumnDefinitions="Auto,*,180,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="6">
+                                                <Grid ColumnDefinitions="Auto,*,180,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="6">
                                                     <ToggleSwitch Grid.Column="0" IsChecked="{Binding Enabled}" OnContent="" OffContent="" MinWidth="42" VerticalAlignment="Center" />
                                                     <TextBox Grid.Column="1" Text="{Binding Path}" Watermark="Application path" />
                                                     <TextBox Grid.Column="2" Text="{Binding Args}" Watermark="Arguments" />
                                                     <CheckBox Grid.Column="3" IsChecked="{Binding Elevated}" Content="Admin" VerticalAlignment="Center" />
-                                                    <Button Grid.Column="4" Classes="icon" Content="↑" Click="OnMoveUp" ToolTip.Tip="Move up" />
-                                                    <Button Grid.Column="5" Classes="icon" Content="↓" Click="OnMoveDown" ToolTip.Tip="Move down" />
-                                                    <Button Grid.Column="6" Content="Browse" Click="OnBrowseStartupApp" />
-                                                    <Button Grid.Column="7" Classes="icon danger" Content="×" Click="OnRemoveApp" ToolTip.Tip="Remove" />
+                                                    <CheckBox Grid.Column="4" IsChecked="{Binding AutoRelaunch}" Content="Restart" VerticalAlignment="Center"
+                                                              ToolTip.Tip="Relaunch this tool automatically if it exits or crashes" />
+                                                    <Button Grid.Column="5" Classes="icon" Content="↑" Click="OnMoveUp" ToolTip.Tip="Move up" />
+                                                    <Button Grid.Column="6" Classes="icon" Content="↓" Click="OnMoveDown" ToolTip.Tip="Move down" />
+                                                    <Button Grid.Column="7" Content="Browse" Click="OnBrowseStartupApp" />
+                                                    <Button Grid.Column="8" Classes="icon danger" Content="×" Click="OnRemoveApp" ToolTip.Tip="Remove" />
                                                 </Grid>
                                             </Border>
                                         </DataTemplate>
