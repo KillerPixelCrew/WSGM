@@ -24,6 +24,32 @@ internal static partial class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool UnregisterHotKey(nint hWnd, int id);
 
+    // ---- Low-level keyboard hook (shortcut recording only — see KeyRecorder) ----
+    internal const int WhKeyboardLl = 13;
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct KbdLlHookStruct
+    {
+        public uint vkCode;
+        public uint scanCode;
+        public uint flags;
+        public uint time;
+        public nuint dwExtraInfo;
+    }
+
+    [LibraryImport("user32.dll", EntryPoint = "SetWindowsHookExW", SetLastError = true)]
+    internal static partial nint SetWindowsHookExW(int idHook, nint lpfn, nint hMod, uint dwThreadId);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool UnhookWindowsHookEx(nint hhk);
+
+    [LibraryImport("user32.dll")]
+    internal static partial nint CallNextHookEx(nint hhk, int nCode, nint wParam, nint lParam);
+
+    [LibraryImport("user32.dll")]
+    internal static partial short GetAsyncKeyState(int vKey);
+
     // ---- Message-only window ----
     internal const nint HwndMessage = -3;
 

@@ -3,15 +3,15 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Avalonia.Threading;
 using WSGM.Core;
+using WSGM.Interop;
 
 namespace WSGM.Input;
 
 /// <summary>Records a keyboard shortcut by listening to raw key events with a
 /// low-level hook, so we capture actual virtual-key codes (what RegisterHotKey wants)
 /// instead of guessing them from a UI key enum. The hook lives only while recording.</summary>
-public sealed partial class KeyRecorder : IDisposable
+public sealed class KeyRecorder : IDisposable
 {
-    private const int WhKeyboardLl = 13;
     private const int WmKeyDown = 0x0100;
     private const int WmSysKeyDown = 0x0104;
 
@@ -21,29 +21,6 @@ public sealed partial class KeyRecorder : IDisposable
     private const int VkLMenu = 0xA4, VkRMenu = 0xA5;
     private const int VkLWin = 0x5B, VkRWin = 0x5C;
     private const int VkEscape = 0x1B;
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct KbdLlHookStruct
-    {
-        public uint vkCode;
-        public uint scanCode;
-        public uint flags;
-        public uint time;
-        public nuint dwExtraInfo;
-    }
-
-    [LibraryImport("user32.dll", EntryPoint = "SetWindowsHookExW", SetLastError = true)]
-    private static partial nint SetWindowsHookExW(int idHook, nint lpfn, nint hMod, uint dwThreadId);
-
-    [LibraryImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool UnhookWindowsHookEx(nint hhk);
-
-    [LibraryImport("user32.dll")]
-    private static partial nint CallNextHookEx(nint hhk, int nCode, nint wParam, nint lParam);
-
-    [LibraryImport("user32.dll")]
-    private static partial short GetAsyncKeyState(int vKey);
 
     private static KeyRecorder? _active;
     private nint _hook;
@@ -59,7 +36,7 @@ public sealed partial class KeyRecorder : IDisposable
         unsafe
         {
             delegate* unmanaged<int, nint, nint, nint> callback = &HookProc;
-            _hook = SetWindowsHookExW(WhKeyboardLl, (nint)callback, 0, 0);
+            _hook = NativeMethods.SetWindowsHookExW(NativeMethods.WhKeyboardLl, (nint)callback, 0, 0);
         }
         if (_hook == 0)
         {
@@ -73,7 +50,7 @@ public sealed partial class KeyRecorder : IDisposable
     {
         if (_hook != 0)
         {
-            UnhookWindowsHookEx(_hook);
+            NativeMethods.UnhookWindowsHookEx(_hook);
             _hook = 0;
         }
         if (ReferenceEquals(_active, this))
@@ -88,33 +65,33 @@ public sealed partial class KeyRecorder : IDisposable
         var recorder = _active;
         if (recorder is null || nCode < 0)
         {
-            return CallNextHookEx(0, nCode, wParam, lParam);
+            return NativeMethods.CallNextHookEx(0, nCode, wParam, lParam);
         }
 
         var message = (int)wParam;
         if (message is not (WmKeyDown or WmSysKeyDown))
         {
-            return CallNextHookEx(0, nCode, wParam, lParam);
+            return NativeMethods.CallNextHookEx(0, nCode, wParam, lParam);
         }
 
         int vk;
         unsafe
         {
             // KbdLlHookStruct is blittable; read it straight from the hook data.
-            vk = (int)((KbdLlHookStruct*)lParam)->vkCode;
+            vk = (int)((NativeMethods.KbdLlHookStruct*)lParam)->vkCode;
         }
 
         // Modifier alone isn't a shortcut — keep waiting for the real key.
         if (IsModifier(vk))
         {
-            return CallNextHookEx(0, nCode, wParam, lParam);
+            return NativeMethods.CallNextHookEx(0, nCode, wParam, lParam);
         }
 
         uint modifiers = 0;
-        if (IsDown(VkControl)) modifiers |= Interop.NativeMethods.ModControl;
-        if (IsDown(VkMenu)) modifiers |= Interop.NativeMethods.ModAlt;
-        if (IsDown(VkShift)) modifiers |= Interop.NativeMethods.ModShift;
-        if (IsDown(VkLWin) || IsDown(VkRWin)) modifiers |= Interop.NativeMethods.ModWin;
+        if (IsDown(VkControl)) modifiers |= NativeMethods.ModControl;
+        if (IsDown(VkMenu)) modifiers |= NativeMethods.ModAlt;
+        if (IsDown(VkShift)) modifiers |= NativeMethods.ModShift;
+        if (IsDown(VkLWin) || IsDown(VkRWin)) modifiers |= NativeMethods.ModWin;
 
         var cancelled = vk == VkEscape;
         // Unhook synchronously (LL hooks run on the installing thread, so this is
@@ -133,7 +110,7 @@ public sealed partial class KeyRecorder : IDisposable
             or VkLShift or VkRShift or VkLControl or VkRControl
             or VkLMenu or VkRMenu or VkLWin or VkRWin;
 
-    private static bool IsDown(int vk) => (GetAsyncKeyState(vk) & 0x8000) != 0;
+    private static bool IsDown(int vk) => (NativeMethods.GetAsyncKeyState(vk) & 0x8000) != 0;
 
     /// <summary>Human-readable shortcut text, e.g. "Ctrl + Alt + Home".</summary>
     public static string Describe(HotkeyConfig hotkey)
