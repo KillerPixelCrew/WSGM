@@ -17,7 +17,7 @@ public sealed class StartupAppWatcher : IDisposable
 
     private sealed class WatchState
     {
-        public bool WasAlive;
+        public readonly AliveEdgeDetector Edge = new();
         public DateTime LastRelaunchUtc;
         public bool RelaunchPending;
     }
@@ -61,7 +61,10 @@ public sealed class StartupAppWatcher : IDisposable
 
             var alive = WindowFinder.FindProcessIds(name).Count > 0;
 
-            if (state.WasAlive && !alive && !state.RelaunchPending)
+            // Update() always records the new state, even while a relaunch is
+            // pending — only the reaction is gated, matching the old
+            // WasAlive bookkeeping.
+            if (state.Edge.Update(alive) && !state.RelaunchPending)
             {
                 // A falling edge inside the cooldown isn't dropped — the relaunch is
                 // scheduled for when the cooldown expires (never sooner than the
@@ -74,7 +77,6 @@ public sealed class StartupAppWatcher : IDisposable
                 System.Threading.Tasks.Task.Delay(delay).ContinueWith(_ =>
                     Dispatcher.UIThread.Post(() => Relaunch(path, name, state)));
             }
-            state.WasAlive = alive;
         }
     }
 
