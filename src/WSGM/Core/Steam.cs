@@ -13,6 +13,11 @@ public static class Steam
     /// <summary>steam.exe plus the process that owns the Big Picture window.</summary>
     public const string ProcessNames = "steam;steamwebhelper";
 
+    /// <summary>Just steam.exe — deliberately narrower than <see cref="ProcessNames"/>:
+    /// only the main client services steam:// protocol URLs, so a lingering
+    /// steamwebhelper must not count as "Steam is running" for protocol callers.</summary>
+    public const string MainProcessName = "steam";
+
     /// <summary>Big Picture window class (paired with the steamwebhelper process —
     /// SDL_app alone is not unique to Steam).</summary>
     public const string BigPictureWindowClass = "SDL_app";
@@ -22,39 +27,54 @@ public static class Steam
     /// <summary>Graceful full Steam shutdown (verified client URL).</summary>
     public const string ExitUrl = "steam://exit";
 
+    private static string? _cachedExePath;
+
     /// <summary>Full path to steam.exe from the registry, or null when Steam is not
-    /// installed. HKCU value uses forward slashes — normalized here.</summary>
+    /// installed. HKCU value uses forward slashes — normalized here. The registry+disk
+    /// probe runs once; later reads only re-validate the cached path with File.Exists
+    /// and re-probe when it went missing (uninstall/move).</summary>
     public static string? ExePath
     {
         get
         {
-            try
+            var cached = _cachedExePath;
+            if (cached is not null && File.Exists(cached))
             {
-                if (Registry.GetValue(@"HKEY_CURRENT_USER\Software\Valve\Steam", "SteamExe", null) is string exe
-                    && exe.Length > 0)
-                {
-                    exe = exe.Replace('/', '\\');
-                    if (File.Exists(exe))
-                    {
-                        return exe;
-                    }
-                }
-                if (Registry.GetValue(@"HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Valve\Steam", "InstallPath", null) is string dir
-                    && dir.Length > 0)
-                {
-                    var fromInstallDir = Path.Combine(dir, "steam.exe");
-                    if (File.Exists(fromInstallDir))
-                    {
-                        return fromInstallDir;
-                    }
-                }
+                return cached;
             }
-            catch (Exception ex)
-            {
-                Log.Warn($"Steam registry lookup failed: {ex.Message}");
-            }
-            return null;
+            _cachedExePath = ResolveExePath();
+            return _cachedExePath;
         }
+    }
+
+    private static string? ResolveExePath()
+    {
+        try
+        {
+            if (Registry.GetValue(@"HKEY_CURRENT_USER\Software\Valve\Steam", "SteamExe", null) is string exe
+                && exe.Length > 0)
+            {
+                exe = exe.Replace('/', '\\');
+                if (File.Exists(exe))
+                {
+                    return exe;
+                }
+            }
+            if (Registry.GetValue(@"HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Valve\Steam", "InstallPath", null) is string dir
+                && dir.Length > 0)
+            {
+                var fromInstallDir = Path.Combine(dir, "steam.exe");
+                if (File.Exists(fromInstallDir))
+                {
+                    return fromInstallDir;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Steam registry lookup failed: {ex.Message}");
+        }
+        return null;
     }
 
     public static bool IsInstalled => ExePath is not null;
