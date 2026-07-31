@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using Avalonia.Controls;
@@ -267,20 +266,13 @@ public partial class SettingsWindow : Window
         var tabTip = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFiles),
             @"microsoft shared\ink\TabTip.exe");
-        try
+        if (File.Exists(tabTip))
         {
-            if (File.Exists(tabTip))
-            {
-                Process.Start(new ProcessStartInfo(tabTip) { UseShellExecute = true });
-            }
-            else
-            {
-                Log.Warn($"Touch keyboard host not found: {tabTip}");
-            }
+            AppLauncher.Open(tabTip);
         }
-        catch (Exception ex)
+        else
         {
-            Log.Error("Failed to open touch keyboard", ex);
+            Log.Warn($"Touch keyboard host not found: {tabTip}");
         }
     }
 }

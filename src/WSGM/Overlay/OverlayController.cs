@@ -120,26 +120,25 @@ public sealed class OverlayController : IDisposable
         if (_config.SteamAutoRelaunch)
         {
             Log.Info("Steam exited — auto-relaunching in 10 s.");
-            System.Threading.Tasks.Task.Delay(10_000).ContinueWith(_ =>
-                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            RunOnUiThreadAfter(TimeSpan.FromMilliseconds(10_000), () =>
+            {
+                // Re-checked at fire time: a config reload (_config is replaced
+                // wholesale) may have turned auto-relaunch off, or this
+                // controller may have been disposed while the delay ran.
+                if (_disposed || !_config.SteamAutoRelaunch)
                 {
-                    // Re-checked at fire time: a config reload (_config is replaced
-                    // wholesale) may have turned auto-relaunch off, or this
-                    // controller may have been disposed while the delay ran.
-                    if (_disposed || !_config.SteamAutoRelaunch)
-                    {
-                        Log.Info("Auto-relaunch skipped: disabled or disposed meanwhile.");
-                        return;
-                    }
-                    // The user may have switched to desktop mode (or closed Steam
-                    // deliberately) while this delay was in flight.
-                    if (_monitor?.Paused == true)
-                    {
-                        Log.Info("Auto-relaunch skipped: monitor paused meanwhile.");
-                        return;
-                    }
-                    _modes.StartOrFocusSteam();
-                }));
+                    Log.Info("Auto-relaunch skipped: disabled or disposed meanwhile.");
+                    return;
+                }
+                // The user may have switched to desktop mode (or closed Steam
+                // deliberately) while this delay was in flight.
+                if (_monitor?.Paused == true)
+                {
+                    Log.Info("Auto-relaunch skipped: monitor paused meanwhile.");
+                    return;
+                }
+                _modes.StartOrFocusSteam();
+            });
             return;
         }
         ShowOverlay();
@@ -214,35 +213,40 @@ public sealed class OverlayController : IDisposable
 
     private static void StartTaskManager()
     {
-        try
+        var taskmgr = System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.System), "Taskmgr.exe");
+        // ShellExecute-open: Taskmgr auto-elevates through its own manifest.
+        if (!AppLauncher.Open(taskmgr).Started)
         {
-            var taskmgr = System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.System), "Taskmgr.exe");
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(taskmgr) { UseShellExecute = true });
-            Log.Info("Started Task Manager.");
+            return;
+        }
+        Log.Info("Started Task Manager.");
 
-            // It opens while our focused panel is closing, so the game underneath
-            // reclaims the foreground and Task Manager lands behind it. Wait for
-            // its window and promote it.
-            System.Threading.Tasks.Task.Run(async () =>
-            {
-                for (var attempt = 0; attempt < 12; attempt++)
-                {
-                    await System.Threading.Tasks.Task.Delay(300);
-                    var hwnd = WindowFinder.FindWindow("Taskmgr", windowClass: null);
-                    if (hwnd != 0)
-                    {
-                        Avalonia.Threading.Dispatcher.UIThread.Post(() => WindowFinder.BringToForeground(hwnd));
-                        return;
-                    }
-                }
-                Log.Warn("Task Manager window not found to focus.");
-            });
-        }
-        catch (Exception ex)
+        // It opens while our focused panel is closing, so the game underneath
+        // reclaims the foreground and Task Manager lands behind it. Wait for
+        // its window and promote it.
+        FocusTaskManagerWhenVisible(attempt: 1);
+    }
+
+    /// <summary>Polls for the Task Manager window (12 tries, 300 ms apart) on the
+    /// UI thread and promotes it to the foreground once found.</summary>
+    private static void FocusTaskManagerWhenVisible(int attempt)
+    {
+        RunOnUiThreadAfter(TimeSpan.FromMilliseconds(300), () =>
         {
-            Log.Error("Failed to start Task Manager", ex);
-        }
+            var hwnd = WindowFinder.FindWindow("Taskmgr", windowClass: null);
+            if (hwnd != 0)
+            {
+                WindowFinder.BringToForeground(hwnd);
+                return;
+            }
+            if (attempt >= 12)
+            {
+                Log.Warn("Task Manager window not found to focus.");
+                return;
+            }
+            FocusTaskManagerWhenVisible(attempt + 1);
+        });
     }
 
     /// <summary>Window focused when the overlay opened. Exclusive-fullscreen games
@@ -419,6 +423,13 @@ public sealed class OverlayController : IDisposable
     private bool _closePending;
     private IDisposable? _pendingClose;
 
+    /// <summary>The single idiom for delayed UI-thread work in this controller
+    /// (deferred close, auto-relaunch, Task Manager focus polling). Runs the action
+    /// on the UI thread after the delay; dispose the returned handle to cancel.
+    /// UI-thread callers only — overlay events and SteamMonitor's tick already are.</summary>
+    private static IDisposable RunOnUiThreadAfter(TimeSpan delay, Action action)
+        => Avalonia.Threading.DispatcherTimer.RunOnce(action, delay);
+
     private void CloseOverlay()
     {
         _pendingWarning = "";
@@ -433,12 +444,12 @@ public sealed class OverlayController : IDisposable
         // Kept open a beat, the window's own hook eats the synthesized click.
         // ShowOverlay cancels this via _pendingClose when re-summoned in time.
         _closePending = true;
-        _pendingClose = Avalonia.Threading.DispatcherTimer.RunOnce(() =>
+        _pendingClose = RunOnUiThreadAfter(TimeSpan.FromMilliseconds(150), () =>
         {
             _closePending = false;
             _pendingClose = null;
             _overlay?.Close();
-        }, TimeSpan.FromMilliseconds(150));
+        });
     }
 
     /// <summary>UI sink for the coordinator's Steam start failures.</summary>

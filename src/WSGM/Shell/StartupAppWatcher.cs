@@ -44,7 +44,7 @@ public sealed class StartupAppWatcher : IDisposable
     {
         foreach (var app in _apps)
         {
-            if (!app.Enabled || !app.AutoRelaunch || app.Path.Length == 0 || app.Path.Contains("://"))
+            if (!app.Enabled || !app.AutoRelaunch || app.Path.Length == 0 || AppLauncher.IsProtocol(app.Path))
             {
                 continue;
             }

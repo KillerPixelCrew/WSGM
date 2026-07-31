@@ -39,7 +39,7 @@ public static class SelfElevation
 
         var wantsElevation = config.StartupApps.Any(a => a.Enabled && a.Elevated);
         if (!wantsElevation ||
-            ElevationCheck.IsProcessElevated((uint)Environment.ProcessId) != false)
+            ElevationCheck.IsCurrentProcessElevated() != false)
         {
             return null;
         }

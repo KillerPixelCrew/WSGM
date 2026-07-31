@@ -22,7 +22,7 @@ public static class ExplorerControl
     {
         try
         {
-            var weAreElevated = ElevationCheck.IsProcessElevated((uint)Environment.ProcessId) == true;
+            var weAreElevated = ElevationCheck.IsCurrentProcessElevated() == true;
 
             Process.Start(new ProcessStartInfo(ExplorerPath) { UseShellExecute = true });
             Log.Info("Started explorer.exe");
