@@ -180,55 +180,58 @@ public sealed class OverlayController : IDisposable
         StartOrFocusSteam();
     }
 
-    /// <summary>Brings the next running managed program to the foreground: Steam
-    /// plus every enabled startup app, in config order. There is no taskbar in
-    /// shell mode, so this is the only way to switch between started programs.</summary>
-    private void CycleApps()
+    /// <summary>Populates/toggles the Switch-app picker: alt-tab-style list of the
+    /// actual switchable windows. There is no taskbar in shell mode, so this is
+    /// the only way to move between running programs.</summary>
+    private void ToggleWindowList(OverlayViewModel vm)
     {
-        var windows = new List<(nint Hwnd, bool IsSteam, string Name)>();
-
-        if (_monitor?.IsAlive == true)
+        if (vm.ShowWindowList)
         {
-            var hwnd = WindowFinder.FindWindow(Steam.ProcessNames, Steam.BigPictureWindowClass);
-            if (hwnd != 0)
-            {
-                windows.Add((hwnd, true, "Steam"));
-            }
-        }
-
-        foreach (var app in _config.StartupApps)
-        {
-            if (!app.Enabled || app.Path.Length == 0 || app.Path.Contains("://"))
-            {
-                continue;
-            }
-            var name = System.IO.Path.GetFileNameWithoutExtension(app.Path);
-            var hwnd = WindowFinder.FindWindow(name, windowClass: null);
-            if (hwnd != 0 && !windows.Any(w => w.Hwnd == hwnd))
-            {
-                windows.Add((hwnd, false, name));
-            }
-        }
-
-        if (windows.Count == 0)
-        {
-            Log.Info("Cycle apps: nothing running to switch to.");
+            vm.ShowWindowList = false;
             return;
         }
-
-        var foreground = Interop.NativeMethods.GetForegroundWindow();
-        var index = windows.FindIndex(w => w.Hwnd == foreground);
-        var next = windows[(index + 1) % windows.Count];
-
-        Log.Info($"Cycle apps: focusing {next.Name}.");
-        if (next.IsSteam)
+        var steamPids = WindowFinder.FindProcessIds(Steam.ProcessNames);
+        vm.SwitchableWindows.Clear();
+        foreach (var window in WindowFinder.ListSwitchableWindows())
         {
-            // Protocol re-activation is UIPI-proof.
+            vm.SwitchableWindows.Add(new AppWindowEntry(window.Hwnd, window.Title, steamPids.Contains(window.ProcessId)));
+        }
+        if (vm.SwitchableWindows.Count == 0)
+        {
+            Log.Info("Switch app: no windows to show.");
+            return;
+        }
+        vm.ShowWindowList = true;
+    }
+
+    /// <summary>Picking a window dismisses the panel and brings the app forward
+    /// (Steam via the UIPI-proof protocol).</summary>
+    private void PickWindow(AppWindowEntry entry)
+    {
+        Log.Info($"Switch app: focusing '{entry.Title}'.");
+        CloseOverlay();
+        if (entry.IsSteam)
+        {
             FocusSteam();
         }
         else
         {
-            WindowFinder.BringToForeground(next.Hwnd);
+            WindowFinder.BringToForeground(entry.Hwnd);
+        }
+    }
+
+    private static void StartTaskManager()
+    {
+        try
+        {
+            var taskmgr = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.System), "Taskmgr.exe");
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(taskmgr) { UseShellExecute = true });
+            Log.Info("Started Task Manager.");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Failed to start Task Manager", ex);
         }
     }
 
@@ -247,7 +250,6 @@ public sealed class OverlayController : IDisposable
 
     public void ShowOverlay()
     {
-        // Opportunistic: Steam may have started since the last attempt.
         ApplySteamInputPin();
         HideTouchEdges();
         if (_overlay is not null)
@@ -264,7 +266,6 @@ public sealed class OverlayController : IDisposable
             HomeAppName = "Steam",
             GlyphStyle = _config.GlyphStyle,
             WarningText = _pendingWarning,
-            ShowCycleButton = _config.StartupApps.Any(a => a.Enabled && a.Path.Length > 0 && !a.Path.Contains("://")),
         };
 
         _overlayViewModel = vm;
@@ -289,8 +290,9 @@ public sealed class OverlayController : IDisposable
             ExitBigPicture();
         };
         _overlay.CloseLauncherRequested += () => CloseSteam(vm);
-        // Stays open so repeated presses keep cycling through the running apps.
-        _overlay.CycleAppsRequested += CycleApps;
+        _overlay.SwitchAppsRequested += () => ToggleWindowList(vm);
+        _overlay.WindowPicked += PickWindow;
+        _overlay.TaskManagerRequested += () => { CloseOverlay(); StartTaskManager(); };
         _overlay.SettingsRequested += () =>
         {
             CloseOverlay();

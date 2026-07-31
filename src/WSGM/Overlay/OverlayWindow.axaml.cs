@@ -21,7 +21,9 @@ public partial class OverlayWindow : Window
     public event Action? SettingsRequested;
     public event Action? ExitBigPictureRequested;
     public event Action? CloseLauncherRequested;
-    public event Action? CycleAppsRequested;
+    public event Action? SwitchAppsRequested;
+    public event Action<AppWindowEntry>? WindowPicked;
+    public event Action? TaskManagerRequested;
     public event Action? Dismissed;
 
     private bool _confirmCloseLauncher;
@@ -37,10 +39,6 @@ public partial class OverlayWindow : Window
         KeyDown += OnKeyDown;
         Opened += OnOpened;
         Closed += (_, _) => StopSlide();
-        // Focus-ring flicker diagnosis: rapid activate/deactivate churn hides and
-        // re-shows the focus adorner. Remove once the flicker is understood.
-        Activated += (_, _) => Core.Log.Info("Overlay window activated.");
-        Deactivated += (_, _) => Core.Log.Info("Overlay window deactivated.");
 
         // The overlay takes focus Game-Bar-style: the game stops receiving input
         // while the panel is open. Viable because SteamInputPin keeps the pad
@@ -161,7 +159,16 @@ public partial class OverlayWindow : Window
     private void OnDesktop(object? sender, RoutedEventArgs e) => DesktopRequested?.Invoke();
     private void OnSettings(object? sender, RoutedEventArgs e) => SettingsRequested?.Invoke();
     private void OnExitBigPicture(object? sender, RoutedEventArgs e) => ExitBigPictureRequested?.Invoke();
-    private void OnCycleApps(object? sender, RoutedEventArgs e) => CycleAppsRequested?.Invoke();
+    private void OnSwitchApps(object? sender, RoutedEventArgs e) => SwitchAppsRequested?.Invoke();
+    private void OnTaskManager(object? sender, RoutedEventArgs e) => TaskManagerRequested?.Invoke();
+
+    private void OnPickWindow(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Avalonia.Controls.Control)?.DataContext is AppWindowEntry entry)
+        {
+            WindowPicked?.Invoke(entry);
+        }
+    }
     private void OnClose(object? sender, RoutedEventArgs e) => Dismissed?.Invoke();
 
     private void OnCloseLauncher(object? sender, RoutedEventArgs e)

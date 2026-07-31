@@ -1,7 +1,16 @@
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using WSGM.Core;
 
 namespace WSGM.Overlay;
+
+/// <summary>One pickable window in the Switch-app list.</summary>
+public sealed class AppWindowEntry(nint hwnd, string title, bool isSteam)
+{
+    public nint Hwnd { get; } = hwnd;
+    public string Title { get; } = title;
+    public bool IsSteam { get; } = isSteam;
+}
 
 /// <summary>State for the overlay, recomputed every time it is shown.</summary>
 public sealed class OverlayViewModel : INotifyPropertyChanged
@@ -46,9 +55,15 @@ public sealed class OverlayViewModel : INotifyPropertyChanged
         set { _glyphStyle = value; Raise(nameof(GlyphStyle)); }
     }
 
-    /// <summary>Shown when startup apps are configured — without a taskbar the
-    /// sidebar is the only way to switch between them.</summary>
-    public bool ShowCycleButton { get; init; }
+    /// <summary>Windows offered by the Switch-app picker (rebuilt on each press).</summary>
+    public ObservableCollection<AppWindowEntry> SwitchableWindows { get; } = [];
+
+    private bool _showWindowList;
+    public bool ShowWindowList
+    {
+        get => _showWindowList;
+        set { _showWindowList = value; Raise(nameof(ShowWindowList)); }
+    }
 
     public string DesktopButtonText => ExplorerRunning ? "Back to Game Mode" : "Return to Desktop";
     public string HomeAppButtonText => HomeAppAlive ? $"Focus {HomeAppName}" : $"Start {HomeAppName}";

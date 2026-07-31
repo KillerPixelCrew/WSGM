@@ -14,7 +14,10 @@ namespace WSGM.Input;
 /// Deterministic and AOT-safe.</summary>
 public sealed class GamepadNavigation : IDisposable
 {
-    private static readonly TimeSpan KeyboardSuppression = TimeSpan.FromMilliseconds(100);
+    // Must exceed the OS keyboard auto-repeat interval relative to the 150 ms pad
+    // repeat cadence, or synthesized arrows slip through between pad repeats and
+    // double-step the focus.
+    private static readonly TimeSpan KeyboardSuppression = TimeSpan.FromMilliseconds(250);
 
     private readonly GamepadService _gamepad;
     private readonly Window _window;
@@ -158,7 +161,6 @@ public sealed class GamepadNavigation : IDisposable
         {
             input.Focus(NavigationMethod.Directional);
             _lastFocused = input;
-            Log.Info($"Gamepad nav: focus -> {(input as Avalonia.Controls.Control)?.Name ?? input.GetType().Name}");
         }
         else
         {

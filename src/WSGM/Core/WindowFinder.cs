@@ -91,6 +91,66 @@ public static class WindowFinder
         return 0; // stop enumeration
     }
 
+    public sealed record AppWindow(nint Hwnd, string Title, uint ProcessId);
+
+    private static List<AppWindow>? _listResult;
+    private static uint _listOwnPid;
+
+    /// <summary>Alt-tab style enumeration: visible, titled, top-level windows that
+    /// are not tool windows, not DWM-cloaked (suspended UWP ghosts), and not ours.
+    /// Z-order top first.</summary>
+    public static List<AppWindow> ListSwitchableWindows()
+    {
+        lock (Gate)
+        {
+            _listResult = [];
+            _listOwnPid = (uint)Environment.ProcessId;
+            unsafe
+            {
+                delegate* unmanaged<nint, nint, int> callback = &ListWindowsProc;
+                NativeMethods.EnumWindows((nint)callback, 0);
+            }
+            var result = _listResult;
+            _listResult = null;
+            return result;
+        }
+    }
+
+    [UnmanagedCallersOnly]
+    private static int ListWindowsProc(nint hWnd, nint lParam)
+    {
+        var list = _listResult;
+        if (list is null)
+        {
+            return 0;
+        }
+        if (!NativeMethods.IsWindowVisible(hWnd))
+        {
+            return 1;
+        }
+        if ((NativeMethods.GetWindowLong(hWnd, NativeMethods.GwlExStyle) & NativeMethods.WsExToolWindow) != 0)
+        {
+            return 1;
+        }
+        NativeMethods.GetWindowThreadProcessId(hWnd, out var pid);
+        if (pid == _listOwnPid)
+        {
+            return 1;
+        }
+        if (NativeMethods.DwmGetWindowAttribute(hWnd, NativeMethods.DwmWaCloaked, out var cloaked, 4) == 0 && cloaked != 0)
+        {
+            return 1;
+        }
+        var buffer = new char[256];
+        var length = NativeMethods.GetWindowTextW(hWnd, buffer, buffer.Length);
+        if (length <= 0)
+        {
+            return 1;
+        }
+        list.Add(new AppWindow(hWnd, new string(buffer, 0, length), pid));
+        return 1;
+    }
+
     /// <summary>Best-effort focus. Against an elevated window SetForegroundWindow may
     /// fail silently under UIPI — callers should prefer protocol re-activation.</summary>
     public static void BringToForeground(nint hWnd)

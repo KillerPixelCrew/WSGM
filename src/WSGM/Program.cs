@@ -125,6 +125,20 @@ public static class Program
             e.SetObserved();
         };
 
+        UpdateExitWatcher.Start(() => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            if (Avalonia.Application.Current?.ApplicationLifetime
+                is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime lifetime)
+            {
+                lifetime.Shutdown();
+            }
+            else
+            {
+                SteamInputPin.ReleaseBestEffort("update-exit");
+                Environment.Exit(0);
+            }
+        }));
+
         try
         {
             var exitCode = BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);

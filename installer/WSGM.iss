@@ -76,23 +76,47 @@ begin
   Result := not WasRunning;
 end;
 
-// WSGM is almost certainly running during an update (it IS the shell). Remember
-// what was running, kill it so the files can be replaced, and the [Run] section
-// restarts it in the mode it had. Kill twice with a pause in between in case
-// Winlogon's AutoRestartShell resurrects the shell process from the old exe.
+function OpenEventW(dwDesiredAccess: LongWord; bInheritHandle: BOOL; lpName: String): THandle;
+  external 'OpenEventW@kernel32.dll stdcall';
+function SetEvent(hEvent: THandle): BOOL;
+  external 'SetEvent@kernel32.dll stdcall';
+function CloseHandleK(hObject: THandle): BOOL;
+  external 'CloseHandle@kernel32.dll stdcall';
+
+// WSGM is almost certainly running during an update (it IS the shell), and it
+// may be ELEVATED — this unelevated setup cannot taskkill it. Instead WSGM
+// listens on a named event and exits itself gracefully (which also releases
+// the Steam Input pin). taskkill remains as fallback for unelevated leftovers.
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
-  R: Integer;
+  R, I: Integer;
+  H: THandle;
+  Signaled: Boolean;
 begin
   // Only the shell-mode instance holds this mutex (session namespace).
   WasShell := CheckForMutexes('WSGM.Shell');
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM WSGM.exe /F', '', SW_HIDE, ewWaitUntilTerminated, R);
-  WasRunning := WasShell or (R = 0);
-  if WasRunning then
+
+  Signaled := False;
+  H := OpenEventW($0002 { EVENT_MODIFY_STATE }, False, 'Local\WSGM.ExitForUpdate');
+  if H <> 0 then
   begin
-    Sleep(1500);
-    Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM WSGM.exe /F', '', SW_HIDE, ewWaitUntilTerminated, R);
+    SetEvent(H);
+    CloseHandleK(H);
+    Signaled := True;
+    // Wait for the graceful exit (shell mutex disappears when the process dies).
+    for I := 1 to 20 do
+    begin
+      if not CheckForMutexes('WSGM.Shell') then Break;
+      Sleep(500);
+    end;
     Sleep(500);
   end;
+
+  // Fallback / leftovers (unelevated instances only — elevated ones already
+  // exited via the event).
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM WSGM.exe /F', '', SW_HIDE, ewWaitUntilTerminated, R);
+  WasRunning := WasShell or Signaled or (R = 0);
+  if WasRunning then
+    Sleep(500);
   Result := '';
 end;

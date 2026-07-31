@@ -60,16 +60,24 @@
                             </StackPanel>
                         </Grid>
                     </Button>
-                    <Button x:Name="CycleAppsButton" Classes="quick-row" Click="OnCycleApps"
-                            IsVisible="{Binding ShowCycleButton}">
+                    <Button x:Name="SwitchAppButton" Classes="quick-row" Click="OnSwitchApps">
                         <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
                             <TextBlock Text="⇄" FontSize="15" VerticalAlignment="Center" HorizontalAlignment="Center" />
                             <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
-                                <TextBlock Text="Next app" Classes="setting-title" />
-                                <TextBlock Text="Cycle through your running programs" Classes="caption" />
+                                <TextBlock Text="Switch app" Classes="setting-title" />
+                                <TextBlock Text="Pick one of your running programs" Classes="caption" />
                             </StackPanel>
                         </Grid>
                     </Button>
+                    <ItemsControl IsVisible="{Binding ShowWindowList}" ItemsSource="{Binding SwitchableWindows}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="ov:AppWindowEntry">
+                                <Button Classes="quick-row" Margin="24,2,0,0" Click="OnPickWindow">
+                                    <TextBlock Text="{Binding Title}" Classes="setting-title" TextTrimming="CharacterEllipsis" />
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
                     <Button x:Name="CloseLauncherButton" Classes="quick-row" Click="OnCloseLauncher"
                             IsVisible="{Binding HomeAppAlive}">
                         <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
@@ -88,6 +96,15 @@
                             <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
                                 <TextBlock Text="Settings" Classes="setting-title" />
                                 <TextBlock Text="Shell, startup, and quick access configuration" Classes="caption" />
+                            </StackPanel>
+                        </Grid>
+                    </Button>
+                    <Button Classes="quick-row" Click="OnTaskManager">
+                        <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
+                            <TextBlock Text="▦" FontSize="15" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                <TextBlock Text="Task Manager" Classes="setting-title" />
+                                <TextBlock Text="Processes and performance" Classes="caption" />
                             </StackPanel>
                         </Grid>
                     </Button>
@@ -142,15 +159,31 @@
     </Border>
 
     <Window.Styles>
+        <!-- Focus ring flicker fix: Avalonia's default focus visual is an ADORNER
+             that is destroyed and rebuilt on every focus move (and silently lost
+             on activation blips). Kill it and paint a stable :focus border inside
+             the buttons instead — constant 2px thickness so nothing shifts. -->
+        <Style Selector="Button">
+            <Setter Property="FocusAdorner" Value="{x:Null}" />
+        </Style>
         <Style Selector="Button.quick-row">
             <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource HcCardBorderBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="BorderThickness" Value="2" />
             <Setter Property="CornerRadius" Value="4" />
             <Setter Property="MinHeight" Value="44" />
             <Setter Property="Padding" Value="10,6" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             <Setter Property="HorizontalAlignment" Value="Stretch" />
+        </Style>
+        <Style Selector="Button.quick-row:focus">
+            <Setter Property="BorderBrush" Value="{StaticResource HcAccentBrush}" />
+        </Style>
+        <Style Selector="Button.quick-row.primary:focus">
+            <Setter Property="BorderBrush" Value="White" />
+        </Style>
+        <Style Selector="Button.close:focus">
+            <Setter Property="Foreground" Value="White" />
         </Style>
         <Style Selector="Button.quick-row:pointerover">
             <Setter Property="Background" Value="#FF383838" />
