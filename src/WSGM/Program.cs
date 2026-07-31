@@ -129,10 +129,12 @@ public static class Program
                           "Restoring previous shell and starting explorer.");
                 ShellRegistration.Uninstall();
                 ExplorerControl.StartExplorer();
+                // Pin release first (invariant: fires on EVERY recovery path,
+                // ahead of cosmetic restores) — same ordering as --restore-shell.
+                SteamInputPin.ReleaseBestEffort("crash-loop");
                 // The desktop we just brought back should behave like a touch desktop.
                 SlateMode.ApplyDesktopMode();
                 RestoreDisplayScalesBestEffort();
-                SteamInputPin.ReleaseBestEffort("crash-loop");
                 // Clear the marker so the next manual start isn't instantly disarmed.
                 CrashLoopBreaker.Reset();
                 return 1;

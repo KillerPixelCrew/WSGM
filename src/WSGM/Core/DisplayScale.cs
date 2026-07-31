@@ -118,7 +118,17 @@ public static partial class DisplayScale
             {
                 continue;
             }
-            captured.Add(new DisplayScaleEntry { DeviceName = GetSourceDeviceName(source), Percent = (int)current });
+            var name = GetSourceDeviceName(source);
+            if (name.Length == 0)
+            {
+                // A ""-named entry can never be matched by name on restore, so it
+                // would sit in the config forever, re-logged on every restore.
+                // Leave this display's scaling untouched rather than lower a value
+                // we could not identify for restore.
+                Log.Warn($"Display scale: device name query failed for a display at {current}% — leaving it unchanged.");
+                continue;
+            }
+            captured.Add(new DisplayScaleEntry { DeviceName = name, Percent = (int)current });
             toLower.Add((source, current));
         }
 
@@ -179,11 +189,30 @@ public static partial class DisplayScale
         }
 
         var remaining = new List<DisplayScaleEntry>();
+        var positional = 0;   // next active source for legacy ""-named entries
         foreach (var entry in config.SavedDisplayScaleEntries)
         {
             if (entry.Percent is not (>= 100 and <= 500))
             {
                 continue;   // garbage value — dropping it is the only safe move
+            }
+            if (string.IsNullOrEmpty(entry.DeviceName))
+            {
+                // Written by an older build whose name query failed: "" can never
+                // match by name, so pair it positionally like the legacy
+                // index-paired list — and never re-save it, or it would block in
+                // the config forever, warned about on every restore.
+                if (positional < named.Count &&
+                    TrySetScale(named[positional].Source, (uint)entry.Percent))
+                {
+                    Log.Info($"Display scale restored to {entry.Percent}% (unnamed legacy entry, positional -> '{named[positional].Name}').");
+                }
+                else
+                {
+                    Log.Warn($"Display scale: dropping unmatchable unnamed entry ({entry.Percent}%).");
+                }
+                positional++;
+                continue;
             }
             var idx = named.FindIndex(s => string.Equals(s.Name, entry.DeviceName, StringComparison.OrdinalIgnoreCase));
             if (idx < 0)

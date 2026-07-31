@@ -157,10 +157,34 @@ public static class Installer
     /// outside its own directory: display scaling, UAC prompt level, lock-on-wake,
     /// and slate-mode posture. Called by UninstallApp and by --uninstall-restore;
     /// each step is isolated so one failure cannot stop the rest. The UAC and
-    /// lock-on-wake writes need elevation — when unelevated they fail with their
-    /// own log lines and everything else still runs.</summary>
+    /// lock-on-wake writes need elevation (HKLM) — when this runs unelevated and
+    /// either snapshot needs restoring, the whole restore is handed to one
+    /// elevated --uninstall-restore instance (a single UAC prompt); declining
+    /// leaves those two settings as-is and everything else still runs.</summary>
     public static void RestoreMachineSettings()
     {
+        // The Inno uninstaller runs --uninstall-restore unelevated
+        // (PrivilegesRequired=lowest): without this hand-off the HKLM writes
+        // below always fail silently and uninstall would leave UAC prompts
+        // disabled and lock-on-wake off. Route only when provably unelevated —
+        // null (unknown) must not spawn a child that could loop forever.
+        try
+        {
+            if (ElevationCheck.IsCurrentProcessElevated() == false && NeedsElevatedRestore())
+            {
+                if (SelfElevation.RunElevatedAction("--uninstall-restore", "Uninstall restore"))
+                {
+                    // The elevated instance ran this whole method with full rights.
+                    return;
+                }
+                Log.Warn("Uninstall restore: elevation declined — UAC/lock-on-wake settings left as-is.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Uninstall restore: elevated hand-off failed: {ex.Message}");
+        }
+
         try
         {
             var config = ConfigStore.Load();
@@ -206,6 +230,22 @@ public static class Installer
         catch (Exception ex)
         {
             Log.Warn($"Uninstall restore: slate mode failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>True when a snapshot exists whose restore needs an HKLM write —
+    /// the same conditions the restore steps themselves check.</summary>
+    private static bool NeedsElevatedRestore()
+    {
+        try
+        {
+            var config = ConfigStore.Load();
+            return (config.PreviousUacSnapshotCaptured && UacSettings.Read().PromptsDisabled)
+                || (config.PreviousLockOnWakeSnapshotCaptured && LockScreenSettings.SignInOnWakeDisabled());
+        }
+        catch
+        {
+            return false;
         }
     }
 

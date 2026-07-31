@@ -58,6 +58,14 @@ internal sealed class ChordTracker : IDisposable
         Released?.Invoke(pad);
         pad.Union = 0;
         pad.HoldConsumed = false;
+        // Evict on full release: SDL hands every replug a fresh joystick instance
+        // id, so after removal (GamepadService synthesizes a 0-state) this entry
+        // could never be reused — keeping it would leak one Pad+timer per replug.
+        // Safe for a still-connected pad too: the next press creates a fresh Pad
+        // whose state (Union=0, HoldConsumed=false, timer stopped) is exactly the
+        // post-release reset above, so chord accumulation semantics are unchanged.
+        // The hold timer was stopped before this branch, so nothing keeps firing.
+        _pads.Remove(padId);
     }
 
     /// <summary>Abandons every pad's in-flight episode.</summary>

@@ -499,7 +499,10 @@ public sealed class OverlayController : IDisposable
         }
         // Close through the same deferred path as every dismissal: an immediate
         // Close() would skip the 150 ms grace and bring back the ghost clicks the
-        // deferral exists for.
+        // deferral exists for. When Dispose runs during process exit the
+        // dispatcher may stop pumping before the 150 ms lands and the Close()
+        // never runs — deliberately fine: the pin was already released
+        // synchronously above, and process exit destroys the window anyway.
         CloseOverlay();
     }
 
