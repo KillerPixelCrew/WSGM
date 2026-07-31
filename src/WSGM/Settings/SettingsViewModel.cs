@@ -160,12 +160,14 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     public void Install()
     {
         // Self-contained: persist the settings first so the config on disk always
-        // matches what the shell registration snapshots below.
-        Save();
+        // matches what the shell registration snapshots below. Hand the merged
+        // config (not the startup-time _config) to Install so its Save doesn't
+        // re-clobber snapshot fields persisted by other processes meanwhile.
+        var config = SaveMerged();
         // Always anchor the shell registration to the stable installed copy,
         // never to a Downloads/dev path.
         Installer.InstallApp();
-        ShellRegistration.Install(_config);
+        ShellRegistration.Install(config);
         RaiseShellStatus();
     }
 
@@ -304,9 +306,23 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     public void Save()
     {
-        ApplyTo(_config);
-        ConfigStore.Save(_config);
+        SaveMerged();
+    }
+
+    /// <summary>Applies the UI-owned fields over a FRESH load and saves that.
+    /// While this window is open, the elevated one-shots (UAC, lock-on-wake) and
+    /// the shell persist registry snapshots and display-scale/slate state to the
+    /// same file; serializing the startup-time _config would reset every one of
+    /// those fields to defaults on disk, breaking exact restore on uninstall.
+    /// The config mutex only serializes individual reads/writes — it cannot
+    /// merge — so the merge has to happen here.</summary>
+    private AppConfig SaveMerged()
+    {
+        var config = ConfigStore.Load();
+        ApplyTo(config);
+        ConfigStore.Save(config);
         Log.Info("Settings saved.");
+        return config;
     }
 
     public AppConfig SnapshotForTest()

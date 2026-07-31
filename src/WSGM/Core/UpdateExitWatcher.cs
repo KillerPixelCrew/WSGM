@@ -55,20 +55,33 @@ public static class UpdateExitWatcher
             {
                 // The event already exists (another WSGM instance created it) and its
                 // DACL grants Everyone only MODIFY_STATE|SYNCHRONIZE, so CreateEventW's
-                // implicit EVENT_ALL_ACCESS open is denied. SYNCHRONIZE is all a waiter
+                // implicit EVENT_ALL_ACCESS open is denied. SYNCHRONIZE to wait plus
+                // MODIFY_STATE for the stale-signal reset below is all a watcher
                 // needs — device-confirmed 'CreateEvent failed' in the field.
-                _event = NativeMethods.OpenEventW(NativeMethods.Synchronize, false, EventName);
+                _event = NativeMethods.OpenEventW(NativeMethods.Synchronize | NativeMethods.EventModifyState, false, EventName);
                 if (_event == 0)
                 {
                     Log.Warn($"Update-exit watcher: OpenEvent fallback failed (error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}).");
                     return;
                 }
-                Log.Info("Update-exit watcher: opened existing event (SYNCHRONIZE).");
+                Log.Info("Update-exit watcher: opened existing event (MODIFY_STATE|SYNCHRONIZE).");
             }
             else if (_event == 0)
             {
                 Log.Warn($"Update-exit watcher: CreateEvent failed (error {createError}).");
                 return;
+            }
+
+            // A manual-reset event stays signaled for as long as ANY handle keeps the
+            // kernel object alive. After an update, the old instance's slow graceful
+            // teardown can carry the installer's signal past the relaunch; without
+            // this reset the fresh instance would see that stale signal and shut
+            // itself down immediately — update "done", no shell running. Any signal
+            // present at watcher start predates this process, so clearing it is
+            // always correct (Everyone's grant includes EVENT_MODIFY_STATE).
+            if (!NativeMethods.ResetEvent(_event))
+            {
+                Log.Warn($"Update-exit watcher: could not clear stale signal (error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}).");
             }
 
             var thread = new Thread(() =>

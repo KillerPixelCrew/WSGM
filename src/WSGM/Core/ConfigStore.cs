@@ -10,8 +10,12 @@ public static class ConfigStore
     public static string ConfigPath => Path.Combine(Log.Directory, "config.json");
 
     // Shell, settings window, and elevated one-shots all load-modify-save the same
-    // file; the named mutex keeps a stale copy from clobbering a fresh write. The
-    // timeout is short and a miss only logs — recovery paths must never block here.
+    // file; the named mutex serializes the individual Load/Save calls so they never
+    // interleave. It CANNOT merge: saving an AppConfig loaded long ago overwrites
+    // every field another process persisted in between, so long-lived holders must
+    // re-load and re-apply only their own fields before saving (see
+    // SettingsViewModel.SaveMerged). The timeout is short and a miss only logs —
+    // recovery paths must never block here.
     private const string MutexName = @"Local\WSGM.Config";
     private const int MutexTimeoutMs = 2000;
 
