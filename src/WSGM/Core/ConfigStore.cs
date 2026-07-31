@@ -52,6 +52,8 @@ public static class ConfigStore
         config.GamepadChord ??= new GamepadChordConfig();
         config.Gestures ??= new GestureConfig();
         config.SavedDisplayScales ??= [];
+        config.SavedDisplayScaleEntries ??= [];
+        config.PreviousConsoleLockSchemeValues ??= [];
         return config;
     }
 
