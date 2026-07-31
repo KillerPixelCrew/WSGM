@@ -38,7 +38,6 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     private const int MinimumBandPx = 48;
     private const int TriggerDistancePx = 48;
     private const ulong TriggerTimeMs = 800;
-    private const int ErrorClassAlreadyExists = 1410;
 
     private static readonly object Gate = new();
     // Raw-input registration is per-process per HID usage: registering a second
@@ -49,7 +48,6 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     // never take the live shell's edge swipes down with it).
     private static readonly List<TouchSwipeMonitor> Instances = [];
     private static nint _sharedHwnd;
-    private static bool _windowClassRegistered;
 
     private sealed class DeviceCaps
     {
@@ -111,17 +109,12 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
 
     private static void CreateSharedWindowAndRegister()
     {
-        var hInstance = NativeMethods.GetModuleHandleW(0);
-        EnsureWindowClass(hInstance);
-
-        _sharedHwnd = NativeMethods.CreateWindowExW(
-            0, WindowClassName, null, 0,
-            0, 0, 0, 0,
-            NativeMethods.HwndMessage, 0, hInstance, 0);
-        if (_sharedHwnd == 0)
-        {
-            throw new InvalidOperationException("Failed to create raw touch input window.");
-        }
+        // Class registration + HWND_MESSAGE creation share MessageWindow's code
+        // path; the raw-input registration below stays entirely local so its
+        // semantics (dedicated INPUTSINK target, last-monitor teardown) are
+        // unchanged.
+        _sharedHwnd = MessageWindow.CreateMessageOnlyWindow(
+            WindowClassName, &WndProc, "Failed to create raw touch input window.");
 
         var devices = new[]
         {
@@ -191,35 +184,6 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
             _armed = false;
             _tracking = false;
             Log.Info("Touch edge swipes disarmed.");
-        }
-    }
-
-    private static void EnsureWindowClass(nint hInstance)
-    {
-        lock (Gate)
-        {
-            if (_windowClassRegistered)
-            {
-                return;
-            }
-
-            var className = WindowClassName + "\0";
-            fixed (char* classNamePointer = className)
-            {
-                var windowClass = new NativeMethods.WndClassW
-                {
-                    hInstance = hInstance,
-                    lpszClassName = (nint)classNamePointer,
-                    lpfnWndProc = &WndProc,
-                };
-                var atom = NativeMethods.RegisterClassW(&windowClass);
-                if (atom == 0 && Marshal.GetLastWin32Error() != ErrorClassAlreadyExists)
-                {
-                    throw new InvalidOperationException("Failed to register raw touch input window class.");
-                }
-            }
-
-            _windowClassRegistered = true;
         }
     }
 
