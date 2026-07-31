@@ -233,6 +233,24 @@ public sealed class OverlayController : IDisposable
                 Environment.GetFolderPath(Environment.SpecialFolder.System), "Taskmgr.exe");
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(taskmgr) { UseShellExecute = true });
             Log.Info("Started Task Manager.");
+
+            // It opens while our focused panel is closing, so the game underneath
+            // reclaims the foreground and Task Manager lands behind it. Wait for
+            // its window and promote it.
+            System.Threading.Tasks.Task.Run(async () =>
+            {
+                for (var attempt = 0; attempt < 12; attempt++)
+                {
+                    await System.Threading.Tasks.Task.Delay(300);
+                    var hwnd = WindowFinder.FindWindow("Taskmgr", windowClass: null);
+                    if (hwnd != 0)
+                    {
+                        Avalonia.Threading.Dispatcher.UIThread.Post(() => WindowFinder.BringToForeground(hwnd));
+                        return;
+                    }
+                }
+                Log.Warn("Task Manager window not found to focus.");
+            });
         }
         catch (Exception ex)
         {
