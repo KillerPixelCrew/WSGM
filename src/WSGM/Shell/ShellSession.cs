@@ -88,6 +88,13 @@ public sealed class ShellSession
 
     private async Task LaunchAppsAsync()
     {
+        var haveApps = _config.StartupApps.Exists(a => a.Enabled && !string.IsNullOrWhiteSpace(a.Path));
+        if (haveApps && _config.StartupDelayMs > 0)
+        {
+            Log.Info($"Waiting {_config.StartupDelayMs} ms before the first startup app (boot settle).");
+            await Task.Delay(_config.StartupDelayMs);
+        }
+
         foreach (var app in _config.StartupApps)
         {
             if (!app.Enabled || string.IsNullOrWhiteSpace(app.Path))

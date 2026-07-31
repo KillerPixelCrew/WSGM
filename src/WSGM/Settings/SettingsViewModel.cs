@@ -37,6 +37,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         _config = ConfigStore.Load();
 
         SteamAutoRelaunch = _config.SteamAutoRelaunch;
+        StartupDelayMs = _config.StartupDelayMs;
         StaggerDelayMs = _config.StaggerDelayMs;
         _hotkey = _config.Hotkey;
         _chord = _config.GamepadChord;
@@ -190,6 +191,9 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     // --- Startup apps ---
     public ObservableCollection<StartupAppRow> StartupApps { get; } = [];
 
+    private int _startupDelayMs;
+    public int StartupDelayMs { get => _startupDelayMs; set { _startupDelayMs = value; Raise(nameof(StartupDelayMs)); } }
+
     private int _staggerDelayMs;
     public int StaggerDelayMs { get => _staggerDelayMs; set { _staggerDelayMs = value; Raise(nameof(StaggerDelayMs)); } }
 
@@ -278,6 +282,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private void ApplyTo(AppConfig config)
     {
         config.SteamAutoRelaunch = SteamAutoRelaunch;
+        config.StartupDelayMs = StartupDelayMs;
         config.StaggerDelayMs = StaggerDelayMs;
         config.Hotkey = _hotkey;
         config.GamepadChord = _chord;

@@ -61,6 +61,11 @@ public sealed class AppConfig
     /// via the registry (see Core.Steam) — there is nothing else to configure.</summary>
     public bool SteamAutoRelaunch { get; set; }
     public List<StartupAppConfig> StartupApps { get; set; } = [];
+    /// <summary>Delay before the FIRST startup app. Apps launch a few hundred ms
+    /// into the logon session, right after the game-mode display-scale change —
+    /// tools started into that window can hang (device-observed with Handheld
+    /// Companion, intermittent). This lets the session and the DPI change settle.</summary>
+    public int StartupDelayMs { get; set; } = 3000;
     public int StaggerDelayMs { get; set; } = 1500;
     /// <summary>Extra delay before Steam Big Picture is started at logon.</summary>
     public int SteamDelayMs { get; set; } = 0;
