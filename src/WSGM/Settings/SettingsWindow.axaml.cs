@@ -9,6 +9,7 @@ using FluentAvalonia.UI.Controls;
 using WSGM.Core;
 using WSGM.Input;
 using WSGM.Overlay;
+using WSGM.Shell;
 
 namespace WSGM.Settings;
 
@@ -253,7 +254,8 @@ public partial class SettingsWindow : Window
         // Use the real controller so behavior matches shell mode exactly. Rebuild it
         // for every test so unsaved glyph/input changes take effect immediately.
         _testOverlay?.Dispose();
-        _testOverlay = new OverlayController(_viewModel.SnapshotForTest(), monitor: null);
+        var config = _viewModel.SnapshotForTest();
+        _testOverlay = new OverlayController(config, monitor: null, new SessionModes(config, monitor: null));
         _testOverlay.ShowOverlay();
     }
 

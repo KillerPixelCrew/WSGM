@@ -13,6 +13,7 @@ public sealed class OverlayController : IDisposable
 {
     private AppConfig _config;
     private readonly SteamMonitor? _monitor;
+    private readonly SessionModes _modes;
     private readonly HotkeyService _hotkey;
     private readonly GamepadService _gamepad = new();
     private readonly GamepadChordWatcher _chordWatcher;
@@ -23,16 +24,13 @@ public sealed class OverlayController : IDisposable
     private string _pendingWarning = "";
     private bool _reopenOverlayForWarning;
     private bool _disposed;
-    private readonly object _homeLaunchGate = new();
-    private bool _homeLaunchInProgress;
-    private DateTime _lastHomeLaunchUtc;
 
-    private static readonly TimeSpan HomeLaunchCooldown = TimeSpan.FromSeconds(5);
-
-    public OverlayController(AppConfig config, SteamMonitor? monitor)
+    public OverlayController(AppConfig config, SteamMonitor? monitor, SessionModes modes)
     {
         _config = config;
         _monitor = monitor;
+        _modes = modes;
+        _modes.SteamStartFailed += WarnOrReopen;
 
         _hotkey = new HotkeyService(MessageWindow.Create());
         _hotkey.Pressed += ShowOverlay;
@@ -91,6 +89,7 @@ public sealed class OverlayController : IDisposable
     public void ApplyConfig(AppConfig config)
     {
         _config = config;
+        _modes.ApplyConfig(config);
         _hotkey.Apply(config.Hotkey);
         _chordWatcher.ApplyConfig(config.GamepadChord);
         var chordActive = config.GamepadChord.Enabled && config.GamepadChord.Buttons != 0;
@@ -139,7 +138,7 @@ public sealed class OverlayController : IDisposable
                         Log.Info("Auto-relaunch skipped: monitor paused meanwhile.");
                         return;
                     }
-                    StartOrFocusSteam();
+                    _modes.StartOrFocusSteam();
                 }));
             return;
         }
@@ -170,50 +169,6 @@ public sealed class OverlayController : IDisposable
         }
         _pinReleased = true;
         SteamInputPin.Apply(0);
-    }
-
-    /// <summary>Asks Steam to leave Big Picture (Steam keeps running). No-op if
-    /// Steam isn't running.</summary>
-    private void ExitBigPicture()
-    {
-        // Live check, not the up-to-5 s-stale monitor poll: entering desktop mode
-        // right after Steam started must still send the close URL.
-        if (!Steam.IsRunning)
-        {
-            return;
-        }
-        Log.Info("Exiting Steam Big Picture.");
-        AppLauncher.StartProtocol(Steam.CloseBigPictureUrl);
-    }
-
-    /// <summary>Desktop mode: stop reacting to Steam (no auto-relaunch, no overlay
-    /// pop), drop Steam out of Big Picture, bring the desktop up.</summary>
-    private void EnterDesktopMode()
-    {
-        Log.Info("Entering desktop mode.");
-        if (_monitor is not null)
-        {
-            _monitor.Paused = true;
-        }
-        ExitBigPicture();
-        SlateMode.ApplyDesktopMode(_config);
-        DisplayScale.RestoreSaved(_config);
-        ExplorerControl.StartExplorer();
-    }
-
-    /// <summary>Game mode: desktop goes away, monitoring resumes, Big Picture comes
-    /// back (the protocol also boots Steam if it exited while on the desktop).</summary>
-    private void EnterGameMode()
-    {
-        Log.Info("Entering game mode.");
-        ExplorerControl.KillExplorer();
-        SlateMode.ApplyGameMode(_config);
-        DisplayScale.ApplyGameMode(_config);
-        if (_monitor is not null)
-        {
-            _monitor.Paused = false;
-        }
-        StartOrFocusSteam();
     }
 
     /// <summary>Populates/toggles the Switch-app picker: alt-tab-style list of the
@@ -249,7 +204,7 @@ public sealed class OverlayController : IDisposable
         CloseOverlay();
         if (entry.IsSteam)
         {
-            FocusSteam();
+            _modes.FocusSteam();
         }
         else
         {
@@ -288,19 +243,6 @@ public sealed class OverlayController : IDisposable
         {
             Log.Error("Failed to start Task Manager", ex);
         }
-    }
-
-    /// <summary>Deliberately stops Steam (graceful steam://exit). Pauses the monitor
-    /// first so neither auto-relaunch nor the exit-overlay reaction fires.</summary>
-    private void CloseSteam(OverlayViewModel vm)
-    {
-        if (_monitor is not null)
-        {
-            _monitor.Paused = true;
-        }
-        Log.Info("Closing Steam (steam://exit).");
-        AppLauncher.StartProtocol(Steam.ExitUrl);
-        vm.HomeAppAlive = false;
     }
 
     /// <summary>Window focused when the overlay opened. Exclusive-fullscreen games
@@ -361,7 +303,7 @@ public sealed class OverlayController : IDisposable
 
         _overlayViewModel = vm;
         _overlay = new OverlayWindow(vm);
-        _overlay.HomeAppRequested += () => { _suppressFocusRestore = true; CloseOverlay(); StartOrFocusSteam(); };
+        _overlay.HomeAppRequested += () => { _suppressFocusRestore = true; CloseOverlay(); _modes.StartOrFocusSteam(); };
         _overlay.DesktopRequested += () =>
         {
             var explorerRunning = ExplorerControl.IsRunningInSession();
@@ -369,20 +311,20 @@ public sealed class OverlayController : IDisposable
             CloseOverlay();
             if (explorerRunning)
             {
-                EnterGameMode();
+                _modes.EnterGameMode();
             }
             else
             {
-                EnterDesktopMode();
+                _modes.EnterDesktopMode();
             }
         };
         _overlay.ExitBigPictureRequested += () =>
         {
             _suppressFocusRestore = true;
             CloseOverlay();
-            ExitBigPicture();
+            _modes.ExitBigPicture();
         };
-        _overlay.CloseLauncherRequested += () => CloseSteam(vm);
+        _overlay.CloseLauncherRequested += () => { _modes.CloseSteam(); vm.HomeAppAlive = false; };
         _overlay.SwitchAppsRequested += () => ToggleWindowList(vm);
         _overlay.WindowPicked += PickWindow;
         _overlay.TaskManagerRequested += () => { _suppressFocusRestore = true; CloseOverlay(); StartTaskManager(); };
@@ -499,45 +441,7 @@ public sealed class OverlayController : IDisposable
         }, TimeSpan.FromMilliseconds(150));
     }
 
-    /// <summary>Start and focus are the same operation: steam://open/bigpicture
-    /// re-activates a running Big Picture (UIPI-proof) and boots Steam when it
-    /// isn't running. Re-arms the monitor (desktop mode and close-Steam pause it).</summary>
-    private void StartOrFocusSteam()
-    {
-        if (_monitor is not null)
-        {
-            _monitor.Paused = false;
-        }
-        if (_monitor?.IsAlive == true)
-        {
-            FocusSteam();
-            return;
-        }
-
-        if (!TryBeginHomeLaunch())
-        {
-            return;
-        }
-
-        try
-        {
-            if (!Steam.IsInstalled)
-            {
-                WarnOrReopen("Steam was not found on this PC. Install Steam — WSGM is Steam-exclusive.");
-                return;
-            }
-            var result = Steam.LaunchBigPicture();
-            if (!result.Started)
-            {
-                WarnOrReopen("Couldn't start Steam Big Picture.");
-            }
-        }
-        finally
-        {
-            EndHomeLaunch();
-        }
-    }
-
+    /// <summary>UI sink for the coordinator's Steam start failures.</summary>
     private void WarnOrReopen(string warning)
     {
         SetWarning(warning);
@@ -553,38 +457,6 @@ public sealed class OverlayController : IDisposable
         }
     }
 
-    private bool TryBeginHomeLaunch()
-    {
-        lock (_homeLaunchGate)
-        {
-            if (_homeLaunchInProgress || DateTime.UtcNow - _lastHomeLaunchUtc < HomeLaunchCooldown)
-            {
-                Log.Warn("Skipping duplicate home-app start request.");
-                return false;
-            }
-            _homeLaunchInProgress = true;
-            return true;
-        }
-    }
-
-    private void EndHomeLaunch()
-    {
-        lock (_homeLaunchGate)
-        {
-            _homeLaunchInProgress = false;
-            _lastHomeLaunchUtc = DateTime.UtcNow;
-        }
-    }
-
-    private void FocusSteam()
-    {
-        if (_monitor?.IsAlive == true)
-        {
-            // Protocol re-activation self-focuses even against an elevated target.
-            AppLauncher.StartProtocol(Steam.OpenBigPictureUrl);
-        }
-    }
-
     public void Dispose()
     {
         if (_disposed)
@@ -592,6 +464,7 @@ public sealed class OverlayController : IDisposable
             return;
         }
         _disposed = true;
+        _modes.SteamStartFailed -= WarnOrReopen;
         if (_monitor is not null)
         {
             _monitor.SteamExited -= OnSteamExited;

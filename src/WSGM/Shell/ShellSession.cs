@@ -12,6 +12,7 @@ public sealed class ShellSession
     private readonly AppConfig _config;
     private readonly bool _overlayTestOnly;
     private SteamMonitor? _monitor;
+    private SessionModes? _modes;
     private StartupAppWatcher? _startupWatcher;
     private OverlayController? _overlay;
     // Field-rooted deliberately: an unreferenced enabled FileSystemWatcher is
@@ -30,7 +31,8 @@ public sealed class ShellSession
     public void Start()
     {
         _monitor = new SteamMonitor();
-        _overlay = new OverlayController(_config, _monitor);
+        _modes = new SessionModes(_config, _monitor);
+        _overlay = new OverlayController(_config, _monitor, _modes);
 
         if (_overlayTestOnly)
         {
@@ -44,8 +46,7 @@ public sealed class ShellSession
         }
 
         // Boot recomputes the posture value, so game mode re-applies it each start.
-        SlateMode.ApplyGameMode(_config);
-        DisplayScale.ApplyGameMode(_config);
+        _modes.ApplyGameModePosture();
         _startupWatcher = new StartupAppWatcher(_config.StartupApps);
         WatchConfig();
 
@@ -123,24 +124,14 @@ public sealed class ShellSession
             await Task.Delay(_config.SteamDelayMs);
         }
 
-        if (!Steam.IsInstalled)
-        {
-            Log.Warn("Steam is not installed — showing overlay instead.");
-            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-            {
-                _overlay?.SetWarning("Steam was not found on this PC. Install Steam — WSGM is Steam-exclusive.");
-                _overlay?.ShowOverlay();
-            });
-            return;
-        }
-
-        Log.Info("Starting Steam Big Picture.");
-        var result = Steam.LaunchBigPicture();
-        if (!result.Started)
+        // Shared start + warning flow (also behind the overlay's Steam button);
+        // boot surfaces failures itself because this runs off the UI thread.
+        var warning = _modes!.StartBigPicture();
+        if (warning is not null)
         {
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
-                _overlay?.SetWarning("Couldn't start Steam Big Picture.");
+                _overlay?.SetWarning(warning);
                 _overlay?.ShowOverlay();
             });
         }
