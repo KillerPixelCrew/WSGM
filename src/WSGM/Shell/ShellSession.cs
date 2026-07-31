@@ -34,6 +34,7 @@ public sealed class ShellSession
 
         // Boot recomputes the posture value, so game mode re-applies it each start.
         SlateMode.ApplyGameMode();
+        DisplayScale.ApplyGameMode(_config);
         WatchConfig();
 
         Task.Run(async () =>

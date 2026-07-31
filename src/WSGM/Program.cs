@@ -32,6 +32,7 @@ public static class Program
             // A crashed shell may have left the Steam Input layout pinned; this
             // fresh process cannot know, so reset unconditionally (never throws).
             SteamInputPin.ReleaseBestEffort("restore-shell");
+            RestoreDisplayScalesBestEffort();
             return 0;
         }
 
@@ -152,6 +153,7 @@ public static class Program
             if (Mode == RunMode.Shell)
             {
                 SlateMode.RestoreOriginal();
+                RestoreDisplayScalesBestEffort();
             }
             return exitCode;
         }
@@ -192,8 +194,23 @@ public static class Program
             ExplorerControl.StartExplorer();
             // The desktop we just brought back should behave like a touch desktop.
             SlateMode.ApplyDesktopMode();
+            RestoreDisplayScalesBestEffort();
         }
         SteamInputPin.ReleaseBestEffort("panic");
+    }
+
+    /// <summary>Game mode forces 100% scaling and that persists in the registry —
+    /// every way out of shell mode must put the captured values back.</summary>
+    private static void RestoreDisplayScalesBestEffort()
+    {
+        try
+        {
+            DisplayScale.RestoreSaved(ConfigStore.Load());
+        }
+        catch
+        {
+            // Recovery paths must never be blocked by scaling cleanup.
+        }
     }
 
     public static AppBuilder BuildAvaloniaApp()

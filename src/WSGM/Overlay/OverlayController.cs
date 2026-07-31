@@ -165,6 +165,7 @@ public sealed class OverlayController : IDisposable
         }
         ExitBigPicture();
         SlateMode.ApplyDesktopMode();
+        DisplayScale.RestoreSaved(_config);
         ExplorerControl.StartExplorer();
     }
 
@@ -175,6 +176,7 @@ public sealed class OverlayController : IDisposable
         Log.Info("Entering game mode.");
         ExplorerControl.KillExplorer();
         SlateMode.ApplyGameMode();
+        DisplayScale.ApplyGameMode(_config);
         if (_monitor is not null)
         {
             _monitor.Paused = false;
@@ -211,6 +213,7 @@ public sealed class OverlayController : IDisposable
     private void PickWindow(AppWindowEntry entry)
     {
         Log.Info($"Switch app: focusing '{entry.Title}'.");
+        _suppressFocusRestore = true;
         CloseOverlay();
         if (entry.IsSteam)
         {
@@ -250,8 +253,19 @@ public sealed class OverlayController : IDisposable
         vm.HomeAppAlive = false;
     }
 
+    /// <summary>Window focused when the overlay opened. Exclusive-fullscreen games
+    /// minimize the moment our panel takes focus — closing the panel calls them
+    /// back (restore + foreground), unless an overlay action redirected focus.</summary>
+    private nint _restoreFocusTo;
+    private bool _suppressFocusRestore;
+
     public void ShowOverlay()
     {
+        if (_overlay is null)
+        {
+            _restoreFocusTo = Interop.NativeMethods.GetForegroundWindow();
+            _suppressFocusRestore = false;
+        }
         ApplySteamInputPin();
         HideTouchEdges();
         if (_overlay is not null)
@@ -272,10 +286,11 @@ public sealed class OverlayController : IDisposable
 
         _overlayViewModel = vm;
         _overlay = new OverlayWindow(vm);
-        _overlay.HomeAppRequested += () => { CloseOverlay(); StartOrFocusSteam(); };
+        _overlay.HomeAppRequested += () => { _suppressFocusRestore = true; CloseOverlay(); StartOrFocusSteam(); };
         _overlay.DesktopRequested += () =>
         {
             var explorerRunning = ExplorerControl.IsRunningInSession();
+            _suppressFocusRestore = true;
             CloseOverlay();
             if (explorerRunning)
             {
@@ -288,15 +303,17 @@ public sealed class OverlayController : IDisposable
         };
         _overlay.ExitBigPictureRequested += () =>
         {
+            _suppressFocusRestore = true;
             CloseOverlay();
             ExitBigPicture();
         };
         _overlay.CloseLauncherRequested += () => CloseSteam(vm);
         _overlay.SwitchAppsRequested += () => ToggleWindowList(vm);
         _overlay.WindowPicked += PickWindow;
-        _overlay.TaskManagerRequested += () => { CloseOverlay(); StartTaskManager(); };
+        _overlay.TaskManagerRequested += () => { _suppressFocusRestore = true; CloseOverlay(); StartTaskManager(); };
         _overlay.SettingsRequested += () =>
         {
+            _suppressFocusRestore = true;
             CloseOverlay();
             // A shell session normally has no main window. Opening settings in this
             // process keeps quick access responsive and avoids starting a second shell.
@@ -322,6 +339,14 @@ public sealed class OverlayController : IDisposable
             }
             _overlay = null;
             _overlayViewModel = null;
+            // Game mode only: call back the window that was focused before the
+            // panel opened (exclusive-fullscreen games sit minimized by now).
+            if (!_suppressFocusRestore && _restoreFocusTo != 0 && !ExplorerControl.IsRunningInSession())
+            {
+                Log.Info("Restoring previously focused window.");
+                WindowFinder.BringToForeground(_restoreFocusTo);
+            }
+            _restoreFocusTo = 0;
             ShowTouchEdges();
             if (reopenForWarning)
             {

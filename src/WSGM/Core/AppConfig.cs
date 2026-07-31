@@ -74,6 +74,11 @@ public sealed class AppConfig
     /// its layout is a stock gamepad passthrough. 0 = off. The /0 reset fires on
     /// every exit and recovery path (see SteamInputPin).</summary>
     public int SteamForceInputAppId { get; set; } = 480;
+
+    /// <summary>Per-display scaling percentages captured before game mode forced
+    /// 100%, in active-source enumeration order. Non-empty means "not yet
+    /// restored" — survives crashes so recovery paths can put scaling back.</summary>
+    public List<int> SavedDisplayScales { get; set; } = [];
     /// <summary>The Winlogon Shell snapshot that existed before WSGM installed itself.
     /// Presence is separate from the string so an empty value remains distinguishable
     /// from an absent value; kind preserves REG_EXPAND_SZ as well as REG_SZ.</summary>
