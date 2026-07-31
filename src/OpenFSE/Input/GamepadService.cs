@@ -1,6 +1,6 @@
 using System;
-using System.Runtime.InteropServices;
 using Avalonia.Threading;
+using OpenFSE.Core;
 
 namespace OpenFSE.Input;
 
@@ -39,12 +39,10 @@ public enum GamepadButtons : uint
     RightPadPress = 0x0200_0000,
 }
 
-/// <summary>Polls XInput (all four slots) on the UI thread while enabled. Emits
-/// edge-triggered button events with D-pad/stick auto-repeat. Only runs while an
-/// OpenFSE window is visible, so it never fights Steam for the controller.</summary>
-public sealed partial class GamepadService : IDisposable
+/// <summary>Polls all connected controllers through SDL3 on the UI thread while
+/// enabled. Emits edge-triggered button events with D-pad/stick auto-repeat.</summary>
+public sealed class GamepadService : IDisposable
 {
-    private const short StickDeadzone = 16000;
     private static readonly TimeSpan RepeatInitial = TimeSpan.FromMilliseconds(400);
     private static readonly TimeSpan RepeatRate = TimeSpan.FromMilliseconds(150);
 
@@ -52,6 +50,7 @@ public sealed partial class GamepadService : IDisposable
     private GamepadButtons _previous;
     private GamepadButtons _repeating;
     private DateTime _nextRepeat;
+    private bool _loggedFirstPress;
 
     /// <summary>Newly pressed buttons (edge-triggered), with auto-repeat for directions.</summary>
     public event Action<GamepadButtons>? ButtonPressed;
@@ -60,70 +59,33 @@ public sealed partial class GamepadService : IDisposable
     /// needs the whole state, not just the new edges.</summary>
     public event Action<GamepadButtons>? StateChanged;
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct XInputGamepad
-    {
-        public ushort Buttons;
-        public byte LeftTrigger;
-        public byte RightTrigger;
-        public short ThumbLX;
-        public short ThumbLY;
-        public short ThumbRX;
-        public short ThumbRY;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct XInputState
-    {
-        public uint PacketNumber;
-        public XInputGamepad Gamepad;
-    }
-
-    [LibraryImport("xinput1_4.dll", EntryPoint = "XInputGetState")]
-    private static partial uint XInputGetState(uint userIndex, out XInputState state);
-
     public GamepadService()
     {
-        _timer = new DispatcherTimer(TimeSpan.FromMilliseconds(16), DispatcherPriority.Input, (_, _) => Poll());
+        // The convenience ctor taking a callback auto-starts the timer, which made
+        // IsRunning permanently true and broke every "start if not running" guard.
+        _timer = new DispatcherTimer(DispatcherPriority.Input) { Interval = TimeSpan.FromMilliseconds(16) };
+        _timer.Tick += (_, _) => Poll();
     }
-
-    private readonly SteamDeckHid _deck = new();
 
     public void Start()
     {
         _previous = 0;
         _repeating = 0;
-        _deck.Start();      // extra Deck buttons when HC's emulation is active
+        _loggedFirstPress = false;
+        SdlGamepads.EnsureInitialized();
         _timer.Start();
+        Log.Info("Gamepad polling started.");
     }
 
-    public void Stop()
-    {
-        _timer.Stop();
-        _deck.Stop();
-    }
+    public void Stop() => _timer.Stop();
 
-    /// <summary>True when a Steam Deck controller (real or Handheld Companion's
-    /// emulated one) is being read over HID, so paddles/Steam/QAM are bindable.</summary>
-    public bool HasDeckButtons => _deck.IsConnected;
+    /// <summary>True when a controller with back paddles (a real or emulated Steam
+    /// Deck class pad) is connected, so paddles/Steam/QAM are bindable.</summary>
+    public bool HasDeckButtons => SdlGamepads.HasDeckButtons;
 
     private void Poll()
     {
-        // Steam Deck HID first: it carries the buttons XInput can't express.
-        GamepadButtons current = _deck.State;
-
-        for (uint i = 0; i < 4; i++)
-        {
-            if (XInputGetState(i, out var state) == 0)
-            {
-                current |= (GamepadButtons)state.Gamepad.Buttons;
-                // Fold the left stick into the D-pad directions.
-                if (state.Gamepad.ThumbLY > StickDeadzone) current |= GamepadButtons.DPadUp;
-                if (state.Gamepad.ThumbLY < -StickDeadzone) current |= GamepadButtons.DPadDown;
-                if (state.Gamepad.ThumbLX < -StickDeadzone) current |= GamepadButtons.DPadLeft;
-                if (state.Gamepad.ThumbLX > StickDeadzone) current |= GamepadButtons.DPadRight;
-            }
-        }
+        var current = SdlGamepads.Update();
 
         if (current != _previous)
         {
@@ -133,6 +95,12 @@ public sealed partial class GamepadService : IDisposable
         var pressed = current & ~_previous;
         if (pressed != 0)
         {
+            if (!_loggedFirstPress)
+            {
+                // One line per Start() so a pasted log proves input arrives at all.
+                _loggedFirstPress = true;
+                Log.Info($"Controller input: {Describe(pressed, false)}");
+            }
             ButtonPressed?.Invoke(pressed);
         }
 
@@ -198,9 +166,6 @@ public sealed partial class GamepadService : IDisposable
         (GamepadButtons.LeftPadPress, "L-Pad"), (GamepadButtons.RightPadPress, "R-Pad"),
     ];
 
-    public void Dispose()
-    {
-        _timer.Stop();
-        _deck.Dispose();
-    }
+    // SDL stays initialized process-wide (see SdlGamepads); only the poll stops.
+    public void Dispose() => _timer.Stop();
 }

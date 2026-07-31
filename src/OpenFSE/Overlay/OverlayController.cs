@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using OpenFSE.Core;
 using OpenFSE.Input;
 using OpenFSE.Interop;
@@ -46,6 +48,7 @@ public sealed class OverlayController : IDisposable
         }
 
         ApplyGestures(config.Gestures);
+        ApplySteamInputPin();
 
         if (_monitor is not null)
         {
@@ -55,16 +58,13 @@ public sealed class OverlayController : IDisposable
 
     public void ApplyGestures(GestureConfig gestures)
     {
-        if (!gestures.BottomEdge && !gestures.RightEdge)
-        {
-            DisposeTouchEdges();
-            return;
-        }
-
+        // The monitor stays alive even with both edges disabled: tap-outside
+        // dismissal of the overlay rides on the same raw-input observer.
         if (_touchSwipes is null)
         {
             _touchSwipes = new TouchSwipeMonitor();
             _touchSwipes.Triggered += OnSwipeTriggered;
+            _touchSwipes.TappedAt += OnTappedAt;
         }
         _touchSwipes.Configure(gestures);
 
@@ -105,6 +105,7 @@ public sealed class OverlayController : IDisposable
             _gamepad.Stop();
         }
         ApplyGestures(config.Gestures);
+        ApplySteamInputPin();
         Log.Info("Config reloaded.");
     }
 
@@ -114,14 +115,161 @@ public sealed class OverlayController : IDisposable
         {
             Log.Info("Home app exited — auto-relaunching in 10 s.");
             System.Threading.Tasks.Task.Delay(10_000).ContinueWith(_ =>
-                Avalonia.Threading.Dispatcher.UIThread.Post(StartOrFocusHomeApp));
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    // The user may have switched to desktop mode (or closed the
+                    // launcher deliberately) while this delay was in flight.
+                    if (_monitor?.Paused == true)
+                    {
+                        Log.Info("Auto-relaunch skipped: monitor paused meanwhile.");
+                        return;
+                    }
+                    StartOrFocusHomeApp();
+                }));
             return;
         }
         ShowOverlay();
     }
 
+    private void ApplySteamInputPin()
+        => SteamInputPin.Apply(HomeAppIsSteam ? Math.Max(_config.SteamForceInputAppId, 0) : 0);
+
+    /// <summary>The configured launcher is Steam when its process list or activation
+    /// protocol says so — enables the Big Picture enter/exit choreography.</summary>
+    private bool HomeAppIsSteam =>
+        _config.HomeApp.ProcessNames.Contains("steam", StringComparison.OrdinalIgnoreCase) ||
+        _config.HomeApp.ActivationProtocol.StartsWith("steam://", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Asks Steam to leave Big Picture (Steam keeps running). User-verified
+    /// protocol URL; no-op if Steam isn't running.</summary>
+    private void ExitBigPicture()
+    {
+        if (!HomeAppIsSteam || _monitor?.IsAlive != true)
+        {
+            return;
+        }
+        Log.Info("Exiting Steam Big Picture.");
+        AppLauncher.StartProtocol("steam://close/bigpicture");
+    }
+
+    /// <summary>Desktop mode: stop reacting to the launcher (no auto-relaunch, no
+    /// overlay pop), drop Steam out of Big Picture, bring the desktop up.</summary>
+    private void EnterDesktopMode()
+    {
+        Log.Info("Entering desktop mode.");
+        if (_monitor is not null)
+        {
+            _monitor.Paused = true;
+        }
+        ExitBigPicture();
+        ExplorerControl.StartExplorer();
+    }
+
+    /// <summary>Game mode: desktop goes away, monitoring resumes, and the launcher
+    /// is brought back — re-entering Big Picture via the activation protocol, or a
+    /// full start if it exited while we were on the desktop.</summary>
+    private void EnterGameMode()
+    {
+        Log.Info("Entering game mode.");
+        ExplorerControl.KillExplorer();
+        if (_monitor is not null)
+        {
+            _monitor.Paused = false;
+        }
+        StartOrFocusHomeApp();
+    }
+
+    /// <summary>Brings the next running managed program to the foreground: the home
+    /// app plus every enabled startup app, in config order. There is no taskbar in
+    /// shell mode, so this is the only way to switch between started programs.</summary>
+    private void CycleApps()
+    {
+        var windows = new List<(nint Hwnd, bool IsHome, string Name)>();
+
+        var home = _config.HomeApp;
+        if (_monitor?.IsAlive == true)
+        {
+            var hwnd = WindowFinder.FindWindow(home.ProcessNames, home.WindowClass);
+            if (hwnd != 0)
+            {
+                windows.Add((hwnd, true, "home app"));
+            }
+        }
+
+        foreach (var app in _config.StartupApps)
+        {
+            if (!app.Enabled || app.Path.Length == 0 || app.Path.Contains("://"))
+            {
+                continue;
+            }
+            var name = System.IO.Path.GetFileNameWithoutExtension(app.Path);
+            var hwnd = WindowFinder.FindWindow(name, windowClass: null);
+            if (hwnd != 0 && !windows.Any(w => w.Hwnd == hwnd))
+            {
+                windows.Add((hwnd, false, name));
+            }
+        }
+
+        if (windows.Count == 0)
+        {
+            Log.Info("Cycle apps: nothing running to switch to.");
+            return;
+        }
+
+        var foreground = Interop.NativeMethods.GetForegroundWindow();
+        var index = windows.FindIndex(w => w.Hwnd == foreground);
+        var next = windows[(index + 1) % windows.Count];
+
+        Log.Info($"Cycle apps: focusing {next.Name}.");
+        if (next.IsHome)
+        {
+            // Protocol re-activation is UIPI-proof against an elevated home app.
+            FocusHomeApp();
+        }
+        else
+        {
+            WindowFinder.BringToForeground(next.Hwnd);
+        }
+    }
+
+    /// <summary>Deliberately stops the launcher. Pauses the monitor first so neither
+    /// auto-relaunch nor the exit-overlay reaction fires; Steam gets a graceful
+    /// -shutdown, everything else is killed by process name.</summary>
+    private void CloseLauncher(OverlayViewModel vm)
+    {
+        if (_monitor is not null)
+        {
+            _monitor.Paused = true;
+        }
+
+        var home = _config.HomeApp;
+        if (HomeAppIsSteam && home.Path is { Length: > 0 } steamExe && !steamExe.Contains("://") && System.IO.File.Exists(steamExe))
+        {
+            Log.Info("Closing launcher: steam -shutdown.");
+            AppLauncher.Start(steamExe, "-shutdown", elevated: false);
+        }
+        else
+        {
+            Log.Info($"Closing launcher: killing [{home.ProcessNames}].");
+            foreach (var pid in WindowFinder.FindProcessIds(home.ProcessNames))
+            {
+                try
+                {
+                    System.Diagnostics.Process.GetProcessById((int)pid).Kill();
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"Could not kill launcher process {pid}: {ex.Message}");
+                }
+            }
+        }
+        vm.HomeAppAlive = false;
+    }
+
     public void ShowOverlay()
     {
+        // Opportunistic: Steam may have started since the last attempt.
+        ApplySteamInputPin();
         HideTouchEdges();
         if (_overlay is not null)
         {
@@ -137,6 +285,8 @@ public sealed class OverlayController : IDisposable
             HomeAppName = System.IO.Path.GetFileNameWithoutExtension(_config.HomeApp.Path is { Length: > 0 } p ? p : "Home app"),
             GlyphStyle = _config.GlyphStyle,
             WarningText = _pendingWarning,
+            IsSteamHomeApp = HomeAppIsSteam,
+            ShowCycleButton = _config.StartupApps.Any(a => a.Enabled && a.Path.Length > 0 && !a.Path.Contains("://")),
         };
 
         _overlayViewModel = vm;
@@ -148,14 +298,21 @@ public sealed class OverlayController : IDisposable
             CloseOverlay();
             if (explorerRunning)
             {
-                ExplorerControl.KillExplorer();
-                StartOrFocusHomeApp();
+                EnterGameMode();
             }
             else
             {
-                ExplorerControl.StartExplorer();
+                EnterDesktopMode();
             }
         };
+        _overlay.ExitBigPictureRequested += () =>
+        {
+            CloseOverlay();
+            ExitBigPicture();
+        };
+        _overlay.CloseLauncherRequested += () => CloseLauncher(vm);
+        // Stays open so repeated presses keep cycling through the running apps.
+        _overlay.CycleAppsRequested += CycleApps;
         _overlay.SettingsRequested += () =>
         {
             CloseOverlay();
@@ -163,9 +320,14 @@ public sealed class OverlayController : IDisposable
             // process keeps quick access responsive and avoids starting a second shell.
             Avalonia.Threading.Dispatcher.UIThread.Post(() => new SettingsWindow().Show());
         };
-        _overlay.Dismissed += () => { CloseOverlay(); FocusHomeApp(); };
+        // Dismiss never refocuses anything: the overlay never took focus in the
+        // first place, so whatever the user had in front (game, HC via cycle,
+        // the desktop) is still in front. The old refocus-on-dismiss yanked Steam
+        // over an app the user had deliberately cycled to.
+        _overlay.Dismissed += CloseOverlay;
         _overlay.Closed += (_, _) =>
         {
+            _closePending = false;
             var reopenForWarning = _reopenOverlayForWarning;
             _reopenOverlayForWarning = false;
             _navigation?.Dispose();
@@ -184,22 +346,73 @@ public sealed class OverlayController : IDisposable
             }
         };
 
-        _navigation = new GamepadNavigation(_gamepad, _overlay, () => { CloseOverlay(); FocusHomeApp(); },
-            isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo);
+        var overlay = _overlay;
+        _navigation = new GamepadNavigation(_gamepad, _overlay, CloseOverlay,
+            isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
+            preferredFocus: () => overlay.DefaultFocusTarget);
         _gamepad.Start();
         _overlay.Show();
+        // Game-Bar-style: the game stops receiving input while the panel is up.
+        // Safe because SteamInputPin keeps the pad readable despite focus.
         _overlay.Activate();
+        if (_touchSwipes is not null)
+        {
+            _touchSwipes.WatchTaps = true;
+        }
     }
+
+    /// <summary>Tap-outside dismissal. The overlay can't use focus loss (it never
+    /// has focus), so the raw-input observer reports every new touch contact while
+    /// the panel is open and we hit-test against the panel bounds ourselves.</summary>
+    private void OnTappedAt(int x, int y)
+    {
+        var overlay = _overlay;
+        if (overlay is null || double.IsNaN(overlay.Width) || double.IsNaN(overlay.Height))
+        {
+            return;
+        }
+        var scaling = overlay.Screens?.Primary?.Scaling ?? 1.0;
+        var pos = overlay.Position;
+        var w = (int)Math.Ceiling(overlay.Width * scaling);
+        var h = (int)Math.Ceiling(overlay.Height * scaling);
+        if (x >= pos.X && x < pos.X + w && y >= pos.Y && y < pos.Y + h)
+        {
+            return;
+        }
+        Log.Info("Touch outside quick access — dismissing.");
+        CloseOverlay();
+    }
+
+    private bool _closePending;
 
     private void CloseOverlay()
     {
         _pendingWarning = "";
         _reopenOverlayForWarning = false;
-        _overlay?.Close();
+        if (_overlay is null || _closePending)
+        {
+            return;
+        }
+        // Deferred: a touch tap's DefWindowProc promotion delivers a synthesized
+        // mouse click AFTER this dispatch. If the window were already destroyed,
+        // that click would land on whatever sits underneath (user-reproduced).
+        // Kept open a beat, the window's own hook eats the synthesized click.
+        _closePending = true;
+        Avalonia.Threading.DispatcherTimer.RunOnce(() =>
+        {
+            _closePending = false;
+            _overlay?.Close();
+        }, TimeSpan.FromMilliseconds(150));
     }
 
     private void StartOrFocusHomeApp()
     {
+        // Any deliberate start/focus re-arms the monitor (desktop mode and
+        // launcher-closed both pause it).
+        if (_monitor is not null)
+        {
+            _monitor.Paused = false;
+        }
         if (_monitor?.IsAlive == true)
         {
             FocusHomeApp();
@@ -286,6 +499,9 @@ public sealed class OverlayController : IDisposable
 
     public void Dispose()
     {
+        // Pin release happens in Program's exit/recovery paths, not here: a second
+        // controller instance (Settings' overlay test) disposing must not unpin
+        // the shell's live session.
         if (_monitor is not null)
         {
             _monitor.HomeAppExited -= OnHomeAppExited;

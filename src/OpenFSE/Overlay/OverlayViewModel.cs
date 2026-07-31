@@ -29,7 +29,7 @@ public sealed class OverlayViewModel : INotifyPropertyChanged
     public string HomeAppName
     {
         get => _homeAppName;
-        set { _homeAppName = value; Raise(nameof(HomeAppName)); Raise(nameof(HomeAppButtonText)); }
+        set { _homeAppName = value; Raise(nameof(HomeAppName)); Raise(nameof(HomeAppButtonText)); Raise(nameof(CloseLauncherText)); }
     }
 
     public string WarningText
@@ -46,8 +46,17 @@ public sealed class OverlayViewModel : INotifyPropertyChanged
         set { _glyphStyle = value; Raise(nameof(GlyphStyle)); }
     }
 
+    /// <summary>True when the configured launcher is Steam, enabling the
+    /// Big-Picture-specific actions.</summary>
+    public bool IsSteamHomeApp { get; init; }
+
+    /// <summary>Shown when startup apps are configured — without a taskbar the
+    /// sidebar is the only way to switch between them.</summary>
+    public bool ShowCycleButton { get; init; }
+
     public string DesktopButtonText => ExplorerRunning ? "Back to Game Mode" : "Return to Desktop";
     public string HomeAppButtonText => HomeAppAlive ? $"Focus {HomeAppName}" : $"Start {HomeAppName}";
+    public string CloseLauncherText => $"Close {HomeAppName}";
 
     private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

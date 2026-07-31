@@ -225,6 +225,17 @@ internal static partial class NativeMethods
     internal const int SwRestore = 9;
     internal const int SwShowMaximized = 3;
 
+    // ---- Touch-synthesized mouse message detection (overlay ghost-click eater) ----
+    internal const uint WmMouseMove = 0x0200;
+    internal const uint WmLButtonDown = 0x0201;
+    internal const uint WmLButtonUp = 0x0202;
+    /// <summary>GetMessageExtraInfo() upper bits marking touch/pen-synthesized mouse messages.</summary>
+    internal const uint MiWpSignatureMask = 0xFFFFFF00;
+    internal const uint MiWpSignature = 0xFF515700;
+
+    [LibraryImport("user32.dll")]
+    internal static partial nint GetMessageExtraInfo();
+
     // ---- Elevation check of other processes ----
     internal const uint ProcessQueryLimitedInformation = 0x1000;
     internal const uint TokenQuery = 0x0008;
@@ -236,6 +247,7 @@ internal static partial class NativeMethods
     [LibraryImport("advapi32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool OpenProcessToken(nint processHandle, uint desiredAccess, out nint tokenHandle);
+
 
     [LibraryImport("advapi32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

@@ -32,5 +32,8 @@
     <!-- WinUI-style NavigationView, SettingsCard, ToggleSwitch and InfoBar: the
          Avalonia counterparts to the iNKORE Modern WPF controls used by Handheld Companion. -->
     <PackageReference Include="FluentAvaloniaUI" Version="2.4.1" />
+    <!-- Controller input. Plain-DllImport bindings (AOT-safe), bundles native SDL3.dll
+         for win-x64 so build and publish output pick it up automatically. -->
+    <PackageReference Include="ppy.SDL3-CS" Version="2026.722.0" />
   </ItemGroup>
 </Project>

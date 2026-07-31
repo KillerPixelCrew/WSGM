@@ -19,7 +19,16 @@ public partial class OverlayWindow : Window
     public event Action? HomeAppRequested;
     public event Action? DesktopRequested;
     public event Action? SettingsRequested;
+    public event Action? ExitBigPictureRequested;
+    public event Action? CloseLauncherRequested;
+    public event Action? CycleAppsRequested;
     public event Action? Dismissed;
+
+    private bool _confirmCloseLauncher;
+
+    /// <summary>The control gamepad navigation should land on when the panel opens
+    /// or when focus tracking is lost.</summary>
+    internal InputElement DefaultFocusTarget => HomeAppButton;
 
     public OverlayWindow(OverlayViewModel viewModel)
     {
@@ -28,6 +37,40 @@ public partial class OverlayWindow : Window
         KeyDown += OnKeyDown;
         Opened += OnOpened;
         Closed += (_, _) => StopSlide();
+
+        // The overlay takes focus Game-Bar-style: the game stops receiving input
+        // while the panel is open. Viable because SteamInputPin keeps the pad
+        // readable even with a non-game window focused.
+        //
+        // Touch pass-through defense: Avalonia never marks touch raw events
+        // handled, so WM_POINTER falls to DefWindowProc, which PROMOTES a tap into
+        // a synthesized mouse click delivered AFTER the tap's dispatch. The
+        // synthesized-message eater in WndProcHook consumes it — as long as this
+        // window still exists when it arrives, which is why OverlayController
+        // defers Close() by a beat. (The clean fix — consuming the raw touch
+        // event — needs Avalonia's [PrivateApi] InputManager, which is stripped
+        // from the published reference assemblies.)
+        Win32Properties.AddWndProcHookCallback(this, WndProcHook);
+    }
+
+    private static IntPtr WndProcHook(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        // Eat touch/pen-SYNTHESIZED mouse messages (MI_WP_SIGNATURE). They are
+        // promotion ghosts — the tap itself already went through the WM_POINTER
+        // pipeline — and around the deferred close they would otherwise double-fire
+        // or leak to the window underneath. Real mouse messages pass untouched.
+        if (msg is Interop.NativeMethods.WmMouseMove
+                or Interop.NativeMethods.WmLButtonDown
+                or Interop.NativeMethods.WmLButtonUp)
+        {
+            var extra = (uint)Interop.NativeMethods.GetMessageExtraInfo();
+            if ((extra & Interop.NativeMethods.MiWpSignatureMask) == Interop.NativeMethods.MiWpSignature)
+            {
+                handled = true;
+                return IntPtr.Zero;
+            }
+        }
+        return IntPtr.Zero;
     }
 
     private void OnOpened(object? sender, EventArgs e)
@@ -113,7 +156,21 @@ public partial class OverlayWindow : Window
     private void OnHomeApp(object? sender, RoutedEventArgs e) => HomeAppRequested?.Invoke();
     private void OnDesktop(object? sender, RoutedEventArgs e) => DesktopRequested?.Invoke();
     private void OnSettings(object? sender, RoutedEventArgs e) => SettingsRequested?.Invoke();
+    private void OnExitBigPicture(object? sender, RoutedEventArgs e) => ExitBigPictureRequested?.Invoke();
+    private void OnCycleApps(object? sender, RoutedEventArgs e) => CycleAppsRequested?.Invoke();
     private void OnClose(object? sender, RoutedEventArgs e) => Dismissed?.Invoke();
+
+    private void OnCloseLauncher(object? sender, RoutedEventArgs e)
+    {
+        if (!_confirmCloseLauncher)
+        {
+            _confirmCloseLauncher = true;
+            CloseLauncherTitle.Text = "Really?";
+            return;
+        }
+        _confirmCloseLauncher = false;
+        CloseLauncherRequested?.Invoke();
+    }
 
     private void OnSleep(object? sender, RoutedEventArgs e)
     {

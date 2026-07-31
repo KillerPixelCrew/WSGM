@@ -226,6 +226,8 @@ public partial class SettingsWindow : Window
     private void OnTouchKeyboard(object? sender, RoutedEventArgs e)
     {
         // Custom-shell sessions have no taskbar to summon the touch keyboard from.
+        // TabTip only — the osk.exe fallback brought up the legacy accessibility
+        // keyboard, which is never the right thing on a touch handheld.
         var tabTip = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFiles),
             @"microsoft shared\ink\TabTip.exe");
@@ -237,7 +239,7 @@ public partial class SettingsWindow : Window
             }
             else
             {
-                Process.Start(new ProcessStartInfo("osk.exe") { UseShellExecute = true });
+                Log.Warn($"Touch keyboard host not found: {tabTip}");
             }
         }
         catch (Exception ex)

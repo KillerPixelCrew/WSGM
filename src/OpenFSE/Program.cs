@@ -29,6 +29,9 @@ public static class Program
         {
             ShellRegistration.Uninstall();
             ExplorerControl.StartExplorer();
+            // A crashed shell may have left the Steam Input layout pinned; this
+            // fresh process cannot know, so reset unconditionally (never throws).
+            SteamInputPin.ReleaseBestEffort("restore-shell");
             return 0;
         }
 
@@ -37,6 +40,7 @@ public static class Program
         if (args.Contains("--unregister-shell", StringComparer.OrdinalIgnoreCase))
         {
             ShellRegistration.Uninstall();
+            SteamInputPin.ReleaseBestEffort("unregister-shell");
             return 0;
         }
 
@@ -107,6 +111,7 @@ public static class Program
                           "Restoring previous shell and starting explorer.");
                 ShellRegistration.Uninstall();
                 ExplorerControl.StartExplorer();
+                SteamInputPin.ReleaseBestEffort("crash-loop");
                 return 1;
             }
             CrashLoopBreaker.RecordStart();
@@ -122,7 +127,15 @@ public static class Program
 
         try
         {
-            return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+            var exitCode = BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+            // Normal shutdown. Settings-only processes skip the reset unless they
+            // pinned themselves (overlay test) — firing /0 from a stray settings
+            // window would unpin a still-running shell.
+            if (Mode is RunMode.Shell or RunMode.OverlayTest || SteamInputPin.IsApplied)
+            {
+                SteamInputPin.ReleaseBestEffort("shutdown");
+            }
+            return exitCode;
         }
         catch (Exception ex)
         {
@@ -160,6 +173,7 @@ public static class Program
             ShellRegistration.Uninstall();
             ExplorerControl.StartExplorer();
         }
+        SteamInputPin.ReleaseBestEffort("panic");
     }
 
     public static AppBuilder BuildAvaloniaApp()

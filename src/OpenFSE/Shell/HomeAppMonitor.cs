@@ -19,6 +19,11 @@ public sealed class HomeAppMonitor : IDisposable
 
     public bool IsAlive { get; private set; }
 
+    /// <summary>While true (desktop mode, or after the user deliberately closed the
+    /// launcher) an alive→dead transition is swallowed instead of raising
+    /// HomeAppExited, so nothing auto-relaunches or pops the overlay.</summary>
+    public bool Paused { get; set; }
+
     public HomeAppMonitor(HomeAppConfig config)
     {
         _config = config;
@@ -53,8 +58,15 @@ public sealed class HomeAppMonitor : IDisposable
 
         if (_wasAlive && !IsAlive && _everAlive)
         {
-            Log.Info("Home app exited.");
-            HomeAppExited?.Invoke();
+            if (Paused)
+            {
+                Log.Info("Home app exited (monitor paused, not reacting).");
+            }
+            else
+            {
+                Log.Info("Home app exited.");
+                HomeAppExited?.Invoke();
+            }
         }
         _wasAlive = IsAlive;
     }

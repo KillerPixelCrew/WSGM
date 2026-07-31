@@ -77,6 +77,15 @@ public sealed class AppConfig
     public GamepadChordConfig GamepadChord { get; set; } = new();
     public GestureConfig Gestures { get; set; } = new();
     public GlyphStyle GlyphStyle { get; set; } = GlyphStyle.Xbox;
+
+    /// <summary>When > 0 and the home app is Steam, OpenFSE fires
+    /// steam://forceinputappid/&lt;this&gt; so Steam Input keeps that app's controller
+    /// layout active everywhere — desktop, Big Picture, in game — and the desktop
+    /// profile never swallows the controller. This is what lets the overlay take
+    /// focus (device-confirmed). Default 480 (Spacewar): every account owns it and
+    /// its layout is a stock gamepad passthrough. 0 = off. The /0 reset fires on
+    /// every exit and recovery path (see SteamInputPin).</summary>
+    public int SteamForceInputAppId { get; set; } = 480;
     /// <summary>The Winlogon Shell snapshot that existed before OpenFSE installed itself.
     /// Presence is separate from the string so an empty value remains distinguishable
     /// from an absent value; kind preserves REG_EXPAND_SZ as well as REG_SZ.</summary>

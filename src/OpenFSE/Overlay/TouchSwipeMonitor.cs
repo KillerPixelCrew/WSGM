@@ -80,6 +80,14 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     /// <summary>Raised on the Avalonia UI thread with the edge that was swiped.</summary>
     public event Action<ScreenEdge>? Triggered;
 
+    /// <summary>Raised on the Avalonia UI thread with primary-screen pixel
+    /// coordinates for every NEW touch contact while <see cref="WatchTaps"/> is on.
+    /// Lets the overlay dismiss itself on taps outside its bounds.</summary>
+    public event Action<int, int>? TappedAt;
+
+    /// <summary>Enables <see cref="TappedAt"/> (overlay open).</summary>
+    public bool WatchTaps { get; set; }
+
     public TouchSwipeMonitor()
     {
         var hInstance = NativeMethods.GetModuleHandleW(0);
@@ -476,7 +484,8 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     private void OnContactDown(DeviceCaps caps, uint rawX, uint rawY)
     {
         _tracking = false;
-        if (!_armed)
+        var watchTaps = WatchTaps;
+        if (!_armed && !watchTaps)
         {
             return;
         }
@@ -484,6 +493,22 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         _screenW = NativeMethods.GetSystemMetrics(0);
         _screenH = NativeMethods.GetSystemMetrics(1);
         var (x, y) = ScaleToScreen(caps, rawX, rawY);
+
+        if (watchTaps)
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (!_disposed && WatchTaps)
+                {
+                    TappedAt?.Invoke(x, y);
+                }
+            });
+        }
+
+        if (!_armed)
+        {
+            return;
+        }
 
         if (_bottomEnabled && y >= _screenH - _bandPx)
         {

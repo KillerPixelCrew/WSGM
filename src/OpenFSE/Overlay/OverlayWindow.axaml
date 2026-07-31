@@ -51,6 +51,36 @@
                             </StackPanel>
                         </Grid>
                     </Button>
+                    <Button x:Name="ExitBigPictureButton" Classes="quick-row" Click="OnExitBigPicture"
+                            IsVisible="{Binding IsSteamHomeApp}">
+                        <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
+                            <TextBlock Text="⤢" FontSize="15" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                <TextBlock Text="Exit Big Picture" Classes="setting-title" />
+                                <TextBlock Text="Switch Steam to its desktop window" Classes="caption" />
+                            </StackPanel>
+                        </Grid>
+                    </Button>
+                    <Button x:Name="CycleAppsButton" Classes="quick-row" Click="OnCycleApps"
+                            IsVisible="{Binding ShowCycleButton}">
+                        <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
+                            <TextBlock Text="⇄" FontSize="15" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                <TextBlock Text="Next app" Classes="setting-title" />
+                                <TextBlock Text="Cycle through your running programs" Classes="caption" />
+                            </StackPanel>
+                        </Grid>
+                    </Button>
+                    <Button x:Name="CloseLauncherButton" Classes="quick-row" Click="OnCloseLauncher"
+                            IsVisible="{Binding HomeAppAlive}">
+                        <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
+                            <TextBlock Text="✕" FontSize="14" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                <TextBlock x:Name="CloseLauncherTitle" Text="{Binding CloseLauncherText}" Classes="setting-title" />
+                                <TextBlock Text="Stop the configured game launcher" Classes="caption" />
+                            </StackPanel>
+                        </Grid>
+                    </Button>
 
                     <TextBlock Text="OpenFSE" Classes="section-title" Margin="0,4,0,2" />
                     <Button Classes="quick-row" Click="OnSettings">
