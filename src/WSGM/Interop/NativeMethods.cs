@@ -250,6 +250,28 @@ internal static partial class NativeMethods
     [LibraryImport("dwmapi.dll")]
     internal static partial int DwmGetWindowAttribute(nint hWnd, uint attribute, out uint value, uint size);
 
+    // ---- Update-exit event with explicit security (signalable from unelevated) ----
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct SecurityAttributes
+    {
+        public int nLength;
+        public nint lpSecurityDescriptor;
+        public int bInheritHandle;
+    }
+
+    [LibraryImport("advapi32.dll", EntryPoint = "ConvertStringSecurityDescriptorToSecurityDescriptorW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool ConvertStringSecurityDescriptorToSecurityDescriptor(string sddl, uint revision, out nint securityDescriptor, out uint size);
+
+    [LibraryImport("kernel32.dll", EntryPoint = "CreateEventW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial nint CreateEventW(ref SecurityAttributes securityAttributes, [MarshalAs(UnmanagedType.Bool)] bool manualReset, [MarshalAs(UnmanagedType.Bool)] bool initialState, string name);
+
+    [LibraryImport("kernel32.dll")]
+    internal static partial nint LocalFree(nint mem);
+
+    [LibraryImport("kernel32.dll")]
+    internal static partial uint WaitForSingleObject(nint handle, uint milliseconds);
+
     // ---- Elevation check of other processes ----
     internal const uint ProcessQueryLimitedInformation = 0x1000;
     internal const uint TokenQuery = 0x0008;
