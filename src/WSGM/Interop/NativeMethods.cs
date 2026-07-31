@@ -266,6 +266,11 @@ internal static partial class NativeMethods
     [LibraryImport("kernel32.dll", EntryPoint = "CreateEventW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
     internal static partial nint CreateEventW(ref SecurityAttributes securityAttributes, [MarshalAs(UnmanagedType.Bool)] bool manualReset, [MarshalAs(UnmanagedType.Bool)] bool initialState, string name);
 
+    internal const uint Synchronize = 0x00100000;
+
+    [LibraryImport("kernel32.dll", EntryPoint = "OpenEventW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial nint OpenEventW(uint desiredAccess, [MarshalAs(UnmanagedType.Bool)] bool inheritHandle, string name);
+
     [LibraryImport("kernel32.dll")]
     internal static partial nint LocalFree(nint mem);
 

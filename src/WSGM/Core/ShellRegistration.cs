@@ -14,9 +14,19 @@ public static class ShellRegistration
     private const string StartupToGamingHome = "StartupToGamingHome";
 
     /// <summary>The registered command always prefers the INSTALLED copy (stable
-    /// path) over wherever the current process happens to run from.</summary>
-    public static string OwnShellCommand =>
-        $"\"{(Installer.IsAppInstalled ? Installer.InstalledExePath : Environment.ProcessPath)}\" --shell";
+    /// path) over wherever the current process happens to run from. ProcessPath can
+    /// be null in exotic hosts — fall back to the base directory rather than
+    /// registering a broken '"" --shell' value.</summary>
+    public static string OwnShellCommand
+    {
+        get
+        {
+            var exe = Installer.IsAppInstalled
+                ? Installer.InstalledExePath
+                : Environment.ProcessPath ?? System.IO.Path.Combine(AppContext.BaseDirectory, "WSGM.exe");
+            return $"\"{exe}\" --shell";
+        }
+    }
 
     private sealed record StringRegistryValue(bool Exists, string? Value, RegistryValueKind Kind);
     private sealed record IntRegistryValue(bool Exists, int Value, RegistryValueKind Kind);
@@ -47,7 +57,8 @@ public static class ShellRegistration
             config.PreviousShellValueExists = existingShell.Exists;
             config.PreviousShellValueKind = existingShell.Kind;
 
-            using var gamingSnapshot = Registry.CurrentUser.CreateSubKey(GamingConfigKey);
+            // Read-only snapshot — OpenSubKey so a pure read can't materialize the key.
+            using var gamingSnapshot = Registry.CurrentUser.OpenSubKey(GamingConfigKey);
             var existingGaming = ReadIntValue(gamingSnapshot, StartupToGamingHome);
             config.PreviousStartupToGamingHomeValue = existingGaming.Value;
             config.PreviousStartupToGamingHomeSnapshotCaptured = true;
@@ -78,36 +89,46 @@ public static class ShellRegistration
             var config = new AppConfig();
             try { config = ConfigStore.Load(); } catch { }
 
-            using var key = Registry.CurrentUser.CreateSubKey(WinlogonKey);
-            var current = ReadStringValue(key, ShellValue);
-            if (IsOwnedByThisExe(current.Value))
+            // OpenSubKey (not CreateSubKey): a restore that finds nothing to restore
+            // must not create keys as a side effect. Winlogon always exists; a null
+            // here also means our value can't be registered there.
+            using (var key = Registry.CurrentUser.OpenSubKey(WinlogonKey, writable: true))
             {
-                // Older config files stored a non-null value without an explicit
-                // presence bit. Keep them recoverable while all new snapshots use
-                // the precise captured/exists pair.
-                var hasPreviousShell = config.PreviousShellValueExists ||
-                    (!config.PreviousShellSnapshotCaptured && config.PreviousShellValue is not null);
-                if (hasPreviousShell)
+                if (key is not null && IsOwnedByThisExe(ReadStringValue(key, ShellValue).Value))
                 {
-                    key.SetValue(ShellValue, config.PreviousShellValue ?? string.Empty,
-                        NormalizeStringKind(config.PreviousShellValueKind));
-                }
-                else
-                {
-                    key.DeleteValue(ShellValue, throwOnMissingValue: false);
+                    if (HasPreviousShell(config))
+                    {
+                        key.SetValue(ShellValue, config.PreviousShellValue ?? string.Empty,
+                            NormalizeStringKind(config.PreviousShellValueKind));
+                    }
+                    else
+                    {
+                        key.DeleteValue(ShellValue, throwOnMissingValue: false);
+                    }
                 }
             }
 
-            using var gaming = Registry.CurrentUser.CreateSubKey(GamingConfigKey);
-            if (config.PreviousStartupToGamingHomeSnapshotCaptured &&
-                config.PreviousStartupToGamingHomeValueExists)
+            using (var gaming = Registry.CurrentUser.OpenSubKey(GamingConfigKey, writable: true))
             {
-                gaming.SetValue(StartupToGamingHome, config.PreviousStartupToGamingHomeValue,
-                    NormalizeDwordKind(config.PreviousStartupToGamingHomeValueKind));
-            }
-            else if (config.PreviousStartupToGamingHomeSnapshotCaptured)
-            {
-                gaming.DeleteValue(StartupToGamingHome, throwOnMissingValue: false);
+                if (gaming is not null && config.PreviousStartupToGamingHomeSnapshotCaptured)
+                {
+                    // Revert only while the value is still the 0 WSGM wrote in
+                    // Install — anything else means the user (or the Xbox app)
+                    // changed it since, and that change must win.
+                    var currentGaming = ReadIntValue(gaming, StartupToGamingHome);
+                    if (currentGaming.Exists && currentGaming.Value == 0)
+                    {
+                        if (config.PreviousStartupToGamingHomeValueExists)
+                        {
+                            gaming.SetValue(StartupToGamingHome, config.PreviousStartupToGamingHomeValue,
+                                NormalizeDwordKind(config.PreviousStartupToGamingHomeValueKind));
+                        }
+                        else
+                        {
+                            gaming.DeleteValue(StartupToGamingHome, throwOnMissingValue: false);
+                        }
+                    }
+                }
             }
             Log.Info($"Shell registration restored (previous: {DisplayShellSnapshot(config)})");
         }
@@ -151,25 +172,54 @@ public static class ShellRegistration
 
     private static bool IsOwnedByThisExe(string? value)
     {
-        if (value is null)
+        // Ours if the registered COMMAND'S EXECUTABLE is the running copy or the
+        // installed copy. Path equality, not substring — a foreign command that
+        // merely mentions our path (e.g. a wrapper passing it as an argument)
+        // must not be treated as ours and deleted on uninstall.
+        var registeredExe = ExtractExecutablePath(value);
+        if (registeredExe is null)
         {
             return false;
         }
-        // Ours if it points at either the running copy or the installed copy.
         var exe = Environment.ProcessPath;
-        return (exe is not null && value.Contains(exe, StringComparison.OrdinalIgnoreCase))
-            || value.Contains(Installer.InstalledExePath, StringComparison.OrdinalIgnoreCase);
+        return (exe is not null && string.Equals(registeredExe, exe, StringComparison.OrdinalIgnoreCase))
+            || string.Equals(registeredExe, Installer.InstalledExePath, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Parses the executable out of a Shell command line: the quoted token
+    /// if the command starts with a quote, otherwise everything up to the first
+    /// space (matching how Winlogon itself launches the value).</summary>
+    private static string? ExtractExecutablePath(string? command)
+    {
+        if (string.IsNullOrWhiteSpace(command))
+        {
+            return null;
+        }
+        command = command.Trim();
+        if (command.StartsWith('"'))
+        {
+            var closing = command.IndexOf('"', 1);
+            return closing > 1 ? command[1..closing] : null;
+        }
+        var space = command.IndexOf(' ');
+        return space < 0 ? command : command[..space];
     }
 
     private static RegistryValueKind NormalizeStringKind(RegistryValueKind kind)
         => kind == RegistryValueKind.ExpandString ? RegistryValueKind.ExpandString : RegistryValueKind.String;
 
     private static RegistryValueKind NormalizeDwordKind(RegistryValueKind kind)
-        => RegistryValueKind.DWord;
+        => kind == RegistryValueKind.QWord ? RegistryValueKind.QWord : RegistryValueKind.DWord;
+
+    /// <summary>Older config files stored a non-null value without an explicit
+    /// presence bit. Keep them recoverable while all new snapshots use the precise
+    /// captured/exists pair.</summary>
+    private static bool HasPreviousShell(AppConfig config)
+        => config.PreviousShellValueExists ||
+           (!config.PreviousShellSnapshotCaptured && config.PreviousShellValue is not null);
 
     private static string DisplayShellSnapshot(AppConfig config)
-        => !(config.PreviousShellValueExists ||
-             (!config.PreviousShellSnapshotCaptured && config.PreviousShellValue is not null))
-            ? "<absent>"
-            : config.PreviousShellValue ?? string.Empty;
+        => HasPreviousShell(config)
+            ? config.PreviousShellValue ?? string.Empty
+            : "<absent>";
 }

@@ -11,7 +11,6 @@ public sealed class SteamMonitor : IDisposable
 {
     private readonly DispatcherTimer _timer;
     private bool _wasAlive;
-    private bool _everAlive;
 
     public event Action? SteamExited;
 
@@ -24,19 +23,20 @@ public sealed class SteamMonitor : IDisposable
 
     public SteamMonitor()
     {
-        _timer = new DispatcherTimer(TimeSpan.FromSeconds(5), DispatcherPriority.Background, (_, _) => Poll());
+        // The convenience ctor taking a callback auto-starts the timer (see
+        // GamepadService) — keep construction and Start() explicit.
+        _timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(5) };
+        _timer.Tick += (_, _) => Poll();
         _timer.Start();
     }
 
     private void Poll()
     {
         IsAlive = Steam.IsRunning;
-        if (IsAlive)
-        {
-            _everAlive = true;
-        }
 
-        if (_wasAlive && !IsAlive && _everAlive)
+        // _wasAlive can only be true after a poll saw Steam alive, so the
+        // seen-alive-once requirement is implied.
+        if (_wasAlive && !IsAlive)
         {
             if (Paused)
             {
