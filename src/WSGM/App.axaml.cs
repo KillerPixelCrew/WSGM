@@ -9,6 +9,10 @@ namespace WSGM;
 
 public class App : Application
 {
+    // Deliberate root for the headless shell session — without it the session
+    // (and its config watcher) would survive only via incidental GC reachability.
+    private ShellSession? _session;
+
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
@@ -24,14 +28,14 @@ public class App : Application
                     // No main window — the shell session runs headless until the
                     // overlay is summoned. Keep the app alive explicitly.
                     desktop.ShutdownMode = Avalonia.Controls.ShutdownMode.OnExplicitShutdown;
-                    var session = new ShellSession(ConfigStore.Load());
-                    session.Start();
+                    _session = new ShellSession(ConfigStore.Load());
+                    _session.Start();
                     break;
 
                 case RunMode.OverlayTest:
                     desktop.ShutdownMode = Avalonia.Controls.ShutdownMode.OnExplicitShutdown;
-                    var testSession = new ShellSession(ConfigStore.Load(), overlayTestOnly: true);
-                    testSession.Start();
+                    _session = new ShellSession(ConfigStore.Load(), overlayTestOnly: true);
+                    _session.Start();
                     break;
 
                 case RunMode.Settings:
