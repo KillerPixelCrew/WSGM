@@ -83,5 +83,39 @@ public static class SelfElevation
         }
     }
 
-    private static string Quote(string arg) => arg.Contains(' ') ? $"\"{arg}\"" : arg;
+    /// <summary>Quotes one argument per CommandLineToArgvW's rules: embedded quotes
+    /// are backslash-escaped, backslash runs before a quote (including the closing
+    /// one) are doubled, and empty args become "" — a bare Contains-space wrap would
+    /// corrupt args like a quoted path ending in a backslash.</summary>
+    private static string Quote(string arg)
+    {
+        if (arg.Length > 0 && arg.IndexOfAny([' ', '\t', '"']) < 0)
+        {
+            return arg;
+        }
+        var sb = new System.Text.StringBuilder(arg.Length + 2);
+        sb.Append('"');
+        var backslashes = 0;
+        foreach (var c in arg)
+        {
+            if (c == '\\')
+            {
+                backslashes++;
+                continue;
+            }
+            if (c == '"')
+            {
+                sb.Append('\\', backslashes * 2 + 1);
+            }
+            else
+            {
+                sb.Append('\\', backslashes);
+            }
+            sb.Append(c);
+            backslashes = 0;
+        }
+        sb.Append('\\', backslashes * 2);
+        sb.Append('"');
+        return sb.ToString();
+    }
 }
