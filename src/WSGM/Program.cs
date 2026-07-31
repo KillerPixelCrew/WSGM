@@ -149,6 +149,10 @@ public static class Program
             {
                 SteamInputPin.ReleaseBestEffort("shutdown");
             }
+            if (Mode == RunMode.Shell)
+            {
+                SlateMode.RestoreOriginal();
+            }
             return exitCode;
         }
         catch (Exception ex)
@@ -186,6 +190,8 @@ public static class Program
         {
             ShellRegistration.Uninstall();
             ExplorerControl.StartExplorer();
+            // The desktop we just brought back should behave like a touch desktop.
+            SlateMode.ApplyDesktopMode();
         }
         SteamInputPin.ReleaseBestEffort("panic");
     }

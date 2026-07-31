@@ -164,6 +164,7 @@ public sealed class OverlayController : IDisposable
             _monitor.Paused = true;
         }
         ExitBigPicture();
+        SlateMode.ApplyDesktopMode();
         ExplorerControl.StartExplorer();
     }
 
@@ -173,6 +174,7 @@ public sealed class OverlayController : IDisposable
     {
         Log.Info("Entering game mode.");
         ExplorerControl.KillExplorer();
+        SlateMode.ApplyGameMode();
         if (_monitor is not null)
         {
             _monitor.Paused = false;
