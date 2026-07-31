@@ -11,19 +11,36 @@ jobs:
   release:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           dotnet-version: 9.0.x
 
-      # Keep exe metadata and installer name in sync with the tag (v1.2.3 -> 1.2.3).
+      # Derive the version once (v1.2.3 -> 1.2.3). The tag name goes through env,
+      # never spliced into script source (script-injection hardening).
+      - name: Derive version from tag
+        id: version
+        shell: pwsh
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          $ver = $env:REF_NAME -replace '^v', ''
+          "version=$ver" >> $env:GITHUB_OUTPUT
+
+      # Keep exe metadata, manifest identity and installer name in sync with the
+      # tag. Stamping the csproj covers the installer too: build.ps1 reads the
+      # csproj <Version> and passes it to ISCC via /DAppVersion.
       - name: Stamp version from tag
         shell: pwsh
+        env:
+          VER: ${{ steps.version.outputs.version }}
         run: |
-          $ver = "${{ github.ref_name }}".TrimStart("v")
+          $ver = $env:VER
           (Get-Content src/WSGM/WSGM.csproj) -replace '<Version>.*</Version>', "<Version>$ver</Version>" | Set-Content src/WSGM/WSGM.csproj
-          (Get-Content installer/WSGM.iss) -replace '#define AppVersion ".*"', "#define AppVersion `"$ver`"" | Set-Content installer/WSGM.iss
+          # assemblyIdentity requires a four-part version.
+          $mver = if ($ver.Split('.').Count -eq 3) { "$ver.0" } else { $ver }
+          (Get-Content src/WSGM/app.manifest) -replace 'assemblyIdentity version="[^"]*"', "assemblyIdentity version=`"$mver`"" | Set-Content src/WSGM/app.manifest
 
       # windows-latest ships VS Build Tools (NativeAOT linker) and Inno Setup 6 —
       # exactly what build.ps1 expects locally.
@@ -33,12 +50,13 @@ jobs:
 
       - name: Zip portable build
         shell: pwsh
+        env:
+          VER: ${{ steps.version.outputs.version }}
         run: |
-          $ver = "${{ github.ref_name }}".TrimStart("v")
-          Compress-Archive -Path publish\WSGM.exe, publish\*.dll -DestinationPath "publish\WSGM-$ver-portable.zip"
+          Compress-Archive -Path publish\WSGM.exe, publish\*.dll -DestinationPath "publish\WSGM-$env:VER-portable.zip"
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: |
             publish/WSGM-Setup-*.exe
