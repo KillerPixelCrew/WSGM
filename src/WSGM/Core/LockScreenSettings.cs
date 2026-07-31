@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using Microsoft.Win32;
 
 namespace WSGM.Core;
@@ -367,38 +366,8 @@ public static class LockScreenSettings
     private static bool RunPowerCfg(string arguments) => ConsoleTool.Run("powercfg.exe", arguments);
 
     /// <summary>Requests the change from the non-elevated UI (one elevation prompt).</summary>
-    public static bool RequestChange(bool disableSignInOnWake)
-    {
-        var exe = Environment.ProcessPath;
-        if (exe is null)
-        {
-            return false;
-        }
-        try
-        {
-            var psi = new ProcessStartInfo(exe,
-                disableSignInOnWake ? "--disable-lock-on-wake" : "--restore-lock-on-wake")
-            {
-                UseShellExecute = true,
-                Verb = "runas",
-            };
-            using var p = Process.Start(psi);
-            if (p is null)
-            {
-                return false;
-            }
-            if (!p.WaitForExit(60000))
-            {
-                // ExitCode would throw on a still-running process.
-                Log.Warn("Lock-on-wake change: elevated instance still running after 60 s — result unknown.");
-                return false;
-            }
-            return p.ExitCode == 0;
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Lock-on-wake change not applied: {ex.Message}");
-            return false;
-        }
-    }
+    public static bool RequestChange(bool disableSignInOnWake) =>
+        SelfElevation.RunElevatedAction(
+            disableSignInOnWake ? "--disable-lock-on-wake" : "--restore-lock-on-wake",
+            "Lock-on-wake change");
 }

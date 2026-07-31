@@ -83,6 +83,46 @@ public static class SelfElevation
         }
     }
 
+    /// <summary>Starts an elevated copy of WSGM with a single flag argument, waits
+    /// for it to finish, and reports whether it succeeded (exit code 0). This is how
+    /// the non-elevated settings UI performs one-shot HKLM writes: the elevated
+    /// instance applies the change and exits. Returns false when elevation was
+    /// declined, the elevated instance outlived the wait, or the write failed.
+    /// <paramref name="description"/> prefixes the log lines (e.g. "UAC change").</summary>
+    public static bool RunElevatedAction(string argument, string description)
+    {
+        var exe = Environment.ProcessPath;
+        if (exe is null)
+        {
+            return false;
+        }
+        try
+        {
+            var psi = new ProcessStartInfo(exe, argument)
+            {
+                UseShellExecute = true,
+                Verb = "runas",
+            };
+            using var p = Process.Start(psi);
+            if (p is null)
+            {
+                return false;
+            }
+            if (!p.WaitForExit(60000))
+            {
+                // ExitCode would throw on a still-running process.
+                Log.Warn($"{description}: elevated instance still running after 60 s — result unknown.");
+                return false;
+            }
+            return p.ExitCode == 0;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"{description} not applied: {ex.Message}");
+            return false;
+        }
+    }
+
     /// <summary>Quotes one argument per CommandLineToArgvW's rules: embedded quotes
     /// are backslash-escaped, backslash runs before a quote (including the closing
     /// one) are doubled, and empty args become "" — a bare Contains-space wrap would
