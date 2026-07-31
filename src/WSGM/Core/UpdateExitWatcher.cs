@@ -10,9 +10,9 @@ namespace WSGM.Core;
 /// security is just as unreachable: its DACL grants BUILTIN\Administrators (a
 /// deny-only SID in the installer's filtered token) and it carries a high
 /// integrity label. So the event is created with an explicit descriptor —
-/// Everyone gets exactly EVENT_MODIFY_STATE, low mandatory label so lower-IL
-/// processes may signal. A graceful self-shutdown runs the normal exit path,
-/// so the Steam Input pin release and posture restore fire too.</summary>
+/// Everyone gets EVENT_MODIFY_STATE | SYNCHRONIZE, low mandatory label so
+/// lower-IL processes may signal. A graceful self-shutdown runs the normal exit
+/// path, so the Steam Input pin release and posture restore fire too.</summary>
 public static class UpdateExitWatcher
 {
     public const string EventName = @"Local\WSGM.ExitForUpdate";
@@ -30,9 +30,10 @@ public static class UpdateExitWatcher
         {
             if (!NativeMethods.ConvertStringSecurityDescriptorToSecurityDescriptor(EventSddl, 1, out var sd, out _))
             {
-                Log.Warn("Update-exit watcher: SDDL conversion failed.");
+                Log.Warn($"Update-exit watcher: SDDL conversion failed (error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}).");
                 return;
             }
+            int createError;
             try
             {
                 var attributes = new NativeMethods.SecurityAttributes
@@ -41,15 +42,32 @@ public static class UpdateExitWatcher
                     lpSecurityDescriptor = sd,
                     bInheritHandle = 0,
                 };
-                _event = NativeMethods.CreateEventW(ref attributes, manualReset: false, initialState: false, EventName);
+                // Manual-reset: the installer signals exactly once, and EVERY waiting
+                // instance (elevated shell + settings window) must be released by it.
+                _event = NativeMethods.CreateEventW(ref attributes, manualReset: true, initialState: false, EventName);
+                createError = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
             }
             finally
             {
                 NativeMethods.LocalFree(sd);
             }
-            if (_event == 0)
+            if (_event == 0 && createError == 5 /* ERROR_ACCESS_DENIED */)
             {
-                Log.Warn("Update-exit watcher: CreateEvent failed.");
+                // The event already exists (another WSGM instance created it) and its
+                // DACL grants Everyone only MODIFY_STATE|SYNCHRONIZE, so CreateEventW's
+                // implicit EVENT_ALL_ACCESS open is denied. SYNCHRONIZE is all a waiter
+                // needs — device-confirmed 'CreateEvent failed' in the field.
+                _event = NativeMethods.OpenEventW(NativeMethods.Synchronize, false, EventName);
+                if (_event == 0)
+                {
+                    Log.Warn($"Update-exit watcher: OpenEvent fallback failed (error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}).");
+                    return;
+                }
+                Log.Info("Update-exit watcher: opened existing event (SYNCHRONIZE).");
+            }
+            else if (_event == 0)
+            {
+                Log.Warn($"Update-exit watcher: CreateEvent failed (error {createError}).");
                 return;
             }
 
