@@ -55,6 +55,23 @@ public enum GlyphStyle
     Nintendo,
 }
 
+/// <summary>One display's pre-game scaling, keyed by the GDI source device name
+/// (\\.\DISPLAYn) so restore survives topology changes and later boots.</summary>
+public sealed class DisplayScaleEntry
+{
+    public string DeviceName { get; set; } = "";
+    public int Percent { get; set; }
+}
+
+/// <summary>One power scheme's CONSOLELOCK values as they were before WSGM wrote
+/// them. -1 = value absent (Windows default applies).</summary>
+public sealed class PowerSchemeConsoleLock
+{
+    public string SchemeGuid { get; set; } = "";
+    public int AcValue { get; set; } = -1;
+    public int DcValue { get; set; } = -1;
+}
+
 public sealed class AppConfig
 {
     /// <summary>Restart Steam automatically when it exits. Steam itself is located
@@ -83,10 +100,14 @@ public sealed class AppConfig
     /// every exit and recovery path (see SteamInputPin).</summary>
     public int SteamForceInputAppId { get; set; } = 480;
 
-    /// <summary>Per-display scaling percentages captured before game mode forced
-    /// 100%, in active-source enumeration order. Non-empty means "not yet
-    /// restored" — survives crashes so recovery paths can put scaling back.</summary>
+    /// <summary>Legacy pre-device-identity list: scaling percentages in active-source
+    /// enumeration order. Kept only so configs written by older versions still
+    /// restore (migrated into SavedDisplayScaleEntries on the next restore).</summary>
     public List<int> SavedDisplayScales { get; set; } = [];
+    /// <summary>Per-display scaling captured before game mode forced 100%. Non-empty
+    /// means "not yet restored" — survives crashes so recovery paths can put
+    /// scaling back, matched per display via the GDI source device name.</summary>
+    public List<DisplayScaleEntry> SavedDisplayScaleEntries { get; set; } = [];
     /// <summary>The Winlogon Shell snapshot that existed before WSGM installed itself.
     /// Presence is separate from the string so an empty value remains distinguishable
     /// from an absent value; kind preserves REG_EXPAND_SZ as well as REG_SZ.</summary>
@@ -109,11 +130,29 @@ public sealed class AppConfig
     public int PreviousUacConsentPrompt { get; set; } = 5;
     public int PreviousUacSecureDesktop { get; set; } = 1;
 
-    /// <summary>Whether Windows required a sign-in on wake before WSGM changed it.</summary>
+    /// <summary>Whether Windows required a sign-in on wake before WSGM changed it.
+    /// Kept for configs captured by older versions; new snapshots also store the
+    /// exact per-scheme values below.</summary>
     public bool PreviousLockOnWakeSnapshotCaptured { get; set; }
     public bool PreviousLockOnWakeRequired { get; set; } = true;
     /// <summary>Previous HKLM Personalization\NoLockScreen value (-1 = absent).</summary>
     public int PreviousNoLockScreen { get; set; } = -1;
+    /// <summary>Per-power-scheme CONSOLELOCK values (AC and DC) as they were before
+    /// WSGM flattened them to 0, so restore is exact even for mixed setups.</summary>
+    public List<PowerSchemeConsoleLock> PreviousConsoleLockSchemeValues { get; set; } = [];
+    /// <summary>True when the CONSOLELOCK policy key already existed before WSGM;
+    /// false means WSGM created it and restore deletes the whole key.</summary>
+    public bool PreviousConsoleLockPolicyKeyExisted { get; set; }
+    /// <summary>Pre-existing CONSOLELOCK policy values (-1 = value absent).</summary>
+    public int PreviousConsoleLockPolicyAc { get; set; } = -1;
+    public int PreviousConsoleLockPolicyDc { get; set; } = -1;
+
+    /// <summary>ConvertibleSlateMode / TouchKeyboardTapInvoke as they were before
+    /// WSGM's first write (-1 = value absent), so a clean exit restores the boot
+    /// state exactly instead of a hardcoded guess.</summary>
+    public bool SlateModeSnapshotCaptured { get; set; }
+    public int PreviousSlateMode { get; set; } = -1;
+    public int PreviousTouchKeyboardTapInvoke { get; set; } = -1;
 }
 
 [JsonSerializable(typeof(AppConfig))]

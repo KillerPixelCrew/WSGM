@@ -225,19 +225,9 @@ public static class Installer
             $"$s.WorkingDirectory = '{dir}'; " +
             "$s.Description = 'WSGM settings'; " +
             "$s.Save()";
-        try
+        if (!ConsoleTool.Run("powershell.exe", $"-NoProfile -NonInteractive -Command \"{script}\""))
         {
-            using var p = Process.Start(new ProcessStartInfo("powershell.exe",
-                $"-NoProfile -NonInteractive -Command \"{script}\"")
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            });
-            p?.WaitForExit(15000);
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Could not create Start Menu shortcut: {ex.Message}");
+            Log.Warn("Could not create Start Menu shortcut.");
         }
     }
 

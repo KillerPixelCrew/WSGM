@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.IO;
 
 namespace WSGM.Core;
@@ -16,23 +15,30 @@ namespace WSGM.Core;
 /// this (like every technique) cannot help.</summary>
 internal static class UnelevatedLauncher
 {
-    private const string TaskName = "WSGM_StartUnelevated";
-
     public static bool TryStartViaScheduledTask(string exePath)
     {
-        var xmlPath = Path.Combine(Path.GetTempPath(), "wsgm-task.xml");
+        // Unique per invocation: a fixed name collides across concurrent launches,
+        // and a stale leftover task would shadow the fresh one.
+        var suffix = $"{Environment.ProcessId}-{Random.Shared.Next():x8}";
+        var taskName = $"WSGM_StartUnelevated_{suffix}";
+        // NOT %TEMP%: the XML is consumed by an elevated schtasks, and a fixed,
+        // predictable, user-writable path could be swapped between the write and
+        // /Create. Log.Directory plus the random name closes the easy version.
+        var xmlPath = Path.Combine(Log.Directory, $"wsgm-task-{suffix}.xml");
+        var created = false;
         try
         {
+            Directory.CreateDirectory(Log.Directory);
             // Task Scheduler expects canonical UTF-16 task XML; a UTF-8 file is
             // rejected with "cannot switch encoding" (verified locally).
             File.WriteAllText(xmlPath, BuildTaskXml(exePath), System.Text.Encoding.Unicode);
 
-            if (!RunSchtasks($"/Create /TN \"{TaskName}\" /XML \"{xmlPath}\" /F"))
+            created = RunSchtasks($"/Create /TN \"{taskName}\" /XML \"{xmlPath}\" /F");
+            if (!created)
             {
                 return false;
             }
-            var started = RunSchtasks($"/Run /TN \"{TaskName}\"");
-            RunSchtasks($"/Delete /TN \"{TaskName}\" /F");
+            var started = RunSchtasks($"/Run /TN \"{taskName}\"");
             if (started)
             {
                 Log.Info($"Started via de-elevating scheduled task: {exePath}");
@@ -46,6 +52,12 @@ internal static class UnelevatedLauncher
         }
         finally
         {
+            // Best-effort cleanup on EVERY path (including /Run failures/throws) so
+            // a one-shot task never stays registered.
+            if (created)
+            {
+                try { RunSchtasks($"/Delete /TN \"{taskName}\" /F"); } catch { }
+            }
             try { File.Delete(xmlPath); } catch { }
         }
     }
@@ -80,24 +92,5 @@ internal static class UnelevatedLauncher
             """;
     }
 
-    private static bool RunSchtasks(string arguments)
-    {
-        var psi = new ProcessStartInfo("schtasks.exe", arguments)
-        {
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        using var p = Process.Start(psi);
-        if (p is null)
-        {
-            return false;
-        }
-        p.WaitForExit(15_000);
-        if (p.ExitCode != 0)
-        {
-            Log.Warn($"schtasks {arguments.Split(' ')[0]} exited with {p.ExitCode}.");
-            return false;
-        }
-        return true;
-    }
+    private static bool RunSchtasks(string arguments) => ConsoleTool.Run("schtasks.exe", arguments);
 }

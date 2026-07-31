@@ -121,8 +121,17 @@ public static class UacSettings
                 Verb = "runas",
             };
             using var p = Process.Start(psi);
-            p?.WaitForExit(60000);
-            return p?.ExitCode == 0;
+            if (p is null)
+            {
+                return false;
+            }
+            if (!p.WaitForExit(60000))
+            {
+                // ExitCode would throw on a still-running process.
+                Log.Warn("UAC change: elevated instance still running after 60 s — result unknown.");
+                return false;
+            }
+            return p.ExitCode == 0;
         }
         catch (Exception ex)
         {
