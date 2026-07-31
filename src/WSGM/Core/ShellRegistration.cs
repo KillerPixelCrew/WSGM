@@ -13,6 +13,44 @@ public static class ShellRegistration
     private const string GamingConfigKey = @"Software\Microsoft\Windows\CurrentVersion\GamingConfiguration";
     private const string StartupToGamingHome = "StartupToGamingHome";
 
+    private static readonly RegistryValueSnapshot<string?> ShellSnapshot = new(
+        ShellValue,
+        absentValue: null,
+        writeFallback: string.Empty,
+        defaultKind: RegistryValueKind.String,
+        coerce: static value => value as string ?? string.Empty,
+        normalizeKind: static kind =>
+            kind == RegistryValueKind.ExpandString ? RegistryValueKind.ExpandString : RegistryValueKind.String,
+        load: static config => new(config.PreviousShellSnapshotCaptured, config.PreviousShellValueExists,
+            config.PreviousShellValue, config.PreviousShellValueKind),
+        store: static (config, state) =>
+        {
+            config.PreviousShellValue = state.Value;
+            config.PreviousShellSnapshotCaptured = state.Captured;
+            config.PreviousShellValueExists = state.Exists;
+            config.PreviousShellValueKind = state.Kind;
+        });
+
+    private static readonly RegistryValueSnapshot<int> GamingHomeSnapshot = new(
+        StartupToGamingHome,
+        absentValue: 0,
+        writeFallback: 0,
+        defaultKind: RegistryValueKind.DWord,
+        coerce: static value => value is int number ? number : 0,
+        normalizeKind: static kind =>
+            kind == RegistryValueKind.QWord ? RegistryValueKind.QWord : RegistryValueKind.DWord,
+        load: static config => new(config.PreviousStartupToGamingHomeSnapshotCaptured,
+            config.PreviousStartupToGamingHomeValueExists,
+            config.PreviousStartupToGamingHomeValue,
+            config.PreviousStartupToGamingHomeValueKind),
+        store: static (config, state) =>
+        {
+            config.PreviousStartupToGamingHomeValue = state.Value;
+            config.PreviousStartupToGamingHomeSnapshotCaptured = state.Captured;
+            config.PreviousStartupToGamingHomeValueExists = state.Exists;
+            config.PreviousStartupToGamingHomeValueKind = state.Kind;
+        });
+
     /// <summary>The registered command always prefers the INSTALLED copy (stable
     /// path) over wherever the current process happens to run from. ProcessPath can
     /// be null in exotic hosts — fall back to the base directory rather than
@@ -28,13 +66,10 @@ public static class ShellRegistration
         }
     }
 
-    private sealed record StringRegistryValue(bool Exists, string? Value, RegistryValueKind Kind);
-    private sealed record IntRegistryValue(bool Exists, int Value, RegistryValueKind Kind);
-
     public static string? CurrentValue()
     {
         using var key = Registry.CurrentUser.OpenSubKey(WinlogonKey);
-        return ReadStringValue(key, ShellValue).Value;
+        return ShellSnapshot.ReadCurrent(key).Value;
     }
 
     public static bool IsInstalledForThisExe() => IsOwnedByThisExe(CurrentValue());
@@ -44,7 +79,7 @@ public static class ShellRegistration
     public static void Install(AppConfig config)
     {
         using var shell = Registry.CurrentUser.CreateSubKey(WinlogonKey);
-        var existingShell = ReadStringValue(shell, ShellValue);
+        var existingShell = ShellSnapshot.ReadCurrent(shell);
         var installingOverOurShell = IsOwnedByThisExe(existingShell.Value);
 
         // Never overwrite the original snapshots during an idempotent install.
@@ -52,18 +87,11 @@ public static class ShellRegistration
         // old shell is still intact and recovery remains possible.
         if (!installingOverOurShell)
         {
-            config.PreviousShellValue = existingShell.Value;
-            config.PreviousShellSnapshotCaptured = true;
-            config.PreviousShellValueExists = existingShell.Exists;
-            config.PreviousShellValueKind = existingShell.Kind;
+            ShellSnapshot.Capture(config, existingShell);
 
             // Read-only snapshot — OpenSubKey so a pure read can't materialize the key.
             using var gamingSnapshot = Registry.CurrentUser.OpenSubKey(GamingConfigKey);
-            var existingGaming = ReadIntValue(gamingSnapshot, StartupToGamingHome);
-            config.PreviousStartupToGamingHomeValue = existingGaming.Value;
-            config.PreviousStartupToGamingHomeSnapshotCaptured = true;
-            config.PreviousStartupToGamingHomeValueExists = existingGaming.Exists;
-            config.PreviousStartupToGamingHomeValueKind = existingGaming.Kind;
+            GamingHomeSnapshot.Capture(config, GamingHomeSnapshot.ReadCurrent(gamingSnapshot));
         }
 
         ConfigStore.Save(config);
@@ -94,39 +122,23 @@ public static class ShellRegistration
             // here also means our value can't be registered there.
             using (var key = Registry.CurrentUser.OpenSubKey(WinlogonKey, writable: true))
             {
-                if (key is not null && IsOwnedByThisExe(ReadStringValue(key, ShellValue).Value))
+                if (key is not null && IsOwnedByThisExe(ShellSnapshot.ReadCurrent(key).Value))
                 {
-                    if (HasPreviousShell(config))
-                    {
-                        key.SetValue(ShellValue, config.PreviousShellValue ?? string.Empty,
-                            NormalizeStringKind(config.PreviousShellValueKind));
-                    }
-                    else
-                    {
-                        key.DeleteValue(ShellValue, throwOnMissingValue: false);
-                    }
+                    ShellSnapshot.Restore(key, config);
                 }
             }
 
             using (var gaming = Registry.CurrentUser.OpenSubKey(GamingConfigKey, writable: true))
             {
-                if (gaming is not null && config.PreviousStartupToGamingHomeSnapshotCaptured)
+                if (gaming is not null && GamingHomeSnapshot.IsCaptured(config))
                 {
                     // Revert only while the value is still the 0 WSGM wrote in
                     // Install — anything else means the user (or the Xbox app)
                     // changed it since, and that change must win.
-                    var currentGaming = ReadIntValue(gaming, StartupToGamingHome);
+                    var currentGaming = GamingHomeSnapshot.ReadCurrent(gaming);
                     if (currentGaming.Exists && currentGaming.Value == 0)
                     {
-                        if (config.PreviousStartupToGamingHomeValueExists)
-                        {
-                            gaming.SetValue(StartupToGamingHome, config.PreviousStartupToGamingHomeValue,
-                                NormalizeDwordKind(config.PreviousStartupToGamingHomeValueKind));
-                        }
-                        else
-                        {
-                            gaming.DeleteValue(StartupToGamingHome, throwOnMissingValue: false);
-                        }
+                        GamingHomeSnapshot.Restore(gaming, config);
                     }
                 }
             }
@@ -136,38 +148,6 @@ public static class ShellRegistration
         {
             Log.Error("Failed to restore shell registration", ex);
         }
-    }
-
-    private static StringRegistryValue ReadStringValue(RegistryKey? key, string valueName)
-    {
-        if (key is null)
-        {
-            return new StringRegistryValue(false, null, RegistryValueKind.String);
-        }
-
-        var sentinel = new object();
-        var value = key.GetValue(valueName, sentinel, RegistryValueOptions.DoNotExpandEnvironmentNames);
-        if (ReferenceEquals(value, sentinel))
-        {
-            return new StringRegistryValue(false, null, RegistryValueKind.String);
-        }
-        return new StringRegistryValue(true, value as string ?? string.Empty, key.GetValueKind(valueName));
-    }
-
-    private static IntRegistryValue ReadIntValue(RegistryKey? key, string valueName)
-    {
-        if (key is null)
-        {
-            return new IntRegistryValue(false, 0, RegistryValueKind.DWord);
-        }
-
-        var sentinel = new object();
-        var value = key.GetValue(valueName, sentinel, RegistryValueOptions.DoNotExpandEnvironmentNames);
-        if (ReferenceEquals(value, sentinel))
-        {
-            return new IntRegistryValue(false, 0, RegistryValueKind.DWord);
-        }
-        return new IntRegistryValue(true, value is int number ? number : 0, key.GetValueKind(valueName));
     }
 
     private static bool IsOwnedByThisExe(string? value)
@@ -205,21 +185,8 @@ public static class ShellRegistration
         return space < 0 ? command : command[..space];
     }
 
-    private static RegistryValueKind NormalizeStringKind(RegistryValueKind kind)
-        => kind == RegistryValueKind.ExpandString ? RegistryValueKind.ExpandString : RegistryValueKind.String;
-
-    private static RegistryValueKind NormalizeDwordKind(RegistryValueKind kind)
-        => kind == RegistryValueKind.QWord ? RegistryValueKind.QWord : RegistryValueKind.DWord;
-
-    /// <summary>Older config files stored a non-null value without an explicit
-    /// presence bit. Keep them recoverable while all new snapshots use the precise
-    /// captured/exists pair.</summary>
-    private static bool HasPreviousShell(AppConfig config)
-        => config.PreviousShellValueExists ||
-           (!config.PreviousShellSnapshotCaptured && config.PreviousShellValue is not null);
-
     private static string DisplayShellSnapshot(AppConfig config)
-        => HasPreviousShell(config)
+        => ShellSnapshot.HasValue(config)
             ? config.PreviousShellValue ?? string.Empty
             : "<absent>";
 }
