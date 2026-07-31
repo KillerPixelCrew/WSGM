@@ -1,0 +1,121 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:fa="using:FluentAvalonia.Styling"
+             x:Class="WSGM.App"
+             RequestedThemeVariant="Dark">
+    <Application.Resources>
+        <!-- Handheld Companion's ModernWPF theme is a charcoal WinUI surface with
+             an orange system accent. These resources carry that vocabulary through
+             FluentAvalonia instead of inventing a separate visual language. -->
+        <Color x:Key="SystemAccentColor">#FFFF9D3D</Color>
+        <SolidColorBrush x:Key="HcBackgroundBrush" Color="#FF232323" />
+        <SolidColorBrush x:Key="HcCardBrush" Color="#FF2C2C2C" />
+        <SolidColorBrush x:Key="HcCardBorderBrush" Color="#FF343434" />
+        <SolidColorBrush x:Key="HcTextSecondaryBrush" Color="#FFD6D6D6" />
+        <SolidColorBrush x:Key="HcTextMutedBrush" Color="#FFB8B8B8" />
+        <SolidColorBrush x:Key="HcAccentBrush" Color="#FFFF9D3D" />
+        <SolidColorBrush x:Key="HcDangerBrush" Color="#FFFFA0A0" />
+        <SolidColorBrush x:Key="HcWarningBrush" Color="#FFFFC66D" />
+    </Application.Resources>
+
+    <Application.Styles>
+        <fa:FluentAvaloniaTheme />
+
+        <Style Selector="Window">
+            <Setter Property="FontFamily" Value="Segoe UI" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="Background" Value="{StaticResource HcBackgroundBrush}" />
+        </Style>
+        <Style Selector="TextBlock.page-title">
+            <Setter Property="FontSize" Value="20" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="TextBlock.section-title">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,3,0,0" />
+        </Style>
+        <Style Selector="TextBlock.caption">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{StaticResource HcTextSecondaryBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.setting-title">
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="TextBlock.nav-icon">
+            <Setter Property="FontSize" Value="17" />
+            <Setter Property="Margin" Value="0,0,8,0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
+        <!-- Avalonia port of iNKORE Modern WPF SettingsCard: icon, title,
+             description and a trailing interactive control. -->
+        <Style Selector="Border.hc-settings-card">
+            <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource HcCardBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Padding" Value="10,6" />
+        </Style>
+        <Style Selector="Border.hc-device-card">
+            <Setter Property="Background" Value="#FF000000" />
+            <Setter Property="BorderBrush" Value="#FF000000" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Padding" Value="10,6" />
+        </Style>
+        <Style Selector="Border.hc-footer">
+            <Setter Property="Background" Value="#F0222222" />
+            <Setter Property="BorderBrush" Value="#FF363636" />
+            <Setter Property="BorderThickness" Value="0,1,0,0" />
+        </Style>
+
+        <Style Selector="Button">
+            <Setter Property="MinHeight" Value="26" />
+            <Setter Property="Padding" Value="8,3" />
+            <Setter Property="Background" Value="#FF3A3A3A" />
+            <Setter Property="BorderBrush" Value="#FF454545" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Foreground" Value="White" />
+        </Style>
+        <Style Selector="Button:pointerover">
+            <Setter Property="Background" Value="#FF484848" />
+        </Style>
+        <Style Selector="Button:focus /template/ ContentPresenter">
+            <Setter Property="BorderBrush" Value="{StaticResource HcAccentBrush}" />
+            <Setter Property="BorderThickness" Value="2" />
+        </Style>
+        <Style Selector="Button.primary">
+            <Setter Property="Background" Value="{StaticResource HcAccentBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource HcAccentBrush}" />
+            <Setter Property="Foreground" Value="Black" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Button.danger">
+            <Setter Property="Foreground" Value="{StaticResource HcDangerBrush}" />
+        </Style>
+        <Style Selector="Button.icon">
+            <Setter Property="MinWidth" Value="34" />
+            <Setter Property="Padding" Value="6" />
+        </Style>
+
+        <Style Selector="TextBox, ComboBox, NumericUpDown">
+            <Setter Property="Background" Value="#FF3A3A3A" />
+            <Setter Property="BorderBrush" Value="#FF3A3A3A" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="MinHeight" Value="28" />
+        </Style>
+        <Style Selector="TextBox:focus, ComboBox:focus-within, NumericUpDown:focus-within">
+            <Setter Property="BorderBrush" Value="{StaticResource HcAccentBrush}" />
+        </Style>
+        <Style Selector="ToggleSwitch">
+            <Setter Property="OnContent" Value="On" />
+            <Setter Property="OffContent" Value="Off" />
+            <Setter Property="MinWidth" Value="72" />
+        </Style>
+    </Application.Styles>
+</Application>

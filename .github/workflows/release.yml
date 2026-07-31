@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      # Keep exe metadata and installer name in sync with the tag (v1.2.3 -> 1.2.3).
+      - name: Stamp version from tag
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}".TrimStart("v")
+          (Get-Content src/WSGM/WSGM.csproj) -replace '<Version>.*</Version>', "<Version>$ver</Version>" | Set-Content src/WSGM/WSGM.csproj
+          (Get-Content installer/WSGM.iss) -replace '#define AppVersion ".*"', "#define AppVersion `"$ver`"" | Set-Content installer/WSGM.iss
+
+      # windows-latest ships VS Build Tools (NativeAOT linker) and Inno Setup 6 —
+      # exactly what build.ps1 expects locally.
+      - name: Build (NativeAOT publish + installer)
+        shell: pwsh
+        run: .\build.ps1
+
+      - name: Zip portable build
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}".TrimStart("v")
+          Compress-Archive -Path publish\WSGM.exe, publish\*.dll -DestinationPath "publish\WSGM-$ver-portable.zip"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            publish/WSGM-Setup-*.exe
+            publish/WSGM-*-portable.zip
+          generate_release_notes: true

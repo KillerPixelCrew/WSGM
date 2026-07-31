@@ -1,14 +1,15 @@
-# OpenFSE
+# WSGM — Windows Steam Game Mode
 
-A "poor man's Full Screen Experience" for Windows 11 gaming handhelds. OpenFSE replaces the
-Windows shell **for your user account only** and boots you straight into your launcher
-(e.g. Steam Big Picture, optionally elevated) — no explorer, no Xbox FSE, no FSE input
-sandboxing. A touch/hotkey/controller overlay lets you hop to the desktop, back to game
-mode, and power the device down.
+WSGM reconstructs the SteamOS Game Mode experience on Windows 11 gaming handhelds. It
+replaces the Windows shell **for your user account only** and boots straight into Steam
+Big Picture.
+A touch/hotkey/controller overlay lets you hop to the desktop, back to game mode, switch between running apps, and
+power the device down.
+
 
 ## ⚠ Recovery — read this FIRST
 
-OpenFSE replaces your shell. If anything goes wrong you will see a black screen instead of
+WSGM replaces your shell. If anything goes wrong you will see a black screen instead of
 a desktop. **You can always recover:**
 
 1. Press **Ctrl+Alt+Del** (this always works — it belongs to Windows, not the shell).
@@ -16,66 +17,65 @@ a desktop. **You can always recover:**
 2. Choose **Task Manager** → **Run new task**.
 3. Type either:
    - `explorer.exe` — brings the desktop back for this session, or
-   - `"C:\Program Files\OpenFSE\OpenFSE.exe" --restore-shell` — permanently restores your
-     previous shell and starts the desktop (adjust the path to where you put OpenFSE.exe).
-4. If OpenFSE crashes repeatedly at logon, it disarms itself automatically (3 starts within
+   - `%LOCALAPPDATA%\WSGM\bin\WSGM.exe --restore-shell` — permanently restores your
+     previous shell and starts the desktop.
+4. If WSGM crashes repeatedly at logon, it disarms itself automatically (3 starts within
    2 minutes → restores your previous shell and starts explorer).
-
-Belt and braces: keep a second local admin account on the machine. OpenFSE only changes
-`HKCU\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\Shell` for the user that
-installed it — other accounts are untouched.
 
 ## Why
 
+I know there is Windows 11's FSE, but it has a very specific Problem.
 Windows 11's Xbox Full Screen Experience does not deliver controller input to elevated
-processes. Steam must run elevated if you want Steam Input to keep working while elevated
-windows have focus (UIPI). Outside FSE — on the plain desktop — elevated Steam receives
-controller input just fine. OpenFSE gives you a fullscreen boot-to-Steam experience
-without FSE, so both things work at once.
+processes.
+
+Steam must run elevated if you want Steam Input to keep working while elevated windows have focus (UIPI). 
+That means if you want to update a Driver in the Device Manger for example, Steam's Desktop Layout stops working the moment Device Manager is in focus.
+Older Games that need to run Elevated also fail out on Steam Input as a Result.
+The last Issue was that if Steam was started Elevated through Native FSE, it refused Controller Input from Virtual Controllers as made by Handheld Companion or ClawTweaks. Which i can only attribute to some, excuse my language, UWP Style Sandboxing Bullshit. Most likely the same shit that stopps Steam Input from Working on XBOX Games.
+
+WSGM gives you a fullscreen boot-to-Steam experience without FSE, so both things work at once.
 
 ## How it works
 
-- Registers itself as your **per-user shell** (`HKCU\...\Winlogon\Shell`). No admin needed,
-  HKLM untouched, other users unaffected. Your previous Shell value (if any) is saved and
-  restored on uninstall.
+- Registers itself as your **per-user shell** (`HKCU\...\Winlogon\Shell`). 
+  A well established methode especially in Enterprise Enviroments for Kiosks or ThinClients, so this is by no way a hacky solution and probaply exists for longer than I am alive.
 - At logon it starts your **startup apps** (each optionally elevated — e.g. Handheld
-  Companion) and then your **home app** (e.g. `Steam.exe steam://open/bigpicture`,
-  optionally elevated), then waits in the background.
+  Companion), then **Steam Big Picture**. Steam's location comes from the registry;
+  if Steam isn't running yet, the `steam://open/bigpicture` protocol boots it.
 - **Quick access panel** (swipe in from the bottom or right screen edge, press the
-  configurable hotkey — default Ctrl+Alt+Home — or open it automatically when the home
-  app exits): a right-side, Steam-QAM-style panel that leaves the game visible while you
-  return to Desktop, go back to Game Mode, start the home app, open settings, or manage
-  power. Fully controller-navigable (D-pad/stick + A/B) with Xbox, PlayStation, or
-  Nintendo button glyphs.
-- **Return to Desktop** simply starts `explorer.exe`; **Back to Game Mode** ends it again.
-  OpenFSE stays resident the whole time.
+  configurable hotkey — default Ctrl+Alt+Home — a recorded controller chord, or
+  automatically when Steam exits): a right-side, Steam-QAM-style panel that leaves the
+  game visible. From it you can focus or start Steam, return to the desktop and back to
+  game mode, **exit Big Picture** while staying in game mode (handy for adding a library),
+  **cycle through your running programs**, close
+  Steam, open settings. Fully controller-navigable.
+  Tapping anywhere outside the panel dismisses it.
+- **Return to Desktop** exits Big Picture, pauses Steam monitoring, and starts `explorer.exe` 
+   **Back to Game Mode** ends explorer and brings Big Picture back, restarting Steam if it closed meanwhile. WSGM stays resident the whole time.
 
 ## Install
 
-Download and run **`OpenFSE-Setup-<version>.exe`** — a normal installer wizard
-(per-user, no administrator rights, no UAC). It installs to `%LOCALAPPDATA%\OpenFSE\bin`,
+Download and run **`WSGM-Setup-<version>.exe`** — a normal installer wizard
+(per-user, no administrator rights, no UAC). It installs to `%LOCALAPPDATA%\WSGM\bin`,
 adds a Start Menu entry, and shows up in Settings → Apps. Then:
 
-1. Open OpenFSE → pick your launcher from the list (Steam Big Picture, Playnite,
-   BigBox, RetroBat, Kodi, Razer Cortex, Armoury Crate, One Game Launcher). Installed
-   ones are detected automatically and everything technical — path, launch arguments,
-   window matching — is filled in for you. Add startup apps from the suggestions
+1. Open WSGM — Steam is detected automatically. Add startup apps from the suggestions
    (Handheld Companion and friends are detected too).
 2. Click **Install as shell** (this is the explicit, separate step that changes your shell).
 3. Sign out, sign back in.
 
-Upgrading: just run the newer setup — settings and shell registration are kept, and it
-can update even while OpenFSE is running as the shell.
+Upgrading: just run the newer setup. It closes a running WSGM first (it is most likely
+your active shell) and restarts it afterwards in the mode it was in.
 
-Uninstall: Windows Settings → Apps → OpenFSE. The uninstaller restores your previous
-Windows shell **before** removing any files. (`OpenFSE.exe --restore-shell` also works
+Uninstall: Windows Settings → Apps → WSGM. The uninstaller restores your previous
+Windows shell **before** removing any files. (`WSGM.exe --restore-shell` also works
 from anywhere, any time.)
 
-Portable use: the standalone `OpenFSE.exe` + `.dll` files also run from any folder —
+Portable use: the standalone `WSGM.exe` + `.dll` files also run from any folder —
 on first run they offer to install, or you can keep running portable.
 
 Building a release yourself: `.\build.ps1` (needs the .NET 9 SDK, VS C++ build tools,
-and Inno Setup 6) → `publish\OpenFSE-Setup-<version>.exe`.
+and Inno Setup 6) → `publish\WSGM-Setup-<version>.exe`.
 
 ## Command line
 
@@ -90,83 +90,11 @@ and Inno Setup 6) → `publish\OpenFSE-Setup-<version>.exe`.
 | `--setup` | Headless: install app + register as shell (for scripts) |
 | `--overlay-test` | Show the overlay without shell mode (development/testing) |
 
-## "Never show UAC prompts" (optional)
+## AI usage disclaimer
 
-Settings has a checkbox that sets Windows' UAC slider to its lowest position
-("Never notify"): `ConsentPromptBehaviorAdmin=0` + `PromptOnSecureDesktop=0` in
-`HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System`. That is what makes
-elevated launches (elevated Steam, Handheld Companion) start silently at boot instead
-of stopping on a consent dialog you'd have to tap through on a handheld.
-
-- UAC itself stays **enabled** (`EnableLUA=1` is never touched) — turning that off
-  would break Store/UWP apps and require a reboot.
-- **Security trade-off**: it applies machine-wide to every administrator account. Any
-  program that requests administrator rights then gets them without asking. Only use
-  it on a personal device you trust.
-- Ticking or unticking requires one administrator confirmation and takes effect
-  immediately; the previous values are saved and restored exactly when you untick.
-
-## "No lock screen after screen off / standby" (optional)
-
-Second checkbox in Settings. It writes three things:
-
-- `CONSOLELOCK` ("Require a password on wakeup") = 0 for AC and battery as a machine
-  **policy** (`HKLM\SOFTWARE\Policies\Microsoft\Power\PowerSettings\
-  {0e796bdb-100d-47d6-a2d5-f7d2daa51f51}` → `ACSettingIndex`/`DCSettingIndex`), which
-  survives vendor software switching power plans — common on handhelds,
-- the same value on **every** power plan on the machine via `powercfg` (not just the
-  active one — Handheld Companion and similar tools switch plans constantly, and this
-  setting is stored per plan), and
-- `HKLM\SOFTWARE\Policies\Microsoft\Windows\Personalization` → `NoLockScreen` = 1,
-  which removes the lock screen UI itself. **Windows 11 Home ignores this policy on
-  some builds** — the wake behaviour above is the part that reliably matters.
-
-On modern-standby devices `CONSOLELOCK` is hidden from the classic power UI but still
-applies. Anyone who picks the device up can use it without signing in — fine for a
-personal handheld, not for a shared or easily-lost machine. One administrator
-confirmation to change; unticking restores all three previous values exactly.
-
-## Overlay shortcuts
-
-Both shortcuts are **recorded**, not picked from a list: press *Record*, then press what
-you want. *Clear* sets no shortcut at all.
-
-- **Keyboard** — captured with a low-level hook, so it stores the real virtual-key code.
-  This also covers handheld OEM buttons, which usually send a key combination (the MSI
-  Claw's Quick Settings button sends `Win+G`, long-press `Win+Tab`).
-- **Controller** — press buttons together for a press-chord, or keep holding them
-  (~600 ms) for a hold-chord. Buttons accumulate until you release everything, so they
-  don't have to be pressed on the same frame — the same approach Handheld Companion uses.
-
-XInput only exposes 14 buttons and cannot see a virtual DualShock 4, DualSense or
-Switch Pro at all, so OpenFSE also reads controllers over HID. Every controller
-Handheld Companion can emulate is covered:
-
-| Emulated controller | How OpenFSE reads it | Extra buttons |
-|---|---|---|
-| Xbox 360 | XInput | — |
-| Steam Deck (`28DE:1205`) | Valve report format | L4/R4/L5/R5, Steam, Quick Access, trackpads |
-| Steam Controller (`28DE:1102`) | Valve report format | grips, Steam, trackpads |
-| DualShock 4 / DualSense | Windows HID parser | PS button, touchpad click, mute |
-| Switch Pro | Windows HID parser | Home, Capture |
-| any other HID pad | Windows HID parser | first 14 buttons |
-
-Non-Valve pads are read through Windows' own HID parser (`HidP_GetUsages`) rather than
-hardcoded report offsets, so unknown controllers still bind correctly. Vendor buttons
-that send nothing Windows can see need Handheld Companion to remap them first.
-
-## Notes & limitations
-
-- Custom shells are a legacy but functional Windows mechanism; it is not officially
-  supported by Microsoft on consumer SKUs. After a Windows feature update, verify the
-  shell registration survived (OpenFSE's settings shows the status).
-- Edge swipes are detected by observing the touch digitizer's raw input, so they work
-  over exclusive-fullscreen games and never interfere with mouse or touch input reaching
-  the game. They require a touchscreen; on non-touch devices use the hotkey or chord.
-- The overlay/hotkey cannot appear over the lock screen or UAC secure desktop (by design).
-- Without explorer there are no taskbar, toasts, or system tray. OpenFSE shows its own
-  errors in the overlay, and the settings window has a button to open the touch keyboard.
+Large parts of WSGM are written with AI assistance, directed and
+reviewed by a human. Changes are tested on real handheld hardware before release.
 
 ## License
 
-MIT. Controller button glyphs from CC0 prompt packs (see `src/OpenFSE/Assets/Glyphs/CREDITS.md`).
+MIT. Controller button glyphs from CC0 prompt packs (see `src/WSGM/Assets/Glyphs/CREDITS.md`).

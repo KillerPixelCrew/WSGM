@@ -1,14 +1,14 @@
-# OpenFSE release build: NativeAOT publish + Inno Setup installer.
-# Output: publish\OpenFSE-Setup-<version>.exe (the one-file installer)
-#         publish\OpenFSE.exe + *.dll        (portable files)
+# WSGM release build: NativeAOT publish + Inno Setup installer.
+# Output: publish\WSGM-Setup-<version>.exe (the one-file installer)
+#         publish\WSGM.exe + *.dll        (portable files)
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 
 # NativeAOT needs the VS linker toolchain; ILCompiler locates it via vswhere.
 $env:Path += ";${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer"
 
-Write-Host "== Publishing OpenFSE (NativeAOT) ==" -ForegroundColor Cyan
-dotnet publish "$root\src\OpenFSE\OpenFSE.csproj" -c Release -r win-x64 -o "$root\publish"
+Write-Host "== Publishing WSGM (NativeAOT) ==" -ForegroundColor Cyan
+dotnet publish "$root\src\WSGM\WSGM.csproj" -c Release -r win-x64 -o "$root\publish"
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
 
 $iscc = @(
@@ -18,8 +18,8 @@ $iscc = @(
 if (-not $iscc) { throw "Inno Setup 6 not found (winget install JRSoftware.InnoSetup)" }
 
 Write-Host "== Compiling installer ==" -ForegroundColor Cyan
-& $iscc "$root\installer\OpenFSE.iss"
+& $iscc "$root\installer\WSGM.iss"
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
 
-Get-ChildItem "$root\publish\OpenFSE-Setup-*.exe" |
+Get-ChildItem "$root\publish\WSGM-Setup-*.exe" |
     Select-Object Name, @{n='SizeMB';e={[math]::Round($_.Length/1MB,1)}}
