@@ -48,7 +48,6 @@ public sealed class OverlayController : IDisposable
         }
 
         ApplyGestures(config.Gestures);
-        ApplySteamInputPin();
 
         if (_monitor is not null)
         {
@@ -105,7 +104,10 @@ public sealed class OverlayController : IDisposable
             _gamepad.Stop();
         }
         ApplyGestures(config.Gestures);
-        ApplySteamInputPin();
+        if (_overlay is not null)
+        {
+            ApplySteamInputPin();
+        }
         Log.Info("Config reloaded.");
     }
 
@@ -131,8 +133,14 @@ public sealed class OverlayController : IDisposable
         ShowOverlay();
     }
 
+    /// <summary>The pin is scoped to the overlay's lifetime. While Steam's own
+    /// window is foreground with a forced appid, Steam treats the pad as in-game
+    /// input and Big Picture stops responding (user-reported) — so the pin exists
+    /// only while OUR focused panel needs the pad, and is released on close.</summary>
     private void ApplySteamInputPin()
         => SteamInputPin.Apply(Math.Max(_config.SteamForceInputAppId, 0));
+
+    private void ReleaseSteamInputPin() => SteamInputPin.Apply(0);
 
     /// <summary>Asks Steam to leave Big Picture (Steam keeps running). No-op if
     /// Steam isn't running.</summary>
@@ -297,6 +305,8 @@ public sealed class OverlayController : IDisposable
         _overlay.Closed += (_, _) =>
         {
             _closePending = false;
+            // Give Steam its pad back the moment the panel is gone.
+            ReleaseSteamInputPin();
             var reopenForWarning = _reopenOverlayForWarning;
             _reopenOverlayForWarning = false;
             _navigation?.Dispose();

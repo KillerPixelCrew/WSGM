@@ -158,6 +158,7 @@ public sealed class GamepadNavigation : IDisposable
         {
             input.Focus(NavigationMethod.Directional);
             _lastFocused = input;
+            Log.Info($"Gamepad nav: focus -> {(input as Avalonia.Controls.Control)?.Name ?? input.GetType().Name}");
         }
         else
         {

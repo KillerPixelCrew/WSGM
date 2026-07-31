@@ -37,6 +37,10 @@ public partial class OverlayWindow : Window
         KeyDown += OnKeyDown;
         Opened += OnOpened;
         Closed += (_, _) => StopSlide();
+        // Focus-ring flicker diagnosis: rapid activate/deactivate churn hides and
+        // re-shows the focus adorner. Remove once the flicker is understood.
+        Activated += (_, _) => Core.Log.Info("Overlay window activated.");
+        Deactivated += (_, _) => Core.Log.Info("Overlay window deactivated.");
 
         // The overlay takes focus Game-Bar-style: the game stops receiving input
         // while the panel is open. Viable because SteamInputPin keeps the pad
