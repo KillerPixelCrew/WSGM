@@ -55,6 +55,15 @@ public sealed class OverlayViewModel : INotifyPropertyChanged
         set { _glyphStyle = value; Raise(nameof(GlyphStyle)); }
     }
 
+    private bool _confirmingCloseLauncher;
+    /// <summary>Armed state of the destructive Close-Steam confirm. Lives here so
+    /// the bound title renders it — a direct Text write would fight the binding.</summary>
+    public bool ConfirmingCloseLauncher
+    {
+        get => _confirmingCloseLauncher;
+        set { _confirmingCloseLauncher = value; Raise(nameof(ConfirmingCloseLauncher)); Raise(nameof(CloseLauncherText)); }
+    }
+
     /// <summary>Windows offered by the Switch-app picker (rebuilt on each press).</summary>
     public ObservableCollection<AppWindowEntry> SwitchableWindows { get; } = [];
 
@@ -67,7 +76,7 @@ public sealed class OverlayViewModel : INotifyPropertyChanged
 
     public string DesktopButtonText => ExplorerRunning ? "Back to Game Mode" : "Return to Desktop";
     public string HomeAppButtonText => HomeAppAlive ? $"Focus {HomeAppName}" : $"Start {HomeAppName}";
-    public string CloseLauncherText => $"Close {HomeAppName}";
+    public string CloseLauncherText => ConfirmingCloseLauncher ? "Really?" : $"Close {HomeAppName}";
 
     private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

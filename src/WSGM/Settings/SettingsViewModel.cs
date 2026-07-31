@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
+using System.Text.Json;
 using WSGM.Core;
 using WSGM.Input;
 
@@ -157,7 +158,9 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     public void Install()
     {
-        ApplyTo(_config);
+        // Self-contained: persist the settings first so the config on disk always
+        // matches what the shell registration snapshots below.
+        Save();
         // Always anchor the shell registration to the stable installed copy,
         // never to a Downloads/dev path.
         Installer.InstallApp();
@@ -304,7 +307,11 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     public AppConfig SnapshotForTest()
     {
         ApplyTo(_config);
-        return _config;
+        // A real copy (source-gen JSON round-trip, AOT-safe): the test
+        // OverlayController must not see later Save()/Install() mutations of the
+        // live _config outside its ApplyConfig wholesale-replace contract.
+        var json = JsonSerializer.Serialize(_config, ConfigJsonContext.Default.AppConfig);
+        return JsonSerializer.Deserialize(json, ConfigJsonContext.Default.AppConfig) ?? new AppConfig();
     }
 
     private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));

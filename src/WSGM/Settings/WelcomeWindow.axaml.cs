@@ -29,8 +29,11 @@ public partial class WelcomeWindow : Window
         Opened += (_, _) =>
         {
             InstallButton.Focus();
+            // Read once: the delegate runs on every gamepad button press (and each
+            // auto-repeat tick) — no per-press file read/JSON parse.
+            var nintendoLayout = ConfigStore.Load().GlyphStyle == GlyphStyle.Nintendo;
             _navigation = new GamepadNavigation(_gamepad, this, back: OpenPortableSettings,
-                isNintendoLayout: () => ConfigStore.Load().GlyphStyle == GlyphStyle.Nintendo);
+                isNintendoLayout: () => nintendoLayout);
             _gamepad.Start();
         };
         Closed += (_, _) =>

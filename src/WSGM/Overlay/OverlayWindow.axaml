@@ -14,8 +14,10 @@
         Background="{StaticResource HcBackgroundBrush}">
 
     <!-- Ported from Handheld Companion QuickTools: compact status strip, grouped
-         SettingsCard-style rows, and a bottom controller-navigation bar. -->
-    <Border Background="{StaticResource HcBackgroundBrush}" CornerRadius="10,0,0,10">
+         SettingsCard-style rows, and a bottom controller-navigation bar.
+         No CornerRadius/Background here: the window surface behind it is opaque
+         and identically colored, so rounded corners could never render. -->
+    <Border>
         <Grid RowDefinitions="Auto,*,Auto">
             <Border Grid.Row="0" Background="#FF282828" BorderBrush="#FF343434" BorderThickness="0,0,0,1" Padding="10,6">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
@@ -83,7 +85,7 @@
                         <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
                             <TextBlock Text="✕" FontSize="14" VerticalAlignment="Center" HorizontalAlignment="Center" />
                             <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
-                                <TextBlock x:Name="CloseLauncherTitle" Text="{Binding CloseLauncherText}" Classes="setting-title" />
+                                <TextBlock Text="{Binding CloseLauncherText}" Classes="setting-title" />
                                 <TextBlock Text="Quit Steam completely" Classes="caption" />
                             </StackPanel>
                         </Grid>
@@ -123,7 +125,7 @@
                         <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
                             <TextBlock Text="↻" FontSize="16" VerticalAlignment="Center" HorizontalAlignment="Center" />
                             <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
-                                <TextBlock Text="Restart" Classes="setting-title" />
+                                <TextBlock x:Name="RestartTitle" Text="Restart" Classes="setting-title" />
                                 <TextBlock Text="Restart Windows" Classes="caption" />
                             </StackPanel>
                         </Grid>
@@ -132,7 +134,7 @@
                         <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
                             <TextBlock Text="⏻" FontSize="16" VerticalAlignment="Center" HorizontalAlignment="Center" />
                             <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
-                                <TextBlock Text="Shut down" Classes="setting-title" />
+                                <TextBlock x:Name="ShutdownTitle" Text="Shut down" Classes="setting-title" />
                                 <TextBlock Text="Turn off this handheld" Classes="caption" />
                             </StackPanel>
                         </Grid>

@@ -20,6 +20,7 @@ public partial class SettingsWindow : Window
     private OverlayController? _testOverlay;
     private KeyRecorder? _keyRecorder;
     private GamepadChordRecorder? _chordRecorder;
+    private bool _closed;
 
     public SettingsWindow()
     {
@@ -35,6 +36,7 @@ public partial class SettingsWindow : Window
         };
         Closed += (_, _) =>
         {
+            _closed = true;
             _gamepad.Stop();
             _navigation?.Dispose();
             _navigation = null;
@@ -66,13 +68,33 @@ public partial class SettingsWindow : Window
 
     private void OnInstall(object? sender, RoutedEventArgs e)
     {
-        _viewModel.Save();
-        _viewModel.Install();
+        // A disk/registry failure must not escape a click handler — in-shell it
+        // would land in the panic path and tear the session down.
+        try
+        {
+            _viewModel.Install();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Install failed", ex);
+            SaveStatus.Text = $"Install failed: {ex.Message}";
+        }
     }
 
     private void OnUninstall(object? sender, RoutedEventArgs e) => _viewModel.Uninstall();
 
-    private void OnInstallApp(object? sender, RoutedEventArgs e) => _viewModel.InstallApp();
+    private void OnInstallApp(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _viewModel.InstallApp();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("App install failed", ex);
+            SaveStatus.Text = $"Install failed: {ex.Message}";
+        }
+    }
 
     private async void OnRecordHotkey(object? sender, RoutedEventArgs e)
     {
@@ -80,6 +102,12 @@ public partial class SettingsWindow : Window
         // isn't the thing we record — same trick Handheld Companion uses.
         _viewModel.SetHotkeyRecording(true);
         await System.Threading.Tasks.Task.Delay(200);
+        if (_closed)
+        {
+            // Window closed during the delay: creating the recorder now would
+            // install a low-level keyboard hook with nothing left to dispose it.
+            return;
+        }
 
         _keyRecorder?.Dispose();
         _keyRecorder = new KeyRecorder();
@@ -103,6 +131,11 @@ public partial class SettingsWindow : Window
     {
         _viewModel.SetChordRecording(true);
         await System.Threading.Tasks.Task.Delay(200);
+        if (_closed)
+        {
+            // Same race as OnRecordHotkey: no recorder after the window is gone.
+            return;
+        }
 
         _chordRecorder?.Dispose();
         _chordRecorder = new GamepadChordRecorder();
@@ -140,8 +173,18 @@ public partial class SettingsWindow : Window
 
     private void OnSave(object? sender, RoutedEventArgs e)
     {
-        _viewModel.Save();
-        SaveStatus.Text = $"Saved {DateTime.Now:HH:mm:ss}";
+        try
+        {
+            _viewModel.Save();
+            SaveStatus.Text = $"Saved {DateTime.Now:HH:mm:ss}";
+        }
+        catch (Exception ex)
+        {
+            // A failed config write (locked/read-only file) must not escape a
+            // click handler — in-shell it would hit the panic path.
+            Log.Error("Saving settings failed", ex);
+            SaveStatus.Text = $"Save failed: {ex.Message}";
+        }
     }
 
     private async void OnAddApp(object? sender, RoutedEventArgs e)

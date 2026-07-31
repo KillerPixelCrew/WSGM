@@ -1,6 +1,4 @@
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using WSGM.Core;
 using WSGM.Input;
 using WSGM.Interop;
@@ -24,6 +22,7 @@ public sealed class OverlayController : IDisposable
     private GamepadNavigation? _navigation;
     private string _pendingWarning = "";
     private bool _reopenOverlayForWarning;
+    private bool _disposed;
     private readonly object _homeLaunchGate = new();
     private bool _homeLaunchInProgress;
     private DateTime _lastHomeLaunchUtc;
@@ -104,6 +103,12 @@ public sealed class OverlayController : IDisposable
             _gamepad.Stop();
         }
         ApplyGestures(config.Gestures);
+        if (_overlayViewModel is not null)
+        {
+            // Keep the open panel's footer glyphs in step with the (already live)
+            // Nintendo A/B input mapping.
+            _overlayViewModel.GlyphStyle = config.GlyphStyle;
+        }
         if (_overlay is not null)
         {
             ApplySteamInputPin();
@@ -119,6 +124,14 @@ public sealed class OverlayController : IDisposable
             System.Threading.Tasks.Task.Delay(10_000).ContinueWith(_ =>
                 Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                 {
+                    // Re-checked at fire time: a config reload (_config is replaced
+                    // wholesale) may have turned auto-relaunch off, or this
+                    // controller may have been disposed while the delay ran.
+                    if (_disposed || !_config.SteamAutoRelaunch)
+                    {
+                        Log.Info("Auto-relaunch skipped: disabled or disposed meanwhile.");
+                        return;
+                    }
                     // The user may have switched to desktop mode (or closed Steam
                     // deliberately) while this delay was in flight.
                     if (_monitor?.Paused == true)
@@ -133,20 +146,39 @@ public sealed class OverlayController : IDisposable
         ShowOverlay();
     }
 
+    private bool _pinReleased;
+
     /// <summary>The pin is scoped to the overlay's lifetime. While Steam's own
     /// window is foreground with a forced appid, Steam treats the pad as in-game
     /// input and Big Picture stops responding (user-reported) — so the pin exists
     /// only while OUR focused panel needs the pad, and is released on close.</summary>
     private void ApplySteamInputPin()
-        => SteamInputPin.Apply(Math.Max(_config.SteamForceInputAppId, 0));
+    {
+        _pinReleased = false;
+        SteamInputPin.Apply(Math.Max(_config.SteamForceInputAppId, 0));
+    }
 
-    private void ReleaseSteamInputPin() => SteamInputPin.Apply(0);
+    /// <summary>At most one release per pin apply from THIS controller: Dispose
+    /// releases early (see there), and the overlay's deferred Closed handler must
+    /// then not fire a second /0 — a replacement controller may already have
+    /// re-applied the pin by the time the 150 ms close lands.</summary>
+    private void ReleaseSteamInputPin()
+    {
+        if (_pinReleased)
+        {
+            return;
+        }
+        _pinReleased = true;
+        SteamInputPin.Apply(0);
+    }
 
     /// <summary>Asks Steam to leave Big Picture (Steam keeps running). No-op if
     /// Steam isn't running.</summary>
     private void ExitBigPicture()
     {
-        if (_monitor?.IsAlive != true)
+        // Live check, not the up-to-5 s-stale monitor poll: entering desktop mode
+        // right after Steam started must still send the close URL.
+        if (!Steam.IsRunning)
         {
             return;
         }
@@ -279,6 +311,10 @@ public sealed class OverlayController : IDisposable
 
     public void ShowOverlay()
     {
+        if (_disposed)
+        {
+            return;
+        }
         if (_overlay is null)
         {
             _restoreFocusTo = Interop.NativeMethods.GetForegroundWindow();
@@ -288,8 +324,29 @@ public sealed class OverlayController : IDisposable
         HideTouchEdges();
         if (_overlay is not null)
         {
-            _overlayViewModel?.WarningText = _pendingWarning;
+            if (_closePending)
+            {
+                // Re-summoned inside the 150 ms deferred close: cancel the pending
+                // Close() and keep the window — otherwise the timer would destroy
+                // the just-reactivated panel and release the pin under it.
+                _pendingClose?.Dispose();
+                _pendingClose = null;
+                _closePending = false;
+                Log.Info("Overlay re-shown during deferred close — pending close cancelled.");
+            }
+            if (_overlayViewModel is not null)
+            {
+                _overlayViewModel.WarningText = _pendingWarning;
+                // Recompute what the fresh-open path computes — Steam may have died
+                // or the desktop may have changed while the panel stayed open.
+                _overlayViewModel.ExplorerRunning = ExplorerControl.IsRunningInSession();
+                _overlayViewModel.HomeAppAlive = _monitor?.IsAlive ?? false;
+            }
             _overlay.Activate();
+            if (_touchSwipes is not null)
+            {
+                _touchSwipes.WatchTaps = true;
+            }
             return;
         }
 
@@ -344,6 +401,7 @@ public sealed class OverlayController : IDisposable
         _overlay.Closed += (_, _) =>
         {
             _closePending = false;
+            _pendingClose = null;
             // Give Steam its pad back the moment the panel is gone.
             ReleaseSteamInputPin();
             var reopenForWarning = _reopenOverlayForWarning;
@@ -365,6 +423,12 @@ public sealed class OverlayController : IDisposable
                 WindowFinder.BringToForeground(_restoreFocusTo);
             }
             _restoreFocusTo = 0;
+            if (_touchSwipes is not null)
+            {
+                // TappedAt consumers are gone with the panel; stop the per-tap
+                // dispatches until the next ShowOverlay.
+                _touchSwipes.WatchTaps = false;
+            }
             ShowTouchEdges();
             if (reopenForWarning)
             {
@@ -411,6 +475,7 @@ public sealed class OverlayController : IDisposable
     }
 
     private bool _closePending;
+    private IDisposable? _pendingClose;
 
     private void CloseOverlay()
     {
@@ -424,10 +489,12 @@ public sealed class OverlayController : IDisposable
         // mouse click AFTER this dispatch. If the window were already destroyed,
         // that click would land on whatever sits underneath (user-reproduced).
         // Kept open a beat, the window's own hook eats the synthesized click.
+        // ShowOverlay cancels this via _pendingClose when re-summoned in time.
         _closePending = true;
-        Avalonia.Threading.DispatcherTimer.RunOnce(() =>
+        _pendingClose = Avalonia.Threading.DispatcherTimer.RunOnce(() =>
         {
             _closePending = false;
+            _pendingClose = null;
             _overlay?.Close();
         }, TimeSpan.FromMilliseconds(150));
     }
@@ -520,9 +587,11 @@ public sealed class OverlayController : IDisposable
 
     public void Dispose()
     {
-        // Pin release happens in Program's exit/recovery paths, not here: a second
-        // controller instance (Settings' overlay test) disposing must not unpin
-        // the shell's live session.
+        if (_disposed)
+        {
+            return;
+        }
+        _disposed = true;
         if (_monitor is not null)
         {
             _monitor.SteamExited -= OnSteamExited;
@@ -531,7 +600,23 @@ public sealed class OverlayController : IDisposable
         _chordWatcher.Dispose();
         _gamepad.Dispose();
         DisposeTouchEdges();
-        _overlay?.Close();
+        if (_overlay is not null)
+        {
+            // This controller owes a pin release (its overlay is open / pending
+            // close). Fire it NOW, not in the deferred Closed handler 150 ms from
+            // here: a replacement controller (Test panel pressed again) may apply
+            // the pin in between, and a late /0 would unpin its live overlay.
+            // ReleaseSteamInputPin's guard makes the Closed handler's release a
+            // no-op afterwards, so the release fires exactly once. With no overlay
+            // open there is nothing to release — a stray /0 here would unpin the
+            // shell's live session (Settings' test controller disposes on window
+            // close). Program's exit/recovery paths still release unconditionally.
+            ReleaseSteamInputPin();
+        }
+        // Close through the same deferred path as every dismissal: an immediate
+        // Close() would skip the 150 ms grace and bring back the ghost clicks the
+        // deferral exists for.
+        CloseOverlay();
     }
 
     private void HideTouchEdges()
@@ -549,6 +634,7 @@ public sealed class OverlayController : IDisposable
         if (_touchSwipes is not null)
         {
             _touchSwipes.Triggered -= OnSwipeTriggered;
+            _touchSwipes.TappedAt -= OnTappedAt;
             _touchSwipes.Dispose();
             _touchSwipes = null;
         }
