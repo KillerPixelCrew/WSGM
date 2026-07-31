@@ -402,7 +402,7 @@ public sealed class OverlayController : IDisposable
                 WarnOrReopen("Steam was not found on this PC. Install Steam — WSGM is Steam-exclusive.");
                 return;
             }
-            var result = AppLauncher.StartProtocol(Steam.OpenBigPictureUrl);
+            var result = Steam.LaunchBigPicture();
             if (!result.Started)
             {
                 WarnOrReopen("Couldn't start Steam Big Picture.");

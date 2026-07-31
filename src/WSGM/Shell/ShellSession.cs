@@ -105,9 +105,8 @@ public sealed class ShellSession
             return;
         }
 
-        // The protocol handler boots Steam when it isn't running yet.
         Log.Info("Starting Steam Big Picture.");
-        var result = AppLauncher.StartProtocol(Steam.OpenBigPictureUrl);
+        var result = Steam.LaunchBigPicture();
         if (!result.Started)
         {
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>

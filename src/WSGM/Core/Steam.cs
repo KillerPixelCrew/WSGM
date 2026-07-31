@@ -60,4 +60,18 @@ public static class Steam
     public static bool IsInstalled => ExePath is not null;
 
     public static bool IsRunning => WindowFinder.FindProcessIds(ProcessNames).Count > 0;
+
+    /// <summary>Starts or focuses Big Picture the smooth way. Cold start passes the
+    /// BP URL as a command-line ARGUMENT to steam.exe so Steam boots straight into
+    /// Big Picture — fired as a protocol instead, the handler first brings Steam up
+    /// in desktop mode and only switches after login (user-reported wonkiness).
+    /// When Steam already runs, the protocol re-activates/enters BP (UIPI-proof).</summary>
+    public static AppLauncher.LaunchResult LaunchBigPicture()
+    {
+        if (!IsRunning && ExePath is { } exe)
+        {
+            return AppLauncher.Start(exe, OpenBigPictureUrl, elevated: false);
+        }
+        return AppLauncher.StartProtocol(OpenBigPictureUrl);
+    }
 }
