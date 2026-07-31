@@ -18,6 +18,12 @@ public static class AppLauncher
     {
         if (path.Contains("://"))
         {
+            // ShellExecute on a URL cannot carry separate args, and elevation does
+            // not apply — warn so the misconfiguration shows up in a pasted log.
+            if (!string.IsNullOrWhiteSpace(args) || elevated)
+            {
+                Log.Warn($"Protocol launch ignores configured args/elevation: {path} (args \"{args}\", elevated {elevated})");
+            }
             return StartProtocol(path);
         }
         return elevated ? StartElevated(path, args) : StartNormal(path, args);
@@ -80,7 +86,7 @@ public static class AppLauncher
                 WorkingDirectory = SafeDirectory(path),
             };
             var process = Process.Start(psi); // may be null (no new process resource)
-            Log.Info($"Started elevated: {path} {args} (pid {(process is null ? "unknown" : process.Id)})");
+            Log.Info($"Started elevated: {path} {args} (pid {process?.Id.ToString() ?? "?"})");
             return new LaunchResult(process, true, false);
         }
         catch (Win32Exception ex) when (ex.NativeErrorCode == ErrorCancelled)

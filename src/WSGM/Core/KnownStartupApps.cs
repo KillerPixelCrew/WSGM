@@ -31,6 +31,10 @@ public static class KnownStartupApps
         };
 
         var found = new List<(string, string, bool)>();
+        // Dedupe key is the bare exe FILENAME, deliberately across roots and across
+        // candidates: the legacy-path entry and multi-root (x86/x64) installs of the
+        // same tool collapse to the first hit in priority order. Full-path dedupe
+        // would resurface those as duplicate suggestions.
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var candidate in Candidates)
@@ -43,15 +47,11 @@ public static class KnownStartupApps
                 }
                 foreach (var relative in candidate.RelativePaths)
                 {
-                    try
+                    var full = Path.Combine(root, relative);
+                    if (File.Exists(full) && seen.Add(Path.GetFileName(full)))
                     {
-                        var full = Path.Combine(root, relative);
-                        if (File.Exists(full) && seen.Add(Path.GetFileName(full)))
-                        {
-                            found.Add((candidate.Label, full, candidate.Elevated));
-                        }
+                        found.Add((candidate.Label, full, candidate.Elevated));
                     }
-                    catch { /* unreadable root */ }
                 }
             }
         }
