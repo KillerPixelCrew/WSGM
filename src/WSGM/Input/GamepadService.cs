@@ -1,13 +1,14 @@
 using System;
+using System.Collections.Generic;
 using Avalonia.Threading;
 using WSGM.Core;
 
 namespace WSGM.Input;
 
 /// <summary>Buttons WSGM can bind. The low 16 bits deliberately match XInput's
-/// wButtons so the mapping is a straight cast; the high bits are the extra buttons a
-/// virtual Steam Deck controller (Handheld Companion's emulation) reports over HID —
-/// back paddles, Steam and Quick Access — which XInput cannot express at all.</summary>
+/// wButtons so the mapping is a straight cast; the high bits are what SDL reports
+/// beyond XInput — analog triggers folded into buttons (any pad), plus the back
+/// paddles, Steam and Quick Access buttons of Deck-class (real or emulated) pads.</summary>
 [Flags]
 public enum GamepadButtons : uint
 {
@@ -26,7 +27,8 @@ public enum GamepadButtons : uint
     X = 0x4000,
     Y = 0x8000,
 
-    // Steam Deck extras (HID only)
+    // Beyond XInput's 16 bits. The triggers are synthesized from SDL's trigger
+    // axes on any pad; only the rest need Deck-class hardware.
     LeftTrigger = 0x0001_0000,
     RightTrigger = 0x0002_0000,
     L4 = 0x0004_0000,
@@ -45,19 +47,25 @@ public sealed class GamepadService : IDisposable
 {
     private static readonly TimeSpan RepeatInitial = TimeSpan.FromMilliseconds(400);
     private static readonly TimeSpan RepeatRate = TimeSpan.FromMilliseconds(150);
+    private const GamepadButtons DirectionMask = GamepadButtons.DPadUp | GamepadButtons.DPadDown |
+                                                 GamepadButtons.DPadLeft | GamepadButtons.DPadRight;
 
     private readonly DispatcherTimer _timer;
-    private GamepadButtons _previous;
+    /// <summary>Last observed state per pad id. Edges and chords are evaluated per
+    /// pad so one controller holding a button cannot mask or complete another's.</summary>
+    private readonly Dictionary<uint, GamepadButtons> _perPad = new();
+    private readonly List<uint> _stalePads = new();
     private GamepadButtons _repeating;
     private DateTime _nextRepeat;
     private bool _loggedFirstPress;
 
-    /// <summary>Newly pressed buttons (edge-triggered), with auto-repeat for directions.</summary>
+    /// <summary>Newly pressed buttons across all pads (edge-triggered per pad),
+    /// with auto-repeat for directions.</summary>
     public event Action<GamepadButtons>? ButtonPressed;
 
-    /// <summary>The full button state, raised whenever it changes. Chord detection
-    /// needs the whole state, not just the new edges.</summary>
-    public event Action<GamepadButtons>? StateChanged;
+    /// <summary>One pad's full button state, raised whenever it changes. Chord
+    /// detection needs the whole state per physical pad, not just the new edges.</summary>
+    public event Action<uint, GamepadButtons>? StateChanged;
 
     public GamepadService()
     {
@@ -69,7 +77,7 @@ public sealed class GamepadService : IDisposable
 
     public void Start()
     {
-        _previous = 0;
+        _perPad.Clear();
         _repeating = 0;
         _loggedFirstPress = false;
         SdlGamepads.EnsureInitialized();
@@ -85,14 +93,53 @@ public sealed class GamepadService : IDisposable
 
     private void Poll()
     {
-        var current = SdlGamepads.Update();
+        var pads = SdlGamepads.Update();
 
-        if (current != _previous)
+        GamepadButtons current = 0;
+        GamepadButtons pressed = 0;
+        foreach (var pad in pads)
         {
-            StateChanged?.Invoke(current);
+            current |= pad.Buttons;
+            _perPad.TryGetValue(pad.Id, out var previous);
+            // Edge-trigger per pad: pad A holding a button must not mask pad B
+            // freshly pressing the same button.
+            pressed |= pad.Buttons & ~previous;
+            if (pad.Buttons != previous)
+            {
+                _perPad[pad.Id] = pad.Buttons;
+                StateChanged?.Invoke(pad.Id, pad.Buttons);
+            }
         }
 
-        var pressed = current & ~_previous;
+        // A pad unplugged mid-chord counts as a full release, so its chord state
+        // downstream can't stay stuck holding phantom buttons.
+        _stalePads.Clear();
+        foreach (var (id, _) in _perPad)
+        {
+            var present = false;
+            foreach (var pad in pads)
+            {
+                if (pad.Id == id)
+                {
+                    present = true;
+                    break;
+                }
+            }
+            if (!present)
+            {
+                _stalePads.Add(id);
+            }
+        }
+        foreach (var id in _stalePads)
+        {
+            var previous = _perPad[id];
+            _perPad.Remove(id);
+            if (previous != 0)
+            {
+                StateChanged?.Invoke(id, 0);
+            }
+        }
+
         if (pressed != 0)
         {
             if (!_loggedFirstPress)
@@ -104,30 +151,36 @@ public sealed class GamepadService : IDisposable
             ButtonPressed?.Invoke(pressed);
         }
 
-        // Auto-repeat for held directions.
-        var directions = current & (GamepadButtons.DPadUp | GamepadButtons.DPadDown |
-                                    GamepadButtons.DPadLeft | GamepadButtons.DPadRight);
+        // Auto-repeat for held directions (any pad).
+        var directions = current & DirectionMask;
         if (directions != 0)
         {
-            // Re-arm whenever the held direction set changes. The prior equality
-            // check left _repeating stale after, for example, changing Up to Right.
-            if (directions != _repeating)
+            var newDirections = pressed & DirectionMask;
+            if (newDirections != 0)
             {
+                // A fresh press re-arms the repeat and becomes the repeated
+                // direction, so a diagonal repeats the direction that initiated it
+                // instead of the whole held set (which navigation resolves as Next).
+                _repeating = newDirections;
+                _nextRepeat = DateTime.UtcNow + RepeatInitial;
+            }
+            else if ((directions & _repeating) == 0)
+            {
+                // The repeated direction was released but another is still held
+                // (diagonal released in the other order): re-arm on what remains.
                 _repeating = directions;
                 _nextRepeat = DateTime.UtcNow + RepeatInitial;
             }
             else if (DateTime.UtcNow >= _nextRepeat)
             {
                 _nextRepeat = DateTime.UtcNow + RepeatRate;
-                ButtonPressed?.Invoke(directions);
+                ButtonPressed?.Invoke(directions & _repeating);
             }
         }
         else
         {
             _repeating = 0;
         }
-
-        _previous = current;
     }
 
     public bool IsRunning => _timer.IsEnabled;
@@ -139,7 +192,7 @@ public sealed class GamepadService : IDisposable
         {
             return "None";
         }
-        var names = new System.Collections.Generic.List<string>();
+        var names = new List<string>();
         foreach (var (flag, name) in ButtonNames)
         {
             if (buttons.HasFlag(flag))

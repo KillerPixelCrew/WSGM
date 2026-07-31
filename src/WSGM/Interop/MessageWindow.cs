@@ -1,5 +1,7 @@
 using System;
+using System.Runtime.InteropServices;
 using Avalonia.Threading;
+using WSGM.Core;
 
 namespace WSGM.Interop;
 
@@ -9,6 +11,13 @@ public sealed unsafe class MessageWindow : IDisposable
 {
     private static MessageWindow? _instance;
     private nint _hwnd;
+
+    /// <summary>Create() is the only entry point: a directly constructed instance
+    /// would carry Handle == 0, and RegisterHotKey on hwnd 0 registers a thread
+    /// hotkey the WndProc never sees.</summary>
+    private MessageWindow()
+    {
+    }
 
     public nint Handle => _hwnd;
 
@@ -32,7 +41,16 @@ public sealed unsafe class MessageWindow : IDisposable
                 hInstance = hInstance,
                 lpszClassName = (nint)pClassName,
             };
-            NativeMethods.RegisterClassW(&wc);
+            if (NativeMethods.RegisterClassW(&wc) == 0)
+            {
+                var error = Marshal.GetLastWin32Error();
+                // 1410 (ERROR_CLASS_ALREADY_EXISTS) is benign: a re-Create after
+                // Dispose reuses the still-registered class.
+                if (error != 1410)
+                {
+                    Log.Warn($"RegisterClassW(WSGM.MessageWindow) failed (error {error}).");
+                }
+            }
         }
 
         var hwnd = NativeMethods.CreateWindowExW(
@@ -64,7 +82,11 @@ public sealed unsafe class MessageWindow : IDisposable
     {
         if (_hwnd != 0)
         {
-            NativeMethods.DestroyWindow(_hwnd);
+            if (!NativeMethods.DestroyWindow(_hwnd))
+            {
+                // Fails from the wrong thread; the handle then leaks until exit.
+                Log.Warn($"DestroyWindow(message window) failed (error {Marshal.GetLastWin32Error()}).");
+            }
             _hwnd = 0;
         }
         _instance = null;
