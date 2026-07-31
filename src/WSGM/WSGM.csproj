@@ -15,7 +15,6 @@
     <PublishAot>true</PublishAot>
     <InvariantGlobalization>true</InvariantGlobalization>
     <UseSystemResourceKeys>true</UseSystemResourceKeys>
-    <StripSymbols>false</StripSymbols>
     <!-- Per Avalonia NativeAOT guidance -->
     <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
 
@@ -25,10 +24,12 @@
     <AvaloniaResource Include="Assets\**" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Avalonia" Version="11.3.*" />
-    <PackageReference Include="Avalonia.Desktop" Version="11.3.*" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.*" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.*" />
+    <!-- Pinned exactly: a shell replacement must ship the patch level that was
+         tested on device, and rebuilding a tag must reproduce the same binaries. -->
+    <PackageReference Include="Avalonia" Version="11.3.18" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.18" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.18" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.18" />
     <!-- WinUI-style NavigationView, SettingsCard, ToggleSwitch and InfoBar: the
          Avalonia counterparts to the iNKORE Modern WPF controls used by Handheld Companion. -->
     <PackageReference Include="FluentAvaloniaUI" Version="2.4.1" />
