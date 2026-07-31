@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using WSGM.Core;
 
 namespace WSGM.Interop;
@@ -6,9 +7,12 @@ namespace WSGM.Interop;
 /// <summary>Registers the overlay global hotkey on the message window.</summary>
 public sealed class HotkeyService : IDisposable
 {
-    private const int HotkeyId = 1;
+    // The MessageWindow is a process singleton, and two OverlayControllers (shell +
+    // settings test) can each own a HotkeyService: a fixed id would make the second
+    // RegisterHotKey fail and one WM_HOTKEY fire Pressed on both instances.
+    private static int _nextId;
+    private readonly int _hotkeyId;
     private readonly MessageWindow _window;
-    private readonly Action<int> _hotkeyPressedHandler;
     private bool _registered;
 
     public event Action? Pressed;
@@ -16,21 +20,23 @@ public sealed class HotkeyService : IDisposable
     public HotkeyService(MessageWindow window)
     {
         _window = window;
-        _hotkeyPressedHandler = id =>
+        _hotkeyId = Interlocked.Increment(ref _nextId);
+        _window.HotkeyPressed += OnHotkeyPressed;
+    }
+
+    private void OnHotkeyPressed(int id)
+    {
+        if (id == _hotkeyId)
         {
-            if (id == HotkeyId)
-            {
-                Pressed?.Invoke();
-            }
-        };
-        _window.HotkeyPressed += _hotkeyPressedHandler;
+            Pressed?.Invoke();
+        }
     }
 
     public void Apply(HotkeyConfig config)
     {
         if (_registered)
         {
-            NativeMethods.UnregisterHotKey(_window.Handle, HotkeyId);
+            NativeMethods.UnregisterHotKey(_window.Handle, _hotkeyId);
             _registered = false;
         }
         if (!config.Enabled)
@@ -44,10 +50,10 @@ public sealed class HotkeyService : IDisposable
         if (config.Shift) modifiers |= NativeMethods.ModShift;
         if (config.Win) modifiers |= NativeMethods.ModWin;
 
-        _registered = NativeMethods.RegisterHotKey(_window.Handle, HotkeyId, modifiers, (uint)config.VirtualKey);
+        _registered = NativeMethods.RegisterHotKey(_window.Handle, _hotkeyId, modifiers, (uint)config.VirtualKey);
         if (_registered)
         {
-            Log.Info($"Hotkey registered (vk 0x{config.VirtualKey:X}, mods 0x{modifiers:X})");
+            Log.Info($"Hotkey registered (id {_hotkeyId}, vk 0x{config.VirtualKey:X}, mods 0x{modifiers:X})");
         }
         else
         {
@@ -59,9 +65,9 @@ public sealed class HotkeyService : IDisposable
     {
         if (_registered)
         {
-            NativeMethods.UnregisterHotKey(_window.Handle, HotkeyId);
+            NativeMethods.UnregisterHotKey(_window.Handle, _hotkeyId);
             _registered = false;
         }
-        _window.HotkeyPressed -= _hotkeyPressedHandler;
+        _window.HotkeyPressed -= OnHotkeyPressed;
     }
 }

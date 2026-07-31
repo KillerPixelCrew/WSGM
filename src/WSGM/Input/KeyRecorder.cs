@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Avalonia.Threading;
 using WSGM.Core;
@@ -62,6 +63,7 @@ public sealed partial class KeyRecorder : IDisposable
         }
         if (_hook == 0)
         {
+            Stop();     // clear _active so the failed recorder isn't statically rooted
             Log.Warn("Could not install keyboard hook for recording.");
             Recorded?.Invoke(0, 0);
         }
@@ -95,8 +97,12 @@ public sealed partial class KeyRecorder : IDisposable
             return CallNextHookEx(0, nCode, wParam, lParam);
         }
 
-        var info = Marshal.PtrToStructure<KbdLlHookStruct>(lParam);
-        var vk = (int)info.vkCode;
+        int vk;
+        unsafe
+        {
+            // KbdLlHookStruct is blittable; read it straight from the hook data.
+            vk = (int)((KbdLlHookStruct*)lParam)->vkCode;
+        }
 
         // Modifier alone isn't a shortcut — keep waiting for the real key.
         if (IsModifier(vk))
@@ -111,11 +117,12 @@ public sealed partial class KeyRecorder : IDisposable
         if (IsDown(VkLWin) || IsDown(VkRWin)) modifiers |= Interop.NativeMethods.ModWin;
 
         var cancelled = vk == VkEscape;
-        Dispatcher.UIThread.Post(() =>
-        {
-            recorder.Stop();
-            recorder.Recorded?.Invoke(cancelled ? 0u : modifiers, cancelled ? 0 : vk);
-        });
+        // Unhook synchronously (LL hooks run on the installing thread, so this is
+        // safe here): with the unhook deferred to the posted callback, a second
+        // keydown arriving first would fire Recorded again.
+        recorder.Stop();
+        Dispatcher.UIThread.Post(
+            () => recorder.Recorded?.Invoke(cancelled ? 0u : modifiers, cancelled ? 0 : vk));
 
         // Swallow the key so recording doesn't type into the UI behind it.
         return 1;
@@ -135,7 +142,7 @@ public sealed partial class KeyRecorder : IDisposable
         {
             return "None";
         }
-        var parts = new System.Collections.Generic.List<string>();
+        var parts = new List<string>();
         if (hotkey.Ctrl) parts.Add("Ctrl");
         if (hotkey.Alt) parts.Add("Alt");
         if (hotkey.Shift) parts.Add("Shift");
@@ -154,6 +161,8 @@ public sealed partial class KeyRecorder : IDisposable
         >= 0x30 and <= 0x39 => ((char)vk).ToString(),                 // 0-9
         >= 0x41 and <= 0x5A => ((char)vk).ToString(),                 // A-Z
         >= 0x60 and <= 0x69 => $"Numpad {vk - 0x60}",
+        0x6A => "Numpad *", 0x6B => "Numpad +", 0x6C => "Numpad Separator",
+        0x6D => "Numpad -", 0x6E => "Numpad .", 0x6F => "Numpad /",
         >= 0x70 and <= 0x87 => $"F{vk - 0x6F}",                       // F1-F24
         0xBA => ";", 0xBB => "+", 0xBC => ",", 0xBD => "-", 0xBE => ".", 0xBF => "/",
         0xC0 => "`", 0xDB => "[", 0xDC => "\\", 0xDD => "]", 0xDE => "'",

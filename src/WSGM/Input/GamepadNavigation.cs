@@ -31,6 +31,7 @@ public sealed class GamepadNavigation : IDisposable
     private DateTime _suppressKeyboardUntil;
     private bool _loggedFocusFallback;
     private bool _loggedWrap;
+    private bool _loggedTextBoxCycle;
 
     /// <param name="isNintendoLayout">Supplies the current layout. Nintendo labels are swapped relative to Xbox at
     /// the same physical positions: the button labeled A (east, XInput B) confirms
@@ -157,6 +158,17 @@ public sealed class GamepadNavigation : IDisposable
         {
             next = KeyboardNavigationHandler.GetNext(textBox, direction);
         }
+        if (next is TextBox)
+        {
+            // Guard exhausted — a tab cycle of only TextBoxes. Leave focus where
+            // it is rather than land on a text field and pop the touch keyboard.
+            if (!_loggedTextBoxCycle)
+            {
+                _loggedTextBoxCycle = true;
+                Log.Warn("Gamepad nav: TextBox-skip guard exhausted (only text boxes in tab order), focus unchanged.");
+            }
+            return;
+        }
         if (next is InputElement input)
         {
             input.Focus(NavigationMethod.Directional);
@@ -174,7 +186,7 @@ public sealed class GamepadNavigation : IDisposable
     }
 
     private bool IsInWindow(InputElement element)
-        => (element as Avalonia.Visual)?.GetVisualRoot() == _window;
+        => element.GetVisualRoot() == _window;
 
     private void FocusFirst()
     {

@@ -36,7 +36,7 @@ internal static partial class NativeMethods
         int x, int y, int nWidth, int nHeight,
         nint hWndParent, nint hMenu, nint hInstance, nint lpParam);
 
-    [LibraryImport("user32.dll")]
+    [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool DestroyWindow(nint hWnd);
 
@@ -283,7 +283,6 @@ internal static partial class NativeMethods
     [LibraryImport("advapi32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool OpenProcessToken(nint processHandle, uint desiredAccess, out nint tokenHandle);
-
 
     [LibraryImport("advapi32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
