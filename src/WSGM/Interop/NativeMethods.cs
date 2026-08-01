@@ -482,6 +482,11 @@ internal static partial class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool SetCursorPos(int x, int y);
 
+    internal const uint WmLButtonDblClk = 0x0203;
+
+    [LibraryImport("user32.dll")]
+    internal static partial uint GetDoubleClickTime();
+
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool IsWindow(nint hWnd);

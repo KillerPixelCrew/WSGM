@@ -327,17 +327,28 @@ public sealed unsafe class TrayHost : IDisposable
         _ => $"NIM_{nim}",
     };
 
+    // Double-click state: the host owns double-click detection (see SendClick).
+    private nint _lastPrimaryHwnd;
+    private uint _lastPrimaryUid;
+    private ulong _lastPrimaryAtMs;
+
     /// <summary>Forwards a click to the icon's owner using the negotiated protocol
     /// version. Outbound High→Medium messages are UIPI-unrestricted, so WSGM's
     /// elevation helps on this path.</summary>
     /// <param name="icon">The icon that was activated.</param>
     /// <param name="contextMenu">True for a context-menu (right-click) activation.</param>
-    /// <param name="screenX">Screen X of the activation, for the v4 coordinate protocol.</param>
-    /// <param name="screenY">Screen Y of the activation, for the v4 coordinate protocol.</param>
+    /// <param name="screenX">Screen X of the activation, for cursor parking and the v4 coordinate protocol.</param>
+    /// <param name="screenY">Screen Y of the activation, for cursor parking and the v4 coordinate protocol.</param>
     public void SendClick(TrayIconTable.TrayIcon icon, bool contextMenu, int screenX, int screenY)
     {
-        if (_disposed || icon.CallbackMessage == 0)
+        if (_disposed)
         {
+            return;
+        }
+        if (icon.CallbackMessage == 0)
+        {
+            // NIF_MESSAGE never arrived — the app cannot receive interactions.
+            Log.Warn($"Tray click dropped: '{icon.Tip}' registered no callback message.");
             return;
         }
         if (!NativeMethods.IsWindow(icon.Hwnd))
@@ -358,18 +369,50 @@ public sealed unsafe class TrayHost : IDisposable
         // first. A one-shot cursor MOVE, not input interception (invariant 2).
         NativeMethods.SetCursorPos(screenX, screenY);
 
-        var down = contextMenu ? NativeMethods.WmRButtonDown : NativeMethods.WmLButtonDown;
-        var up = contextMenu ? NativeMethods.WmRButtonUp : NativeMethods.WmLButtonUp;
-        Notify(icon, down, screenX, screenY);
-        Notify(icon, up, screenX, screenY);
-        // Explorer sends the select/context notifications from version 3 on, not
-        // only v4 as documented — many apps rely on exactly that (ManagedShell:
-        // "documented as version 4, but Explorer does this for version 3 as well").
-        if (icon.Version >= 3)
+        // Double-click detection is the HOST's job — Explorer itself watches
+        // GetDoubleClickTime and sends WM_LBUTTONDBLCLK as the callback; apps
+        // (WinForms NotifyIcon.DoubleClick — Handheld Companion's open-window
+        // action) cannot reconstruct it from two single clicks.
+        var now = (ulong)Environment.TickCount64;
+        var isDouble = !contextMenu
+            && icon.Hwnd == _lastPrimaryHwnd && icon.Uid == _lastPrimaryUid
+            && now - _lastPrimaryAtMs <= NativeMethods.GetDoubleClickTime();
+        string kind;
+        if (contextMenu)
         {
-            Notify(icon, contextMenu ? NativeMethods.WmContextMenu : NativeMethods.NinSelect, screenX, screenY);
+            kind = "context";
+            Notify(icon, NativeMethods.WmRButtonDown, screenX, screenY);
+            Notify(icon, NativeMethods.WmRButtonUp, screenX, screenY);
+            // Explorer sends the select/context notifications from version 3 on,
+            // not only v4 as documented — many apps rely on exactly that
+            // (ManagedShell: "documented as version 4, but Explorer does this
+            // for version 3 as well").
+            if (icon.Version >= 3)
+            {
+                Notify(icon, NativeMethods.WmContextMenu, screenX, screenY);
+            }
         }
-        Log.Info($"Tray click forwarded to '{icon.Tip}' ({(contextMenu ? "context" : "primary")}, v{icon.Version}).");
+        else if (isDouble)
+        {
+            kind = "double";
+            _lastPrimaryAtMs = 0;
+            Notify(icon, NativeMethods.WmLButtonDblClk, screenX, screenY);
+            Notify(icon, NativeMethods.WmLButtonUp, screenX, screenY);
+        }
+        else
+        {
+            kind = "primary";
+            _lastPrimaryHwnd = icon.Hwnd;
+            _lastPrimaryUid = icon.Uid;
+            _lastPrimaryAtMs = now;
+            Notify(icon, NativeMethods.WmLButtonDown, screenX, screenY);
+            Notify(icon, NativeMethods.WmLButtonUp, screenX, screenY);
+            if (icon.Version >= 3)
+            {
+                Notify(icon, NativeMethods.NinSelect, screenX, screenY);
+            }
+        }
+        Log.Info($"Tray click forwarded to '{icon.Tip}' ({kind}, v{icon.Version}, cb 0x{icon.CallbackMessage:X}, hwnd 0x{icon.Hwnd:X}).");
     }
 
     private void Notify(TrayIconTable.TrayIcon icon, uint notification, int x, int y)

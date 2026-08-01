@@ -239,12 +239,18 @@ public partial class TaskbarWindow : Window
     }
 
     /// <summary>Gamepad secondary action (X): the context menu of the focused
-    /// tray tile. No-op when the focused element isn't a tray icon.</summary>
+    /// tray tile. No-op (logged — this is remote-diagnosis territory) when the
+    /// focused element isn't a tray icon.</summary>
     internal void RequestTrayContextMenu(InputElement? focused)
     {
         if (focused is Control { DataContext: TrayIconEntry entry } control)
         {
+            Log.Info($"Gamepad X: tray context menu for '{entry.Tip}'.");
             TrayIconActivated?.Invoke(entry, true, AnchorAbove(control));
+        }
+        else
+        {
+            Log.Info($"Gamepad X: focused element is not a tray icon ({focused?.GetType().Name ?? "none"}, ctx {(focused as Control)?.DataContext?.GetType().Name ?? "-"}).");
         }
     }
 }
