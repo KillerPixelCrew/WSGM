@@ -9,7 +9,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>WSGM</AssemblyName>
     <RootNamespace>WSGM</RootNamespace>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
 
     <!-- NativeAOT single exe -->
     <PublishAot>true</PublishAot>
