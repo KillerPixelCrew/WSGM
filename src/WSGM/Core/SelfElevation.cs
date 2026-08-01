@@ -7,10 +7,13 @@ namespace WSGM.Core;
 
 /// <summary>Relaunches WSGM elevated when the config starts elevated apps.
 ///
-/// UIPI shields input aimed at high-integrity windows from medium-integrity
-/// processes: with an elevated home app focused, a non-elevated WSGM never
-/// receives the touch digitizer's raw input (and cannot take foreground), so
-/// edge swipes only work if WSGM matches that integrity level.</summary>
+/// The point is the INHERITANCE CHAIN: children inherit elevation, so an
+/// elevated WSGM yields an elevated Steam — which is what lets Steam Input
+/// synthesize input into elevated windows and the Steam Overlay inject into
+/// elevated games (UIPI blocks both for an unelevated Steam). Same chain
+/// covers elevated startup apps, and WSGM matching that integrity keeps its
+/// own overlay/edge swipes alive over elevated foreground windows (UIPI also
+/// shields raw touch input and foreground from lower-integrity processes).</summary>
 public static class SelfElevation
 {
     private const string RelaunchMarker = "--elevated-relaunch";

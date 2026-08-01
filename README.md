@@ -1,6 +1,7 @@
 # WSGM — Windows Steam Game Mode
 
-WSGM reconstructs the SteamOS Game Mode experience on Windows 11 gaming handhelds. It
+WSGM reconstructs the SteamOS Game Mode experience on Windows 11 — on gaming
+handhelds, gaming PCs, and DIY Steam Machines / living-room builds alike. It
 replaces the Windows shell **for your user account only** and boots straight into Steam
 Big Picture.
 A touch/hotkey/controller overlay lets you hop to the desktop, back to game mode, switch between running apps, and
