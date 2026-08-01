@@ -58,6 +58,11 @@ WSGM gives you a fullscreen boot-to-Steam experience without FSE, so both things
 
 ## Install
 
+**Prerequisite: Steam.** WSGM is Steam-exclusive and the setup refuses to install
+when Steam is missing — install Steam, sign in once, then run the setup. Everything
+else is self-contained (native binary: no .NET runtime, no VC++ redistributable);
+Windows 11 is required.
+
 Download and run **`WSGM-Setup-<version>.exe`** — a normal installer wizard
 (per-user, no administrator rights, no UAC). It installs to `%LOCALAPPDATA%\WSGM\bin`,
 adds a Start Menu entry, and shows up in Settings → Apps. Then:

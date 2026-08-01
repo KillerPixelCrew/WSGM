@@ -86,6 +86,9 @@ public sealed class AppConfig
     public int StaggerDelayMs { get; set; } = 1500;
     /// <summary>Extra delay before Steam Big Picture is started at logon.</summary>
     public int SteamDelayMs { get; set; } = 0;
+    /// <summary>Fullscreen "Please wait" cover at logon that hides startup-app
+    /// window flashes until Steam Big Picture is on screen (see Shell\BootSplash).</summary>
+    public bool BootSplashEnabled { get; set; } = true;
     public HotkeyConfig Hotkey { get; set; } = new();
     public GamepadChordConfig GamepadChord { get; set; } = new();
     public GestureConfig Gestures { get; set; } = new();

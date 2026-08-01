@@ -40,6 +40,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         SteamAutoRelaunch = _config.SteamAutoRelaunch;
         StartupDelayMs = _config.StartupDelayMs;
         StaggerDelayMs = _config.StaggerDelayMs;
+        BootSplashEnabled = _config.BootSplashEnabled;
         _hotkey = _config.Hotkey;
         _chord = _config.GamepadChord;
         GestureBottom = _config.Gestures.BottomEdge;
@@ -202,6 +203,9 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private int _staggerDelayMs;
     public int StaggerDelayMs { get => _staggerDelayMs; set { _staggerDelayMs = value; Raise(nameof(StaggerDelayMs)); } }
 
+    private bool _bootSplashEnabled;
+    public bool BootSplashEnabled { get => _bootSplashEnabled; set { _bootSplashEnabled = value; Raise(nameof(BootSplashEnabled)); } }
+
     public void AddStartupApp() => StartupApps.Add(new StartupAppRow());
     public void RemoveStartupApp(StartupAppRow row) => StartupApps.Remove(row);
 
@@ -289,6 +293,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.SteamAutoRelaunch = SteamAutoRelaunch;
         config.StartupDelayMs = StartupDelayMs;
         config.StaggerDelayMs = StaggerDelayMs;
+        config.BootSplashEnabled = BootSplashEnabled;
         config.Hotkey = _hotkey;
         config.GamepadChord = _chord;
         config.Gestures.BottomEdge = GestureBottom;

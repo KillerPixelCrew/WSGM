@@ -1,0 +1,44 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="WSGM.Shell.BootSplashWindow"
+        Title="WSGM Boot"
+        SystemDecorations="None" CanResize="False" Topmost="True"
+        ShowInTaskbar="False" Background="Black">
+
+    <!-- Windows-style sign-in cover: black, "Please wait", spinner. Shown activated
+         on purpose — an activated window receives Steam Input's arrow-key mirror,
+         the controller fallback if SDL input is ever swallowed while it is up.
+         (No-activate was tried and did not change the black-BP symptom.) -->
+    <Panel>
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="26">
+            <TextBlock Text="Please wait" FontSize="26" FontWeight="Light"
+                       Foreground="White" HorizontalAlignment="Center" />
+            <Arc x:Name="Spinner" Width="36" Height="36" Stroke="White" StrokeThickness="3"
+                 StartAngle="0" SweepAngle="270" HorizontalAlignment="Center" />
+        </StackPanel>
+        <Button x:Name="DesktopButton" Content="Switch to desktop" Click="OnDesktop"
+                HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                Margin="0,0,28,24" MinHeight="44" MinWidth="160" Padding="14,8" />
+    </Panel>
+
+    <Window.Styles>
+        <!-- Same focus treatment as the overlay: no adorner, border shows focus. -->
+        <Style Selector="Button">
+            <Setter Property="FocusAdorner" Value="{x:Null}" />
+        </Style>
+        <Style Selector="Button#DesktopButton">
+            <Setter Property="Background" Value="#FF161616" />
+            <Setter Property="BorderBrush" Value="#FF2E2E2E" />
+            <Setter Property="BorderThickness" Value="2" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Foreground" Value="{StaticResource HcTextMutedBrush}" />
+        </Style>
+        <Style Selector="Button#DesktopButton:focus">
+            <Setter Property="BorderBrush" Value="{StaticResource HcAccentBrush}" />
+            <Setter Property="Foreground" Value="White" />
+        </Style>
+        <Style Selector="Button#DesktopButton:pointerover">
+            <Setter Property="Background" Value="#FF242424" />
+        </Style>
+    </Window.Styles>
+</Window>

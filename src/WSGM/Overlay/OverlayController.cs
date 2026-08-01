@@ -255,12 +255,21 @@ public sealed class OverlayController : IDisposable
     private nint _restoreFocusTo;
     private bool _suppressFocusRestore;
 
+    /// <summary>Raised whenever quick access comes up (hotkey, swipe, chord,
+    /// Steam-exit pop, warning reopen). The boot splash dismisses on it — the
+    /// panel always outranks the splash.</summary>
+    public event Action? OverlayShown;
+
     public void ShowOverlay()
     {
         if (_disposed)
         {
             return;
         }
+        OverlayShown?.Invoke();
+        // A trim mid-open would just soft-fault everything straight back.
+        _pendingTrim?.Dispose();
+        _pendingTrim = null;
         if (_overlay is null)
         {
             _restoreFocusTo = Interop.NativeMethods.GetForegroundWindow();
@@ -380,6 +389,14 @@ public sealed class OverlayController : IDisposable
             {
                 Avalonia.Threading.Dispatcher.UIThread.Post(ShowOverlay);
             }
+            else
+            {
+                // The shell goes invisible again — give the freed UI memory back
+                // once the close (and any focus restore) has settled.
+                _pendingTrim?.Dispose();
+                _pendingTrim = RunOnUiThreadAfter(TimeSpan.FromSeconds(5),
+                    () => MemoryTrim.TrimBestEffort("overlay closed"));
+            }
         };
 
         var overlay = _overlay;
@@ -422,6 +439,7 @@ public sealed class OverlayController : IDisposable
 
     private bool _closePending;
     private IDisposable? _pendingClose;
+    private IDisposable? _pendingTrim;
 
     /// <summary>The single idiom for delayed UI-thread work in this controller
     /// (deferred close, auto-relaunch, Task Manager focus polling). Runs the action

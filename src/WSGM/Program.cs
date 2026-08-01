@@ -178,6 +178,11 @@ public static class Program
             {
                 SlateMode.RestoreOriginal();
                 RestoreDisplayScalesBestEffort();
+                // A clean exit is NOT a crash: without this, two update restarts
+                // plus a sign-in inside 2 minutes read as a crash loop and disarm
+                // the shell (device-observed). Only dirty deaths — which never
+                // reach this line — may accumulate toward the breaker.
+                CrashLoopBreaker.Reset();
             }
             return exitCode;
         }

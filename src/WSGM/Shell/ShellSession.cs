@@ -15,6 +15,7 @@ public sealed class ShellSession
     private SessionModes? _modes;
     private StartupAppWatcher? _startupWatcher;
     private OverlayController? _overlay;
+    private BootSplash? _splash;
     // Field-rooted deliberately: an unreferenced enabled FileSystemWatcher is
     // GC-collectible (it holds only a WeakReference to itself in its pending
     // ReadDirectoryChangesW state) and silently stops raising events.
@@ -45,8 +46,30 @@ public sealed class ShellSession
             return;
         }
 
+        // A live desktop at shell start means this is NOT a logon boot: it is the
+        // update restart (updates only run in desktop mode) or an AutoRestartShell
+        // resurrection next to a desktop. Resume in desktop mode — no splash, no
+        // startup apps, no Steam, no game posture/scale — with the overlay armed
+        // so the panel is available; EnterGameMode brings everything back.
+        if (ExplorerControl.IsRunningInSession())
+        {
+            Log.Info("Shell started with a live desktop — resuming in desktop mode (overlay armed).");
+            _monitor.Paused = true;
+            _startupWatcher = new StartupAppWatcher(_config.StartupApps);
+            WatchConfig();
+            return;
+        }
+
         // Boot recomputes the posture value, so game mode re-applies it each start.
+        // Posture first: it changes the display scale, and the splash sizes itself
+        // to the final screen metrics.
         _modes.ApplyGameModePosture();
+        if (_config.BootSplashEnabled)
+        {
+            _splash = new BootSplash(_config, _modes);
+            _overlay.OverlayShown += () => _splash?.Dismiss("quick access opened");
+            _splash.Show();
+        }
         _startupWatcher = new StartupAppWatcher(_config.StartupApps);
         WatchConfig();
 
@@ -60,6 +83,10 @@ public sealed class ShellSession
             {
                 Log.Error("Shell session launch sequence failed", ex);
             }
+            // Boot has settled (splash gone, apps and Steam up) — drop the
+            // startup memory before the shell disappears behind the game.
+            await Task.Delay(TimeSpan.FromSeconds(90));
+            MemoryTrim.TrimBestEffort("boot settled");
         });
     }
 
@@ -124,6 +151,15 @@ public sealed class ShellSession
             await Task.Delay(_config.SteamDelayMs);
         }
 
+        // The splash's Switch-to-desktop (or the overlay's) may have fired while
+        // this sequence was still sleeping — EnterDesktopMode paused the monitor,
+        // and starting Big Picture now would slam it over the fresh desktop.
+        if (_monitor is { Paused: true })
+        {
+            Log.Info("Skipping Steam start: desktop mode was requested during boot.");
+            return;
+        }
+
         // Shared start + warning flow (also behind the overlay's Steam button);
         // boot surfaces failures itself because this runs off the UI thread.
         var warning = _modes!.StartBigPicture();
@@ -131,6 +167,7 @@ public sealed class ShellSession
         {
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
+                _splash?.Dismiss("Steam start warning");
                 _overlay?.SetWarning(warning);
                 _overlay?.ShowOverlay();
             });

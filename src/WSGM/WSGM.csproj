@@ -9,7 +9,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>WSGM</AssemblyName>
     <RootNamespace>WSGM</RootNamespace>
-    <Version>0.2.0</Version>
+    <Version>0.2.1</Version>
 
     <!-- NativeAOT single exe -->
     <PublishAot>true</PublishAot>
@@ -18,10 +18,19 @@
     <!-- Per Avalonia NativeAOT guidance -->
     <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
 
+    <!-- A resident shell on an 8-16 GB handheld: favor small heap over GC
+         throughput (no background GC thread; see also ConserveMemory below). -->
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
   <ItemGroup>
     <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- 1-9: how hard the GC works to keep the heap small; 9 = maximum. Reads
+         fine under NativeAOT (embedded runtime config). -->
+    <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="9" />
   </ItemGroup>
   <ItemGroup>
     <!-- Pinned exactly: a shell replacement must ship the patch level that was

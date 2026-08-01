@@ -5,7 +5,7 @@
 ; Version comes from the csproj <Version> via build.ps1 (/DAppVersion=...); the
 ; fallback below only applies when ISCC is invoked directly.
 #ifndef AppVersion
-  #define AppVersion "0.1.0"
+  #define AppVersion "0.2.0"
 #endif
 #define AppPublisher "NightHammer1000"
 #define AppURL "https://github.com/NightHammer1000/WSGM"
@@ -36,10 +36,17 @@ CloseApplications=yes
 ; shell replacement is an untested configuration. Needs Inno Setup 6.3+.
 ArchitecturesAllowed=x64os
 ArchitecturesInstallIn64BitMode=x64os
+; WSGM reconstructs SteamOS Game Mode on Windows 11 (ConvertibleSlateMode,
+; per-user shell, game-mode scaling are only exercised there).
+MinVersion=10.0.22000
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "german"; MessagesFile: "compiler:Languages\German.isl"
+
+[CustomMessages]
+english.SteamMissing=Steam was not found on this PC.%n%nWSGM is Steam-exclusive and boots straight into Steam Big Picture. Install Steam from steampowered.com, sign in once, and then run this setup again.
+german.SteamMissing=Steam wurde auf diesem PC nicht gefunden.%n%nWSGM funktioniert ausschließlich mit Steam und startet direkt in Steam Big Picture. Installiere Steam von steampowered.com, melde dich einmal an und führe dieses Setup danach erneut aus.
 
 [Files]
 Source: "{#PublishDir}\WSGM.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -71,6 +78,37 @@ Type: filesandordirs; Name: "{localappdata}\WSGM"
 var
   WasShell: Boolean;
   WasRunning: Boolean;
+
+// Mirrors Core\Steam.cs detection: HKCU SteamExe (stored with forward slashes),
+// then the machine-wide install dir. Detection only — the path is never stored.
+function SteamInstalled(): Boolean;
+var
+  Exe, Dir: String;
+begin
+  Result := False;
+  if RegQueryStringValue(HKCU, 'Software\Valve\Steam', 'SteamExe', Exe) then
+  begin
+    StringChangeEx(Exe, '/', '\', True);
+    if (Exe <> '') and FileExists(Exe) then
+    begin
+      Result := True;
+      Exit;
+    end;
+  end;
+  if RegQueryStringValue(HKLM32, 'SOFTWARE\Valve\Steam', 'InstallPath', Dir) then
+    if (Dir <> '') and FileExists(AddBackslash(Dir) + 'steam.exe') then
+      Result := True;
+end;
+
+// Steam is WSGM's only prerequisite (the exe itself is NativeAOT self-contained).
+// Without it an installed WSGM can only show its "install Steam" warning, so
+// block setup up front and tell the user what to do instead.
+function InitializeSetup(): Boolean;
+begin
+  Result := SteamInstalled();
+  if not Result then
+    MsgBox(CustomMessage('SteamMissing'), mbCriticalError, MB_OK);
+end;
 
 function WasShellRunning(): Boolean;
 begin

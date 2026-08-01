@@ -62,6 +62,23 @@ public sealed class SessionModes
         ExplorerControl.StartExplorer();
     }
 
+    /// <summary>Plain desktop Steam start — no Big Picture. Used by the boot
+    /// splash's Switch-to-desktop: the boot sequence skips its Big Picture start
+    /// once the monitor is paused, but the session should still end up with Steam
+    /// available in windowed mode. No-op when Steam already runs.</summary>
+    public void StartSteamDesktop()
+    {
+        if (Steam.IsRunning)
+        {
+            return;
+        }
+        if (Steam.ExePath is { } exe)
+        {
+            Log.Info("Starting Steam (desktop mode, no Big Picture).");
+            AppLauncher.Start(exe, "", elevated: false);
+        }
+    }
+
     /// <summary>Game mode: desktop goes away, monitoring resumes, Big Picture comes
     /// back (the protocol also boots Steam if it exited while on the desktop).</summary>
     public void EnterGameMode()

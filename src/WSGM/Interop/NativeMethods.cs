@@ -266,6 +266,26 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll")]
     internal static partial nint GetMessageExtraInfo();
 
+    // ---- Idle memory trim (Core\MemoryTrim) ----
+    [LibraryImport("kernel32.dll")]
+    internal static partial nint GetCurrentProcess();
+
+    [LibraryImport("kernel32.dll", EntryPoint = "K32EmptyWorkingSet")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool EmptyWorkingSet(nint hProcess);
+
+    // ---- Boot-splash fade-out (layered-window alpha) ----
+    internal const int WsExLayered = 0x00080000;
+    internal const uint LwaAlpha = 0x00000002;
+
+    // Ex-style is a 32-bit LONG even on x64 — SetWindowLongW, not the Ptr variant.
+    [LibraryImport("user32.dll", EntryPoint = "SetWindowLongW")]
+    internal static partial int SetWindowLong(nint hWnd, int nIndex, int dwNewLong);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool SetLayeredWindowAttributes(nint hWnd, uint crKey, byte bAlpha, uint dwFlags);
+
     // ---- Switchable-window enumeration (alt-tab style) ----
     internal const int GwlExStyle = -20;
     internal const int WsExToolWindow = 0x0080;

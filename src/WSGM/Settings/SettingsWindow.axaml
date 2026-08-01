@@ -200,6 +200,18 @@
                                         </StackPanel>
                                     </Grid>
                                 </Border>
+
+                                <TextBlock Text="Boot" Classes="section-title" Margin="0,8,0,0" />
+                                <Border Classes="hc-settings-card">
+                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
+                                        <TextBlock Text="⏳" FontSize="20" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="2">
+                                            <TextBlock Text="Boot splash" Classes="setting-title" />
+                                            <TextBlock Text="Show a black 'Please wait' screen at sign-in that hides startup-app windows until Steam Big Picture is on screen." Classes="caption" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="2" IsChecked="{Binding BootSplashEnabled}" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
                             </StackPanel>
                     </ScrollViewer>
 
