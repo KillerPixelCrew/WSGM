@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
-using WSGM.Core;
 using SDL;
+using WSGM.Core;
 using static SDL.SDL3;
 
 namespace WSGM.Input;
@@ -166,10 +166,25 @@ internal static unsafe class SdlGamepads
             // positive-down — the opposite of XInput's ThumbLY.
             var lx = SDL_GetGamepadAxis(pad, SDL_GamepadAxis.SDL_GAMEPAD_AXIS_LEFTX);
             var ly = SDL_GetGamepadAxis(pad, SDL_GamepadAxis.SDL_GAMEPAD_AXIS_LEFTY);
-            if (ly < -StickDeadzone) current |= GamepadButtons.DPadUp;
-            if (ly > StickDeadzone) current |= GamepadButtons.DPadDown;
-            if (lx < -StickDeadzone) current |= GamepadButtons.DPadLeft;
-            if (lx > StickDeadzone) current |= GamepadButtons.DPadRight;
+            if (ly < -StickDeadzone)
+            {
+                current |= GamepadButtons.DPadUp;
+            }
+
+            if (ly > StickDeadzone)
+            {
+                current |= GamepadButtons.DPadDown;
+            }
+
+            if (lx < -StickDeadzone)
+            {
+                current |= GamepadButtons.DPadLeft;
+            }
+
+            if (lx > StickDeadzone)
+            {
+                current |= GamepadButtons.DPadRight;
+            }
 
             if (SDL_GetGamepadAxis(pad, SDL_GamepadAxis.SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > TriggerThreshold)
             {

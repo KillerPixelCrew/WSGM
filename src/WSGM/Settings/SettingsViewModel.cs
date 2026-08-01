@@ -51,7 +51,10 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         {
             StartupApps.Add(new StartupAppRow
             {
-                Path = app.Path, Args = app.Args, Enabled = app.Enabled, Elevated = app.Elevated,
+                Path = app.Path,
+                Args = app.Args,
+                Enabled = app.Enabled,
+                Elevated = app.Elevated,
                 AutoRelaunch = app.AutoRelaunch,
             });
         }
@@ -303,7 +306,10 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             .Where(r => !string.IsNullOrWhiteSpace(r.Path))
             .Select(r => new StartupAppConfig
             {
-                Path = r.Path.Trim(), Args = r.Args.Trim(), Enabled = r.Enabled, Elevated = r.Elevated,
+                Path = r.Path.Trim(),
+                Args = r.Args.Trim(),
+                Enabled = r.Enabled,
+                Elevated = r.Elevated,
                 AutoRelaunch = r.AutoRelaunch,
             })
             .ToList();

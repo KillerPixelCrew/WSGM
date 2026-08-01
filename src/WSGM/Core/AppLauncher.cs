@@ -127,7 +127,7 @@ public static class AppLauncher
         }
     }
 
-    private static string SafeDirectory(string path)
+    internal static string SafeDirectory(string path)
     {
         try
         {

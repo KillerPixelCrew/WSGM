@@ -1,0 +1,11 @@
+<Project>
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Existing public XML docs predate the test/lint setup; enforce code style
+         without turning incomplete parameter docs or Avalonia's compiled-XAML
+         runtime-loader advisory into a build failure. -->
+    <NoWarn>$(NoWarn);1573;1591;AVLN3001</NoWarn>
+  </PropertyGroup>
+</Project>

@@ -88,10 +88,25 @@ public sealed class KeyRecorder : IDisposable
         }
 
         uint modifiers = 0;
-        if (IsDown(VkControl)) modifiers |= NativeMethods.ModControl;
-        if (IsDown(VkMenu)) modifiers |= NativeMethods.ModAlt;
-        if (IsDown(VkShift)) modifiers |= NativeMethods.ModShift;
-        if (IsDown(VkLWin) || IsDown(VkRWin)) modifiers |= NativeMethods.ModWin;
+        if (IsDown(VkControl))
+        {
+            modifiers |= NativeMethods.ModControl;
+        }
+
+        if (IsDown(VkMenu))
+        {
+            modifiers |= NativeMethods.ModAlt;
+        }
+
+        if (IsDown(VkShift))
+        {
+            modifiers |= NativeMethods.ModShift;
+        }
+
+        if (IsDown(VkLWin) || IsDown(VkRWin))
+        {
+            modifiers |= NativeMethods.ModWin;
+        }
 
         var cancelled = vk == VkEscape;
         // Unhook synchronously (LL hooks run on the installing thread, so this is
@@ -120,29 +135,71 @@ public sealed class KeyRecorder : IDisposable
             return "None";
         }
         var parts = new List<string>();
-        if (hotkey.Ctrl) parts.Add("Ctrl");
-        if (hotkey.Alt) parts.Add("Alt");
-        if (hotkey.Shift) parts.Add("Shift");
-        if (hotkey.Win) parts.Add("Win");
+        if (hotkey.Ctrl)
+        {
+            parts.Add("Ctrl");
+        }
+
+        if (hotkey.Alt)
+        {
+            parts.Add("Alt");
+        }
+
+        if (hotkey.Shift)
+        {
+            parts.Add("Shift");
+        }
+
+        if (hotkey.Win)
+        {
+            parts.Add("Win");
+        }
+
         parts.Add(KeyName(hotkey.VirtualKey));
         return string.Join(" + ", parts);
     }
 
     public static string KeyName(int vk) => vk switch
     {
-        0x08 => "Backspace", 0x09 => "Tab", 0x0D => "Enter", 0x13 => "Pause",
-        0x14 => "Caps Lock", 0x1B => "Esc", 0x20 => "Space",
-        0x21 => "Page Up", 0x22 => "Page Down", 0x23 => "End", 0x24 => "Home",
-        0x25 => "Left", 0x26 => "Up", 0x27 => "Right", 0x28 => "Down",
-        0x2C => "Print Screen", 0x2D => "Insert", 0x2E => "Delete",
+        0x08 => "Backspace",
+        0x09 => "Tab",
+        0x0D => "Enter",
+        0x13 => "Pause",
+        0x14 => "Caps Lock",
+        0x1B => "Esc",
+        0x20 => "Space",
+        0x21 => "Page Up",
+        0x22 => "Page Down",
+        0x23 => "End",
+        0x24 => "Home",
+        0x25 => "Left",
+        0x26 => "Up",
+        0x27 => "Right",
+        0x28 => "Down",
+        0x2C => "Print Screen",
+        0x2D => "Insert",
+        0x2E => "Delete",
         >= 0x30 and <= 0x39 => ((char)vk).ToString(),                 // 0-9
         >= 0x41 and <= 0x5A => ((char)vk).ToString(),                 // A-Z
         >= 0x60 and <= 0x69 => $"Numpad {vk - 0x60}",
-        0x6A => "Numpad *", 0x6B => "Numpad +", 0x6C => "Numpad Separator",
-        0x6D => "Numpad -", 0x6E => "Numpad .", 0x6F => "Numpad /",
+        0x6A => "Numpad *",
+        0x6B => "Numpad +",
+        0x6C => "Numpad Separator",
+        0x6D => "Numpad -",
+        0x6E => "Numpad .",
+        0x6F => "Numpad /",
         >= 0x70 and <= 0x87 => $"F{vk - 0x6F}",                       // F1-F24
-        0xBA => ";", 0xBB => "+", 0xBC => ",", 0xBD => "-", 0xBE => ".", 0xBF => "/",
-        0xC0 => "`", 0xDB => "[", 0xDC => "\\", 0xDD => "]", 0xDE => "'",
+        0xBA => ";",
+        0xBB => "+",
+        0xBC => ",",
+        0xBD => "-",
+        0xBE => ".",
+        0xBF => "/",
+        0xC0 => "`",
+        0xDB => "[",
+        0xDC => "\\",
+        0xDD => "]",
+        0xDE => "'",
         _ => $"Key 0x{vk:X2}",
     };
 

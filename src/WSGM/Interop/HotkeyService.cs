@@ -45,10 +45,25 @@ public sealed class HotkeyService : IDisposable
         }
 
         uint modifiers = NativeMethods.ModNoRepeat;
-        if (config.Ctrl) modifiers |= NativeMethods.ModControl;
-        if (config.Alt) modifiers |= NativeMethods.ModAlt;
-        if (config.Shift) modifiers |= NativeMethods.ModShift;
-        if (config.Win) modifiers |= NativeMethods.ModWin;
+        if (config.Ctrl)
+        {
+            modifiers |= NativeMethods.ModControl;
+        }
+
+        if (config.Alt)
+        {
+            modifiers |= NativeMethods.ModAlt;
+        }
+
+        if (config.Shift)
+        {
+            modifiers |= NativeMethods.ModShift;
+        }
+
+        if (config.Win)
+        {
+            modifiers |= NativeMethods.ModWin;
+        }
 
         _registered = NativeMethods.RegisterHotKey(_window.Handle, _hotkeyId, modifiers, (uint)config.VirtualKey);
         if (_registered)

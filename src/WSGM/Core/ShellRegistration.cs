@@ -169,7 +169,7 @@ public static class ShellRegistration
     /// <summary>Parses the executable out of a Shell command line: the quoted token
     /// if the command starts with a quote, otherwise everything up to the first
     /// space (matching how Winlogon itself launches the value).</summary>
-    private static string? ExtractExecutablePath(string? command)
+    internal static string? ExtractExecutablePath(string? command)
     {
         if (string.IsNullOrWhiteSpace(command))
         {

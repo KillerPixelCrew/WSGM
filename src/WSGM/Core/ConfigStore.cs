@@ -49,7 +49,7 @@ public static class ConfigStore
     /// property initializer; replace nulls with fresh defaults so a hand-edited
     /// config can never NRE the shell later (which would kill it before the panic
     /// handler runs). New nested object/list members belong in this list too.</summary>
-    private static AppConfig Normalize(AppConfig config)
+    internal static AppConfig Normalize(AppConfig config)
     {
         config.StartupApps ??= [];
         config.Hotkey ??= new HotkeyConfig();

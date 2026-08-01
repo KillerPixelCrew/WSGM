@@ -130,7 +130,7 @@ public static class SelfElevation
     /// are backslash-escaped, backslash runs before a quote (including the closing
     /// one) are doubled, and empty args become "" — a bare Contains-space wrap would
     /// corrupt args like a quoted path ending in a backslash.</summary>
-    private static string Quote(string arg)
+    internal static string Quote(string arg)
     {
         if (arg.Length > 0 && arg.IndexOfAny([' ', '\t', '"']) < 0)
         {

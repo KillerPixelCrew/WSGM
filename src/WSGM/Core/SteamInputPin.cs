@@ -1,5 +1,3 @@
-using System;
-
 namespace WSGM.Core;
 
 /// <summary>Process-wide owner of the Steam Input layout pin (steam://forceinputappid).

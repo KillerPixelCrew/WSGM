@@ -46,7 +46,7 @@ internal static class ConsoleTool
         }
     }
 
-    private static string FirstToken(string arguments)
+    internal static string FirstToken(string arguments)
     {
         var space = arguments.IndexOf(' ');
         return space < 0 ? arguments : arguments[..space];

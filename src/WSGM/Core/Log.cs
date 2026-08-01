@@ -58,7 +58,11 @@ public static class Log
 
     private static void Write(string level, string message)
     {
-        if (_path is null) return;
+        if (_path is null)
+        {
+            return;
+        }
+
         lock (Gate)
         {
             // Timestamp inside the lock so appended lines stay in chronological order.
