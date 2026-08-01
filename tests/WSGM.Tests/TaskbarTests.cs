@@ -8,13 +8,15 @@ namespace WSGM.Tests;
 public sealed class TaskbarTests
 {
     [Theory]
-    [InlineData(ScreenEdge.Bottom, EdgeAction.Taskbar, false, true)]
-    [InlineData(ScreenEdge.Bottom, EdgeAction.Taskbar, true, false)] // desktop mode → quick access
-    [InlineData(ScreenEdge.Bottom, EdgeAction.QuickAccess, false, false)]
-    [InlineData(ScreenEdge.Right, EdgeAction.Taskbar, false, false)] // right edge is always quick access
-    public void BottomSwipeOpensTheTaskbarOnlyWhenConfiguredAndInGameMode(
-        ScreenEdge edge, EdgeAction bottomAction, bool explorerRunning, bool expected)
-        => Assert.Equal(expected, OverlayController.OpensTaskbar(edge, bottomAction, explorerRunning));
+    [InlineData(ScreenEdge.Bottom, EdgeAction.Taskbar, false, OverlayController.SwipeAction.Taskbar)]
+    [InlineData(ScreenEdge.Bottom, EdgeAction.Taskbar, true, OverlayController.SwipeAction.None)] // desktop: explorer owns the edge
+    [InlineData(ScreenEdge.Bottom, EdgeAction.QuickAccess, false, OverlayController.SwipeAction.QuickAccess)]
+    [InlineData(ScreenEdge.Bottom, EdgeAction.QuickAccess, true, OverlayController.SwipeAction.QuickAccess)]
+    [InlineData(ScreenEdge.Right, EdgeAction.Taskbar, false, OverlayController.SwipeAction.QuickAccess)] // right edge is always quick access
+    [InlineData(ScreenEdge.Right, EdgeAction.Taskbar, true, OverlayController.SwipeAction.QuickAccess)]
+    public void BottomSwipeOpensTheTaskbarInGameModeAndNothingOnTheDesktop(
+        ScreenEdge edge, EdgeAction bottomAction, bool explorerRunning, OverlayController.SwipeAction expected)
+        => Assert.Equal(expected, OverlayController.DecideSwipe(edge, bottomAction, explorerRunning));
 
     [Fact]
     public void NewConfigurationsDefaultTheBottomEdgeToTheTaskbar()

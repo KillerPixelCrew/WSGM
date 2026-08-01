@@ -91,27 +91,51 @@ public sealed class OverlayController : IDisposable
         }
     }
 
+    /// <summary>What an edge swipe opens (routing result).</summary>
+    public enum SwipeAction
+    {
+        /// <summary>The swipe is ignored.</summary>
+        None,
+
+        /// <summary>The quick-access panel opens.</summary>
+        QuickAccess,
+
+        /// <summary>The game-mode taskbar opens.</summary>
+        Taskbar,
+    }
+
     private void OnSwipeTriggered(ScreenEdge edge)
     {
-        if (OpensTaskbar(edge, _config.Gestures.BottomEdgeAction, ExplorerControl.IsRunningInSession()))
+        switch (DecideSwipe(edge, _config.Gestures.BottomEdgeAction, ExplorerControl.IsRunningInSession()))
         {
-            ShowTaskbar();
-        }
-        else
-        {
-            ShowOverlay();
+            case SwipeAction.Taskbar:
+                ShowTaskbar();
+                break;
+            case SwipeAction.QuickAccess:
+                ShowOverlay();
+                break;
+            default:
+                Log.Info("Bottom swipe ignored in desktop mode (explorer's taskbar owns the edge).");
+                break;
         }
     }
 
-    /// <summary>The pure edge-routing decision: the bottom swipe opens the taskbar
-    /// only when configured to AND in game mode — in desktop mode explorer's real
-    /// taskbar owns the bottom edge, so the swipe falls back to quick access.</summary>
+    /// <summary>The pure edge-routing decision: the right edge always opens quick
+    /// access; a bottom edge assigned to the taskbar opens it in game mode and is
+    /// IGNORED in desktop mode — explorer's real taskbar owns that edge there,
+    /// and falling back to the panel read as a regression (device-reported).</summary>
     /// <param name="edge">The swiped screen edge.</param>
     /// <param name="bottomEdgeAction">The configured bottom-edge action.</param>
     /// <param name="explorerRunning">Whether the session currently has a desktop.</param>
-    /// <returns>Whether the swipe opens the taskbar instead of quick access.</returns>
-    public static bool OpensTaskbar(ScreenEdge edge, EdgeAction bottomEdgeAction, bool explorerRunning)
-        => edge == ScreenEdge.Bottom && bottomEdgeAction == EdgeAction.Taskbar && !explorerRunning;
+    /// <returns>What the swipe opens, if anything.</returns>
+    public static SwipeAction DecideSwipe(ScreenEdge edge, EdgeAction bottomEdgeAction, bool explorerRunning)
+    {
+        if (edge != ScreenEdge.Bottom || bottomEdgeAction == EdgeAction.QuickAccess)
+        {
+            return SwipeAction.QuickAccess;
+        }
+        return explorerRunning ? SwipeAction.None : SwipeAction.Taskbar;
+    }
 
     /// <summary>Sets a non-fatal warning to show the next time the overlay opens.</summary>
     /// <param name="warning">The user-facing warning text, or an empty string to clear it.</param>

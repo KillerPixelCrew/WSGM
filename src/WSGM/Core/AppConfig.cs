@@ -63,7 +63,7 @@ public enum EdgeAction
     /// <summary>The quick-access panel.</summary>
     QuickAccess,
 
-    /// <summary>The game-mode taskbar (falls back to quick access in desktop mode,
+    /// <summary>The game-mode taskbar (the swipe is ignored in desktop mode,
     /// where explorer's real taskbar owns the bottom edge).</summary>
     Taskbar,
 }
