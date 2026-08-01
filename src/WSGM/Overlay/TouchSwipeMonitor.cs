@@ -38,11 +38,16 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     private const int MinimumBandPx = 48;
     private const int TriggerDistancePx = 48;
     private const ulong TriggerTimeMs = 800;
-    private const int ErrorClassAlreadyExists = 1410;
 
     private static readonly object Gate = new();
-    private static TouchSwipeMonitor? _instance;
-    private static bool _windowClassRegistered;
+    // Raw-input registration is per-process per HID usage: registering a second
+    // window RETARGETS delivery, and one RIDEV_REMOVE kills it for everyone. So
+    // ONE shared message-only window owns the registration, WM_INPUT is dispatched
+    // to every live monitor in this registry, and the registration is dropped only
+    // when the last monitor is disposed (the Settings test overlay's monitor must
+    // never take the live shell's edge swipes down with it).
+    private static readonly List<TouchSwipeMonitor> Instances = [];
+    private static nint _sharedHwnd;
 
     private sealed class DeviceCaps
     {
@@ -52,15 +57,17 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         public int XMax;
         public int YMin;
         public int YMax;
+        /// <summary>Usage-list capacity for HidP_GetUsages, from HidP_GetCaps
+        /// (NumberInputDataIndices bounds the usages one input report can carry).</summary>
+        public int UsageListLength = 16;
         public bool Usable;
         public bool WarnedBadReport;
+        public bool WarnedUsagesFailed;
     }
 
     private readonly Dictionary<nint, DeviceCaps> _devices = [];
-    private readonly ushort[] _usageBuffer = new ushort[16];
+    private ushort[] _usageBuffer = new ushort[16];
     private byte[] _inputBuffer = new byte[256];
-
-    private nint _hwnd;
     private bool _bottomEnabled;
     private bool _rightEnabled;
     private int _bandPx = MinimumBandPx;
@@ -90,18 +97,24 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
 
     public TouchSwipeMonitor()
     {
-        var hInstance = NativeMethods.GetModuleHandleW(0);
-        EnsureWindowClass(hInstance);
-
-        _hwnd = NativeMethods.CreateWindowExW(
-            0, WindowClassName, null, 0,
-            0, 0, 0, 0,
-            NativeMethods.HwndMessage, 0, hInstance, 0);
-        if (_hwnd == 0)
+        lock (Gate)
         {
-            throw new InvalidOperationException("Failed to create raw touch input window.");
+            if (Instances.Count == 0)
+            {
+                CreateSharedWindowAndRegister();
+            }
+            Instances.Add(this);
         }
-        _instance = this;
+    }
+
+    private static void CreateSharedWindowAndRegister()
+    {
+        // Class registration + HWND_MESSAGE creation share MessageWindow's code
+        // path; the raw-input registration below stays entirely local so its
+        // semantics (dedicated INPUTSINK target, last-monitor teardown) are
+        // unchanged.
+        _sharedHwnd = MessageWindow.CreateMessageOnlyWindow(
+            WindowClassName, &WndProc, "Failed to create raw touch input window.");
 
         var devices = new[]
         {
@@ -110,7 +123,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
                 usUsagePage = NativeMethods.HidUsagePageDigitizer,
                 usUsage = NativeMethods.HidUsageTouchScreen,
                 dwFlags = NativeMethods.RidevInputSink | NativeMethods.RidevDevNotify,
-                hwndTarget = _hwnd,
+                hwndTarget = _sharedHwnd,
             },
         };
         if (!NativeMethods.RegisterRawInputDevices(devices, 1, (uint)Marshal.SizeOf<NativeMethods.RawInputDevice>()))
@@ -174,48 +187,29 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         }
     }
 
-    private static void EnsureWindowClass(nint hInstance)
-    {
-        lock (Gate)
-        {
-            if (_windowClassRegistered)
-            {
-                return;
-            }
-
-            var className = WindowClassName + "\0";
-            fixed (char* classNamePointer = className)
-            {
-                var windowClass = new NativeMethods.WndClassW
-                {
-                    hInstance = hInstance,
-                    lpszClassName = (nint)classNamePointer,
-                    lpfnWndProc = &WndProc,
-                };
-                var atom = NativeMethods.RegisterClassW(&windowClass);
-                if (atom == 0 && Marshal.GetLastWin32Error() != ErrorClassAlreadyExists)
-                {
-                    throw new InvalidOperationException("Failed to register raw touch input window class.");
-                }
-            }
-
-            _windowClassRegistered = true;
-        }
-    }
-
     [UnmanagedCallersOnly]
     private static nint WndProc(nint hwnd, uint message, nint wParam, nint lParam)
     {
-        var monitor = _instance;
-        if (monitor is not null && hwnd == monitor._hwnd && !monitor._disposed)
+        if (hwnd == _sharedHwnd)
         {
+            TouchSwipeMonitor[] monitors;
+            lock (Gate)
+            {
+                monitors = [.. Instances];
+            }
             try
             {
                 if (message == NativeMethods.WmInput)
                 {
                     // hRawInput (lParam) is only valid during synchronous processing;
                     // read here, then still let DefWindowProc do the WM_INPUT cleanup.
-                    monitor.ProcessRawInput(lParam);
+                    foreach (var monitor in monitors)
+                    {
+                        if (!monitor._disposed)
+                        {
+                            monitor.ProcessRawInput(lParam);
+                        }
+                    }
                 }
                 else if (message == NativeMethods.WmInputDeviceChange)
                 {
@@ -228,7 +222,13 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
                     }
                     else if (wParam == NativeMethods.GidcRemoval)
                     {
-                        monitor.EvictDevice(lParam);
+                        foreach (var monitor in monitors)
+                        {
+                            if (!monitor._disposed)
+                            {
+                                monitor.EvictDevice(lParam);
+                            }
+                        }
                     }
                 }
             }
@@ -343,6 +343,10 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
             return caps;
         }
 
+        // Every input usage/value owns one data index, so this bounds how many
+        // button usages HidP_GetUsages can ever return for one report.
+        caps.UsageListLength = Math.Max(16, (int)hidCaps.NumberInputDataIndices);
+
         var count = hidCaps.NumberInputValueCaps;
         if (count == 0)
         {
@@ -431,6 +435,10 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     private void ProcessReport(DeviceCaps caps, nint report, uint reportLength)
     {
         var tipDown = false;
+        if (_usageBuffer.Length < caps.UsageListLength)
+        {
+            _usageBuffer = new ushort[caps.UsageListLength];
+        }
         var usageCount = (uint)_usageBuffer.Length;
         var status = NativeMethods.HidP_GetUsages(
             NativeMethods.HidpInput, NativeMethods.HidUsagePageDigitizer, caps.LinkCollection,
@@ -445,6 +453,13 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
                     break;
                 }
             }
+        }
+        else if (!caps.WarnedUsagesFailed)
+        {
+            // Once per device: a failure here silently reads as contact-up, which
+            // would otherwise look like "touch dead" in a pasted log.
+            caps.WarnedUsagesFailed = true;
+            Log.Warn($"HidP_GetUsages failed (status 0x{status:X8}, buffer {_usageBuffer.Length}) — reports treated as contact-up.");
         }
 
         if (!tipDown)
@@ -588,23 +603,35 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         }
         _disposed = true;
 
-        var devices = new[]
+        lock (Gate)
         {
-            new NativeMethods.RawInputDevice
+            Instances.Remove(this);
+            // The registration is process-wide: it may only go away with the LAST
+            // monitor, or disposing the Settings test monitor would kill the live
+            // shell's edge swipes and tap-dismiss until the shell restarts.
+            if (Instances.Count == 0)
             {
-                usUsagePage = NativeMethods.HidUsagePageDigitizer,
-                usUsage = NativeMethods.HidUsageTouchScreen,
-                dwFlags = NativeMethods.RidevRemove,
-                hwndTarget = 0,
-            },
-        };
-        NativeMethods.RegisterRawInputDevices(devices, 1, (uint)Marshal.SizeOf<NativeMethods.RawInputDevice>());
+                var devices = new[]
+                {
+                    new NativeMethods.RawInputDevice
+                    {
+                        usUsagePage = NativeMethods.HidUsagePageDigitizer,
+                        usUsage = NativeMethods.HidUsageTouchScreen,
+                        dwFlags = NativeMethods.RidevRemove,
+                        hwndTarget = 0,
+                    },
+                };
+                NativeMethods.RegisterRawInputDevices(devices, 1, (uint)Marshal.SizeOf<NativeMethods.RawInputDevice>());
 
-        if (_hwnd != 0)
-        {
-            NativeMethods.DestroyWindow(_hwnd);
-            _hwnd = 0;
+                if (_sharedHwnd != 0)
+                {
+                    NativeMethods.DestroyWindow(_sharedHwnd);
+                    _sharedHwnd = 0;
+                }
+                Log.Info("Raw touch input unregistered (last touch monitor disposed).");
+            }
         }
+
         foreach (var caps in _devices.Values)
         {
             if (caps.PreparsedData != 0)
@@ -613,9 +640,5 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
             }
         }
         _devices.Clear();
-        if (ReferenceEquals(_instance, this))
-        {
-            _instance = null;
-        }
     }
 }

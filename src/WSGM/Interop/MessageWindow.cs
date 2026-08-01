@@ -1,5 +1,7 @@
 using System;
+using System.Runtime.InteropServices;
 using Avalonia.Threading;
+using WSGM.Core;
 
 namespace WSGM.Interop;
 
@@ -9,6 +11,13 @@ public sealed unsafe class MessageWindow : IDisposable
 {
     private static MessageWindow? _instance;
     private nint _hwnd;
+
+    /// <summary>Create() is the only entry point: a directly constructed instance
+    /// would carry Handle == 0, and RegisterHotKey on hwnd 0 registers a thread
+    /// hotkey the WndProc never sees.</summary>
+    private MessageWindow()
+    {
+    }
 
     public nint Handle => _hwnd;
 
@@ -22,30 +31,52 @@ public sealed unsafe class MessageWindow : IDisposable
             return _instance;
         }
 
+        var hwnd = CreateMessageOnlyWindow(
+            "WSGM.MessageWindow", &WndProc, "Failed to create message window");
+        _instance = new MessageWindow { _hwnd = hwnd };
+        return _instance;
+    }
+
+    /// <summary>Shared class-registration + window-creation path for the process's
+    /// message-only (HWND_MESSAGE) windows. Class registration is idempotent:
+    /// ERROR_CLASS_ALREADY_EXISTS (1410) is benign — a re-create after a destroy
+    /// reuses the still-registered class. Any other registration failure is only
+    /// logged, because CreateWindowExW then fails on the unknown class and throws
+    /// <paramref name="failureMessage"/> anyway.</summary>
+    internal static nint CreateMessageOnlyWindow(
+        string className,
+        delegate* unmanaged<nint, uint, nint, nint, nint> wndProc,
+        string failureMessage)
+    {
         var hInstance = NativeMethods.GetModuleHandleW(0);
-        var className = "WSGM.MessageWindow\0";
-        fixed (char* pClassName = className)
+        var terminatedClassName = className + "\0";
+        fixed (char* pClassName = terminatedClassName)
         {
             var wc = new NativeMethods.WndClassW
             {
-                lpfnWndProc = &WndProc,
+                lpfnWndProc = wndProc,
                 hInstance = hInstance,
                 lpszClassName = (nint)pClassName,
             };
-            NativeMethods.RegisterClassW(&wc);
+            if (NativeMethods.RegisterClassW(&wc) == 0)
+            {
+                var error = Marshal.GetLastWin32Error();
+                if (error != 1410)
+                {
+                    Log.Warn($"RegisterClassW({className}) failed (error {error}).");
+                }
+            }
         }
 
         var hwnd = NativeMethods.CreateWindowExW(
-            0, "WSGM.MessageWindow", null, 0,
+            0, className, null, 0,
             0, 0, 0, 0,
             NativeMethods.HwndMessage, 0, hInstance, 0);
         if (hwnd == 0)
         {
-            throw new InvalidOperationException("Failed to create message window");
+            throw new InvalidOperationException(failureMessage);
         }
-
-        _instance = new MessageWindow { _hwnd = hwnd };
-        return _instance;
+        return hwnd;
     }
 
     [System.Runtime.InteropServices.UnmanagedCallersOnly]
@@ -64,7 +95,11 @@ public sealed unsafe class MessageWindow : IDisposable
     {
         if (_hwnd != 0)
         {
-            NativeMethods.DestroyWindow(_hwnd);
+            if (!NativeMethods.DestroyWindow(_hwnd))
+            {
+                // Fails from the wrong thread; the handle then leaks until exit.
+                Log.Warn($"DestroyWindow(message window) failed (error {Marshal.GetLastWin32Error()}).");
+            }
             _hwnd = 0;
         }
         _instance = null;

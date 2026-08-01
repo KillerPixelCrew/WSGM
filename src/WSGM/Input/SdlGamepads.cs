@@ -14,9 +14,15 @@ namespace WSGM.Input;
 /// so a running game is unaffected.</summary>
 internal static unsafe class SdlGamepads
 {
+    /// <summary>One pad's folded button state, keyed by SDL joystick instance id.
+    /// Per-pad states let chord detection require a chord to complete on ONE
+    /// physical pad instead of being assembled from buttons across controllers.</summary>
+    public readonly record struct PadSnapshot(uint Id, GamepadButtons Buttons);
+
     private static bool _initialized;
     private static bool _failed;
     private static readonly Dictionary<SDL_JoystickID, nint> Pads = new();
+    private static readonly List<PadSnapshot> Snapshot = new();
 
     private const short StickDeadzone = 16000;
     private const short TriggerThreshold = 8000; // axis range is 0..32767
@@ -119,13 +125,15 @@ internal static unsafe class SdlGamepads
         }
     }
 
-    /// <summary>Pumps SDL events (hotplug) and returns the OR of all pads' states,
-    /// with the left stick folded into the D-pad flags and triggers as buttons.</summary>
-    public static GamepadButtons Update()
+    /// <summary>Pumps SDL events (hotplug) and returns each pad's state, with the
+    /// left stick folded into the D-pad flags and triggers as buttons. The returned
+    /// list is reused across calls — consume it before the next Update().</summary>
+    public static IReadOnlyList<PadSnapshot> Update()
     {
+        Snapshot.Clear();
         if (!_initialized)
         {
-            return 0;
+            return Snapshot;
         }
 
         SDL_Event e;
@@ -142,10 +150,10 @@ internal static unsafe class SdlGamepads
             }
         }
 
-        GamepadButtons current = 0;
-        foreach (var handle in Pads.Values)
+        foreach (var (id, handle) in Pads)
         {
             var pad = (SDL_Gamepad*)handle;
+            GamepadButtons current = 0;
             foreach (var (sdl, flag) in ButtonMap)
             {
                 if (SDL_GetGamepadButton(pad, sdl))
@@ -171,8 +179,10 @@ internal static unsafe class SdlGamepads
             {
                 current |= GamepadButtons.RightTrigger;
             }
+
+            Snapshot.Add(new PadSnapshot((uint)id, current));
         }
-        return current;
+        return Snapshot;
     }
 
     private static void OpenPad(SDL_JoystickID id)

@@ -1,5 +1,5 @@
+using System;
 using System.Diagnostics;
-using WSGM.Core;
 using WSGM.Interop;
 
 namespace WSGM.Core;
@@ -18,12 +18,28 @@ public static class PowerActions
     public static void Restart()
     {
         Log.Info("Power: restart");
-        Process.Start(new ProcessStartInfo("shutdown.exe", "/r /t 0") { UseShellExecute = false, CreateNoWindow = true });
+        RunShutdown("/r /t 0");
     }
 
     public static void Shutdown()
     {
         Log.Info("Power: shutdown");
-        Process.Start(new ProcessStartInfo("shutdown.exe", "/s /t 0") { UseShellExecute = false, CreateNoWindow = true });
+        RunShutdown("/s /t 0");
+    }
+
+    private static void RunShutdown(string arguments)
+    {
+        try
+        {
+            using var p = Process.Start(new ProcessStartInfo("shutdown.exe", arguments)
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"shutdown.exe {arguments} failed", ex);
+        }
     }
 }

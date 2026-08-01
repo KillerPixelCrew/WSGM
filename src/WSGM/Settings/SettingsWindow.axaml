@@ -185,11 +185,17 @@
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
                                 <Border Classes="hc-settings-card">
-                                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                                    <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
                                         <ComboBox Grid.Column="0" ItemsSource="{Binding StartupSuggestions}" SelectedIndex="{Binding SelectedSuggestionIndex}" ToolTip.Tip="Programs found on this PC that can start before the launcher" />
                                         <Button Grid.Column="1" Classes="primary" Content="Add app" Click="OnAddApp" />
                                         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                            <TextBlock Text="Delay (ms)" Classes="caption" VerticalAlignment="Center" />
+                                            <TextBlock Text="First app delay (ms)" Classes="caption" VerticalAlignment="Center"
+                                                       ToolTip.Tip="Wait after logon before the first app starts, so the session and the game-mode display change settle. Tools started too early can hang." />
+                                            <NumericUpDown Value="{Binding StartupDelayMs}" Minimum="0" Maximum="30000" Increment="250" Width="130" FormatString="0" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                            <TextBlock Text="Between apps (ms)" Classes="caption" VerticalAlignment="Center"
+                                                       ToolTip.Tip="Extra wait between one startup app and the next" />
                                             <NumericUpDown Value="{Binding StaggerDelayMs}" Minimum="0" Maximum="30000" Increment="250" Width="130" FormatString="0" />
                                         </StackPanel>
                                     </Grid>

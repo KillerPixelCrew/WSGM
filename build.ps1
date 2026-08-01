@@ -7,7 +7,15 @@ $root = $PSScriptRoot
 # NativeAOT needs the VS linker toolchain; ILCompiler locates it via vswhere.
 $env:Path += ";${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer"
 
-Write-Host "== Publishing WSGM (NativeAOT) ==" -ForegroundColor Cyan
+# The csproj <Version> is the single source of truth; the installer gets it via /D.
+$csproj = Get-Content "$root\src\WSGM\WSGM.csproj" -Raw
+if ($csproj -notmatch '<Version>([^<]+)</Version>') { throw "No <Version> found in WSGM.csproj" }
+$version = $Matches[1]
+
+Write-Host "== Publishing WSGM $version (NativeAOT) ==" -ForegroundColor Cyan
+# Clean first: dotnet publish overlays onto the previous output, so a DLL removed by
+# a dependency bump (or an old setup exe) would otherwise leak into the release.
+Remove-Item -Recurse -Force "$root\publish" -ErrorAction SilentlyContinue
 dotnet publish "$root\src\WSGM\WSGM.csproj" -c Release -r win-x64 -o "$root\publish"
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
 
@@ -18,7 +26,7 @@ $iscc = @(
 if (-not $iscc) { throw "Inno Setup 6 not found (winget install JRSoftware.InnoSetup)" }
 
 Write-Host "== Compiling installer ==" -ForegroundColor Cyan
-& $iscc "$root\installer\WSGM.iss"
+& $iscc "/DAppVersion=$version" "$root\installer\WSGM.iss"
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
 
 Get-ChildItem "$root\publish\WSGM-Setup-*.exe" |

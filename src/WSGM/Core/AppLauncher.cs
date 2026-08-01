@@ -14,10 +14,20 @@ public static class AppLauncher
 
     public sealed record LaunchResult(Process? Process, bool Started, bool ElevationDeclined);
 
+    /// <summary>Whether a configured launch target is a protocol URL rather than a
+    /// file path (protocols carry no args/elevation and cannot be relaunch-watched).</summary>
+    public static bool IsProtocol(string path) => path.Contains("://");
+
     public static LaunchResult Start(string path, string args, bool elevated)
     {
-        if (path.Contains("://"))
+        if (IsProtocol(path))
         {
+            // ShellExecute on a URL cannot carry separate args, and elevation does
+            // not apply — warn so the misconfiguration shows up in a pasted log.
+            if (!string.IsNullOrWhiteSpace(args) || elevated)
+            {
+                Log.Warn($"Protocol launch ignores configured args/elevation: {path} (args \"{args}\", elevated {elevated})");
+            }
             return StartProtocol(path);
         }
         return elevated ? StartElevated(path, args) : StartNormal(path, args);
@@ -34,6 +44,24 @@ public static class AppLauncher
         catch (Exception ex)
         {
             Log.Error($"Failed to start protocol {protocol}", ex);
+            return new LaunchResult(null, false, false);
+        }
+    }
+
+    /// <summary>ShellExecute-open with the standard try/catch-log contract, for
+    /// targets that manage their own activation/elevation (auto-elevating system
+    /// exes like Task Manager, TabTip, handing over to another WSGM copy).</summary>
+    public static LaunchResult Open(string path, string args = "")
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(path, args) { UseShellExecute = true });
+            Log.Info($"Started via shell: {path}{(args.Length == 0 ? "" : " " + args)}");
+            return new LaunchResult(null, true, false);
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Failed to start {path}", ex);
             return new LaunchResult(null, false, false);
         }
     }
@@ -80,7 +108,7 @@ public static class AppLauncher
                 WorkingDirectory = SafeDirectory(path),
             };
             var process = Process.Start(psi); // may be null (no new process resource)
-            Log.Info($"Started elevated: {path} {args} (pid {(process is null ? "unknown" : process.Id)})");
+            Log.Info($"Started elevated: {path} {args} (pid {process?.Id.ToString() ?? "?"})");
             return new LaunchResult(process, true, false);
         }
         catch (Win32Exception ex) when (ex.NativeErrorCode == ErrorCancelled)

@@ -1,6 +1,4 @@
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using WSGM.Core;
 using WSGM.Input;
 using WSGM.Interop;
@@ -15,6 +13,7 @@ public sealed class OverlayController : IDisposable
 {
     private AppConfig _config;
     private readonly SteamMonitor? _monitor;
+    private readonly SessionModes _modes;
     private readonly HotkeyService _hotkey;
     private readonly GamepadService _gamepad = new();
     private readonly GamepadChordWatcher _chordWatcher;
@@ -24,16 +23,14 @@ public sealed class OverlayController : IDisposable
     private GamepadNavigation? _navigation;
     private string _pendingWarning = "";
     private bool _reopenOverlayForWarning;
-    private readonly object _homeLaunchGate = new();
-    private bool _homeLaunchInProgress;
-    private DateTime _lastHomeLaunchUtc;
+    private bool _disposed;
 
-    private static readonly TimeSpan HomeLaunchCooldown = TimeSpan.FromSeconds(5);
-
-    public OverlayController(AppConfig config, SteamMonitor? monitor)
+    public OverlayController(AppConfig config, SteamMonitor? monitor, SessionModes modes)
     {
         _config = config;
         _monitor = monitor;
+        _modes = modes;
+        _modes.SteamStartFailed += WarnOrReopen;
 
         _hotkey = new HotkeyService(MessageWindow.Create());
         _hotkey.Pressed += ShowOverlay;
@@ -92,6 +89,7 @@ public sealed class OverlayController : IDisposable
     public void ApplyConfig(AppConfig config)
     {
         _config = config;
+        _modes.ApplyConfig(config);
         _hotkey.Apply(config.Hotkey);
         _chordWatcher.ApplyConfig(config.GamepadChord);
         var chordActive = config.GamepadChord.Enabled && config.GamepadChord.Buttons != 0;
@@ -104,6 +102,12 @@ public sealed class OverlayController : IDisposable
             _gamepad.Stop();
         }
         ApplyGestures(config.Gestures);
+        if (_overlayViewModel is not null)
+        {
+            // Keep the open panel's footer glyphs in step with the (already live)
+            // Nintendo A/B input mapping.
+            _overlayViewModel.GlyphStyle = config.GlyphStyle;
+        }
         if (_overlay is not null)
         {
             ApplySteamInputPin();
@@ -116,72 +120,54 @@ public sealed class OverlayController : IDisposable
         if (_config.SteamAutoRelaunch)
         {
             Log.Info("Steam exited — auto-relaunching in 10 s.");
-            System.Threading.Tasks.Task.Delay(10_000).ContinueWith(_ =>
-                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            RunOnUiThreadAfter(TimeSpan.FromMilliseconds(10_000), () =>
+            {
+                // Re-checked at fire time: a config reload (_config is replaced
+                // wholesale) may have turned auto-relaunch off, or this
+                // controller may have been disposed while the delay ran.
+                if (_disposed || !_config.SteamAutoRelaunch)
                 {
-                    // The user may have switched to desktop mode (or closed Steam
-                    // deliberately) while this delay was in flight.
-                    if (_monitor?.Paused == true)
-                    {
-                        Log.Info("Auto-relaunch skipped: monitor paused meanwhile.");
-                        return;
-                    }
-                    StartOrFocusSteam();
-                }));
+                    Log.Info("Auto-relaunch skipped: disabled or disposed meanwhile.");
+                    return;
+                }
+                // The user may have switched to desktop mode (or closed Steam
+                // deliberately) while this delay was in flight.
+                if (_monitor?.Paused == true)
+                {
+                    Log.Info("Auto-relaunch skipped: monitor paused meanwhile.");
+                    return;
+                }
+                _modes.StartOrFocusSteam();
+            });
             return;
         }
         ShowOverlay();
     }
+
+    private bool _pinReleased;
 
     /// <summary>The pin is scoped to the overlay's lifetime. While Steam's own
     /// window is foreground with a forced appid, Steam treats the pad as in-game
     /// input and Big Picture stops responding (user-reported) — so the pin exists
     /// only while OUR focused panel needs the pad, and is released on close.</summary>
     private void ApplySteamInputPin()
-        => SteamInputPin.Apply(Math.Max(_config.SteamForceInputAppId, 0));
-
-    private void ReleaseSteamInputPin() => SteamInputPin.Apply(0);
-
-    /// <summary>Asks Steam to leave Big Picture (Steam keeps running). No-op if
-    /// Steam isn't running.</summary>
-    private void ExitBigPicture()
     {
-        if (_monitor?.IsAlive != true)
+        _pinReleased = false;
+        SteamInputPin.Apply(Math.Max(_config.SteamForceInputAppId, 0));
+    }
+
+    /// <summary>At most one release per pin apply from THIS controller: Dispose
+    /// releases early (see there), and the overlay's deferred Closed handler must
+    /// then not fire a second /0 — a replacement controller may already have
+    /// re-applied the pin by the time the 150 ms close lands.</summary>
+    private void ReleaseSteamInputPin()
+    {
+        if (_pinReleased)
         {
             return;
         }
-        Log.Info("Exiting Steam Big Picture.");
-        AppLauncher.StartProtocol(Steam.CloseBigPictureUrl);
-    }
-
-    /// <summary>Desktop mode: stop reacting to Steam (no auto-relaunch, no overlay
-    /// pop), drop Steam out of Big Picture, bring the desktop up.</summary>
-    private void EnterDesktopMode()
-    {
-        Log.Info("Entering desktop mode.");
-        if (_monitor is not null)
-        {
-            _monitor.Paused = true;
-        }
-        ExitBigPicture();
-        SlateMode.ApplyDesktopMode();
-        DisplayScale.RestoreSaved(_config);
-        ExplorerControl.StartExplorer();
-    }
-
-    /// <summary>Game mode: desktop goes away, monitoring resumes, Big Picture comes
-    /// back (the protocol also boots Steam if it exited while on the desktop).</summary>
-    private void EnterGameMode()
-    {
-        Log.Info("Entering game mode.");
-        ExplorerControl.KillExplorer();
-        SlateMode.ApplyGameMode();
-        DisplayScale.ApplyGameMode(_config);
-        if (_monitor is not null)
-        {
-            _monitor.Paused = false;
-        }
-        StartOrFocusSteam();
+        _pinReleased = true;
+        SteamInputPin.Apply(0);
     }
 
     /// <summary>Populates/toggles the Switch-app picker: alt-tab-style list of the
@@ -217,7 +203,7 @@ public sealed class OverlayController : IDisposable
         CloseOverlay();
         if (entry.IsSteam)
         {
-            FocusSteam();
+            _modes.FocusSteam();
         }
         else
         {
@@ -227,48 +213,40 @@ public sealed class OverlayController : IDisposable
 
     private static void StartTaskManager()
     {
-        try
+        var taskmgr = System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.System), "Taskmgr.exe");
+        // ShellExecute-open: Taskmgr auto-elevates through its own manifest.
+        if (!AppLauncher.Open(taskmgr).Started)
         {
-            var taskmgr = System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.System), "Taskmgr.exe");
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(taskmgr) { UseShellExecute = true });
-            Log.Info("Started Task Manager.");
+            return;
+        }
+        Log.Info("Started Task Manager.");
 
-            // It opens while our focused panel is closing, so the game underneath
-            // reclaims the foreground and Task Manager lands behind it. Wait for
-            // its window and promote it.
-            System.Threading.Tasks.Task.Run(async () =>
-            {
-                for (var attempt = 0; attempt < 12; attempt++)
-                {
-                    await System.Threading.Tasks.Task.Delay(300);
-                    var hwnd = WindowFinder.FindWindow("Taskmgr", windowClass: null);
-                    if (hwnd != 0)
-                    {
-                        Avalonia.Threading.Dispatcher.UIThread.Post(() => WindowFinder.BringToForeground(hwnd));
-                        return;
-                    }
-                }
-                Log.Warn("Task Manager window not found to focus.");
-            });
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Failed to start Task Manager", ex);
-        }
+        // It opens while our focused panel is closing, so the game underneath
+        // reclaims the foreground and Task Manager lands behind it. Wait for
+        // its window and promote it.
+        FocusTaskManagerWhenVisible(attempt: 1);
     }
 
-    /// <summary>Deliberately stops Steam (graceful steam://exit). Pauses the monitor
-    /// first so neither auto-relaunch nor the exit-overlay reaction fires.</summary>
-    private void CloseSteam(OverlayViewModel vm)
+    /// <summary>Polls for the Task Manager window (12 tries, 300 ms apart) on the
+    /// UI thread and promotes it to the foreground once found.</summary>
+    private static void FocusTaskManagerWhenVisible(int attempt)
     {
-        if (_monitor is not null)
+        RunOnUiThreadAfter(TimeSpan.FromMilliseconds(300), () =>
         {
-            _monitor.Paused = true;
-        }
-        Log.Info("Closing Steam (steam://exit).");
-        AppLauncher.StartProtocol(Steam.ExitUrl);
-        vm.HomeAppAlive = false;
+            var hwnd = WindowFinder.FindWindow("Taskmgr", windowClass: null);
+            if (hwnd != 0)
+            {
+                WindowFinder.BringToForeground(hwnd);
+                return;
+            }
+            if (attempt >= 12)
+            {
+                Log.Warn("Task Manager window not found to focus.");
+                return;
+            }
+            FocusTaskManagerWhenVisible(attempt + 1);
+        });
     }
 
     /// <summary>Window focused when the overlay opened. Exclusive-fullscreen games
@@ -279,6 +257,10 @@ public sealed class OverlayController : IDisposable
 
     public void ShowOverlay()
     {
+        if (_disposed)
+        {
+            return;
+        }
         if (_overlay is null)
         {
             _restoreFocusTo = Interop.NativeMethods.GetForegroundWindow();
@@ -288,8 +270,29 @@ public sealed class OverlayController : IDisposable
         HideTouchEdges();
         if (_overlay is not null)
         {
-            _overlayViewModel?.WarningText = _pendingWarning;
+            if (_closePending)
+            {
+                // Re-summoned inside the 150 ms deferred close: cancel the pending
+                // Close() and keep the window — otherwise the timer would destroy
+                // the just-reactivated panel and release the pin under it.
+                _pendingClose?.Dispose();
+                _pendingClose = null;
+                _closePending = false;
+                Log.Info("Overlay re-shown during deferred close — pending close cancelled.");
+            }
+            if (_overlayViewModel is not null)
+            {
+                _overlayViewModel.WarningText = _pendingWarning;
+                // Recompute what the fresh-open path computes — Steam may have died
+                // or the desktop may have changed while the panel stayed open.
+                _overlayViewModel.ExplorerRunning = ExplorerControl.IsRunningInSession();
+                _overlayViewModel.HomeAppAlive = _monitor?.IsAlive ?? false;
+            }
             _overlay.Activate();
+            if (_touchSwipes is not null)
+            {
+                _touchSwipes.WatchTaps = true;
+            }
             return;
         }
 
@@ -304,7 +307,7 @@ public sealed class OverlayController : IDisposable
 
         _overlayViewModel = vm;
         _overlay = new OverlayWindow(vm);
-        _overlay.HomeAppRequested += () => { _suppressFocusRestore = true; CloseOverlay(); StartOrFocusSteam(); };
+        _overlay.HomeAppRequested += () => { _suppressFocusRestore = true; CloseOverlay(); _modes.StartOrFocusSteam(); };
         _overlay.DesktopRequested += () =>
         {
             var explorerRunning = ExplorerControl.IsRunningInSession();
@@ -312,20 +315,20 @@ public sealed class OverlayController : IDisposable
             CloseOverlay();
             if (explorerRunning)
             {
-                EnterGameMode();
+                _modes.EnterGameMode();
             }
             else
             {
-                EnterDesktopMode();
+                _modes.EnterDesktopMode();
             }
         };
         _overlay.ExitBigPictureRequested += () =>
         {
             _suppressFocusRestore = true;
             CloseOverlay();
-            ExitBigPicture();
+            _modes.ExitBigPicture();
         };
-        _overlay.CloseLauncherRequested += () => CloseSteam(vm);
+        _overlay.CloseLauncherRequested += () => { _modes.CloseSteam(); vm.HomeAppAlive = false; };
         _overlay.SwitchAppsRequested += () => ToggleWindowList(vm);
         _overlay.WindowPicked += PickWindow;
         _overlay.TaskManagerRequested += () => { _suppressFocusRestore = true; CloseOverlay(); StartTaskManager(); };
@@ -344,6 +347,7 @@ public sealed class OverlayController : IDisposable
         _overlay.Closed += (_, _) =>
         {
             _closePending = false;
+            _pendingClose = null;
             // Give Steam its pad back the moment the panel is gone.
             ReleaseSteamInputPin();
             var reopenForWarning = _reopenOverlayForWarning;
@@ -365,6 +369,12 @@ public sealed class OverlayController : IDisposable
                 WindowFinder.BringToForeground(_restoreFocusTo);
             }
             _restoreFocusTo = 0;
+            if (_touchSwipes is not null)
+            {
+                // TappedAt consumers are gone with the panel; stop the per-tap
+                // dispatches until the next ShowOverlay.
+                _touchSwipes.WatchTaps = false;
+            }
             ShowTouchEdges();
             if (reopenForWarning)
             {
@@ -411,6 +421,14 @@ public sealed class OverlayController : IDisposable
     }
 
     private bool _closePending;
+    private IDisposable? _pendingClose;
+
+    /// <summary>The single idiom for delayed UI-thread work in this controller
+    /// (deferred close, auto-relaunch, Task Manager focus polling). Runs the action
+    /// on the UI thread after the delay; dispose the returned handle to cancel.
+    /// UI-thread callers only — overlay events and SteamMonitor's tick already are.</summary>
+    private static IDisposable RunOnUiThreadAfter(TimeSpan delay, Action action)
+        => Avalonia.Threading.DispatcherTimer.RunOnce(action, delay);
 
     private void CloseOverlay()
     {
@@ -424,53 +442,17 @@ public sealed class OverlayController : IDisposable
         // mouse click AFTER this dispatch. If the window were already destroyed,
         // that click would land on whatever sits underneath (user-reproduced).
         // Kept open a beat, the window's own hook eats the synthesized click.
+        // ShowOverlay cancels this via _pendingClose when re-summoned in time.
         _closePending = true;
-        Avalonia.Threading.DispatcherTimer.RunOnce(() =>
+        _pendingClose = RunOnUiThreadAfter(TimeSpan.FromMilliseconds(150), () =>
         {
             _closePending = false;
+            _pendingClose = null;
             _overlay?.Close();
-        }, TimeSpan.FromMilliseconds(150));
+        });
     }
 
-    /// <summary>Start and focus are the same operation: steam://open/bigpicture
-    /// re-activates a running Big Picture (UIPI-proof) and boots Steam when it
-    /// isn't running. Re-arms the monitor (desktop mode and close-Steam pause it).</summary>
-    private void StartOrFocusSteam()
-    {
-        if (_monitor is not null)
-        {
-            _monitor.Paused = false;
-        }
-        if (_monitor?.IsAlive == true)
-        {
-            FocusSteam();
-            return;
-        }
-
-        if (!TryBeginHomeLaunch())
-        {
-            return;
-        }
-
-        try
-        {
-            if (!Steam.IsInstalled)
-            {
-                WarnOrReopen("Steam was not found on this PC. Install Steam — WSGM is Steam-exclusive.");
-                return;
-            }
-            var result = Steam.LaunchBigPicture();
-            if (!result.Started)
-            {
-                WarnOrReopen("Couldn't start Steam Big Picture.");
-            }
-        }
-        finally
-        {
-            EndHomeLaunch();
-        }
-    }
-
+    /// <summary>UI sink for the coordinator's Steam start failures.</summary>
     private void WarnOrReopen(string warning)
     {
         SetWarning(warning);
@@ -486,43 +468,14 @@ public sealed class OverlayController : IDisposable
         }
     }
 
-    private bool TryBeginHomeLaunch()
-    {
-        lock (_homeLaunchGate)
-        {
-            if (_homeLaunchInProgress || DateTime.UtcNow - _lastHomeLaunchUtc < HomeLaunchCooldown)
-            {
-                Log.Warn("Skipping duplicate home-app start request.");
-                return false;
-            }
-            _homeLaunchInProgress = true;
-            return true;
-        }
-    }
-
-    private void EndHomeLaunch()
-    {
-        lock (_homeLaunchGate)
-        {
-            _homeLaunchInProgress = false;
-            _lastHomeLaunchUtc = DateTime.UtcNow;
-        }
-    }
-
-    private void FocusSteam()
-    {
-        if (_monitor?.IsAlive == true)
-        {
-            // Protocol re-activation self-focuses even against an elevated target.
-            AppLauncher.StartProtocol(Steam.OpenBigPictureUrl);
-        }
-    }
-
     public void Dispose()
     {
-        // Pin release happens in Program's exit/recovery paths, not here: a second
-        // controller instance (Settings' overlay test) disposing must not unpin
-        // the shell's live session.
+        if (_disposed)
+        {
+            return;
+        }
+        _disposed = true;
+        _modes.SteamStartFailed -= WarnOrReopen;
         if (_monitor is not null)
         {
             _monitor.SteamExited -= OnSteamExited;
@@ -531,7 +484,26 @@ public sealed class OverlayController : IDisposable
         _chordWatcher.Dispose();
         _gamepad.Dispose();
         DisposeTouchEdges();
-        _overlay?.Close();
+        if (_overlay is not null)
+        {
+            // This controller owes a pin release (its overlay is open / pending
+            // close). Fire it NOW, not in the deferred Closed handler 150 ms from
+            // here: a replacement controller (Test panel pressed again) may apply
+            // the pin in between, and a late /0 would unpin its live overlay.
+            // ReleaseSteamInputPin's guard makes the Closed handler's release a
+            // no-op afterwards, so the release fires exactly once. With no overlay
+            // open there is nothing to release — a stray /0 here would unpin the
+            // shell's live session (Settings' test controller disposes on window
+            // close). Program's exit/recovery paths still release unconditionally.
+            ReleaseSteamInputPin();
+        }
+        // Close through the same deferred path as every dismissal: an immediate
+        // Close() would skip the 150 ms grace and bring back the ghost clicks the
+        // deferral exists for. When Dispose runs during process exit the
+        // dispatcher may stop pumping before the 150 ms lands and the Close()
+        // never runs — deliberately fine: the pin was already released
+        // synchronously above, and process exit destroys the window anyway.
+        CloseOverlay();
     }
 
     private void HideTouchEdges()
@@ -549,6 +521,7 @@ public sealed class OverlayController : IDisposable
         if (_touchSwipes is not null)
         {
             _touchSwipes.Triggered -= OnSwipeTriggered;
+            _touchSwipes.TappedAt -= OnTappedAt;
             _touchSwipes.Dispose();
             _touchSwipes = null;
         }

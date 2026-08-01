@@ -17,20 +17,24 @@ public sealed class StartupAppWatcher : IDisposable
 
     private sealed class WatchState
     {
-        public bool WasAlive;
-        public bool EverAlive;
+        public readonly AliveEdgeDetector Edge = new();
         public DateTime LastRelaunchUtc;
         public bool RelaunchPending;
     }
 
     private readonly DispatcherTimer _timer;
     private List<StartupAppConfig> _apps;
+    // Keyed by full path so two configured apps sharing an exe basename don't
+    // collide on one state.
     private readonly Dictionary<string, WatchState> _states = new(StringComparer.OrdinalIgnoreCase);
 
     public StartupAppWatcher(List<StartupAppConfig> apps)
     {
         _apps = apps;
-        _timer = new DispatcherTimer(TimeSpan.FromSeconds(5), DispatcherPriority.Background, (_, _) => Poll());
+        // The convenience ctor taking a callback auto-starts the timer (see
+        // GamepadService) — keep construction and Start() explicit.
+        _timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(5) };
+        _timer.Tick += (_, _) => Poll();
         _timer.Start();
     }
 
@@ -40,7 +44,7 @@ public sealed class StartupAppWatcher : IDisposable
     {
         foreach (var app in _apps)
         {
-            if (!app.Enabled || !app.AutoRelaunch || app.Path.Length == 0 || app.Path.Contains("://"))
+            if (!app.Enabled || !app.AutoRelaunch || app.Path.Length == 0 || AppLauncher.IsProtocol(app.Path))
             {
                 continue;
             }
@@ -49,36 +53,47 @@ public sealed class StartupAppWatcher : IDisposable
             {
                 continue;
             }
-            if (!_states.TryGetValue(name, out var state))
+            if (!_states.TryGetValue(app.Path, out var state))
             {
                 state = new WatchState();
-                _states[name] = state;
+                _states[app.Path] = state;
             }
 
             var alive = WindowFinder.FindProcessIds(name).Count > 0;
-            if (alive)
-            {
-                state.EverAlive = true;
-            }
 
-            if (state.WasAlive && !alive && state.EverAlive && !state.RelaunchPending
-                && DateTime.UtcNow - state.LastRelaunchUtc > RelaunchCooldown)
+            // Update() always records the new state, even while a relaunch is
+            // pending — only the reaction is gated, matching the old
+            // WasAlive bookkeeping.
+            if (state.Edge.Update(alive) && !state.RelaunchPending)
             {
+                // A falling edge inside the cooldown isn't dropped — the relaunch is
+                // scheduled for when the cooldown expires (never sooner than the
+                // normal delay).
+                var remaining = state.LastRelaunchUtc + RelaunchCooldown - DateTime.UtcNow;
+                var delay = remaining > RelaunchDelay ? remaining : RelaunchDelay;
                 state.RelaunchPending = true;
-                state.LastRelaunchUtc = DateTime.UtcNow;
-                Log.Info($"Startup app '{name}' exited — relaunching in {RelaunchDelay.TotalSeconds:0} s.");
+                Log.Info($"Startup app '{name}' exited — relaunching in {delay.TotalSeconds:0} s.");
                 var path = app.Path;
-                var args = app.Args;
-                var elevated = app.Elevated;
-                System.Threading.Tasks.Task.Delay(RelaunchDelay).ContinueWith(_ =>
-                    Dispatcher.UIThread.Post(() =>
-                    {
-                        state.RelaunchPending = false;
-                        AppLauncher.Start(path, args, elevated);
-                    }));
+                System.Threading.Tasks.Task.Delay(delay).ContinueWith(_ =>
+                    Dispatcher.UIThread.Post(() => Relaunch(path, name, state)));
             }
-            state.WasAlive = alive;
         }
+    }
+
+    /// <summary>Fires a scheduled relaunch. The app is re-resolved from the CURRENT
+    /// config here — a reload during the delay window may have removed or disabled
+    /// it, and stale captured path/args must not win over the user's edit.</summary>
+    private void Relaunch(string path, string name, WatchState state)
+    {
+        state.RelaunchPending = false;
+        var app = _apps.Find(a => string.Equals(a.Path, path, StringComparison.OrdinalIgnoreCase));
+        if (app is null || !app.Enabled || !app.AutoRelaunch)
+        {
+            Log.Info($"Startup app '{name}' relaunch skipped — removed or disabled meanwhile.");
+            return;
+        }
+        state.LastRelaunchUtc = DateTime.UtcNow;
+        AppLauncher.Start(app.Path, app.Args, app.Elevated);
     }
 
     public void Dispose() => _timer.Stop();

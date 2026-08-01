@@ -22,11 +22,26 @@ public static class SteamInputPin
     /// otherwise boot Steam just to configure it.</summary>
     public static void Apply(int appId)
     {
-        if (appId < 0 || appId == _applied || !SteamRunning())
+        if (appId < 0 || appId == _applied)
         {
             return;
         }
-        AppLauncher.StartProtocol($"steam://forceinputappid/{appId}");
+        if (!SteamRunning())
+        {
+            // A release (0) while Steam is gone still reached the desired state —
+            // Steam restarts unpinned. Forget the stale pin, or appId == _applied
+            // would block every re-pin for the rest of the session.
+            if (appId == 0)
+            {
+                _applied = 0;
+                Log.Info("Steam Input pin state cleared (Steam not running).");
+            }
+            return;
+        }
+        if (!AppLauncher.StartProtocol($"steam://forceinputappid/{appId}").Started)
+        {
+            return; // leave _applied untouched so the next Apply retries
+        }
         Log.Info(appId > 0 ? $"Steam Input pinned to appid {appId}." : "Steam Input pin released.");
         _applied = appId;
     }
@@ -50,5 +65,5 @@ public static class SteamInputPin
         }
     }
 
-    private static bool SteamRunning() => WindowFinder.FindProcessIds("steam").Count > 0;
+    private static bool SteamRunning() => WindowFinder.FindProcessIds(Steam.MainProcessName).Count > 0;
 }

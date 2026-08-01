@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using WSGM.Core;
@@ -29,8 +28,11 @@ public partial class WelcomeWindow : Window
         Opened += (_, _) =>
         {
             InstallButton.Focus();
+            // Read once: the delegate runs on every gamepad button press (and each
+            // auto-repeat tick) — no per-press file read/JSON parse.
+            var nintendoLayout = ConfigStore.Load().GlyphStyle == GlyphStyle.Nintendo;
             _navigation = new GamepadNavigation(_gamepad, this, back: OpenPortableSettings,
-                isNintendoLayout: () => ConfigStore.Load().GlyphStyle == GlyphStyle.Nintendo);
+                isNintendoLayout: () => nintendoLayout);
             _gamepad.Start();
         };
         Closed += (_, _) =>
@@ -47,7 +49,13 @@ public partial class WelcomeWindow : Window
             var installedExe = Installer.InstallApp();
             // Hand over to the installed copy so everything (shortcut, shell
             // registration, settings) runs from the stable path from here on.
-            Process.Start(new ProcessStartInfo(installedExe, "--settings") { UseShellExecute = true });
+            if (!AppLauncher.Open(installedExe, "--settings").Started)
+            {
+                // Failure already logged by AppLauncher. Stay open like the old
+                // catch path did — don't shut down with nothing handed over.
+                BodyText.Text = "Installed, but starting the installed copy failed — see the log.";
+                return;
+            }
             Close();
             (Avalonia.Application.Current?.ApplicationLifetime
                 as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)?.Shutdown();

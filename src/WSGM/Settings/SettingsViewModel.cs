@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
+using System.Text.Json;
 using WSGM.Core;
 using WSGM.Input;
 
@@ -37,6 +38,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         _config = ConfigStore.Load();
 
         SteamAutoRelaunch = _config.SteamAutoRelaunch;
+        StartupDelayMs = _config.StartupDelayMs;
         StaggerDelayMs = _config.StaggerDelayMs;
         _hotkey = _config.Hotkey;
         _chord = _config.GamepadChord;
@@ -157,11 +159,15 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     public void Install()
     {
-        ApplyTo(_config);
+        // Self-contained: persist the settings first so the config on disk always
+        // matches what the shell registration snapshots below. Hand the merged
+        // config (not the startup-time _config) to Install so its Save doesn't
+        // re-clobber snapshot fields persisted by other processes meanwhile.
+        var config = SaveMerged();
         // Always anchor the shell registration to the stable installed copy,
         // never to a Downloads/dev path.
         Installer.InstallApp();
-        ShellRegistration.Install(_config);
+        ShellRegistration.Install(config);
         RaiseShellStatus();
     }
 
@@ -189,6 +195,9 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     // --- Startup apps ---
     public ObservableCollection<StartupAppRow> StartupApps { get; } = [];
+
+    private int _startupDelayMs;
+    public int StartupDelayMs { get => _startupDelayMs; set { _startupDelayMs = value; Raise(nameof(StartupDelayMs)); } }
 
     private int _staggerDelayMs;
     public int StaggerDelayMs { get => _staggerDelayMs; set { _staggerDelayMs = value; Raise(nameof(StaggerDelayMs)); } }
@@ -278,6 +287,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private void ApplyTo(AppConfig config)
     {
         config.SteamAutoRelaunch = SteamAutoRelaunch;
+        config.StartupDelayMs = StartupDelayMs;
         config.StaggerDelayMs = StaggerDelayMs;
         config.Hotkey = _hotkey;
         config.GamepadChord = _chord;
@@ -296,15 +306,33 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     public void Save()
     {
-        ApplyTo(_config);
-        ConfigStore.Save(_config);
+        SaveMerged();
+    }
+
+    /// <summary>Applies the UI-owned fields over a FRESH load and saves that.
+    /// While this window is open, the elevated one-shots (UAC, lock-on-wake) and
+    /// the shell persist registry snapshots and display-scale/slate state to the
+    /// same file; serializing the startup-time _config would reset every one of
+    /// those fields to defaults on disk, breaking exact restore on uninstall.
+    /// The config mutex only serializes individual reads/writes — it cannot
+    /// merge — so the merge has to happen here.</summary>
+    private AppConfig SaveMerged()
+    {
+        var config = ConfigStore.Load();
+        ApplyTo(config);
+        ConfigStore.Save(config);
         Log.Info("Settings saved.");
+        return config;
     }
 
     public AppConfig SnapshotForTest()
     {
         ApplyTo(_config);
-        return _config;
+        // A real copy (source-gen JSON round-trip, AOT-safe): the test
+        // OverlayController must not see later Save()/Install() mutations of the
+        // live _config outside its ApplyConfig wholesale-replace contract.
+        var json = JsonSerializer.Serialize(_config, ConfigJsonContext.Default.AppConfig);
+        return JsonSerializer.Deserialize(json, ConfigJsonContext.Default.AppConfig) ?? new AppConfig();
     }
 
     private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));

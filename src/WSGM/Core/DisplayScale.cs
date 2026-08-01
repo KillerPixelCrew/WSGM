@@ -14,7 +14,9 @@ public static partial class DisplayScale
 {
     private const int GetDpiScaleType = -3;
     private const int SetDpiScaleType = -4;
+    private const int GetSourceNameType = 1;   // DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME
     private const uint QdcOnlyActivePaths = 0x00000002;
+    private const int ErrorInsufficientBuffer = 122;
 
     // Index 0 = 100%. Recommended = DpiVals[abs(MinScaleRel)].
     private static readonly uint[] DpiVals = [100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500];
@@ -70,6 +72,13 @@ public static partial class DisplayScale
     [StructLayout(LayoutKind.Sequential, Size = 64)]
     private struct ModeInfo { public uint InfoType; public uint Id; public Luid AdapterId; }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private unsafe struct SourceDeviceName   // DISPLAYCONFIG_SOURCE_DEVICE_NAME, 0x54 bytes
+    {
+        public DeviceInfoHeader Header;
+        public fixed ushort ViewGdiDeviceName[32];   // UTF-16 GDI name, e.g. \\.\DISPLAY1
+    }
+
     [LibraryImport("user32.dll")]
     private static partial int GetDisplayConfigBufferSizes(uint flags, out uint numPaths, out uint numModes);
 
@@ -81,11 +90,16 @@ public static partial class DisplayScale
     private static partial int DisplayConfigGetDeviceInfo(ref DpiScaleGet packet);
 
     [LibraryImport("user32.dll")]
+    private static partial int DisplayConfigGetDeviceInfo(ref SourceDeviceName packet);
+
+    [LibraryImport("user32.dll")]
     private static partial int DisplayConfigSetDeviceInfo(ref DpiScaleSet packet);
 
-    /// <summary>Game mode: capture the current per-display scaling into the config
-    /// (unless a crashed session already left captured values there) and drop
-    /// every display to 100%. Saves the config when values were captured.</summary>
+    /// <summary>Game mode: capture ALL current per-display scalings into the config
+    /// (unless a crashed session already left captured values there), persist them,
+    /// and only then drop every display to 100% — capture-then-set ordering so a
+    /// crash between the two can never lose the originals. When the save fails,
+    /// scaling is left untouched.</summary>
     public static void ApplyGameMode(AppConfig config)
     {
         var sources = GetActiveSources();
@@ -95,49 +109,128 @@ public static partial class DisplayScale
             return;
         }
 
-        var freshCapture = config.SavedDisplayScales.Count == 0;
-        var captured = new List<int>();
+        var freshCapture = config.SavedDisplayScaleEntries.Count == 0 && config.SavedDisplayScales.Count == 0;
+        var captured = new List<DisplayScaleEntry>();
+        var toLower = new List<((Luid Adapter, uint SourceId) Source, uint Current)>();
         foreach (var source in sources)
         {
-            if (!TryGetScale(source, out var current, out _, out _))
+            if (!TryGetScale(source, out var current, out _, out _) || current == 100)
             {
-                captured.Add(0);
                 continue;
             }
-            captured.Add((int)current);
-            if (current != 100)
+            var name = GetSourceDeviceName(source);
+            if (name.Length == 0)
             {
-                TrySetScale(source, 100);
-                Log.Info($"Display scale -> 100% (was {current}%).");
+                // A ""-named entry can never be matched by name on restore, so it
+                // would sit in the config forever, re-logged on every restore.
+                // Leave this display's scaling untouched rather than lower a value
+                // we could not identify for restore.
+                Log.Warn($"Display scale: device name query failed for a display at {current}% — leaving it unchanged.");
+                continue;
+            }
+            captured.Add(new DisplayScaleEntry { DeviceName = name, Percent = (int)current });
+            toLower.Add((source, current));
+        }
+
+        if (freshCapture && captured.Count > 0)
+        {
+            config.SavedDisplayScaleEntries = captured;
+            try
+            {
+                ConfigStore.Save(config);
+            }
+            catch (Exception ex)
+            {
+                config.SavedDisplayScaleEntries = [];
+                Log.Warn($"Display scale: could not persist saved values — leaving scaling unchanged: {ex.Message}");
+                return;
             }
         }
 
-        if (freshCapture && captured.Exists(v => v != 0 && v != 100))
+        foreach (var (source, current) in toLower)
         {
-            config.SavedDisplayScales = captured;
-            try { ConfigStore.Save(config); } catch (Exception ex) { Log.Warn($"Display scale: could not persist saved values: {ex.Message}"); }
+            if (TrySetScale(source, 100))
+            {
+                Log.Info($"Display scale -> 100% (was {current}%).");
+            }
         }
     }
 
     /// <summary>Restores the captured scaling (desktop mode, clean exit, panic,
-    /// recovery). Clears and persists the config when something was restored.</summary>
+    /// recovery). Only entries that actually restored are cleared — failed sets and
+    /// currently-missing displays stay persisted so a later recovery can retry.</summary>
     public static void RestoreSaved(AppConfig config)
     {
-        if (config.SavedDisplayScales.Count == 0)
+        if (config.SavedDisplayScaleEntries.Count == 0 && config.SavedDisplayScales.Count == 0)
         {
             return;
         }
         var sources = GetActiveSources();
-        for (var i = 0; i < sources.Count && i < config.SavedDisplayScales.Count; i++)
+        if (sources.Count == 0)
         {
-            var target = config.SavedDisplayScales[i];
-            if (target is >= 100 and <= 500)
+            Log.Warn("Display scale: no active display sources — keeping saved values for a later restore.");
+            return;
+        }
+        var named = new List<((Luid Adapter, uint SourceId) Source, string Name)>();
+        foreach (var source in sources)
+        {
+            named.Add((source, GetSourceDeviceName(source)));
+        }
+
+        // Migrate the legacy index-paired list (configs written before device
+        // identity existed): pair by enumeration order, as the old restore did.
+        if (config.SavedDisplayScales.Count > 0)
+        {
+            for (var i = 0; i < named.Count && i < config.SavedDisplayScales.Count; i++)
             {
-                TrySetScale(sources[i], (uint)target);
-                Log.Info($"Display scale restored to {target}%.");
+                config.SavedDisplayScaleEntries.Add(new DisplayScaleEntry { DeviceName = named[i].Name, Percent = config.SavedDisplayScales[i] });
+            }
+            config.SavedDisplayScales = [];
+        }
+
+        var remaining = new List<DisplayScaleEntry>();
+        var positional = 0;   // next active source for legacy ""-named entries
+        foreach (var entry in config.SavedDisplayScaleEntries)
+        {
+            if (entry.Percent is not (>= 100 and <= 500))
+            {
+                continue;   // garbage value — dropping it is the only safe move
+            }
+            if (string.IsNullOrEmpty(entry.DeviceName))
+            {
+                // Written by an older build whose name query failed: "" can never
+                // match by name, so pair it positionally like the legacy
+                // index-paired list — and never re-save it, or it would block in
+                // the config forever, warned about on every restore.
+                if (positional < named.Count &&
+                    TrySetScale(named[positional].Source, (uint)entry.Percent))
+                {
+                    Log.Info($"Display scale restored to {entry.Percent}% (unnamed legacy entry, positional -> '{named[positional].Name}').");
+                }
+                else
+                {
+                    Log.Warn($"Display scale: dropping unmatchable unnamed entry ({entry.Percent}%).");
+                }
+                positional++;
+                continue;
+            }
+            var idx = named.FindIndex(s => string.Equals(s.Name, entry.DeviceName, StringComparison.OrdinalIgnoreCase));
+            if (idx < 0)
+            {
+                Log.Warn($"Display scale: display '{entry.DeviceName}' not active — keeping {entry.Percent}% for a later restore.");
+                remaining.Add(entry);
+                continue;
+            }
+            if (TrySetScale(named[idx].Source, (uint)entry.Percent))
+            {
+                Log.Info($"Display scale restored to {entry.Percent}% ({entry.DeviceName}).");
+            }
+            else
+            {
+                remaining.Add(entry);   // transient set failure — retry on the next restore path
             }
         }
-        config.SavedDisplayScales = [];
+        config.SavedDisplayScaleEntries = remaining;
         try { ConfigStore.Save(config); } catch (Exception ex) { Log.Warn($"Display scale: could not persist restore: {ex.Message}"); }
     }
 
@@ -206,19 +299,52 @@ public static partial class DisplayScale
         return ok;
     }
 
+    private static unsafe string GetSourceDeviceName((Luid Adapter, uint SourceId) source)
+    {
+        var packet = new SourceDeviceName
+        {
+            Header =
+            {
+                Type = GetSourceNameType,
+                Size = (uint)sizeof(SourceDeviceName),
+                AdapterId = source.Adapter,
+                Id = source.SourceId,
+            },
+        };
+        if (DisplayConfigGetDeviceInfo(ref packet) != 0)
+        {
+            return "";
+        }
+        var name = new ReadOnlySpan<char>((char*)packet.ViewGdiDeviceName, 32);
+        var len = name.IndexOf('\0');
+        return new string(len >= 0 ? name[..len] : name);
+    }
+
     private static List<(Luid Adapter, uint SourceId)> GetActiveSources()
     {
         var result = new List<(Luid, uint)>();
         try
         {
-            if (GetDisplayConfigBufferSizes(QdcOnlyActivePaths, out var numPaths, out var numModes) != 0)
+            // The path set can grow between the sizing call and the query (dock/
+            // undock is exactly when this code tends to run), so retry on
+            // ERROR_INSUFFICIENT_BUFFER — the documented pattern for this API.
+            int status;
+            uint numPaths;
+            PathInfo[] paths;
+            var attempts = 0;
+            do
             {
-                return result;
-            }
-            var paths = new PathInfo[numPaths];
-            var modes = new ModeInfo[numModes];
-            if (QueryDisplayConfig(QdcOnlyActivePaths, ref numPaths, paths, ref numModes, modes, 0) != 0)
+                if (GetDisplayConfigBufferSizes(QdcOnlyActivePaths, out numPaths, out var numModes) != 0)
+                {
+                    return result;
+                }
+                paths = new PathInfo[numPaths];
+                var modes = new ModeInfo[numModes];
+                status = QueryDisplayConfig(QdcOnlyActivePaths, ref numPaths, paths, ref numModes, modes, 0);
+            } while (status == ErrorInsufficientBuffer && ++attempts < 5);
+            if (status != 0)
             {
+                Log.Warn($"Display scale: QueryDisplayConfig failed with {status}.");
                 return result;
             }
             for (var i = 0; i < numPaths; i++)

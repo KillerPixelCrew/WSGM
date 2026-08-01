@@ -1,9 +1,15 @@
+using System;
 using WSGM.Interop;
 
 namespace WSGM.Core;
 
 public static class ElevationCheck
 {
+    /// <summary>Returns whether the current process runs elevated; null if
+    /// undeterminable. Callers decide how to treat null: safety-critical paths
+    /// (self-elevation) assume elevated, repair paths assume not.</summary>
+    public static bool? IsCurrentProcessElevated() => IsProcessElevated((uint)Environment.ProcessId);
+
     /// <summary>Returns whether the given pid runs elevated; null if undeterminable.</summary>
     public static bool? IsProcessElevated(uint pid)
     {

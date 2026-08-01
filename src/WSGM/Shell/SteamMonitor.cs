@@ -10,8 +10,7 @@ namespace WSGM.Shell;
 public sealed class SteamMonitor : IDisposable
 {
     private readonly DispatcherTimer _timer;
-    private bool _wasAlive;
-    private bool _everAlive;
+    private readonly AliveEdgeDetector _edge = new();
 
     public event Action? SteamExited;
 
@@ -24,19 +23,20 @@ public sealed class SteamMonitor : IDisposable
 
     public SteamMonitor()
     {
-        _timer = new DispatcherTimer(TimeSpan.FromSeconds(5), DispatcherPriority.Background, (_, _) => Poll());
+        // The convenience ctor taking a callback auto-starts the timer (see
+        // GamepadService) — keep construction and Start() explicit.
+        _timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(5) };
+        _timer.Tick += (_, _) => Poll();
         _timer.Start();
     }
 
     private void Poll()
     {
         IsAlive = Steam.IsRunning;
-        if (IsAlive)
-        {
-            _everAlive = true;
-        }
 
-        if (_wasAlive && !IsAlive && _everAlive)
+        // The detector only fires after a poll saw Steam alive, so the
+        // seen-alive-once requirement is implied.
+        if (_edge.Update(IsAlive))
         {
             if (Paused)
             {
@@ -48,7 +48,6 @@ public sealed class SteamMonitor : IDisposable
                 SteamExited?.Invoke();
             }
         }
-        _wasAlive = IsAlive;
     }
 
     public void Dispose() => _timer.Stop();

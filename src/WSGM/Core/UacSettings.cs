@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using Microsoft.Win32;
 
 namespace WSGM.Core;
@@ -106,28 +105,6 @@ public static class UacSettings
     /// <summary>Requests the change from the non-elevated UI: relaunches WSGM
     /// elevated for the registry write and waits for it. Returns false if elevation
     /// was declined or the write failed.</summary>
-    public static bool RequestChange(bool disablePrompts)
-    {
-        var exe = Environment.ProcessPath;
-        if (exe is null)
-        {
-            return false;
-        }
-        try
-        {
-            var psi = new ProcessStartInfo(exe, disablePrompts ? "--set-uac-silent" : "--restore-uac")
-            {
-                UseShellExecute = true,
-                Verb = "runas",
-            };
-            using var p = Process.Start(psi);
-            p?.WaitForExit(60000);
-            return p?.ExitCode == 0;
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"UAC change not applied: {ex.Message}");
-            return false;
-        }
-    }
+    public static bool RequestChange(bool disablePrompts) =>
+        SelfElevation.RunElevatedAction(disablePrompts ? "--set-uac-silent" : "--restore-uac", "UAC change");
 }

@@ -11,6 +11,7 @@ public partial class OverlayWindow : Window
 {
     private bool _confirmRestart;
     private bool _confirmShutdown;
+    private DispatcherTimer? _confirmResetTimer;
     private DispatcherTimer? _slideTimer;
     private PixelPoint _slideStart;
     private PixelPoint _slideEnd;
@@ -38,7 +39,7 @@ public partial class OverlayWindow : Window
         DataContext = viewModel;
         KeyDown += OnKeyDown;
         Opened += OnOpened;
-        Closed += (_, _) => StopSlide();
+        Closed += (_, _) => { StopSlide(); ResetConfirms(); };
 
         // The overlay takes focus Game-Bar-style: the game stops receiving input
         // while the panel is open. Viable because SteamInputPin keeps the pad
@@ -146,15 +147,6 @@ public partial class OverlayWindow : Window
         }
     }
 
-    private void OnBackgroundPressed(object? sender, PointerPressedEventArgs e)
-    {
-        // Only dismiss when the press hit the backdrop itself, not a button.
-        if (ReferenceEquals(e.Source, sender))
-        {
-            Dismissed?.Invoke();
-        }
-    }
-
     private void OnHomeApp(object? sender, RoutedEventArgs e) => HomeAppRequested?.Invoke();
     private void OnDesktop(object? sender, RoutedEventArgs e) => DesktopRequested?.Invoke();
     private void OnSettings(object? sender, RoutedEventArgs e) => SettingsRequested?.Invoke();
@@ -176,10 +168,17 @@ public partial class OverlayWindow : Window
         if (!_confirmCloseLauncher)
         {
             _confirmCloseLauncher = true;
-            CloseLauncherTitle.Text = "Really?";
+            // Via the view model: the title is bound to CloseLauncherText, and a
+            // direct Text write here would silently be overwritten by any
+            // HomeAppName-triggered re-evaluation of that binding.
+            if (DataContext is OverlayViewModel vm)
+            {
+                vm.ConfirmingCloseLauncher = true;
+            }
+            ArmConfirmReset();
             return;
         }
-        _confirmCloseLauncher = false;
+        ResetConfirms();
         CloseLauncherRequested?.Invoke();
     }
 
@@ -194,7 +193,8 @@ public partial class OverlayWindow : Window
         if (!_confirmRestart)
         {
             _confirmRestart = true;
-            RestartButton.Content = "Really?";
+            RestartTitle.Text = "Really?";
+            ArmConfirmReset();
             return;
         }
         Core.PowerActions.Restart();
@@ -205,9 +205,40 @@ public partial class OverlayWindow : Window
         if (!_confirmShutdown)
         {
             _confirmShutdown = true;
-            ShutdownButton.Content = "Really?";
+            ShutdownTitle.Text = "Really?";
+            ArmConfirmReset();
             return;
         }
         Core.PowerActions.Shutdown();
+    }
+
+    /// <summary>Armed "Really?" confirms revert on their own — after ~5 s and when
+    /// the panel closes — so a stray second press minutes later cannot restart or
+    /// shut down the device.</summary>
+    private void ArmConfirmReset()
+    {
+        if (_confirmResetTimer is null)
+        {
+            // Parameterless ctor + explicit Start: the 3-arg ctor auto-starts
+            // (see CLAUDE.md invariant 4).
+            _confirmResetTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+            _confirmResetTimer.Tick += (_, _) => ResetConfirms();
+        }
+        _confirmResetTimer.Stop();
+        _confirmResetTimer.Start();
+    }
+
+    private void ResetConfirms()
+    {
+        _confirmResetTimer?.Stop();
+        _confirmRestart = false;
+        _confirmShutdown = false;
+        _confirmCloseLauncher = false;
+        if (DataContext is OverlayViewModel vm)
+        {
+            vm.ConfirmingCloseLauncher = false;
+        }
+        RestartTitle.Text = "Restart";
+        ShutdownTitle.Text = "Shut down";
     }
 }

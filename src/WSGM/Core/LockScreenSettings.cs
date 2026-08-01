@@ -1,5 +1,5 @@
 using System;
-using System.Diagnostics;
+using System.Collections.Generic;
 using Microsoft.Win32;
 
 namespace WSGM.Core;
@@ -79,8 +79,18 @@ public static class LockScreenSettings
             {
                 if (!config.PreviousLockOnWakeSnapshotCaptured)
                 {
+                    // Faithful snapshot BEFORE any write: per-scheme AC/DC values,
+                    // the pre-existing policy values, and whether the policy key
+                    // existed at all (if not, restore removes the whole key).
                     config.PreviousLockOnWakeSnapshotCaptured = true;
                     config.PreviousLockOnWakeRequired = !SignInOnWakeDisabled();
+                    config.PreviousConsoleLockSchemeValues = CaptureSchemeValues();
+                    using (var policy = Registry.LocalMachine.OpenSubKey(PolicyKey))
+                    {
+                        config.PreviousConsoleLockPolicyKeyExisted = policy is not null;
+                        config.PreviousConsoleLockPolicyAc = policy?.GetValue("ACSettingIndex") as int? ?? -1;
+                        config.PreviousConsoleLockPolicyDc = policy?.GetValue("DCSettingIndex") as int? ?? -1;
+                    }
                     config.PreviousNoLockScreen = ReadNoLockScreen();
                     ConfigStore.Save(config);
                 }
@@ -96,21 +106,30 @@ public static class LockScreenSettings
             }
             else
             {
-                using (var policy = Registry.LocalMachine.OpenSubKey(PolicyKey, writable: true))
+                RestorePolicyValues(config);
+
+                if (config.PreviousLockOnWakeSnapshotCaptured && config.PreviousConsoleLockSchemeValues.Count > 0)
                 {
-                    policy?.DeleteValue("ACSettingIndex", throwOnMissingValue: false);
-                    policy?.DeleteValue("DCSettingIndex", throwOnMissingValue: false);
+                    RestoreSchemeValues(config.PreviousConsoleLockSchemeValues);
                 }
-                // Restore Windows' default (require sign-in) unless it was already off
-                // before WSGM touched it.
-                var restoreToRequired = !config.PreviousLockOnWakeSnapshotCaptured || config.PreviousLockOnWakeRequired;
-                SetSchemeValue(restoreToRequired ? 1 : 0);
+                else
+                {
+                    // Legacy single-bool snapshot (older config) or no snapshot at
+                    // all: restore Windows' default (require sign-in) unless it was
+                    // already off before WSGM touched it.
+                    var restoreToRequired = !config.PreviousLockOnWakeSnapshotCaptured || config.PreviousLockOnWakeRequired;
+                    SetSchemeValue(restoreToRequired ? 1 : 0);
+                    Log.Info($"Sign-in on wake restored (CONSOLELOCK={(restoreToRequired ? 1 : 0)}).");
+                }
                 RestoreNoLockScreen(config.PreviousNoLockScreen);
 
                 config.PreviousLockOnWakeSnapshotCaptured = false;
+                config.PreviousConsoleLockSchemeValues = [];
+                config.PreviousConsoleLockPolicyKeyExisted = false;
+                config.PreviousConsoleLockPolicyAc = -1;
+                config.PreviousConsoleLockPolicyDc = -1;
                 config.PreviousNoLockScreen = -1;
                 ConfigStore.Save(config);
-                Log.Info($"Sign-in on wake restored (CONSOLELOCK={(restoreToRequired ? 1 : 0)}).");
             }
             return true;
         }
@@ -174,6 +193,130 @@ public static class LockScreenSettings
         }
     }
 
+    /// <summary>Snapshot of every scheme's CONSOLELOCK AC/DC values (-1 = absent),
+    /// taken before WSGM writes anything so the restore can be exact.</summary>
+    private static List<PowerSchemeConsoleLock> CaptureSchemeValues()
+    {
+        var result = new List<PowerSchemeConsoleLock>();
+        try
+        {
+            using var schemes = Registry.LocalMachine.OpenSubKey(SchemesKey);
+            if (schemes is null)
+            {
+                return result;
+            }
+            foreach (var scheme in EnumerateSchemeGuids())
+            {
+                using var setting = schemes.OpenSubKey($@"{scheme}\{SubNoneGuid}\{ConsoleLockGuid}");
+                result.Add(new PowerSchemeConsoleLock
+                {
+                    SchemeGuid = scheme,
+                    AcValue = setting?.GetValue("ACSettingIndex") as int? ?? -1,
+                    DcValue = setting?.GetValue("DCSettingIndex") as int? ?? -1,
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not capture per-scheme CONSOLELOCK values: {ex.Message}");
+        }
+        return result;
+    }
+
+    /// <summary>Writes back exactly what CaptureSchemeValues recorded: powercfg for
+    /// values that existed, registry delete for values that were absent.</summary>
+    private static void RestoreSchemeValues(List<PowerSchemeConsoleLock> saved)
+    {
+        var applied = 0;
+        foreach (var entry in saved)
+        {
+            if (!Guid.TryParse(entry.SchemeGuid, out _))
+            {
+                continue;   // never feed a hand-edited config value to powercfg's command line
+            }
+            var ok = entry.AcValue >= 0
+                ? RunPowerCfg($"/setacvalueindex {entry.SchemeGuid} SUB_NONE CONSOLELOCK {entry.AcValue}")
+                : DeleteSchemeValue(entry.SchemeGuid, "ACSettingIndex");
+            ok &= entry.DcValue >= 0
+                ? RunPowerCfg($"/setdcvalueindex {entry.SchemeGuid} SUB_NONE CONSOLELOCK {entry.DcValue}")
+                : DeleteSchemeValue(entry.SchemeGuid, "DCSettingIndex");
+            if (ok)
+            {
+                applied++;
+            }
+        }
+        // Re-apply the active scheme so the change takes effect immediately.
+        RunPowerCfg("/setactive SCHEME_CURRENT");
+        Log.Info($"Sign-in on wake restored per scheme (CONSOLELOCK on {applied}/{saved.Count} power scheme(s)).");
+    }
+
+    /// <summary>powercfg cannot remove a value, so "absent before WSGM" is restored
+    /// by deleting the registry values directly (we run elevated here).</summary>
+    private static bool DeleteSchemeValue(string scheme, string valueName)
+    {
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey($@"{SchemesKey}\{scheme}\{SubNoneGuid}\{ConsoleLockGuid}", writable: true);
+            key?.DeleteValue(valueName, throwOnMissingValue: false);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not delete CONSOLELOCK {valueName} for scheme {scheme}: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>Restores the CONSOLELOCK policy exactly: the whole key is deleted
+    /// only when WSGM created it; a pre-existing key gets its captured values back
+    /// (or the values deleted when they were absent).</summary>
+    private static void RestorePolicyValues(AppConfig config)
+    {
+        // Legacy edge: a snapshot written by an older release has
+        // SnapshotCaptured=true but never recorded PolicyKeyExisted, which
+        // deserializes to false — indistinguishable from "WSGM created the key".
+        // Those configs are recognizable by their empty per-scheme list; for them
+        // the old restore only deleted the two AC/DC values, so key-delete is
+        // reserved for NEW-format snapshots that explicitly recorded the key as
+        // WSGM-created. Legacy snapshots always take the value-delete path below.
+        var newFormatSnapshot = config.PreviousConsoleLockSchemeValues.Count > 0;
+        if (config.PreviousLockOnWakeSnapshotCaptured && newFormatSnapshot &&
+            !config.PreviousConsoleLockPolicyKeyExisted)
+        {
+            try
+            {
+                Registry.LocalMachine.DeleteSubKey(PolicyKey, throwOnMissingSubKey: false);
+                return;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Could not delete WSGM-created CONSOLELOCK policy key: {ex.Message}");
+                // Fall through and at least clear the values WSGM wrote.
+            }
+        }
+        using var policy = Registry.LocalMachine.OpenSubKey(PolicyKey, writable: true);
+        if (policy is null)
+        {
+            return;
+        }
+        if (config.PreviousLockOnWakeSnapshotCaptured && config.PreviousConsoleLockPolicyAc >= 0)
+        {
+            policy.SetValue("ACSettingIndex", config.PreviousConsoleLockPolicyAc, RegistryValueKind.DWord);
+        }
+        else
+        {
+            policy.DeleteValue("ACSettingIndex", throwOnMissingValue: false);
+        }
+        if (config.PreviousLockOnWakeSnapshotCaptured && config.PreviousConsoleLockPolicyDc >= 0)
+        {
+            policy.SetValue("DCSettingIndex", config.PreviousConsoleLockPolicyDc, RegistryValueKind.DWord);
+        }
+        else
+        {
+            policy.DeleteValue("DCSettingIndex", throwOnMissingValue: false);
+        }
+    }
+
     /// <summary>Applies the value to EVERY power scheme, not just the active one:
     /// handheld vendor software (Handheld Companion, Armoury Crate, MSI Center)
     /// switches power plans aggressively, and this setting is stored per scheme.
@@ -181,25 +324,30 @@ public static class LockScreenSettings
     private static void SetSchemeValue(int index)
     {
         var applied = 0;
+        var seen = 0;
         foreach (var scheme in EnumerateSchemeGuids())
         {
-            RunPowerCfg($"/setacvalueindex {scheme} SUB_NONE CONSOLELOCK {index}");
-            RunPowerCfg($"/setdcvalueindex {scheme} SUB_NONE CONSOLELOCK {index}");
-            applied++;
+            seen++;
+            var ok = RunPowerCfg($"/setacvalueindex {scheme} SUB_NONE CONSOLELOCK {index}");
+            ok &= RunPowerCfg($"/setdcvalueindex {scheme} SUB_NONE CONSOLELOCK {index}");
+            if (ok)
+            {
+                applied++;
+            }
         }
-        if (applied == 0)
+        if (seen == 0)
         {
             RunPowerCfg($"/setacvalueindex SCHEME_CURRENT SUB_NONE CONSOLELOCK {index}");
             RunPowerCfg($"/setdcvalueindex SCHEME_CURRENT SUB_NONE CONSOLELOCK {index}");
         }
         // Re-apply the active scheme so the change takes effect immediately.
         RunPowerCfg("/setactive SCHEME_CURRENT");
-        Log.Info($"CONSOLELOCK={index} applied to {applied} power scheme(s).");
+        Log.Info($"CONSOLELOCK={index} applied to {applied} of {seen} power scheme(s).");
     }
 
-    private static System.Collections.Generic.List<string> EnumerateSchemeGuids()
+    private static List<string> EnumerateSchemeGuids()
     {
-        var result = new System.Collections.Generic.List<string>();
+        var result = new List<string>();
         try
         {
             using var schemes = Registry.LocalMachine.OpenSubKey(SchemesKey);
@@ -222,47 +370,13 @@ public static class LockScreenSettings
         return result;
     }
 
-    private static void RunPowerCfg(string arguments)
-    {
-        try
-        {
-            using var p = Process.Start(new ProcessStartInfo("powercfg.exe", arguments)
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            });
-            p?.WaitForExit(15000);
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"powercfg {arguments} failed: {ex.Message}");
-        }
-    }
+    /// <summary>Exit-code-checked: a failed powercfg must never count as applied
+    /// (the "applied to N scheme(s)" log line is the only remote diagnosis signal).</summary>
+    private static bool RunPowerCfg(string arguments) => ConsoleTool.Run("powercfg.exe", arguments);
 
     /// <summary>Requests the change from the non-elevated UI (one elevation prompt).</summary>
-    public static bool RequestChange(bool disableSignInOnWake)
-    {
-        var exe = Environment.ProcessPath;
-        if (exe is null)
-        {
-            return false;
-        }
-        try
-        {
-            var psi = new ProcessStartInfo(exe,
-                disableSignInOnWake ? "--disable-lock-on-wake" : "--restore-lock-on-wake")
-            {
-                UseShellExecute = true,
-                Verb = "runas",
-            };
-            using var p = Process.Start(psi);
-            p?.WaitForExit(60000);
-            return p?.ExitCode == 0;
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Lock-on-wake change not applied: {ex.Message}");
-            return false;
-        }
-    }
+    public static bool RequestChange(bool disableSignInOnWake) =>
+        SelfElevation.RunElevatedAction(
+            disableSignInOnWake ? "--disable-lock-on-wake" : "--restore-lock-on-wake",
+            "Lock-on-wake change");
 }
