@@ -342,7 +342,7 @@ public sealed class OverlayController : IDisposable
         };
 
         _overlayViewModel = vm;
-        _overlay = new OverlayWindow(vm, DisplayScale.GetUiScalePercent(_config) / 100.0);
+        _overlay = new OverlayWindow(vm, UiScale());
         _overlay.HomeAppRequested += () => { _suppressFocusRestore = true; CloseOverlay(); _modes.StartOrFocusSteam(); };
         _overlay.DesktopRequested += () =>
         {
@@ -543,7 +543,7 @@ public sealed class OverlayController : IDisposable
         Log.Info($"Taskbar shown ({vm.Entries.Count} windows).");
 
         OnTrayIconsChanged();
-        _taskbar = new TaskbarWindow(vm, DisplayScale.GetUiScalePercent(_config) / 100.0);
+        _taskbar = new TaskbarWindow(vm, UiScale());
         _taskbar.WindowPicked += PickTaskbarWindow;
         _taskbar.TrayIconActivated += OnTrayIconActivated;
         _taskbar.Dismissed += CloseTaskbar;
@@ -561,6 +561,16 @@ public sealed class OverlayController : IDisposable
             _touchSwipes.WatchTaps = true;
         }
     }
+
+    /// <summary>The desktop-DPI factor for WSGM surfaces. The boost exists ONLY
+    /// to compensate game mode's forced 100% display scaling — in desktop mode
+    /// the display already runs at the user's real scaling and Avalonia applies
+    /// it, so boosting again would double up (device-reported: surfaces rendered
+    /// huge on a 100% desktop when the recommended-scale fallback fired there).</summary>
+    private double UiScale()
+        => ExplorerControl.IsRunningInSession()
+            ? 1.0
+            : DisplayScale.GetUiScalePercent(_config) / 100.0;
 
     /// <summary>Attaches (or detaches, with null) the game-mode tray host whose
     /// icons render in the bar's tray area. ShellSession owns the host's
