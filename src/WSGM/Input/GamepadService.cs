@@ -12,32 +12,56 @@ namespace WSGM.Input;
 [Flags]
 public enum GamepadButtons : uint
 {
+    /// <summary>Up on the directional pad.</summary>
     DPadUp = 0x0001,
+    /// <summary>Down on the directional pad.</summary>
     DPadDown = 0x0002,
+    /// <summary>Left on the directional pad.</summary>
     DPadLeft = 0x0004,
+    /// <summary>Right on the directional pad.</summary>
     DPadRight = 0x0008,
+    /// <summary>The Menu or Start button.</summary>
     Start = 0x0010,
+    /// <summary>The View, Back, or Select button.</summary>
     Back = 0x0020,
+    /// <summary>Press on the left thumbstick.</summary>
     LeftThumb = 0x0040,
+    /// <summary>Press on the right thumbstick.</summary>
     RightThumb = 0x0080,
+    /// <summary>The left shoulder button.</summary>
     LeftShoulder = 0x0100,
+    /// <summary>The right shoulder button.</summary>
     RightShoulder = 0x0200,
+    /// <summary>The primary face button.</summary>
     A = 0x1000,
+    /// <summary>The secondary face button.</summary>
     B = 0x2000,
+    /// <summary>The left face button.</summary>
     X = 0x4000,
+    /// <summary>The top face button.</summary>
     Y = 0x8000,
 
     // Beyond XInput's 16 bits. The triggers are synthesized from SDL's trigger
     // axes on any pad; only the rest need Deck-class hardware.
+    /// <summary>The synthesized left analog trigger button.</summary>
     LeftTrigger = 0x0001_0000,
+    /// <summary>The synthesized right analog trigger button.</summary>
     RightTrigger = 0x0002_0000,
+    /// <summary>The upper-left rear paddle.</summary>
     L4 = 0x0004_0000,
+    /// <summary>The upper-right rear paddle.</summary>
     R4 = 0x0008_0000,
+    /// <summary>The lower-left rear paddle.</summary>
     L5 = 0x0010_0000,
+    /// <summary>The lower-right rear paddle.</summary>
     R5 = 0x0020_0000,
+    /// <summary>The Steam or guide button.</summary>
     Steam = 0x0040_0000,
+    /// <summary>The Quick Access button.</summary>
     QuickAccess = 0x0080_0000,
+    /// <summary>Press on the left touchpad.</summary>
     LeftPadPress = 0x0100_0000,
+    /// <summary>Press on the right touchpad.</summary>
     RightPadPress = 0x0200_0000,
 }
 
@@ -67,6 +91,7 @@ public sealed class GamepadService : IDisposable
     /// detection needs the whole state per physical pad, not just the new edges.</summary>
     public event Action<uint, GamepadButtons>? StateChanged;
 
+    /// <summary>Creates an inactive UI-thread polling service.</summary>
     public GamepadService()
     {
         // The convenience ctor taking a callback auto-starts the timer, which made
@@ -75,6 +100,7 @@ public sealed class GamepadService : IDisposable
         _timer.Tick += (_, _) => Poll();
     }
 
+    /// <summary>Initializes SDL, clears stale controller state, and begins polling.</summary>
     public void Start()
     {
         _perPad.Clear();
@@ -85,6 +111,7 @@ public sealed class GamepadService : IDisposable
         Log.Info("Gamepad polling started.");
     }
 
+    /// <summary>Stops polling without shutting down SDL's process-wide state.</summary>
     public void Stop() => _timer.Stop();
 
     /// <summary>True when a controller with back paddles (a real or emulated Steam
@@ -183,9 +210,13 @@ public sealed class GamepadService : IDisposable
         }
     }
 
+    /// <summary>Gets whether the UI-thread polling timer is active.</summary>
     public bool IsRunning => _timer.IsEnabled;
 
-    /// <summary>Human-readable chord text, e.g. "Hold LB + Start" or "None".</summary>
+    /// <summary>Formats a button combination for display, e.g. "Hold LB + Start".</summary>
+    /// <param name="buttons">The buttons to render.</param>
+    /// <param name="hold">Whether to prefix the result with <c>Hold</c>.</param>
+    /// <returns>A user-facing chord description, or <c>None</c> for no buttons.</returns>
     public static string Describe(GamepadButtons buttons, bool hold)
     {
         if (buttons == 0)
@@ -219,6 +250,6 @@ public sealed class GamepadService : IDisposable
         (GamepadButtons.LeftPadPress, "L-Pad"), (GamepadButtons.RightPadPress, "R-Pad"),
     ];
 
-    // SDL stays initialized process-wide (see SdlGamepads); only the poll stops.
+    /// <summary>Stops this service's timer. SDL stays initialized process-wide.</summary>
     public void Dispose() => _timer.Stop();
 }

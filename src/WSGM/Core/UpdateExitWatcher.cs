@@ -15,6 +15,7 @@ namespace WSGM.Core;
 /// path, so the Steam Input pin release and posture restore fire too.</summary>
 public static class UpdateExitWatcher
 {
+    /// <summary>Gets the per-session event used by an updater to request a graceful exit.</summary>
     public const string EventName = @"Local\WSGM.ExitForUpdate";
 
     // D: Everyone -> EVENT_MODIFY_STATE | SYNCHRONIZE (0x00100002); S: low
@@ -24,6 +25,8 @@ public static class UpdateExitWatcher
 
     private static nint _event;
 
+    /// <summary>Starts watching for the updater's graceful-exit request.</summary>
+    /// <param name="onExitRequested">The callback that runs the normal application shutdown path.</param>
     public static void Start(Action onExitRequested)
     {
         try

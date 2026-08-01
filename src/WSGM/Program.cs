@@ -7,18 +7,29 @@ using WSGM.Core;
 
 namespace WSGM;
 
+/// <summary>The intentionally narrow operating modes accepted by the executable.</summary>
 public enum RunMode
 {
+    /// <summary>Runs the registered Windows shell session.</summary>
     Shell,
+
+    /// <summary>Runs the settings or welcome UI without changing shell state.</summary>
     Settings,
+
+    /// <summary>Runs the manual overlay smoke-test session.</summary>
     OverlayTest,
 }
 
+/// <summary>Defines the safe command-line entry points and application bootstrap.</summary>
 public static class Program
 {
+    /// <summary>Gets the mode selected from the current command line.</summary>
     public static RunMode Mode { get; private set; } = RunMode.Settings;
     private static Mutex? _shellMutex;
 
+    /// <summary>Starts the selected supported application mode.</summary>
+    /// <param name="args">The command-line arguments passed to the executable.</param>
+    /// <returns>The process exit code.</returns>
     [STAThread]
     public static int Main(string[] args)
     {
@@ -194,21 +205,42 @@ public static class Program
     }
 
     private static RunMode DecideMode(string[] args)
+        => DecideMode(
+            args,
+            ShellRegistration.IsInstalledForThisExe(),
+            Interop.NativeMethods.GetShellWindow() != 0 || ExplorerControl.IsRunningInSession());
+
+    /// <summary>Resolves the requested mode from explicit flags or auto-mode state.
+    /// The state is supplied separately so the precedence rules can be verified
+    /// without querying the live shell from a test process.</summary>
+    internal static RunMode DecideMode(string[] args, bool registeredAsShell, bool desktopAlive)
     {
-        if (args.Contains("--shell", StringComparer.OrdinalIgnoreCase)) return RunMode.Shell;
-        if (args.Contains("--settings", StringComparer.OrdinalIgnoreCase)) return RunMode.Settings;
-        if (args.Contains("--overlay-test", StringComparer.OrdinalIgnoreCase)) return RunMode.OverlayTest;
+        if (args.Contains("--shell", StringComparer.OrdinalIgnoreCase))
+        {
+            return RunMode.Shell;
+        }
+
+        if (args.Contains("--settings", StringComparer.OrdinalIgnoreCase))
+        {
+            return RunMode.Settings;
+        }
+
+        if (args.Contains("--overlay-test", StringComparer.OrdinalIgnoreCase))
+        {
+            return RunMode.OverlayTest;
+        }
 
         // Auto: we are the registered shell and no desktop is alive -> shell mode.
-        var registered = ShellRegistration.IsInstalledForThisExe();
-        var desktopAlive = Interop.NativeMethods.GetShellWindow() != 0 || ExplorerControl.IsRunningInSession();
-        return registered && !desktopAlive ? RunMode.Shell : RunMode.Settings;
+        return registeredAsShell && !desktopAlive ? RunMode.Shell : RunMode.Settings;
     }
 
     private static bool AcquireShellMutex()
     {
         _shellMutex = new Mutex(initiallyOwned: true, @"Local\WSGM.Shell", out var createdNew);
-        if (createdNew) return true;
+        if (createdNew)
+        {
+            return true;
+        }
         // The named object survives while ANY handle to it is open (installer
         // probe, diagnostic tool), so createdNew=false only proves it existed —
         // try to actually take ownership before concluding a shell is running.
@@ -259,6 +291,8 @@ public static class Program
         }
     }
 
+    /// <summary>Builds the Avalonia application configuration used by all UI modes.</summary>
+    /// <returns>The configured Avalonia application builder.</returns>
     public static AppBuilder BuildAvaloniaApp()
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()
@@ -286,14 +320,21 @@ internal static class CrashLoopBreaker
     {
         try
         {
-            if (!File.Exists(MarkerPath)) return false;
+            if (!File.Exists(MarkerPath))
+            {
+                return false;
+            }
+
             var cutoff = DateTime.UtcNow - TimeSpan.FromMinutes(2);
             var all = File.ReadAllLines(MarkerPath)
                 .Select(l => DateTime.TryParse(l, null, System.Globalization.DateTimeStyles.RoundtripKind, out var t) ? t : DateTime.MinValue)
                 .Where(t => t != DateTime.MinValue)
                 .ToArray();
             var recent = all.Count(t => t > cutoff);
-            if (recent >= 3) return true;
+            if (recent >= 3)
+            {
+                return true;
+            }
             // Trim stale entries so the file doesn't grow forever.
             if (recent < all.Length)
             {

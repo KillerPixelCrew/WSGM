@@ -10,7 +10,10 @@ namespace WSGM.Shell;
 /// (pin lifecycle, window) and surfaces warnings via <see cref="SteamStartFailed"/>.</summary>
 public sealed class SessionModes
 {
+    /// <summary>The warning shown when the required Steam installation cannot be found.</summary>
     public const string SteamNotFoundWarning = "Steam was not found on this PC. Install Steam — WSGM is Steam-exclusive.";
+
+    /// <summary>The warning shown when Steam Big Picture could not be started.</summary>
     public const string BigPictureStartFailedWarning = "Couldn't start Steam Big Picture.";
 
     private AppConfig _config;
@@ -25,6 +28,9 @@ public sealed class SessionModes
     /// could not bring Steam up, with the user-facing warning text.</summary>
     public event Action<string>? SteamStartFailed;
 
+    /// <summary>Creates the coordinator for desktop/game transitions.</summary>
+    /// <param name="config">The initial configuration controlling display posture and launch behavior.</param>
+    /// <param name="monitor">The optional Steam monitor to pause or resume during transitions.</param>
     public SessionModes(AppConfig config, SteamMonitor? monitor)
     {
         _config = config;
@@ -169,6 +175,7 @@ public sealed class SessionModes
         return result.Started ? null : BigPictureStartFailedWarning;
     }
 
+    /// <summary>Brings Steam Big Picture to the foreground when the monitor sees it alive.</summary>
     public void FocusSteam()
     {
         if (_monitor?.IsAlive == true)

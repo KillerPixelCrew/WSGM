@@ -12,12 +12,19 @@ public static class AppLauncher
     private const int ErrorCancelled = 1223;
     private const int ErrorElevationRequired = 740;
 
+    /// <summary>Reports whether a launch request started and whether UAC was declined.</summary>
     public sealed record LaunchResult(Process? Process, bool Started, bool ElevationDeclined);
 
     /// <summary>Whether a configured launch target is a protocol URL rather than a
     /// file path (protocols carry no args/elevation and cannot be relaunch-watched).</summary>
     public static bool IsProtocol(string path) => path.Contains("://");
 
+    /// <summary>Starts a configured target, dispatching protocol URLs and elevated
+    /// executables to their respective launch mechanisms.</summary>
+    /// <param name="path">Executable path or protocol URL.</param>
+    /// <param name="args">Arguments for an executable target.</param>
+    /// <param name="elevated">Whether the executable should be launched through UAC.</param>
+    /// <returns>The outcome of the launch attempt.</returns>
     public static LaunchResult Start(string path, string args, bool elevated)
     {
         if (IsProtocol(path))
@@ -33,6 +40,9 @@ public static class AppLauncher
         return elevated ? StartElevated(path, args) : StartNormal(path, args);
     }
 
+    /// <summary>Activates a registered URL protocol through the Windows shell.</summary>
+    /// <param name="protocol">The complete protocol URL to activate.</param>
+    /// <returns>The outcome of the shell activation.</returns>
     public static LaunchResult StartProtocol(string protocol)
     {
         try
@@ -51,6 +61,9 @@ public static class AppLauncher
     /// <summary>ShellExecute-open with the standard try/catch-log contract, for
     /// targets that manage their own activation/elevation (auto-elevating system
     /// exes like Task Manager, TabTip, handing over to another WSGM copy).</summary>
+    /// <param name="path">Path to open through the Windows shell.</param>
+    /// <param name="args">Optional arguments for the target.</param>
+    /// <returns>The outcome of the shell activation.</returns>
     public static LaunchResult Open(string path, string args = "")
     {
         try
@@ -127,7 +140,7 @@ public static class AppLauncher
         }
     }
 
-    private static string SafeDirectory(string path)
+    internal static string SafeDirectory(string path)
     {
         try
         {

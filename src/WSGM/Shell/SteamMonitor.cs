@@ -12,8 +12,10 @@ public sealed class SteamMonitor : IDisposable
     private readonly DispatcherTimer _timer;
     private readonly AliveEdgeDetector _edge = new();
 
+    /// <summary>Raised when Steam transitions from alive to absent while monitoring is active.</summary>
     public event Action? SteamExited;
 
+    /// <summary>Gets whether Steam was alive during the most recent poll.</summary>
     public bool IsAlive { get; private set; }
 
     /// <summary>While true (desktop mode, or after the user deliberately closed
@@ -21,6 +23,7 @@ public sealed class SteamMonitor : IDisposable
     /// so nothing auto-relaunches or pops the overlay.</summary>
     public bool Paused { get; set; }
 
+    /// <summary>Creates and starts a UI-thread Steam lifecycle monitor.</summary>
     public SteamMonitor()
     {
         // The convenience ctor taking a callback auto-starts the timer (see
@@ -50,5 +53,6 @@ public sealed class SteamMonitor : IDisposable
         }
     }
 
+    /// <summary>Stops the lifecycle monitor.</summary>
     public void Dispose() => _timer.Stop();
 }

@@ -28,6 +28,8 @@ public sealed class StartupAppWatcher : IDisposable
     // collide on one state.
     private readonly Dictionary<string, WatchState> _states = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Creates a watcher for the currently configured startup programs.</summary>
+    /// <param name="apps">The startup-program configuration to monitor.</param>
     public StartupAppWatcher(List<StartupAppConfig> apps)
     {
         _apps = apps;
@@ -38,6 +40,8 @@ public sealed class StartupAppWatcher : IDisposable
         _timer.Start();
     }
 
+    /// <summary>Replaces the monitored startup-program configuration.</summary>
+    /// <param name="apps">The newly saved startup-program configuration.</param>
     public void Apply(List<StartupAppConfig> apps) => _apps = apps;
 
     private void Poll()
@@ -96,5 +100,6 @@ public sealed class StartupAppWatcher : IDisposable
         AppLauncher.Start(app.Path, app.Args, app.Elevated);
     }
 
+    /// <summary>Stops periodic process monitoring.</summary>
     public void Dispose() => _timer.Stop();
 }

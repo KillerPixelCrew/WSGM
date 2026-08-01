@@ -15,8 +15,11 @@ public sealed class HotkeyService : IDisposable
     private readonly MessageWindow _window;
     private bool _registered;
 
+    /// <summary>Raised when Windows delivers the registered global shortcut.</summary>
     public event Action? Pressed;
 
+    /// <summary>Creates a global-hotkey registration service for the process message window.</summary>
+    /// <param name="window">The message-only window that receives <c>WM_HOTKEY</c>.</param>
     public HotkeyService(MessageWindow window)
     {
         _window = window;
@@ -32,6 +35,8 @@ public sealed class HotkeyService : IDisposable
         }
     }
 
+    /// <summary>Replaces the registered shortcut with the supplied configuration.</summary>
+    /// <param name="config">The enabled shortcut to register, or a disabled configuration to unregister.</param>
     public void Apply(HotkeyConfig config)
     {
         if (_registered)
@@ -45,10 +50,25 @@ public sealed class HotkeyService : IDisposable
         }
 
         uint modifiers = NativeMethods.ModNoRepeat;
-        if (config.Ctrl) modifiers |= NativeMethods.ModControl;
-        if (config.Alt) modifiers |= NativeMethods.ModAlt;
-        if (config.Shift) modifiers |= NativeMethods.ModShift;
-        if (config.Win) modifiers |= NativeMethods.ModWin;
+        if (config.Ctrl)
+        {
+            modifiers |= NativeMethods.ModControl;
+        }
+
+        if (config.Alt)
+        {
+            modifiers |= NativeMethods.ModAlt;
+        }
+
+        if (config.Shift)
+        {
+            modifiers |= NativeMethods.ModShift;
+        }
+
+        if (config.Win)
+        {
+            modifiers |= NativeMethods.ModWin;
+        }
 
         _registered = NativeMethods.RegisterHotKey(_window.Handle, _hotkeyId, modifiers, (uint)config.VirtualKey);
         if (_registered)
@@ -61,6 +81,7 @@ public sealed class HotkeyService : IDisposable
         }
     }
 
+    /// <summary>Unregisters the current shortcut and detaches from the message window.</summary>
     public void Dispose()
     {
         if (_registered)

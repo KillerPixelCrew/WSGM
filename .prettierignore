@@ -1,0 +1,9 @@
+# C# is formatted by dotnet format; generated and binary output is never formatted.
+AGENTS.md
+**/*.cs
+**/*.axaml.cs
+**/bin/
+**/obj/
+node_modules/
+publish/
+TestResults/

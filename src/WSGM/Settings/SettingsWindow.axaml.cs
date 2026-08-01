@@ -12,6 +12,7 @@ using WSGM.Shell;
 
 namespace WSGM.Settings;
 
+/// <summary>The interactive settings window for shell and game-mode configuration.</summary>
 public partial class SettingsWindow : Window
 {
     private readonly SettingsViewModel _viewModel = new();
@@ -22,6 +23,7 @@ public partial class SettingsWindow : Window
     private GamepadChordRecorder? _chordRecorder;
     private bool _closed;
 
+    /// <summary>Creates the settings window and connects its input recorders.</summary>
     public SettingsWindow()
     {
         InitializeComponent();

@@ -33,6 +33,10 @@ public sealed class GamepadNavigation : IDisposable
     private bool _loggedWrap;
     private bool _loggedTextBoxCycle;
 
+    /// <summary>Attaches controller navigation to a window.</summary>
+    /// <param name="gamepad">The source of controller button presses.</param>
+    /// <param name="window">The window whose focusable controls are navigated.</param>
+    /// <param name="back">The action invoked for the controller Back button.</param>
     /// <param name="isNintendoLayout">Supplies the current layout. Nintendo labels are swapped relative to Xbox at
     /// the same physical positions: the button labeled A (east, XInput B) confirms
     /// and labeled B (south, XInput A) goes back.</param>
@@ -231,6 +235,7 @@ public sealed class GamepadNavigation : IDisposable
         });
     }
 
+    /// <summary>Detaches controller navigation from the window and input service.</summary>
     public void Dispose()
     {
         _gamepad.ButtonPressed -= OnButtons;

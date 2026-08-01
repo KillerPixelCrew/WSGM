@@ -24,6 +24,9 @@ public static class WindowFinder
         public nint ShellWindow;
     }
 
+    /// <summary>Finds process identifiers whose names appear in a semicolon-separated allowlist.</summary>
+    /// <param name="semicolonNames">Case-insensitive process names separated by semicolons.</param>
+    /// <returns>The matching process identifiers.</returns>
     public static HashSet<uint> FindProcessIds(string semicolonNames)
     {
         var result = new HashSet<uint>();
@@ -49,6 +52,10 @@ public static class WindowFinder
         return result;
     }
 
+    /// <summary>Finds the first qualifying top-level window owned by an allowed process.</summary>
+    /// <param name="processNames">Semicolon-separated process names that may own the window.</param>
+    /// <param name="windowClass">An optional exact Win32 window-class filter.</param>
+    /// <returns>The native window handle, or zero when no qualifying window exists.</returns>
     public static unsafe nint FindWindow(string processNames, string? windowClass)
     {
         var pids = FindProcessIds(processNames);
@@ -96,7 +103,40 @@ public static class WindowFinder
         return 0; // stop enumeration
     }
 
-    public sealed record AppWindow(nint Hwnd, string Title, uint ProcessId);
+    /// <summary>A visible, switchable top-level window discovered during enumeration.</summary>
+    public sealed record AppWindow
+    {
+        /// <summary>Creates a switchable-window snapshot.</summary>
+        /// <param name="hwnd">The native window handle.</param>
+        /// <param name="title">The title presented in the switcher.</param>
+        /// <param name="processId">The identifier of the owning process.</param>
+        public AppWindow(nint hwnd, string title, uint processId)
+        {
+            Hwnd = hwnd;
+            Title = title;
+            ProcessId = processId;
+        }
+
+        /// <summary>Gets the native window handle.</summary>
+        public nint Hwnd { get; init; }
+
+        /// <summary>Gets the title presented in the switcher.</summary>
+        public string Title { get; init; }
+
+        /// <summary>Gets the identifier of the owning process.</summary>
+        public uint ProcessId { get; init; }
+
+        /// <summary>Deconstructs the window using its original positional-record shape.</summary>
+        /// <param name="hwnd">Receives the native window handle.</param>
+        /// <param name="title">Receives the title presented in the switcher.</param>
+        /// <param name="processId">Receives the identifier of the owning process.</param>
+        public void Deconstruct(out nint hwnd, out string title, out uint processId)
+        {
+            hwnd = Hwnd;
+            title = Title;
+            processId = ProcessId;
+        }
+    }
 
     /// <summary>Alt-tab style enumeration: visible, titled, top-level windows that
     /// are not tool windows, not DWM-cloaked (suspended UWP ghosts), not the shell's

@@ -13,6 +13,7 @@ public partial class WelcomeWindow : Window
     private readonly GamepadService _gamepad = new();
     private GamepadNavigation? _navigation;
 
+    /// <summary>Creates the portable-install welcome window.</summary>
     public WelcomeWindow()
     {
         InitializeComponent();

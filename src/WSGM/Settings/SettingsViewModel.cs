@@ -9,8 +9,10 @@ using WSGM.Input;
 
 namespace WSGM.Settings;
 
+/// <summary>Editable settings for one program launched after the shell starts.</summary>
 public sealed class StartupAppRow : INotifyPropertyChanged
 {
+    /// <summary>Raised after an editable startup-app field changes.</summary>
     public event PropertyChangedEventHandler? PropertyChanged;
     private string _path = "";
     private string _args = "";
@@ -18,21 +20,33 @@ public sealed class StartupAppRow : INotifyPropertyChanged
     private bool _elevated;
     private bool _autoRelaunch;
 
+    /// <summary>Gets or sets the executable or protocol to launch.</summary>
     public string Path { get => _path; set { _path = value; Raise(nameof(Path)); } }
+
+    /// <summary>Gets or sets the command-line arguments passed to the program.</summary>
     public string Args { get => _args; set { _args = value; Raise(nameof(Args)); } }
+
+    /// <summary>Gets or sets whether this program participates in startup.</summary>
     public bool Enabled { get => _enabled; set { _enabled = value; Raise(nameof(Enabled)); } }
+
+    /// <summary>Gets or sets whether the program needs an elevated launch.</summary>
     public bool Elevated { get => _elevated; set { _elevated = value; Raise(nameof(Elevated)); } }
+
+    /// <summary>Gets or sets whether the program is watched and restarted when it exits.</summary>
     public bool AutoRelaunch { get => _autoRelaunch; set { _autoRelaunch = value; Raise(nameof(AutoRelaunch)); } }
 
     private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
 
+/// <summary>Binds persisted shell, startup, input, and display settings to the Settings window.</summary>
 public sealed class SettingsViewModel : INotifyPropertyChanged
 {
+    /// <summary>Raised after a settings value or dependent display value changes.</summary>
     public event PropertyChangedEventHandler? PropertyChanged;
 
     private readonly AppConfig _config;
 
+    /// <summary>Loads the current configuration and discovers locally installed startup suggestions.</summary>
     public SettingsViewModel()
     {
         _config = ConfigStore.Load();
@@ -51,7 +65,10 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         {
             StartupApps.Add(new StartupAppRow
             {
-                Path = app.Path, Args = app.Args, Enabled = app.Enabled, Elevated = app.Elevated,
+                Path = app.Path,
+                Args = app.Args,
+                Enabled = app.Enabled,
+                Elevated = app.Elevated,
                 AutoRelaunch = app.AutoRelaunch,
             });
         }
@@ -66,6 +83,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private List<(string Path, bool Elevated)> _startupSuggestionTargets = [];
 
     private int _selectedSuggestionIndex;
+    /// <summary>Gets or sets the selected discovered startup-app suggestion.</summary>
     public int SelectedSuggestionIndex
     {
         get => _selectedSuggestionIndex;
@@ -90,7 +108,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         _selectedSuggestionIndex = 0;
     }
 
-    /// <summary>Adds the selected suggestion (or an empty row for a manual pick).</summary>
+    /// <summary>Adds the selected discovered program when it has a concrete executable path.</summary>
+    /// <returns><see langword="true"/> when a startup row was added; otherwise the caller should open a file picker.</returns>
     public bool AddSelectedStartupApp()
     {
         if (_selectedSuggestionIndex < 0 || _selectedSuggestionIndex >= _startupSuggestionTargets.Count)
@@ -107,20 +126,27 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     }
 
     // --- Shell status ---
+    /// <summary>Gets whether this installed executable is the account's registered Windows shell.</summary>
     public bool ShellInstalled => ShellRegistration.IsInstalledForThisExe();
+
+    /// <summary>Gets a user-facing explanation of the current shell registration.</summary>
     public string ShellStatusText => ShellInstalled
         ? "WSGM IS your Windows shell for this account. Sign out and back in for changes to take effect."
         : "WSGM is NOT your Windows shell.";
 
     // --- UAC prompt level ---
+    /// <summary>Gets whether UAC consent prompts are disabled for the machine.</summary>
     public bool UacPromptsDisabled => UacSettings.Read().PromptsDisabled;
 
+    /// <summary>Gets a user-facing explanation of the current UAC prompt policy.</summary>
     public string UacStatusText => UacPromptsDisabled
         ? "UAC prompts are OFF — elevated apps start silently. Windows still runs with UAC enabled, but anything that asks for administrator rights gets them without asking you."
         : "UAC prompts are ON (Windows default). Each elevated launch shows a consent dialog, which interrupts boot-to-game on a handheld.";
 
     /// <summary>Toggles the machine UAC prompt level. Needs one elevation prompt.
     /// Returns false when elevation was declined or the write failed.</summary>
+    /// <param name="disable">Whether to suppress consent prompts.</param>
+    /// <returns><see langword="true"/> when Windows accepted the policy change.</returns>
     public bool SetUacPrompts(bool disable)
     {
         var ok = UacSettings.RequestChange(disable);
@@ -130,12 +156,17 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     }
 
     // --- Lock on wake ---
+    /// <summary>Gets whether Windows will skip a sign-in prompt after display sleep.</summary>
     public bool LockOnWakeDisabled => LockScreenSettings.SignInOnWakeDisabled();
 
+    /// <summary>Gets a user-facing explanation of the wake sign-in policy.</summary>
     public string LockOnWakeStatusText => LockOnWakeDisabled
         ? "Waking the device goes straight back to your game — no sign-in screen."
         : "Windows currently asks you to sign in again after the screen sleeps (Windows default).";
 
+    /// <summary>Changes the Windows wake sign-in policy through the elevated helper.</summary>
+    /// <param name="disable">Whether to bypass the sign-in prompt after display sleep.</param>
+    /// <returns><see langword="true"/> when Windows accepted the policy change.</returns>
     public bool SetLockOnWake(bool disable)
     {
         var ok = LockScreenSettings.RequestChange(disable);
@@ -144,20 +175,24 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         return ok;
     }
 
+    /// <summary>Gets whether WSGM has a copy in its stable per-user install directory.</summary>
     public bool AppInstalled => Installer.IsAppInstalled;
+
+    /// <summary>Gets a user-facing explanation of the current installation state.</summary>
     public string AppStatusText => Installer.IsRunningFromInstallDir
         ? $"Installed at {Installer.InstallDir}."
         : Installer.IsAppInstalled
             ? $"Running portable — an installed copy exists at {Installer.InstallDir}. \"Install app\" updates it."
             : "Running portable — not installed yet. Installing copies WSGM to a stable per-user location and adds it to Start Menu and Settings → Apps.";
 
-    /// <summary>Installs/updates the app files without touching the shell registration.</summary>
+    /// <summary>Installs or updates the app files without changing shell registration.</summary>
     public void InstallApp()
     {
         Installer.InstallApp();
         RaiseShellStatus();
     }
 
+    /// <summary>Persists settings, installs the stable copy, and registers it as the Windows shell.</summary>
     public void Install()
     {
         // Self-contained: persist the settings first so the config on disk always
@@ -172,6 +207,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         RaiseShellStatus();
     }
 
+    /// <summary>Removes the shell registration and restores its saved Windows state.</summary>
     public void Uninstall()
     {
         ShellRegistration.Uninstall();
@@ -187,28 +223,45 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     }
 
     // --- Steam (the only launcher; located via registry, nothing to configure) ---
+    /// <summary>Gets Steam discovery status because game mode requires Steam.</summary>
     public string SteamStatusText => Steam.ExePath is { } exe
         ? $"Detected: {exe}"
         : "Steam was not found on this PC. Install Steam first — WSGM is Steam-exclusive.";
 
     private bool _steamAutoRelaunch;
+
+    /// <summary>Gets or sets whether the Steam monitor restarts Steam after an unexpected exit.</summary>
     public bool SteamAutoRelaunch { get => _steamAutoRelaunch; set { _steamAutoRelaunch = value; Raise(nameof(SteamAutoRelaunch)); } }
 
     // --- Startup apps ---
+    /// <summary>Gets the ordered startup programs shown in the settings editor.</summary>
     public ObservableCollection<StartupAppRow> StartupApps { get; } = [];
 
     private int _startupDelayMs;
+
+    /// <summary>Gets or sets the initial delay before launching configured startup programs.</summary>
     public int StartupDelayMs { get => _startupDelayMs; set { _startupDelayMs = value; Raise(nameof(StartupDelayMs)); } }
 
     private int _staggerDelayMs;
+
+    /// <summary>Gets or sets the delay between successive configured startup programs.</summary>
     public int StaggerDelayMs { get => _staggerDelayMs; set { _staggerDelayMs = value; Raise(nameof(StaggerDelayMs)); } }
 
     private bool _bootSplashEnabled;
+
+    /// <summary>Gets or sets whether a splash window is shown while game mode starts.</summary>
     public bool BootSplashEnabled { get => _bootSplashEnabled; set { _bootSplashEnabled = value; Raise(nameof(BootSplashEnabled)); } }
 
+    /// <summary>Adds a blank startup-program row for manual configuration.</summary>
     public void AddStartupApp() => StartupApps.Add(new StartupAppRow());
+
+    /// <summary>Removes a startup-program row.</summary>
+    /// <param name="row">The row to remove.</param>
     public void RemoveStartupApp(StartupAppRow row) => StartupApps.Remove(row);
 
+    /// <summary>Moves a startup-program row by one or more positions when the target remains in range.</summary>
+    /// <param name="row">The row to move.</param>
+    /// <param name="delta">The signed number of positions to move the row.</param>
     public void MoveStartupApp(StartupAppRow row, int delta)
     {
         var index = StartupApps.IndexOf(row);
@@ -223,7 +276,10 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private HotkeyConfig _hotkey = new();
     private GamepadChordConfig _chord = new();
 
+    /// <summary>Gets the current keyboard shortcut or the key-recording prompt.</summary>
     public string HotkeyText => _hotkeyRecording ? "Press keys…" : KeyRecorder.Describe(_hotkey);
+
+    /// <summary>Gets the current controller chord or the button-recording prompt.</summary>
     public string ChordText => _chordRecording
         ? "Press buttons…"
         : _chord.Enabled && _chord.Buttons != 0
@@ -232,8 +288,12 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     private bool _hotkeyRecording;
     private bool _chordRecording;
+
+    /// <summary>Gets whether either shortcut recorder currently owns input.</summary>
     public bool IsRecording => _hotkeyRecording || _chordRecording;
 
+    /// <summary>Starts or stops keyboard-shortcut recording.</summary>
+    /// <param name="recording">Whether the next eligible key combination should be captured.</param>
     public void SetHotkeyRecording(bool recording)
     {
         _hotkeyRecording = recording;
@@ -241,6 +301,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         Raise(nameof(IsRecording));
     }
 
+    /// <summary>Starts or stops controller-chord recording.</summary>
+    /// <param name="recording">Whether the next eligible controller chord should be captured.</param>
     public void SetChordRecording(bool recording)
     {
         _chordRecording = recording;
@@ -248,7 +310,9 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         Raise(nameof(IsRecording));
     }
 
-    /// <summary>Stores a recorded keyboard shortcut. vk == 0 clears it.</summary>
+    /// <summary>Stores a recorded keyboard shortcut. A zero virtual key clears it.</summary>
+    /// <param name="modifiers">Win32 modifier flags captured with the virtual key.</param>
+    /// <param name="vk">The captured Win32 virtual key, or zero to clear the shortcut.</param>
     public void ApplyRecordedHotkey(uint modifiers, int vk)
     {
         _hotkey = new HotkeyConfig
@@ -263,7 +327,9 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         SetHotkeyRecording(false);
     }
 
-    /// <summary>Stores a recorded controller chord. Empty buttons clears it.</summary>
+    /// <summary>Stores a recorded controller chord. No buttons clears it.</summary>
+    /// <param name="buttons">The buttons captured from one controller.</param>
+    /// <param name="hold">Whether the chord activates on a hold rather than an edge.</param>
     public void ApplyRecordedChord(GamepadButtons buttons, bool hold)
     {
         _chord = new GamepadChordConfig
@@ -275,16 +341,26 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         SetChordRecording(false);
     }
 
+    /// <summary>Clears the keyboard shortcut.</summary>
     public void ClearHotkey() => ApplyRecordedHotkey(0, 0);
+
+    /// <summary>Clears the controller chord.</summary>
     public void ClearChord() => ApplyRecordedChord(0, false);
 
     // --- Gestures / glyphs ---
     private bool _gestureBottom, _gestureRight;
     private int _glyphStyleIndex;
+
+    /// <summary>Gets or sets whether a bottom-edge swipe opens the overlay.</summary>
     public bool GestureBottom { get => _gestureBottom; set { _gestureBottom = value; Raise(nameof(GestureBottom)); } }
+
+    /// <summary>Gets or sets whether a right-edge swipe opens the overlay.</summary>
     public bool GestureRight { get => _gestureRight; set { _gestureRight = value; Raise(nameof(GestureRight)); } }
+
+    /// <summary>Gets or sets the selected controller-glyph family index.</summary>
     public int GlyphStyleIndex { get => _glyphStyleIndex; set { _glyphStyleIndex = value; Raise(nameof(GlyphStyleIndex)); } }
 
+    /// <summary>Gets the controller-glyph family names presented by the settings selector.</summary>
     public List<string> GlyphStyles { get; } = ["Xbox", "PlayStation", "Nintendo"];
 
     // --- Save ---
@@ -303,12 +379,16 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             .Where(r => !string.IsNullOrWhiteSpace(r.Path))
             .Select(r => new StartupAppConfig
             {
-                Path = r.Path.Trim(), Args = r.Args.Trim(), Enabled = r.Enabled, Elevated = r.Elevated,
+                Path = r.Path.Trim(),
+                Args = r.Args.Trim(),
+                Enabled = r.Enabled,
+                Elevated = r.Elevated,
                 AutoRelaunch = r.AutoRelaunch,
             })
             .ToList();
     }
 
+    /// <summary>Merges UI-owned values with fresh persisted state and saves the result.</summary>
     public void Save()
     {
         SaveMerged();
@@ -330,6 +410,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         return config;
     }
 
+    /// <summary>Builds an isolated configuration snapshot for controller tests.</summary>
+    /// <returns>A copy that will not change when this view model is later saved or installed.</returns>
     public AppConfig SnapshotForTest()
     {
         ApplyTo(_config);

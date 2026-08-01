@@ -2,4 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/WSGM/WSGM.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/WSGM.Tests/WSGM.Tests.csproj" />
+  </Folder>
 </Solution>

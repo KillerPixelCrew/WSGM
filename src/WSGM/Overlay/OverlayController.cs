@@ -25,6 +25,10 @@ public sealed class OverlayController : IDisposable
     private bool _reopenOverlayForWarning;
     private bool _disposed;
 
+    /// <summary>Creates the overlay controller and its input activation surfaces.</summary>
+    /// <param name="config">The initial shell configuration.</param>
+    /// <param name="monitor">The optional Steam lifecycle monitor shared by the shell.</param>
+    /// <param name="modes">The session-mode coordinator that performs requested transitions.</param>
     public OverlayController(AppConfig config, SteamMonitor? monitor, SessionModes modes)
     {
         _config = config;
@@ -52,6 +56,8 @@ public sealed class OverlayController : IDisposable
         }
     }
 
+    /// <summary>Applies changed gesture settings without replacing the monitor.</summary>
+    /// <param name="gestures">The new edge-swipe configuration.</param>
     public void ApplyGestures(GestureConfig gestures)
     {
         // The monitor stays alive even with both edges disabled: tap-outside
@@ -76,6 +82,8 @@ public sealed class OverlayController : IDisposable
 
     private void OnSwipeTriggered(ScreenEdge edge) => ShowOverlay();
 
+    /// <summary>Sets a non-fatal warning to show the next time the overlay opens.</summary>
+    /// <param name="warning">The user-facing warning text, or an empty string to clear it.</param>
     public void SetWarning(string warning)
     {
         _pendingWarning = warning;
@@ -260,6 +268,7 @@ public sealed class OverlayController : IDisposable
     /// panel always outranks the splash.</summary>
     public event Action? OverlayShown;
 
+    /// <summary>Shows and activates the overlay unless it has already been disposed.</summary>
     public void ShowOverlay()
     {
         if (_disposed)
@@ -486,6 +495,7 @@ public sealed class OverlayController : IDisposable
         }
     }
 
+    /// <summary>Releases overlay windows, input activation, and lifecycle subscriptions.</summary>
     public void Dispose()
     {
         if (_disposed)

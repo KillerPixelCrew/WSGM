@@ -8,9 +8,13 @@ using WSGM.Interop;
 
 namespace WSGM.Overlay;
 
+/// <summary>A screen edge from which WSGM recognizes an inward swipe.</summary>
 public enum ScreenEdge
 {
+    /// <summary>The bottom edge of the primary display.</summary>
     Bottom,
+
+    /// <summary>The right edge of the primary display.</summary>
     Right,
 }
 
@@ -95,6 +99,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     /// <summary>Enables <see cref="TappedAt"/> (overlay open).</summary>
     public bool WatchTaps { get; set; }
 
+    /// <summary>Creates a monitor and joins the shared process-wide raw-input registration.</summary>
     public TouchSwipeMonitor()
     {
         lock (Gate)
@@ -136,6 +141,8 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         }
     }
 
+    /// <summary>Applies the enabled-edge and activation-band settings.</summary>
+    /// <param name="gestures">The persisted gesture configuration to observe.</param>
     public void Configure(GestureConfig gestures)
     {
         _bottomEnabled = gestures.BottomEdge;
@@ -595,6 +602,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         return (x, y);
     }
 
+    /// <summary>Stops monitoring and removes shared raw-input registration when last disposed.</summary>
     public void Dispose()
     {
         if (_disposed)

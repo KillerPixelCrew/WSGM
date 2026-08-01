@@ -8,6 +8,7 @@ namespace WSGM.Core;
 /// <summary>Detect/start/kill explorer.exe within the current session.</summary>
 public static class ExplorerControl
 {
+    /// <summary>Gets whether Explorer is running in the current interactive session.</summary>
     public static bool IsRunningInSession()
     {
         var procs = ExplorerInSession();
@@ -18,6 +19,7 @@ public static class ExplorerControl
         return procs.Count > 0;
     }
 
+    /// <summary>Starts Explorer for the current session when it is not already running.</summary>
     public static void StartExplorer()
     {
         try
@@ -89,6 +91,7 @@ public static class ExplorerControl
         }
     }
 
+    /// <summary>Terminates Explorer processes in the current session to return to game mode.</summary>
     public static void KillExplorer()
     {
         foreach (var p in ExplorerInSession())

@@ -11,9 +11,12 @@ public static class Log
     private static readonly object Gate = new();
     private static string? _path;
 
+    /// <summary>Gets the per-user directory used for logs, configuration, and installed files.</summary>
     public static string Directory =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WSGM");
 
+    /// <summary>Initializes the named log file for the current process.</summary>
+    /// <param name="name">The log file name without its extension.</param>
     public static void Init(string name = "wsgm")
     {
         try
@@ -51,14 +54,30 @@ public static class Log
         Info($"---- WSGM {typeof(Log).Assembly.GetName().Version} started, args: [{Environment.CommandLine}]");
     }
 
+    /// <summary>Writes an informational diagnostic message.</summary>
+    /// <param name="message">The message to record.</param>
     public static void Info(string message) => Write("info ", message);
+
+    /// <summary>Writes a warning diagnostic message.</summary>
+    /// <param name="message">The message to record.</param>
     public static void Warn(string message) => Write("warn ", message);
+
+    /// <summary>Writes an error diagnostic message.</summary>
+    /// <param name="message">The message to record.</param>
     public static void Error(string message) => Write("error", message);
+
+    /// <summary>Writes an error diagnostic message with exception details.</summary>
+    /// <param name="message">The context describing the failure.</param>
+    /// <param name="ex">The exception to record.</param>
     public static void Error(string message, Exception ex) => Write("error", $"{message}: {ex}");
 
     private static void Write(string level, string message)
     {
-        if (_path is null) return;
+        if (_path is null)
+        {
+            return;
+        }
+
         lock (Gate)
         {
             // Timestamp inside the lock so appended lines stay in chronological order.

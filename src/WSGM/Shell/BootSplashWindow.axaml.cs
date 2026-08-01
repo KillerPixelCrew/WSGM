@@ -8,8 +8,10 @@ using Avalonia.Threading;
 
 namespace WSGM.Shell;
 
+/// <summary>The borderless startup splash shown while Steam Big Picture launches.</summary>
 public partial class BootSplashWindow : Window
 {
+    /// <summary>Raised when the user chooses the desktop fallback.</summary>
     public event Action? DesktopRequested;
 
     /// <summary>The control gamepad navigation should land on for the first D-pad
@@ -25,6 +27,7 @@ public partial class BootSplashWindow : Window
     private Action? _fadeDone;
     private nint _hwnd;
 
+    /// <summary>Creates the splash window and its controller navigation.</summary>
     public BootSplashWindow()
     {
         InitializeComponent();
