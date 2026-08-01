@@ -342,7 +342,7 @@ public sealed class OverlayController : IDisposable
         };
 
         _overlayViewModel = vm;
-        _overlay = new OverlayWindow(vm);
+        _overlay = new OverlayWindow(vm, DisplayScale.GetUiScalePercent(_config) / 100.0);
         _overlay.HomeAppRequested += () => { _suppressFocusRestore = true; CloseOverlay(); _modes.StartOrFocusSteam(); };
         _overlay.DesktopRequested += () =>
         {
@@ -543,7 +543,7 @@ public sealed class OverlayController : IDisposable
         Log.Info($"Taskbar shown ({vm.Entries.Count} windows).");
 
         OnTrayIconsChanged();
-        _taskbar = new TaskbarWindow(vm);
+        _taskbar = new TaskbarWindow(vm, DisplayScale.GetUiScalePercent(_config) / 100.0);
         _taskbar.WindowPicked += PickTaskbarWindow;
         _taskbar.TrayIconActivated += (entry, contextMenu, anchor) =>
             _trayHost?.SendClick(entry.Icon, contextMenu, anchor.X, anchor.Y);

@@ -4,8 +4,7 @@
         x:Class="WSGM.Overlay.TaskbarWindow"
         x:DataType="ov:TaskbarViewModel"
         Title="WSGM Taskbar"
-        SizeToContent="Width"
-        Height="56"
+        SizeToContent="WidthAndHeight"
         MinWidth="120"
         SystemDecorations="None"
         CanResize="False"
@@ -14,7 +13,11 @@
         Background="{StaticResource HcBackgroundBrush}">
 
     <!-- Thin Windows-11-style icon strip: app tiles left, tray icons right.
-         Same opaque-surface constraint as the overlay: no rounded corners. -->
+         Same opaque-surface constraint as the overlay: no rounded corners.
+         RootScale: game mode forces 100% display scaling, so DIP sizes render
+         1:1 on very dense handheld panels — the code-behind scales the whole
+         strip by screen height to keep tiles touchable (see ApplyTouchScale). -->
+    <LayoutTransformControl x:Name="RootScale">
     <Border BorderBrush="#FF343434" BorderThickness="1,1,1,0" Padding="6,4">
         <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
             <TextBlock Text="No open apps"
@@ -80,6 +83,7 @@
             </ItemsControl>
         </StackPanel>
     </Border>
+    </LayoutTransformControl>
 
     <Window.Styles>
         <!-- Stable in-button focus border, no adorner (see OverlayWindow). -->

@@ -45,10 +45,15 @@ public partial class OverlayWindow : Window
     /// or when focus tracking is lost.</summary>
     internal InputElement DefaultFocusTarget => HomeAppButton;
 
+    private readonly double _uiScale;
+
     /// <summary>Creates the overlay window bound to the supplied state.</summary>
     /// <param name="viewModel">The state that drives labels, warnings, and the window picker.</param>
-    public OverlayWindow(OverlayViewModel viewModel)
+    /// <param name="uiScale">The desktop-DPI scale factor for WSGM UI (e.g. 1.5
+    /// for a 150% desktop; see DisplayScale.GetUiScalePercent).</param>
+    public OverlayWindow(OverlayViewModel viewModel, double uiScale = 1.0)
     {
+        _uiScale = uiScale;
         InitializeComponent();
         DataContext = viewModel;
         KeyDown += OnKeyDown;
@@ -108,9 +113,20 @@ public partial class OverlayWindow : Window
 
         var bounds = screen.Bounds;
         var scaling = screen.Scaling;
+        // Render at the desktop's DPI: game mode forces displays to 100%, which
+        // otherwise shrinks this DIP-sized panel to millimeters on dense
+        // handheld screens (device-reported). The content lays out in
+        // desktop-DIP space (the factor divides the available size), the window
+        // takes the scaled-up physical footprint.
+        var factor = Math.Clamp(_uiScale / scaling, 1.0, 3.0);
+        if (Math.Abs(factor - 1.0) >= 0.01)
+        {
+            Core.Log.Info($"Quick access UI scale {factor:0.##}x (desktop DPI over current {scaling:0.##}).");
+            RootScale.LayoutTransform = new Avalonia.Media.ScaleTransform(factor, factor);
+        }
         // Keep the panel compact on high-DPI handheld displays. A 360-DIP panel
         // remains comfortably touchable without taking half the game view.
-        var panelWidth = Math.Min(360d, Math.Max(320d, bounds.Width / scaling * 0.30));
+        var panelWidth = Math.Min(360d, Math.Max(320d, bounds.Width / scaling / factor * 0.30)) * factor;
         Width = panelWidth;
         Height = bounds.Height / scaling;
 

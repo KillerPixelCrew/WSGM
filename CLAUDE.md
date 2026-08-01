@@ -138,18 +138,18 @@ buttons); `OverlayController` stays the UI owner (pin lifecycle, overlay window)
 switchable windows (`WindowFinder.ListSwitchableWindows`) plus tray icons; the right edge stays
 quick access, and `OverlayController` owns BOTH surfaces (shared Steam Input pin released only when
 both are closed, mutual exclusion with restore-target handover, same 150 ms deferred close and
-ghost-click WndProc hook). Tile refreshes reconcile IN PLACE — a wholesale rebuild would destroy
-the focused button under the gamepad cursor. `TrayHost` registers a window class literally named
+ghost-click WndProc hook). Tile refreshes reconcile IN PLACE — a wholesale rebuild would destroy the
+focused button under the gamepad cursor. `TrayHost` registers a window class literally named
 `Shell_TrayWnd` (that's how `Shell_NotifyIcon` finds a tray; game mode has no explorer, so without
 it closed-to-tray apps lose their icons) and parses the WM_COPYDATA wire format in the pure,
-unit-tested `TrayProtocol` (32-bit handle fields on every architecture). Two hard rules:
-(a) **never coexist with explorer's taskbar** — the host is destroyed on
-`SessionModes.DesktopModeStarting` (before `StartExplorer`) and recreated on `GameModeEntered`;
-(b) the **UIPI gate**: WSGM is usually elevated, and unelevated apps' `Shell_NotifyIcon`
-WM_COPYDATA is silently dropped by UIPI unless `ChangeWindowMessageFilterEx(WM_COPYDATA,
-MSGFLT_ALLOW)` is applied to the tray window — no shipped replacement shell runs elevated, so this
-gate is WSGM-specific and its device verification status must be tracked via the
-`Tray host created (… WM_COPYDATA filter …)` / `Tray icon Added/Rejected` log lines.
+unit-tested `TrayProtocol` (32-bit handle fields on every architecture). Two hard rules: (a) **never
+coexist with explorer's taskbar** — the host is destroyed on `SessionModes.DesktopModeStarting`
+(before `StartExplorer`) and recreated on `GameModeEntered`; (b) the **UIPI gate**: WSGM is usually
+elevated, and unelevated apps' `Shell_NotifyIcon` WM_COPYDATA is silently dropped by UIPI unless
+`ChangeWindowMessageFilterEx(WM_COPYDATA, MSGFLT_ALLOW)` is applied to the tray window — no shipped
+replacement shell runs elevated, so this gate is WSGM-specific and its device verification status
+must be tracked via the `Tray host created (… WM_COPYDATA filter …)` / `Tray icon Added/Rejected`
+log lines.
 
 ## Gotchas
 

@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
+using WSGM.Core;
 
 namespace WSGM.Overlay;
 
@@ -33,10 +34,15 @@ public partial class TaskbarWindow : Window
     /// the first application tile (null before the ItemsControl materializes).</summary>
     internal InputElement? DefaultFocusTarget => FindFirstTile();
 
+    private readonly double _uiScale;
+
     /// <summary>Creates the taskbar window bound to the supplied state.</summary>
     /// <param name="viewModel">The tile collection driving the strip.</param>
-    public TaskbarWindow(TaskbarViewModel viewModel)
+    /// <param name="uiScale">The desktop-DPI scale factor for WSGM UI (e.g. 1.5
+    /// for a 150% desktop; see DisplayScale.GetUiScalePercent).</param>
+    public TaskbarWindow(TaskbarViewModel viewModel, double uiScale = 1.0)
     {
+        _uiScale = uiScale;
         InitializeComponent();
         DataContext = viewModel;
         KeyDown += OnKeyDown;
@@ -78,8 +84,33 @@ public partial class TaskbarWindow : Window
 
     private void OnOpened(object? sender, EventArgs e)
     {
+        ApplyTouchScale();
         DockToBottomEdge();
         FindFirstTile()?.Focus(NavigationMethod.Directional);
+    }
+
+    /// <summary>Game mode forces every display to 100% scaling, so Avalonia
+    /// renders 1 DIP = 1 physical pixel and a DIP-sized bar shrinks to
+    /// millimeters on dense handheld panels (device-reported: 1200p Claw).
+    /// Render at the desktop's DPI instead: divide the desktop scale factor by
+    /// what Avalonia already applies, so the bar has the size it would have on
+    /// the user's normal desktop in every mode.</summary>
+    private void ApplyTouchScale()
+    {
+        var screen = Screens?.Primary;
+        if (screen is null)
+        {
+            return;
+        }
+        var factor = Math.Clamp(_uiScale / screen.Scaling, 1.0, 3.0);
+        if (Math.Abs(factor - 1.0) < 0.01)
+        {
+            return;
+        }
+        Log.Info($"Taskbar UI scale {factor:0.##}x (desktop DPI over current {screen.Scaling:0.##}).");
+        RootScale.LayoutTransform = new Avalonia.Media.ScaleTransform(factor, factor);
+        // Sizes must be final before the dock computes the slide positions.
+        UpdateLayout();
     }
 
     private InputElement? FindFirstTile()

@@ -16,7 +16,11 @@
     <!-- Ported from Handheld Companion QuickTools: compact status strip, grouped
          SettingsCard-style rows, and a bottom controller-navigation bar.
          No CornerRadius/Background here: the window surface behind it is opaque
-         and identically colored, so rounded corners could never render. -->
+         and identically colored, so rounded corners could never render.
+         RootScale: renders the panel at the desktop's DPI — game mode forces
+         100% scaling, which shrinks DIP-sized UI on dense handheld panels
+         (see DockToRightEdge / DisplayScale.GetUiScalePercent). -->
+    <LayoutTransformControl x:Name="RootScale">
     <Border>
         <Grid RowDefinitions="Auto,*,Auto">
             <Border Grid.Row="0" Background="#FF282828" BorderBrush="#FF343434" BorderThickness="0,0,0,1" Padding="10,6">
@@ -141,6 +145,7 @@
             </Border>
         </Grid>
     </Border>
+    </LayoutTransformControl>
 
     <Window.Styles>
         <!-- Focus ring flicker fix: Avalonia's default focus visual is an ADORNER

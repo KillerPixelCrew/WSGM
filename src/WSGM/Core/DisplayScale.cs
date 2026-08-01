@@ -234,6 +234,53 @@ public static partial class DisplayScale
         try { ConfigStore.Save(config); } catch (Exception ex) { Log.Warn($"Display scale: could not persist restore: {ex.Message}"); }
     }
 
+    /// <summary>The display-scale percent WSGM's own UI should render at. Game
+    /// mode forces every display to 100%, which makes DIP-sized WSGM surfaces
+    /// physically tiny on dense handheld panels — so the overlay/taskbar upscale
+    /// themselves to the user's DESKTOP scaling: the pre-game-mode snapshot when
+    /// one exists, otherwise the panel's Windows-recommended scale (the snapshot
+    /// only captures displays that weren't already at 100%). Returns 100 when
+    /// nothing better is known.</summary>
+    /// <param name="config">The configuration holding the pre-game-mode scale snapshot.</param>
+    public static uint GetUiScalePercent(AppConfig config)
+    {
+        try
+        {
+            var sources = GetActiveSources();
+            foreach (var source in sources)
+            {
+                var name = GetSourceDeviceName(source);
+                var saved = config.SavedDisplayScaleEntries.Find(
+                    e => string.Equals(e.DeviceName, name, StringComparison.OrdinalIgnoreCase));
+                if (saved is { Percent: >= 100 and <= 500 })
+                {
+                    return (uint)saved.Percent;
+                }
+            }
+            if (sources.Count > 0 && TryGetScale(sources[0], out var current, out var recommended, out _))
+            {
+                return PickUiScalePercent(null, current, recommended);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Display scale: UI scale query failed: {ex.Message}");
+        }
+        return 100;
+    }
+
+    /// <summary>The pure UI-scale decision: a valid saved desktop percent wins;
+    /// otherwise the larger of the current and Windows-recommended scale (in game
+    /// mode current is the forced 100, so recommended carries panels whose
+    /// desktop already ran at 100%).</summary>
+    /// <param name="savedPercent">The pre-game-mode snapshot value, or null.</param>
+    /// <param name="currentPercent">The display's current scale percent.</param>
+    /// <param name="recommendedPercent">The display's Windows-recommended percent.</param>
+    public static uint PickUiScalePercent(int? savedPercent, uint currentPercent, uint recommendedPercent)
+        => savedPercent is >= 100 and <= 500
+            ? (uint)savedPercent
+            : Math.Max(Math.Max(currentPercent, recommendedPercent), 100);
+
     private static bool TryGetScale((Luid Adapter, uint SourceId) source, out uint currentPct, out uint recommendedPct, out uint maxPct)
     {
         currentPct = recommendedPct = maxPct = 0;

@@ -20,6 +20,17 @@ public sealed class TaskbarTests
     public void NewConfigurationsDefaultTheBottomEdgeToTheTaskbar()
         => Assert.Equal(EdgeAction.Taskbar, new GestureConfig().BottomEdgeAction);
 
+    [Theory]
+    [InlineData(150, 100u, 100u, 150u)] // saved desktop scaling wins
+    [InlineData(null, 100u, 150u, 150u)] // desktop already ran 100% → panel's recommended
+    [InlineData(null, 175u, 150u, 175u)] // live desktop scaling beats recommended
+    [InlineData(null, 100u, 100u, 100u)] // nothing known → no upscale
+    [InlineData(99, 100u, 150u, 150u)] // garbage snapshot value is ignored
+    [InlineData(600, 100u, 150u, 150u)]
+    public void UiScaleUsesTheSavedDesktopScalingElseTheRecommendedPanelScale(
+        int? saved, uint current, uint recommended, uint expected)
+        => Assert.Equal(expected, DisplayScale.PickUiScalePercent(saved, current, recommended));
+
     private static WindowFinder.AppWindow Window(nint hwnd, string title, bool minimized = false)
         => new(hwnd, title, (uint)hwnd) { IsMinimized = minimized };
 
