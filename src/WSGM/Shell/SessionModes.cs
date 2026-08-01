@@ -28,6 +28,17 @@ public sealed class SessionModes
     /// could not bring Steam up, with the user-facing warning text.</summary>
     public event Action<string>? SteamStartFailed;
 
+    /// <summary>Raised (on the caller's thread) during a desktop-mode transition,
+    /// after Steam left Big Picture but BEFORE explorer starts. Listeners that own
+    /// per-game-mode resources which must not coexist with explorer (the tray host's
+    /// Shell_TrayWnd — explorer's taskbar creates its own) tear down here.</summary>
+    public event Action? DesktopModeStarting;
+
+    /// <summary>Raised (on the caller's thread) after a game-mode transition has
+    /// removed explorer from the session. Listeners recreate per-game-mode
+    /// resources (tray host) here.</summary>
+    public event Action? GameModeEntered;
+
     /// <summary>Creates the coordinator for desktop/game transitions.</summary>
     /// <param name="config">The initial configuration controlling display posture and launch behavior.</param>
     /// <param name="monitor">The optional Steam monitor to pause or resume during transitions.</param>
@@ -65,6 +76,7 @@ public sealed class SessionModes
         ExitBigPicture();
         SlateMode.ApplyDesktopMode(_config);
         DisplayScale.RestoreSaved(_config);
+        DesktopModeStarting?.Invoke();
         ExplorerControl.StartExplorer();
     }
 
@@ -92,6 +104,7 @@ public sealed class SessionModes
         Log.Info("Entering game mode.");
         ExplorerControl.KillExplorer();
         ApplyGameModePosture();
+        GameModeEntered?.Invoke();
         if (_monitor is not null)
         {
             _monitor.Paused = false;

@@ -126,6 +126,9 @@ public static class WindowFinder
         /// <summary>Gets the identifier of the owning process.</summary>
         public uint ProcessId { get; init; }
 
+        /// <summary>Gets whether the window was minimized at enumeration time.</summary>
+        public bool IsMinimized { get; init; }
+
         /// <summary>Deconstructs the window using its original positional-record shape.</summary>
         /// <param name="hwnd">Receives the native window handle.</param>
         /// <param name="title">Receives the title presented in the switcher.</param>
@@ -153,6 +156,26 @@ public static class WindowFinder
         return state.Result;
     }
 
+    /// <summary>The pure alt-tab filter decision, separated from the Win32 queries
+    /// that feed it so the specification is unit-testable: a window is switchable
+    /// when it is visible, titled, not the shell's desktop window, not a tool
+    /// window, not DWM-cloaked, and not owned by this process.</summary>
+    /// <param name="isVisible">Whether the window reports WS_VISIBLE (minimized windows still do).</param>
+    /// <param name="isShellWindow">Whether the window is the shell's desktop window (Progman).</param>
+    /// <param name="exStyle">The window's extended style bits.</param>
+    /// <param name="isOwnProcess">Whether this process owns the window.</param>
+    /// <param name="cloaked">The DWM cloaked attribute (non-zero for suspended UWP ghosts).</param>
+    /// <param name="titleLength">The window title length in characters.</param>
+    /// <returns>Whether the window belongs in an alt-tab-style list.</returns>
+    public static bool PassesSwitchableFilter(
+        bool isVisible, bool isShellWindow, int exStyle, bool isOwnProcess, uint cloaked, int titleLength)
+        => isVisible
+            && !isShellWindow
+            && (exStyle & NativeMethods.WsExToolWindow) == 0
+            && !isOwnProcess
+            && cloaked == 0
+            && titleLength > 0;
+
     [UnmanagedCallersOnly]
     private static int ListWindowsProc(nint hWnd, nint lParam)
     {
@@ -160,36 +183,29 @@ public static class WindowFinder
         {
             return 0;
         }
-        if (!NativeMethods.IsWindowVisible(hWnd))
-        {
-            return 1;
-        }
-        // Explorer's Progman is visible, plain-styled, and titled "Program Manager",
-        // yet real Alt-Tab never offers it.
-        if (hWnd == state.ShellWindow)
-        {
-            return 1;
-        }
-        if ((NativeMethods.GetWindowLong(hWnd, NativeMethods.GwlExStyle) & NativeMethods.WsExToolWindow) != 0)
-        {
-            return 1;
-        }
         NativeMethods.GetWindowThreadProcessId(hWnd, out var pid);
-        if (pid == state.OwnPid)
-        {
-            return 1;
-        }
-        if (NativeMethods.DwmGetWindowAttribute(hWnd, NativeMethods.DwmWaCloaked, out var cloaked, 4) == 0 && cloaked != 0)
-        {
-            return 1;
-        }
+        // Cloak query failure counts as not cloaked, matching the old inline check.
+        var cloaked = NativeMethods.DwmGetWindowAttribute(hWnd, NativeMethods.DwmWaCloaked, out var value, 4) == 0
+            ? value
+            : 0u;
         var buffer = new char[256];
         var length = NativeMethods.GetWindowTextW(hWnd, buffer, buffer.Length);
-        if (length <= 0)
+        if (!PassesSwitchableFilter(
+                NativeMethods.IsWindowVisible(hWnd),
+                // Explorer's Progman is visible, plain-styled, and titled "Program
+                // Manager", yet real Alt-Tab never offers it.
+                hWnd == state.ShellWindow,
+                NativeMethods.GetWindowLong(hWnd, NativeMethods.GwlExStyle),
+                pid == state.OwnPid,
+                cloaked,
+                length))
         {
             return 1;
         }
-        state.Result.Add(new AppWindow(hWnd, new string(buffer, 0, length), pid));
+        state.Result.Add(new AppWindow(hWnd, new string(buffer, 0, length), pid)
+        {
+            IsMinimized = NativeMethods.IsIconic(hWnd),
+        });
         return 1;
     }
 
