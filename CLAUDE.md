@@ -30,6 +30,12 @@ run `--shell` (or no-args when shell-registered) on a dev machine** — it kills
 over the session. `--restore-shell` is the recovery path and must stay bulletproof (it runs before
 logging/Avalonia init).
 
+All public production APIs require meaningful XML documentation (`CS1573`/`CS1591` stay enabled and
+the Release verification build treats warnings as errors). Test method names are the executable
+specification and are exempt from that API-documentation rule. Do not use coverage percentage as a
+reason to automate the device-only flows listed below; add isolated unit tests around their pure
+state/serialization/decision logic and retain the manual device-verification boundary.
+
 The live shell, Steam protocol, device input, display-DPI, explorer, UAC, and lock-screen flows
 require the safe manual modes (`--settings` and `--overlay-test`) plus the device-verification
 process below; they must never be triggered by unattended tests.

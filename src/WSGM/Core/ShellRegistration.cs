@@ -66,12 +66,14 @@ public static class ShellRegistration
         }
     }
 
+    /// <summary>Gets the current account-level Windows shell command, if one is set.</summary>
     public static string? CurrentValue()
     {
         using var key = Registry.CurrentUser.OpenSubKey(WinlogonKey);
         return ShellSnapshot.ReadCurrent(key).Value;
     }
 
+    /// <summary>Gets whether the current account's shell command points at this executable.</summary>
     public static bool IsInstalledForThisExe() => IsOwnedByThisExe(CurrentValue());
 
     /// <summary>Registers WSGM as this user's shell. Saves any pre-existing custom

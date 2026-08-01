@@ -7,6 +7,7 @@ using Avalonia.Threading;
 
 namespace WSGM.Overlay;
 
+/// <summary>The fullscreen, controller-friendly overlay window.</summary>
 public partial class OverlayWindow : Window
 {
     private bool _confirmRestart;
@@ -17,14 +18,31 @@ public partial class OverlayWindow : Window
     private PixelPoint _slideEnd;
     private DateTime _slideStartedUtc;
 
+    /// <summary>Raised when the user requests to start or focus the home application.</summary>
     public event Action? HomeAppRequested;
+
+    /// <summary>Raised when the user requests a desktop/game-mode transition.</summary>
     public event Action? DesktopRequested;
+
+    /// <summary>Raised when the user requests the Settings window.</summary>
     public event Action? SettingsRequested;
+
+    /// <summary>Raised when the user requests to leave Steam Big Picture mode.</summary>
     public event Action? ExitBigPictureRequested;
+
+    /// <summary>Raised after the user confirms closing the home application.</summary>
     public event Action? CloseLauncherRequested;
+
+    /// <summary>Raised when the user opens the switchable-window picker.</summary>
     public event Action? SwitchAppsRequested;
+
+    /// <summary>Raised when the user selects a window from the switcher.</summary>
     public event Action<AppWindowEntry>? WindowPicked;
+
+    /// <summary>Raised when the user requests Task Manager.</summary>
     public event Action? TaskManagerRequested;
+
+    /// <summary>Raised when the overlay is dismissed without another action.</summary>
     public event Action? Dismissed;
 
     private bool _confirmCloseLauncher;
@@ -33,6 +51,8 @@ public partial class OverlayWindow : Window
     /// or when focus tracking is lost.</summary>
     internal InputElement DefaultFocusTarget => HomeAppButton;
 
+    /// <summary>Creates the overlay window bound to the supplied state.</summary>
+    /// <param name="viewModel">The state that drives labels, warnings, and the window picker.</param>
     public OverlayWindow(OverlayViewModel viewModel)
     {
         InitializeComponent();

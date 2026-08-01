@@ -17,6 +17,8 @@ public sealed class GamepadChordRecorder : IDisposable
     /// <summary>(buttons, isHold). Empty buttons = cancelled/timed out.</summary>
     public event Action<GamepadButtons, bool>? Recorded;
 
+    /// <summary>Creates a recorder using the supplied polling service or an owned service.</summary>
+    /// <param name="gamepad">An existing polling service, or <see langword="null"/> to create one.</param>
     public GamepadChordRecorder(GamepadService? gamepad = null)
     {
         _ownsService = gamepad is null;
@@ -32,6 +34,7 @@ public sealed class GamepadChordRecorder : IDisposable
         _expiryTimer.Tick += (_, _) => Finish(0, isHold: false, cancelled: true);
     }
 
+    /// <summary>Begins recording the next complete chord from a single controller.</summary>
     public void Start()
     {
         _tracker.Reset();
@@ -80,8 +83,10 @@ public sealed class GamepadChordRecorder : IDisposable
         Recorded?.Invoke(buttons, isHold && buttons != 0);
     }
 
+    /// <summary>Cancels recording and reports an empty chord.</summary>
     public void Cancel() => Finish(0, isHold: false, cancelled: true);
 
+    /// <summary>Stops recording and releases an owned polling service.</summary>
     public void Dispose()
     {
         _gamepad.StateChanged -= OnStateChanged;

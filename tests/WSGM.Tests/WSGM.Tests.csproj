@@ -5,6 +5,9 @@
     <IsTestProject>true</IsTestProject>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>WSGM.Tests</RootNamespace>
+    <!-- Public XML documentation is enforced for the shipped application. Test
+         method names supply the executable specification and remain intentionally concise. -->
+    <NoWarn>$(NoWarn);1573;1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />

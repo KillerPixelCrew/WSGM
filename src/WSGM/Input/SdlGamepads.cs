@@ -17,7 +17,23 @@ internal static unsafe class SdlGamepads
     /// <summary>One pad's folded button state, keyed by SDL joystick instance id.
     /// Per-pad states let chord detection require a chord to complete on ONE
     /// physical pad instead of being assembled from buttons across controllers.</summary>
-    public readonly record struct PadSnapshot(uint Id, GamepadButtons Buttons);
+    public readonly record struct PadSnapshot
+    {
+        /// <summary>Creates a per-controller button snapshot.</summary>
+        /// <param name="id">SDL's stable controller identifier for the current connection.</param>
+        /// <param name="buttons">The normalized buttons currently held on that controller.</param>
+        public PadSnapshot(uint id, GamepadButtons buttons)
+        {
+            Id = id;
+            Buttons = buttons;
+        }
+
+        /// <summary>Gets SDL's stable identifier for the connected controller.</summary>
+        public uint Id { get; }
+
+        /// <summary>Gets the normalized buttons currently held on the controller.</summary>
+        public GamepadButtons Buttons { get; }
+    }
 
     private static bool _initialized;
     private static bool _failed;
@@ -75,6 +91,7 @@ internal static unsafe class SdlGamepads
         }
     }
 
+    /// <summary>Initializes SDL's gamepad subsystem once for the process.</summary>
     public static void EnsureInitialized()
     {
         if (_initialized || _failed)

@@ -23,12 +23,16 @@ public sealed class ShellSession
     private System.Threading.Timer? _configDebounce;
     private readonly object _configDebounceGate = new();
 
+    /// <summary>Creates the shell session without performing any Windows state changes.</summary>
+    /// <param name="config">The configuration to apply when the session starts.</param>
+    /// <param name="overlayTestOnly">Whether to omit normal shell startup for the manual overlay test.</param>
     public ShellSession(AppConfig config, bool overlayTestOnly = false)
     {
         _config = config;
         _overlayTestOnly = overlayTestOnly;
     }
 
+    /// <summary>Starts the shell's startup applications, home application, and overlay services.</summary>
     public void Start()
     {
         _monitor = new SteamMonitor();

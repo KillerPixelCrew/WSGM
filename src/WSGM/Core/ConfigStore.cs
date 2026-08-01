@@ -5,8 +5,10 @@ using System.Threading;
 
 namespace WSGM.Core;
 
+/// <summary>Loads and atomically saves WSGM's shared per-user configuration file.</summary>
 public static class ConfigStore
 {
+    /// <summary>Absolute path of the persisted configuration file.</summary>
     public static string ConfigPath => Path.Combine(Log.Directory, "config.json");
 
     // Shell, settings window, and elevated one-shots all load-modify-save the same
@@ -19,6 +21,9 @@ public static class ConfigStore
     private const string MutexName = @"Local\WSGM.Config";
     private const int MutexTimeoutMs = 2000;
 
+    /// <summary>Loads the current configuration, returning safe defaults when the
+    /// file is absent, malformed, or inaccessible.</summary>
+    /// <returns>A normalized configuration that callers can use without null checks.</returns>
     public static AppConfig Load()
     {
         using var guard = ConfigMutex.Acquire();
@@ -75,6 +80,8 @@ public static class ConfigStore
         }
     }
 
+    /// <summary>Atomically persists a complete configuration snapshot.</summary>
+    /// <param name="config">The configuration state to serialize.</param>
     public static void Save(AppConfig config)
     {
         using var guard = ConfigMutex.Acquire();

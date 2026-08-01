@@ -7,18 +7,29 @@ using WSGM.Core;
 
 namespace WSGM;
 
+/// <summary>The intentionally narrow operating modes accepted by the executable.</summary>
 public enum RunMode
 {
+    /// <summary>Runs the registered Windows shell session.</summary>
     Shell,
+
+    /// <summary>Runs the settings or welcome UI without changing shell state.</summary>
     Settings,
+
+    /// <summary>Runs the manual overlay smoke-test session.</summary>
     OverlayTest,
 }
 
+/// <summary>Defines the safe command-line entry points and application bootstrap.</summary>
 public static class Program
 {
+    /// <summary>Gets the mode selected from the current command line.</summary>
     public static RunMode Mode { get; private set; } = RunMode.Settings;
     private static Mutex? _shellMutex;
 
+    /// <summary>Starts the selected supported application mode.</summary>
+    /// <param name="args">The command-line arguments passed to the executable.</param>
+    /// <returns>The process exit code.</returns>
     [STAThread]
     public static int Main(string[] args)
     {
@@ -280,6 +291,8 @@ public static class Program
         }
     }
 
+    /// <summary>Builds the Avalonia application configuration used by all UI modes.</summary>
+    /// <returns>The configured Avalonia application builder.</returns>
     public static AppBuilder BuildAvaloniaApp()
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()

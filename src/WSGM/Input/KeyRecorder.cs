@@ -29,6 +29,7 @@ public sealed class KeyRecorder : IDisposable
     /// Escape cancels and reports (0, 0).</summary>
     public event Action<uint, int>? Recorded;
 
+    /// <summary>Installs the low-level keyboard hook and begins capturing one shortcut.</summary>
     public void Start()
     {
         Stop();
@@ -46,6 +47,7 @@ public sealed class KeyRecorder : IDisposable
         }
     }
 
+    /// <summary>Stops keyboard capture and removes the low-level hook.</summary>
     public void Stop()
     {
         if (_hook != 0)
@@ -159,6 +161,9 @@ public sealed class KeyRecorder : IDisposable
         return string.Join(" + ", parts);
     }
 
+    /// <summary>Converts a Win32 virtual-key code into its user-facing name.</summary>
+    /// <param name="vk">The virtual-key code to describe.</param>
+    /// <returns>A readable key name.</returns>
     public static string KeyName(int vk) => vk switch
     {
         0x08 => "Backspace",
@@ -203,5 +208,6 @@ public sealed class KeyRecorder : IDisposable
         _ => $"Key 0x{vk:X2}",
     };
 
+    /// <summary>Stops capture and releases the keyboard hook.</summary>
     public void Dispose() => Stop();
 }

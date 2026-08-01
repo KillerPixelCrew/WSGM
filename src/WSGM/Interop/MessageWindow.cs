@@ -19,11 +19,14 @@ public sealed unsafe class MessageWindow : IDisposable
     {
     }
 
+    /// <summary>Gets the native handle of the message-only window.</summary>
     public nint Handle => _hwnd;
 
     /// <summary>Raised on the Avalonia UI thread with the hotkey id.</summary>
     public event Action<int>? HotkeyPressed;
 
+    /// <summary>Gets or creates the process-wide message-only window.</summary>
+    /// <returns>The singleton message window.</returns>
     public static MessageWindow Create()
     {
         if (_instance is not null)
@@ -91,6 +94,7 @@ public sealed unsafe class MessageWindow : IDisposable
         return NativeMethods.DefWindowProcW(hWnd, msg, wParam, lParam);
     }
 
+    /// <summary>Destroys the native window and clears the process singleton.</summary>
     public void Dispose()
     {
         if (_hwnd != 0)

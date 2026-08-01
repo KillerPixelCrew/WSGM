@@ -13,15 +13,20 @@ public static class Installer
 {
     private const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\WSGM";
 
+    /// <summary>Gets the stable per-user directory that holds the installed application files.</summary>
     public static string InstallDir => Path.Combine(Log.Directory, "bin");
+
+    /// <summary>Gets the installed WSGM executable path.</summary>
     public static string InstalledExePath => Path.Combine(InstallDir, "WSGM.exe");
 
     private static string ShortcutPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs", "WSGM.lnk");
 
+    /// <summary>Gets whether the current process is the installed copy rather than a portable copy.</summary>
     public static bool IsRunningFromInstallDir =>
         string.Equals(Environment.ProcessPath, InstalledExePath, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>Gets whether an installed WSGM executable exists.</summary>
     public static bool IsAppInstalled => File.Exists(InstalledExePath);
 
     /// <summary>True when the install was made by the Inno Setup installer, which then

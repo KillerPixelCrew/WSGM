@@ -26,12 +26,53 @@ public static class UacSettings
     private const int DefaultConsentPrompt = 5;
     private const int DefaultSecureDesktop = 1;
 
-    public sealed record UacState(bool Readable, int ConsentPrompt, int SecureDesktop, int EnableLua)
+    /// <summary>Snapshot of the machine UAC policy required for an exact restore.</summary>
+    public sealed record UacState
     {
+        /// <summary>Creates a UAC policy snapshot.</summary>
+        /// <param name="readable">Whether the policy key could be read.</param>
+        /// <param name="consentPrompt">The administrator consent-prompt policy value.</param>
+        /// <param name="secureDesktop">The secure-desktop policy value.</param>
+        /// <param name="enableLua">The base UAC enablement policy value.</param>
+        public UacState(bool readable, int consentPrompt, int secureDesktop, int enableLua)
+        {
+            Readable = readable;
+            ConsentPrompt = consentPrompt;
+            SecureDesktop = secureDesktop;
+            EnableLua = enableLua;
+        }
+
+        /// <summary>Gets whether the policy values could be read.</summary>
+        public bool Readable { get; init; }
+
+        /// <summary>Gets the administrator consent-prompt policy value.</summary>
+        public int ConsentPrompt { get; init; }
+
+        /// <summary>Gets the secure-desktop policy value.</summary>
+        public int SecureDesktop { get; init; }
+
+        /// <summary>Gets the base UAC enablement policy value.</summary>
+        public int EnableLua { get; init; }
+
+        /// <summary>Deconstructs the snapshot using its original positional-record shape.</summary>
+        /// <param name="readable">Receives whether the policy values could be read.</param>
+        /// <param name="consentPrompt">Receives the administrator consent-prompt policy value.</param>
+        /// <param name="secureDesktop">Receives the secure-desktop policy value.</param>
+        /// <param name="enableLua">Receives the base UAC enablement policy value.</param>
+        public void Deconstruct(out bool readable, out int consentPrompt, out int secureDesktop, out int enableLua)
+        {
+            readable = Readable;
+            consentPrompt = ConsentPrompt;
+            secureDesktop = SecureDesktop;
+            enableLua = EnableLua;
+        }
+
         /// <summary>True when elevation happens silently for administrators.</summary>
         public bool PromptsDisabled => Readable && ConsentPrompt == 0;
     }
 
+    /// <summary>Reads the current UAC policy without changing it.</summary>
+    /// <returns>A readable snapshot, or an unreadable sentinel when access fails.</returns>
     public static UacState Read()
     {
         try

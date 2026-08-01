@@ -17,9 +17,11 @@ namespace WSGM.Overlay;
 /// (see GamepadNavigation), so the labeled-A button confirms in every style.</summary>
 public sealed partial class GlyphIcon : ContentControl
 {
+    /// <summary>Defines the Avalonia property that selects the controller-glyph family.</summary>
     public static readonly StyledProperty<GlyphStyle> GlyphStyleProperty =
         AvaloniaProperty.Register<GlyphIcon, GlyphStyle>(nameof(GlyphStyle));
 
+    /// <summary>Defines the Avalonia property that selects the labeled button glyph.</summary>
     public static readonly StyledProperty<string> ButtonProperty =
         AvaloniaProperty.Register<GlyphIcon, string>(nameof(Button), "a");
 
@@ -34,18 +36,21 @@ public sealed partial class GlyphIcon : ContentControl
     [GeneratedRegex("\\bd=\"(?<data>[^\"]+)\"", RegexOptions.Singleline)]
     private static partial Regex DataRegex();
 
+    /// <summary>Gets or sets the controller-glyph family to render.</summary>
     public GlyphStyle GlyphStyle
     {
         get => GetValue(GlyphStyleProperty);
         set => SetValue(GlyphStyleProperty, value);
     }
 
+    /// <summary>Gets or sets the labeled controller button to render.</summary>
     public string Button
     {
         get => GetValue(ButtonProperty);
         set => SetValue(ButtonProperty, value);
     }
 
+    /// <inheritdoc />
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
@@ -55,6 +60,7 @@ public sealed partial class GlyphIcon : ContentControl
         }
     }
 
+    /// <inheritdoc />
     protected override void OnAttachedToVisualTree(Avalonia.VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);

@@ -34,6 +34,9 @@ public sealed class BootSplash
     private bool _dismissing;
     private bool _closeScheduled;
 
+    /// <summary>Creates the startup splash coordinator.</summary>
+    /// <param name="config">The shell configuration containing splash and display settings.</param>
+    /// <param name="modes">The session coordinator used for the desktop fallback.</param>
     public BootSplash(AppConfig config, SessionModes modes)
     {
         _config = config;

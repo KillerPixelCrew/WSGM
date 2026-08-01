@@ -22,7 +22,10 @@ public static class Steam
     /// SDL_app alone is not unique to Steam).</summary>
     public const string BigPictureWindowClass = "SDL_app";
 
+    /// <summary>Protocol URL that opens Steam Big Picture mode.</summary>
     public const string OpenBigPictureUrl = "steam://open/bigpicture";
+
+    /// <summary>Protocol URL that exits Steam Big Picture mode.</summary>
     public const string CloseBigPictureUrl = "steam://close/bigpicture";
     /// <summary>Graceful full Steam shutdown (verified client URL).</summary>
     public const string ExitUrl = "steam://exit";
@@ -77,8 +80,10 @@ public static class Steam
         return null;
     }
 
+    /// <summary>Gets whether a usable Steam executable was found.</summary>
     public static bool IsInstalled => ExePath is not null;
 
+    /// <summary>Gets whether a Steam client or Big Picture helper process is running.</summary>
     public static bool IsRunning => WindowFinder.FindProcessIds(ProcessNames).Count > 0;
 
     /// <summary>Starts or focuses Big Picture the smooth way. Cold start passes the

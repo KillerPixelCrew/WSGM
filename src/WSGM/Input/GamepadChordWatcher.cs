@@ -12,8 +12,12 @@ public sealed class GamepadChordWatcher : IDisposable
     private readonly ChordTracker _tracker;
     private GamepadChordConfig _config;
 
+    /// <summary>Raised once when the configured chord completes on one controller.</summary>
     public event Action? Triggered;
 
+    /// <summary>Creates a watcher for one polling service and initial chord configuration.</summary>
+    /// <param name="gamepad">The service that provides per-controller state changes.</param>
+    /// <param name="config">The chord to watch for.</param>
     public GamepadChordWatcher(GamepadService gamepad, GamepadChordConfig config)
     {
         _gamepad = gamepad;
@@ -24,6 +28,8 @@ public sealed class GamepadChordWatcher : IDisposable
         _gamepad.StateChanged += OnStateChanged;
     }
 
+    /// <summary>Replaces the watched chord and clears any partial chord state.</summary>
+    /// <param name="config">The new chord configuration.</param>
     public void ApplyConfig(GamepadChordConfig config)
     {
         _config = config;
@@ -64,6 +70,7 @@ public sealed class GamepadChordWatcher : IDisposable
         Triggered?.Invoke();
     }
 
+    /// <summary>Unsubscribes from controller state changes.</summary>
     public void Dispose()
     {
         _gamepad.StateChanged -= OnStateChanged;
