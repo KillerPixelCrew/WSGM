@@ -237,4 +237,14 @@ public partial class TaskbarWindow : Window
         var point = control.PointToScreen(new Point(control.Bounds.Width / 2, 0));
         return new PixelPoint(point.X, point.Y);
     }
+
+    /// <summary>Gamepad secondary action (X): the context menu of the focused
+    /// tray tile. No-op when the focused element isn't a tray icon.</summary>
+    internal void RequestTrayContextMenu(InputElement? focused)
+    {
+        if (focused is Control { DataContext: TrayIconEntry entry } control)
+        {
+            TrayIconActivated?.Invoke(entry, true, AnchorAbove(control));
+        }
+    }
 }

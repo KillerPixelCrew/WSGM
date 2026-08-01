@@ -351,6 +351,13 @@ public sealed unsafe class TrayHost : IDisposable
         NativeMethods.GetWindowThreadProcessId(icon.Hwnd, out var pid);
         NativeMethods.AllowSetForegroundWindow(pid);
 
+        // WinForms-hosted tray menus (Handheld Companion et al.) place themselves
+        // at GetCursorPos and IGNORE the message coordinates entirely — with a
+        // gamepad/synthetic activation the physical cursor is somewhere stale, so
+        // the menu would pop at a random spot. Park the cursor on the anchor
+        // first. A one-shot cursor MOVE, not input interception (invariant 2).
+        NativeMethods.SetCursorPos(screenX, screenY);
+
         var down = contextMenu ? NativeMethods.WmRButtonDown : NativeMethods.WmLButtonDown;
         var up = contextMenu ? NativeMethods.WmRButtonUp : NativeMethods.WmLButtonUp;
         Notify(icon, down, screenX, screenY);

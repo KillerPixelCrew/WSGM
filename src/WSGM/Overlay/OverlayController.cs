@@ -545,13 +545,13 @@ public sealed class OverlayController : IDisposable
         OnTrayIconsChanged();
         _taskbar = new TaskbarWindow(vm, DisplayScale.GetUiScalePercent(_config) / 100.0);
         _taskbar.WindowPicked += PickTaskbarWindow;
-        _taskbar.TrayIconActivated += (entry, contextMenu, anchor) =>
-            _trayHost?.SendClick(entry.Icon, contextMenu, anchor.X, anchor.Y);
+        _taskbar.TrayIconActivated += OnTrayIconActivated;
         _taskbar.Dismissed += CloseTaskbar;
         _taskbar.Closed += (_, _) => OnTaskbarClosed();
         _taskbarNavigation = new GamepadNavigation(_gamepad, _taskbar, CloseTaskbar,
             isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
-            preferredFocus: () => _taskbar?.DefaultFocusTarget);
+            preferredFocus: () => _taskbar?.DefaultFocusTarget,
+            secondary: focused => _taskbar?.RequestTrayContextMenu(focused));
         _gamepad.Start();
         _taskbar.Show();
         _taskbar.Activate();
@@ -623,10 +623,37 @@ public sealed class OverlayController : IDisposable
         _taskbarRefresh = null;
     }
 
+    private IDisposable? _pendingTopmostRestore;
+
+    /// <summary>Forwards a tray-icon activation to its owner. For context menus
+    /// the bar additionally drops Topmost for a while: WinForms tray menus shown
+    /// via plain Show() (Handheld Companion since its commit c86932bc) are
+    /// NON-topmost and never activated — over a topmost bar they open BEHIND it,
+    /// which reads as "the menu doesn't appear" (device-reported).</summary>
+    private void OnTrayIconActivated(TrayIconEntry entry, bool contextMenu, Avalonia.PixelPoint anchor)
+    {
+        if (contextMenu && _taskbar is not null)
+        {
+            _taskbar.Topmost = false;
+            _pendingTopmostRestore?.Dispose();
+            _pendingTopmostRestore = RunOnUiThreadAfter(TimeSpan.FromSeconds(10), () =>
+            {
+                _pendingTopmostRestore = null;
+                if (_taskbar is not null)
+                {
+                    _taskbar.Topmost = true;
+                }
+            });
+        }
+        _trayHost?.SendClick(entry.Icon, contextMenu, anchor.X, anchor.Y);
+    }
+
     private void OnTaskbarClosed()
     {
         _taskbarClosePending = false;
         _pendingTaskbarClose = null;
+        _pendingTopmostRestore?.Dispose();
+        _pendingTopmostRestore = null;
         StopTaskbarRefresh();
         _taskbarNavigation?.Dispose();
         _taskbarNavigation = null;

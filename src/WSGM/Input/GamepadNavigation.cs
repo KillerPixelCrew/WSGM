@@ -24,6 +24,7 @@ public sealed class GamepadNavigation : IDisposable
     private readonly Action _back;
     private readonly Func<bool>? _isNintendoLayout;
     private readonly Func<InputElement?>? _preferredFocus;
+    private readonly Action<InputElement?>? _secondary;
 
     /// <summary>FocusManager fallback: in a window that never gets OS-activated
     /// (the overlay), GetFocusedElement may not track our programmatic focus.</summary>
@@ -42,14 +43,19 @@ public sealed class GamepadNavigation : IDisposable
     /// and labeled B (south, XInput A) goes back.</param>
     /// <param name="preferredFocus">The control to focus when nothing suitable holds
     /// focus (e.g. the overlay's primary action instead of its close button).</param>
+    /// <param name="secondary">Optional secondary action for the physical west
+    /// button (Xbox X), invoked with the currently focused element — the
+    /// taskbar's tray-icon context menu.</param>
     public GamepadNavigation(GamepadService gamepad, Window window, Action back,
-        Func<bool>? isNintendoLayout = null, Func<InputElement?>? preferredFocus = null)
+        Func<bool>? isNintendoLayout = null, Func<InputElement?>? preferredFocus = null,
+        Action<InputElement?>? secondary = null)
     {
         _gamepad = gamepad;
         _window = window;
         _back = back;
         _isNintendoLayout = isNintendoLayout;
         _preferredFocus = preferredFocus;
+        _secondary = secondary;
         _gamepad.ButtonPressed += OnButtons;
         // Tunnel so the arrows aren't consumed by a ScrollViewer for scrolling first.
         _window.AddHandler(InputElement.KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel);
@@ -74,6 +80,13 @@ public sealed class GamepadNavigation : IDisposable
         if (buttons.HasFlag(confirm) || buttons.HasFlag(GamepadButtons.Start))
         {
             Activate(CurrentTarget());
+            return;
+        }
+        // Physical west button (same position on every layout). Only wired where
+        // a secondary action exists (tray-icon context menus on the taskbar).
+        if (_secondary is not null && buttons.HasFlag(GamepadButtons.X))
+        {
+            _secondary(CurrentTarget());
             return;
         }
 
