@@ -90,6 +90,37 @@ public sealed class TaskbarEntry : INotifyPropertyChanged
     private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
 
+/// <summary>One tray icon tile. Wraps the host's live record; Refresh() re-raises
+/// the bindable projections after a NIM_MODIFY.</summary>
+public sealed class TrayIconEntry : INotifyPropertyChanged
+{
+    /// <summary>Raised when the projected icon state changes.</summary>
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>Creates a tile over a live tray-icon record.</summary>
+    /// <param name="icon">The host's icon record.</param>
+    public TrayIconEntry(TrayIconTable.TrayIcon icon)
+    {
+        Icon = icon;
+    }
+
+    /// <summary>Gets the underlying tray-icon record (click forwarding target).</summary>
+    public TrayIconTable.TrayIcon Icon { get; }
+
+    /// <summary>Gets the rasterized icon image.</summary>
+    public Bitmap? Image => Icon.IconImage as Bitmap;
+
+    /// <summary>Gets the tooltip text.</summary>
+    public string Tip => Icon.Tip;
+
+    /// <summary>Re-raises the projections after the underlying record changed.</summary>
+    public void Refresh()
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Image)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Tip)));
+    }
+}
+
 /// <summary>State for the game-mode taskbar window.</summary>
 public sealed class TaskbarViewModel : INotifyPropertyChanged
 {
@@ -164,6 +195,58 @@ public sealed class TaskbarViewModel : INotifyPropertyChanged
         }
 
         HasEntries = Entries.Count > 0;
+    }
+
+    /// <summary>Tray-icon tiles (registration order, hidden icons filtered out).</summary>
+    public ObservableCollection<TrayIconEntry> TrayIcons { get; } = [];
+
+    private bool _hasTrayIcons;
+    /// <summary>Gets or sets whether the tray area (separator + icons) renders.</summary>
+    public bool HasTrayIcons
+    {
+        get => _hasTrayIcons;
+        set
+        {
+            if (_hasTrayIcons != value)
+            {
+                _hasTrayIcons = value;
+                Raise(nameof(HasTrayIcons));
+            }
+        }
+    }
+
+    /// <summary>Reconciles the tray tiles against the host's live records — same
+    /// in-place discipline as the app tiles (identity = record reference), so a
+    /// focused tray button survives unrelated changes.</summary>
+    /// <param name="icons">The host's registered icons (hidden ones are filtered here).</param>
+    public void ReconcileTray(IReadOnlyList<TrayIconTable.TrayIcon> icons)
+    {
+        var visible = new List<TrayIconTable.TrayIcon>();
+        foreach (var icon in icons)
+        {
+            if (!icon.IsHidden)
+            {
+                visible.Add(icon);
+            }
+        }
+
+        for (var i = TrayIcons.Count - 1; i >= 0; i--)
+        {
+            var entry = TrayIcons[i];
+            if (visible.Remove(entry.Icon))
+            {
+                entry.Refresh();
+            }
+            else
+            {
+                TrayIcons.RemoveAt(i);
+            }
+        }
+        foreach (var icon in visible)
+        {
+            TrayIcons.Add(new TrayIconEntry(icon));
+        }
+        HasTrayIcons = TrayIcons.Count > 0;
     }
 
     private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));

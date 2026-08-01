@@ -15,6 +15,7 @@ public sealed class ShellSession
     private SessionModes? _modes;
     private StartupAppWatcher? _startupWatcher;
     private OverlayController? _overlay;
+    private TrayHost? _trayHost;
     private BootSplash? _splash;
     // Field-rooted deliberately: an unreferenced enabled FileSystemWatcher is
     // GC-collectible (it holds only a WeakReference to itself in its pending
@@ -38,6 +39,25 @@ public sealed class ShellSession
         _monitor = new SteamMonitor();
         _modes = new SessionModes(_config, _monitor);
         _overlay = new OverlayController(_config, _monitor, _modes);
+
+        // The tray host must never coexist with explorer's taskbar (Z-order war
+        // over FindWindow — see TrayHost): gone before explorer starts, back
+        // after game mode kills it. Apps re-home their icons on each side's
+        // TaskbarCreated broadcast.
+        _modes.DesktopModeStarting += () =>
+        {
+            _overlay?.AttachTrayHost(null);
+            _trayHost?.Dispose();
+            _trayHost = null;
+        };
+        _modes.GameModeEntered += () =>
+        {
+            _trayHost = TrayHost.Create();
+            if (_trayHost is not null)
+            {
+                _overlay?.AttachTrayHost(_trayHost);
+            }
+        };
 
         if (_overlayTestOnly)
         {
@@ -68,6 +88,15 @@ public sealed class ShellSession
         // Posture first: it changes the display scale, and the splash sizes itself
         // to the final screen metrics.
         _modes.ApplyGameModePosture();
+        // Game-mode logon boot: host the tray now, before startup apps launch —
+        // their Shell_NotifyIcon registrations need a living Shell_TrayWnd or
+        // they only get an icon after the TaskbarCreated-driven retry (which
+        // message-only tray windows never hear).
+        _trayHost = TrayHost.Create();
+        if (_trayHost is not null)
+        {
+            _overlay.AttachTrayHost(_trayHost);
+        }
         if (_config.BootSplashEnabled)
         {
             _splash = new BootSplash(_config, _modes);

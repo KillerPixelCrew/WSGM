@@ -57,17 +57,26 @@
             </ItemsControl>
 
             <!-- Tray area (populated by the Shell_TrayWnd host; hidden when empty). -->
-            <Border x:Name="TraySeparator"
-                    Width="1" Height="30"
+            <Border Width="1" Height="30"
                     Background="#FF343434"
                     Margin="4,0"
-                    IsVisible="False" />
-            <ItemsControl x:Name="TrayItems" IsVisible="False">
+                    IsVisible="{Binding HasTrayIcons}" />
+            <ItemsControl ItemsSource="{Binding TrayIcons}" IsVisible="{Binding HasTrayIcons}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
                         <StackPanel Orientation="Horizontal" Spacing="2" />
                     </ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="ov:TrayIconEntry">
+                        <Button Classes="task-tile tray"
+                                Click="OnTrayClick"
+                                PointerReleased="OnTrayPointerReleased"
+                                ToolTip.Tip="{Binding Tip}">
+                            <Image Source="{Binding Image}" Width="20" Height="20" />
+                        </Button>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
             </ItemsControl>
         </StackPanel>
     </Border>

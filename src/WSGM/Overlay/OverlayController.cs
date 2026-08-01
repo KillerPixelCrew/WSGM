@@ -31,6 +31,7 @@ public sealed class OverlayController : IDisposable
     private GamepadNavigation? _taskbarNavigation;
     private WindowIconCache? _iconCache;
     private Avalonia.Threading.DispatcherTimer? _taskbarRefresh;
+    private TrayHost? _trayHost;
     private string _pendingWarning = "";
     private bool _reopenOverlayForWarning;
     private bool _disposed;
@@ -541,8 +542,11 @@ public sealed class OverlayController : IDisposable
         RefreshTaskbarEntries();
         Log.Info($"Taskbar shown ({vm.Entries.Count} windows).");
 
+        OnTrayIconsChanged();
         _taskbar = new TaskbarWindow(vm);
         _taskbar.WindowPicked += PickTaskbarWindow;
+        _taskbar.TrayIconActivated += (entry, contextMenu, anchor) =>
+            _trayHost?.SendClick(entry.Icon, contextMenu, anchor.X, anchor.Y);
         _taskbar.Dismissed += CloseTaskbar;
         _taskbar.Closed += (_, _) => OnTaskbarClosed();
         _taskbarNavigation = new GamepadNavigation(_gamepad, _taskbar, CloseTaskbar,
@@ -557,6 +561,27 @@ public sealed class OverlayController : IDisposable
             _touchSwipes.WatchTaps = true;
         }
     }
+
+    /// <summary>Attaches (or detaches, with null) the game-mode tray host whose
+    /// icons render in the bar's tray area. ShellSession owns the host's
+    /// lifecycle — created per game-mode span, destroyed before explorer starts.</summary>
+    /// <param name="host">The live tray host, or null when leaving game mode.</param>
+    public void AttachTrayHost(TrayHost? host)
+    {
+        if (_trayHost is not null)
+        {
+            _trayHost.IconsChanged -= OnTrayIconsChanged;
+        }
+        _trayHost = host;
+        if (host is not null)
+        {
+            host.IconsChanged += OnTrayIconsChanged;
+        }
+        OnTrayIconsChanged();
+    }
+
+    private void OnTrayIconsChanged()
+        => _taskbarViewModel?.ReconcileTray(_trayHost?.Table.Icons ?? []);
 
     /// <summary>Rebuilds/updates the tile collection in place. While the bar is
     /// open the foreground window is the bar itself, so the highlight uses the
@@ -712,6 +737,7 @@ public sealed class OverlayController : IDisposable
             return;
         }
         _disposed = true;
+        AttachTrayHost(null);
         _modes.SteamStartFailed -= WarnOrReopen;
         if (_monitor is not null)
         {

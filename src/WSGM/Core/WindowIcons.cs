@@ -174,13 +174,20 @@ public sealed class WindowIconCache : IDisposable
         }
     }
 
+    private Bitmap? Render(nint hIcon) => IconRasterizer.Rasterize(hIcon, _pixelSize);
+}
+
+/// <summary>Turns a live HICON into an Avalonia bitmap through a 32-bpp DIB.
+/// Shared by the taskbar's window-icon cache and the tray host's synchronous
+/// icon snapshots.</summary>
+internal static class IconRasterizer
+{
     /// <summary>Draws the icon into a 32-bpp top-down DIB and copies the BGRA pixels
     /// into an Avalonia bitmap. Legacy icons without an alpha channel come out of
     /// DrawIconEx fully transparent (alpha 0 everywhere); a second DI_MASK pass
     /// reconstructs their opacity (mask black = opaque).</summary>
-    private unsafe Bitmap? Render(nint hIcon)
+    internal static Bitmap? Rasterize(nint hIcon, int size)
     {
-        var size = _pixelSize;
         var pixels = new byte[size * size * 4];
         if (!DrawIntoDib(hIcon, size, NativeMethods.DiNormal, pixels))
         {

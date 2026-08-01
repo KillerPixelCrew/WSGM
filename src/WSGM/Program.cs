@@ -264,6 +264,14 @@ public static class Program
         if (Mode == RunMode.Shell)
         {
             ShellRegistration.Uninstall();
+            // Best-effort (fails from a non-UI thread, and the dying process
+            // destroys the window anyway): don't leave our Shell_TrayWnd up while
+            // explorer's taskbar comes back.
+            try
+            {
+                Shell.TrayHost.DestroyActive();
+            }
+            catch { /* recovery must not throw */ }
             ExplorerControl.StartExplorer();
             // The desktop we just brought back should behave like a touch desktop.
             SlateMode.ApplyDesktopMode();

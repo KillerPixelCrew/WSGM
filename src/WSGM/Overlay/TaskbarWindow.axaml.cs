@@ -21,6 +21,11 @@ public partial class TaskbarWindow : Window
     /// <summary>Raised when the user picks an application tile.</summary>
     public event Action<TaskbarEntry>? WindowPicked;
 
+    /// <summary>Raised when the user activates a tray icon. Arguments: the entry,
+    /// whether this is a context-menu (right-click) activation, and the screen
+    /// pixel position the app should anchor any menu to.</summary>
+    public event Action<TrayIconEntry, bool, PixelPoint>? TrayIconActivated;
+
     /// <summary>Raised when the taskbar is dismissed without another action.</summary>
     public event Action? Dismissed;
 
@@ -170,5 +175,35 @@ public partial class TaskbarWindow : Window
         {
             WindowPicked?.Invoke(entry);
         }
+    }
+
+    /// <summary>Tap / A-button / left click → the icon's primary activation.</summary>
+    private void OnTrayClick(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is TrayIconEntry entry && sender is Control control)
+        {
+            TrayIconActivated?.Invoke(entry, false, AnchorAbove(control));
+        }
+    }
+
+    /// <summary>Right mouse button → the icon's context menu (many tray apps only
+    /// respond to this). Button.Click never fires for the right button, so this
+    /// rides PointerReleased.</summary>
+    private void OnTrayPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (e.InitialPressMouseButton == MouseButton.Right
+            && (sender as Control)?.DataContext is TrayIconEntry entry
+            && sender is Control control)
+        {
+            TrayIconActivated?.Invoke(entry, true, AnchorAbove(control));
+        }
+    }
+
+    /// <summary>Screen position just above the tile's center — where the app
+    /// should anchor a popup menu (v4 coordinate protocol).</summary>
+    private static PixelPoint AnchorAbove(Control control)
+    {
+        var point = control.PointToScreen(new Point(control.Bounds.Width / 2, 0));
+        return new PixelPoint(point.X, point.Y);
     }
 }

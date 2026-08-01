@@ -437,4 +437,48 @@ internal static partial class NativeMethods
     [LibraryImport("gdi32.dll")]
     internal static unsafe partial nint CreateDIBSection(
         nint hdc, BitmapInfoHeader* pbmi, uint usage, out nint ppvBits, nint hSection, uint offset);
+
+    // ---- Tray host (Shell_TrayWnd) ----
+    internal const uint WmCopyData = 0x004A;
+    internal const uint WmWindowPosChanged = 0x0047;
+    internal const uint WmContextMenu = 0x007B;
+    internal const uint WmRButtonDown = 0x0204;
+    internal const uint WmRButtonUp = 0x0205;
+    internal const uint NinSelect = 0x0400;
+    internal const uint MsgfltAllow = 1;
+    internal const uint WsPopup = 0x80000000;
+    internal const uint WsChild = 0x40000000;
+    internal const uint WsClipChildren = 0x02000000;
+    internal const uint WsClipSiblings = 0x04000000;
+    internal const uint WsExTopmost = 0x00000008;
+    internal const nint HwndBroadcast = 0xFFFF;
+    internal const int SwHide = 0;
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct CopyDataStruct
+    {
+        public nint dwData;
+        public uint cbData;
+        public nint lpData;
+    }
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool ChangeWindowMessageFilterEx(
+        nint hwnd, uint message, uint action, nint pChangeFilterStruct);
+
+    [LibraryImport("user32.dll", EntryPoint = "RegisterWindowMessageW", StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial uint RegisterWindowMessageW(string lpString);
+
+    [LibraryImport("user32.dll", EntryPoint = "SendNotifyMessageW", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool SendNotifyMessageW(nint hWnd, uint msg, nint wParam, nint lParam);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool AllowSetForegroundWindow(uint dwProcessId);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool IsWindow(nint hWnd);
 }
