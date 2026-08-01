@@ -359,4 +359,82 @@ internal static partial class NativeMethods
         [MarshalAs(UnmanagedType.U1)] bool hibernate,
         [MarshalAs(UnmanagedType.U1)] bool forceCritical,
         [MarshalAs(UnmanagedType.U1)] bool disableWakeEvent);
+
+    // ---- Window icons (taskbar) ----
+    internal const uint WmGetIcon = 0x007F;
+    internal const uint WmQueryDragIcon = 0x0037;
+    internal const nint IconSmall = 0;
+    internal const nint IconBig = 1;
+    internal const nint IconSmall2 = 2;
+    internal const uint SmtoAbortIfHung = 0x0002;
+    internal const int GclpHicon = -14;
+    internal const int GclpHiconSm = -34;
+    internal const uint DiMask = 0x0001;
+    internal const uint DiNormal = 0x0003;
+    internal const uint DibRgbColors = 0;
+    internal const uint BiRgb = 0;
+
+    [LibraryImport("user32.dll", EntryPoint = "SendMessageTimeoutW", SetLastError = true)]
+    internal static partial nint SendMessageTimeoutW(
+        nint hWnd, uint msg, nint wParam, nint lParam, uint fuFlags, uint uTimeout, out nint lpdwResult);
+
+    // 64-bit-only entry point; the app ships win-x64 exclusively.
+    [LibraryImport("user32.dll", EntryPoint = "GetClassLongPtrW")]
+    internal static partial nint GetClassLongPtrW(nint hWnd, int nIndex);
+
+    [LibraryImport("user32.dll")]
+    internal static partial nint CopyIcon(nint hIcon);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool DestroyIcon(nint hIcon);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool DrawIconEx(
+        nint hdc, int xLeft, int yTop, nint hIcon, int cxWidth, int cyWidth,
+        uint istepIfAniCur, nint hbrFlickerFreeDraw, uint diFlags);
+
+    [LibraryImport("shell32.dll", EntryPoint = "ExtractIconExW", StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial uint ExtractIconExW(
+        string lpszFile, int nIconIndex, out nint phiconLarge, out nint phiconSmall, uint nIcons);
+
+    [LibraryImport("kernel32.dll", EntryPoint = "QueryFullProcessImageNameW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool QueryFullProcessImageNameW(
+        nint hProcess, uint dwFlags, [Out] char[] lpExeName, ref uint lpdwSize);
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct BitmapInfoHeader
+    {
+        public uint biSize;
+        public int biWidth;
+        public int biHeight;
+        public ushort biPlanes;
+        public ushort biBitCount;
+        public uint biCompression;
+        public uint biSizeImage;
+        public int biXPelsPerMeter;
+        public int biYPelsPerMeter;
+        public uint biClrUsed;
+        public uint biClrImportant;
+    }
+
+    [LibraryImport("gdi32.dll")]
+    internal static partial nint CreateCompatibleDC(nint hdc);
+
+    [LibraryImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool DeleteDC(nint hdc);
+
+    [LibraryImport("gdi32.dll")]
+    internal static partial nint SelectObject(nint hdc, nint h);
+
+    [LibraryImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool DeleteObject(nint ho);
+
+    [LibraryImport("gdi32.dll")]
+    internal static unsafe partial nint CreateDIBSection(
+        nint hdc, BitmapInfoHeader* pbmi, uint usage, out nint ppvBits, nint hSection, uint offset);
 }
