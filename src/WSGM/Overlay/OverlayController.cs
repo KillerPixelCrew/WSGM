@@ -8,7 +8,12 @@ using WSGM.Shell;
 namespace WSGM.Overlay;
 
 /// <summary>Owns the overlay activation surfaces (hotkey, raw-input touch swipes) and the
-/// overlay window itself. Single entry point: ShowOverlay().</summary>
+/// two focus-taking WSGM surfaces themselves: the quick-access overlay
+/// (ShowOverlay) and the game-mode taskbar (ShowTaskbar). One controller owns both
+/// because they share every piece of invariant-critical state — the Steam Input
+/// pin, the touch-swipe disarm/re-arm cycle, tap-outside dismissal, the gamepad
+/// service, and the focus-restore discipline — and the two surfaces are mutually
+/// exclusive (opening one closes the other).</summary>
 public sealed class OverlayController : IDisposable
 {
     private AppConfig _config;
@@ -21,6 +26,11 @@ public sealed class OverlayController : IDisposable
     private OverlayWindow? _overlay;
     private OverlayViewModel? _overlayViewModel;
     private GamepadNavigation? _navigation;
+    private TaskbarWindow? _taskbar;
+    private TaskbarViewModel? _taskbarViewModel;
+    private GamepadNavigation? _taskbarNavigation;
+    private WindowIconCache? _iconCache;
+    private Avalonia.Threading.DispatcherTimer? _taskbarRefresh;
     private string _pendingWarning = "";
     private bool _reopenOverlayForWarning;
     private bool _disposed;
@@ -80,7 +90,27 @@ public sealed class OverlayController : IDisposable
         }
     }
 
-    private void OnSwipeTriggered(ScreenEdge edge) => ShowOverlay();
+    private void OnSwipeTriggered(ScreenEdge edge)
+    {
+        if (OpensTaskbar(edge, _config.Gestures.BottomEdgeAction, ExplorerControl.IsRunningInSession()))
+        {
+            ShowTaskbar();
+        }
+        else
+        {
+            ShowOverlay();
+        }
+    }
+
+    /// <summary>The pure edge-routing decision: the bottom swipe opens the taskbar
+    /// only when configured to AND in game mode — in desktop mode explorer's real
+    /// taskbar owns the bottom edge, so the swipe falls back to quick access.</summary>
+    /// <param name="edge">The swiped screen edge.</param>
+    /// <param name="bottomEdgeAction">The configured bottom-edge action.</param>
+    /// <param name="explorerRunning">Whether the session currently has a desktop.</param>
+    /// <returns>Whether the swipe opens the taskbar instead of quick access.</returns>
+    public static bool OpensTaskbar(ScreenEdge edge, EdgeAction bottomEdgeAction, bool explorerRunning)
+        => edge == ScreenEdge.Bottom && bottomEdgeAction == EdgeAction.Taskbar && !explorerRunning;
 
     /// <summary>Sets a non-fatal warning to show the next time the overlay opens.</summary>
     /// <param name="warning">The user-facing warning text, or an empty string to clear it.</param>
@@ -116,7 +146,7 @@ public sealed class OverlayController : IDisposable
             // Nintendo A/B input mapping.
             _overlayViewModel.GlyphStyle = config.GlyphStyle;
         }
-        if (_overlay is not null)
+        if (_overlay is not null || _taskbar is not null)
         {
             ApplySteamInputPin();
         }
@@ -178,37 +208,14 @@ public sealed class OverlayController : IDisposable
         SteamInputPin.Apply(0);
     }
 
-    /// <summary>Populates/toggles the Switch-app picker: alt-tab-style list of the
-    /// actual switchable windows. There is no taskbar in shell mode, so this is
-    /// the only way to move between running programs.</summary>
-    private void ToggleWindowList(OverlayViewModel vm)
+    /// <summary>Picking a taskbar tile dismisses the bar and brings the app forward
+    /// (Steam via the UIPI-proof protocol). The switched-to window must stay
+    /// foreground, so the bar's focus restore is suppressed (invariant 6).</summary>
+    private void PickTaskbarWindow(TaskbarEntry entry)
     {
-        if (vm.ShowWindowList)
-        {
-            vm.ShowWindowList = false;
-            return;
-        }
-        var steamPids = WindowFinder.FindProcessIds(Steam.ProcessNames);
-        vm.SwitchableWindows.Clear();
-        foreach (var window in WindowFinder.ListSwitchableWindows())
-        {
-            vm.SwitchableWindows.Add(new AppWindowEntry(window.Hwnd, window.Title, steamPids.Contains(window.ProcessId)));
-        }
-        if (vm.SwitchableWindows.Count == 0)
-        {
-            Log.Info("Switch app: no windows to show.");
-            return;
-        }
-        vm.ShowWindowList = true;
-    }
-
-    /// <summary>Picking a window dismisses the panel and brings the app forward
-    /// (Steam via the UIPI-proof protocol).</summary>
-    private void PickWindow(AppWindowEntry entry)
-    {
-        Log.Info($"Switch app: focusing '{entry.Title}'.");
-        _suppressFocusRestore = true;
-        CloseOverlay();
+        Log.Info($"Taskbar: focusing '{entry.Title}'.");
+        _taskbarSuppressFocusRestore = true;
+        CloseTaskbar();
         if (entry.IsSteam)
         {
             _modes.FocusSteam();
@@ -279,9 +286,19 @@ public sealed class OverlayController : IDisposable
         // A trim mid-open would just soft-fault everything straight back.
         _pendingTrim?.Dispose();
         _pendingTrim = null;
+        // Surface switch: the bar yields and the panel inherits its restore
+        // target — GetForegroundWindow() would report the still-open bar, not the
+        // game the user actually came from.
+        nint inheritedRestore = 0;
+        if (_taskbar is not null)
+        {
+            inheritedRestore = _taskbarRestoreFocusTo;
+            _taskbarSuppressFocusRestore = true;
+            CloseTaskbar();
+        }
         if (_overlay is null)
         {
-            _restoreFocusTo = Interop.NativeMethods.GetForegroundWindow();
+            _restoreFocusTo = inheritedRestore != 0 ? inheritedRestore : Interop.NativeMethods.GetForegroundWindow();
             _suppressFocusRestore = false;
         }
         ApplySteamInputPin();
@@ -347,8 +364,6 @@ public sealed class OverlayController : IDisposable
             _modes.ExitBigPicture();
         };
         _overlay.CloseLauncherRequested += () => { _modes.CloseSteam(); vm.HomeAppAlive = false; };
-        _overlay.SwitchAppsRequested += () => ToggleWindowList(vm);
-        _overlay.WindowPicked += PickWindow;
         _overlay.TaskManagerRequested += () => { _suppressFocusRestore = true; CloseOverlay(); StartTaskManager(); };
         _overlay.SettingsRequested += () =>
         {
@@ -366,14 +381,18 @@ public sealed class OverlayController : IDisposable
         {
             _closePending = false;
             _pendingClose = null;
-            // Give Steam its pad back the moment the panel is gone.
-            ReleaseSteamInputPin();
+            // Give Steam its pad back the moment the panel is gone — unless the
+            // taskbar took over the surface and still needs the pin.
+            if (_taskbar is null)
+            {
+                ReleaseSteamInputPin();
+            }
             var reopenForWarning = _reopenOverlayForWarning;
             _reopenOverlayForWarning = false;
             _navigation?.Dispose();
             _navigation = null;
-            // Keep polling if the controller chord still needs to be watched.
-            if (!(_config.GamepadChord.Enabled && _config.GamepadChord.Buttons != 0))
+            // Keep polling if the controller chord or the open taskbar still needs it.
+            if (!(_config.GamepadChord.Enabled && _config.GamepadChord.Buttons != 0) && _taskbar is null)
             {
                 _gamepad.Stop();
             }
@@ -387,18 +406,21 @@ public sealed class OverlayController : IDisposable
                 WindowFinder.BringToForeground(_restoreFocusTo);
             }
             _restoreFocusTo = 0;
-            if (_touchSwipes is not null)
+            if (_touchSwipes is not null && _taskbar is null)
             {
                 // TappedAt consumers are gone with the panel; stop the per-tap
                 // dispatches until the next ShowOverlay.
                 _touchSwipes.WatchTaps = false;
             }
-            ShowTouchEdges();
+            if (_taskbar is null)
+            {
+                ShowTouchEdges();
+            }
             if (reopenForWarning)
             {
                 Avalonia.Threading.Dispatcher.UIThread.Post(ShowOverlay);
             }
-            else
+            else if (_taskbar is null)
             {
                 // The shell goes invisible again — give the freed UI memory back
                 // once the close (and any focus restore) has settled.
@@ -423,27 +445,214 @@ public sealed class OverlayController : IDisposable
         }
     }
 
-    /// <summary>Tap-outside dismissal via the raw-input observer. Deliberately NOT
-    /// implemented as dismiss-on-deactivate: the Next-app button hands the
-    /// foreground to another window while the panel must stay open for further
-    /// presses.</summary>
+    /// <summary>Tap-outside dismissal via the raw-input observer, for whichever
+    /// surface is open. Deliberately NOT implemented as dismiss-on-deactivate: the
+    /// window-switching actions hand the foreground to another window while the
+    /// surface must stay open for further presses.</summary>
     private void OnTappedAt(int x, int y)
     {
-        var overlay = _overlay;
-        if (overlay is null || double.IsNaN(overlay.Width) || double.IsNaN(overlay.Height))
+        if (_overlay is not null)
+        {
+            if (!HitsWindow(_overlay, x, y))
+            {
+                Log.Info("Touch outside quick access — dismissing.");
+                CloseOverlay();
+            }
+            return;
+        }
+        if (_taskbar is not null && !HitsWindow(_taskbar, x, y))
+        {
+            Log.Info("Touch outside taskbar — dismissing.");
+            CloseTaskbar();
+        }
+    }
+
+    private static bool HitsWindow(Avalonia.Controls.Window window, int x, int y)
+    {
+        if (double.IsNaN(window.Width) || double.IsNaN(window.Height))
+        {
+            // Not measured yet — treat as hit so a tap can't dismiss a window
+            // that is still coming up.
+            return true;
+        }
+        var scaling = window.Screens?.Primary?.Scaling ?? 1.0;
+        var pos = window.Position;
+        var w = (int)Math.Ceiling(window.Width * scaling);
+        var h = (int)Math.Ceiling(window.Height * scaling);
+        return x >= pos.X && x < pos.X + w && y >= pos.Y && y < pos.Y + h;
+    }
+
+    /// <summary>Window focused when the taskbar opened, and whether an action
+    /// redirected focus (same discipline as the overlay's pair — invariant 6).</summary>
+    private nint _taskbarRestoreFocusTo;
+    private bool _taskbarSuppressFocusRestore;
+    private bool _taskbarClosePending;
+    private IDisposable? _pendingTaskbarClose;
+
+    /// <summary>Shows and activates the game-mode taskbar (bottom-swipe surface):
+    /// a thin centered strip of the switchable windows. Mutually exclusive with the
+    /// quick-access overlay; whichever opens closes the other and inherits its
+    /// focus-restore target.</summary>
+    public void ShowTaskbar()
+    {
+        if (_disposed)
         {
             return;
         }
-        var scaling = overlay.Screens?.Primary?.Scaling ?? 1.0;
-        var pos = overlay.Position;
-        var w = (int)Math.Ceiling(overlay.Width * scaling);
-        var h = (int)Math.Ceiling(overlay.Height * scaling);
-        if (x >= pos.X && x < pos.X + w && y >= pos.Y && y < pos.Y + h)
+        OverlayShown?.Invoke();
+        _pendingTrim?.Dispose();
+        _pendingTrim = null;
+        nint inheritedRestore = 0;
+        if (_overlay is not null)
+        {
+            inheritedRestore = _restoreFocusTo;
+            _suppressFocusRestore = true;
+            CloseOverlay();
+        }
+        ApplySteamInputPin();
+        HideTouchEdges();
+        if (_taskbar is not null)
+        {
+            if (_taskbarClosePending)
+            {
+                // Re-summoned inside the deferred close — keep the window alive
+                // (same race as the overlay's re-show).
+                _pendingTaskbarClose?.Dispose();
+                _pendingTaskbarClose = null;
+                _taskbarClosePending = false;
+                Log.Info("Taskbar re-shown during deferred close — pending close cancelled.");
+            }
+            RefreshTaskbarEntries();
+            _taskbar.Activate();
+            if (_touchSwipes is not null)
+            {
+                _touchSwipes.WatchTaps = true;
+            }
+            return;
+        }
+
+        _taskbarRestoreFocusTo = inheritedRestore != 0 ? inheritedRestore : Interop.NativeMethods.GetForegroundWindow();
+        _taskbarSuppressFocusRestore = false;
+
+        // 48 px rasters downscale crisply into the 32-DIP tiles on high-DPI panels.
+        _iconCache ??= new WindowIconCache(48);
+        var vm = new TaskbarViewModel();
+        _taskbarViewModel = vm;
+        RefreshTaskbarEntries();
+        Log.Info($"Taskbar shown ({vm.Entries.Count} windows).");
+
+        _taskbar = new TaskbarWindow(vm);
+        _taskbar.WindowPicked += PickTaskbarWindow;
+        _taskbar.Dismissed += CloseTaskbar;
+        _taskbar.Closed += (_, _) => OnTaskbarClosed();
+        _taskbarNavigation = new GamepadNavigation(_gamepad, _taskbar, CloseTaskbar,
+            isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
+            preferredFocus: () => _taskbar?.DefaultFocusTarget);
+        _gamepad.Start();
+        _taskbar.Show();
+        _taskbar.Activate();
+        StartTaskbarRefresh();
+        if (_touchSwipes is not null)
+        {
+            _touchSwipes.WatchTaps = true;
+        }
+    }
+
+    /// <summary>Rebuilds/updates the tile collection in place. While the bar is
+    /// open the foreground window is the bar itself, so the highlight uses the
+    /// captured pre-open foreground instead.</summary>
+    private void RefreshTaskbarEntries()
+    {
+        if (_taskbarViewModel is null)
         {
             return;
         }
-        Log.Info("Touch outside quick access — dismissing.");
-        CloseOverlay();
+        var steamPids = WindowFinder.FindProcessIds(Steam.ProcessNames);
+        var active = _taskbar is { IsVisible: true }
+            ? _taskbarRestoreFocusTo
+            : Interop.NativeMethods.GetForegroundWindow();
+        _taskbarViewModel.Reconcile(
+            WindowFinder.ListSwitchableWindows(),
+            active,
+            window => new TaskbarEntry(
+                window.Hwnd,
+                window.Title,
+                steamPids.Contains(window.ProcessId),
+                _iconCache?.Get(window.Hwnd, window.ProcessId)));
+    }
+
+    /// <summary>Keeps the open bar current (new/closed windows, titles, minimize
+    /// state) without disturbing the focused tile — Reconcile updates in place.</summary>
+    private void StartTaskbarRefresh()
+    {
+        StopTaskbarRefresh();
+        // Parameterless ctor + explicit Start (invariant 4).
+        _taskbarRefresh = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _taskbarRefresh.Tick += (_, _) => RefreshTaskbarEntries();
+        _taskbarRefresh.Start();
+    }
+
+    private void StopTaskbarRefresh()
+    {
+        _taskbarRefresh?.Stop();
+        _taskbarRefresh = null;
+    }
+
+    private void OnTaskbarClosed()
+    {
+        _taskbarClosePending = false;
+        _pendingTaskbarClose = null;
+        StopTaskbarRefresh();
+        _taskbarNavigation?.Dispose();
+        _taskbarNavigation = null;
+        if (_overlay is null)
+        {
+            ReleaseSteamInputPin();
+        }
+        if (!(_config.GamepadChord.Enabled && _config.GamepadChord.Buttons != 0) && _overlay is null)
+        {
+            _gamepad.Stop();
+        }
+        _taskbar = null;
+        _taskbarViewModel = null;
+        // Free the rasterized icons with the bar; the next open re-resolves.
+        _iconCache?.Clear();
+        // Game mode only, and only when no tile pick redirected focus (invariant 6).
+        if (!_taskbarSuppressFocusRestore && _taskbarRestoreFocusTo != 0 && !ExplorerControl.IsRunningInSession())
+        {
+            Log.Info("Restoring previously focused window (taskbar).");
+            WindowFinder.BringToForeground(_taskbarRestoreFocusTo);
+        }
+        _taskbarRestoreFocusTo = 0;
+        if (_touchSwipes is not null && _overlay is null)
+        {
+            _touchSwipes.WatchTaps = false;
+        }
+        if (_overlay is null)
+        {
+            ShowTouchEdges();
+            _pendingTrim?.Dispose();
+            _pendingTrim = RunOnUiThreadAfter(TimeSpan.FromSeconds(5),
+                () => MemoryTrim.TrimBestEffort("taskbar closed"));
+        }
+    }
+
+    /// <summary>Closes the taskbar through the same deferred path as the overlay
+    /// (the 150 ms grace lets the window's hook eat the touch-promotion ghost
+    /// click — invariant 3).</summary>
+    private void CloseTaskbar()
+    {
+        if (_taskbar is null || _taskbarClosePending)
+        {
+            return;
+        }
+        _taskbarClosePending = true;
+        _pendingTaskbarClose = RunOnUiThreadAfter(TimeSpan.FromMilliseconds(150), () =>
+        {
+            _taskbarClosePending = false;
+            _pendingTaskbarClose = null;
+            _taskbar?.Close();
+        });
     }
 
     private bool _closePending;
@@ -512,7 +721,8 @@ public sealed class OverlayController : IDisposable
         _chordWatcher.Dispose();
         _gamepad.Dispose();
         DisposeTouchEdges();
-        if (_overlay is not null)
+        StopTaskbarRefresh();
+        if (_overlay is not null || _taskbar is not null)
         {
             // This controller owes a pin release (its overlay is open / pending
             // close). Fire it NOW, not in the deferred Closed handler 150 ms from
@@ -532,6 +742,10 @@ public sealed class OverlayController : IDisposable
         // never runs — deliberately fine: the pin was already released
         // synchronously above, and process exit destroys the window anyway.
         CloseOverlay();
+        // The bar's deferred Closed handler clears the icon cache; disposing it
+        // here would leave the still-open window rendering disposed bitmaps for
+        // the 150 ms grace.
+        CloseTaskbar();
     }
 
     private void HideTouchEdges()

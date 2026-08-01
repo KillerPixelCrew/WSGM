@@ -1,32 +1,7 @@
-using System.Collections.ObjectModel;
 using System.ComponentModel;
 using WSGM.Core;
 
 namespace WSGM.Overlay;
-
-/// <summary>One pickable top-level window in the Switch-app list.</summary>
-public sealed class AppWindowEntry
-{
-    /// <summary>Creates a window entry from an enumerated native window.</summary>
-    /// <param name="hwnd">The native window handle to activate.</param>
-    /// <param name="title">The title presented in the picker.</param>
-    /// <param name="isSteam">Whether the window belongs to the configured home app.</param>
-    public AppWindowEntry(nint hwnd, string title, bool isSteam)
-    {
-        Hwnd = hwnd;
-        Title = title;
-        IsSteam = isSteam;
-    }
-
-    /// <summary>Gets the native window handle to activate.</summary>
-    public nint Hwnd { get; }
-
-    /// <summary>Gets the title presented to the user.</summary>
-    public string Title { get; }
-
-    /// <summary>Gets whether the window belongs to Steam.</summary>
-    public bool IsSteam { get; }
-}
 
 /// <summary>State for the overlay, recomputed every time it is shown.</summary>
 public sealed class OverlayViewModel : INotifyPropertyChanged
@@ -85,17 +60,6 @@ public sealed class OverlayViewModel : INotifyPropertyChanged
     {
         get => _confirmingCloseLauncher;
         set { _confirmingCloseLauncher = value; Raise(nameof(ConfirmingCloseLauncher)); Raise(nameof(CloseLauncherText)); }
-    }
-
-    /// <summary>Windows offered by the Switch-app picker (rebuilt on each press).</summary>
-    public ObservableCollection<AppWindowEntry> SwitchableWindows { get; } = [];
-
-    private bool _showWindowList;
-    /// <summary>Gets or sets whether the Switch-app picker is visible.</summary>
-    public bool ShowWindowList
-    {
-        get => _showWindowList;
-        set { _showWindowList = value; Raise(nameof(ShowWindowList)); }
     }
 
     /// <summary>Gets the action label that switches between desktop and game mode.</summary>

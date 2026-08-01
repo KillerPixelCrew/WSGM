@@ -57,16 +57,31 @@ public sealed class GamepadChordConfig
     public bool Hold { get; set; }
 }
 
+/// <summary>What an inward edge swipe opens.</summary>
+public enum EdgeAction
+{
+    /// <summary>The quick-access panel.</summary>
+    QuickAccess,
+
+    /// <summary>The game-mode taskbar (falls back to quick access in desktop mode,
+    /// where explorer's real taskbar owns the bottom edge).</summary>
+    Taskbar,
+}
+
 /// <summary>Controls the raw-input edge-swipe activation areas for quick access.</summary>
 public sealed class GestureConfig
 {
-    /// <summary>Whether a swipe from the bottom edge opens the overlay.</summary>
+    /// <summary>Whether a swipe from the bottom edge is recognized.</summary>
     public bool BottomEdge { get; set; } = true;
 
     /// <summary>Whether a swipe from the right edge opens the overlay.</summary>
     public bool RightEdge { get; set; } = true;
     /// <summary>Strip thickness in physical pixels.</summary>
     public int StripThickness { get; set; } = 16;
+
+    /// <summary>What the bottom-edge swipe opens (the right edge always opens
+    /// quick access).</summary>
+    public EdgeAction BottomEdgeAction { get; set; } = EdgeAction.Taskbar;
 }
 
 /// <summary>Selects the controller-button glyph family rendered by the UI.</summary>

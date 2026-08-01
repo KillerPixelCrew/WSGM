@@ -1,0 +1,103 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ov="using:WSGM.Overlay"
+        x:Class="WSGM.Overlay.TaskbarWindow"
+        x:DataType="ov:TaskbarViewModel"
+        Title="WSGM Taskbar"
+        SizeToContent="Width"
+        Height="56"
+        MinWidth="120"
+        SystemDecorations="None"
+        CanResize="False"
+        Topmost="True"
+        ShowInTaskbar="False"
+        Background="{StaticResource HcBackgroundBrush}">
+
+    <!-- Thin Windows-11-style icon strip: app tiles left, tray icons right.
+         Same opaque-surface constraint as the overlay: no rounded corners. -->
+    <Border BorderBrush="#FF343434" BorderThickness="1,1,1,0" Padding="6,4">
+        <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+            <TextBlock Text="No open apps"
+                       Classes="caption"
+                       VerticalAlignment="Center"
+                       Margin="10,0"
+                       IsVisible="{Binding !HasEntries}" />
+            <ItemsControl ItemsSource="{Binding Entries}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" Spacing="4" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="ov:TaskbarEntry">
+                        <Button Classes="task-tile"
+                                Classes.active="{Binding IsActive}"
+                                Classes.minimized="{Binding IsMinimized}"
+                                Click="OnPickWindow"
+                                ToolTip.Tip="{Binding Title}">
+                            <Panel Width="32" Height="34">
+                                <Image Source="{Binding Icon}"
+                                       Width="32" Height="32"
+                                       VerticalAlignment="Top" />
+                                <!-- Fallback glyph when no icon could be resolved. -->
+                                <TextBlock Text="▢"
+                                           FontSize="22"
+                                           VerticalAlignment="Top"
+                                           HorizontalAlignment="Center"
+                                           IsVisible="{Binding HasNoIcon}" />
+                                <Border Classes="active-indicator"
+                                        Width="16" Height="3"
+                                        CornerRadius="1.5"
+                                        VerticalAlignment="Bottom"
+                                        HorizontalAlignment="Center" />
+                            </Panel>
+                        </Button>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!-- Tray area (populated by the Shell_TrayWnd host; hidden when empty). -->
+            <Border x:Name="TraySeparator"
+                    Width="1" Height="30"
+                    Background="#FF343434"
+                    Margin="4,0"
+                    IsVisible="False" />
+            <ItemsControl x:Name="TrayItems" IsVisible="False">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" Spacing="2" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+            </ItemsControl>
+        </StackPanel>
+    </Border>
+
+    <Window.Styles>
+        <!-- Stable in-button focus border, no adorner (see OverlayWindow). -->
+        <Style Selector="Button">
+            <Setter Property="FocusAdorner" Value="{x:Null}" />
+        </Style>
+        <Style Selector="Button.task-tile">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="2" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Padding" Value="5,3" />
+        </Style>
+        <Style Selector="Button.task-tile:focus">
+            <Setter Property="BorderBrush" Value="{StaticResource HcAccentBrush}" />
+        </Style>
+        <Style Selector="Button.task-tile:pointerover">
+            <Setter Property="Background" Value="#FF383838" />
+        </Style>
+        <Style Selector="Button.task-tile.minimized Image">
+            <Setter Property="Opacity" Value="0.55" />
+        </Style>
+        <Style Selector="Button.task-tile Border.active-indicator">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="Button.task-tile.active Border.active-indicator">
+            <Setter Property="Background" Value="{StaticResource HcAccentBrush}" />
+        </Style>
+    </Window.Styles>
+</Window>

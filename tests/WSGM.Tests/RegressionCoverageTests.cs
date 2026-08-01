@@ -44,11 +44,12 @@ public sealed class RegressionCoverageTests
     [Fact]
     public void WindowEntryPreservesTheActivationTargetAndPresentationState()
     {
-        var entry = new AppWindowEntry((nint)123, "Steam", isSteam: true);
+        var entry = new TaskbarEntry((nint)123, "Steam", isSteam: true, icon: null);
 
         Assert.Equal((nint)123, entry.Hwnd);
         Assert.Equal("Steam", entry.Title);
         Assert.True(entry.IsSteam);
+        Assert.True(entry.HasNoIcon);
     }
 
     [Theory]

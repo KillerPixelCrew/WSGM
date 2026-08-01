@@ -62,24 +62,6 @@
                             </StackPanel>
                         </Grid>
                     </Button>
-                    <Button x:Name="SwitchAppButton" Classes="quick-row" Click="OnSwitchApps">
-                        <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
-                            <TextBlock Text="⇄" FontSize="15" VerticalAlignment="Center" HorizontalAlignment="Center" />
-                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
-                                <TextBlock Text="Switch app" Classes="setting-title" />
-                                <TextBlock Text="Pick one of your running programs" Classes="caption" />
-                            </StackPanel>
-                        </Grid>
-                    </Button>
-                    <ItemsControl IsVisible="{Binding ShowWindowList}" ItemsSource="{Binding SwitchableWindows}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="ov:AppWindowEntry">
-                                <Button Classes="quick-row" Margin="24,2,0,0" Click="OnPickWindow">
-                                    <TextBlock Text="{Binding Title}" Classes="setting-title" TextTrimming="CharacterEllipsis" />
-                                </Button>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
                     <Button x:Name="CloseLauncherButton" Classes="quick-row" Click="OnCloseLauncher"
                             IsVisible="{Binding HomeAppAlive}">
                         <Grid ColumnDefinitions="32,*" ColumnSpacing="10">

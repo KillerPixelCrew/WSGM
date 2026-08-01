@@ -231,6 +231,16 @@
                                     </Grid>
                                 </Border>
                                 <Border Classes="hc-settings-card">
+                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
+                                        <TextBlock Text="▭" FontSize="20" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="2">
+                                            <TextBlock Text="Game-mode taskbar" Classes="setting-title" />
+                                            <TextBlock Text="A thin bottom bar with your open programs and tray icons — swipe up from the bottom edge in game mode." Classes="caption" />
+                                        </StackPanel>
+                                        <Button Grid.Column="2" Content="Test taskbar" Click="OnTestTaskbar" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                                <Border Classes="hc-settings-card">
                                     <Grid ColumnDefinitions="32,*,180,Auto" ColumnSpacing="12">
                                         <TextBlock Text="⌁" FontSize="20" VerticalAlignment="Center" />
                                         <StackPanel Grid.Column="1" Spacing="2">
@@ -266,13 +276,14 @@
                                     </Grid>
                                 </Border>
                                 <Border Classes="hc-settings-card">
-                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
+                                    <Grid ColumnDefinitions="32,*,150,Auto" ColumnSpacing="12">
                                         <TextBlock Text="↑" FontSize="20" VerticalAlignment="Center" />
                                         <StackPanel Grid.Column="1" Spacing="2">
                                             <TextBlock Text="Swipe from the bottom edge" Classes="setting-title" />
-                                            <TextBlock Text="Open the panel with a short upward swipe." Classes="caption" />
+                                            <TextBlock Text="A short upward swipe opens the taskbar (game mode) or the panel." Classes="caption" />
                                         </StackPanel>
-                                        <ToggleSwitch Grid.Column="2" IsChecked="{Binding GestureBottom}" VerticalAlignment="Center" />
+                                        <ComboBox Grid.Column="2" ItemsSource="{Binding BottomEdgeActions}" SelectedIndex="{Binding BottomEdgeActionIndex}" VerticalAlignment="Center" />
+                                        <ToggleSwitch Grid.Column="3" IsChecked="{Binding GestureBottom}" VerticalAlignment="Center" />
                                     </Grid>
                                 </Border>
                                 <Border Classes="hc-settings-card">

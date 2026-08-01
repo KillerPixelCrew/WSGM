@@ -260,6 +260,17 @@ public partial class SettingsWindow : Window
         _testOverlay.ShowOverlay();
     }
 
+    private void OnTestTaskbar(object? sender, RoutedEventArgs e)
+    {
+        // Direct ShowTaskbar: the swipe routing's game-mode gate would bounce a
+        // dev desktop (explorer alive) back to quick access, so the button
+        // bypasses routing to make the bar locally testable.
+        _testOverlay?.Dispose();
+        var config = _viewModel.SnapshotForTest();
+        _testOverlay = new OverlayController(config, monitor: null, new SessionModes(config, monitor: null));
+        _testOverlay.ShowTaskbar();
+    }
+
     private void OnTouchKeyboard(object? sender, RoutedEventArgs e)
     {
         // Custom-shell sessions have no taskbar to summon the touch keyboard from.

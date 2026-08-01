@@ -33,12 +33,6 @@ public partial class OverlayWindow : Window
     /// <summary>Raised after the user confirms closing the home application.</summary>
     public event Action? CloseLauncherRequested;
 
-    /// <summary>Raised when the user opens the switchable-window picker.</summary>
-    public event Action? SwitchAppsRequested;
-
-    /// <summary>Raised when the user selects a window from the switcher.</summary>
-    public event Action<AppWindowEntry>? WindowPicked;
-
     /// <summary>Raised when the user requests Task Manager.</summary>
     public event Action? TaskManagerRequested;
 
@@ -171,16 +165,7 @@ public partial class OverlayWindow : Window
     private void OnDesktop(object? sender, RoutedEventArgs e) => DesktopRequested?.Invoke();
     private void OnSettings(object? sender, RoutedEventArgs e) => SettingsRequested?.Invoke();
     private void OnExitBigPicture(object? sender, RoutedEventArgs e) => ExitBigPictureRequested?.Invoke();
-    private void OnSwitchApps(object? sender, RoutedEventArgs e) => SwitchAppsRequested?.Invoke();
     private void OnTaskManager(object? sender, RoutedEventArgs e) => TaskManagerRequested?.Invoke();
-
-    private void OnPickWindow(object? sender, RoutedEventArgs e)
-    {
-        if ((sender as Avalonia.Controls.Control)?.DataContext is AppWindowEntry entry)
-        {
-            WindowPicked?.Invoke(entry);
-        }
-    }
     private void OnClose(object? sender, RoutedEventArgs e) => Dismissed?.Invoke();
 
     private void OnCloseLauncher(object? sender, RoutedEventArgs e)

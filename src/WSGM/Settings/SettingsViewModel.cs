@@ -59,6 +59,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         _chord = _config.GamepadChord;
         GestureBottom = _config.Gestures.BottomEdge;
         GestureRight = _config.Gestures.RightEdge;
+        BottomEdgeActionIndex = (int)_config.Gestures.BottomEdgeAction;
         GlyphStyleIndex = (int)_config.GlyphStyle;
 
         foreach (var app in _config.StartupApps)
@@ -357,6 +358,14 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// <summary>Gets or sets whether a right-edge swipe opens the overlay.</summary>
     public bool GestureRight { get => _gestureRight; set { _gestureRight = value; Raise(nameof(GestureRight)); } }
 
+    private int _bottomEdgeActionIndex;
+    /// <summary>Gets or sets the selected bottom-edge swipe action index
+    /// (matches the <see cref="EdgeAction"/> enum order).</summary>
+    public int BottomEdgeActionIndex { get => _bottomEdgeActionIndex; set { _bottomEdgeActionIndex = value; Raise(nameof(BottomEdgeActionIndex)); } }
+
+    /// <summary>Gets the bottom-edge action names presented by the settings selector.</summary>
+    public List<string> BottomEdgeActions { get; } = ["Quick access", "Taskbar"];
+
     /// <summary>Gets or sets the selected controller-glyph family index.</summary>
     public int GlyphStyleIndex { get => _glyphStyleIndex; set { _glyphStyleIndex = value; Raise(nameof(GlyphStyleIndex)); } }
 
@@ -374,6 +383,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.GamepadChord = _chord;
         config.Gestures.BottomEdge = GestureBottom;
         config.Gestures.RightEdge = GestureRight;
+        config.Gestures.BottomEdgeAction = (EdgeAction)Math.Clamp(BottomEdgeActionIndex, 0, 1);
         config.GlyphStyle = (GlyphStyle)Math.Clamp(GlyphStyleIndex, 0, 2);
         config.StartupApps = StartupApps
             .Where(r => !string.IsNullOrWhiteSpace(r.Path))
