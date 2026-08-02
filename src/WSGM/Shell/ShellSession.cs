@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using WSGM.Core;
+using WSGM.Interop;
 using WSGM.Overlay;
 
 namespace WSGM.Shell;
@@ -16,6 +17,7 @@ public sealed class ShellSession
     private StartupAppWatcher? _startupWatcher;
     private OverlayController? _overlay;
     private TrayHost? _trayHost;
+    private VolumeButtonService? _volumeButtons;
     private BootSplash? _splash;
     // Field-rooted deliberately: an unreferenced enabled FileSystemWatcher is
     // GC-collectible (it holds only a WeakReference to itself in its pending
@@ -46,6 +48,7 @@ public sealed class ShellSession
         // TaskbarCreated broadcast.
         _modes.DesktopModeStarting += () =>
         {
+            _volumeButtons?.SetGameModeActive(false);
             _overlay?.AttachTrayHost(null);
             _trayHost?.Dispose();
             _trayHost = null;
@@ -57,6 +60,7 @@ public sealed class ShellSession
             {
                 _overlay?.AttachTrayHost(_trayHost);
             }
+            _volumeButtons?.SetGameModeActive(true);
         };
 
         if (_overlayTestOnly)
@@ -69,6 +73,10 @@ public sealed class ShellSession
             _overlay.ShowOverlay();
             return;
         }
+
+        _volumeButtons = new VolumeButtonService(
+            MessageWindow.Create(),
+            () => DisplayScale.GetUiScalePercent(_config) / 100.0);
 
         // A live desktop at shell start means this is NOT a logon boot: it is the
         // update restart (updates only run in desktop mode) or an AutoRestartShell
@@ -88,6 +96,7 @@ public sealed class ShellSession
         // Posture first: it changes the display scale, and the splash sizes itself
         // to the final screen metrics.
         _modes.ApplyGameModePosture();
+        _volumeButtons.SetGameModeActive(true);
         // Game-mode logon boot: host the tray now, before startup apps launch —
         // their Shell_NotifyIcon registrations need a living Shell_TrayWnd or
         // they only get an icon after the TaskbarCreated-driven retry (which

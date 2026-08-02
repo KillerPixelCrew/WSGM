@@ -230,7 +230,7 @@ public static class Installer
 
         try
         {
-            SlateMode.ApplyDesktopMode();
+            SlateMode.RestoreOriginal();
         }
         catch (Exception ex)
         {

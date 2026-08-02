@@ -239,8 +239,8 @@ public sealed class AppConfig
     public int PreviousConsoleLockPolicyDc { get; set; } = -1;
 
     /// <summary>ConvertibleSlateMode / TouchKeyboardTapInvoke as they were before
-    /// WSGM's first write (-1 = value absent), so a clean exit restores the boot
-    /// state exactly instead of a hardcoded guess.</summary>
+    /// WSGM's first write (-1 = value absent). An absent ConvertibleSlateMode is
+    /// deliberately left untouched; the touch-keyboard preference is restored.</summary>
     public bool SlateModeSnapshotCaptured { get; set; }
 
     /// <summary>Original ConvertibleSlateMode value; <c>-1</c> means absent.</summary>
@@ -248,6 +248,11 @@ public sealed class AppConfig
 
     /// <summary>Original TouchKeyboardTapInvoke value; <c>-1</c> means absent.</summary>
     public int PreviousTouchKeyboardTapInvoke { get; set; } = -1;
+
+    /// <summary>Whether WSGM changed ConvertibleSlateMode after capturing it.
+    /// <c>null</c> identifies legacy config written before WSGM stopped creating
+    /// absent posture values, so one restore safely cleans that older override.</summary>
+    public bool? ConvertibleSlateModeModifiedByWsgm { get; set; }
 }
 
 /// <summary>Source-generated JSON metadata for the persisted <see cref="AppConfig"/> contract.</summary>

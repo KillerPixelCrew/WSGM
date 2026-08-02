@@ -282,9 +282,23 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll", EntryPoint = "SetWindowLongW")]
     internal static partial int SetWindowLong(nint hWnd, int nIndex, int dwNewLong);
 
+    internal const uint WmNcHitTest = 0x0084;
+    internal const nint HtTransparent = -1;
+    internal const int WsExNoActivate = 0x08000000;
+    internal const int WsExTransparent = 0x00000020;
+
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool SetLayeredWindowAttributes(nint hWnd, uint crKey, byte bAlpha, uint dwFlags);
+
+    // ---- Notification suitability (volume OSD) ----
+    internal const int QunsNotPresent = 1;
+    internal const int QunsRunningD3dFullScreen = 3;
+    internal const int QunsAcceptsNotifications = 5;
+
+    [LibraryImport("shell32.dll")]
+    internal static partial int SHQueryUserNotificationState(out int state);
+
 
     // ---- Switchable-window enumeration (alt-tab style) ----
     internal const int GwlExStyle = -20;
@@ -469,6 +483,17 @@ internal static partial class NativeMethods
 
     [LibraryImport("user32.dll", EntryPoint = "RegisterWindowMessageW", StringMarshalling = StringMarshalling.Utf16)]
     internal static partial uint RegisterWindowMessageW(string lpString);
+
+    // ---- Shell-hook notifications (replacement shell volume commands) ----
+    internal const int HshellAppCommand = 12;
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool RegisterShellHookWindow(nint hWnd);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool DeregisterShellHookWindow(nint hWnd);
 
     [LibraryImport("user32.dll", EntryPoint = "SendNotifyMessageW", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

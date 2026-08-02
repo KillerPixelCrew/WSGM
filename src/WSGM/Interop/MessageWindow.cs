@@ -11,6 +11,8 @@ public sealed unsafe class MessageWindow : IDisposable
 {
     private static MessageWindow? _instance;
     private nint _hwnd;
+    private uint _shellHookMessage;
+    private bool _shellHookRegistered;
 
     /// <summary>Create() is the only entry point: a directly constructed instance
     /// would carry Handle == 0, and RegisterHotKey on hwnd 0 registers a thread
@@ -25,6 +27,11 @@ public sealed unsafe class MessageWindow : IDisposable
     /// <summary>Raised on the Avalonia UI thread with the hotkey id.</summary>
     public event Action<int>? HotkeyPressed;
 
+    /// <summary>Raised on the Avalonia UI thread for a shell-hook notification.
+    /// Its delegate receives the HSHELL_* event code followed by the event-specific
+    /// lParam supplied by the shell.</summary>
+    public event Action<nint, nint>? ShellHookReceived;
+
     /// <summary>Gets or creates the process-wide message-only window.</summary>
     /// <returns>The singleton message window.</returns>
     public static MessageWindow Create()
@@ -38,6 +45,52 @@ public sealed unsafe class MessageWindow : IDisposable
             "WSGM.MessageWindow", &WndProc, "Failed to create message window");
         _instance = new MessageWindow { _hwnd = hwnd };
         return _instance;
+    }
+
+    /// <summary>Registers this window to receive shell-hook notifications.
+    /// The caller must later call <see cref="DeregisterShellHook"/> before a
+    /// different shell takes ownership of the desktop.</summary>
+    /// <returns>True when the registration is active.</returns>
+    public bool RegisterShellHook()
+    {
+        if (_shellHookRegistered)
+        {
+            return true;
+        }
+
+        _shellHookMessage = NativeMethods.RegisterWindowMessageW("SHELLHOOK");
+        if (_shellHookMessage == 0)
+        {
+            Log.Warn($"RegisterWindowMessage(SHELLHOOK) failed (error {Marshal.GetLastWin32Error()}).");
+            return false;
+        }
+        if (!NativeMethods.RegisterShellHookWindow(_hwnd))
+        {
+            Log.Warn($"RegisterShellHookWindow failed (error {Marshal.GetLastWin32Error()}).");
+            _shellHookMessage = 0;
+            return false;
+        }
+
+        _shellHookRegistered = true;
+        Log.Info("Shell-hook window registered.");
+        return true;
+    }
+
+    /// <summary>Stops this window receiving shell-hook notifications.</summary>
+    public void DeregisterShellHook()
+    {
+        if (!_shellHookRegistered)
+        {
+            return;
+        }
+
+        if (!NativeMethods.DeregisterShellHookWindow(_hwnd))
+        {
+            Log.Warn($"DeregisterShellHookWindow failed (error {Marshal.GetLastWin32Error()}).");
+        }
+        _shellHookRegistered = false;
+        _shellHookMessage = 0;
+        Log.Info("Shell-hook window deregistered.");
     }
 
     /// <summary>Shared class-registration + window-creation path for the process's
@@ -85,10 +138,20 @@ public sealed unsafe class MessageWindow : IDisposable
     [System.Runtime.InteropServices.UnmanagedCallersOnly]
     private static nint WndProc(nint hWnd, uint msg, nint wParam, nint lParam)
     {
-        if (msg == NativeMethods.WmHotkey && _instance is not null)
+        var instance = _instance;
+        if (instance is null)
+        {
+            return NativeMethods.DefWindowProcW(hWnd, msg, wParam, lParam);
+        }
+        if (msg == NativeMethods.WmHotkey)
         {
             var id = (int)wParam;
-            Dispatcher.UIThread.Post(() => _instance.HotkeyPressed?.Invoke(id));
+            Dispatcher.UIThread.Post(() => instance.HotkeyPressed?.Invoke(id));
+            return 0;
+        }
+        if (msg == instance._shellHookMessage && instance._shellHookRegistered)
+        {
+            Dispatcher.UIThread.Post(() => instance.ShellHookReceived?.Invoke(wParam, lParam));
             return 0;
         }
         return NativeMethods.DefWindowProcW(hWnd, msg, wParam, lParam);
@@ -97,6 +160,7 @@ public sealed unsafe class MessageWindow : IDisposable
     /// <summary>Destroys the native window and clears the process singleton.</summary>
     public void Dispose()
     {
+        DeregisterShellHook();
         if (_hwnd != 0)
         {
             if (!NativeMethods.DestroyWindow(_hwnd))

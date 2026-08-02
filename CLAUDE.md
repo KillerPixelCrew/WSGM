@@ -166,6 +166,15 @@ log lines.
   otherwise); WSGM's own overlay/edge swipes over elevated windows ride the same chain. The flip
   side: an **elevated explorer breaks UWP** (touch keyboard, store apps) — that's what invariant 5
   protects.
+- **ConvertibleSlateMode is opt-in by existing device state:** capture it before any change, and
+  change/restore it only when the value was already present. Do not create or delete it on ordinary
+  PCs that lack the value; `TouchKeyboardTapInvoke` is a separate per-user preference. The nullable
+  config marker exists only to clean once after upgrades from releases that incorrectly created an
+  absent value.
+- **The volume OSD must never interrupt an exclusive game:** the physical volume command is always
+  applied in game mode. The indicator is non-activating and click-through, and is suppressed only
+  for `SHQueryUserNotificationState`'s confirmed `QUNS_RUNNING_D3D_FULL_SCREEN` (and absent/locked
+  session). `QUNS_BUSY` must stay allowed: Steam Big Picture and borderless fullscreen report it.
 - Config lives at `%LOCALAPPDATA%\WSGM\config.json` (`Core\ConfigStore`, System.Text.Json source-gen
   — new scalar props need no context changes). Registry snapshots inside it (previous
   shell/UAC/lock-screen values) belong to the install lifecycle; never clobber them from feature

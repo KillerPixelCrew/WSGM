@@ -19,6 +19,34 @@ Remove-Item -Recurse -Force "$root\publish" -ErrorAction SilentlyContinue
 dotnet publish "$root\src\WSGM\WSGM.csproj" -c Release -r win-x64 -o "$root\publish"
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
 
+# Core Audio is a COM API. WSGM's NativeAOT executable intentionally has managed
+# COM interop disabled, so compile the tiny ABI-only helper that owns those calls
+# and place it alongside WSGM.exe for LibraryImport to load at runtime.
+$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+if (-not (Test-Path $vswhere)) { throw "Visual Studio locator not found: $vswhere" }
+$visualStudio = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+if (-not $visualStudio) { throw "Visual Studio C++ build tools not found" }
+$devCmd = Join-Path $visualStudio.Trim() "Common7\Tools\VsDevCmd.bat"
+if (-not (Test-Path $devCmd)) { throw "Visual Studio developer command script not found: $devCmd" }
+
+$nativeSource = "$root\native\VolumeControl\VolumeControl.cpp"
+$nativeOutput = "$root\publish\WSGM.VolumeControl.dll"
+$nativeTemp = Join-Path ([System.IO.Path]::GetTempPath()) "WSGM-VolumeControl-$PID"
+$nativeTempOutput = Join-Path $nativeTemp "WSGM.VolumeControl.dll"
+New-Item -ItemType Directory -Path $nativeTemp | Out-Null
+try {
+    # Compile in a disposable directory: link.exe also emits .lib/.exp files,
+    # neither of which belongs in the portable publish layout.
+    $compile = "call `"$devCmd`" -no_logo -arch=x64 -host_arch=x64 >nul && pushd `"$nativeTemp`" && cl.exe /nologo /std:c++17 /O2 /LD `"$nativeSource`" /link ole32.lib /OUT:`"$nativeTempOutput`" /INCREMENTAL:NO"
+    & $env:ComSpec /d /s /c $compile
+    if ($LASTEXITCODE -ne 0) { throw "VolumeControl native helper build failed" }
+    Copy-Item $nativeTempOutput $nativeOutput
+}
+finally {
+    Remove-Item -Recurse -Force $nativeTemp -ErrorAction SilentlyContinue
+}
+if (-not (Test-Path $nativeOutput)) { throw "VolumeControl native helper was not produced" }
+
 $iscc = @(
     "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
     "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"

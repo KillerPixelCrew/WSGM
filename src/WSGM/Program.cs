@@ -44,10 +44,10 @@ public static class Program
             // fresh process cannot know, so reset unconditionally (never throws).
             SteamInputPin.ReleaseBestEffort("restore-shell");
             RestoreDisplayScalesBestEffort();
-            // A crashed shell may have left game-mode slate posture (auto touch
-            // keyboard suppressed, persists across reboots for the HKCU part);
-            // wrapped because this path must never throw.
-            try { SlateMode.ApplyDesktopMode(); } catch { }
+            // Restore exactly what this device had before WSGM, rather than
+            // creating a posture signal on a normal PC. Wrapped because this
+            // recovery path must never throw.
+            try { SlateMode.RestoreOriginal(); } catch { }
             return 0;
         }
 
@@ -143,8 +143,7 @@ public static class Program
                 // Pin release first (invariant: fires on EVERY recovery path,
                 // ahead of cosmetic restores) — same ordering as --restore-shell.
                 SteamInputPin.ReleaseBestEffort("crash-loop");
-                // The desktop we just brought back should behave like a touch desktop.
-                SlateMode.ApplyDesktopMode();
+                SlateMode.RestoreOriginal();
                 RestoreDisplayScalesBestEffort();
                 // Clear the marker so the next manual start isn't instantly disarmed.
                 CrashLoopBreaker.Reset();
@@ -273,8 +272,7 @@ public static class Program
             }
             catch { /* recovery must not throw */ }
             ExplorerControl.StartExplorer();
-            // The desktop we just brought back should behave like a touch desktop.
-            SlateMode.ApplyDesktopMode();
+            SlateMode.RestoreOriginal();
             RestoreDisplayScalesBestEffort();
         }
         // Same guard as normal shutdown: firing /0 from a crashing settings
