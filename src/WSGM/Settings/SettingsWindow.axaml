@@ -104,6 +104,18 @@
                                         <TextBlock Grid.Column="1" Text="If game mode does not come up, press Ctrl+Alt+Del, open Task Manager, then run explorer.exe. Run WSGM.exe --restore-shell to turn off game-mode boot and bring the desktop back; re-enable it here afterwards." Classes="caption" VerticalAlignment="Center" />
                                     </Grid>
                                 </Border>
+
+                                <TextBlock Text="Diagnostics" Classes="section-title" />
+                                <Border Classes="hc-settings-card">
+                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
+                                        <TextBlock Text="🗒" FontSize="20" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="2">
+                                            <TextBlock Text="Log file" Classes="setting-title" />
+                                            <TextBlock Text="wsgm.log records everything WSGM does — attach it when reporting a problem." Classes="caption" />
+                                        </StackPanel>
+                                        <Button Grid.Column="2" Content="Open log location" Click="OnOpenLogLocation" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
                             </StackPanel>
                     </ScrollViewer>
 

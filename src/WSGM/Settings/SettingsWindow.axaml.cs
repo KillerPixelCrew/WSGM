@@ -70,6 +70,26 @@ public partial class SettingsWindow : Window
 
     private void OnUninstall(object? sender, RoutedEventArgs e) => _viewModel.Uninstall();
 
+    private void OnOpenLogLocation(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var log = Path.Combine(Log.Directory, "wsgm.log");
+            // Select the file when it exists so the user lands right on it;
+            // otherwise just open the folder.
+            var psi = File.Exists(log)
+                ? new System.Diagnostics.ProcessStartInfo("explorer.exe", $"/select,\"{log}\"")
+                : new System.Diagnostics.ProcessStartInfo(Log.Directory);
+            psi.UseShellExecute = true;
+            System.Diagnostics.Process.Start(psi);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not open the log location: {ex.Message}");
+            SaveStatus.Text = $"Could not open the log location: {ex.Message}";
+        }
+    }
+
     private void OnInstallApp(object? sender, RoutedEventArgs e)
     {
         try
