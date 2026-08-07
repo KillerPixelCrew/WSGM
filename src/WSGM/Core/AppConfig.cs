@@ -145,6 +145,16 @@ public sealed class AppConfig
     /// <summary>Fullscreen "Please wait" cover at logon that hides startup-app
     /// window flashes until Steam Big Picture is on screen (see Shell\BootSplash).</summary>
     public bool BootSplashEnabled { get; set; } = true;
+    /// <summary>Whether the logon service boots the session into game mode. Projected
+    /// into boot.json (see Core\BootManifest) because the SYSTEM service never parses
+    /// this file. False = sign-in leaves the plain desktop alone.</summary>
+    public bool GameModeBootEnabled { get; set; } = true;
+
+    /// <summary>Settle delay after explorer's shell window and taskbar both exist,
+    /// before the boot takeover cleanly shuts explorer down. Covers the logon prep
+    /// (Run keys, Startup folder, session services) that must complete once per
+    /// sign-in for touch features to survive game mode.</summary>
+    public int ExplorerLogonSettleMs { get; set; } = 5000;
 
     /// <summary>Keyboard shortcut configuration for opening the overlay.</summary>
     public HotkeyConfig Hotkey { get; set; } = new();

@@ -33,6 +33,12 @@ dotnet publish "$root\src\WSGM.Deelevate\WSGM.Deelevate.csproj" -c Release -r wi
     -o "$root\publish" "/p:Version=$version"
 if ($LASTEXITCODE -ne 0) { throw "WSGM.Deelevate publish failed" }
 
+# The SYSTEM logon service that launches WSGM's boot cover at sign-in. Published
+# beside the rest; the installer ships it to Program Files (never user-writable).
+dotnet publish "$root\src\WSGM.LogonService\WSGM.LogonService.csproj" -c Release -r win-x64 `
+    -o "$root\publish" "/p:Version=$version"
+if ($LASTEXITCODE -ne 0) { throw "WSGM.LogonService publish failed" }
+
 # Core Audio is a COM API. WSGM's NativeAOT executable intentionally has managed
 # COM interop disabled, so compile the tiny ABI-only helper that owns those calls
 # and place it alongside WSGM.exe for LibraryImport to load at runtime.
@@ -61,6 +67,7 @@ finally {
 }
 if (-not (Test-Path $nativeOutput)) { throw "VolumeControl native helper was not produced" }
 if (-not (Test-Path "$root\publish\WSGM.Deelevate.exe")) { throw "De-elevation helper was not produced" }
+if (-not (Test-Path "$root\publish\WSGM.LogonService.exe")) { throw "Logon service was not produced" }
 
 $iscc = @(
     "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",

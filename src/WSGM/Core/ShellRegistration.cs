@@ -76,8 +76,37 @@ public static class ShellRegistration
     /// <summary>Gets whether the current account's shell command points at this executable.</summary>
     public static bool IsInstalledForThisExe() => IsOwnedByThisExe(CurrentValue());
 
-    /// <summary>Registers WSGM as this user's shell. Saves any pre-existing custom
-    /// Shell value into config first so uninstall can restore it exactly.</summary>
+    /// <summary>Applies the anti-Xbox-FSE guard on its own: with explorer as the
+    /// registered shell again, StartupToGamingHome=1 would boot the Xbox Full
+    /// Screen Experience over WSGM's cover at sign-in. Captures the pre-existing
+    /// value once (upgrades keep the original snapshot — Restore never clears the
+    /// captured flag) and then writes 0.</summary>
+    public static void ApplyGamingHomeGuard(AppConfig config)
+    {
+        try
+        {
+            if (!GamingHomeSnapshot.IsCaptured(config))
+            {
+                // Read-only snapshot — OpenSubKey so a pure read can't materialize the key.
+                using var gamingSnapshot = Registry.CurrentUser.OpenSubKey(GamingConfigKey);
+                GamingHomeSnapshot.Capture(config, GamingHomeSnapshot.ReadCurrent(gamingSnapshot));
+                ConfigStore.Save(config);
+            }
+            using var gaming = Registry.CurrentUser.CreateSubKey(GamingConfigKey);
+            gaming.SetValue(StartupToGamingHome, 0, RegistryValueKind.DWord);
+            Log.Info("StartupToGamingHome guard applied (0) — Xbox FSE will not contest sign-in.");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"StartupToGamingHome guard failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>LEGACY — registers WSGM as this user's shell. No current flow calls
+    /// this (WSGM boots via the logon service over an explorer shell); it is kept
+    /// only so old shell-registered installs remain restorable and the migration
+    /// tests keep their reference behavior. Saves any pre-existing custom Shell
+    /// value into config first so uninstall can restore it exactly.</summary>
     public static void Install(AppConfig config)
     {
         using var shell = Registry.CurrentUser.CreateSubKey(WinlogonKey);

@@ -55,6 +55,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         StartupDelayMs = _config.StartupDelayMs;
         StaggerDelayMs = _config.StaggerDelayMs;
         BootSplashEnabled = _config.BootSplashEnabled;
+        GameModeBootEnabled = _config.GameModeBootEnabled;
         _hotkey = _config.Hotkey;
         _chord = _config.GamepadChord;
         GestureBottom = _config.Gestures.BottomEdge;
@@ -126,14 +127,21 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         return true;
     }
 
-    // --- Shell status ---
-    /// <summary>Gets whether this installed executable is the account's registered Windows shell.</summary>
+    // --- Sign-in behavior ---
+    private bool _gameModeBootEnabled = true;
+
+    /// <summary>Gets or sets whether the logon service boots the session into game
+    /// mode at sign-in. Persisted via Save; the boot manifest is rewritten there.</summary>
+    public bool GameModeBootEnabled { get => _gameModeBootEnabled; set { _gameModeBootEnabled = value; Raise(nameof(GameModeBootEnabled)); } }
+
+    /// <summary>Gets whether the LEGACY shell registration is still active for this
+    /// account (pre-service installs). Shows the migration Restore card.</summary>
     public bool ShellInstalled => ShellRegistration.IsInstalledForThisExe();
 
-    /// <summary>Gets a user-facing explanation of the current shell registration.</summary>
+    /// <summary>Gets a user-facing explanation of the sign-in behavior.</summary>
     public string ShellStatusText => ShellInstalled
-        ? "WSGM IS your Windows shell for this account. Sign out and back in for changes to take effect."
-        : "WSGM is NOT your Windows shell.";
+        ? "LEGACY shell registration is still active for this account — use Restore below. Game mode now starts through the WSGM logon service instead."
+        : "Game mode starts at sign-in through the WSGM logon service. Explorer stays your Windows shell.";
 
     // --- UAC prompt level ---
     /// <summary>Gets whether UAC consent prompts are disabled for the machine.</summary>
@@ -193,22 +201,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         RaiseShellStatus();
     }
 
-    /// <summary>Persists settings, installs the stable copy, and registers it as the Windows shell.</summary>
-    public void Install()
-    {
-        // Self-contained: persist the settings first so the config on disk always
-        // matches what the shell registration snapshots below. Hand the merged
-        // config (not the startup-time _config) to Install so its Save doesn't
-        // re-clobber snapshot fields persisted by other processes meanwhile.
-        var config = SaveMerged();
-        // Always anchor the shell registration to the stable installed copy,
-        // never to a Downloads/dev path.
-        Installer.InstallApp();
-        ShellRegistration.Install(config);
-        RaiseShellStatus();
-    }
-
-    /// <summary>Removes the shell registration and restores its saved Windows state.</summary>
+    /// <summary>Migration: removes the legacy shell registration and restores the
+    /// saved previous shell. The logon service keeps starting game mode afterwards.</summary>
     public void Uninstall()
     {
         ShellRegistration.Uninstall();
@@ -379,6 +373,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.StartupDelayMs = StartupDelayMs;
         config.StaggerDelayMs = StaggerDelayMs;
         config.BootSplashEnabled = BootSplashEnabled;
+        config.GameModeBootEnabled = GameModeBootEnabled;
         config.Hotkey = _hotkey;
         config.GamepadChord = _chord;
         config.Gestures.BottomEdge = GestureBottom;
@@ -416,6 +411,9 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         var config = ConfigStore.Load();
         ApplyTo(config);
         ConfigStore.Save(config);
+        // Keep the logon service's view in sync — every save may change the
+        // enabled flag or the elevation inputs (elevated startup apps).
+        BootManifestWriter.WriteCurrent(config);
         Log.Info("Settings saved.");
         return config;
     }

@@ -70,9 +70,12 @@ public static class SelfElevation
             }
             var reason = elevatedSteam ? "Steam requires matching elevation" : "config starts elevated apps";
             Log.Info($"{reason} — handed over to elevated instance (pid {child.Id}).");
-            // Stay alive while the elevated instance runs: in shell mode Winlogon's
-            // AutoRestartShell watches THIS process and would respawn it endlessly
-            // if it exited while the real shell keeps running.
+            // Stay alive while the elevated instance runs. Two watchers depend on
+            // this process's lifetime tracking the real session: legacy shell mode's
+            // Winlogon AutoRestartShell would respawn an exited shell process
+            // endlessly, and on a service boot (--boot) the logon service watchdog
+            // holds THIS pid — the parent exiting only when the elevated child does
+            // is exactly what keeps the watchdog watching the right tree.
             child.WaitForExit();
             return child.ExitCode;
         }

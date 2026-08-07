@@ -8,6 +8,25 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll")]
     internal static partial nint GetShellWindow();
 
+    [LibraryImport("user32.dll", EntryPoint = "FindWindowW", StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial nint FindWindowW(string lpClassName, string? lpWindowName);
+
+    [LibraryImport("user32.dll", EntryPoint = "PostMessageW", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool PostMessageW(nint hWnd, uint msg, nint wParam, nint lParam);
+
+    // ---- Input-desktop readiness (Core\InputDesktop) ----
+    [LibraryImport("user32.dll", SetLastError = true)]
+    internal static partial nint OpenInputDesktop(uint dwFlags, [MarshalAs(UnmanagedType.Bool)] bool fInherit, uint dwDesiredAccess);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool CloseDesktop(nint hDesktop);
+
+    [LibraryImport("user32.dll", EntryPoint = "GetUserObjectInformationW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetUserObjectInformationW(nint hObj, int nIndex, [Out] char[] pvInfo, uint nLength, out uint lpnLengthNeeded);
+
     // ---- Hotkey ----
     internal const uint ModAlt = 0x0001;
     internal const uint ModControl = 0x0002;

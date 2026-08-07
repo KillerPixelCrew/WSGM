@@ -25,4 +25,10 @@
     <ProjectReference Include="../../src/WSGM.Deelevate/WSGM.Deelevate.csproj" />
     <ProjectReference Include="../../src/WSGM/WSGM.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- The service's pure decision core is linked as source (its BootManifest
+         dependency comes from the WSGM project reference) — referencing the AOT
+         WinExe project would drag its publish plumbing into the test build. -->
+    <Compile Include="../../src/WSGM.LogonService/LogonDecision.cs" Link="Linked/LogonDecision.cs" />
+  </ItemGroup>
 </Project>

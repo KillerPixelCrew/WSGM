@@ -64,4 +64,26 @@ public sealed class ConfigurationTests
         Assert.True(restored.StartupApps[0].Elevated);
         Assert.Equal(150, Assert.Single(restored.SavedDisplayScaleEntries).Percent);
     }
+
+    [Fact]
+    public void GameModeBootDefaultsMatchTheInstallerIntent()
+    {
+        var config = new AppConfig();
+
+        Assert.True(config.GameModeBootEnabled);
+        Assert.Equal(5000, config.ExplorerLogonSettleMs);
+    }
+
+    [Fact]
+    public void GameModeBootFieldsRoundTripThroughSourceGeneratedJson()
+    {
+        var original = new AppConfig { GameModeBootEnabled = false, ExplorerLogonSettleMs = 250 };
+
+        var json = JsonSerializer.Serialize(original, ConfigJsonContext.Default.AppConfig);
+        var restored = JsonSerializer.Deserialize(json, ConfigJsonContext.Default.AppConfig);
+
+        Assert.NotNull(restored);
+        Assert.False(restored.GameModeBootEnabled);
+        Assert.Equal(250, restored.ExplorerLogonSettleMs);
+    }
 }

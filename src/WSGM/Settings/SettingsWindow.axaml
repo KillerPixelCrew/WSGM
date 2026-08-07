@@ -80,20 +80,20 @@
                                     <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
                                         <TextBlock Text="↪" FontSize="20" VerticalAlignment="Center" />
                                         <StackPanel Grid.Column="1" Spacing="2">
-                                            <TextBlock Text="Use WSGM as the Windows shell" Classes="setting-title" />
-                                            <TextBlock Text="Start directly in your handheld launcher after you sign in." Classes="caption" />
+                                            <TextBlock Text="Start game mode at sign-in" Classes="setting-title" />
+                                            <TextBlock Text="The WSGM service covers the booting desktop and switches to Big Picture once Windows finishes signing you in. Programs Windows autostarts may briefly run at sign-in." Classes="caption" />
                                         </StackPanel>
-                                        <Button Grid.Column="2" Classes="primary" Content="Install as shell" Click="OnInstall" IsEnabled="{Binding !ShellInstalled}" VerticalAlignment="Center" />
+                                        <ToggleSwitch Grid.Column="2" IsChecked="{Binding GameModeBootEnabled}" VerticalAlignment="Center" />
                                     </Grid>
                                 </Border>
-                                <Border Classes="hc-settings-card">
+                                <Border Classes="hc-settings-card" IsVisible="{Binding ShellInstalled}">
                                     <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
                                         <TextBlock Text="↶" FontSize="20" VerticalAlignment="Center" />
                                         <StackPanel Grid.Column="1" Spacing="2">
                                             <TextBlock Text="Restore the previous shell" Classes="setting-title" />
-                                            <TextBlock Text="Return this account to the Explorer shell saved before WSGM was installed." Classes="caption" />
+                                            <TextBlock Text="An older WSGM registered itself as this account's shell. Restore the saved Explorer shell — game mode keeps working through the service." Classes="caption" />
                                         </StackPanel>
-                                        <Button Grid.Column="2" Classes="danger" Content="Restore" Click="OnUninstall" IsEnabled="{Binding ShellInstalled}" VerticalAlignment="Center" />
+                                        <Button Grid.Column="2" Classes="danger" Content="Restore" Click="OnUninstall" VerticalAlignment="Center" />
                                     </Grid>
                                 </Border>
 
@@ -101,7 +101,7 @@
                                 <Border Classes="hc-settings-card">
                                     <Grid ColumnDefinitions="32,*" ColumnSpacing="12">
                                         <TextBlock Text="!" FontSize="20" Foreground="{StaticResource HcWarningBrush}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="1" Text="If WSGM does not start, press Ctrl+Alt+Del, open Task Manager, then run explorer.exe. Run WSGM.exe --restore-shell to restore your previous shell permanently." Classes="caption" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1" Text="If game mode does not come up, press Ctrl+Alt+Del, open Task Manager, then run explorer.exe. Run WSGM.exe --restore-shell to turn off game-mode boot and bring the desktop back; re-enable it here afterwards." Classes="caption" VerticalAlignment="Center" />
                                     </Grid>
                                 </Border>
                             </StackPanel>

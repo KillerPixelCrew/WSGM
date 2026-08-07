@@ -61,16 +61,14 @@ public partial class BootSplashWindow : Window
 
     private void OnOpened(object? sender, EventArgs e)
     {
-        // Primary display only — same assumption as the overlay; startup apps on a
-        // secondary screen may still flash (accepted on single-screen handhelds).
-        var screen = Screens?.Primary ?? (Screens?.All.Count > 0 ? Screens.All[0] : null);
-        if (screen is not null)
+        CoverPrimaryScreen();
+        // Service boots apply the 100% game-mode scale while the splash is already
+        // up (the cover must precede the posture change) — re-cover so the DPI
+        // change can't leave desktop pixels exposed around a stale-sized splash.
+        if (Screens is not null)
         {
-            var bounds = screen.Bounds;
-            var scaling = screen.Scaling;
-            Position = new PixelPoint(bounds.X, bounds.Y);
-            Width = bounds.Width / scaling;
-            Height = bounds.Height / scaling;
+            Screens.Changed += OnScreensChanged;
+            Closed += (_, _) => Screens.Changed -= OnScreensChanged;
         }
 
         // Layered style applied once, fully opaque — flipping it mid-fade risks a
@@ -128,6 +126,30 @@ public partial class BootSplashWindow : Window
             _fadeDone = null;
             done?.Invoke();
         }
+    }
+
+    private void OnScreensChanged(object? sender, EventArgs e)
+    {
+        CoverPrimaryScreen();
+        Core.Log.Info("Boot splash resized after display change.");
+    }
+
+    /// <summary>Primary display only — same assumption as the overlay; startup apps
+    /// on a secondary screen may still flash (accepted on single-screen handhelds).</summary>
+    private void CoverPrimaryScreen()
+    {
+        var screen = Screens?.Primary ?? (Screens?.All.Count > 0 ? Screens.All[0] : null);
+        if (screen is null)
+        {
+            return;
+        }
+        var bounds = screen.Bounds;
+        // Window scaling, not screen.Scaling — the screens cache is stale after a
+        // runtime display-scale flip (see OverlayWindow.DockToRightEdge).
+        var scaling = DesktopScaling;
+        Position = new PixelPoint(bounds.X, bounds.Y);
+        Width = bounds.Width / scaling;
+        Height = bounds.Height / scaling;
     }
 
     private void OnDesktop(object? sender, RoutedEventArgs e) => DesktopRequested?.Invoke();

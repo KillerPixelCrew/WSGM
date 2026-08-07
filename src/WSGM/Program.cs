@@ -25,6 +25,12 @@ public static class Program
 {
     /// <summary>Gets the mode selected from the current command line.</summary>
     public static RunMode Mode { get; private set; } = RunMode.Settings;
+
+    /// <summary>Gets whether this shell process was launched by the logon service
+    /// (--boot): the session boots over a live, still-initializing explorer that
+    /// the takeover flow waits out and then cleanly shuts down.</summary>
+    public static bool ServiceBoot { get; private set; }
+
     private static Mutex? _shellMutex;
 
     /// <summary>Starts the selected supported application mode.</summary>
@@ -39,6 +45,16 @@ public static class Program
         if (args.Contains("--restore-shell", StringComparer.OrdinalIgnoreCase))
         {
             ShellRegistration.Uninstall();
+            // The user is escaping game mode: also disarm the service boot so the
+            // next sign-in is a plain desktop (re-enable in Settings). Best effort —
+            // this path must survive a broken profile.
+            try
+            {
+                var config = ConfigStore.Load();
+                BootManifestWriter.WriteDisabled(config);
+                ConfigStore.Save(config);
+            }
+            catch { }
             ExplorerControl.StartExplorer();
             // A lease is pipe-backed, so a crashed shell releases it when Windows
             // closes its handles. A live shell can still be releasing normally.
@@ -107,12 +123,26 @@ public static class Program
         {
             var config = ConfigStore.Load();
             Installer.InstallApp();
-            ShellRegistration.Install(config);
+            // Migration off shell replacement: restore the snapshotted previous
+            // shell on upgraded devices (self-guarding no-op everywhere else) —
+            // WSGM boots via the logon service over an explorer shell now.
+            ShellRegistration.Uninstall();
+            ShellRegistration.ApplyGamingHomeGuard(config);
+            BootManifestWriter.WriteCurrent(config);
             return 0;
         }
 
+        ServiceBoot = IsServiceBoot(args);
         Mode = DecideMode(args);
-        Log.Info($"Run mode: {Mode}");
+        if (ServiceBoot)
+        {
+            Log.Info($"Run mode: {Mode} (service boot, elevated={ElevationCheck.IsCurrentProcessElevated()}, " +
+                     $"session {System.Diagnostics.Process.GetCurrentProcess().SessionId})");
+        }
+        else
+        {
+            Log.Info($"Run mode: {Mode}");
+        }
 
         if (Mode == RunMode.Shell)
         {
@@ -141,10 +171,23 @@ public static class Program
             CrashLoopBreaker.RecordStart();
             if (CrashLoopBreaker.IsLooping())
             {
-                Log.Error("Crash loop detected (3+ shell starts within 2 minutes). " +
-                          "Restoring previous shell and starting explorer.");
+                Log.Error("Crash loop detected (3+ shell starts within 2 minutes) — " +
+                          "game-mode boot DISABLED (re-enable in WSGM settings).");
+                // Disarm the service boot: the manifest write works even when
+                // config.json cannot be saved, so the next sign-in stays a desktop.
+                try
+                {
+                    var config = ConfigStore.Load();
+                    BootManifestWriter.WriteDisabled(config);
+                    try { ConfigStore.Save(config); } catch { }
+                }
+                catch { }
+                // Migration-era safety: also drop a legacy shell registration.
                 ShellRegistration.Uninstall();
-                ExplorerControl.StartExplorer();
+                if (!ExplorerControl.IsRunningInSession())
+                {
+                    ExplorerControl.StartExplorer();
+                }
                 // Lease release first (invariant: fires on EVERY recovery path,
                 // ahead of cosmetic restores) — same ordering as --restore-shell.
                 SteamInputBlocker.ReleaseBestEffort("crash-loop");
@@ -222,7 +265,7 @@ public static class Program
     /// without querying the live shell from a test process.</summary>
     internal static RunMode DecideMode(string[] args, bool registeredAsShell, bool desktopAlive)
     {
-        if (args.Contains("--shell", StringComparer.OrdinalIgnoreCase))
+        if (args.Contains("--shell", StringComparer.OrdinalIgnoreCase) || IsServiceBoot(args))
         {
             return RunMode.Shell;
         }
@@ -238,8 +281,15 @@ public static class Program
         }
 
         // Auto: we are the registered shell and no desktop is alive -> shell mode.
+        // (Migration-window rule only — new installs never register as shell, so
+        // auto resolves to Settings for them.)
         return registeredAsShell && !desktopAlive ? RunMode.Shell : RunMode.Settings;
     }
+
+    /// <summary>True when the command line carries the logon service's --boot flag
+    /// (kept pure so mode precedence stays testable without a live session).</summary>
+    internal static bool IsServiceBoot(string[] args)
+        => args.Contains("--boot", StringComparer.OrdinalIgnoreCase);
 
     private static bool AcquireShellMutex()
     {
@@ -262,9 +312,12 @@ public static class Program
         }
     }
 
-    /// <summary>Fatal-error handler for shell mode: restore the shell registration FIRST
-    /// (so Winlogon's AutoRestartShell cannot resurrect us next to explorer), then bring
-    /// the desktop back, then die.</summary>
+    /// <summary>Fatal-error handler for shell mode: make sure the session has a
+    /// desktop again, then die. (Legacy installs: drop the shell registration
+    /// first so Winlogon's AutoRestartShell cannot resurrect us next to explorer —
+    /// a self-guarding no-op on service-boot installs, where the logon service
+    /// watchdog is the robust outer recovery layer and this is in-process best
+    /// effort.)</summary>
     private static void Panic(string context, Exception? ex)
     {
         Log.Error($"PANIC ({context})", ex ?? new Exception("unknown"));
@@ -279,7 +332,10 @@ public static class Program
                 Shell.TrayHost.DestroyActive();
             }
             catch { /* recovery must not throw */ }
-            ExplorerControl.StartExplorer();
+            if (!ExplorerControl.IsRunningInSession())
+            {
+                ExplorerControl.StartExplorer();
+            }
             LegacyPostureCleanup.Restore();
             RestoreDisplayScalesBestEffort();
         }

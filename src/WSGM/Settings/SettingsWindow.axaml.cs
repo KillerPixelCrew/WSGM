@@ -68,21 +68,6 @@ public partial class SettingsWindow : Window
         QuickAccessPage.IsVisible = page == 3;
     }
 
-    private void OnInstall(object? sender, RoutedEventArgs e)
-    {
-        // A disk/registry failure must not escape a click handler — in-shell it
-        // would land in the panic path and tear the session down.
-        try
-        {
-            _viewModel.Install();
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Install failed", ex);
-            SaveStatus.Text = $"Install failed: {ex.Message}";
-        }
-    }
-
     private void OnUninstall(object? sender, RoutedEventArgs e) => _viewModel.Uninstall();
 
     private void OnInstallApp(object? sender, RoutedEventArgs e)

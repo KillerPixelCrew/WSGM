@@ -32,4 +32,30 @@ public sealed class ModeSelectionTests
 
         Assert.Equal(expected, mode);
     }
+
+    [Fact]
+    public void ServiceBootSelectsShellModeEvenWithADesktopAlive()
+    {
+        var mode = Program.DecideMode(["--BOOT"], false, true);
+
+        Assert.Equal(RunMode.Shell, mode);
+    }
+
+    [Fact]
+    public void ServiceBootOutranksSettingsAndOverlayTest()
+    {
+        var mode = Program.DecideMode(["--settings", "--overlay-test", "--boot"], false, true);
+
+        Assert.Equal(RunMode.Shell, mode);
+    }
+
+    [Theory]
+    [InlineData(new[] { "--boot" }, true)]
+    [InlineData(new[] { "--BOOT", "--elevated-relaunch" }, true)]
+    [InlineData(new[] { "--shell" }, false)]
+    [InlineData(new string[0], false)]
+    public void IsServiceBootDetectsOnlyTheBootFlag(string[] args, bool expected)
+    {
+        Assert.Equal(expected, Program.IsServiceBoot(args));
+    }
 }

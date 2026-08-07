@@ -113,7 +113,12 @@ public partial class OverlayWindow : Window
         }
 
         var bounds = screen.Bounds;
-        var scaling = screen.Scaling;
+        // The WINDOW'S scaling, not screen.Scaling: Avalonia's screens cache goes
+        // stale when the display scale flips (game/desktop transitions) while no
+        // Avalonia window exists to receive the display change — a freshly opened
+        // window carries the true current DPI (device-observed: overlay kept the
+        // desktop DPI after returning to game mode).
+        var scaling = DesktopScaling;
         // Render at the desktop's DPI: game mode forces displays to 100%, which
         // otherwise shrinks this DIP-sized panel to millimeters on dense
         // handheld screens (device-reported). The content lays out in

@@ -12,6 +12,8 @@ public sealed class ShellSession
 {
     private readonly AppConfig _config;
     private readonly bool _overlayTestOnly;
+    private readonly bool _serviceBoot;
+    private bool _tookOverFromExplorer;
     private SteamMonitor? _monitor;
     private SessionModes? _modes;
     private StartupAppWatcher? _startupWatcher;
@@ -29,10 +31,13 @@ public sealed class ShellSession
     /// <summary>Creates the shell session without performing any Windows state changes.</summary>
     /// <param name="config">The configuration to apply when the session starts.</param>
     /// <param name="overlayTestOnly">Whether to omit normal shell startup for the manual overlay test.</param>
-    public ShellSession(AppConfig config, bool overlayTestOnly = false)
+    /// <param name="serviceBoot">Whether the logon service launched this process over a
+    /// live, still-initializing explorer (--boot) — enables the takeover flow.</param>
+    public ShellSession(AppConfig config, bool overlayTestOnly = false, bool serviceBoot = false)
     {
         _config = config;
         _overlayTestOnly = overlayTestOnly;
+        _serviceBoot = serviceBoot;
     }
 
     /// <summary>Starts the shell's startup applications, home application, and overlay services.</summary>
@@ -78,13 +83,30 @@ public sealed class ShellSession
             MessageWindow.Create(),
             () => DisplayScale.GetUiScalePercent(_config) / 100.0);
 
-        // A live desktop at shell start means this is NOT a logon boot: it is the
-        // update restart (updates only run in desktop mode) or an AutoRestartShell
-        // resurrection next to a desktop. Resume in desktop mode — no splash, no
-        // startup apps, no Steam, no game posture/scale — with the overlay armed
-        // so the panel is available; EnterGameMode brings everything back.
+        // Refresh boot.json every session start so a stale Elevate/ExePath heals
+        // itself before the next sign-in.
+        BootManifestWriter.WriteCurrent(_config);
+
+        // Service boot: the service launches WSGM at WTS_SESSION_LOGON — usually
+        // BEFORE Winlogon has even started explorer (device-observed 2026-08-07:
+        // gating this on IsRunningInSession made the takeover never run, leaving
+        // explorer alive behind Big Picture next to our tray host). The takeover
+        // owns every explorer state: its readiness poll waits for explorer to
+        // appear AND finish logon prep, then shuts it down cleanly; if explorer
+        // never shows within the 60 s cap it proceeds like a plain game-mode boot.
+        if (_serviceBoot)
+        {
+            StartBootTakeover();
+            return;
+        }
+
         if (ExplorerControl.IsRunningInSession())
         {
+            // A live desktop at --shell start means this is NOT a logon boot: it is
+            // the update restart (updates only run in desktop mode) or a manual
+            // start next to a desktop. Resume in desktop mode — no splash, no
+            // startup apps, no Steam, no game posture/scale — with the overlay armed
+            // so the panel is available; EnterGameMode brings everything back.
             Log.Info("Shell started with a live desktop — resuming in desktop mode (overlay armed).");
             _monitor.Paused = true;
             _startupWatcher = new StartupAppWatcher(_config.StartupApps);
@@ -130,6 +152,187 @@ public sealed class ShellSession
             await Task.Delay(TimeSpan.FromSeconds(90));
             MemoryTrim.TrimBestEffort("boot settled");
         });
+    }
+
+    /// <summary>Service-boot takeover: cover the booting desktop with the splash
+    /// FIRST (before any posture change — the cover is the point of the early
+    /// launch), let explorer finish its logon prep once, then cleanly shut it down
+    /// and run the normal game-mode boot. The one-per-session explorer init is what
+    /// keeps touch features (touch keyboard) alive in game mode.</summary>
+    private void StartBootTakeover()
+    {
+        Log.Info("Boot cover: waiting for explorer logon prep.");
+        _tookOverFromExplorer = true;
+
+        if (_config.BootSplashEnabled)
+        {
+            _splash = new BootSplash(_config, _modes!);
+            _overlay!.OverlayShown += () => _splash?.Dismiss("quick access opened");
+            _splash.Show();
+        }
+        else
+        {
+            Log.Info("Boot splash disabled — takeover runs uncovered.");
+        }
+
+        _startupWatcher = new StartupAppWatcher(_config.StartupApps);
+        WatchConfig();
+
+        // Mode switches must not race the takeover (the overlay is live behind the
+        // splash and its Desktop button would start a second explorer transition).
+        _modes!.BeginTransition();
+
+        Task.Run(async () =>
+        {
+            try
+            {
+                await RunBootTakeoverAsync();
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Boot takeover failed", ex);
+            }
+            finally
+            {
+                _modes!.EndTransition();
+            }
+            await Task.Delay(TimeSpan.FromSeconds(90));
+            MemoryTrim.TrimBestEffort("boot settled");
+        });
+    }
+
+    private async Task RunBootTakeoverAsync()
+    {
+        // Input-desktop barrier (era-proven): WTS_SESSION_LOGON fires while the
+        // Welcome screen still owns the input desktop — proceeding then starts
+        // Steam audibly behind LogonUI. WTS_SESSION_DESKTOP_READY never arrives
+        // on this hardware; polling for winsta0\Default is the working signal.
+        var desktopWatch = System.Diagnostics.Stopwatch.StartNew();
+        while (!InputDesktop.IsDefaultInputDesktop())
+        {
+            if (desktopWatch.Elapsed >= TimeSpan.FromSeconds(60))
+            {
+                Log.Warn("Input desktop never became winsta0\\Default within 60 s — proceeding anyway.");
+                break;
+            }
+            await Task.Delay(250);
+        }
+        if (desktopWatch.ElapsedMilliseconds > 250)
+        {
+            Log.Info($"Interactive desktop ready after {desktopWatch.ElapsedMilliseconds} ms.");
+        }
+
+        var settleDuration = TimeSpan.FromMilliseconds(Math.Max(0, _config.ExplorerLogonSettleMs));
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        System.Diagnostics.Stopwatch? settle = null;
+        long shellSeenMs = -1, taskbarSeenMs = -1;
+
+        while (true)
+        {
+            var shellWindow = NativeMethods.GetShellWindow() != 0;
+            var taskbar = NativeMethods.FindWindowW("Shell_TrayWnd", null) != 0;
+            var bigPicture = WindowFinder.FindWindow(Steam.ProcessNames, Steam.BigPictureWindowClass) != 0;
+            if (shellWindow && shellSeenMs < 0)
+            {
+                shellSeenMs = watch.ElapsedMilliseconds;
+            }
+            if (taskbar && taskbarSeenMs < 0)
+            {
+                taskbarSeenMs = watch.ElapsedMilliseconds;
+            }
+
+            var action = ExplorerReadiness.Decide(shellWindow, taskbar, bigPicture,
+                watch.Elapsed, settle?.Elapsed, settleDuration, ExplorerReadiness.MaxWait);
+            if (action == ExplorerReadinessAction.BeginSettle)
+            {
+                settle = System.Diagnostics.Stopwatch.StartNew();
+                Log.Info($"Explorer readiness: shell window after {shellSeenMs} ms, " +
+                         $"taskbar after {taskbarSeenMs} ms — settling {(int)settleDuration.TotalMilliseconds} ms.");
+            }
+            else if (action == ExplorerReadinessAction.ProceedAccelerated)
+            {
+                Log.Info("Big Picture appeared during boot cover — accelerating takeover (invariant 7).");
+                break;
+            }
+            else if (action == ExplorerReadinessAction.ProceedTimeout)
+            {
+                Log.Warn($"Explorer readiness timeout after {(int)ExplorerReadiness.MaxWait.TotalSeconds} s — proceeding anyway.");
+                break;
+            }
+            else if (action == ExplorerReadinessAction.Proceed)
+            {
+                break;
+            }
+            await Task.Delay(250);
+        }
+
+        // Already off the UI thread — the bounded exit wait never blocks the
+        // splash's spinner/fade. Logs its own outcome.
+        var exited = ExplorerControl.ExitExplorerAndWait(TimeSpan.FromSeconds(5));
+        if (!exited && ExplorerControl.IsRunningInSession())
+        {
+            // Fail open (era-proven): never enter a half game mode next to a live
+            // explorer. Resume like a desktop session — overlay armed, monitor
+            // paused, no Steam start; the user can retry from quick access.
+            Log.Warn("Boot takeover failed open — explorer preserved; resuming in desktop mode (overlay armed).");
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                _splash?.Dismiss("takeover failed open");
+                if (_monitor is not null)
+                {
+                    _monitor.Paused = true;
+                }
+            });
+            return;
+        }
+
+        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            // Same order as the direct game-mode boot: posture (scale) with the
+            // splash re-covering on the display change, then the tray host —
+            // explorer is verifiably gone, so Create() can't race a dying taskbar.
+            _modes!.ApplyGameModePosture();
+            _trayHost = TrayHost.Create();
+            if (_trayHost is not null)
+            {
+                _overlay?.AttachTrayHost(_trayHost);
+            }
+            _volumeButtons?.SetGameModeActive(true);
+        });
+
+        await LaunchAppsAsync();
+    }
+
+    /// <summary>Name-based liveness check for the double-launch guard. Deliberately
+    /// name-only (not full-path): MainModule of a cross-integrity process throws,
+    /// and a same-named copy running from elsewhere still means the user's tool is
+    /// up. Protocol/non-exe targets always report false.</summary>
+    private static bool IsAppAlreadyRunning(string path)
+    {
+        try
+        {
+            if (!path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+            var name = System.IO.Path.GetFileNameWithoutExtension(path);
+            var session = System.Diagnostics.Process.GetCurrentProcess().SessionId;
+            foreach (var p in System.Diagnostics.Process.GetProcessesByName(name))
+            {
+                using (p)
+                {
+                    if (p.SessionId == session)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Enumeration hiccups must not block the launch sequence.
+        }
+        return false;
     }
 
     private void WatchConfig()
@@ -183,6 +386,13 @@ public sealed class ShellSession
             {
                 continue;
             }
+            // Explorer processed Run keys/Startup folder during the takeover's
+            // settle window — tools registered in both places must not launch twice.
+            if (_tookOverFromExplorer && IsAppAlreadyRunning(app.Path))
+            {
+                Log.Info($"Startup app already running (explorer autostart) — skipping: {app.Path}");
+                continue;
+            }
             Log.Info($"Starting startup app: {app.Path} {app.Args}{(app.Elevated ? " (elevated)" : "")}");
             AppLauncher.Start(app.Path, app.Args, app.Elevated);
             await Task.Delay(Math.Max(0, _config.StaggerDelayMs));
@@ -202,8 +412,11 @@ public sealed class ShellSession
             return;
         }
 
+
         // Shared start + warning flow (also behind the overlay's Steam button);
         // boot surfaces failures itself because this runs off the UI thread.
+        // (steam://open/bigpicture adopts a Steam that explorer's own autostart
+        // already brought up, so no duplicate check is needed for Steam itself.)
         var warning = _modes!.StartBigPicture();
         if (warning is not null)
         {

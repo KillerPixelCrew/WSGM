@@ -400,6 +400,14 @@ public sealed class OverlayController : IDisposable
         _overlay.HomeAppRequested += () => { _suppressFocusRestore = true; CloseOverlay(); _modes.StartOrFocusSteam(); };
         _overlay.DesktopRequested += () =>
         {
+            // Mid-transition (boot takeover, or a switch already running) the
+            // explorer state is in flux — acting on it would start a second,
+            // conflicting transition (device-observed 2026-08-07).
+            if (_modes.TransitionInProgress)
+            {
+                Log.Info("Mode switch ignored — an explorer transition is in progress.");
+                return;
+            }
             var explorerRunning = ExplorerControl.IsRunningInSession();
             _suppressFocusRestore = true;
             CloseOverlay();

@@ -102,12 +102,14 @@ public partial class TaskbarWindow : Window
         {
             return;
         }
-        var factor = Math.Clamp(_uiScale / screen.Scaling, 1.0, 3.0);
+        // Window scaling, not screen.Scaling — the screens cache is stale after a
+        // runtime display-scale flip (see OverlayWindow.DockToRightEdge).
+        var factor = Math.Clamp(_uiScale / DesktopScaling, 1.0, 3.0);
         if (Math.Abs(factor - 1.0) < 0.01)
         {
             return;
         }
-        Log.Info($"Taskbar UI scale {factor:0.##}x (desktop DPI over current {screen.Scaling:0.##}).");
+        Log.Info($"Taskbar UI scale {factor:0.##}x (desktop DPI over current {DesktopScaling:0.##}).");
         RootScale.LayoutTransform = new Avalonia.Media.ScaleTransform(factor, factor);
         // Sizes must be final before the dock computes the slide positions.
         UpdateLayout();
@@ -133,7 +135,7 @@ public partial class TaskbarWindow : Window
             return Position;
         }
         var bounds = screen.Bounds;
-        var scaling = screen.Scaling;
+        var scaling = DesktopScaling;
         var widthPx = (int)Math.Ceiling(Width * scaling);
         var heightPx = (int)Math.Ceiling(Height * scaling);
         return new PixelPoint(

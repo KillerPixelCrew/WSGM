@@ -41,10 +41,12 @@ public partial class VolumeIndicatorWindow : Window
         var screen = Screens?.Primary;
         if (screen is not null)
         {
-            var factor = Math.Clamp(_uiScale / screen.Scaling, 1.0, 3.0);
+            // Window scaling, not screen.Scaling — the screens cache is stale
+            // after a runtime display-scale flip (see OverlayWindow.DockToRightEdge).
+            var factor = Math.Clamp(_uiScale / DesktopScaling, 1.0, 3.0);
             Width = 320 * factor;
             Height = 106 * factor;
-            var width = (int)Math.Ceiling(Width * screen.Scaling);
+            var width = (int)Math.Ceiling(Width * DesktopScaling);
             var y = screen.Bounds.Y + Math.Max(24, (int)Math.Round(screen.Bounds.Height * 0.08));
             Position = new PixelPoint(
                 screen.Bounds.X + Math.Max(0, (screen.Bounds.Width - width) / 2), y);

@@ -1,4 +1,9 @@
-; WSGM installer — per-user, no admin rights, no UAC prompt.
+; WSGM installer — elevated (admin) because the logon service is machine-wide:
+; the service binary lives in Program Files (a SYSTEM service exe must never be
+; user-writable) and stopping/registering it needs the SCM. The app itself stays
+; per-user in %LOCALAPPDATA%\WSGM\bin. Consequence: run this setup from the
+; handheld's (typically sole) admin account — {localappdata}/HKCU below belong
+; to the ELEVATING user.
 ; Build via build.ps1 (publishes the app first, then compiles this).
 
 #define AppName "WSGM - Windows Steam Game Mode"
@@ -19,11 +24,14 @@ AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
 AppSupportURL={#AppURL}
-; Per-user install: matches the app's own layout (%LOCALAPPDATA%\WSGM\bin)
+; Per-user app layout (%LOCALAPPDATA%\WSGM\bin) written from an elevated setup —
+; deliberate single-user-device design, see header. UsedUserAreasWarning quiets
+; the compiler's warning about exactly that combination.
 DefaultDirName={localappdata}\WSGM\bin
 DisableDirPage=yes
 DisableProgramGroupPage=yes
-PrivilegesRequired=lowest
+PrivilegesRequired=admin
+UsedUserAreasWarning=no
 OutputDir=..\publish
 OutputBaseFilename=WSGM-Setup-{#AppVersion}
 Compression=lzma2/max
@@ -51,6 +59,10 @@ german.SteamMissing=Steam wurde auf diesem PC nicht gefunden.%n%nWSGM funktionie
 [Files]
 Source: "{#PublishDir}\WSGM.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PublishDir}\WSGM.Deelevate.exe"; DestDir: "{app}"; Flags: ignoreversion
+; SYSTEM service binary: Program Files only (admin-writable), never {app}. It
+; launches the per-user WSGM.exe via the boot manifest — as that user, which is
+; why the user-writable app path is not an escalation.
+Source: "{#PublishDir}\WSGM.LogonService.exe"; DestDir: "{autopf}\WSGM"; Flags: ignoreversion
 Source: "{#PublishDir}\steam-input-lease.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PublishDir}\*.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PublishDir}\SteamInputLease-*.txt"; DestDir: "{app}"; Flags: ignoreversion
@@ -60,10 +72,14 @@ Source: "{#PublishDir}\SteamInputLease-*.md"; DestDir: "{app}"; Flags: ignorever
 Name: "{userprograms}\{#AppName}"; Filename: "{app}\WSGM.exe"; Comment: "WSGM settings"
 
 [Run]
-; Remove the abandoned preview service before registering the normal per-user
-; Winlogon shell. The cleanup prompt appears only while its protected binary exists.
-Filename: "{autopf}\WSGM\WSGM.LogonService.exe"; Parameters: "--uninstall"; Verb: "runas"; Flags: shellexec waituntilterminated runhidden skipifdoesntexist
+; --setup: install per-user files, migrate OFF a legacy shell registration
+; (restores the snapshotted previous shell), apply the Xbox-FSE guard, write the
+; boot manifest. Runs elevated (whole setup is) — same single-user profile.
 Filename: "{app}\WSGM.exe"; Parameters: "--setup"; Flags: runhidden
+; Register + start the logon service (create-or-reconfigure also adopts an
+; abandoned preview registration of the same name; PrepareToInstall already
+; stopped it so [Files] could overwrite the binary).
+Filename: "{autopf}\WSGM\WSGM.LogonService.exe"; Parameters: "--install"; Flags: runhidden waituntilterminated
 ; Update restart: if the shell was running it comes back as the shell; a plain
 ; settings instance comes back as settings (no args = DecideMode).
 Filename: "{app}\WSGM.exe"; Parameters: "--shell"; Flags: nowait; Check: WasShellRunning
@@ -71,8 +87,12 @@ Filename: "{app}\WSGM.exe"; Flags: nowait; Check: WasSettingsRunning
 Filename: "{app}\WSGM.exe"; Description: "Open WSGM settings"; Flags: nowait postinstall skipifsilent; Check: WasNothingRunning
 
 [UninstallRun]
-; Restore the previous Windows shell BEFORE files are removed — otherwise the next
-; logon would point at a deleted exe. Quiet: no explorer start, no UI.
+; Stop + delete the logon service FIRST — after files are gone the SCM would
+; point at a missing binary and the next boot would log service-start failures.
+Filename: "{autopf}\WSGM\WSGM.LogonService.exe"; Parameters: "--uninstall"; RunOnceId: "UninstallService"; Flags: runhidden skipifdoesntexist
+; Legacy: restore a pre-service Winlogon shell registration BEFORE files are
+; removed — otherwise the next logon would point at a deleted exe. Self-guarding
+; no-op on service-boot installs. Quiet: no explorer start, no UI.
 Filename: "{app}\WSGM.exe"; Parameters: "--unregister-shell"; RunOnceId: "UnregisterShell"; Flags: runhidden
 ; Restore machine settings (UAC, lock-on-wake, ...) from the config snapshots
 ; while config.json still exists — [UninstallDelete] removes it afterwards.
@@ -81,6 +101,9 @@ Filename: "{app}\WSGM.exe"; Parameters: "--uninstall-restore"; RunOnceId: "Unins
 [UninstallDelete]
 ; Config/logs live one level up; remove them with the app (per-user data only).
 Type: filesandordirs; Name: "{localappdata}\WSGM"
+; Service binary + service log directory (machine-wide pieces).
+Type: filesandordirs; Name: "{autopf}\WSGM"
+Type: filesandordirs; Name: "{commonappdata}\WSGM"
 
 [InstallDelete]
 ; Remove the per-user staging helper left by service-based preview builds.
@@ -215,8 +238,24 @@ begin
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM WSGM.Deelevate.exe /T /F', '', SW_HIDE, ewWaitUntilTerminated, R);
 end;
 
+// Stop the logon service BEFORE stopping WSGM. Ordering is load-bearing: with
+// the service alive, a killed WSGM trips its watchdog, which starts explorer
+// mid-update and flips the post-update restart into desktop mode. Also frees
+// the service binary for [Files] (covers the abandoned preview too — same
+// service name). Delete is not needed on updates; --install reconfigures.
+procedure StopLogonService();
+var
+  R: Integer;
+begin
+  Exec(ExpandConstant('{sys}\sc.exe'), 'stop WSGMLogonService', '', SW_HIDE, ewWaitUntilTerminated, R);
+  // sc stop is asynchronous; the service stops within a control cycle. A short
+  // fixed wait suffices (the SCM refuses file locks only while START_PENDING).
+  Sleep(1500);
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
+  StopLogonService();
   // Classify BEFORE killing anything: only the shell-mode instance holds this
   // mutex (session namespace). taskkill's exit code is deliberately NOT part of
   // WasRunning — /IM kills any WSGM.exe by image name (portable copies,
@@ -237,6 +276,7 @@ end;
 // and a zombie ex-shell process keeps running.
 function InitializeUninstall(): Boolean;
 begin
+  StopLogonService();
   StopRunningInstances();
   StopDeelevationHelpers();
   Result := True;

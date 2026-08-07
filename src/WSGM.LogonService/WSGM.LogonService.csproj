@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <!-- No ImplicitUsings, same as WSGM proper: the shared BootManifest.cs carries
+         explicit usings and must compile identically in both projects. -->
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyName>WSGM.LogonService</AssemblyName>
+    <RootNamespace>WSGM.LogonService</RootNamespace>
+    <PublishAot>true</PublishAot>
+    <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The boot manifest is the only contract between the per-user app and this
+         SYSTEM service — one shared source file, no project reference (the service
+         must not pull in Avalonia or the rest of WSGM). -->
+    <Compile Include="..\WSGM\Core\BootManifest.cs" Link="Shared\BootManifest.cs" />
+  </ItemGroup>
+</Project>
