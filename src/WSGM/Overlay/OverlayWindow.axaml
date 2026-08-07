@@ -96,23 +96,21 @@
                             </StackPanel>
                         </Grid>
                     </Button>
-
-                    <TextBlock Text="Windows" Classes="section-title" Margin="0,4,0,2" />
-                    <Button Classes="quick-row" Click="OnBluetooth">
+                    <Button Classes="quick-row" Click="OnCopyDeelevationCommand">
                         <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
-                            <TextBlock Text="ᛒ" FontSize="18" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                            <TextBlock Text="⧉" FontSize="16" VerticalAlignment="Center" HorizontalAlignment="Center" />
                             <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
-                                <TextBlock Text="Bluetooth" Classes="setting-title" />
-                                <TextBlock Text="Pair devices and manage Bluetooth" Classes="caption" />
+                                <TextBlock x:Name="DeelevationCommandTitle" Text="Copy de-elevation command" Classes="setting-title" />
+                                <TextBlock Text="Paste into a game's Steam launch options" Classes="caption" />
                             </StackPanel>
                         </Grid>
                     </Button>
-                    <Button Classes="quick-row" Click="OnWifi">
+                    <Button Classes="quick-row" Click="OnCopySteamInputBlockCommand">
                         <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
-                            <TextBlock Text="⌁" FontSize="20" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                            <TextBlock Text="⨂" FontSize="16" VerticalAlignment="Center" HorizontalAlignment="Center" />
                             <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
-                                <TextBlock Text="Wi-Fi" Classes="setting-title" />
-                                <TextBlock Text="Choose and manage wireless networks" Classes="caption" />
+                                <TextBlock x:Name="SteamInputBlockCommandTitle" Text="Copy Steam Input block command" Classes="setting-title" />
+                                <TextBlock Text="For games that read the controller themselves" Classes="caption" />
                             </StackPanel>
                         </Grid>
                     </Button>

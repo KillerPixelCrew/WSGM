@@ -40,9 +40,9 @@ public static class Program
         {
             ShellRegistration.Uninstall();
             ExplorerControl.StartExplorer();
-            // A crashed shell may have left the Steam Input layout pinned; this
-            // fresh process cannot know, so reset unconditionally (never throws).
-            SteamInputPin.ReleaseBestEffort("restore-shell");
+            // A lease is pipe-backed, so a crashed shell releases it when Windows
+            // closes its handles. A live shell can still be releasing normally.
+            SteamInputBlocker.ReleaseBestEffort("restore-shell");
             RestoreDisplayScalesBestEffort();
             // Undo posture/keyboard values changed by older releases. Wrapped
             // because this recovery path must never throw.
@@ -55,7 +55,7 @@ public static class Program
         if (args.Contains("--unregister-shell", StringComparer.OrdinalIgnoreCase))
         {
             ShellRegistration.Uninstall();
-            SteamInputPin.ReleaseBestEffort("unregister-shell");
+            SteamInputBlocker.ReleaseBestEffort("unregister-shell");
             return 0;
         }
 
@@ -145,9 +145,9 @@ public static class Program
                           "Restoring previous shell and starting explorer.");
                 ShellRegistration.Uninstall();
                 ExplorerControl.StartExplorer();
-                // Pin release first (invariant: fires on EVERY recovery path,
+                // Lease release first (invariant: fires on EVERY recovery path,
                 // ahead of cosmetic restores) — same ordering as --restore-shell.
-                SteamInputPin.ReleaseBestEffort("crash-loop");
+                SteamInputBlocker.ReleaseBestEffort("crash-loop");
                 LegacyPostureCleanup.Restore();
                 RestoreDisplayScalesBestEffort();
                 // Clear the marker so the next manual start isn't instantly disarmed.
@@ -168,10 +168,14 @@ public static class Program
         {
             // Posted jobs only run once StartWithClassicDesktopLifetime pumps the
             // dispatcher, so the classic desktop lifetime is always in place here
-            // and Shutdown() flows through the normal teardown below (pin release,
+            // and Shutdown() flows through the normal teardown below (lease release,
             // posture cleanup/scale restore). No Environment.Exit fallback: it would skip
             // that teardown, and if this ever failed to match, the installer's
             // taskkill fallback still ends the process.
+            // This request originates from setup, which must replace the Steam
+            // Input payload DLLs. WSGM may be elevated while setup is not, so it
+            // owns both the graceful request and the bounded elevated fallback.
+            Steam.StopForUpdate();
             if (Avalonia.Application.Current?.ApplicationLifetime
                 is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime lifetime)
             {
@@ -182,12 +186,11 @@ public static class Program
         try
         {
             var exitCode = BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
-            // Normal shutdown. Settings-only processes skip the reset unless they
-            // pinned themselves (overlay test) — firing /0 from a stray settings
-            // window would unpin a still-running shell.
-            if (Mode is RunMode.Shell or RunMode.OverlayTest || SteamInputPin.IsApplied)
+            // Normal shutdown. Settings-only processes skip release unless they
+            // acquired a lease themselves (overlay test).
+            if (Mode is RunMode.Shell or RunMode.OverlayTest || SteamInputBlocker.IsApplied)
             {
-                SteamInputPin.ReleaseBestEffort("shutdown");
+                SteamInputBlocker.ReleaseBestEffort("shutdown");
             }
             if (Mode == RunMode.Shell)
             {
@@ -280,11 +283,11 @@ public static class Program
             LegacyPostureCleanup.Restore();
             RestoreDisplayScalesBestEffort();
         }
-        // Same guard as normal shutdown: firing /0 from a crashing settings
-        // process would unpin a still-running shell.
-        if (Mode is RunMode.Shell or RunMode.OverlayTest || SteamInputPin.IsApplied)
+        // Same guard as normal shutdown: a crashing settings process must not
+        // release a still-running shell's lease.
+        if (Mode is RunMode.Shell or RunMode.OverlayTest || SteamInputBlocker.IsApplied)
         {
-            SteamInputPin.ReleaseBestEffort("panic");
+            SteamInputBlocker.ReleaseBestEffort("panic");
         }
     }
 

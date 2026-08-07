@@ -1,5 +1,7 @@
 using System;
+using System.Diagnostics;
 using System.IO;
+using System.Threading;
 using Microsoft.Win32;
 
 namespace WSGM.Core;
@@ -158,5 +160,52 @@ public static class Steam
             return AppLauncher.Start(exe, OpenBigPictureUrl, elevated: false);
         }
         return AppLauncher.StartProtocol(OpenBigPictureUrl);
+    }
+
+    /// <summary>Stops Steam for an application update that must replace an
+    /// injected payload DLL. First requests Steam's normal shutdown, then uses
+    /// WSGM's possibly elevated token to end any client that remains after a
+    /// bounded grace period; the unelevated installer cannot do this reliably.</summary>
+    public static void StopForUpdate()
+    {
+        if (IsRunning)
+        {
+            Log.Info("Update requested — closing Steam to release the Steam Input payload.");
+            AppLauncher.StartProtocol(ExitUrl);
+            for (var attempt = 0; attempt < 20; attempt++)
+            {
+                var remaining = Process.GetProcessesByName(MainProcessName);
+                if (remaining.Length == 0)
+                {
+                    Log.Info("Steam exited gracefully for update.");
+                    break;
+                }
+                foreach (var process in remaining)
+                {
+                    process.Dispose();
+                }
+                Thread.Sleep(250);
+            }
+
+            foreach (var process in Process.GetProcessesByName(MainProcessName))
+            {
+                try
+                {
+                    Log.Warn($"Steam did not exit for update — ending process {process.Id}.");
+                    process.Kill(entireProcessTree: true);
+                    process.WaitForExit(5_000);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"Could not end Steam process {process.Id} for update: {ex.Message}");
+                }
+                finally
+                {
+                    process.Dispose();
+                }
+            }
+        }
+
+        DeelevationCommand.StopRunningHelpers("update");
     }
 }

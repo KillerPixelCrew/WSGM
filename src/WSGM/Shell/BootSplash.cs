@@ -8,8 +8,8 @@ namespace WSGM.Shell;
 /// <summary>Boot-time "Please wait" cover: shown at shell start to hide startup-app
 /// window flashes, dismissed when the Big Picture window is actually on screen
 /// (short overlap + fade), on timeout, when quick access appears, or by its own
-/// Switch-to-desktop button. Deliberately takes NO Steam Input pin: the splash dies
-/// exactly when Steam's window takes the screen, and a held pin at that moment is
+/// Switch-to-desktop button. Deliberately takes NO Steam Input lease: the splash dies
+/// exactly when Steam's window takes the screen, and a held lease at that moment is
 /// the device-verified state that breaks Big Picture's pad input (invariant 1).</summary>
 public sealed class BootSplash
 {

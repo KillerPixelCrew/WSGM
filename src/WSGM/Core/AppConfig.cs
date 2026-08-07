@@ -158,15 +158,6 @@ public sealed class AppConfig
     /// <summary>Controller glyph family displayed by the UI.</summary>
     public GlyphStyle GlyphStyle { get; set; } = GlyphStyle.Xbox;
 
-    /// <summary>When > 0 and the home app is Steam, WSGM fires
-    /// steam://forceinputappid/&lt;this&gt; so Steam Input keeps that app's controller
-    /// layout active everywhere — desktop, Big Picture, in game — and the desktop
-    /// profile never swallows the controller. This is what lets the overlay take
-    /// focus (device-confirmed). Default 480 (Spacewar): every account owns it and
-    /// its layout is a stock gamepad passthrough. 0 = off. The /0 reset fires on
-    /// every exit and recovery path (see SteamInputPin).</summary>
-    public int SteamForceInputAppId { get; set; } = 480;
-
     /// <summary>Legacy pre-device-identity list: scaling percentages in active-source
     /// enumeration order. Kept only so configs written by older versions still
     /// restore (migrated into SavedDisplayScaleEntries on the next restore).</summary>

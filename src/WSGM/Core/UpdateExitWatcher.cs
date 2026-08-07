@@ -12,7 +12,8 @@ namespace WSGM.Core;
 /// integrity label. So the event is created with an explicit descriptor —
 /// Everyone gets EVENT_MODIFY_STATE | SYNCHRONIZE, low mandatory label so
 /// lower-IL processes may signal. A graceful self-shutdown runs the normal exit
-/// path, so the Steam Input pin release and posture restore fire too.</summary>
+/// path, asks elevated Steam to exit so an updated injected payload can unload,
+/// then lets the Steam Input lease release and posture restore fire too.</summary>
 public static class UpdateExitWatcher
 {
     /// <summary>Gets the per-session event used by an updater to request a graceful exit.</summary>

@@ -19,6 +19,10 @@ public static class Installer
     /// <summary>Gets the installed WSGM executable path.</summary>
     public static string InstalledExePath => Path.Combine(InstallDir, "WSGM.exe");
 
+    /// <summary>Gets the installed Steam de-elevation wrapper path.</summary>
+    public static string InstalledDeelevationExePath =>
+        Path.Combine(InstallDir, DeelevationCommand.HelperFileName);
+
     private static string ShortcutPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs", "WSGM.lnk");
 
@@ -63,7 +67,10 @@ public static class Installer
                 var isDll = ext.Equals(".dll", StringComparison.OrdinalIgnoreCase);
                 var isOwnExe = ext.Equals(".exe", StringComparison.OrdinalIgnoreCase) &&
                     Path.GetFileName(file).Equals(sourceExeName, StringComparison.OrdinalIgnoreCase);
-                if (!isDll && !isOwnExe)
+                var isDeelevationHelper = ext.Equals(".exe", StringComparison.OrdinalIgnoreCase) &&
+                    Path.GetFileName(file).Equals(
+                        DeelevationCommand.HelperFileName, StringComparison.OrdinalIgnoreCase);
+                if (!isDll && !isOwnExe && !isDeelevationHelper)
                 {
                     continue;
                 }
@@ -125,10 +132,10 @@ public static class Installer
     /// delete (an exe cannot delete itself while running).</summary>
     public static void UninstallApp()
     {
-        // A crashed pinned shell leaves the forced layout inside Steam, which
-        // survives WSGM's removal — release unconditionally like every other
-        // teardown/recovery path (invariant: fresh process can't know it pinned).
-        SteamInputPin.ReleaseBestEffort("uninstall-app");
+        // The pipe-backed lease falls away when a process ends. Release an active
+        // lease from this process before uninstalling its native gate files.
+        SteamInputBlocker.ReleaseBestEffort("uninstall-app");
+        DeelevationCommand.StopRunningHelpers("uninstall");
 
         ShellRegistration.Uninstall();
 

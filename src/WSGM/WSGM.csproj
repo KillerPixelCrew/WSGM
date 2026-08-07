@@ -9,7 +9,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>WSGM</AssemblyName>
     <RootNamespace>WSGM</RootNamespace>
-    <Version>0.3.5</Version>
+    <Version>0.5.0</Version>
 
     <!-- NativeAOT single exe -->
     <PublishAot>true</PublishAot>
@@ -26,6 +26,31 @@
   </PropertyGroup>
   <ItemGroup>
     <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Steam Input Lease injects this gate into steam.exe while a WSGM input
+         surface owns a lease. Keep both x64 native libraries beside the AOT
+         executable; the managed binding resolves them by their file names. -->
+    <None Include="Native\SteamInputLease\*.dll"
+          Link="%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+    <!-- The lease CLI is the user-facing wrapper: its copied Steam launch
+         option blocks Steam Input for one game, the same way the de-elevation
+         helper's does for integrity. It needs steam_input_gate.dll beside it,
+         which the rule above already places here. -->
+    <None Include="Native\SteamInputLease\steam-input-lease.exe"
+          Link="%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="Native\SteamInputLease\*.txt"
+          Link="%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="Native\SteamInputLease\*.md"
+          Link="%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <!-- 1-9: how hard the GC works to keep the heap small; 9 = maximum. Reads

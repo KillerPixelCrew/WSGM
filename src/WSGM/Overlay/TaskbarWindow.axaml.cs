@@ -10,7 +10,7 @@ namespace WSGM.Overlay;
 
 /// <summary>The game-mode taskbar: a thin, centered, bottom-docked icon strip of
 /// the switchable windows (and, when the tray host is live, tray icons). Shares the
-/// overlay's focus-taking model: safe only because the Steam Input pin keeps the
+/// overlay's focus-taking model: safe only because the Steam Input lease keeps the
 /// pad readable while a WSGM window is foreground.</summary>
 public partial class TaskbarWindow : Window
 {

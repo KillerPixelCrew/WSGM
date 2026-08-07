@@ -7,7 +7,7 @@ namespace WSGM.Shell;
 /// (explorer, display scale, Steam open/close, monitor pause) and
 /// the shared Steam start + warning flow. ShellSession uses it at boot, the
 /// overlay's buttons drive it at runtime; OverlayController stays the UI owner
-/// (pin lifecycle, window) and surfaces warnings via <see cref="SteamStartFailed"/>.</summary>
+/// (lease lifecycle, window) and surfaces warnings via <see cref="SteamStartFailed"/>.</summary>
 public sealed class SessionModes
 {
     /// <summary>The warning shown when the required Steam installation cannot be found.</summary>

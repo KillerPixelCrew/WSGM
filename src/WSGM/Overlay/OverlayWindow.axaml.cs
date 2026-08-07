@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
+using WSGM.Core;
 
 namespace WSGM.Overlay;
 
@@ -36,12 +37,6 @@ public partial class OverlayWindow : Window
     /// <summary>Raised when the user requests Task Manager.</summary>
     public event Action? TaskManagerRequested;
 
-    /// <summary>Raised when the user requests the Bluetooth Settings page.</summary>
-    public event Action? BluetoothRequested;
-
-    /// <summary>Raised when the user requests the Wi-Fi Settings page.</summary>
-    public event Action? WifiRequested;
-
     /// <summary>Raised when the overlay is dismissed without another action.</summary>
     public event Action? Dismissed;
 
@@ -67,7 +62,7 @@ public partial class OverlayWindow : Window
         Closed += (_, _) => { StopSlide(); ResetConfirms(); };
 
         // The overlay takes focus Game-Bar-style: the game stops receiving input
-        // while the panel is open. Viable because SteamInputPin keeps the pad
+        // while the panel is open. Viable because the Steam Input lease keeps the pad
         // readable even with a non-game window focused.
         //
         // Touch pass-through defense: Avalonia never marks touch raw events
@@ -188,9 +183,69 @@ public partial class OverlayWindow : Window
     private void OnSettings(object? sender, RoutedEventArgs e) => SettingsRequested?.Invoke();
     private void OnExitBigPicture(object? sender, RoutedEventArgs e) => ExitBigPictureRequested?.Invoke();
     private void OnTaskManager(object? sender, RoutedEventArgs e) => TaskManagerRequested?.Invoke();
-    private void OnBluetooth(object? sender, RoutedEventArgs e) => BluetoothRequested?.Invoke();
-    private void OnWifi(object? sender, RoutedEventArgs e) => WifiRequested?.Invoke();
     private void OnClose(object? sender, RoutedEventArgs e) => Dismissed?.Invoke();
+
+    private async void OnCopyDeelevationCommand(object? sender, RoutedEventArgs e)
+    {
+        var helperPath = DeelevationCommand.HelperPathForCurrentDeployment();
+        if (!System.IO.File.Exists(helperPath))
+        {
+            DeelevationCommandTitle.Text = "De-elevation helper missing";
+            Log.Warn($"Cannot copy Steam de-elevation command; helper not found: {helperPath}");
+            return;
+        }
+
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard is null)
+        {
+            DeelevationCommandTitle.Text = "Clipboard unavailable";
+            Log.Warn("Cannot copy Steam de-elevation command; no clipboard is available.");
+            return;
+        }
+
+        try
+        {
+            await clipboard.SetTextAsync(DeelevationCommand.SteamLaunchOptions(helperPath));
+            DeelevationCommandTitle.Text = "Copied to clipboard";
+            Log.Info("Copied Steam de-elevation launch-option command to clipboard.");
+        }
+        catch (Exception ex)
+        {
+            DeelevationCommandTitle.Text = "Clipboard copy failed";
+            Log.Error("Could not copy Steam de-elevation command", ex);
+        }
+    }
+
+    private async void OnCopySteamInputBlockCommand(object? sender, RoutedEventArgs e)
+    {
+        var helperPath = SteamInputLeaseCommand.HelperPathForCurrentDeployment();
+        if (!System.IO.File.Exists(helperPath))
+        {
+            SteamInputBlockCommandTitle.Text = "Steam Input wrapper missing";
+            Log.Warn($"Cannot copy Steam Input block command; wrapper not found: {helperPath}");
+            return;
+        }
+
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard is null)
+        {
+            SteamInputBlockCommandTitle.Text = "Clipboard unavailable";
+            Log.Warn("Cannot copy Steam Input block command; no clipboard is available.");
+            return;
+        }
+
+        try
+        {
+            await clipboard.SetTextAsync(SteamInputLeaseCommand.SteamLaunchOptions(helperPath));
+            SteamInputBlockCommandTitle.Text = "Copied to clipboard";
+            Log.Info("Copied Steam Input block launch-option command to clipboard.");
+        }
+        catch (Exception ex)
+        {
+            SteamInputBlockCommandTitle.Text = "Clipboard copy failed";
+            Log.Error("Could not copy Steam Input block command", ex);
+        }
+    }
 
     private void OnCloseLauncher(object? sender, RoutedEventArgs e)
     {

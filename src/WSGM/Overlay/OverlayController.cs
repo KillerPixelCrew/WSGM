@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Input;
 using WSGM.Interop;
@@ -11,7 +12,7 @@ namespace WSGM.Overlay;
 /// two focus-taking WSGM surfaces themselves: the quick-access overlay
 /// (ShowOverlay) and the game-mode taskbar (ShowTaskbar). One controller owns both
 /// because they share every piece of invariant-critical state — the Steam Input
-/// pin, the touch-swipe disarm/re-arm cycle, tap-outside dismissal, the gamepad
+/// lease, the touch-swipe disarm/re-arm cycle, tap-outside dismissal, the gamepad
 /// service, and the focus-restore discipline — and the two surfaces are mutually
 /// exclusive (opening one closes the other).</summary>
 public sealed class OverlayController : IDisposable
@@ -46,6 +47,7 @@ public sealed class OverlayController : IDisposable
         _monitor = monitor;
         _modes = modes;
         _modes.SteamStartFailed += WarnOrReopen;
+        SteamInputBlocker.RecoveryWarningRaised += OnSteamInputRecoveryWarning;
 
         _hotkey = new HotkeyService(MessageWindow.Create());
         _hotkey.Pressed += ShowOverlay;
@@ -173,7 +175,7 @@ public sealed class OverlayController : IDisposable
         }
         if (_overlay is not null || _taskbar is not null)
         {
-            ApplySteamInputPin();
+            AcquireSteamInputLease();
         }
         Log.Info("Config reloaded.");
     }
@@ -207,30 +209,58 @@ public sealed class OverlayController : IDisposable
         ShowOverlay();
     }
 
-    private bool _pinReleased;
-
-    /// <summary>The pin is scoped to the overlay's lifetime. While Steam's own
-    /// window is foreground with a forced appid, Steam treats the pad as in-game
-    /// input and Big Picture stops responding (user-reported) — so the pin exists
-    /// only while OUR focused panel needs the pad, and is released on close.</summary>
-    private void ApplySteamInputPin()
+    private void OnSteamInputRecoveryWarning(string warning)
     {
-        _pinReleased = false;
-        SteamInputPin.Apply(Math.Max(_config.SteamForceInputAppId, 0));
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            if (!_disposed)
+            {
+                SetWarning(warning);
+            }
+        });
     }
 
-    /// <summary>At most one release per pin apply from THIS controller: Dispose
-    /// releases early (see there), and the overlay's deferred Closed handler must
-    /// then not fire a second /0 — a replacement controller may already have
-    /// re-applied the pin by the time the 150 ms close lands.</summary>
-    private void ReleaseSteamInputPin()
+    private bool _leaseReleased;
+    private Task? _leaseAcquireTask;
+    private Task? _leaseReleaseTask;
+
+    /// <summary>The lease is scoped to WSGM's focus-taking surfaces. It blocks
+    /// Steam's controller access only while SDL needs direct input for the
+    /// overlay or taskbar, then lets Steam rediscover the controller on release.</summary>
+    private void AcquireSteamInputLease()
     {
-        if (_pinReleased)
+        _leaseReleased = false;
+        if (SteamInputBlocker.IsApplied || _leaseAcquireTask is { IsCompleted: false })
         {
             return;
         }
-        _pinReleased = true;
-        SteamInputPin.Apply(0);
+
+        var pendingRelease = _leaseReleaseTask;
+        _leaseAcquireTask = pendingRelease is { IsCompleted: false }
+            ? pendingRelease.ContinueWith(_ => SteamInputBlocker.Acquire(), TaskScheduler.Default)
+            : Task.Run(SteamInputBlocker.Acquire);
+    }
+
+    /// <summary>At most one release per lease acquisition from this controller.
+    /// Dispose releases early, so the deferred Closed handler cannot tear down a
+    /// replacement controller's live surface.</summary>
+    private void ReleaseSteamInputLease()
+    {
+        if (_leaseReleased)
+        {
+            return;
+        }
+        _leaseReleased = true;
+        var pendingAcquire = _leaseAcquireTask;
+        _leaseAcquireTask = null;
+        _leaseReleaseTask = Task.Run(async () =>
+        {
+            if (pendingAcquire is not null)
+            {
+                await pendingAcquire;
+            }
+            SteamInputBlocker.ReleaseBestEffort("surface-closed");
+        });
     }
 
     /// <summary>Picking a taskbar tile dismisses the bar and brings the app forward
@@ -266,19 +296,6 @@ public sealed class OverlayController : IDisposable
         // reclaims the foreground and Task Manager lands behind it. Wait for
         // its window and promote it.
         FocusTaskManagerWhenVisible(attempt: 1);
-    }
-
-    /// <summary>Closes Quick Access and activates a modern Settings page through Windows'
-    /// registered URI handler. The handler starts System Settings independently of Explorer.</summary>
-    /// <param name="page">The Settings page to open.</param>
-    private void OpenModernSettings(ModernSettingsPage page)
-    {
-        _suppressFocusRestore = true;
-        CloseOverlay();
-        if (!ModernSettings.Open(page).Started)
-        {
-            SetWarning("Windows Settings could not be opened.");
-        }
     }
 
     /// <summary>Polls for the Task Manager window (12 tries, 300 ms apart) on the
@@ -339,7 +356,7 @@ public sealed class OverlayController : IDisposable
             _restoreFocusTo = inheritedRestore != 0 ? inheritedRestore : Interop.NativeMethods.GetForegroundWindow();
             _suppressFocusRestore = false;
         }
-        ApplySteamInputPin();
+        AcquireSteamInputLease();
         HideTouchEdges();
         if (_overlay is not null)
         {
@@ -347,7 +364,7 @@ public sealed class OverlayController : IDisposable
             {
                 // Re-summoned inside the 150 ms deferred close: cancel the pending
                 // Close() and keep the window — otherwise the timer would destroy
-                // the just-reactivated panel and release the pin under it.
+                // the just-reactivated panel and release its lease under it.
                 _pendingClose?.Dispose();
                 _pendingClose = null;
                 _closePending = false;
@@ -403,8 +420,6 @@ public sealed class OverlayController : IDisposable
         };
         _overlay.CloseLauncherRequested += () => { _modes.CloseSteam(); vm.HomeAppAlive = false; };
         _overlay.TaskManagerRequested += () => { _suppressFocusRestore = true; CloseOverlay(); StartTaskManager(); };
-        _overlay.BluetoothRequested += () => OpenModernSettings(ModernSettingsPage.Bluetooth);
-        _overlay.WifiRequested += () => OpenModernSettings(ModernSettingsPage.Wifi);
         _overlay.SettingsRequested += () =>
         {
             _suppressFocusRestore = true;
@@ -422,10 +437,10 @@ public sealed class OverlayController : IDisposable
             _closePending = false;
             _pendingClose = null;
             // Give Steam its pad back the moment the panel is gone — unless the
-            // taskbar took over the surface and still needs the pin.
+            // taskbar took over the surface and still needs the lease.
             if (_taskbar is null)
             {
-                ReleaseSteamInputPin();
+                ReleaseSteamInputLease();
             }
             var reopenForWarning = _reopenOverlayForWarning;
             _reopenOverlayForWarning = false;
@@ -477,7 +492,7 @@ public sealed class OverlayController : IDisposable
         _gamepad.Start();
         _overlay.Show();
         // Game-Bar-style: the game stops receiving input while the panel is up.
-        // Safe because SteamInputPin keeps the pad readable despite focus.
+        // Safe because the Steam Input lease keeps the pad readable despite focus.
         _overlay.Activate();
         if (_touchSwipes is not null)
         {
@@ -549,7 +564,7 @@ public sealed class OverlayController : IDisposable
             _suppressFocusRestore = true;
             CloseOverlay();
         }
-        ApplySteamInputPin();
+        AcquireSteamInputLease();
         HideTouchEdges();
         if (_taskbar is not null)
         {
@@ -708,7 +723,7 @@ public sealed class OverlayController : IDisposable
         _taskbarNavigation = null;
         if (_overlay is null)
         {
-            ReleaseSteamInputPin();
+            ReleaseSteamInputLease();
         }
         if (!(_config.GamepadChord.Enabled && _config.GamepadChord.Buttons != 0) && _overlay is null)
         {
@@ -815,6 +830,7 @@ public sealed class OverlayController : IDisposable
         _disposed = true;
         AttachTrayHost(null);
         _modes.SteamStartFailed -= WarnOrReopen;
+        SteamInputBlocker.RecoveryWarningRaised -= OnSteamInputRecoveryWarning;
         if (_monitor is not null)
         {
             _monitor.SteamExited -= OnSteamExited;
@@ -826,22 +842,19 @@ public sealed class OverlayController : IDisposable
         StopTaskbarRefresh();
         if (_overlay is not null || _taskbar is not null)
         {
-            // This controller owes a pin release (its overlay is open / pending
+            // This controller owes a lease release (its overlay is open / pending
             // close). Fire it NOW, not in the deferred Closed handler 150 ms from
-            // here: a replacement controller (Test panel pressed again) may apply
-            // the pin in between, and a late /0 would unpin its live overlay.
-            // ReleaseSteamInputPin's guard makes the Closed handler's release a
-            // no-op afterwards, so the release fires exactly once. With no overlay
-            // open there is nothing to release — a stray /0 here would unpin the
-            // shell's live session (Settings' test controller disposes on window
-            // close). Program's exit/recovery paths still release unconditionally.
-            ReleaseSteamInputPin();
+            // here: a replacement controller (Test panel pressed again) may acquire
+            // a lease in between, and a late release would leave its live overlay
+            // without input. ReleaseSteamInputLease's guard makes the Closed
+            // handler's release a no-op afterwards.
+            ReleaseSteamInputLease();
         }
         // Close through the same deferred path as every dismissal: an immediate
         // Close() would skip the 150 ms grace and bring back the ghost clicks the
         // deferral exists for. When Dispose runs during process exit the
         // dispatcher may stop pumping before the 150 ms lands and the Close()
-        // never runs — deliberately fine: the pin was already released
+        // never runs — deliberately fine: the lease was already released
         // synchronously above, and process exit destroys the window anyway.
         CloseOverlay();
         // The bar's deferred Closed handler clears the icon cache; disposing it

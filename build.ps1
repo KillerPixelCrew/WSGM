@@ -12,12 +12,26 @@ $csproj = Get-Content "$root\src\WSGM\WSGM.csproj" -Raw
 if ($csproj -notmatch '<Version>([^<]+)</Version>') { throw "No <Version> found in WSGM.csproj" }
 $version = $Matches[1]
 
+# The Steam Input gate is built from the source in native\SteamInput on every
+# release build, so a shipped installer can never carry a gate older than the
+# code beside it. This must precede the publish, which copies the staged output.
+Write-Host "== Building Steam Input Lease (Rust) ==" -ForegroundColor Cyan
+& "$root\eng\build-steam-input-lease.ps1"
+
 Write-Host "== Publishing WSGM $version (NativeAOT) ==" -ForegroundColor Cyan
 # Clean first: dotnet publish overlays onto the previous output, so a DLL removed by
 # a dependency bump (or an old setup exe) would otherwise leak into the release.
 Remove-Item -Recurse -Force "$root\publish" -ErrorAction SilentlyContinue
 dotnet publish "$root\src\WSGM\WSGM.csproj" -c Release -r win-x64 -o "$root\publish"
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
+
+# Steam inherits WSGM's elevation. This small wrapper is pasted into a game's
+# launch options and hands the real command to a medium-integrity scheduled-task
+# child. Publish it beside WSGM so both portable and installed layouts use the
+# same stable command path.
+dotnet publish "$root\src\WSGM.Deelevate\WSGM.Deelevate.csproj" -c Release -r win-x64 `
+    -o "$root\publish" "/p:Version=$version"
+if ($LASTEXITCODE -ne 0) { throw "WSGM.Deelevate publish failed" }
 
 # Core Audio is a COM API. WSGM's NativeAOT executable intentionally has managed
 # COM interop disabled, so compile the tiny ABI-only helper that owns those calls
@@ -46,6 +60,7 @@ finally {
     Remove-Item -Recurse -Force $nativeTemp -ErrorAction SilentlyContinue
 }
 if (-not (Test-Path $nativeOutput)) { throw "VolumeControl native helper was not produced" }
+if (-not (Test-Path "$root\publish\WSGM.Deelevate.exe")) { throw "De-elevation helper was not produced" }
 
 $iscc = @(
     "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",

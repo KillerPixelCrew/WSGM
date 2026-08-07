@@ -15,7 +15,7 @@ namespace WSGM.Core;
 /// this (like every technique) cannot help.</summary>
 internal static class UnelevatedLauncher
 {
-    public static bool TryStartViaScheduledTask(string exePath)
+    public static bool TryStartViaScheduledTask(string exePath, string arguments = "")
     {
         // Unique per invocation: a fixed name collides across concurrent launches,
         // and a stale leftover task would shadow the fresh one.
@@ -31,7 +31,7 @@ internal static class UnelevatedLauncher
             Directory.CreateDirectory(Log.Directory);
             // Task Scheduler expects canonical UTF-16 task XML; a UTF-8 file is
             // rejected with "cannot switch encoding" (verified locally).
-            File.WriteAllText(xmlPath, BuildTaskXml(exePath), System.Text.Encoding.Unicode);
+            File.WriteAllText(xmlPath, BuildTaskXml(exePath, arguments), System.Text.Encoding.Unicode);
 
             created = RunSchtasks($"/Create /TN \"{taskName}\" /XML \"{xmlPath}\" /F");
             if (!created)
@@ -41,7 +41,8 @@ internal static class UnelevatedLauncher
             var started = RunSchtasks($"/Run /TN \"{taskName}\"");
             if (started)
             {
-                Log.Info($"Started via de-elevating scheduled task: {exePath}");
+                Log.Info($"Started via de-elevating scheduled task: {exePath}" +
+                         (arguments.Length == 0 ? "" : $" {arguments}"));
             }
             return started;
         }
@@ -62,11 +63,14 @@ internal static class UnelevatedLauncher
         }
     }
 
-    private static string BuildTaskXml(string exePath)
+    internal static string BuildTaskXml(string exePath, string arguments = "")
     {
         // InteractiveToken principal without a RunLevel element = the user's
         // filtered medium-IL token (RunLevel defaults to LeastPrivilege).
         var user = System.Security.Principal.WindowsIdentity.GetCurrent().Name;
+        var argumentsElement = arguments.Length == 0
+            ? ""
+            : $"\n                  <Arguments>{System.Security.SecurityElement.Escape(arguments)}</Arguments>";
         return $"""
             <?xml version="1.0" encoding="UTF-16"?>
             <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
@@ -85,7 +89,7 @@ internal static class UnelevatedLauncher
               </Settings>
               <Actions Context="Author">
                 <Exec>
-                  <Command>{System.Security.SecurityElement.Escape(exePath)}</Command>
+                  <Command>{System.Security.SecurityElement.Escape(exePath)}</Command>{argumentsElement}
                 </Exec>
               </Actions>
             </Task>

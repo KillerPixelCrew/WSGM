@@ -50,7 +50,11 @@ german.SteamMissing=Steam wurde auf diesem PC nicht gefunden.%n%nWSGM funktionie
 
 [Files]
 Source: "{#PublishDir}\WSGM.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#PublishDir}\WSGM.Deelevate.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#PublishDir}\steam-input-lease.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PublishDir}\*.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#PublishDir}\SteamInputLease-*.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#PublishDir}\SteamInputLease-*.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{userprograms}\{#AppName}"; Filename: "{app}\WSGM.exe"; Comment: "WSGM settings"
@@ -86,6 +90,7 @@ Type: files; Name: "{app}\WSGM.LogonService.exe"
 var
   WasShell: Boolean;
   WasRunning: Boolean;
+  WasUpgrade: Boolean;
 
 // Mirrors Core\Steam.cs detection: HKCU SteamExe (stored with forward slashes),
 // then the machine-wide install dir. Detection only — the path is never stored.
@@ -113,9 +118,23 @@ end;
 // block setup up front and tell the user what to do instead.
 function InitializeSetup(): Boolean;
 begin
+  // Capture this before [Files] creates/replaces WSGM.exe. The fixed per-user
+  // location has no interactive directory page, so an existing payload means
+  // this setup is updating an installed WSGM rather than performing a fresh install.
+  WasUpgrade := FileExists(ExpandConstant('{localappdata}\WSGM\bin\WSGM.exe'));
   Result := SteamInstalled();
   if not Result then
     MsgBox(CustomMessage('SteamMissing'), mbCriticalError, MB_OK);
+end;
+
+// Killing elevated Steam is necessary to unload the injected payload, but it is
+// disruptive enough that an interactive upgrade should offer Windows' standard
+// Restart now / restart later choice on the Finished page. Never mark a silent
+// upgrade for restart: /VERYSILENT would reboot automatically unless its caller
+// happened to supply /NORESTART.
+function NeedRestart(): Boolean;
+begin
+  Result := WasUpgrade and not WizardSilent();
 end;
 
 function WasShellRunning(): Boolean;
@@ -144,7 +163,8 @@ function CloseHandleK(hObject: THandle): BOOL;
 // may be ELEVATED — this unelevated setup/uninstaller cannot taskkill it.
 // Instead WSGM listens on a named MANUAL-RESET event (one SetEvent releases
 // every waiting instance, elevated or not) and exits itself gracefully (which
-// also releases the Steam Input pin). taskkill remains as fallback for
+// also asks Steam to exit and releases the injected Steam Input payload).
+// taskkill remains as fallback for
 // unelevated leftovers. Returns True when the event existed, i.e. at least one
 // WSGM instance was running.
 function StopRunningInstances(): Boolean;
@@ -173,6 +193,28 @@ begin
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM WSGM.exe /F', '', SW_HIDE, ewWaitUntilTerminated, R);
 end;
 
+// Steam Input Lease injects its gate into steam.exe. The graceful WSGM update
+// event above sends steam://exit from WSGM's (possibly elevated) token; give
+// Steam a bounded chance to comply, then clean up leftovers. This is update-only:
+// a user uninstalling WSGM should not have Steam force-closed as a side effect.
+procedure StopSteamForUpdate();
+var
+  R: Integer;
+begin
+  Sleep(5000);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM steam.exe /T /F', '', SW_HIDE, ewWaitUntilTerminated, R);
+  // Releases the new wrapper executable too. /T also stops its medium helper
+  // and launched target; setup already shuts Steam down before this point.
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM WSGM.Deelevate.exe /T /F', '', SW_HIDE, ewWaitUntilTerminated, R);
+end;
+
+procedure StopDeelevationHelpers();
+var
+  R: Integer;
+begin
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM WSGM.Deelevate.exe /T /F', '', SW_HIDE, ewWaitUntilTerminated, R);
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   // Classify BEFORE killing anything: only the shell-mode instance holds this
@@ -183,6 +225,7 @@ begin
   // unrelated instance can at worst restart as a settings window.
   WasShell := CheckForMutexes('WSGM.Shell');
   WasRunning := StopRunningInstances() or WasShell;
+  StopSteamForUpdate();
   if WasRunning then
     Sleep(500);
   Result := '';
@@ -195,5 +238,6 @@ end;
 function InitializeUninstall(): Boolean;
 begin
   StopRunningInstances();
+  StopDeelevationHelpers();
   Result := True;
 end;
