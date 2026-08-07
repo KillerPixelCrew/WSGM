@@ -156,6 +156,12 @@ public sealed class AppConfig
     /// sign-in for touch features to survive game mode.</summary>
     public int ExplorerLogonSettleMs { get; set; } = 5000;
 
+    /// <summary>Whether WSGM manages the Steam Input lease around its focused
+    /// surfaces (overlay/taskbar). Off = the lease is never acquired: Steam Input's
+    /// desktop profile may take the controller while a WSGM panel is open, but
+    /// nothing is ever injected into Steam.</summary>
+    public bool SteamInputLeaseEnabled { get; set; } = true;
+
     /// <summary>Keyboard shortcut configuration for opening the overlay.</summary>
     public HotkeyConfig Hotkey { get; set; } = new();
 

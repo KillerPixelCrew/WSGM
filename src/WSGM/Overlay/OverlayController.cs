@@ -230,6 +230,14 @@ public sealed class OverlayController : IDisposable
     private void AcquireSteamInputLease()
     {
         _leaseReleased = false;
+        // User opt-out: never touch Steam at all. Applies live via the config
+        // watcher (_config is replaced wholesale on reload). Controller input in
+        // the open panel then depends on what Steam's desktop profile leaves us.
+        if (!_config.SteamInputLeaseEnabled)
+        {
+            Log.Info("Steam Input lease disabled in settings — surface opens without blocking Steam Input.");
+            return;
+        }
         if (SteamInputBlocker.IsApplied || _leaseAcquireTask is { IsCompleted: false })
         {
             return;

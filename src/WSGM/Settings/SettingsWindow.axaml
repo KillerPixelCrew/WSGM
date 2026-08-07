@@ -241,6 +241,16 @@
                                     </Grid>
                                 </Border>
                                 <Border Classes="hc-settings-card">
+                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
+                                        <TextBlock Text="🎮" FontSize="20" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="2">
+                                            <TextBlock Text="Block Steam Input while panels are open" Classes="setting-title" />
+                                            <TextBlock Text="Keeps the controller usable in quick access and the taskbar by leasing it away from Steam Input. Turn off to leave Steam completely untouched — panels may then only react to touch while Steam's desktop profile holds the controller." Classes="caption" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="2" IsChecked="{Binding SteamInputLeaseEnabled}" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                                <Border Classes="hc-settings-card">
                                     <Grid ColumnDefinitions="32,*,180,Auto" ColumnSpacing="12">
                                         <TextBlock Text="⌁" FontSize="20" VerticalAlignment="Center" />
                                         <StackPanel Grid.Column="1" Spacing="2">

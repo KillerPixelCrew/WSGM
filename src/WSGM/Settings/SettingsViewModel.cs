@@ -56,6 +56,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         StaggerDelayMs = _config.StaggerDelayMs;
         BootSplashEnabled = _config.BootSplashEnabled;
         GameModeBootEnabled = _config.GameModeBootEnabled;
+        SteamInputLeaseEnabled = _config.SteamInputLeaseEnabled;
         _hotkey = _config.Hotkey;
         _chord = _config.GamepadChord;
         GestureBottom = _config.Gestures.BottomEdge;
@@ -133,6 +134,12 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// <summary>Gets or sets whether the logon service boots the session into game
     /// mode at sign-in. Persisted via Save; the boot manifest is rewritten there.</summary>
     public bool GameModeBootEnabled { get => _gameModeBootEnabled; set { _gameModeBootEnabled = value; Raise(nameof(GameModeBootEnabled)); } }
+
+    private bool _steamInputLeaseEnabled = true;
+
+    /// <summary>Gets or sets whether WSGM leases the controller away from Steam
+    /// Input while its focused surfaces are open. Off = Steam is never touched.</summary>
+    public bool SteamInputLeaseEnabled { get => _steamInputLeaseEnabled; set { _steamInputLeaseEnabled = value; Raise(nameof(SteamInputLeaseEnabled)); } }
 
     /// <summary>Gets whether the LEGACY shell registration is still active for this
     /// account (pre-service installs). Shows the migration Restore card.</summary>
@@ -374,6 +381,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.StaggerDelayMs = StaggerDelayMs;
         config.BootSplashEnabled = BootSplashEnabled;
         config.GameModeBootEnabled = GameModeBootEnabled;
+        config.SteamInputLeaseEnabled = SteamInputLeaseEnabled;
         config.Hotkey = _hotkey;
         config.GamepadChord = _chord;
         config.Gestures.BottomEdge = GestureBottom;
