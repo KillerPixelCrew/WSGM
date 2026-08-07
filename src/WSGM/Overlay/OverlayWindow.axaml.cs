@@ -36,6 +36,12 @@ public partial class OverlayWindow : Window
     /// <summary>Raised when the user requests Task Manager.</summary>
     public event Action? TaskManagerRequested;
 
+    /// <summary>Raised when the user requests the Bluetooth Settings page.</summary>
+    public event Action? BluetoothRequested;
+
+    /// <summary>Raised when the user requests the Wi-Fi Settings page.</summary>
+    public event Action? WifiRequested;
+
     /// <summary>Raised when the overlay is dismissed without another action.</summary>
     public event Action? Dismissed;
 
@@ -182,6 +188,8 @@ public partial class OverlayWindow : Window
     private void OnSettings(object? sender, RoutedEventArgs e) => SettingsRequested?.Invoke();
     private void OnExitBigPicture(object? sender, RoutedEventArgs e) => ExitBigPictureRequested?.Invoke();
     private void OnTaskManager(object? sender, RoutedEventArgs e) => TaskManagerRequested?.Invoke();
+    private void OnBluetooth(object? sender, RoutedEventArgs e) => BluetoothRequested?.Invoke();
+    private void OnWifi(object? sender, RoutedEventArgs e) => WifiRequested?.Invoke();
     private void OnClose(object? sender, RoutedEventArgs e) => Dismissed?.Invoke();
 
     private void OnCloseLauncher(object? sender, RoutedEventArgs e)

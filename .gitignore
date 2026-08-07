@@ -6,6 +6,10 @@
 # dotenv files
 .env
 
+# Local agent guidance (intentionally not shared in commits)
+AGENTS.md
+CLAUDE.md
+
 # User-specific files
 *.rsuser
 *.suo

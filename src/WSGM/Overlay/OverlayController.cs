@@ -268,6 +268,19 @@ public sealed class OverlayController : IDisposable
         FocusTaskManagerWhenVisible(attempt: 1);
     }
 
+    /// <summary>Closes Quick Access and activates a modern Settings page through Windows'
+    /// registered URI handler. The handler starts System Settings independently of Explorer.</summary>
+    /// <param name="page">The Settings page to open.</param>
+    private void OpenModernSettings(ModernSettingsPage page)
+    {
+        _suppressFocusRestore = true;
+        CloseOverlay();
+        if (!ModernSettings.Open(page).Started)
+        {
+            SetWarning("Windows Settings could not be opened.");
+        }
+    }
+
     /// <summary>Polls for the Task Manager window (12 tries, 300 ms apart) on the
     /// UI thread and promotes it to the foreground once found.</summary>
     private static void FocusTaskManagerWhenVisible(int attempt)
@@ -390,6 +403,8 @@ public sealed class OverlayController : IDisposable
         };
         _overlay.CloseLauncherRequested += () => { _modes.CloseSteam(); vm.HomeAppAlive = false; };
         _overlay.TaskManagerRequested += () => { _suppressFocusRestore = true; CloseOverlay(); StartTaskManager(); };
+        _overlay.BluetoothRequested += () => OpenModernSettings(ModernSettingsPage.Bluetooth);
+        _overlay.WifiRequested += () => OpenModernSettings(ModernSettingsPage.Wifi);
         _overlay.SettingsRequested += () =>
         {
             _suppressFocusRestore = true;

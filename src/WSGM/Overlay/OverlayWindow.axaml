@@ -97,6 +97,26 @@
                         </Grid>
                     </Button>
 
+                    <TextBlock Text="Windows" Classes="section-title" Margin="0,4,0,2" />
+                    <Button Classes="quick-row" Click="OnBluetooth">
+                        <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
+                            <TextBlock Text="ᛒ" FontSize="18" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                <TextBlock Text="Bluetooth" Classes="setting-title" />
+                                <TextBlock Text="Pair devices and manage Bluetooth" Classes="caption" />
+                            </StackPanel>
+                        </Grid>
+                    </Button>
+                    <Button Classes="quick-row" Click="OnWifi">
+                        <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
+                            <TextBlock Text="⌁" FontSize="20" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                <TextBlock Text="Wi-Fi" Classes="setting-title" />
+                                <TextBlock Text="Choose and manage wireless networks" Classes="caption" />
+                            </StackPanel>
+                        </Grid>
+                    </Button>
+
                     <TextBlock Text="Power" Classes="section-title" Margin="0,4,0,2" />
                     <Button Classes="quick-row" Click="OnSleep">
                         <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
