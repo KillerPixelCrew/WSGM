@@ -36,8 +36,8 @@ CloseApplications=yes
 ; shell replacement is an untested configuration. Needs Inno Setup 6.3+.
 ArchitecturesAllowed=x64os
 ArchitecturesInstallIn64BitMode=x64os
-; WSGM reconstructs SteamOS Game Mode on Windows 11 (ConvertibleSlateMode,
-; per-user shell, game-mode scaling are only exercised there).
+; WSGM reconstructs SteamOS Game Mode on Windows 11 (the per-user shell and
+; game-mode scaling paths are only exercised there).
 MinVersion=10.0.22000
 
 [Languages]
@@ -56,6 +56,10 @@ Source: "{#PublishDir}\*.dll"; DestDir: "{app}"; Flags: ignoreversion
 Name: "{userprograms}\{#AppName}"; Filename: "{app}\WSGM.exe"; Comment: "WSGM settings"
 
 [Run]
+; Remove the abandoned preview service before registering the normal per-user
+; Winlogon shell. The cleanup prompt appears only while its protected binary exists.
+Filename: "{autopf}\WSGM\WSGM.LogonService.exe"; Parameters: "--uninstall"; Verb: "runas"; Flags: shellexec waituntilterminated runhidden skipifdoesntexist
+Filename: "{app}\WSGM.exe"; Parameters: "--setup"; Flags: runhidden
 ; Update restart: if the shell was running it comes back as the shell; a plain
 ; settings instance comes back as settings (no args = DecideMode).
 Filename: "{app}\WSGM.exe"; Parameters: "--shell"; Flags: nowait; Check: WasShellRunning
@@ -73,6 +77,10 @@ Filename: "{app}\WSGM.exe"; Parameters: "--uninstall-restore"; RunOnceId: "Unins
 [UninstallDelete]
 ; Config/logs live one level up; remove them with the app (per-user data only).
 Type: filesandordirs; Name: "{localappdata}\WSGM"
+
+[InstallDelete]
+; Remove the per-user staging helper left by service-based preview builds.
+Type: files; Name: "{app}\WSGM.LogonService.exe"
 
 [Code]
 var

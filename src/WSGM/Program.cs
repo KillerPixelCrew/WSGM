@@ -44,10 +44,9 @@ public static class Program
             // fresh process cannot know, so reset unconditionally (never throws).
             SteamInputPin.ReleaseBestEffort("restore-shell");
             RestoreDisplayScalesBestEffort();
-            // Restore exactly what this device had before WSGM, rather than
-            // creating a posture signal on a normal PC. Wrapped because this
-            // recovery path must never throw.
-            try { SlateMode.RestoreOriginal(); } catch { }
+            // Undo posture/keyboard values changed by older releases. Wrapped
+            // because this recovery path must never throw.
+            try { LegacyPostureCleanup.Restore(); } catch { }
             return 0;
         }
 
@@ -61,6 +60,10 @@ public static class Program
         }
 
         Log.Init();
+
+        // Current builds never manage device posture or automatic touch-keyboard
+        // policy. Restore an older build's saved values once, if present.
+        LegacyPostureCleanup.Restore();
 
         // Elevated one-shots for the UAC prompt-level toggle (see UacSettings).
         if (args.Contains("--set-uac-silent", StringComparer.OrdinalIgnoreCase))
@@ -81,7 +84,7 @@ public static class Program
         }
 
         // Elevated one-shot for the uninstaller: puts back every machine-level
-        // setting WSGM changed (UAC, lock-on-wake, slate posture).
+        // setting WSGM changed, plus legacy posture state (UAC, lock-on-wake).
         if (args.Contains("--uninstall-restore", StringComparer.OrdinalIgnoreCase))
         {
             Installer.RestoreMachineSettings();
@@ -122,6 +125,8 @@ public static class Program
             {
                 return handedOver.Value;
             }
+            // Retry the legacy HKLM cleanup after shell self-elevation.
+            LegacyPostureCleanup.Restore();
         }
 
         if (Mode == RunMode.Shell)
@@ -143,7 +148,7 @@ public static class Program
                 // Pin release first (invariant: fires on EVERY recovery path,
                 // ahead of cosmetic restores) — same ordering as --restore-shell.
                 SteamInputPin.ReleaseBestEffort("crash-loop");
-                SlateMode.RestoreOriginal();
+                LegacyPostureCleanup.Restore();
                 RestoreDisplayScalesBestEffort();
                 // Clear the marker so the next manual start isn't instantly disarmed.
                 CrashLoopBreaker.Reset();
@@ -164,7 +169,7 @@ public static class Program
             // Posted jobs only run once StartWithClassicDesktopLifetime pumps the
             // dispatcher, so the classic desktop lifetime is always in place here
             // and Shutdown() flows through the normal teardown below (pin release,
-            // slate/scale restore). No Environment.Exit fallback: it would skip
+            // posture cleanup/scale restore). No Environment.Exit fallback: it would skip
             // that teardown, and if this ever failed to match, the installer's
             // taskkill fallback still ends the process.
             if (Avalonia.Application.Current?.ApplicationLifetime
@@ -186,7 +191,7 @@ public static class Program
             }
             if (Mode == RunMode.Shell)
             {
-                SlateMode.RestoreOriginal();
+                LegacyPostureCleanup.Restore();
                 RestoreDisplayScalesBestEffort();
                 // A clean exit is NOT a crash: without this, two update restarts
                 // plus a sign-in inside 2 minutes read as a crash loop and disarm
@@ -272,7 +277,7 @@ public static class Program
             }
             catch { /* recovery must not throw */ }
             ExplorerControl.StartExplorer();
-            SlateMode.RestoreOriginal();
+            LegacyPostureCleanup.Restore();
             RestoreDisplayScalesBestEffort();
         }
         // Same guard as normal shutdown: firing /0 from a crashing settings

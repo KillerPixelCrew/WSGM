@@ -4,7 +4,7 @@ using WSGM.Core;
 namespace WSGM.Shell;
 
 /// <summary>Session-mode coordinator: owns the game/desktop mode transitions
-/// (explorer, slate posture, display scale, Steam open/close, monitor pause) and
+/// (explorer, display scale, Steam open/close, monitor pause) and
 /// the shared Steam start + warning flow. ShellSession uses it at boot, the
 /// overlay's buttons drive it at runtime; OverlayController stays the UI owner
 /// (pin lifecycle, window) and surfaces warnings via <see cref="SteamStartFailed"/>.</summary>
@@ -21,10 +21,8 @@ public sealed class SessionModes
     private readonly object _homeLaunchGate = new();
     private bool _homeLaunchInProgress;
     private DateTime _lastHomeLaunchUtc;
-    private int _postureTransition;
 
     private static readonly TimeSpan HomeLaunchCooldown = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan ExplorerStartupDelay = TimeSpan.FromMilliseconds(1_500);
 
     /// <summary>Raised (on the caller's thread) when <see cref="StartOrFocusSteam"/>
     /// could not bring Steam up, with the user-facing warning text.</summary>
@@ -57,12 +55,10 @@ public sealed class SessionModes
         _config = config;
     }
 
-    /// <summary>Game mode's device state: slate posture (no Windows auto-OSK) and
-    /// 100% display scaling. Also applied at every shell boot — the firmware
-    /// recomputes the posture value each start.</summary>
+    /// <summary>Applies game mode's 100% display scaling. Windows exclusively
+    /// owns device posture and touch-keyboard policy.</summary>
     public void ApplyGameModePosture()
     {
-        SlateMode.ApplyGameMode(_config);
         DisplayScale.ApplyGameMode(_config);
     }
 
@@ -78,14 +74,7 @@ public sealed class SessionModes
         ExitBigPicture();
         DisplayScale.RestoreSaved(_config);
         DesktopModeStarting?.Invoke();
-        // Explorer must be alive before we advertise slate posture again. The
-        // ConvertibleSlateMode transition is delivered to the shell in real
-        // time; flipping it while WSGM is still the shell leaves a newly
-        // started Explorer with a stale touch-keyboard focus state.
         ExplorerControl.StartExplorer();
-        var transition = System.Threading.Interlocked.Increment(ref _postureTransition);
-        var config = _config;
-        _ = ApplyDesktopPostureAfterExplorerStartupAsync(transition, config);
     }
 
     /// <summary>Plain desktop Steam start — no Big Picture. Used by the boot
@@ -110,9 +99,6 @@ public sealed class SessionModes
     public void EnterGameMode()
     {
         Log.Info("Entering game mode.");
-        // A quick return to game mode must win over a pending desktop-posture
-        // restore while Explorer is starting.
-        System.Threading.Interlocked.Increment(ref _postureTransition);
         ExplorerControl.KillExplorer();
         ApplyGameModePosture();
         GameModeEntered?.Invoke();
@@ -232,16 +218,4 @@ public sealed class SessionModes
         }
     }
 
-    /// <summary>Waits for the newly launched Explorer shell to initialize before
-    /// broadcasting the slate transition that re-enables the Windows touch keyboard.</summary>
-    private async System.Threading.Tasks.Task ApplyDesktopPostureAfterExplorerStartupAsync(int transition, AppConfig config)
-    {
-        await System.Threading.Tasks.Task.Delay(ExplorerStartupDelay).ConfigureAwait(false);
-        if (System.Threading.Volatile.Read(ref _postureTransition) != transition)
-        {
-            Log.Info("Skipping stale desktop slate-posture restore.");
-            return;
-        }
-        SlateMode.ApplyDesktopMode(config);
-    }
 }

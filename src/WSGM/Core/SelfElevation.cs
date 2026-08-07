@@ -40,7 +40,9 @@ public static class SelfElevation
             return null;
         }
 
-        var wantsElevation = config.StartupApps.Any(a => a.Enabled && a.Elevated);
+        var elevatedStartupApps = config.StartupApps.Any(a => a.Enabled && a.Elevated);
+        var elevatedSteam = Steam.RequiresElevatedShell;
+        var wantsElevation = elevatedStartupApps || elevatedSteam;
         if (!wantsElevation ||
             ElevationCheck.IsCurrentProcessElevated() != false)
         {
@@ -66,7 +68,8 @@ public static class SelfElevation
             {
                 return null;
             }
-            Log.Info($"Config starts elevated apps — handed over to elevated instance (pid {child.Id}).");
+            var reason = elevatedSteam ? "Steam requires matching elevation" : "config starts elevated apps";
+            Log.Info($"{reason} — handed over to elevated instance (pid {child.Id}).");
             // Stay alive while the elevated instance runs: in shell mode Winlogon's
             // AutoRestartShell watches THIS process and would respawn it endlessly
             // if it exited while the real shell keeps running.

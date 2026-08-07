@@ -86,6 +86,66 @@ public static class Steam
     /// <summary>Gets whether a Steam client or Big Picture helper process is running.</summary>
     public static bool IsRunning => WindowFinder.FindProcessIds(ProcessNames).Count > 0;
 
+    /// <summary>Gets whether WSGM must match Steam's elevated integrity level so
+    /// raw-touch gestures and overlay input are not blocked by UIPI.</summary>
+    public static bool RequiresElevatedShell
+    {
+        get
+        {
+            foreach (var processId in WindowFinder.FindProcessIds(ProcessNames))
+            {
+                if (ElevationCheck.IsProcessElevated((uint)processId) == true)
+                {
+                    return true;
+                }
+            }
+
+            var path = ExePath;
+            return path is not null && HasRunAsAdminCompatibilityLayer(path);
+        }
+    }
+
+    private static bool CompatibilityLayerRequiresElevation(string? layer)
+    {
+        if (string.IsNullOrWhiteSpace(layer))
+        {
+            return false;
+        }
+        foreach (var token in layer.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (token.TrimStart('~', '!', '#').Equals("RUNASADMIN", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool HasRunAsAdminCompatibilityLayer(string executablePath)
+    {
+        const string layersKey = @"Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers";
+        try
+        {
+            foreach (var hive in new[] { RegistryHive.CurrentUser, RegistryHive.LocalMachine })
+            {
+                foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+                {
+                    using var baseKey = RegistryKey.OpenBaseKey(hive, view);
+                    using var key = baseKey.OpenSubKey(layersKey);
+                    if (CompatibilityLayerRequiresElevation(key?.GetValue(executablePath) as string))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Steam compatibility-layer lookup failed: {ex.Message}");
+        }
+        return false;
+    }
+
     /// <summary>Starts or focuses Big Picture the smooth way. Cold start passes the
     /// BP URL as a command-line ARGUMENT to steam.exe so Steam boots straight into
     /// Big Picture — fired as a protocol instead, the handler first brings Steam up

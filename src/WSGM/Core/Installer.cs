@@ -160,7 +160,7 @@ public static class Installer
 
     /// <summary>Best-effort rollback of every machine/user setting WSGM changed
     /// outside its own directory: display scaling, UAC prompt level, lock-on-wake,
-    /// and slate-mode posture. Called by UninstallApp and by --uninstall-restore;
+    /// and posture values left by older builds. Called by UninstallApp and by --uninstall-restore;
     /// each step is isolated so one failure cannot stop the rest. The UAC and
     /// lock-on-wake writes need elevation (HKLM) — when this runs unelevated and
     /// either snapshot needs restoring, the whole restore is handed to one
@@ -230,11 +230,11 @@ public static class Installer
 
         try
         {
-            SlateMode.RestoreOriginal();
+            LegacyPostureCleanup.Restore();
         }
         catch (Exception ex)
         {
-            Log.Warn($"Uninstall restore: slate mode failed: {ex.Message}");
+            Log.Warn($"Uninstall restore: legacy posture cleanup failed: {ex.Message}");
         }
     }
 

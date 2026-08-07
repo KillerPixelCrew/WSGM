@@ -61,8 +61,9 @@ shell starts in 2 min → restore previous shell), `Panic()` restores the shell 
 starting explorer so Winlogon's AutoRestartShell can't resurrect WSGM next to it.
 
 **Shell session** (`Shell\ShellSession`): launches startup apps (optional `StartupDelayMs` wait
-before the first one — the "First app delay" setting — then staggered, optionally elevated — this is
-the only thing self-elevation exists for), then Steam Big Picture, watches `config.json`
+before the first one — the "First app delay" setting — then staggered, optionally elevated), then
+Steam Big Picture. WSGM self-elevates when a startup app or Steam requires matching integrity, and
+watches `config.json`
 (FileSystemWatcher, 500 ms debounce → `OverlayController.ApplyConfig`; runtime state must live on
 controllers, not in `_config`, because reloads replace it wholesale). `Shell\SteamMonitor` polls
 `steam;steamwebhelper` every 5 s; its `Paused` flag is how desktop mode and "Close Steam" suppress
@@ -160,17 +161,19 @@ log lines.
   taken _before_ killing → `--shell`, else settings). The uninstaller runs the same stop via
   `InitializeUninstall`, then `--unregister-shell` and `--uninstall-restore`, before any files are
   deleted. Whether Winlogon resurrects the killed shell mid-copy is still unverified on device.
+- Service-based logon launching was abandoned. WSGM is again the installing user's ordinary HKCU
+  Winlogon shell. The installer disables/removes preview `WSGMLogonService` installations before
+  registering the direct shell; do not reintroduce a cover, service, or Explorer-first barrier.
 - Elevated processes started by WSGM inherit elevation — that inheritance is the point of
   self-elevation: an elevated WSGM yields an elevated **Steam**, which is what lets Steam Input
   reach elevated windows and the Steam Overlay inject into elevated games (UIPI blocks both
   otherwise); WSGM's own overlay/edge swipes over elevated windows ride the same chain. The flip
   side: an **elevated explorer breaks UWP** (touch keyboard, store apps) — that's what invariant 5
   protects.
-- **ConvertibleSlateMode is opt-in by existing device state:** capture it before any change, and
-  change/restore it only when the value was already present. Do not create or delete it on ordinary
-  PCs that lack the value; `TouchKeyboardTapInvoke` is a separate per-user preference. The nullable
-  config marker exists only to clean once after upgrades from releases that incorrectly created an
-  absent value.
+- **Never manage Windows device posture or automatic touch-keyboard policy:** game/desktop mode must
+  not capture or write `ConvertibleSlateMode` or `TouchKeyboardTapInvoke`. Windows owns both. The
+  legacy config fields and `LegacyPostureCleanup.Restore` exist only to undo values changed by older
+  builds; remove them only after that migration is no longer needed.
 - **The volume OSD must never interrupt an exclusive game:** the physical volume command is always
   applied in game mode. The indicator is non-activating and click-through, and is suppressed only
   for `SHQueryUserNotificationState`'s confirmed `QUNS_RUNNING_D3D_FULL_SCREEN` (and absent/locked
