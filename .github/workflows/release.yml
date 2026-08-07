@@ -48,17 +48,11 @@ jobs:
         shell: pwsh
         run: .\build.ps1
 
-      - name: Zip portable build
-        shell: pwsh
-        env:
-          VER: ${{ steps.version.outputs.version }}
-        run: |
-          Compress-Archive -Path publish\WSGM.exe, publish\*.dll -DestinationPath "publish\WSGM-$env:VER-portable.zip"
-
+      # No portable artifact: the logon service must be installed (Program Files +
+      # SCM registration), so a zip that can't boot game mode would only mislead.
       - name: Create GitHub release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: |
             publish/WSGM-Setup-*.exe
-            publish/WSGM-*-portable.zip
           generate_release_notes: true

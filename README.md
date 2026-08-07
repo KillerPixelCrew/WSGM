@@ -80,9 +80,6 @@ previous Windows shell and puts machine settings it changed (UAC prompt behavior
 from their snapshots — all **before** removing any files. (`WSGM.exe --restore-shell` also works
 from anywhere, any time.)
 
-Portable use: the standalone `WSGM.exe` + `.dll` files also run from any folder — on first run they
-offer to install, or you can keep running portable.
-
 Building a release yourself: `.\build.ps1` (needs the .NET 9 SDK, VS C++ build tools, and Inno
 Setup 6) → `publish\WSGM-Setup-<version>.exe`.
 

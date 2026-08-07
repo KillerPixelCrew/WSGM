@@ -1,6 +1,6 @@
 # WSGM release build: NativeAOT publish + Inno Setup installer.
-# Output: publish\WSGM-Setup-<version>.exe (the one-file installer)
-#         publish\WSGM.exe + *.dll        (portable files)
+# Output: publish\WSGM-Setup-<version>.exe (the one-file installer — the only
+# shipped artifact; the logon service requires a real install)
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 
