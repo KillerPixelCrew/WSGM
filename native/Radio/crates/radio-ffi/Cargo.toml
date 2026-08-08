@@ -9,7 +9,9 @@ rust-version.workspace = true
 # Cargo requires a snake-case crate name; the build script stages the result as
 # WSGM.Radio.dll, matching WSGM.VolumeControl.dll beside the executable.
 name = "wsgm_radio"
-crate-type = ["cdylib"]
+# "lib" alongside the cdylib so the ABI helpers stay unit-testable; only the
+# cdylib is shipped.
+crate-type = ["cdylib", "lib"]
 
 [dependencies]
 radio-core.workspace = true

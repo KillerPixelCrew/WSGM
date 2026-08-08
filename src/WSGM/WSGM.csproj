@@ -54,6 +54,16 @@
           Link="%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" />
+    <!-- Wi-Fi and Bluetooth control. WinRT radio power and custom pairing cannot
+         be reached from this NativeAOT executable at all (managed COM interop is
+         off), so the helper owns those calls and the flat wlanapi ones behind a
+         C ABI. The probe beside it answers, on the device, what documentation
+         does not: whether radio control works with no shell, and whether the
+         location-consent gate blocks the Wi-Fi scan. -->
+    <None Include="Native\Radio\*"
+          Link="%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
     <!-- Third-party license texts for managed packages we redistribute. Same
          ship-beside-the-exe pattern as the SteamInputLease license files above;
          the installer lists them explicitly in [Files]. -->

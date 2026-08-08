@@ -23,11 +23,12 @@ if (-not $SkipPrettier) {
     if ($LASTEXITCODE -ne 0) { throw "Prettier check failed" }
 }
 
-# The vendored Rust library is validated and built before the .NET build, which
-# needs its staged output present. -Validate adds the library's own gates
-# (clippy as errors, unit tests) so a change there fails here rather than in a
-# release build.
+# The vendored Rust libraries are validated and built before the .NET build,
+# which needs their staged output present. -Validate adds each library's own
+# gates (clippy as errors, unit tests) so a change there fails here rather than
+# in a release build.
 & "$PSScriptRoot\build-steam-input-lease.ps1" -Validate
+& "$PSScriptRoot\build-radio.ps1" -Validate
 
 dotnet restore WSGM.slnx
 if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed" }

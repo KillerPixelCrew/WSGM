@@ -18,6 +18,12 @@ $version = $Matches[1]
 Write-Host "== Building Steam Input Lease (Rust) ==" -ForegroundColor Cyan
 & "$root\eng\build-steam-input-lease.ps1"
 
+# Same rule as the lease: built from source on every release so the shipped
+# helper can never be older than the code beside it, and staged before the
+# publish that copies it.
+Write-Host "== Building radio helper (Rust) ==" -ForegroundColor Cyan
+& "$root\eng\build-radio.ps1"
+
 Write-Host "== Publishing WSGM $version (NativeAOT) ==" -ForegroundColor Cyan
 # Clean first: dotnet publish overlays onto the previous output, so a DLL removed by
 # a dependency bump (or an old setup exe) would otherwise leak into the release.
@@ -66,6 +72,7 @@ finally {
     Remove-Item -Recurse -Force $nativeTemp -ErrorAction SilentlyContinue
 }
 if (-not (Test-Path $nativeOutput)) { throw "VolumeControl native helper was not produced" }
+if (-not (Test-Path "$root\publish\WSGM.Radio.dll")) { throw "Radio helper was not published" }
 if (-not (Test-Path "$root\publish\WSGM.Deelevate.exe")) { throw "De-elevation helper was not produced" }
 if (-not (Test-Path "$root\publish\WSGM.LogonService.exe")) { throw "Logon service was not produced" }
 

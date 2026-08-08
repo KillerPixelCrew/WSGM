@@ -1,0 +1,110 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:c="using:WSGM.Controls"
+        xmlns:sh="using:WSGM.Shell"
+        x:Class="WSGM.Overlay.RadioWindow"
+        x:DataType="sh:RadioManager"
+        WindowDecorations="None"
+        CanResize="False"
+        ShowInTaskbar="False"
+        Topmost="True"
+        Background="Transparent"
+        TransparencyLevelHint="Transparent"
+        SizeToContent="Manual"
+        Width="520"
+        Height="560"
+        Title="Wi-Fi and Bluetooth">
+    <Border Background="{StaticResource HcSurfaceBrush}"
+            BorderBrush="{StaticResource HcCardBorderBrush}"
+            BorderThickness="1"
+            CornerRadius="8"
+            Padding="16">
+        <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="12">
+
+            <!-- Header: title plus the radio's own on/off switch. -->
+            <Grid Grid.Row="0" ColumnDefinitions="*,Auto" VerticalAlignment="Center">
+                <TextBlock x:Name="PanelTitle"
+                           Text="Wi-Fi"
+                           FontSize="20"
+                           FontWeight="SemiBold"
+                           VerticalAlignment="Center" />
+                <ToggleSwitch x:Name="RadioSwitch"
+                              Grid.Column="1"
+                              OnContent="On"
+                              OffContent="Off"
+                              IsCheckedChanged="OnRadioSwitchToggled" />
+            </Grid>
+
+            <c:TabStrip x:Name="Tabs" Grid.Row="1" ShowBumperHints="True" />
+
+            <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Spacing="6">
+
+                    <!-- Wi-Fi -->
+                    <StackPanel x:Name="PanelWifi" Spacing="6">
+                        <TextBlock Text="Wi-Fi is off."
+                                   Classes="caption"
+                                   IsVisible="{Binding !WifiOn}" />
+                        <ItemsControl ItemsSource="{Binding Networks}"
+                                      IsVisible="{Binding WifiOn}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="sh:WifiNetworkEntry">
+                                    <c:CardButton Title="{Binding Ssid}"
+                                                  TrailingText="{Binding Signal, StringFormat='{}{0}%'}"
+                                                  Click="OnNetworkClicked"
+                                                  Margin="0,0,0,4" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+
+                    <!-- Bluetooth -->
+                    <StackPanel x:Name="PanelBluetooth" Spacing="6" IsVisible="False">
+                        <TextBlock Text="Bluetooth is off."
+                                   Classes="caption"
+                                   IsVisible="{Binding !BluetoothOn}" />
+                        <ItemsControl ItemsSource="{Binding BluetoothDevices}"
+                                      IsVisible="{Binding BluetoothOn}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="sh:BluetoothDeviceEntry">
+                                    <c:CardButton Title="{Binding Name}"
+                                                  TrailingText="{Binding ActionText}"
+                                                  Click="OnDeviceClicked"
+                                                  Margin="0,0,0,4" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+
+                    <!-- Password / PIN prompt. Replaces the list in place rather
+                         than opening a second window, so the controller focus
+                         stays inside one surface. -->
+                    <StackPanel x:Name="PromptPanel" Spacing="8" IsVisible="False">
+                        <TextBlock x:Name="PromptTitle" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock x:Name="PromptDetail" Classes="caption" TextWrapping="Wrap" />
+                        <TextBox x:Name="PromptInput" PasswordChar="●" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="PromptAccept" Content="Connect" Click="OnPromptAccept" />
+                            <Button Content="Cancel" Click="OnPromptCancel" />
+                            <Button x:Name="PromptKeyboard"
+                                    Content="Keyboard"
+                                    Click="OnPromptKeyboard"
+                                    ToolTip.Tip="Show the Windows touch keyboard" />
+                        </StackPanel>
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+
+            <StackPanel Grid.Row="3" Spacing="8">
+                <TextBlock Text="{Binding StatusText}"
+                           Classes="caption"
+                           TextWrapping="Wrap"
+                           IsVisible="{Binding HasStatus}" />
+                <Button x:Name="CloseButton"
+                        Content="Close"
+                        HorizontalAlignment="Right"
+                        Click="OnCloseClicked" />
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

@@ -212,23 +212,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         }
     }
 
-    private static void OpenTouchKeyboard()
-    {
-        // Custom-shell sessions have no taskbar to summon the touch keyboard from.
-        // TabTip only — the osk.exe fallback brought up the legacy accessibility
-        // keyboard, which is never the right thing on a touch handheld.
-        var tabTip = System.IO.Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFiles),
-            @"microsoft shared\ink\TabTip.exe");
-        if (System.IO.File.Exists(tabTip))
-        {
-            AppLauncher.Open(tabTip);
-        }
-        else
-        {
-            Log.Warn($"Touch keyboard host not found: {tabTip}");
-        }
-    }
+    private static void OpenTouchKeyboard() => TouchKeyboard.Show();
 
     // --- Startup app suggestions ---
     /// <summary>Common handheld companions found on this PC, offered as one-click adds

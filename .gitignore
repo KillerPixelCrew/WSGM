@@ -20,6 +20,7 @@ CLAUDE.md
 # eng/build-steam-input-lease.ps1 on every build. Generated, never committed —
 # the library source in native/SteamInput is the tracked copy.
 /src/WSGM/Native/SteamInputLease/
+/src/WSGM/Native/Radio/
 
 # The vendored Rust library's own build output.
 /native/SteamInput/target/

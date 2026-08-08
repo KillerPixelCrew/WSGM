@@ -568,10 +568,9 @@ public sealed class OverlayController : IDisposable
         }
         if (_taskbar is not null && !HitsWindow(_taskbar, x, y))
         {
-            // A status flyout (Wi-Fi/Bluetooth) pops ABOVE the bar, outside its
-            // rectangle — a tap on it must not read as tap-outside. Its own
-            // light-dismiss handles taps elsewhere.
-            if (_taskbar.IsStatusFlyoutOpen)
+            // The radio panel sits ABOVE the bar, outside its rectangle — a tap
+            // in it must not read as tap-outside and close the bar underneath.
+            if (_radioPanel is not null)
             {
                 return;
             }
@@ -666,6 +665,7 @@ public sealed class OverlayController : IDisposable
         _taskbar.WindowPicked += PickTaskbarWindow;
         _taskbar.TrayIconActivated += OnTrayIconActivated;
         _taskbar.Dismissed += CloseTaskbar;
+        _taskbar.RadioPanelRequested += ShowRadioPanel;
         _taskbar.Closed += (_, _) => OnTaskbarClosed();
         _taskbarNavigation = new GamepadNavigation(_gamepad, _taskbar, CloseTaskbar,
             isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
@@ -682,6 +682,44 @@ public sealed class OverlayController : IDisposable
         {
             _touchSwipes.WatchTaps = true;
         }
+    }
+
+    private RadioWindow? _radioPanel;
+    private GamepadNavigation? _radioNavigation;
+
+    /// <summary>Opens the Wi-Fi/Bluetooth panel above the taskbar.</summary>
+    /// <param name="bluetooth">True to open on the Bluetooth tab.</param>
+    private void ShowRadioPanel(bool bluetooth)
+    {
+        if (_radioPanel is not null)
+        {
+            _radioPanel.Activate();
+            return;
+        }
+        if (_systemStatus is null)
+        {
+            return;
+        }
+        Log.Info($"Radio panel opened ({(bluetooth ? "Bluetooth" : "Wi-Fi")}).");
+        var panel = new RadioWindow(_systemStatus.Radios, bluetooth);
+        _radioPanel = panel;
+        // Its own navigation instance: the panel holds focus while it is open,
+        // and B must close the panel rather than the bar behind it.
+        _radioNavigation = new GamepadNavigation(_gamepad, panel, () => panel.Close(),
+            isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
+            tabPrevious: panel.SelectPreviousTab,
+            tabNext: panel.SelectNextTab);
+        panel.Closed += (_, _) =>
+        {
+            _radioNavigation?.Dispose();
+            _radioNavigation = null;
+            _radioPanel = null;
+            Log.Info("Radio panel closed.");
+            // Hand focus back to the bar, which is still open underneath.
+            _taskbar?.Activate();
+        };
+        panel.Show();
+        panel.Activate();
     }
 
     /// <summary>The desktop-DPI factor for WSGM surfaces. The boost exists ONLY

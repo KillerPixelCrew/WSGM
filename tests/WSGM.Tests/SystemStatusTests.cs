@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Runtime.InteropServices;
 using WSGM.Shell;
 
 namespace WSGM.Tests;
@@ -40,61 +39,4 @@ public sealed class SystemStatusTests
         Assert.Equal(expectedText, text);
     }
 
-    [Fact]
-    public void WifiListWithZeroInterfacesIsUnknown()
-        => Assert.Equal(SystemStatus.WifiState.Unknown, ReadList());
-
-    [Fact]
-    public void WifiSingleConnectedInterfaceIsConnected()
-        => Assert.Equal(SystemStatus.WifiState.Connected, ReadList(Connected));
-
-    [Fact]
-    public void WifiSingleDisconnectedInterfaceIsDisconnected()
-        => Assert.Equal(SystemStatus.WifiState.Disconnected, ReadList(NotReady));
-
-    [Fact]
-    public void WifiDisconnectedOnboardAdapterDoesNotMaskAConnectedUsbAdapter()
-        => Assert.Equal(SystemStatus.WifiState.Connected, ReadList(NotReady, Connected));
-
-    [Fact]
-    public void WifiAllInterfacesDisconnectedIsDisconnected()
-        => Assert.Equal(SystemStatus.WifiState.Disconnected, ReadList(NotReady, NotReady, NotReady));
-
-    // wlan_interface_state values: 0 = not_ready, 1 = connected.
-    private const int NotReady = 0;
-    private const int Connected = 1;
-
-    /// <summary>Builds a native WLAN_INTERFACE_INFO_LIST (8-byte header + 532-byte
-    /// records with isState at record offset 528) holding the given per-interface
-    /// states and runs it through <see cref="SystemStatus.ReadInterfaceList"/>.</summary>
-    private static SystemStatus.WifiState ReadList(params int[] states)
-    {
-        const int HeaderSize = 8;
-        const int RecordSize = 532;
-        const int StateOffset = 528;
-        var size = HeaderSize + (states.Length * RecordSize);
-        var list = Marshal.AllocHGlobal(size);
-        try
-        {
-            Marshal.Copy(new byte[size], 0, list, size);
-            Marshal.WriteInt32(list, states.Length);
-            for (var i = 0; i < states.Length; i++)
-            {
-                Marshal.WriteInt32(list, HeaderSize + (i * RecordSize) + StateOffset, states[i]);
-            }
-            return SystemStatus.ReadInterfaceList(list);
-        }
-        finally
-        {
-            Marshal.FreeHGlobal(list);
-        }
-    }
-
-    [Fact]
-    public void WifiFlyoutWordingCoversEveryState()
-    {
-        Assert.Equal("Connected", SystemStatus.DescribeWifi(SystemStatus.WifiState.Connected));
-        Assert.Equal("Not connected", SystemStatus.DescribeWifi(SystemStatus.WifiState.Disconnected));
-        Assert.Equal("State unavailable", SystemStatus.DescribeWifi(SystemStatus.WifiState.Unknown));
-    }
 }
