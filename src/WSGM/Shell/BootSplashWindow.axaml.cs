@@ -387,18 +387,32 @@ public partial class BootSplashWindow : Window
                 Log.Warn($"Splash: image not found, skipping element: {path}");
                 return null;
             }
-            if (decodeToWidth is int width)
+            // Splash images can come from an imported (therefore untrusted)
+            // .wsgmsplash theme, whose caps bound only the ENCODED bytes: a tiny
+            // file may declare enormous dimensions. Read the declared size from
+            // the header — no decode — and refuse the absurd ones outright, so the
+            // boot path never commits an unbounded pixel buffer. Header values are
+            // what the file CLAIMS; a lying one fails the decode below, which is
+            // caught like any other load failure.
+            if (!ImageHeader.TryReadSize(path, out var sourceWidth, out var sourceHeight))
+            {
+                Log.Warn(
+                    "Splash: unsupported image format or truncated header (supported: PNG, JPEG, BMP), "
+                        + $"skipping element: {path}");
+                return null;
+            }
+            if (!ImageHeader.IsWithinLimits(sourceWidth, sourceHeight))
+            {
+                Log.Warn(
+                    $"Splash: image declares {sourceWidth}x{sourceHeight} px (limit {ImageHeader.MaxDimension} px "
+                        + $"per side, {ImageHeader.MaxPixels / 1_000_000} MP total), skipping element: {path}");
+                return null;
+            }
+            if (decodeToWidth is int width && sourceWidth > width)
             {
                 // Downscale-only cap: DecodeToWidth would UPSCALE smaller sources,
-                // so probe the real size first and re-decode only oversized images
-                // (transient full decode is acceptable once at boot).
-                var full = new Bitmap(path);
-                if (full.PixelSize.Width <= width)
-                {
-                    return full;
-                }
-
-                full.Dispose();
+                // so the header's declared width decides. (The previous full-Bitmap
+                // size probe allocated exactly the buffer this cap exists to avoid.)
                 using var stream = File.OpenRead(path);
                 return Bitmap.DecodeToWidth(stream, width);
             }

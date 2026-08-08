@@ -168,7 +168,7 @@ public sealed class SplashThemeTests : IDisposable
     }
 
     [Fact]
-    public void ExportSkipsAMissingImageFileAndImportKeepsThePathString()
+    public void ExportSkipsAMissingImageFileAndImportDropsTheDanglingPath()
     {
         var danglingPath = Path.Combine(_sourceDir, "deleted-logo.png");
         var themePath = Path.Combine(_root, "dangling.wsgmsplash");
@@ -177,8 +177,116 @@ public sealed class SplashThemeTests : IDisposable
         var imported = SplashTheme.Import(themePath, _targetDir);
 
         Assert.NotNull(imported);
-        Assert.Equal(danglingPath, imported.LogoImagePath);
+        Assert.Equal("", imported.LogoImagePath);
         Assert.False(Directory.Exists(_targetDir));
+    }
+
+    [Theory]
+    [InlineData(@"\\attacker-host\share\logo.png", @"\\attacker-host\share\bg.png")]
+    [InlineData(@"C:\Users\author\logo.png", @"D:\shared\bg.png")]
+    [InlineData(@"..\..\secrets\logo.png", "bg.png")]
+    public void ImagePathsFromTheJsonWithoutAMatchingEntryImportAsEmpty(string logoPath, string backgroundPath)
+    {
+        var themePath = Path.Combine(_root, "path-only.wsgmsplash");
+        using (var archive = ZipFile.Open(themePath, ZipArchiveMode.Create))
+        {
+            WriteJsonEntry(
+                archive,
+                $$"""
+                { "LogoImagePath": "{{logoPath.Replace(@"\", @"\\")}}",
+                  "BackgroundImagePath": "{{backgroundPath.Replace(@"\", @"\\")}}" }
+                """
+            );
+        }
+
+        var imported = SplashTheme.Import(themePath, _targetDir);
+
+        Assert.NotNull(imported);
+        Assert.Equal("", imported.LogoImagePath);
+        Assert.Equal("", imported.BackgroundImagePath);
+        Assert.False(Directory.Exists(_targetDir));
+    }
+
+    [Fact]
+    public void AJsonPathIsIgnoredEvenWhenTheArchiveAlsoCarriesTheEntry()
+    {
+        var themePath = Path.Combine(_root, "path-and-entry.wsgmsplash");
+        using (var archive = ZipFile.Open(themePath, ZipArchiveMode.Create))
+        {
+            WriteJsonEntry(
+                archive,
+                """{ "LogoImagePath": "\\\\attacker-host\\share\\logo.png", "BackgroundImagePath": "\\\\attacker-host\\share\\bg.png" }"""
+            );
+            var logo = archive.CreateEntry("logo.png");
+            using (var stream = logo.Open())
+            {
+                stream.Write([7, 7]);
+            }
+            var background = archive.CreateEntry("background.png");
+            using (var stream = background.Open())
+            {
+                stream.Write([8, 8]);
+            }
+        }
+
+        var imported = SplashTheme.Import(themePath, _targetDir);
+
+        Assert.NotNull(imported);
+        Assert.Equal(Path.Combine(_targetDir, "logo.png"), imported.LogoImagePath);
+        Assert.Equal(Path.Combine(_targetDir, "background.png"), imported.BackgroundImagePath);
+        Assert.Equal([7, 7], File.ReadAllBytes(imported.LogoImagePath));
+        Assert.Equal([8, 8], File.ReadAllBytes(imported.BackgroundImagePath));
+    }
+
+    [Fact]
+    public void ExportRefusesAnOversizedImageAndLeavesTheExistingDestinationUntouched()
+    {
+        var destination = Path.Combine(_root, "existing-theme.wsgmsplash");
+        var originalBytes = new byte[] { 0x50, 0x4B, 5, 6, 7 };
+        File.WriteAllBytes(destination, originalBytes);
+        var hugePath = Path.Combine(_sourceDir, "huge.png");
+        using (var file = File.Create(hugePath))
+        {
+            // One byte past the per-image cap the importer enforces.
+            file.SetLength(64L * 1024 * 1024 + 1);
+        }
+
+        Assert.False(SplashTheme.Export(new SplashConfig { LogoImagePath = hugePath }, destination));
+
+        Assert.Equal(originalBytes, File.ReadAllBytes(destination));
+        Assert.Equal([destination], Directory.GetFiles(_root));
+    }
+
+    [Fact]
+    public void ExportRefusesAnUnsupportedImageExtensionAndLeavesTheExistingDestinationUntouched()
+    {
+        var destination = Path.Combine(_root, "existing-theme.wsgmsplash");
+        var originalBytes = new byte[] { 0x50, 0x4B, 3, 4, 8 };
+        File.WriteAllBytes(destination, originalBytes);
+        // A format the picker may offer but the importer's entry-name whitelist
+        // rejects — bundling it would produce an archive nobody can import.
+        var webpPath = Path.Combine(_sourceDir, "modern.webp");
+        File.WriteAllBytes(webpPath, [1, 2, 3, 4]);
+
+        Assert.False(SplashTheme.Export(new SplashConfig { LogoImagePath = webpPath }, destination));
+
+        Assert.Equal(originalBytes, File.ReadAllBytes(destination));
+        Assert.Equal([destination], Directory.GetFiles(_root));
+    }
+
+    [Fact]
+    public void ExportRefusesAnUnsupportedBackgroundExtensionAndWritesNoArchiveAtAll()
+    {
+        var destination = Path.Combine(_root, "never-written.wsgmsplash");
+        var tiffPath = Path.Combine(_sourceDir, "photo.tiff");
+        File.WriteAllBytes(tiffPath, [9, 9]);
+
+        Assert.False(
+            SplashTheme.Export(new SplashConfig { BackgroundImagePath = tiffPath }, destination)
+        );
+
+        Assert.False(File.Exists(destination));
+        Assert.Empty(Directory.GetFiles(_root));
     }
 
     [Fact]
@@ -277,6 +385,101 @@ public sealed class SplashThemeTests : IDisposable
 
         Assert.Null(SplashTheme.Import(themePath, _targetDir));
         Assert.False(Directory.Exists(_targetDir));
+    }
+
+    [Fact]
+    public void ADriveRelativeEntryNameIsRejectedAndWritesNothingOutsideTheStagingDirectory()
+    {
+        // "D:logo.png" carries no separator at all, yet Path.IsPathRooted is true for
+        // it: Path.Combine(stagingDirectory, "d:logo.png") returns the second argument
+        // VERBATIM, so extracting under the raw entry name lands in that drive's
+        // current directory (the test process's own working directory when it sits on
+        // the same drive) instead of the staging directory.
+        var driveLetter = Path.GetPathRoot(Environment.CurrentDirectory)![..1];
+        var entryName = driveLetter + ":logo.png";
+        var driveCurrentDirectoryTarget = Path.GetFullPath(
+            Path.Combine(_targetDir, entryName.ToLowerInvariant())
+        );
+        var driveRootTarget = driveLetter + @":\logo.png";
+        var driveRootExistedBefore = File.Exists(driveRootTarget);
+        var themePath = Path.Combine(_root, "drive-relative.wsgmsplash");
+        using (var archive = ZipFile.Open(themePath, ZipArchiveMode.Create))
+        {
+            WriteJsonEntry(archive, "{}");
+            var entry = archive.CreateEntry(entryName);
+            using var stream = entry.Open();
+            stream.Write([1, 2, 3]);
+        }
+        // The archive really does carry the hostile name — ZipArchive stores it as-is.
+        using (var written = ZipFile.OpenRead(themePath))
+        {
+            Assert.Contains(written.Entries, e => e.FullName == entryName);
+        }
+
+        Assert.Null(SplashTheme.Import(themePath, _targetDir));
+
+        Assert.False(Directory.Exists(_targetDir));
+        Assert.False(File.Exists(driveCurrentDirectoryTarget));
+        Assert.False(File.Exists(Path.Combine(Environment.CurrentDirectory, "logo.png")));
+        Assert.Equal(driveRootExistedBefore, File.Exists(driveRootTarget));
+    }
+
+    [Theory]
+    [InlineData("D:logo.png", false)]
+    [InlineData("C:logo.png", false)]
+    [InlineData("/logo.png", false)]
+    [InlineData(@"\logo.png", false)]
+    [InlineData("sub/logo.png", false)]
+    [InlineData(@"..\logo.png", false)]
+    [InlineData("logo.png", true)]
+    public void OnlyABareFileNameIsAcceptedAsAnImageEntryName(string entryName, bool accepted)
+    {
+        var themePath = Path.Combine(_root, "entry-name.wsgmsplash");
+        using (var archive = ZipFile.Open(themePath, ZipArchiveMode.Create))
+        {
+            WriteJsonEntry(archive, "{}");
+            var entry = archive.CreateEntry(entryName);
+            using var stream = entry.Open();
+            stream.Write([1, 2, 3]);
+        }
+
+        var imported = SplashTheme.Import(themePath, _targetDir);
+
+        if (!accepted)
+        {
+            Assert.Null(imported);
+            Assert.False(Directory.Exists(_targetDir));
+            return;
+        }
+
+        Assert.NotNull(imported);
+        Assert.Equal(Path.Combine(_targetDir, "logo.png"), imported.LogoImagePath);
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(imported.LogoImagePath));
+    }
+
+    [Fact]
+    public void AWellFormedImageEntryExtractsInsideTheStagingDirectory()
+    {
+        var themePath = Path.Combine(_root, "contained.wsgmsplash");
+        using (var archive = ZipFile.Open(themePath, ZipArchiveMode.Create))
+        {
+            WriteJsonEntry(archive, "{}");
+            var logo = archive.CreateEntry("logo.png");
+            using var stream = logo.Open();
+            stream.Write([4, 2]);
+        }
+
+        var imported = SplashTheme.Import(themePath, _targetDir);
+
+        Assert.NotNull(imported);
+        var extracted = Path.GetFullPath(imported.LogoImagePath);
+        Assert.Equal(Path.GetFullPath(_targetDir), Path.GetDirectoryName(extracted));
+        Assert.StartsWith(
+            Path.GetFullPath(_targetDir) + Path.DirectorySeparatorChar,
+            extracted,
+            StringComparison.OrdinalIgnoreCase
+        );
+        Assert.Equal([4, 2], File.ReadAllBytes(extracted));
     }
 
     [Fact]

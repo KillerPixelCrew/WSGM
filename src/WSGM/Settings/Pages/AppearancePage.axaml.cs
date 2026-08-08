@@ -261,6 +261,11 @@ public partial class AppearancePage : UserControl
         _backgroundThumbBitmap = RefreshThumbnail(
             _viewModel?.SplashBackgroundImagePath, BackgroundThumb, BackgroundNone, _backgroundThumbBitmap);
 
+    /// <summary>Longest edge decoded for an inline thumbnail. The preview panel is
+    /// 44x28 device-independent pixels, so 128 px stays sharp at any display
+    /// scale while keeping the pixel buffer at a few tens of kilobytes.</summary>
+    private const int ThumbnailDecodePixels = 128;
+
     /// <summary>Loads one inline thumbnail; a missing or unreadable file shows the
     /// "NONE" placeholder instead. The previous bitmap is disposed only after the
     /// Image stopped referencing it.</summary>
@@ -271,7 +276,7 @@ public partial class AppearancePage : UserControl
         {
             if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
             {
-                bitmap = new Bitmap(path);
+                bitmap = LoadThumbnail(path);
             }
         }
         catch (Exception ex)
@@ -283,6 +288,45 @@ public partial class AppearancePage : UserControl
         placeholder.IsVisible = bitmap is null;
         previous?.Dispose();
         return bitmap;
+    }
+
+    /// <summary>Decodes a thumbnail with the decoded pixel buffer bounded up front.
+    /// Splash images can arrive from an imported (therefore untrusted)
+    /// .wsgmsplash theme, whose byte caps bound only the ENCODED size — a few KB
+    /// can declare tens of thousands of pixels per side, and a full-resolution
+    /// decode then hangs or OOMs Settings. So the header is read first
+    /// (<see cref="ImageHeader"/>): unreadable or absurd dimensions show the
+    /// "NONE" placeholder, and anything larger than the preview is decoded scaled
+    /// down its longer edge (which also keeps extreme aspect ratios bounded).
+    /// The header is only what the file DECLARES; a lying one just fails the
+    /// decode, which the caller already catches.</summary>
+    private static Bitmap? LoadThumbnail(string path)
+    {
+        if (!ImageHeader.TryReadSize(path, out var width, out var height))
+        {
+            Log.Warn(
+                "Appearance: unsupported image format or truncated header (supported: PNG, JPEG, BMP), "
+                    + $"no thumbnail for '{path}'.");
+            return null;
+        }
+        if (!ImageHeader.IsWithinLimits(width, height))
+        {
+            Log.Warn(
+                $"Appearance: image declares {width}x{height} px (limit {ImageHeader.MaxDimension} px per side, "
+                    + $"{ImageHeader.MaxPixels / 1_000_000} MP total), no thumbnail for '{path}'.");
+            return null;
+        }
+        if (width <= ThumbnailDecodePixels && height <= ThumbnailDecodePixels)
+        {
+            return new Bitmap(path);
+        }
+
+        // DecodeToWidth/Height also UPSCALE, hence the size check above; scale the
+        // longer edge so a tall, narrow source shrinks too.
+        using var stream = File.OpenRead(path);
+        return width >= height
+            ? Bitmap.DecodeToWidth(stream, ThumbnailDecodePixels)
+            : Bitmap.DecodeToHeight(stream, ThumbnailDecodePixels);
     }
 
     private async void OnBrowseLogo(object? sender, RoutedEventArgs e)
@@ -402,9 +446,9 @@ public partial class AppearancePage : UserControl
         {
             return;
         }
-        // Imported images land in a per-import staging directory; Save's ordinary
-        // SplashAssets.Materialize copies them into the stable splash assets — the
-        // live copies stay untouched until the user actually saves.
+        // Imported images land in a per-import staging directory; Save's staged
+        // SplashAssets transaction commits them into the stable splash assets —
+        // the live copies stay untouched until the user actually saves.
         var imported = SplashTheme.Import(path);
         if (imported is null)
         {

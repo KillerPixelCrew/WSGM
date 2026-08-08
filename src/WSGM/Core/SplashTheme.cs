@@ -63,11 +63,20 @@ internal static class SplashTheme
 
     /// <summary>Writes a splash theme archive to an open stream. The stream is left
     /// open for the caller to dispose.</summary>
-    /// <returns>True when the archive was written; false (logged) on any failure.</returns>
+    /// <returns>True when the archive was written; false (logged) on any failure,
+    /// including a selected image above the per-image import cap.</returns>
     internal static bool Export(SplashConfig splash, Stream destination)
     {
         try
         {
+            // Refuse up front — before a single byte is written — what the importer
+            // would always reject, so an oversized image can never produce (or
+            // replace) an archive nobody can import.
+            if (!ImageIsBundleable(splash.LogoImagePath) || !ImageIsBundleable(splash.BackgroundImagePath))
+            {
+                return false;
+            }
+
             // The bundled copy gets its image paths rewritten to the archive entry
             // names; the caller's instance is never mutated.
             var bundled = Clone(splash);
@@ -152,12 +161,15 @@ internal static class SplashTheme
             // Same explicit-null repairs a loaded config.json gets — the archive
             // contents are untrusted.
             ConfigStore.NormalizeSplash(splash);
-            splash.LogoImagePath =
-                ExtractImage(archive, LogoEntryBaseName, targetImageDirectory, extractedFiles)
-                ?? splash.LogoImagePath;
+            // Rule for every path-like field: a path out of the archive's JSON is
+            // NEVER passed through — absolute, relative or UNC alike. It may only
+            // ever be a file this import actually staged, or "" when the archive
+            // bundled no such entry. The caller thumbnails these paths immediately,
+            // so a pass-through would make a shared theme reach out to e.g.
+            // \\attacker\share\x.png with no user action.
+            splash.LogoImagePath = ExtractImage(archive, LogoEntryBaseName, targetImageDirectory, extractedFiles) ?? "";
             splash.BackgroundImagePath =
-                ExtractImage(archive, BackgroundEntryBaseName, targetImageDirectory, extractedFiles)
-                ?? splash.BackgroundImagePath;
+                ExtractImage(archive, BackgroundEntryBaseName, targetImageDirectory, extractedFiles) ?? "";
             return splash;
         }
         catch (Exception ex)
@@ -202,10 +214,16 @@ internal static class SplashTheme
 
     /// <summary>Returns the decompressed-size cap for a whitelisted entry name, or
     /// null when the name is not acceptable (unknown name, disallowed extension, or
-    /// any path separator — entry names must be bare file names).</summary>
+    /// anything that is not a bare file name).</summary>
     private static long? AllowedEntryBytes(string entryName)
     {
-        if (entryName.Contains('/') || entryName.Contains('\\'))
+        // Not just separators: a drive-relative name like "D:logo.png" is rooted,
+        // and Path.Combine would then DISCARD the staging directory and write it
+        // wherever that drive's current directory points. Requiring the name to
+        // equal its own file name rejects separators, roots and volume-relative
+        // forms in one check.
+        if (entryName.Length == 0
+            || !string.Equals(entryName, Path.GetFileName(entryName), StringComparison.Ordinal))
         {
             return null;
         }
@@ -247,6 +265,40 @@ internal static class SplashTheme
         }
     }
 
+    /// <summary>Checks a to-be-bundled image against the very rules
+    /// <see cref="Import(string, string)"/> enforces — its size cap AND its
+    /// extension whitelist — so an export can never yield an archive the importer
+    /// rejects. A blank, missing or unreadable source bundles nothing and passes.</summary>
+    private static bool ImageIsBundleable(string? sourcePath)
+    {
+        if (string.IsNullOrWhiteSpace(sourcePath))
+        {
+            return true;
+        }
+        var info = new FileInfo(sourcePath);
+        if (!info.Exists)
+        {
+            return true;
+        }
+        var extension = Path.GetExtension(sourcePath).ToLowerInvariant();
+        if (Array.IndexOf(AllowedImageExtensions, extension) < 0)
+        {
+            Log.Warn(
+                $"Splash theme export refused: image '{sourcePath}' has an unsupported extension "
+                    + $"('{extension}'; allowed: {string.Join(", ", AllowedImageExtensions)})."
+            );
+            return false;
+        }
+        if (info.Length > MaxImageEntryBytes)
+        {
+            Log.Warn(
+                $"Splash theme export refused: image '{sourcePath}' is {info.Length} bytes (limit {MaxImageEntryBytes})."
+            );
+            return false;
+        }
+        return true;
+    }
+
     /// <summary>Copies the referenced image into the archive under its deterministic
     /// entry name and returns that name; a blank or missing source keeps the
     /// original path string and bundles nothing.</summary>
@@ -282,7 +334,15 @@ internal static class SplashTheme
                 continue;
             }
             Directory.CreateDirectory(targetDirectory);
-            var destination = Path.Combine(targetDirectory, entry.FullName.ToLowerInvariant());
+            var destination = Path.Combine(targetDirectory, Path.GetFileName(entry.FullName).ToLowerInvariant());
+            // Belt and braces behind the name whitelist: never write outside the
+            // staging directory, whatever the archive claims an entry is called.
+            if (!Path.GetFullPath(destination).StartsWith(
+                    Path.GetFullPath(targetDirectory) + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException($"entry '{entry.FullName}' escapes the staging directory");
+            }
             extractedFiles.Add(destination);
             using var source = entry.Open();
             using var target = File.Create(destination);

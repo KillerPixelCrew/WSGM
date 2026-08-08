@@ -891,14 +891,27 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         ApplyTo(config);
         // Copy picked splash images into the stable per-user splash directory and
         // persist the rewritten paths, so the boot splash never depends on the
-        // originally picked file staying in place.
-        SplashAssets.Materialize(config.Splash);
-        // Sync the UI back to the materialized copies: keeping the originally
-        // picked paths would re-copy on every save and, if the source vanished,
-        // clobber the stable copy's path with a dead one on the next save.
+        // originally picked file staying in place. Two-phase on purpose: the copies
+        // are staged as sidecars and only replace the live files after the config
+        // write succeeded — a failed save must never leave the still-persisted OLD
+        // config pointing at already-replaced images.
+        using var splashAssets = SplashAssets.Prepare(config.Splash);
+        try
+        {
+            ConfigStore.Save(config);
+        }
+        catch
+        {
+            splashAssets.Rollback();
+            throw; // SaveCommand reports "Save failed"; the live splash assets are untouched.
+        }
+        splashAssets.Commit();
+        // Sync the UI back to the materialized copies — only now that they are the
+        // live files: keeping the originally picked paths would re-copy on every save
+        // and, if the source vanished, clobber the stable copy's path with a dead one
+        // on the next save.
         SplashLogoPath = config.Splash.LogoImagePath;
         SplashBackgroundImagePath = config.Splash.BackgroundImagePath;
-        ConfigStore.Save(config);
         // Keep the logon service's view in sync — every save may change the
         // enabled flag or the elevation inputs (elevated startup apps).
         BootManifestWriter.WriteCurrent(config);
