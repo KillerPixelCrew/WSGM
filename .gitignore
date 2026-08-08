@@ -6,9 +6,15 @@
 # dotenv files
 .env
 
-# Local agent guidance (intentionally not shared in commits)
+# Local agent guidance and working directories (intentionally never committed —
+# they carry local machine paths and session state). Nothing in the repo, the
+# README or the wiki may reference them either.
 AGENTS.md
 CLAUDE.md
+.claude/
+.codex/
+.cursor/
+.aider*
 
 # Steam Input Lease build output, staged from native/SteamInput by
 # eng/build-steam-input-lease.ps1 on every build. Generated, never committed —
