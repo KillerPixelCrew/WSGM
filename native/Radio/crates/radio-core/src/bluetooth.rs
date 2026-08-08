@@ -150,6 +150,23 @@ fn pending() -> &'static Mutex<HashMap<u32, Pending>> {
     PENDING.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// How long a whole pairing ceremony may take before it is abandoned.
+///
+/// Generous, because it includes the user reading a PIN off a device and typing
+/// it back, but finite: Windows will happily wait forever otherwise.
+const PAIRING_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
+
+/// Drops every unanswered pairing request, completing their deferrals so the
+/// ceremony can unwind instead of waiting on an answer that will never come.
+fn discard_pending() {
+    let Ok(mut map) = pending().lock() else {
+        return;
+    };
+    for (_, request) in map.drain() {
+        let _ = request.deferral.Complete();
+    }
+}
+
 fn next_token() -> u32 {
     use std::sync::atomic::{AtomicU32, Ordering};
     static NEXT: AtomicU32 = AtomicU32::new(1);
@@ -468,13 +485,30 @@ where
         | DevicePairingKinds::ProvidePin
         | DevicePairingKinds::ConfirmPinMatch;
 
-    let result = custom
+    // Bounded, because PairAsync has no timeout of its own and can wait
+    // indefinitely on a device that never answers. A row stuck on "Working..."
+    // with no way out is worse than a failure the user can retry.
+    let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+    let operation = custom
         .PairWithProtectionLevelAsync(kinds, DevicePairingProtectionLevel::Default)
-        .map_err(|e| winrt("DeviceInformationCustomPairing.PairAsync", e))
-        .and_then(|op| {
-            op.join()
-                .map_err(|e| winrt("DeviceInformationCustomPairing.PairAsync (join)", e))
-        });
+        .map_err(|e| winrt("DeviceInformationCustomPairing.PairAsync", e))?;
+    operation
+        .when(move |outcome| {
+            let _ = finished_tx.send(outcome);
+        })
+        .map_err(|e| winrt("DeviceInformationCustomPairing.PairAsync (when)", e))?;
+
+    let result = match finished_rx.recv_timeout(PAIRING_TIMEOUT) {
+        Ok(outcome) => outcome
+            .map_err(|e| winrt("DeviceInformationCustomPairing.PairAsync (result)", e)),
+        Err(_) => {
+            // Drop any question still waiting for an answer, or its deferral
+            // would keep the ceremony alive after we have given up on it.
+            discard_pending();
+            let _ = custom.RemovePairingRequested(token);
+            return Err(Error::TimedOut("pairing"));
+        }
+    };
 
     let _ = custom.RemovePairingRequested(token);
 

@@ -46,8 +46,36 @@ internal static unsafe partial class NativeRadio
     [LibraryImport(Library, EntryPoint = "wsgm_wifi_state")]
     internal static partial int GetWifiState(out int state);
 
+    [LibraryImport(Library, EntryPoint = "wsgm_wifi_status")]
+    private static partial int GetWifiStatus(
+        out int state, out uint signal, char* ssid, uint ssidCapacity);
+
     [LibraryImport(Library, EntryPoint = "wsgm_wifi_scan")]
     internal static partial int RequestWifiScan();
+
+    /// <summary>Reads interface state, joined network and signal in one call.
+    /// The tile needs all three every tick.</summary>
+    /// <param name="state">0 connected, 1 connecting, 2 disconnected, 3 unavailable.</param>
+    /// <param name="signal">Signal quality, 0-100.</param>
+    /// <param name="ssid">The joined network, or an empty string.</param>
+    internal static int WifiStatus(out int state, out int signal, out string ssid)
+    {
+        var buffer = stackalloc char[64];
+        var status = GetWifiStatus(out state, out var quality, buffer, 64);
+        signal = (int)quality;
+        if (status != Ok)
+        {
+            ssid = "";
+            return status;
+        }
+        var length = 0;
+        while (length < 64 && buffer[length] != '\0')
+        {
+            length++;
+        }
+        ssid = new string(buffer, 0, length);
+        return status;
+    }
 
     [LibraryImport(Library, EntryPoint = "wsgm_wifi_list")]
     internal static partial int ListWifiNetworks(out nint items, out uint count);

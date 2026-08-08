@@ -719,11 +719,11 @@ public sealed class OverlayController : IDisposable
             _taskbar?.Activate();
         };
         panel.Show();
-        // Measured, not assumed: the bar is content-sized and DPI-scaled, so its
-        // height is only known once it is on screen.
-        panel.DockAboveTaskbar(_taskbar?.Bounds.Height is > 0
-            ? (int)Math.Round(_taskbar.Bounds.Height * (_taskbar.RenderScaling))
-            : 0);
+        // The bar's real top edge, not a height to subtract: it is a topmost
+        // window rather than a registered appbar, so the screen's working area
+        // does not account for it and computing the position from screen height
+        // minus bar height left a visible gap.
+        panel.DockAboveTaskbar(_taskbar?.Position.Y ?? 0);
         panel.Activate();
     }
 

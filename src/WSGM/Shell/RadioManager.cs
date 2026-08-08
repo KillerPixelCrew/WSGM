@@ -269,6 +269,9 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         if (BluetoothPower == RadioPower.On)
         {
             BluetoothScanning = true;
+            // A fresh sweep starts a fresh census; stale rows are dropped when
+            // it completes.
+            _seenThisSweep.Clear();
             // Restarting the watcher re-runs the initial enumeration, which is
             // what picks up a device that has only just been put into pairing
             // mode. Existing rows survive because they are matched by id.
@@ -367,6 +370,8 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         RadioPower WifiPower,
         RadioPower BluetoothPower,
         int WifiState,
+        int WifiSignal,
+        string WifiSsid,
         IReadOnlyList<NativeRadio.WifiNetwork> Networks,
         string? Failure);
 
@@ -375,10 +380,18 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         var wifiPower = ReadPower(KindWifi);
         var bluetoothPower = ReadPower(KindBluetooth);
 
+        // State, signal and SSID together, every tick: reading the signal only
+        // while the panel was open left the taskbar tile with no bars until the
+        // panel had been opened once.
         var wifiState = 3;
-        if (NativeRadio.GetWifiState(out var rawState) == NativeRadio.Ok)
+        var wifiSignal = 0;
+        var wifiSsid = "";
+        if (NativeRadio.WifiStatus(out var rawState, out var signal, out var ssid)
+            == NativeRadio.Ok)
         {
             wifiState = rawState;
+            wifiSignal = signal;
+            wifiSsid = ssid;
         }
 
         IReadOnlyList<NativeRadio.WifiNetwork> networks = [];
@@ -398,12 +411,17 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             }
         }
 
-        return new Snapshot(wifiPower, bluetoothPower, wifiState, networks, failure);
+        return new Snapshot(
+            wifiPower, bluetoothPower, wifiState, wifiSignal, wifiSsid, networks, failure);
     }
 
     // Watch callbacks must be static under NativeAOT, so the manager travels
     // through the context cookie rather than a closure.
     private GCHandle _watchHandle;
+
+    /// <summary>Ids reported during the current discovery sweep. Anything absent
+    /// when the sweep completes is no longer there.</summary>
+    private readonly HashSet<string> _seenThisSweep = new(StringComparer.Ordinal);
 
     /// <summary>Starts the live Bluetooth and Wi-Fi feeds.
     ///
@@ -497,7 +515,25 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         if (change == 3)
         {
             BluetoothScanning = false;
-            Log.Info($"Bluetooth discovery complete ({BluetoothDevices.Count} device(s)).");
+            // Anything not seen during this sweep is gone. Windows keeps its
+            // association-endpoint records long after a device stops
+            // advertising, and the watcher does not always report a Removed for
+            // them, so an unpaired device that has been switched off would
+            // otherwise sit in the list forever. Paired devices stay: they are
+            // legitimately known whether or not they are in range.
+            var stale = 0;
+            for (var i = BluetoothDevices.Count - 1; i >= 0; i--)
+            {
+                var candidate = BluetoothDevices[i];
+                if (!candidate.Paired && !candidate.Busy
+                    && !_seenThisSweep.Contains(candidate.Id))
+                {
+                    BluetoothDevices.RemoveAt(i);
+                    stale++;
+                }
+            }
+            Log.Info($"Bluetooth discovery complete ({BluetoothDevices.Count} device(s), "
+                + $"{stale} stale dropped).");
             return;
         }
         if (id.Length == 0)
@@ -515,6 +551,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             }
             return;
         }
+        _seenThisSweep.Add(id);
         if (row is null)
         {
             row = new BluetoothDeviceEntry(id);
@@ -557,6 +594,10 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         WifiPower = snapshot.WifiPower;
         BluetoothPower = snapshot.BluetoothPower;
         WifiConnected = snapshot.WifiState == 0;
+        // Straight from the interface, so the tile has bars whether or not the
+        // panel has ever been opened.
+        WifiSignal = snapshot.WifiSignal;
+        ConnectedSsid = snapshot.WifiSsid;
         WifiStateText = DescribeWifi(snapshot.WifiPower, snapshot.WifiState);
         BluetoothStateText = DescribeBluetooth(snapshot.BluetoothPower, BluetoothDevices.Count);
 
@@ -635,7 +676,6 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             if (row.Connected)
             {
                 connected = row.Ssid;
-                WifiSignal = row.Signal;
             }
         }
         for (var i = Networks.Count - 1; i >= fresh.Count; i--)
@@ -875,6 +915,8 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     /// <param name="pin">The PIN typed by the user, for the provide-pin ceremony.</param>
     public void RespondToPairing(uint token, bool accept, string? pin)
     {
+        Log.Info($"Bluetooth pairing: answering token {token} with "
+            + $"{(accept ? "accept" : "decline")}{(pin is { Length: > 0 } ? " and a PIN" : "")}.");
         var status = NativeRadio.RespondToPairing(token, accept ? 1 : 0, pin);
         if (status != NativeRadio.Ok)
         {
@@ -908,13 +950,32 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         // only valid for the duration of this call.
         var pinText = Marshal.PtrToStringUni(pin) ?? "";
         var name = Marshal.PtrToStringUni(deviceName) ?? "";
+        // Logged on arrival, before anything can go wrong with it: this callback
+        // crossing from the helper is the step that cannot be observed any other
+        // way, and its absence is the difference between "Windows never asked"
+        // and "we never showed the question".
+        Log.Info($"Bluetooth pairing: question received (token {token}, kind {kind}, "
+            + $"pin '{pinText}') for {name}.");
         var manager = FromContext(context);
         if (manager is null)
         {
+            Log.Warn("Bluetooth pairing: question arrived with no manager attached; ignoring.");
             return;
         }
         Dispatcher.UIThread.Post(() =>
-            manager.PairingRequested?.Invoke(new PairingPrompt(token, kind, pinText, name)));
+        {
+            var handled = manager.PairingRequested is not null;
+            Log.Info($"Bluetooth pairing: prompting the user (token {token}, "
+                + $"handler attached: {handled}).");
+            manager.PairingRequested?.Invoke(new PairingPrompt(token, kind, pinText, name));
+            if (!handled)
+            {
+                // Nobody can answer, so decline rather than leave the ceremony
+                // waiting until it times out.
+                Log.Warn($"Bluetooth pairing: no UI attached, declining token {token}.");
+                manager.RespondToPairing(token, accept: false, null);
+            }
+        });
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvStdcall)])]

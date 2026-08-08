@@ -59,6 +59,7 @@ public partial class RadioWindow : Window
         Tabs.SelectedIndex = bluetooth ? 1 : 0;
         ShowTab(Tabs.SelectedIndex);
 
+        Keyboard.Accepted += (_, _) => OnPromptAccept(this, new RoutedEventArgs());
         _radios.PairingRequested += OnPairingRequested;
         _radios.PropertyChanged += OnRadiosPropertyChanged;
         Opened += (_, _) => _radios.StartScanning();
@@ -84,26 +85,34 @@ public partial class RadioWindow : Window
     /// top-left corner — nowhere near the button that opened it. The bar's own
     /// height is measured rather than assumed, because it is content-sized and
     /// DPI-scaled.</summary>
-    /// <param name="taskbarHeight">Height of the bar in physical pixels, or 0
-    /// when it could not be measured.</param>
-    internal void DockAboveTaskbar(int taskbarHeight = 0)
+    /// <param name="taskbarTop">The bar's top edge in physical screen pixels, or
+    /// 0 when it is not on screen.</param>
+    internal void DockAboveTaskbar(int taskbarTop = 0)
     {
         var screen = Screens.Primary ?? (Screens.ScreenCount > 0 ? Screens.All[0] : null);
         if (screen is null)
         {
             return;
         }
-        var area = screen.WorkingArea;
+        var area = screen.Bounds;
         var scale = screen.Scaling;
         var width = (int)Math.Round(Width * scale);
         var height = (int)Math.Round(Height * scale);
-        const int Gap = 8;
-        var margin = (int)Math.Round(Gap * scale);
+        // Small and deliberate: the panel should look attached to the bar, not
+        // floating above it.
+        var gap = (int)Math.Round(2 * scale);
+        var margin = (int)Math.Round(6 * scale);
 
-        // Right-aligned above the bar, mirroring where the tiles sit and where
-        // Windows puts its own quick-settings panel.
+        // Measured against the bar's ACTUAL top edge rather than derived from the
+        // working area. The bar is a topmost window, not a registered appbar, so
+        // the working area does not account for it — deriving the position from
+        // screen height and bar height double-counted and left a visible gap.
+        var bottom = taskbarTop > 0 ? taskbarTop : area.Y + area.Height;
+
+        // Right-aligned, mirroring where the tiles are and where Windows puts
+        // its own quick settings.
         var x = area.X + area.Width - width - margin;
-        var y = area.Y + area.Height - height - taskbarHeight - margin;
+        var y = bottom - height - gap;
         // Never let it run off the top of a short display.
         if (y < area.Y)
         {
@@ -238,9 +247,14 @@ public partial class RadioWindow : Window
 
     private void OnRescanClicked(object? sender, RoutedEventArgs e) => _radios.Rescan();
 
-    /// <summary>Raises the touch keyboard when the field takes focus, so a
-    /// keyboard-less handheld does not need the button at all.</summary>
-    private void OnPromptInputFocused(object? sender, RoutedEventArgs e) => TouchKeyboard.Show();
+    /// <summary>Reveals what has been typed. A password field a user cannot read
+    /// back is unusable on a keyboard they are tapping one character at a time.</summary>
+    private void OnPromptReveal(object? sender, RoutedEventArgs e)
+    {
+        var hidden = PromptInput.PasswordChar != '\0';
+        PromptInput.PasswordChar = hidden ? '\0' : '●';
+        PromptReveal.Content = hidden ? "Hide" : "Show";
+    }
 
     private void OnPairingRequested(RadioManager.PairingPrompt prompt)
     {
@@ -281,7 +295,14 @@ public partial class RadioWindow : Window
         // empty one for a confirmation would invite the user to type into it.
         var needsInput = mode is PromptMode.WifiPassword or PromptMode.PairingPin;
         PromptInput.IsVisible = needsInput;
-        PromptKeyboard.IsVisible = needsInput;
+        PromptReveal.IsVisible = needsInput;
+        Keyboard.IsVisible = needsInput;
+        Keyboard.Target = PromptInput;
+        Keyboard.Reset();
+        // Passwords start hidden; the reveal button is there for when a
+        // one-character-at-a-time entry has gone wrong.
+        PromptInput.PasswordChar = '●';
+        PromptReveal.Content = "Show";
         PromptAccept.Content = mode == PromptMode.WifiPassword ? "Connect" : "Pair";
         PromptPanel.IsVisible = true;
         PanelWifi.IsVisible = false;
@@ -338,7 +359,6 @@ public partial class RadioWindow : Window
         }
     }
 
-    private void OnPromptKeyboard(object? sender, RoutedEventArgs e) => TouchKeyboard.Show();
 
     /// <summary>Collapses every row, so reopening a tab starts clean.</summary>
     private void CollapseRows()

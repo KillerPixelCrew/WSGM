@@ -9,8 +9,8 @@
         ShowInTaskbar="False"
         Topmost="True"
         SizeToContent="Manual"
-        Width="460"
-        Height="520"
+        Width="500"
+        Height="600"
         Background="{StaticResource HcBackgroundBrush}"
         Title="Wi-Fi and Bluetooth">
     <Border BorderBrush="{StaticResource HcCardBorderBrush}"
@@ -156,15 +156,19 @@
                     <StackPanel x:Name="PromptPanel" Spacing="8" IsVisible="False">
                         <TextBlock x:Name="PromptTitle" FontWeight="SemiBold" TextWrapping="Wrap" />
                         <TextBlock x:Name="PromptDetail" Classes="caption" TextWrapping="Wrap" />
-                        <TextBox x:Name="PromptInput" PasswordChar="●" GotFocus="OnPromptInputFocused" />
+                        <TextBox x:Name="PromptInput" PasswordChar="●" />
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <Button x:Name="PromptAccept" Content="Connect" Click="OnPromptAccept" />
                             <Button Content="Cancel" Click="OnPromptCancel" />
-                            <Button x:Name="PromptKeyboard"
-                                    Content="Keyboard"
-                                    Click="OnPromptKeyboard"
-                                    ToolTip.Tip="Show the touch keyboard" />
+                            <Button x:Name="PromptReveal"
+                                    Content="Show"
+                                    Click="OnPromptReveal"
+                                    ToolTip.Tip="Show what has been typed" />
                         </StackPanel>
+                        <!-- Drawn by WSGM, not the Windows touch keyboard: that
+                             one is rendered by TextInputHost, an immersive-shell
+                             AppX that cannot activate with no Explorer running. -->
+                        <c:OnScreenKeyboard x:Name="Keyboard" />
                     </StackPanel>
                 </StackPanel>
             </ScrollViewer>

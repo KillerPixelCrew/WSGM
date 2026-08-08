@@ -11,14 +11,17 @@ public static class TouchKeyboard
 {
     private static bool _missingLogged;
 
-    /// <summary>Shows the touch keyboard.
+    /// <summary>Asks Windows to show its touch keyboard.
     ///
-    /// Goes through the radio helper's ITipInvocation call, NOT by starting
-    /// TabTip.exe. Launching the executable is the obvious approach and does
-    /// nothing on Windows 11: the process is already running, so the second
-    /// launch exits immediately and no keyboard appears. Falling back to
-    /// osk.exe is deliberately not done either — that is the legacy
-    /// accessibility keyboard, which is never right on a touch handheld.</summary>
+    /// Goes through the helper's ITipInvocation call, NOT by starting
+    /// TabTip.exe: on Windows 11 that process is already running, so a second
+    /// launch exits immediately and nothing appears.
+    ///
+    /// Only usable on the DESKTOP. Windows renders the touch keyboard from
+    /// TextInputHost, part of the same immersive-shell AppX family as
+    /// `ms-settings`, so it cannot come up with no Explorer in the session.
+    /// Game-mode surfaces must draw their own — see
+    /// <see cref="Controls.OnScreenKeyboard"/>, which the radio panel uses.</summary>
     public static void Show()
     {
         try

@@ -1,5 +1,8 @@
 using System;
+using System.Threading;
+using Avalonia.Threading;
 using WSGM.Interop;
+using WSGM.Shell;
 
 namespace WSGM.Core;
 
@@ -156,6 +159,75 @@ public static class RadioProbe
         {
             Log.Warn($"Radio probe: bluetooth threw: {ex.Message}");
         }
+    }
+
+    /// <summary>Drives a real pairing through the MANAGED path, auto-answering
+    /// the question instead of showing UI.
+    ///
+    /// The helper's own probe already proves the Rust side pairs in about a
+    /// second. What it cannot prove is the part unique to this process: the
+    /// callback crossing the ABI into a NativeAOT static, the hop onto the
+    /// Avalonia dispatcher, and the reply going back. That is the stretch where
+    /// a pairing was observed to hang forever, so it gets exercised directly.
+    /// </summary>
+    /// <param name="needle">Part of the device name to pair with.</param>
+    internal static void ProbePairing(string needle)
+    {
+        Log.Info($"Radio probe: pairing test against a device matching '{needle}'.");
+        if (NativeRadio.ListBluetoothDevices(0, out var items, out var count) != NativeRadio.Ok)
+        {
+            Log.Warn($"Radio probe: pairing test could not list devices: {NativeRadio.LastError()}");
+            return;
+        }
+        string? target = null;
+        var targetName = "";
+        for (var i = 0; i < count; i++)
+        {
+            var device = NativeRadio.ReadBluetoothDevice(
+                items + (i * NativeRadio.BluetoothRecordSize));
+            if (!device.Paired && device.CanPair
+                && (needle.Length == 0 || device.Name.Contains(needle, StringComparison.OrdinalIgnoreCase)))
+            {
+                target = device.Id;
+                targetName = device.Name;
+                break;
+            }
+        }
+        NativeRadio.FreeBluetoothDevices(items, count);
+        if (target is null)
+        {
+            Log.Warn($"Radio probe: no unpaired, pairable device matching '{needle}'.");
+            return;
+        }
+
+        Log.Info($"Radio probe: pairing with {targetName}.");
+        using var finished = new ManualResetEventSlim(false);
+        var manager = new RadioManager();
+        var answered = false;
+        manager.PairingRequested += prompt =>
+        {
+            answered = true;
+            Log.Info($"Radio probe: question reached the UI layer (kind {prompt.Kind}).");
+            manager.RespondToPairing(prompt.Token, accept: true, prompt.Kind == 2 ? "0000" : null);
+        };
+        manager.PairingFinished += summary =>
+        {
+            Log.Info($"Radio probe: pairing finished: {summary}");
+            finished.Set();
+        };
+        manager.BeginPairing(new BluetoothDeviceEntry(target) { Name = targetName });
+
+        // The dispatcher must keep running or the posted callbacks never arrive,
+        // which is itself one of the things being tested.
+        var deadline = DateTime.UtcNow.AddSeconds(45);
+        while (!finished.IsSet && DateTime.UtcNow < deadline)
+        {
+            Dispatcher.UIThread.RunJobs();
+            Thread.Sleep(50);
+        }
+        Log.Info(finished.IsSet
+            ? "Radio probe: pairing test completed."
+            : $"Radio probe: pairing test TIMED OUT (question reached the UI: {answered}).");
     }
 
     private static void ProbeTouchKeyboard()

@@ -36,6 +36,10 @@ pub enum Error {
     /// non-UTF-16 text, an SSID that cannot fit the 32-byte field).
     InvalidArgument(&'static str),
 
+    /// An operation ran past its own deadline and was abandoned. Pairing has no
+    /// timeout of its own and would otherwise wait forever on a silent device.
+    TimedOut(&'static str),
+
     /// The MTA worker thread could not be reached. Only happens if it panicked.
     WorkerUnavailable,
 }
@@ -69,6 +73,7 @@ impl fmt::Display for Error {
             }
             Self::NotFound(what) => write!(f, "{what} not found"),
             Self::InvalidArgument(what) => write!(f, "invalid argument: {what}"),
+            Self::TimedOut(what) => write!(f, "{what} timed out"),
             Self::WorkerUnavailable => f.write_str("the radio worker thread is unavailable"),
         }
     }

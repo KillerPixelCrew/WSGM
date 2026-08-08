@@ -282,6 +282,44 @@ pub unsafe extern "system" fn wsgm_wifi_state(out_state: *mut i32) -> i32 {
     })
 }
 
+/// Reads the interface state, joined SSID and signal in one call.
+///
+/// One call because the taskbar tile needs all three on every status tick:
+/// reading the signal only while the panel was open left the tile with no bars
+/// until the panel had been opened once.
+///
+/// # Safety
+/// All out pointers must be writable; `ssid` must have `ssid_capacity` units.
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn wsgm_wifi_status(
+    out_state: *mut i32,
+    out_signal: *mut u32,
+    ssid: *mut u16,
+    ssid_capacity: u32,
+) -> i32 {
+    guard(|| {
+        if out_state.is_null() || out_signal.is_null() {
+            return Err(Error::InvalidArgument("out pointers"));
+        }
+        let (state, name, signal) = wifi::status()?;
+        let code = match state {
+            InterfaceState::Connected => 0,
+            InterfaceState::Connecting => 1,
+            InterfaceState::Disconnected => 2,
+            InterfaceState::Unavailable => 3,
+        };
+        unsafe {
+            *out_state = code;
+            *out_signal = signal;
+            if !ssid.is_null() && ssid_capacity > 0 {
+                let field = std::slice::from_raw_parts_mut(ssid, ssid_capacity as usize);
+                fill(field, &name);
+            }
+        }
+        Ok(())
+    })
+}
+
 /// Asks the driver to start a scan. Results arrive in the list a few seconds later.
 #[unsafe(no_mangle)]
 pub extern "system" fn wsgm_wifi_scan() -> i32 {

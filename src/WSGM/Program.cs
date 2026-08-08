@@ -108,6 +108,16 @@ public static class Program
             return RadioProbe.Run();
         }
 
+        // Exercises the managed pairing round-trip with no UI, auto-answering the
+        // question. Separate from --radio-probe because it changes state.
+        var pairIndex = Array.FindIndex(args, a =>
+            string.Equals(a, "--pair-probe", StringComparison.OrdinalIgnoreCase));
+        if (pairIndex >= 0)
+        {
+            RadioProbe.ProbePairing(pairIndex + 1 < args.Length ? args[pairIndex + 1] : "");
+            return 0;
+        }
+
         // Elevated one-shot for the uninstaller: puts back every machine-level
         // setting WSGM changed, plus legacy posture state (UAC, lock-on-wake).
         if (args.Contains("--uninstall-restore", StringComparer.OrdinalIgnoreCase))

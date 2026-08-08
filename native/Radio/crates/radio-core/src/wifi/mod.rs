@@ -153,6 +153,18 @@ pub fn state() -> Result<InterfaceState> {
     Ok(first_interface(&client)?.1)
 }
 
+/// The interface state together with the joined network's name and signal.
+///
+/// One call rather than three because the taskbar tile needs all of it on every
+/// status tick: reading the signal only while the panel is open left the tile
+/// showing no bars until the panel had been opened once.
+pub fn status() -> Result<(InterfaceState, String, u32)> {
+    let client = Client::open()?;
+    let (guid, state) = first_interface(&client)?;
+    let (ssid, signal) = current_connection(&client, &guid).unwrap_or_default();
+    Ok((state, ssid, signal))
+}
+
 /// The names of every saved profile on an interface.
 ///
 /// This is the authoritative answer to "is this network saved", and the reason
@@ -180,10 +192,39 @@ fn profile_names(client: &Client, guid: &GUID) -> Result<Vec<String>> {
         .collect())
 }
 
-fn has_profile(client: &Client, guid: &GUID, ssid: &str) -> Result<bool> {
-    Ok(profile_names(client, guid)?
-        .iter()
-        .any(|name| name == ssid))
+/// The name of the saved profile that joins `ssid`, if there is one.
+///
+/// Not the same as the SSID, and assuming it was is a real failure mode: when a
+/// profile of that name already exists Windows creates the new one as
+/// "<SSID> 2", so a connect keyed on the SSID matches nothing and the network
+/// sits there looking saved but unjoinable. The scan list's own profile name is
+/// authoritative — it is the profile Windows would use — with an exact
+/// name match as the fallback for a network that is saved but not in range.
+fn profile_for_ssid(client: &Client, guid: &GUID, ssid: &str) -> Option<String> {
+    let mut list: *mut WLAN_AVAILABLE_NETWORK_LIST = null_mut();
+    let status = unsafe { WlanGetAvailableNetworkList(client.0, guid, 0, None, &mut list) };
+    if status == 0 && !list.is_null() {
+        let _owned = WlanBuffer(list);
+        // SAFETY: dwNumberOfItems describes the real length behind the [T; 1].
+        let entries = unsafe {
+            let count = (*list).dwNumberOfItems as usize;
+            std::slice::from_raw_parts((*list).Network.as_ptr(), count)
+        };
+        for entry in entries {
+            let name = decode_ssid(&entry.dot11Ssid.ucSSID, entry.dot11Ssid.uSSIDLength as usize);
+            if name != ssid {
+                continue;
+            }
+            let profile = decode_fixed(&entry.strProfileName);
+            if !profile.is_empty() {
+                return Some(profile);
+            }
+        }
+    }
+    profile_names(client, guid)
+        .ok()?
+        .into_iter()
+        .find(|name| name == ssid)
 }
 
 /// The SSID of the network currently joined, if any.
@@ -191,6 +232,11 @@ fn has_profile(client: &Client, guid: &GUID, ssid: &str) -> Result<bool> {
 /// Gated by the same location consent as the scan on Windows 11 24H2, so a
 /// failure here is not fatal — it only costs the "connected" marker.
 fn current_ssid(client: &Client, guid: &GUID) -> Option<String> {
+    current_connection(client, guid).map(|(ssid, _)| ssid)
+}
+
+/// The joined network's SSID and signal quality.
+fn current_connection(client: &Client, guid: &GUID) -> Option<(String, u32)> {
     let mut size = 0u32;
     let mut data: *mut c_void = null_mut();
     let status = unsafe {
@@ -214,9 +260,10 @@ fn current_ssid(client: &Client, guid: &GUID) -> Option<String> {
     if InterfaceState::from_raw(attributes.isState) != InterfaceState::Connected {
         return None;
     }
-    let ssid = &attributes.wlanAssociationAttributes.dot11Ssid;
+    let association = &attributes.wlanAssociationAttributes;
+    let ssid = &association.dot11Ssid;
     let text = decode_ssid(&ssid.ucSSID, ssid.uSSIDLength as usize);
-    (!text.is_empty()).then_some(text)
+    (!text.is_empty()).then_some((text, association.wlanSignalQuality))
 }
 
 /// Decodes a NUL-terminated fixed-width UTF-16 field.
@@ -365,6 +412,10 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
     let client = Client::open()?;
     let (guid, _) = first_interface(&client)?;
 
+    // The profile Windows would use for this network, which is NOT always named
+    // after the SSID — see profile_for_ssid.
+    let existing = profile_for_ssid(&client, &guid, ssid);
+
     // A profile is authored ONLY when the caller supplied a passphrase. Writing
     // one for a network that already has a saved profile would overwrite it —
     // and with no passphrase to put in it, an open-network profile would replace
@@ -399,13 +450,21 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
             // No passphrase: only ever create a profile when the network has
             // none at all AND needs no key. Anything else is either already
             // joinable or genuinely missing a password.
-            if !has_profile(&client, &guid, ssid)? {
+            if existing.is_none() {
                 set_profile(&client, &guid, &profile::open_profile(ssid))?;
             }
         }
     }
 
-    let name = wide(ssid);
+    // Connect by the profile's real name. Using the SSID here is what left a
+    // network stuck on "saved": the profile was called "<SSID> 2" and nothing
+    // matched. After authoring a profile ourselves the name IS the SSID,
+    // because that is what we wrote into it.
+    let profile_name = match passphrase {
+        Some(_) => ssid.to_owned(),
+        None => existing.unwrap_or_else(|| ssid.to_owned()),
+    };
+    let name = wide(&profile_name);
     let parameters = WLAN_CONNECTION_PARAMETERS {
         wlanConnectionMode: wlan_connection_mode_profile,
         strProfile: PCWSTR(name.as_ptr()),
@@ -466,9 +525,31 @@ pub fn disconnect() -> Result<()> {
 pub fn forget(ssid: &str) -> Result<()> {
     let client = Client::open()?;
     let (guid, _) = first_interface(&client)?;
-    let name = wide(ssid);
-    let status = unsafe { WlanDeleteProfile(client.0, &guid, PCWSTR(name.as_ptr()), None) };
-    win32("WlanDeleteProfile", status)
+    // Deletes every profile that joins this network, not just one named after
+    // it: a duplicate like "<SSID> 2" would otherwise survive a Forget and keep
+    // rejoining, which looks exactly like Forget having done nothing.
+    let mut names: Vec<String> = profile_names(&client, &guid)?
+        .into_iter()
+        .filter(|name| name == ssid)
+        .collect();
+    if let Some(bound) = profile_for_ssid(&client, &guid, ssid)
+        && !names.contains(&bound)
+    {
+        names.push(bound);
+    }
+    if names.is_empty() {
+        return Ok(());
+    }
+    let mut last = Ok(());
+    for name in names {
+        let wide_name = wide(&name);
+        let status =
+            unsafe { WlanDeleteProfile(client.0, &guid, PCWSTR(wide_name.as_ptr()), None) };
+        if status != 0 {
+            last = win32("WlanDeleteProfile", status);
+        }
+    }
+    last
 }
 
 #[cfg(test)]
