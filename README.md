@@ -78,9 +78,8 @@ WSGM gives you a fullscreen boot-to-Steam experience without FSE, so both things
   controller-navigable; LB/RB cycle its three tabs:
   - **Session** — start or focus Steam, switch to the desktop and back to game mode, exit Big
     Picture while staying in game mode (handy for adding a library), close Steam.
-  - **Tools** — Settings, Task Manager, and two clipboard helpers: a de-elevation command for games
-    that refuse to run elevated, and a Steam Input block command for games that read the controller
-    themselves.
+  - **Tools** — Settings, Task Manager, and the two launch-option helpers described under
+    [Elevation and Steam Input](#elevation-and-steam-input).
   - **Power** — sleep, restart, shut down (the destructive ones ask twice).
 - **Game-mode taskbar** — swipe up from the bottom edge. A full-width bar with the WSGM button on
   the left, your open windows in the middle (active app underlined, minimized apps dimmed), and tray
@@ -100,6 +99,66 @@ WSGM gives you a fullscreen boot-to-Steam experience without FSE, so both things
   your splash as a shareable `.wsgmsplash` file (images included) or import someone else's.
 - **Accent colour** — pick any colour; the panel, taskbar, Settings and the volume indicator follow
   it immediately.
+
+## Elevation and Steam Input
+
+WSGM elevates itself when it has to — when Steam is already elevated or marked "run as
+administrator", or when one of your startup apps needs it — and everything it starts inherits that.
+That inheritance **is the point**: an elevated Steam is what lets Steam Input reach elevated windows
+and the Steam overlay inject into elevated games, both of which Windows blocks for an unelevated
+Steam. It is also what keeps WSGM's own edge swipes working while an elevated program has the focus.
+When elevation is needed at sign-in, the logon service arranges it without a UAC prompt; if you
+decline a prompt elsewhere, WSGM keeps running, but edge swipes stop working over elevated windows.
+
+Elevation has two side effects, and WSGM ships a tool for each.
+
+### Steam Input Lease — the controller in WSGM's own panels
+
+Steam Input holds the controller continuously, so a panel that takes focus would normally get
+nothing from the pad. Instead of fighting Steam for the device, WSGM **leases** it: while the quick
+access panel or the taskbar is on screen, the running Steam client is asked to let go of the
+controller, and it gets it straight back the moment the last panel closes. Steam sees what it would
+see if you had briefly unplugged the pad.
+
+- Your Steam Input configuration and layouts are **not** touched. Steam is not restarted, no driver
+  is installed, nothing is hidden from Windows, and no Steam file on disk is modified.
+- The lease lasts only as long as a panel is open — seconds, not the whole session.
+- If WSGM ever crashes while holding one, Windows drops it by itself and Steam recovers; there is
+  nothing to clean up.
+- You can turn it off: **Settings → Quick access → Block Steam Input while panels are open**. With
+  it off, Steam is left completely alone and the panels may only respond to touch while Steam's
+  desktop layout holds the controller.
+
+It works by injecting a small gate into `steam.exe` and hooking its controller calls, so
+endpoint-security software may take an interest. The library lives in this repository under
+`native/SteamInput` (MIT), and its blocking model was informed by SpecialK's ValvePlug.
+
+**For a game that reads the controller itself** (bypassing Steam Input), block Steam Input for that
+one title: quick access → **Tools → Copy Steam Input block command**, then paste into the game's
+Steam launch options. The command looks like this — the `--` is required:
+
+```
+"%LOCALAPPDATA%\WSGM\bin\steam-input-lease.exe" -- %command%
+```
+
+The block lasts as long as that game runs, and the controller goes back to Steam when it exits.
+
+### De-elevation — for games that refuse to run elevated
+
+Because Steam runs elevated, so does everything it launches, and some games and emulators refuse to
+start that way or misbehave. `WSGM.Deelevate.exe` relaunches one title at normal integrity while
+everything else stays as it is. Quick access → **Tools → Copy de-elevation command**, then paste
+into that game's launch options — note there is **no** `--` here:
+
+```
+"%LOCALAPPDATA%\WSGM\bin\WSGM.Deelevate.exe" %command%
+```
+
+It passes Steam's own arguments, working directory and environment through unchanged (Steam's
+`SteamAppId` lives in there, so the game still sees Steam properly), stays alive for as long as the
+game does, reports the game's real exit code back to Steam, and stops the whole game tree if Steam
+terminates it — so nothing is left running behind Steam's back. It logs separately to
+`%LOCALAPPDATA%\WSGM\deelevate.log`.
 
 ## Install
 
