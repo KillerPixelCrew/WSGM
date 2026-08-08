@@ -27,9 +27,10 @@
          enough open windows grew it past the bar and clipped the home button and
          the whole status cluster (a 1280x800 Steam Deck — game mode forces 100%
          scaling — overflows at ~18 tiles). The strip scrolls horizontally
-         instead; tiles keep their fixed 44 px size at every count. Side effect
-         of the bounded shape: the strip centres inside the free band rather than
-         on the screen's exact midpoint.
+         instead; tiles keep their fixed 44 px size at every count. Within that
+         band the tiles are LEFT-aligned (device-requested), so they start right
+         after the home button and a tile keeps its place as windows open and
+         close, instead of the whole strip sliding sideways under the cursor.
          The RIGHT Auto column is bounded as well (see its own comment): the tray
          strip is the other collection whose length WSGM does not control.
          RootScale: game mode forces 100% display scaling, so DIP sizes render
