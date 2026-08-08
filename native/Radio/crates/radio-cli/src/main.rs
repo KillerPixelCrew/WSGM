@@ -11,7 +11,7 @@
 
 use std::process::ExitCode;
 
-use radio_core::{Error, RadioKind, consent, power, radios, request_access, wifi};
+use radio_core::{Error, RadioKind, bluetooth, consent, power, radios, request_access, wifi};
 
 /// ERROR_ACCESS_DENIED from a scan entry point is the 24H2 location-consent
 /// gate rather than a permissions problem the user can fix by elevating, so it
@@ -73,6 +73,27 @@ fn main() -> ExitCode {
             }
         }
         Err(e) => println!("FAILED: {e}{}", consent_hint(&e)),
+    }
+
+    println!();
+    print!("bluetooth device list ...... ");
+    match bluetooth::devices() {
+        Ok(found) => {
+            println!("{} device(s)", found.len());
+            for d in found.iter().take(12) {
+                println!(
+                    "    {:<40} {}{}",
+                    if d.name.is_empty() {
+                        "(unnamed)"
+                    } else {
+                        &d.name
+                    },
+                    if d.paired { "paired" } else { "unpaired" },
+                    if d.can_pair { ", pairable" } else { "" }
+                );
+            }
+        }
+        Err(e) => println!("FAILED: {e}"),
     }
 
     if toggle {

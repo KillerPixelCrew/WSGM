@@ -22,6 +22,7 @@
 
 #![deny(missing_docs)]
 
+pub mod bluetooth;
 pub mod consent;
 pub mod error;
 pub mod mta;

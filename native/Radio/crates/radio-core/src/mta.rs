@@ -88,3 +88,27 @@ where
         .send(Box::new(work))
         .map_err(|_| Error::WorkerUnavailable)
 }
+
+/// Runs `work` on a fresh MTA thread of its own and does not wait.
+///
+/// For operations that block for a long time and would otherwise monopolise the
+/// shared worker. Bluetooth pairing is the case that forces this: it blocks
+/// until the user answers a PIN prompt, and reading radio state must not be
+/// stuck behind that. It also has to be a *different* thread from the one that
+/// answers the prompt, or the two would deadlock.
+pub fn detached_mta<F>(work: F) -> Result<()>
+where
+    F: FnOnce() + Send + 'static,
+{
+    thread::Builder::new()
+        .name("wsgm-radio-op".to_owned())
+        .spawn(move || {
+            // SAFETY: a thread created here and used for nothing else.
+            unsafe {
+                let _ = RoInitialize(RO_INIT_MULTITHREADED);
+            }
+            work();
+        })
+        .map(|_| ())
+        .map_err(|_| Error::WorkerUnavailable)
+}
