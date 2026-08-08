@@ -43,6 +43,8 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     private DispatcherTimer? _timer;
     private int _ticks;
     private int _refreshing;
+    private int _refreshingBluetooth;
+    private bool _bluetoothTimingLogged;
     private bool _scanning;
     private bool _helperMissingLogged;
     private bool _accessLogged;
@@ -194,6 +196,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         _scanning = true;
         Log.Info("Radio panel: scanning started.");
         QueueRefresh();
+        QueueBluetoothRefresh();
     }
 
     /// <summary>Stops actively scanning. Idempotent.</summary>
@@ -217,6 +220,12 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             _ = Task.Run(() => NativeRadio.RequestWifiScan());
         }
         QueueRefresh();
+        // Bluetooth discovery runs long (a real inquiry) and gates itself, so
+        // asking often is harmless: a request while one is in flight is dropped.
+        if (_scanning)
+        {
+            QueueBluetoothRefresh();
+        }
     }
 
     /// <summary>Refreshes state off the UI thread, at most one at a time. A slow
@@ -268,10 +277,9 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         RadioPower BluetoothPower,
         int WifiState,
         IReadOnlyList<NativeRadio.WifiNetwork> Networks,
-        IReadOnlyList<NativeRadio.BluetoothDevice> Devices,
         string? Failure);
 
-    private static Snapshot ReadSnapshot(bool includeLists)
+    private static Snapshot ReadSnapshot(bool includeNetworks)
     {
         var wifiPower = ReadPower(KindWifi);
         var bluetoothPower = ReadPower(KindBluetooth);
@@ -283,38 +291,74 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         }
 
         IReadOnlyList<NativeRadio.WifiNetwork> networks = [];
-        IReadOnlyList<NativeRadio.BluetoothDevice> devices = [];
         string? failure = null;
 
-        if (includeLists)
+        if (includeNetworks && wifiPower == RadioPower.On)
         {
-            if (wifiPower == RadioPower.On)
+            if (NativeRadio.ListWifiNetworks(out var items, out var count) == NativeRadio.Ok)
             {
-                if (NativeRadio.ListWifiNetworks(out var items, out var count) == NativeRadio.Ok)
-                {
-                    networks = ReadArray(
-                        items, count, NativeRadio.WifiRecordSize, NativeRadio.ReadWifiNetwork);
-                    NativeRadio.FreeWifiNetworks(items, count);
-                }
-                else
-                {
-                    failure = NativeRadio.LastError();
-                }
+                networks = ReadArray(
+                    items, count, NativeRadio.WifiRecordSize, NativeRadio.ReadWifiNetwork);
+                NativeRadio.FreeWifiNetworks(items, count);
             }
-            if (bluetoothPower == RadioPower.On
-                && NativeRadio.ListBluetoothDevices(0, out var btItems, out var btCount)
-                    == NativeRadio.Ok)
+            else
             {
-                devices = ReadArray(
-                    btItems,
-                    btCount,
-                    NativeRadio.BluetoothRecordSize,
-                    NativeRadio.ReadBluetoothDevice);
-                NativeRadio.FreeBluetoothDevices(btItems, btCount);
+                failure = NativeRadio.LastError();
             }
         }
 
-        return new Snapshot(wifiPower, bluetoothPower, wifiState, networks, devices, failure);
+        return new Snapshot(wifiPower, bluetoothPower, wifiState, networks, failure);
+    }
+
+    /// <summary>Refreshes the Bluetooth list on its own schedule.
+    ///
+    /// Separate from everything else because a discovery that includes unpaired
+    /// devices performs a real inquiry: measured at ~30 s on a desktop. Sharing
+    /// the 2 s refresh would freeze the Wi-Fi list and the radio tiles behind it
+    /// for that entire time. This runs at most one at a time, only while the
+    /// panel is open, and publishes whenever it happens to finish.</summary>
+    private void QueueBluetoothRefresh()
+    {
+        if (Interlocked.CompareExchange(ref _refreshingBluetooth, 1, 0) != 0)
+        {
+            return;
+        }
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                if (ReadPower(KindBluetooth) != RadioPower.On)
+                {
+                    return;
+                }
+                var started = DateTime.UtcNow;
+                if (NativeRadio.ListBluetoothDevices(0, out var items, out var count)
+                    != NativeRadio.Ok)
+                {
+                    Log.Warn($"Bluetooth list failed: {NativeRadio.LastError()}");
+                    return;
+                }
+                var devices = ReadArray(
+                    items, count, NativeRadio.BluetoothRecordSize, NativeRadio.ReadBluetoothDevice);
+                NativeRadio.FreeBluetoothDevices(items, count);
+                var elapsed = DateTime.UtcNow - started;
+                if (!_bluetoothTimingLogged)
+                {
+                    _bluetoothTimingLogged = true;
+                    Log.Info(
+                        $"Bluetooth list: {devices.Count} device(s) in {elapsed.TotalSeconds:F1}s.");
+                }
+                Dispatcher.UIThread.Post(() => ReconcileDevices(devices));
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Bluetooth refresh failed: {ex.Message}");
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _refreshingBluetooth, 0);
+            }
+        });
     }
 
     private static RadioPower ReadPower(int kind) =>
@@ -349,7 +393,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         BluetoothPower = snapshot.BluetoothPower;
         WifiConnected = snapshot.WifiState == 0;
         WifiStateText = DescribeWifi(snapshot.WifiPower, snapshot.WifiState);
-        BluetoothStateText = DescribeBluetooth(snapshot.BluetoothPower, snapshot.Devices.Count);
+        BluetoothStateText = DescribeBluetooth(snapshot.BluetoothPower, BluetoothDevices.Count);
 
         if (snapshot.Failure is { Length: > 0 } failure)
         {
@@ -357,7 +401,6 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         }
 
         ReconcileNetworks(snapshot.Networks);
-        ReconcileDevices(snapshot.Devices);
     }
 
     /// <summary>Turns a scan failure into something actionable. The consent gate
@@ -605,9 +648,15 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         var removed = await Task.Run(() =>
             NativeRadio.UnpairBluetooth(id, out var ok) == NativeRadio.Ok && ok != 0);
         entry.Busy = false;
+        // Reflect the known outcome immediately. The background discovery would
+        // confirm it eventually, but it performs a real inquiry and can take
+        // half a minute — far too long for a button the user just pressed.
+        if (removed)
+        {
+            entry.Paired = false;
+        }
         Log.Info($"Bluetooth unpair: {entry.Name} -> {removed}.");
         StatusText = removed ? "" : $"Could not remove {entry.Name}.";
-        QueueRefresh();
     }
 
     // Pairing callbacks are static because NativeAOT requires it, so the manager
@@ -709,13 +758,19 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         }
         Dispatcher.UIThread.Post(() =>
         {
-            var name = manager._pairingEntry?.Name ?? "device";
+            var entry = manager._pairingEntry;
+            var name = entry?.Name ?? "device";
+            // Same reasoning as unpair: apply the outcome we already know rather
+            // than leaving the row stale until the next inquiry finishes.
+            if (entry is not null && outcome is 0 or 1)
+            {
+                entry.Paired = true;
+            }
             manager.FinishPairing();
             var summary = DescribePairOutcome(outcome, name, text);
             Log.Info($"Bluetooth pairing: finished for {name} (outcome {outcome}). {summary}");
             manager.StatusText = outcome is 0 or 1 ? "" : summary;
             manager.PairingFinished?.Invoke(summary);
-            manager.QueueRefresh();
         });
     }
 

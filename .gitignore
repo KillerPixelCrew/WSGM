@@ -26,6 +26,10 @@ CLAUDE.md
 /native/SteamInput/target/
 /native/Radio/target/
 /native/Standby/target/
+
+# Vendored upstream source builds in place; only its sources are tracked.
+/third_party/**/bin/
+/third_party/**/obj/
 /native/SteamInput/artifacts/
 
 # User-specific files

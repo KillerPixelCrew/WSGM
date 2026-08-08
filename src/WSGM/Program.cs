@@ -99,6 +99,15 @@ public static class Program
             return LockScreenSettings.ApplyDirect(disableSignInOnWake: false) ? 0 : 1;
         }
 
+        // Read-only radio diagnostic. Run it on the device, in the session being
+        // diagnosed, and read the verdict out of wsgm.log — it answers what the
+        // documentation cannot: whether radio control works elevated with no
+        // shell, and whether the location gate blocks the Wi-Fi scan.
+        if (args.Contains("--radio-probe", StringComparer.OrdinalIgnoreCase))
+        {
+            return RadioProbe.Run();
+        }
+
         // Elevated one-shot for the uninstaller: puts back every machine-level
         // setting WSGM changed, plus legacy posture state (UAC, lock-on-wake).
         if (args.Contains("--uninstall-restore", StringComparer.OrdinalIgnoreCase))

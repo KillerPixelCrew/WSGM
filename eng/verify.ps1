@@ -33,12 +33,19 @@ if (-not $SkipPrettier) {
 dotnet restore WSGM.slnx
 if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed" }
 
-$formatArgs = @("format", "WSGM.slnx", "whitespace", "--no-restore", "--verbosity", "minimal")
+# Vendored upstream source is reachable through a project reference but is not
+# ours to restyle: reformatting it would destroy the diff against upstream, which
+# is what makes it re-syncable. Its own gates are the upstream project's.
+$vendored = "third_party/"
+
+$formatArgs = @("format", "WSGM.slnx", "whitespace", "--no-restore", "--verbosity", "minimal",
+    "--exclude", $vendored)
 if (-not $Fix) { $formatArgs += "--verify-no-changes" }
 & dotnet @formatArgs
 if ($LASTEXITCODE -ne 0) { throw "C# whitespace format check failed" }
 
-$styleArgs = @("format", "WSGM.slnx", "style", "--no-restore", "--severity", "warn", "--verbosity", "minimal")
+$styleArgs = @("format", "WSGM.slnx", "style", "--no-restore", "--severity", "warn", "--verbosity", "minimal",
+    "--exclude", $vendored)
 if (-not $Fix) { $styleArgs += "--verify-no-changes" }
 & dotnet @styleArgs
 if ($LASTEXITCODE -ne 0) { throw "C# style check failed" }

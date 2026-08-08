@@ -73,6 +73,15 @@
           CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Boot-splash spinner styles (Unlicense; the license text ships from
+         Licenses\ beside the exe). Vendored as SOURCE, not as the NuGet package:
+         the published package is built against Avalonia 11 and its precompiled
+         XAML throws on Avalonia 12. Building it here compiles the styles against
+         the Avalonia we ship. See its csproj for the full reasoning. -->
+    <ProjectReference
+        Include="..\..\third_party\LoadingIndicators.Avalonia\LoadingIndicators.Avalonia\LoadingIndicators.Avalonia.csproj" />
+  </ItemGroup>
+  <ItemGroup>
     <!-- 1-9: how hard the GC works to keep the heap small; 9 = maximum. Reads
          fine under NativeAOT (embedded runtime config). -->
     <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="9" />
@@ -88,10 +97,6 @@
          CustomAccentColor) plus WinUI-style controls such as FAInfoBar and ToggleSwitch.
          3.x is the first line built against Avalonia 12. -->
     <PackageReference Include="FluentAvaloniaUI" Version="3.0.2" />
-    <!-- Boot-splash spinner styles (Unlicense; the license text ships from
-         Licenses\ beside the exe). NativeAOT-publish compatibility was proven
-         with a probe build before adopting the package. -->
-    <PackageReference Include="LoadingIndicators.Avalonia" Version="11.0.11.1" />
     <!-- Pinned: FluentAvaloniaUI's transitive ColorPicker can resolve below the
          Avalonia version above — the explicit pin removes the version skew. -->
     <PackageReference Include="Avalonia.Controls.ColorPicker" Version="12.1.1" />
