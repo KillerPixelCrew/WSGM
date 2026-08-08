@@ -337,6 +337,11 @@ public sealed class OverlayController : IDisposable
     private nint _restoreFocusTo;
     private bool _suppressFocusRestore;
 
+    /// <summary>Set for the one overlay close that opens the settings window: the
+    /// lease is handed to Settings rather than released, so Steam's controller is
+    /// not dropped and re-revoked across the switch.</summary>
+    private bool _handoffLease;
+
     /// <summary>Raised whenever quick access comes up (hotkey, swipe, chord,
     /// Steam-exit pop, warning reopen). The boot splash dismisses on it — the
     /// panel always outranks the splash.</summary>
@@ -443,10 +448,25 @@ public sealed class OverlayController : IDisposable
         _overlay.SettingsRequested += () =>
         {
             _suppressFocusRestore = true;
+            // Stop tap-outside watching immediately: the overlay lingers briefly on
+            // its deferred close, and once Settings is up a tap on it must NOT read
+            // as a tap outside the overlay and dismiss it — that dismissal refocuses
+            // Steam and drops Settings behind Big Picture (device-reported).
+            if (_touchSwipes is not null)
+            {
+                _touchSwipes.WatchTaps = false;
+            }
+            // Hand the lease to Settings instead of releasing it: the close below
+            // keeps Steam's controller blocked continuously, so Settings inherits a
+            // live lease with no release/re-inject churn.
+            _handoffLease = true;
             CloseOverlay();
             // A shell session normally has no main window. Opening settings in this
             // process keeps quick access responsive and avoids starting a second shell.
-            Avalonia.Threading.Dispatcher.UIThread.Post(() => new SettingsWindow().Show());
+            // gameModeSurface: the window takes over as the on-screen surface and owns
+            // the handed-off Steam Input lease, else Steam's desktop profile grabs the
+            // pad over Settings.
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => new SettingsWindow(gameModeSurface: true).Show());
         };
         // Dismiss never refocuses anything: Windows hands the foreground back to
         // the previous window on close. An explicit refocus-on-dismiss once yanked
@@ -457,8 +477,17 @@ public sealed class OverlayController : IDisposable
             _closePending = false;
             _pendingClose = null;
             // Give Steam its pad back the moment the panel is gone — unless the
-            // taskbar took over the surface and still needs the lease.
-            if (_taskbar is null)
+            // taskbar took over the surface and still needs the lease, or the
+            // settings window is taking it over (handoff): then keep it held and
+            // mark it released from the overlay's side so no later overlay path
+            // touches the lease Settings now owns.
+            if (_handoffLease)
+            {
+                _handoffLease = false;
+                _leaseReleased = true;
+                Log.Info("Steam Input lease handed off to the settings window.");
+            }
+            else if (_taskbar is null)
             {
                 ReleaseSteamInputLease();
             }
@@ -735,18 +764,29 @@ public sealed class OverlayController : IDisposable
     /// which reads as "the menu doesn't appear" (device-reported).</summary>
     private void OnTrayIconActivated(TrayIconEntry entry, bool contextMenu, Avalonia.PixelPoint anchor)
     {
-        if (contextMenu && _taskbar is not null)
+        if (contextMenu)
         {
-            _taskbar.Topmost = false;
-            _pendingTopmostRestore?.Dispose();
-            _pendingTopmostRestore = RunOnUiThreadAfter(TimeSpan.FromSeconds(10), () =>
+            if (_taskbar is not null)
             {
-                _pendingTopmostRestore = null;
-                if (_taskbar is not null)
+                _taskbar.Topmost = false;
+                _pendingTopmostRestore?.Dispose();
+                _pendingTopmostRestore = RunOnUiThreadAfter(TimeSpan.FromSeconds(10), () =>
                 {
-                    _taskbar.Topmost = true;
-                }
-            });
+                    _pendingTopmostRestore = null;
+                    if (_taskbar is not null)
+                    {
+                        _taskbar.Topmost = true;
+                    }
+                });
+            }
+        }
+        else
+        {
+            // A plain activation opens/shows the owning app — dismiss the bar so it
+            // comes forward (same rule as picking a window tile). A context-menu
+            // request keeps the bar: the menu pops over it.
+            _taskbarSuppressFocusRestore = true;
+            CloseTaskbar();
         }
         _trayHost?.SendClick(entry.Icon, contextMenu, anchor.X, anchor.Y);
     }

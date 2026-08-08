@@ -293,12 +293,25 @@ public partial class OverlayWindow : Window
             await clipboard.SetTextAsync(DeelevationCommand.SteamLaunchOptions(helperPath));
             DeelevationCommandTitle.Title = "Copied to clipboard";
             Log.Info("Copied Steam de-elevation launch-option command to clipboard.");
+            await DismissAfterCopyFeedback();
         }
         catch (Exception ex)
         {
             DeelevationCommandTitle.Title = "Clipboard copy failed";
             Log.Error("Could not copy Steam de-elevation command", ex);
         }
+    }
+
+    // A copied command means the user is heading to Steam to paste it: show the
+    // "Copied" confirmation briefly, then dismiss the panel (which restores Steam
+    // to the foreground). Same rule as the actions that open a window.
+    private static async System.Threading.Tasks.Task FeedbackDelay()
+        => await System.Threading.Tasks.Task.Delay(TimeSpan.FromMilliseconds(700));
+
+    private async System.Threading.Tasks.Task DismissAfterCopyFeedback()
+    {
+        await FeedbackDelay();
+        Dismissed?.Invoke();
     }
 
     private async void OnCopySteamInputBlockCommand(object? sender, RoutedEventArgs e)
@@ -324,6 +337,7 @@ public partial class OverlayWindow : Window
             await clipboard.SetTextAsync(SteamInputLeaseCommand.SteamLaunchOptions(helperPath));
             SteamInputBlockCommandTitle.Title = "Copied to clipboard";
             Log.Info("Copied Steam Input block launch-option command to clipboard.");
+            await DismissAfterCopyFeedback();
         }
         catch (Exception ex)
         {

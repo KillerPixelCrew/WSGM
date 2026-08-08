@@ -14,10 +14,14 @@ namespace WSGM.Input;
 /// Deterministic and AOT-safe.</summary>
 public sealed class GamepadNavigation : IDisposable
 {
-    // Must exceed the OS keyboard auto-repeat interval relative to the 150 ms pad
-    // repeat cadence, or synthesized arrows slip through between pad repeats and
-    // double-step the focus.
-    private static readonly TimeSpan KeyboardSuppression = TimeSpan.FromMilliseconds(250);
+    // A single physical D-pad press reaches this class twice when Steam Input is
+    // live under a keyboard-focused window (Settings): once as WSGM's own SDL pad
+    // edge, once as Steam's desktop-layout arrow key. Whichever path moves focus
+    // first arms a window that swallows the other's duplicate for the same press.
+    // The window must exceed the OS keyboard auto-repeat interval relative to the
+    // 150 ms pad repeat cadence, or the follower slips through between repeats and
+    // double-steps.
+    private static readonly TimeSpan CrossSourceSuppression = TimeSpan.FromMilliseconds(250);
 
     private readonly GamepadService _gamepad;
     private readonly Window _window;
@@ -32,9 +36,11 @@ public sealed class GamepadNavigation : IDisposable
     /// (the overlay), GetFocusedElement may not track our programmatic focus.</summary>
     private InputElement? _lastFocused;
     private DateTime _suppressKeyboardUntil;
+    private DateTime _suppressPadUntil;
     private bool _loggedFocusFallback;
     private bool _loggedWrap;
     private bool _loggedTextBoxCycle;
+    private bool _loggedKeyboardLed;
 
     /// <summary>Attaches controller navigation to a window.</summary>
     /// <param name="gamepad">The source of controller button presses.</param>
@@ -115,14 +121,41 @@ public sealed class GamepadNavigation : IDisposable
 
         if (buttons.HasFlag(GamepadButtons.DPadDown) || buttons.HasFlag(GamepadButtons.DPadRight))
         {
-            _suppressKeyboardUntil = DateTime.UtcNow + KeyboardSuppression;
+            if (PadStepSuppressed())
+            {
+                return;
+            }
+            _suppressKeyboardUntil = DateTime.UtcNow + CrossSourceSuppression;
             MoveFocus(NavigationDirection.Next);
         }
         else if (buttons.HasFlag(GamepadButtons.DPadUp) || buttons.HasFlag(GamepadButtons.DPadLeft))
         {
-            _suppressKeyboardUntil = DateTime.UtcNow + KeyboardSuppression;
+            if (PadStepSuppressed())
+            {
+                return;
+            }
+            _suppressKeyboardUntil = DateTime.UtcNow + CrossSourceSuppression;
             MoveFocus(NavigationDirection.Previous);
         }
+    }
+
+    /// <summary>True when Steam's mirrored arrow key already moved focus for the
+    /// press this pad edge belongs to. The arrow is injected the instant the
+    /// button goes down, while the pad is only seen on the next 16 ms poll, so in
+    /// a keyboard-focused window the arrow usually leads and this is what stops
+    /// the pad edge from stepping a second time.</summary>
+    private bool PadStepSuppressed()
+    {
+        if (DateTime.UtcNow >= _suppressPadUntil)
+        {
+            return false;
+        }
+        if (!_loggedKeyboardLed)
+        {
+            _loggedKeyboardLed = true;
+            Log.Info("Gamepad nav: Steam's mirrored arrow key led the pad edge for the same press; suppressing the duplicate pad step.");
+        }
+        return true;
     }
 
     /// <summary>Arrow keys mirror the D-pad. With Steam Input active and this window
@@ -148,11 +181,14 @@ public sealed class GamepadNavigation : IDisposable
         }
         e.Handled = true;
         // A pad event and Steam's synthesized keystroke for the same physical press
-        // arrive near-simultaneously; don't double-step.
+        // arrive near-simultaneously; don't double-step. Whichever lands first
+        // moves and suppresses the other: the pad already arms the keyboard window,
+        // so when the arrow leads it must arm the pad window symmetrically.
         if (DateTime.UtcNow < _suppressKeyboardUntil)
         {
             return;
         }
+        _suppressPadUntil = DateTime.UtcNow + CrossSourceSuppression;
         MoveFocus(direction.Value);
     }
 
