@@ -105,7 +105,7 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
         }
         Refresh(refreshWifi: true);
         Log.Info($"System status started (battery: {(HasBattery ? BatteryText : "none")}, Wi-Fi: {WifiStateText}).");
-        // Parameterless ctor + explicit Start (CLAUDE.md invariant 4).
+        // Parameterless ctor + explicit Start: the 3-arg ctor auto-starts.
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _timer.Tick += OnTick;
         _timer.Start();

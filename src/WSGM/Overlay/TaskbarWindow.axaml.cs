@@ -131,7 +131,7 @@ public partial class TaskbarWindow : Window
             }
         };
 
-        // Same touch-promotion defense as OverlayWindow (CLAUDE.md invariant 3):
+        // Same touch-promotion defense as OverlayWindow:
         // Avalonia never handles raw touch, DefWindowProc promotes the tap into a
         // synthesized mouse click delivered late; eat it here, and let the
         // controller's deferred Close() keep this window alive to do so.
@@ -280,7 +280,7 @@ public partial class TaskbarWindow : Window
 
         StopSlide();
         _slideStartedUtc = DateTime.UtcNow;
-        // Parameterless ctor + explicit Start (CLAUDE.md invariant 4).
+        // Parameterless ctor + explicit Start: the 3-arg ctor auto-starts.
         _slideTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
         _slideTimer.Tick += OnSlideTick;
         _slideTimer.Start();

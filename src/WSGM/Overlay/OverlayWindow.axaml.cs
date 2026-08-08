@@ -388,8 +388,9 @@ public partial class OverlayWindow : Window
     {
         if (_confirmResetTimer is null)
         {
-            // Parameterless ctor + explicit Start: the 3-arg ctor auto-starts
-            // (see CLAUDE.md invariant 4).
+            // Parameterless ctor + explicit Start: Avalonia's 3-arg
+            // DispatcherTimer ctor auto-starts, which silently defeats every
+            // "start it if it isn't running" guard.
             _confirmResetTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
             _confirmResetTimer.Tick += (_, _) => ResetConfirms();
         }
