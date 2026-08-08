@@ -108,6 +108,7 @@ public class RadioManagerTests
             Marshal.WriteInt32(buffer, 132, 1); // security: pre-shared key
             Marshal.WriteInt32(buffer, 136, 1); // saved
             Marshal.WriteInt32(buffer, 140, 0); // connectable
+            Marshal.WriteInt32(buffer, 144, 1); // connected
 
             var network = NativeRadio.ReadWifiNetwork(buffer);
             Assert.Equal("Cafe", network.Ssid);
@@ -115,6 +116,7 @@ public class RadioManagerTests
             Assert.Equal(1, network.Security);
             Assert.True(network.Saved);
             Assert.False(network.Connectable);
+            Assert.True(network.Connected);
         }
         finally
         {
@@ -186,8 +188,8 @@ public class RadioManagerTests
     [Fact]
     public void TheRecordSizesMatchTheRustDeclarations()
     {
-        // ssid[64] + 4 ints, and id[256] + name[128] + 2 ints.
-        Assert.Equal(144, NativeRadio.WifiRecordSize);
+        // ssid[64] + 5 ints, and id[256] + name[128] + 2 ints.
+        Assert.Equal(148, NativeRadio.WifiRecordSize);
         Assert.Equal(776, NativeRadio.BluetoothRecordSize);
     }
 

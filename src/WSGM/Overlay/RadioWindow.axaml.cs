@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using WSGM.Controls;
@@ -75,6 +77,41 @@ public partial class RadioWindow : Window
         };
     }
 
+    /// <summary>Places the panel just above the taskbar, at the right-hand end
+    /// where its tiles are.
+    ///
+    /// Without this the window opens wherever Windows decides, which is the
+    /// top-left corner — nowhere near the button that opened it. The bar's own
+    /// height is measured rather than assumed, because it is content-sized and
+    /// DPI-scaled.</summary>
+    /// <param name="taskbarHeight">Height of the bar in physical pixels, or 0
+    /// when it could not be measured.</param>
+    internal void DockAboveTaskbar(int taskbarHeight = 0)
+    {
+        var screen = Screens.Primary ?? (Screens.ScreenCount > 0 ? Screens.All[0] : null);
+        if (screen is null)
+        {
+            return;
+        }
+        var area = screen.WorkingArea;
+        var scale = screen.Scaling;
+        var width = (int)Math.Round(Width * scale);
+        var height = (int)Math.Round(Height * scale);
+        const int Gap = 8;
+        var margin = (int)Math.Round(Gap * scale);
+
+        // Right-aligned above the bar, mirroring where the tiles sit and where
+        // Windows puts its own quick-settings panel.
+        var x = area.X + area.Width - width - margin;
+        var y = area.Y + area.Height - height - taskbarHeight - margin;
+        // Never let it run off the top of a short display.
+        if (y < area.Y)
+        {
+            y = area.Y;
+        }
+        Position = new PixelPoint(x, y);
+    }
+
     /// <summary>Moves to the previous tab (left shoulder).</summary>
     public void SelectPreviousTab() => Tabs.SelectPrevious();
 
@@ -123,7 +160,22 @@ public partial class RadioWindow : Window
         await _radios.SetRadioAsync(OnBluetoothTab, on);
     }
 
-    private async void OnNetworkClicked(object? sender, RoutedEventArgs e)
+    /// <summary>Selecting a network reveals its actions. It never connects or
+    /// disconnects on its own: a stray tap must not drop the connection the user
+    /// is currently browsing on.</summary>
+    private void OnNetworkClicked(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is not WifiNetworkEntry entry)
+        {
+            return;
+        }
+        foreach (var other in _radios.Networks)
+        {
+            other.Expanded = ReferenceEquals(other, entry) && !entry.Expanded;
+        }
+    }
+
+    private async void OnNetworkAction(object? sender, RoutedEventArgs e)
     {
         if ((sender as Control)?.DataContext is not WifiNetworkEntry entry)
         {
@@ -143,14 +195,34 @@ public partial class RadioWindow : Window
         }
         if (entry.NeedsPassword)
         {
-            ShowPrompt(PromptMode.WifiPassword, $"Connect to {entry.Ssid}", "Enter the network password.");
             _promptSsid = entry.Ssid;
+            ShowPrompt(PromptMode.WifiPassword, $"Connect to {entry.Ssid}", "Enter the network password.");
             return;
         }
         await _radios.ConnectAsync(entry.Ssid, null);
     }
 
-    private async void OnDeviceClicked(object? sender, RoutedEventArgs e)
+    private async void OnNetworkForget(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is WifiNetworkEntry entry)
+        {
+            await _radios.ForgetAsync(entry.Ssid);
+        }
+    }
+
+    private void OnDeviceClicked(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is not BluetoothDeviceEntry entry)
+        {
+            return;
+        }
+        foreach (var other in _radios.BluetoothDevices)
+        {
+            other.Expanded = ReferenceEquals(other, entry) && !entry.Expanded;
+        }
+    }
+
+    private async void OnDeviceAction(object? sender, RoutedEventArgs e)
     {
         if ((sender as Control)?.DataContext is not BluetoothDeviceEntry entry || entry.Busy)
         {
@@ -163,6 +235,12 @@ public partial class RadioWindow : Window
         }
         _radios.BeginPairing(entry);
     }
+
+    private void OnRescanClicked(object? sender, RoutedEventArgs e) => _radios.Rescan();
+
+    /// <summary>Raises the touch keyboard when the field takes focus, so a
+    /// keyboard-less handheld does not need the button at all.</summary>
+    private void OnPromptInputFocused(object? sender, RoutedEventArgs e) => TouchKeyboard.Show();
 
     private void OnPairingRequested(RadioManager.PairingPrompt prompt)
     {
@@ -261,6 +339,19 @@ public partial class RadioWindow : Window
     }
 
     private void OnPromptKeyboard(object? sender, RoutedEventArgs e) => TouchKeyboard.Show();
+
+    /// <summary>Collapses every row, so reopening a tab starts clean.</summary>
+    private void CollapseRows()
+    {
+        foreach (var network in _radios.Networks)
+        {
+            network.Expanded = false;
+        }
+        foreach (var device in _radios.BluetoothDevices)
+        {
+            device.Expanded = false;
+        }
+    }
 
     private void OnCloseClicked(object? sender, RoutedEventArgs e) => Close();
 }

@@ -255,6 +255,8 @@ pub struct WsgmWifiNetwork {
     pub saved: i32,
     /// Non-zero when Windows believes it can be joined.
     pub connectable: i32,
+    /// Non-zero when this is the network currently joined.
+    pub connected: i32,
 }
 
 /// Reads the Wi-Fi interface state into `out_state`.
@@ -320,6 +322,7 @@ pub unsafe extern "system" fn wsgm_wifi_list(
                     },
                     saved: i32::from(n.saved),
                     connectable: i32::from(n.connectable),
+                    connected: i32::from(n.connected),
                 };
                 fill(&mut entry.ssid, &n.ssid);
                 entry
@@ -568,8 +571,10 @@ impl Context {
 
 // SAFETY: the pointer is an opaque token owned by the caller. This crate only
 // hands it back, never dereferences it, and the documented contract is that it
-// stays valid until the finished callback has run.
+// stays valid until the finished callback has run. Sync as well as Send because
+// the watcher handlers are shared across the threads WinRT delivers events on.
 unsafe impl Send for Context {}
+unsafe impl Sync for Context {}
 
 fn outcome_code(outcome: PairOutcome) -> i32 {
     match outcome {
@@ -648,6 +653,123 @@ pub unsafe extern "system" fn wsgm_bt_pair(
             },
         )
     })
+}
+
+/// Called when a watched Bluetooth device appears, changes or goes away.
+///
+/// `change` is 0 added, 1 updated, 2 removed, 3 initial-enumeration-complete.
+/// For 3 the other fields are meaningless. Strings are valid only for the
+/// duration of the call.
+pub type WsgmBtWatchFn = extern "system" fn(
+    context: *mut c_void,
+    change: i32,
+    id: *const u16,
+    name: *const u16,
+    paired: i32,
+    can_pair: i32,
+);
+
+/// Starts streaming Bluetooth devices instead of enumerating them in one call.
+///
+/// The blocking list takes about half a minute before it shows anything, which
+/// is unusable for a picker. This reports known devices almost immediately and
+/// the rest as they are discovered. Restarting is safe.
+///
+/// # Safety
+/// `context` must stay valid until [`wsgm_bt_watch_stop`] returns.
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn wsgm_bt_watch_start(
+    on_change: WsgmBtWatchFn,
+    context: *mut c_void,
+) -> i32 {
+    guard(move || {
+        let cookie = Context(context);
+        bluetooth::start_watch(move |event| {
+            let empty = [0u16];
+            // Added and Updated carry the same record and differ only in the
+            // code; Removed carries an id; Ready carries nothing.
+            let (change, device, removed_id) = match event {
+                bluetooth::WatchEvent::Added(device) => (0, Some(device), None),
+                bluetooth::WatchEvent::Updated(device) => (1, Some(device), None),
+                bluetooth::WatchEvent::Removed(id) => (2, None, Some(id)),
+                bluetooth::WatchEvent::Ready => (3, None, None),
+            };
+            let id_text = device
+                .as_ref()
+                .map(|d| d.id.clone())
+                .or(removed_id)
+                .unwrap_or_default();
+            let id: Vec<u16> = id_text.encode_utf16().chain(std::iter::once(0)).collect();
+            let name: Vec<u16> = device
+                .as_ref()
+                .map(|d| d.name.as_str())
+                .unwrap_or_default()
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect();
+            on_change(
+                cookie.get(),
+                change,
+                if id.len() > 1 { id.as_ptr() } else { empty.as_ptr() },
+                name.as_ptr(),
+                i32::from(device.as_ref().is_some_and(|d| d.paired)),
+                i32::from(device.as_ref().is_some_and(|d| d.can_pair)),
+            );
+        })
+    })
+}
+
+/// Stops the Bluetooth watcher. Idempotent.
+#[unsafe(no_mangle)]
+pub extern "system" fn wsgm_bt_watch_stop() -> i32 {
+    guard(|| {
+        bluetooth::stop_watch();
+        Ok(())
+    })
+}
+
+/// Called when the WLAN service reports a change.
+///
+/// `event` is 0 scan-list-refreshed, 1 connection-changed.
+pub type WsgmWifiEventFn = extern "system" fn(context: *mut c_void, event: i32);
+
+/// Starts delivering live WLAN events instead of polling for them.
+///
+/// # Safety
+/// `context` must stay valid until [`wsgm_wifi_watch_stop`] returns.
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn wsgm_wifi_watch_start(
+    on_event: WsgmWifiEventFn,
+    context: *mut c_void,
+) -> i32 {
+    guard(move || {
+        let cookie = Context(context);
+        wifi::notify::start(move |event| {
+            let code = match event {
+                wifi::notify::WifiEvent::ScanListRefreshed => 0,
+                wifi::notify::WifiEvent::ConnectionChanged => 1,
+            };
+            on_event(cookie.get(), code);
+        })
+    })
+}
+
+/// Stops delivering WLAN events. Idempotent.
+#[unsafe(no_mangle)]
+pub extern "system" fn wsgm_wifi_watch_stop() -> i32 {
+    guard(|| {
+        wifi::notify::stop();
+        Ok(())
+    })
+}
+
+/// Shows the Windows touch keyboard.
+///
+/// Goes through the shell's `ITipInvocation`, because starting `TabTip.exe`
+/// does nothing on Windows 11 when it is already running.
+#[unsafe(no_mangle)]
+pub extern "system" fn wsgm_touch_keyboard_show() -> i32 {
+    guard(radio_core::keyboard::show)
 }
 
 /// Answers a pairing request. `pin` is used only for the provide-pin ceremony.

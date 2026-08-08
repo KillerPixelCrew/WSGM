@@ -25,6 +25,7 @@
 pub mod bluetooth;
 pub mod consent;
 pub mod error;
+pub mod keyboard;
 pub mod mta;
 pub mod radios;
 pub mod wifi;

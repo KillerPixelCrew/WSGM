@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 
 namespace WSGM.Core;
 
@@ -12,28 +11,37 @@ public static class TouchKeyboard
 {
     private static bool _missingLogged;
 
-    /// <summary>Shows the touch keyboard, if this machine has its host.
+    /// <summary>Shows the touch keyboard.
     ///
-    /// TabTip only: the osk.exe fallback brings up the legacy accessibility
-    /// keyboard, which is never the right thing on a touch handheld.</summary>
+    /// Goes through the radio helper's ITipInvocation call, NOT by starting
+    /// TabTip.exe. Launching the executable is the obvious approach and does
+    /// nothing on Windows 11: the process is already running, so the second
+    /// launch exits immediately and no keyboard appears. Falling back to
+    /// osk.exe is deliberately not done either — that is the legacy
+    /// accessibility keyboard, which is never right on a touch handheld.</summary>
     public static void Show()
     {
-        var tabTip = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFiles),
-            @"microsoft shared\ink\TabTip.exe");
-        if (!File.Exists(tabTip))
+        try
+        {
+            var status = Interop.NativeRadio.ShowTouchKeyboard();
+            if (status != Interop.NativeRadio.Ok)
+            {
+                if (!_missingLogged)
+                {
+                    _missingLogged = true;
+                    Log.Warn($"Touch keyboard could not be shown: {Interop.NativeRadio.LastError()}");
+                }
+                return;
+            }
+            Log.Info("Touch keyboard: shown.");
+        }
+        catch (Exception ex)
         {
             if (!_missingLogged)
             {
                 _missingLogged = true;
-                Log.Warn($"Touch keyboard host not found: {tabTip}");
+                Log.Warn($"Touch keyboard helper unavailable: {ex.Message}");
             }
-            return;
         }
-        // Logged on both paths: whether TabTip actually renders over a game-mode
-        // surface with no shell running is not something this machine can prove,
-        // so the device log is the only evidence available.
-        Log.Info("Touch keyboard: launching TabTip.");
-        AppLauncher.Open(tabTip);
     }
 }

@@ -212,35 +212,32 @@
                             VerticalAlignment="Center">
                 <Button x:Name="WifiButton"
                         Classes="status-tile"
-                        Classes.active="{Binding Radios.WifiConnected}"
                         ToolTip.Tip="Wi-Fi"
                         Click="OnRadioTileClicked"
                         Tag="wifi">
-                    <!-- Width-only for the same top-left-alignment reason as the
-                         battery: this fan is 16.2x8.9, so a square box would park it
-                         against the top of the button instead of its centre. -->
-                    <Path Classes="status-icon"
-                          Data="{x:Static c:Icons.WiFi}"
-                          Width="20"
-                          Stretch="Uniform"
-                          VerticalAlignment="Center"
-                          HorizontalAlignment="Center" />
+                    <!-- Drawn, not a static path: the tile has to distinguish
+                         off from merely disconnected from connected, and show
+                         signal strength, which one glyph cannot express. -->
+                    <c:RadioIcon Width="20" Height="20"
+                                 State="{Binding Radios.WifiIconState}"
+                                 Signal="{Binding Radios.WifiSignal}"
+                                 Accent="{DynamicResource HcAccentBrush}"
+                                 Muted="{DynamicResource HcTextPrimaryBrush}"
+                                 VerticalAlignment="Center"
+                                 HorizontalAlignment="Center" />
                 </Button>
                 <Button x:Name="BluetoothButton"
                         Classes="status-tile"
-                        Classes.active="{Binding Radios.BluetoothOn}"
                         ToolTip.Tip="Bluetooth"
                         Click="OnRadioTileClicked"
                         Tag="bluetooth">
-                    <!-- Height-only: this rune is TALLER than wide (11x20), so the
-                         free axis is the horizontal one — same alignment reasoning,
-                         mirrored. -->
-                    <Path Classes="status-icon"
-                          Data="{x:Static c:Icons.Bluetooth}"
-                          Height="20"
-                          Stretch="Uniform"
-                          VerticalAlignment="Center"
-                          HorizontalAlignment="Center" />
+                    <c:RadioIcon Width="20" Height="20"
+                                 Bluetooth="True"
+                                 State="{Binding Radios.BluetoothIconState}"
+                                 Accent="{DynamicResource HcAccentBrush}"
+                                 Muted="{DynamicResource HcTextPrimaryBrush}"
+                                 VerticalAlignment="Center"
+                                 HorizontalAlignment="Center" />
                 </Button>
                 <StackPanel Orientation="Horizontal"
                             Spacing="5"

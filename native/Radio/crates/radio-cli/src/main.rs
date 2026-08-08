@@ -76,10 +76,42 @@ fn main() -> ExitCode {
     }
 
     println!();
+    // Timed separately because the difference decides the UI: a paired-only
+    // query reads known devices, while a full list performs a real inquiry.
+    // The number that matters for the picker: how long until the FIRST device
+    // appears, not how long the whole enumeration takes.
+    let started = std::time::Instant::now();
+    let first = std::sync::Arc::new(std::sync::Mutex::new(None::<f32>));
+    let seen = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    {
+        let first = std::sync::Arc::clone(&first);
+        let seen = std::sync::Arc::clone(&seen);
+        if let Err(e) = bluetooth::start_watch(move |event| {
+            if let bluetooth::WatchEvent::Added(_) = event {
+                seen.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let mut slot = first.lock().unwrap();
+                if slot.is_none() {
+                    *slot = Some(started.elapsed().as_secs_f32());
+                }
+            }
+        }) {
+            println!("bluetooth watch ............ FAILED: {e}");
+        }
+    }
+    std::thread::sleep(std::time::Duration::from_secs(3));
+    let elapsed = first.lock().unwrap().take();
+    println!(
+        "bluetooth watch ............ {} device(s) in 3s, first at {}",
+        seen.load(std::sync::atomic::Ordering::Relaxed),
+        elapsed.map_or("never".to_owned(), |s| format!("{s:.2}s"))
+    );
+    bluetooth::stop_watch();
+
+    let started = std::time::Instant::now();
     print!("bluetooth device list ...... ");
     match bluetooth::devices() {
         Ok(found) => {
-            println!("{} device(s)", found.len());
+            println!("{} device(s) in {:.1}s", found.len(), started.elapsed().as_secs_f32());
             for d in found.iter().take(12) {
                 println!(
                     "    {:<40} {}{}",

@@ -43,8 +43,6 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     private DispatcherTimer? _timer;
     private int _ticks;
     private int _refreshing;
-    private int _refreshingBluetooth;
-    private bool _bluetoothTimingLogged;
     private bool _scanning;
     private bool _helperMissingLogged;
     private bool _accessLogged;
@@ -75,6 +73,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
                 Raise(nameof(WifiPower));
                 Raise(nameof(WifiOn));
                 Raise(nameof(WifiStateText));
+                Raise(nameof(WifiIconState));
             }
         }
     }
@@ -92,6 +91,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
                 Raise(nameof(BluetoothPower));
                 Raise(nameof(BluetoothOn));
                 Raise(nameof(BluetoothStateText));
+                Raise(nameof(BluetoothIconState));
             }
         }
     }
@@ -102,13 +102,53 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     /// <summary>Gets whether the Bluetooth radio is on.</summary>
     public bool BluetoothOn => BluetoothPower == RadioPower.On;
 
+    /// <summary>Gets what the taskbar's Wi-Fi tile should show. Off and merely
+    /// disconnected are different problems and must not look the same.</summary>
+    public Controls.RadioIconState WifiIconState => WifiPower switch
+    {
+        RadioPower.On when WifiConnected => Controls.RadioIconState.Connected,
+        RadioPower.On => Controls.RadioIconState.Disconnected,
+        _ => Controls.RadioIconState.Off,
+    };
+
+    /// <summary>Gets what the taskbar's Bluetooth tile should show.</summary>
+    public Controls.RadioIconState BluetoothIconState => BluetoothPower switch
+    {
+        RadioPower.On => Controls.RadioIconState.Connected,
+        _ => Controls.RadioIconState.Off,
+    };
+
     private bool _wifiConnected;
     /// <summary>Gets whether Wi-Fi is joined to a network — the only state that
     /// tints the taskbar's Wi-Fi tile with the accent color.</summary>
     public bool WifiConnected
     {
         get => _wifiConnected;
-        private set => Set(ref _wifiConnected, value, nameof(WifiConnected));
+        private set
+        {
+            if (_wifiConnected != value)
+            {
+                _wifiConnected = value;
+                Raise(nameof(WifiConnected));
+                Raise(nameof(WifiIconState));
+            }
+        }
+    }
+
+    private int _wifiSignal;
+    /// <summary>Gets the joined network's signal quality, 0-100. Drives the bars
+    /// on the taskbar tile.</summary>
+    public int WifiSignal
+    {
+        get => _wifiSignal;
+        private set
+        {
+            if (_wifiSignal != value)
+            {
+                _wifiSignal = value;
+                Raise(nameof(WifiSignal));
+            }
+        }
     }
 
     private string _connectedSsid = "";
@@ -195,8 +235,13 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         }
         _scanning = true;
         Log.Info("Radio panel: scanning started.");
+        // Publish the cached scan list immediately — it is already there and
+        // costs milliseconds — then ask for a fresh scan and let the live feeds
+        // fill in the rest. Waiting for the scan before showing anything is what
+        // made the list take ten seconds to appear.
         QueueRefresh();
-        QueueBluetoothRefresh();
+        StartFeeds();
+        Rescan();
     }
 
     /// <summary>Stops actively scanning. Idempotent.</summary>
@@ -207,25 +252,71 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             return;
         }
         _scanning = false;
+        StopFeeds();
+        BluetoothScanning = false;
         Log.Info("Radio panel: scanning stopped.");
+    }
+
+    /// <summary>Asks for a fresh sweep of both radios.
+    ///
+    /// Bound to the panel's refresh button: without it the only way to look for
+    /// a network or a device that appeared after opening was to close and reopen
+    /// the panel.</summary>
+    public void Rescan()
+    {
+        Log.Info("Radio panel: rescan requested.");
+        StatusText = "";
+        if (BluetoothPower == RadioPower.On)
+        {
+            BluetoothScanning = true;
+            // Restarting the watcher re-runs the initial enumeration, which is
+            // what picks up a device that has only just been put into pairing
+            // mode. Existing rows survive because they are matched by id.
+            NativeRadio.StopBluetoothWatch();
+            StopAndRestartBluetoothWatch();
+        }
+        _ = Task.Run(() =>
+        {
+            if (NativeRadio.RequestWifiScan() != NativeRadio.Ok)
+            {
+                Log.Warn($"Wi-Fi scan request failed: {NativeRadio.LastError()}");
+            }
+        });
+        QueueRefresh();
+    }
+
+    private unsafe void StopAndRestartBluetoothWatch()
+    {
+        if (!_watchHandle.IsAllocated)
+        {
+            return;
+        }
+        var context = GCHandle.ToIntPtr(_watchHandle);
+        if (NativeRadio.StartBluetoothWatch(
+            (nint)(delegate* unmanaged[Stdcall]<nint, int, nint, nint, int, int, void>)
+                &OnBluetoothChanged,
+            context) != NativeRadio.Ok)
+        {
+            Log.Warn($"Bluetooth watch could not restart: {NativeRadio.LastError()}");
+            BluetoothScanning = false;
+        }
+    }
+
+    private bool _bluetoothScanning;
+    /// <summary>Gets whether a Bluetooth sweep is still running, so the panel can
+    /// show that more devices may still appear.</summary>
+    public bool BluetoothScanning
+    {
+        get => _bluetoothScanning;
+        private set => Set(ref _bluetoothScanning, value, nameof(BluetoothScanning));
     }
 
     private void OnTick(object? sender, EventArgs e)
     {
         _ticks++;
-        // The radio and Wi-Fi state reads are cheap enough for every tick; a
-        // fresh driver scan is not, so it is asked for far less often.
-        if (_scanning && _ticks % 5 == 0)
-        {
-            _ = Task.Run(() => NativeRadio.RequestWifiScan());
-        }
+        // A safety net only: the live feeds carry every real change, so this is
+        // here to catch a driver that stops reporting, not to drive the UI.
         QueueRefresh();
-        // Bluetooth discovery runs long (a real inquiry) and gates itself, so
-        // asking often is harmless: a request while one is in flight is dropped.
-        if (_scanning)
-        {
-            QueueBluetoothRefresh();
-        }
     }
 
     /// <summary>Refreshes state off the UI thread, at most one at a time. A slow
@@ -310,55 +401,129 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         return new Snapshot(wifiPower, bluetoothPower, wifiState, networks, failure);
     }
 
-    /// <summary>Refreshes the Bluetooth list on its own schedule.
+    // Watch callbacks must be static under NativeAOT, so the manager travels
+    // through the context cookie rather than a closure.
+    private GCHandle _watchHandle;
+
+    /// <summary>Starts the live Bluetooth and Wi-Fi feeds.
     ///
-    /// Separate from everything else because a discovery that includes unpaired
-    /// devices performs a real inquiry: measured at ~30 s on a desktop. Sharing
-    /// the 2 s refresh would freeze the Wi-Fi list and the radio tiles behind it
-    /// for that entire time. This runs at most one at a time, only while the
-    /// panel is open, and publishes whenever it happens to finish.</summary>
-    private void QueueBluetoothRefresh()
+    /// Both are push, not poll, because that is the difference between a picker
+    /// that feels dead and one that behaves like the Windows applet. The
+    /// blocking Bluetooth enumeration takes ~30 s before showing anything; the
+    /// watcher reports the first device in about 10 ms. Wi-Fi likewise: the
+    /// driver refreshes its scan list when it feels like it, so an interval
+    /// either wastes work or shows a network seconds late.</summary>
+    private unsafe void StartFeeds()
     {
-        if (Interlocked.CompareExchange(ref _refreshingBluetooth, 1, 0) != 0)
+        if (_watchHandle.IsAllocated)
         {
             return;
         }
-        _ = Task.Run(() =>
+        _watchHandle = GCHandle.Alloc(this);
+        var context = GCHandle.ToIntPtr(_watchHandle);
+
+        var bluetooth = NativeRadio.StartBluetoothWatch(
+            (nint)(delegate* unmanaged[Stdcall]<nint, int, nint, nint, int, int, void>)
+                &OnBluetoothChanged,
+            context);
+        if (bluetooth != NativeRadio.Ok)
         {
-            try
+            Log.Warn($"Bluetooth watch could not start: {NativeRadio.LastError()}");
+        }
+
+        var wifi = NativeRadio.StartWifiWatch(
+            (nint)(delegate* unmanaged[Stdcall]<nint, int, void>)&OnWifiEvent,
+            context);
+        if (wifi != NativeRadio.Ok)
+        {
+            Log.Warn($"Wi-Fi watch could not start: {NativeRadio.LastError()}");
+        }
+    }
+
+    private void StopFeeds()
+    {
+        if (!_watchHandle.IsAllocated)
+        {
+            return;
+        }
+        NativeRadio.StopBluetoothWatch();
+        NativeRadio.StopWifiWatch();
+        // Freed only after both feeds are stopped, or a late callback would
+        // resolve a dead handle.
+        _watchHandle.Free();
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvStdcall)])]
+    private static void OnBluetoothChanged(
+        nint context, int change, nint id, nint name, int paired, int canPair)
+    {
+        // Arrives on a WinRT worker. Copy the strings before returning.
+        var deviceId = Marshal.PtrToStringUni(id) ?? "";
+        var deviceName = Marshal.PtrToStringUni(name) ?? "";
+        var manager = FromContext(context);
+        if (manager is null)
+        {
+            return;
+        }
+        Dispatcher.UIThread.Post(() =>
+            manager.ApplyDeviceChange(change, deviceId, deviceName, paired != 0, canPair != 0));
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvStdcall)])]
+    private static void OnWifiEvent(nint context, int code)
+    {
+        var manager = FromContext(context);
+        if (manager is null)
+        {
+            return;
+        }
+        // A scan-list refresh means new networks are visible right now; a
+        // connection change means the "connected" marker moved.
+        Dispatcher.UIThread.Post(manager.QueueRefresh);
+        if (code == 1)
+        {
+            Log.Info("Wi-Fi: connection state changed.");
+        }
+    }
+
+    /// <summary>Applies one watcher event to the device list.</summary>
+    /// <param name="change">0 added, 1 updated, 2 removed, 3 enumeration complete.</param>
+    /// <param name="id">The device id.</param>
+    /// <param name="name">The display name.</param>
+    /// <param name="paired">Whether it is paired.</param>
+    /// <param name="canPair">Whether it can be paired.</param>
+    private void ApplyDeviceChange(int change, string id, string name, bool paired, bool canPair)
+    {
+        if (change == 3)
+        {
+            BluetoothScanning = false;
+            Log.Info($"Bluetooth discovery complete ({BluetoothDevices.Count} device(s)).");
+            return;
+        }
+        if (id.Length == 0)
+        {
+            return;
+        }
+        var row = FindDevice(id);
+        if (change == 2)
+        {
+            // A row mid-operation is never removed: a device dropping out of
+            // range must not cancel the pairing the user just started.
+            if (row is not null && !row.Busy)
             {
-                if (ReadPower(KindBluetooth) != RadioPower.On)
-                {
-                    return;
-                }
-                var started = DateTime.UtcNow;
-                if (NativeRadio.ListBluetoothDevices(0, out var items, out var count)
-                    != NativeRadio.Ok)
-                {
-                    Log.Warn($"Bluetooth list failed: {NativeRadio.LastError()}");
-                    return;
-                }
-                var devices = ReadArray(
-                    items, count, NativeRadio.BluetoothRecordSize, NativeRadio.ReadBluetoothDevice);
-                NativeRadio.FreeBluetoothDevices(items, count);
-                var elapsed = DateTime.UtcNow - started;
-                if (!_bluetoothTimingLogged)
-                {
-                    _bluetoothTimingLogged = true;
-                    Log.Info(
-                        $"Bluetooth list: {devices.Count} device(s) in {elapsed.TotalSeconds:F1}s.");
-                }
-                Dispatcher.UIThread.Post(() => ReconcileDevices(devices));
+                BluetoothDevices.Remove(row);
             }
-            catch (Exception ex)
-            {
-                Log.Warn($"Bluetooth refresh failed: {ex.Message}");
-            }
-            finally
-            {
-                Interlocked.Exchange(ref _refreshingBluetooth, 0);
-            }
-        });
+            return;
+        }
+        if (row is null)
+        {
+            row = new BluetoothDeviceEntry(id);
+            BluetoothDevices.Add(row);
+        }
+        row.Name = name;
+        row.Paired = paired;
+        row.CanPair = canPair;
+        BluetoothStateText = DescribeBluetooth(BluetoothPower, BluetoothDevices.Count);
     }
 
     private static RadioPower ReadPower(int kind) =>
@@ -464,12 +629,13 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             row.Signal = source.Signal;
             row.Security = (WifiSecurity)source.Security;
             row.Saved = source.Saved;
-            // The strongest saved network is the one we are on: the list is
-            // sorted by signal and only a saved profile can already be joined.
-            row.Connected = WifiConnected && source.Saved && i == 0;
+            // Reported by the WLAN service, never guessed from list position:
+            // the joined network is not always the strongest one visible.
+            row.Connected = source.Connected;
             if (row.Connected)
             {
                 connected = row.Ssid;
+                WifiSignal = row.Signal;
             }
         }
         for (var i = Networks.Count - 1; i >= fresh.Count; i--)
@@ -477,6 +643,10 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             Networks.RemoveAt(i);
         }
         ConnectedSsid = connected;
+        if (connected.Length == 0)
+        {
+            WifiSignal = 0;
+        }
     }
 
     private WifiNetworkEntry? FindNetwork(string ssid)

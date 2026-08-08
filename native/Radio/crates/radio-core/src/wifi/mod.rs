@@ -13,6 +13,7 @@
 //! [`Error::Win32`] with code 5 so the UI can explain it rather than showing an
 //! empty list.
 
+pub mod notify;
 pub mod profile;
 pub mod reason;
 
@@ -24,12 +25,13 @@ use windows::Win32::NetworkManagement::WiFi::{
     DOT11_AUTH_ALGO_80211_OPEN, DOT11_AUTH_ALGO_OWE, DOT11_AUTH_ALGO_RSNA,
     DOT11_AUTH_ALGO_RSNA_PSK, DOT11_AUTH_ALGO_WPA, DOT11_AUTH_ALGO_WPA3,
     DOT11_AUTH_ALGO_WPA3_ENT, DOT11_AUTH_ALGO_WPA3_ENT_192, DOT11_AUTH_ALGO_WPA3_SAE,
-    DOT11_AUTH_ALGO_WPA_PSK, WLAN_AVAILABLE_NETWORK_LIST,
+    DOT11_AUTH_ALGO_WPA_PSK, WLAN_AVAILABLE_NETWORK_LIST, WLAN_CONNECTION_ATTRIBUTES,
     WLAN_CONNECTION_PARAMETERS, WLAN_INTERFACE_INFO_LIST, WLAN_INTERFACE_STATE,
-    WlanCloseHandle, WlanConnect, WlanDeleteProfile, WlanDisconnect, WlanEnumInterfaces,
-    WlanFreeMemory, WlanGetAvailableNetworkList, WlanOpenHandle, WlanScan, WlanSetProfile,
-    dot11_BSS_type_infrastructure,
-    wlan_connection_mode_profile,
+    WLAN_PROFILE_INFO_LIST, WlanCloseHandle, WlanConnect, WlanDeleteProfile, WlanDisconnect,
+    WlanEnumInterfaces, WlanFreeMemory, WlanGetAvailableNetworkList, WlanGetProfileList,
+    WlanOpenHandle, WlanQueryInterface, WlanScan, WlanSetProfile,
+    dot11_BSS_type_infrastructure, wlan_connection_mode_profile,
+    wlan_intf_opcode_current_connection,
 };
 use windows_core::{GUID, PCWSTR};
 
@@ -77,6 +79,8 @@ pub struct Network {
     pub saved: bool,
     /// Whether Windows believes the network can currently be joined.
     pub connectable: bool,
+    /// Whether this is the network currently joined.
+    pub connected: bool,
 }
 
 /// A WLAN client handle that closes itself.
@@ -149,6 +153,78 @@ pub fn state() -> Result<InterfaceState> {
     Ok(first_interface(&client)?.1)
 }
 
+/// The names of every saved profile on an interface.
+///
+/// This is the authoritative answer to "is this network saved", and the reason
+/// it exists: `WLAN_AVAILABLE_NETWORK.strProfileName` is not reliably populated
+/// for every visible entry of a saved network, so deciding from the scan list
+/// alone can report a saved network as new — and then ask for a password that
+/// is already stored.
+fn profile_names(client: &Client, guid: &GUID) -> Result<Vec<String>> {
+    let mut list: *mut WLAN_PROFILE_INFO_LIST = null_mut();
+    let status = unsafe { WlanGetProfileList(client.0, guid, None, &mut list) };
+    win32("WlanGetProfileList", status)?;
+    let _owned = WlanBuffer(list);
+    if list.is_null() {
+        return Ok(Vec::new());
+    }
+    // SAFETY: dwNumberOfItems describes the real length behind the [T; 1].
+    let entries = unsafe {
+        let count = (*list).dwNumberOfItems as usize;
+        std::slice::from_raw_parts((*list).ProfileInfo.as_ptr(), count)
+    };
+    Ok(entries
+        .iter()
+        .map(|entry| decode_fixed(&entry.strProfileName))
+        .filter(|name| !name.is_empty())
+        .collect())
+}
+
+fn has_profile(client: &Client, guid: &GUID, ssid: &str) -> Result<bool> {
+    Ok(profile_names(client, guid)?
+        .iter()
+        .any(|name| name == ssid))
+}
+
+/// The SSID of the network currently joined, if any.
+///
+/// Gated by the same location consent as the scan on Windows 11 24H2, so a
+/// failure here is not fatal — it only costs the "connected" marker.
+fn current_ssid(client: &Client, guid: &GUID) -> Option<String> {
+    let mut size = 0u32;
+    let mut data: *mut c_void = null_mut();
+    let status = unsafe {
+        WlanQueryInterface(
+            client.0,
+            guid,
+            wlan_intf_opcode_current_connection,
+            None,
+            &mut size,
+            &mut data,
+            None,
+        )
+    };
+    if status != 0 || data.is_null() {
+        return None;
+    }
+    let _owned = WlanBuffer(data);
+    // SAFETY: a successful current_connection query returns exactly one
+    // WLAN_CONNECTION_ATTRIBUTES.
+    let attributes = unsafe { &*(data as *const WLAN_CONNECTION_ATTRIBUTES) };
+    if InterfaceState::from_raw(attributes.isState) != InterfaceState::Connected {
+        return None;
+    }
+    let ssid = &attributes.wlanAssociationAttributes.dot11Ssid;
+    let text = decode_ssid(&ssid.ucSSID, ssid.uSSIDLength as usize);
+    (!text.is_empty()).then_some(text)
+}
+
+/// Decodes a NUL-terminated fixed-width UTF-16 field.
+fn decode_fixed(field: &[u16]) -> String {
+    let end = field.iter().position(|&c| c == 0).unwrap_or(field.len());
+    String::from_utf16_lossy(&field[..end])
+}
+
 /// Asks the driver to start a scan.
 ///
 /// Returns as soon as the request is accepted; results appear in the available
@@ -183,6 +259,12 @@ pub fn networks() -> Result<Vec<Network>> {
         std::slice::from_raw_parts((*list).Network.as_ptr(), count)
     };
 
+    // Both read from the service rather than being inferred from the scan list:
+    // getting "saved" wrong is what makes the UI ask for a password it already
+    // has, and then overwrite the stored one.
+    let saved_profiles = profile_names(&client, &guid).unwrap_or_default();
+    let connected = current_ssid(&client, &guid);
+
     let mut networks: Vec<Network> = Vec::with_capacity(entries.len());
     for entry in entries {
         let ssid = decode_ssid(&entry.dot11Ssid.ucSSID, entry.dot11Ssid.uSSIDLength as usize);
@@ -197,7 +279,8 @@ pub fn networks() -> Result<Vec<Network>> {
             entry.bSecurityEnabled.as_bool(),
             entry.dot11DefaultAuthAlgorithm.0,
         );
-        let saved = entry.strProfileName[0] != 0;
+        let saved = entry.strProfileName[0] != 0 || saved_profiles.contains(&ssid);
+        let is_connected = connected.as_deref() == Some(ssid.as_str());
         // The list can carry the same SSID more than once (different PHY types);
         // keep the strongest, and let any saved entry win the saved flag.
         if let Some(existing) = networks.iter_mut().find(|n| n.ssid == ssid) {
@@ -212,6 +295,7 @@ pub fn networks() -> Result<Vec<Network>> {
             security,
             saved,
             connectable: entry.bNetworkConnectable.as_bool(),
+            connected: is_connected,
         });
     }
     networks.sort_by(|a, b| b.signal.cmp(&a.signal).then_with(|| a.ssid.cmp(&b.ssid)));
@@ -281,28 +365,44 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
     let client = Client::open()?;
     let (guid, _) = first_interface(&client)?;
 
-    // Author the profile, preferring WPA3 transition mode so one profile covers
-    // both WPA3-Personal and WPA2-PSK, and falling back when it is rejected.
-    let mut last: Option<Error> = None;
-    let attempts: Vec<String> = match passphrase {
-        None => vec![profile::open_profile(ssid)],
-        Some(pass) => vec![
-            profile::psk_profile(ssid, pass, true),
-            profile::psk_profile(ssid, pass, false),
-        ],
-    };
-    let mut installed = false;
-    for xml in &attempts {
-        match set_profile(&client, &guid, xml) {
-            Ok(()) => {
-                installed = true;
-                break;
+    // A profile is authored ONLY when the caller supplied a passphrase. Writing
+    // one for a network that already has a saved profile would overwrite it —
+    // and with no passphrase to put in it, an open-network profile would replace
+    // the user's stored credentials and destroy them. Joining a saved network
+    // means connecting to the profile that is already there, untouched.
+    match passphrase {
+        Some(pass) => {
+            // Prefer WPA3 transition mode so one profile covers WPA3-Personal
+            // and WPA2-PSK alike, falling back when the adapter rejects it.
+            let attempts = [
+                profile::psk_profile(ssid, pass, true),
+                profile::psk_profile(ssid, pass, false),
+            ];
+            let mut last: Option<Error> = None;
+            let mut installed = false;
+            for xml in &attempts {
+                match set_profile(&client, &guid, xml) {
+                    Ok(()) => {
+                        installed = true;
+                        break;
+                    }
+                    Err(e) => last = Some(e),
+                }
             }
-            Err(e) => last = Some(e),
+            if !installed {
+                return Err(
+                    last.unwrap_or(Error::InvalidArgument("profile could not be installed"))
+                );
+            }
         }
-    }
-    if !installed {
-        return Err(last.unwrap_or(Error::InvalidArgument("profile could not be installed")));
+        None => {
+            // No passphrase: only ever create a profile when the network has
+            // none at all AND needs no key. Anything else is either already
+            // joinable or genuinely missing a password.
+            if !has_profile(&client, &guid, ssid)? {
+                set_profile(&client, &guid, &profile::open_profile(ssid))?;
+            }
+        }
     }
 
     let name = wide(ssid);
@@ -370,11 +470,6 @@ pub fn forget(ssid: &str) -> Result<()> {
     let status = unsafe { WlanDeleteProfile(client.0, &guid, PCWSTR(name.as_ptr()), None) };
     win32("WlanDeleteProfile", status)
 }
-
-/// Unused placeholder to keep the c_void import honest for future notification
-/// work; removed once the notification registration lands.
-#[allow(dead_code)]
-fn _unused(_: *mut c_void) {}
 
 #[cfg(test)]
 mod tests {

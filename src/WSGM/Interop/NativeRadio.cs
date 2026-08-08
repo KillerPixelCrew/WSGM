@@ -88,6 +88,24 @@ internal static unsafe partial class NativeRadio
     [LibraryImport(Library, EntryPoint = "wsgm_bt_unpair", StringMarshalling = StringMarshalling.Utf16)]
     internal static partial int UnpairBluetooth(string deviceId, out int removed);
 
+    [LibraryImport(Library, EntryPoint = "wsgm_bt_watch_start")]
+    internal static partial int StartBluetoothWatch(nint onChange, nint context);
+
+    [LibraryImport(Library, EntryPoint = "wsgm_bt_watch_stop")]
+    internal static partial int StopBluetoothWatch();
+
+    [LibraryImport(Library, EntryPoint = "wsgm_wifi_watch_start")]
+    internal static partial int StartWifiWatch(nint onEvent, nint context);
+
+    [LibraryImport(Library, EntryPoint = "wsgm_wifi_watch_stop")]
+    internal static partial int StopWifiWatch();
+
+    /// <summary>Shows the Windows touch keyboard through the shell's
+    /// ITipInvocation. Starting TabTip.exe does nothing on Windows 11 when it is
+    /// already running, which is why this goes through the helper.</summary>
+    [LibraryImport(Library, EntryPoint = "wsgm_touch_keyboard_show")]
+    internal static partial int ShowTouchKeyboard();
+
     [LibraryImport(Library, EntryPoint = "wsgm_radio_last_error")]
     private static partial uint GetLastErrorText(char* buffer, uint capacity);
 
@@ -97,9 +115,10 @@ internal static unsafe partial class NativeRadio
     private const int WifiSecurityOffset = WifiSignalOffset + 4;
     private const int WifiSavedOffset = WifiSecurityOffset + 4;
     private const int WifiConnectableOffset = WifiSavedOffset + 4;
+    private const int WifiConnectedOffset = WifiConnectableOffset + 4;
 
     /// <summary>The size of one WsgmWifiNetwork record.</summary>
-    internal const int WifiRecordSize = WifiConnectableOffset + 4;
+    internal const int WifiRecordSize = WifiConnectedOffset + 4;
 
     // WsgmBtDevice: id[256] then name[128] UTF-16, then two 4-byte fields.
     private const int BtIdUnits = 256;
@@ -117,8 +136,9 @@ internal static unsafe partial class NativeRadio
     /// <param name="Security">0 open, 1 pre-shared key, 2 enterprise.</param>
     /// <param name="Saved">Whether a saved profile already exists.</param>
     /// <param name="Connectable">Whether Windows believes it can be joined.</param>
+    /// <param name="Connected">Whether this is the network currently joined.</param>
     internal readonly record struct WifiNetwork(
-        string Ssid, int Signal, int Security, bool Saved, bool Connectable);
+        string Ssid, int Signal, int Security, bool Saved, bool Connectable, bool Connected);
 
     /// <summary>One Bluetooth device.</summary>
     /// <param name="Id">The WinRT device id; the handle for every other call.</param>
@@ -152,7 +172,8 @@ internal static unsafe partial class NativeRadio
         Marshal.ReadInt32(record, WifiSignalOffset),
         Marshal.ReadInt32(record, WifiSecurityOffset),
         Marshal.ReadInt32(record, WifiSavedOffset) != 0,
-        Marshal.ReadInt32(record, WifiConnectableOffset) != 0);
+        Marshal.ReadInt32(record, WifiConnectableOffset) != 0,
+        Marshal.ReadInt32(record, WifiConnectedOffset) != 0);
 
     /// <summary>Decodes one WsgmBtDevice record.</summary>
     /// <param name="record">A pointer to the record.</param>

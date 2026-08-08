@@ -14,12 +14,13 @@
 //! cannot summon with no shell running.
 
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use windows::Devices::Enumeration::{
-    DeviceInformation, DeviceInformationCustomPairing, DeviceInformationKind, DevicePairingKinds,
-    DevicePairingProtectionLevel, DevicePairingRequestedEventArgs, DevicePairingResultStatus,
-    DeviceUnpairingResultStatus,
+    DeviceInformation, DeviceInformationCustomPairing, DeviceInformationKind,
+    DeviceInformationUpdate, DevicePairingKinds, DevicePairingProtectionLevel,
+    DevicePairingRequestedEventArgs, DevicePairingResultStatus, DeviceUnpairingResultStatus,
+    DeviceWatcher,
 };
 use windows::Foundation::{Deferral, TypedEventHandler};
 use windows_core::HSTRING;
@@ -220,8 +221,162 @@ fn read_devices(filter: &str) -> Result<Vec<Device>> {
 }
 
 /// Lists Bluetooth devices that are currently visible or already known.
+///
+/// Blocks for the full discovery — measured at ~30 s, and the same with a
+/// paired-only filter, because the AQS is evaluated against a live inquiry
+/// either way. Use [`start_watch`] for anything a user is waiting on.
 pub fn devices() -> Result<Vec<Device>> {
     on_mta(|| read_devices(BLUETOOTH_AQS))?
+}
+
+/// Something the device watcher observed.
+#[derive(Debug, Clone)]
+pub enum WatchEvent {
+    /// A device appeared. Known and paired devices arrive first, within
+    /// milliseconds; the rest trickle in as the inquiry progresses.
+    Added(Device),
+
+    /// A device's properties changed — most usefully, it became paired.
+    Updated(Device),
+
+    /// A device went out of range.
+    Removed(String),
+
+    /// The initial enumeration finished. Anything after this is a live change.
+    Ready,
+}
+
+/// The live watcher, kept alive because dropping it stops the enumeration.
+static WATCHER: OnceLock<Mutex<Option<DeviceWatcher>>> = OnceLock::new();
+
+fn watcher_slot() -> &'static Mutex<Option<DeviceWatcher>> {
+    WATCHER.get_or_init(|| Mutex::new(None))
+}
+
+fn read_one(info: &DeviceInformation) -> Option<Device> {
+    let id = info.Id().map(|s| s.to_string_lossy()).unwrap_or_default();
+    if id.is_empty() {
+        return None;
+    }
+    let name = info.Name().map(|s| s.to_string_lossy()).unwrap_or_default();
+    let (paired, can_pair) = match info.Pairing() {
+        Ok(pairing) => (
+            pairing.IsPaired().unwrap_or(false),
+            pairing.CanPair().unwrap_or(false),
+        ),
+        Err(_) => (false, false),
+    };
+    Some(Device {
+        id,
+        name,
+        paired,
+        can_pair,
+    })
+}
+
+/// Starts streaming Bluetooth devices to `on_event`.
+///
+/// This is what makes the picker usable: a blocking enumeration takes about
+/// half a minute before showing anything at all, whereas a watcher reports the
+/// already-known devices almost immediately and adds the rest as they are
+/// found. Restarting is safe — any previous watcher is stopped first.
+///
+/// Events arrive on WinRT worker threads, so `on_event` must be cheap and must
+/// not block; the caller marshals to its own UI thread.
+pub fn start_watch<F>(on_event: F) -> Result<()>
+where
+    F: Fn(WatchEvent) + Send + Sync + 'static,
+{
+    stop_watch();
+    let handler = Arc::new(on_event);
+    let added = Arc::clone(&handler);
+    let updated = Arc::clone(&handler);
+    let removed = Arc::clone(&handler);
+    let ready = Arc::clone(&handler);
+
+    on_mta(move || {
+        let aqs = HSTRING::from(BLUETOOTH_AQS);
+        // The kind is load-bearing: these filters query System.Devices.Aep.*
+        // properties, which exist only on association endpoints. Watching device
+        // interfaces instead silently finds nothing.
+        let watcher = DeviceInformation::CreateWatcherWithKindAqsFilterAndAdditionalProperties(
+            &aqs,
+            None,
+            DeviceInformationKind::AssociationEndpoint,
+        )
+        .map_err(|e| winrt("DeviceInformation.CreateWatcher", e))?;
+
+        watcher
+            .Added(&TypedEventHandler::new(
+                move |_, info: windows_core::Ref<'_, DeviceInformation>| {
+                    if let Some(info) = info.as_ref()
+                        && let Some(device) = read_one(info)
+                    {
+                        added(WatchEvent::Added(device));
+                    }
+                    Ok(())
+                },
+            ))
+            .map_err(|e| winrt("DeviceWatcher.Added", e))?;
+
+        watcher
+            .Updated(&TypedEventHandler::new(
+                move |_, update: windows_core::Ref<'_, DeviceInformationUpdate>| {
+                    // An update carries only the changed properties, so the id is
+                    // re-resolved to pick up a pairing change.
+                    if let Some(update) = update.as_ref()
+                        && let Ok(id) = update.Id()
+                        && let Ok(operation) = DeviceInformation::CreateFromIdAsync(&id)
+                        && let Ok(info) = operation.join()
+                        && let Some(device) = read_one(&info)
+                    {
+                        updated(WatchEvent::Updated(device));
+                    }
+                    Ok(())
+                },
+            ))
+            .map_err(|e| winrt("DeviceWatcher.Updated", e))?;
+
+        watcher
+            .Removed(&TypedEventHandler::new(
+                move |_, update: windows_core::Ref<'_, DeviceInformationUpdate>| {
+                    if let Some(update) = update.as_ref()
+                        && let Ok(id) = update.Id()
+                    {
+                        removed(WatchEvent::Removed(id.to_string_lossy()));
+                    }
+                    Ok(())
+                },
+            ))
+            .map_err(|e| winrt("DeviceWatcher.Removed", e))?;
+
+        watcher
+            .EnumerationCompleted(&TypedEventHandler::new(move |_, _| {
+                ready(WatchEvent::Ready);
+                Ok(())
+            }))
+            .map_err(|e| winrt("DeviceWatcher.EnumerationCompleted", e))?;
+
+        watcher
+            .Start()
+            .map_err(|e| winrt("DeviceWatcher.Start", e))?;
+        if let Ok(mut slot) = watcher_slot().lock() {
+            *slot = Some(watcher);
+        }
+        Ok(())
+    })?
+}
+
+/// Stops the watcher started by [`start_watch`]. Idempotent.
+pub fn stop_watch() {
+    let existing = watcher_slot().lock().ok().and_then(|mut slot| slot.take());
+    let Some(watcher) = existing else {
+        return;
+    };
+    // Stopping touches the same apartment the watcher was created in.
+    let _ = on_mta(move || {
+        let _ = watcher.Stop();
+    });
 }
 
 /// Lists only devices that are already paired.

@@ -69,6 +69,8 @@ public sealed class WifiNetworkEntry : INotifyPropertyChanged
                 _security = value;
                 Raise(nameof(Security));
                 Raise(nameof(NeedsPassword));
+                Raise(nameof(Secured));
+                Raise(nameof(StatusLine));
             }
         }
     }
@@ -85,6 +87,7 @@ public sealed class WifiNetworkEntry : INotifyPropertyChanged
                 _saved = value;
                 Raise(nameof(Saved));
                 Raise(nameof(NeedsPassword));
+                Raise(nameof(StatusLine));
             }
         }
     }
@@ -94,12 +97,57 @@ public sealed class WifiNetworkEntry : INotifyPropertyChanged
     public bool Connected
     {
         get => _connected;
-        internal set => Set(ref _connected, value, nameof(Connected));
+        internal set
+        {
+            if (_connected != value)
+            {
+                _connected = value;
+                Raise(nameof(Connected));
+                Raise(nameof(IconState));
+                Raise(nameof(StatusLine));
+                Raise(nameof(ActionText));
+            }
+        }
     }
 
     /// <summary>Gets whether joining this network needs a password prompt: it is
     /// secured, and no saved profile already carries the key.</summary>
     public bool NeedsPassword => Security == WifiSecurity.Personal && !Saved;
+
+    /// <summary>Gets whether the network is protected at all.</summary>
+    public bool Secured => Security != WifiSecurity.Open;
+
+    private bool _expanded;
+    /// <summary>Gets whether this row is showing its actions. Selecting a row
+    /// reveals what can be done with it rather than acting immediately — a tap
+    /// must never disconnect the network the user is using.</summary>
+    public bool Expanded
+    {
+        get => _expanded;
+        internal set => Set(ref _expanded, value, nameof(Expanded));
+    }
+
+    /// <summary>Gets the icon state: off is never used here (a listed network
+    /// implies a live radio), so this is connected or merely visible.</summary>
+    public Controls.RadioIconState IconState => Connected
+        ? Controls.RadioIconState.Connected
+        : Controls.RadioIconState.Disconnected;
+
+    /// <summary>Gets the second line under the name.</summary>
+    public string StatusLine => Connected
+        ? "Connected"
+        : Security switch
+        {
+            WifiSecurity.Enterprise => "Enterprise network (not supported here)",
+            WifiSecurity.Open => Saved ? "Open, saved" : "Open",
+            _ => Saved ? "Saved" : "Secured",
+        };
+
+    /// <summary>Gets whether the second line has anything to say.</summary>
+    public bool HasStatusLine => StatusLine.Length > 0;
+
+    /// <summary>Gets the label for this row's action button.</summary>
+    public string ActionText => Connected ? "Disconnect" : "Connect";
 
     private void Set(ref int field, int value, string name)
     {
@@ -165,6 +213,8 @@ public sealed class BluetoothDeviceEntry : INotifyPropertyChanged
                 _paired = value;
                 Raise(nameof(Paired));
                 Raise(nameof(ActionText));
+                Raise(nameof(IconState));
+                Raise(nameof(StatusLine));
             }
         }
     }
@@ -174,7 +224,15 @@ public sealed class BluetoothDeviceEntry : INotifyPropertyChanged
     public bool CanPair
     {
         get => _canPair;
-        internal set => Set(ref _canPair, value, nameof(CanPair));
+        internal set
+        {
+            if (_canPair != value)
+            {
+                _canPair = value;
+                Raise(nameof(CanPair));
+                Raise(nameof(StatusLine));
+            }
+        }
     }
 
     private bool _busy;
@@ -189,12 +247,36 @@ public sealed class BluetoothDeviceEntry : INotifyPropertyChanged
                 _busy = value;
                 Raise(nameof(Busy));
                 Raise(nameof(ActionText));
+                Raise(nameof(StatusLine));
             }
         }
     }
 
     /// <summary>Gets the label for this row's button.</summary>
     public string ActionText => Busy ? "Working..." : Paired ? "Remove" : "Pair";
+
+    private bool _expanded;
+    /// <summary>Gets whether this row is showing its actions. Same reasoning as
+    /// the Wi-Fi rows: a tap reveals the choice, it does not take it.</summary>
+    public bool Expanded
+    {
+        get => _expanded;
+        internal set => Set(ref _expanded, value, nameof(Expanded));
+    }
+
+    /// <summary>Gets the icon state. A paired device reads as connected, which
+    /// is the distinction that matters in a picker full of nearby strangers.</summary>
+    public Controls.RadioIconState IconState => Paired
+        ? Controls.RadioIconState.Connected
+        : Controls.RadioIconState.Disconnected;
+
+    /// <summary>Gets the second line under the name.</summary>
+    public string StatusLine => Busy
+        ? "Working..."
+        : Paired ? "Paired" : CanPair ? "Available" : "Not available";
+
+    /// <summary>Gets whether the second line has anything to say.</summary>
+    public bool HasStatusLine => StatusLine.Length > 0;
 
     private void Set(ref bool field, bool value, string name)
     {

@@ -10,6 +10,8 @@
 //! * `SetStateAsync` is gated by the "Allow apps to control device radios"
 //!   privacy setting. Reading state and enumerating are never gated.
 
+use std::sync::{Mutex, OnceLock};
+
 use windows::Devices::Radios::{
     Radio, RadioAccessStatus, RadioKind as WinRtRadioKind, RadioState as WinRtRadioState,
 };
@@ -120,14 +122,55 @@ fn all_radios() -> Result<Vec<Radio>> {
     Ok(found)
 }
 
+/// Cached `Radio` objects, keyed by kind.
+///
+/// `GetRadiosAsync` is an enumeration across every radio driver on the machine
+/// and costs seconds on some hardware — far too slow to repeat on every status
+/// tick, which is what made the panel take about ten seconds to show anything.
+/// The objects themselves are long-lived and agile, and `State()` on a cached
+/// one reflects the live value, so only the lookup is cached, never the state.
+static CACHE: OnceLock<Mutex<Vec<(RadioKind, Radio)>>> = OnceLock::new();
+
+fn cache() -> &'static Mutex<Vec<(RadioKind, Radio)>> {
+    CACHE.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+fn cached(kind: RadioKind) -> Option<Radio> {
+    cache()
+        .lock()
+        .ok()?
+        .iter()
+        .find(|(cached_kind, _)| *cached_kind == kind)
+        .map(|(_, radio)| radio.clone())
+}
+
 fn first_of(kind: RadioKind) -> Result<Option<Radio>> {
-    for radio in all_radios()? {
-        let actual = radio.Kind().map_err(|e| winrt("Radio.Kind", e))?;
-        if kind.matches(actual) {
+    if let Some(radio) = cached(kind) {
+        // Prove the cached object still answers; a radio can be removed.
+        if radio.State().is_ok() {
             return Ok(Some(radio));
         }
+        if let Ok(mut entries) = cache().lock() {
+            entries.clear();
+        }
     }
-    Ok(None)
+    let mut found = None;
+    let mut entries = Vec::new();
+    for radio in all_radios()? {
+        let actual = radio.Kind().map_err(|e| winrt("Radio.Kind", e))?;
+        for candidate in [RadioKind::WiFi, RadioKind::Bluetooth] {
+            if candidate.matches(actual) {
+                entries.push((candidate, radio.clone()));
+                if candidate == kind {
+                    found = Some(radio.clone());
+                }
+            }
+        }
+    }
+    if let Ok(mut cache_entries) = cache().lock() {
+        *cache_entries = entries;
+    }
+    Ok(found)
 }
 
 /// Reads the current power state of a radio.
