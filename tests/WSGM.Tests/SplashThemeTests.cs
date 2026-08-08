@@ -665,6 +665,235 @@ public sealed class SplashThemeTests : IDisposable
         Assert.Equal(16384, imported.TextPlacement.Y);
     }
 
+    /// <summary>Builds a staging directory holding one staged image, exactly like a
+    /// successful import leaves it.</summary>
+    private static string StagedDirectory(string stagingRoot, string name)
+    {
+        var directory = Path.Combine(stagingRoot, name);
+        Directory.CreateDirectory(directory);
+        File.WriteAllBytes(Path.Combine(directory, "logo.png"), [1, 2, 3]);
+        return directory;
+    }
+
+    private static void Backdate(string directory)
+    {
+        var old = DateTime.UtcNow.AddDays(-2);
+        Directory.SetCreationTimeUtc(directory, old);
+        Directory.SetLastWriteTimeUtc(directory, old);
+    }
+
+    [Fact]
+    public void AStagingDirectoryOwnedByAnotherSettingsWindowSurvivesTheSweep()
+    {
+        var stagingRoot = Path.Combine(_root, "staging");
+        var otherWindow = StagedDirectory(stagingRoot, "window-a");
+        var thisImport = StagedDirectory(stagingRoot, "window-b");
+        using var owner = SplashTheme.ClaimStagingDirectory(otherWindow);
+        Assert.NotNull(owner);
+
+        SplashTheme.CleanUpStaleStagingDirectories(stagingRoot, keep: thisImport);
+
+        // The other window's unsaved import must still be able to materialize on Save.
+        Assert.True(Directory.Exists(otherWindow));
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(Path.Combine(otherWindow, "logo.png")));
+    }
+
+    [Fact]
+    public void AnOwnedStagingDirectorySurvivesEvenWhenItIsAncient()
+    {
+        var stagingRoot = Path.Combine(_root, "staging");
+        var otherWindow = StagedDirectory(stagingRoot, "long-open-window");
+        using var owner = SplashTheme.ClaimStagingDirectory(otherWindow);
+        Assert.NotNull(owner);
+        Backdate(otherWindow);
+
+        SplashTheme.CleanUpStaleStagingDirectories(stagingRoot, keep: Path.Combine(stagingRoot, "current"));
+
+        Assert.True(File.Exists(Path.Combine(otherWindow, "logo.png")));
+    }
+
+    [Fact]
+    public void AStagingDirectoryWhoseOwnerIsGoneIsSwept()
+    {
+        var stagingRoot = Path.Combine(_root, "staging");
+        var abandoned = StagedDirectory(stagingRoot, "saved-and-forgotten");
+        SplashTheme.ClaimStagingDirectory(abandoned)!.Dispose();
+
+        SplashTheme.CleanUpStaleStagingDirectories(stagingRoot, keep: Path.Combine(stagingRoot, "current"));
+
+        Assert.False(Directory.Exists(abandoned));
+    }
+
+    [Fact]
+    public void ACrashLeftStagingDirectoryIsSweptOnceNoProcessHoldsItsMarker()
+    {
+        var stagingRoot = Path.Combine(_root, "staging");
+        var crashed = StagedDirectory(stagingRoot, "crashed-process");
+        var marker = SplashTheme.ClaimStagingDirectory(crashed);
+        Assert.NotNull(marker);
+
+        // While the crashed process was alive the directory is untouchable...
+        SplashTheme.CleanUpStaleStagingDirectories(stagingRoot, keep: Path.Combine(stagingRoot, "current"));
+        Assert.True(Directory.Exists(crashed));
+        Assert.True(File.Exists(Path.Combine(crashed, SplashTheme.OwnerMarkerName)));
+
+        // ...and the moment Windows releases its handles (which it does on a crash too)
+        // the very same marker becomes the signal that collects the directory.
+        marker.Dispose();
+        SplashTheme.CleanUpStaleStagingDirectories(stagingRoot, keep: Path.Combine(stagingRoot, "current"));
+
+        Assert.False(Directory.Exists(crashed));
+    }
+
+    [Fact]
+    public void TheCurrentImportsOwnStagingDirectoryIsNeverSwept()
+    {
+        var stagingRoot = Path.Combine(_root, "staging");
+        var current = StagedDirectory(stagingRoot, "current");
+        // Neither owned nor young — the keep rule alone has to save it.
+        Backdate(current);
+
+        SplashTheme.CleanUpStaleStagingDirectories(
+            stagingRoot,
+            keep: Path.Combine(stagingRoot, ".", "current")
+        );
+
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(Path.Combine(current, "logo.png")));
+    }
+
+    [Fact]
+    public void AMarkerlessStagingDirectoryIsKeptUntilItIsAncient()
+    {
+        var stagingRoot = Path.Combine(_root, "staging");
+        var young = StagedDirectory(stagingRoot, "no-marker-young");
+        var ancient = StagedDirectory(stagingRoot, "no-marker-ancient");
+        Backdate(ancient);
+
+        SplashTheme.CleanUpStaleStagingDirectories(stagingRoot, keep: Path.Combine(stagingRoot, "current"));
+
+        // An import whose marker could not be written (or one from an older build) may
+        // still be on screen in another window; only age can retire it.
+        Assert.True(Directory.Exists(young));
+        Assert.False(Directory.Exists(ancient));
+    }
+
+    [Fact]
+    public void ClaimingLeavesTheStagedImagesAloneAndClaimsNothingWhenNothingWasStaged()
+    {
+        var stagingRoot = Path.Combine(_root, "staging");
+        var staged = StagedDirectory(stagingRoot, "with-images");
+        using var owner = SplashTheme.ClaimStagingDirectory(staged);
+
+        Assert.NotNull(owner);
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(Path.Combine(staged, "logo.png")));
+        // A config-only theme stages nothing, so there is no directory to own.
+        Assert.Null(SplashTheme.ClaimStagingDirectory(Path.Combine(stagingRoot, "never-created")));
+        Assert.False(Directory.Exists(Path.Combine(stagingRoot, "never-created")));
+    }
+
+    [Fact]
+    public void TheKeepPathStillMatchesWhenItCarriesATrailingSeparator()
+    {
+        var stagingRoot = Path.Combine(_root, "staging");
+        var current = StagedDirectory(stagingRoot, "current");
+        // Neither owned nor young — the keep rule alone has to save it.
+        Backdate(current);
+
+        // Path.GetFullPath preserves a trailing separator while EnumerateDirectories
+        // never produces one, so an exact string comparison used to miss the match and
+        // hand the caller's OWN staging directory to the delete rules.
+        SplashTheme.CleanUpStaleStagingDirectories(
+            stagingRoot, keep: current + Path.DirectorySeparatorChar);
+
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(Path.Combine(current, "logo.png")));
+    }
+
+    [Fact]
+    public void ASweepWithoutAKeepStillHonoursOwnershipAndAge()
+    {
+        var stagingRoot = Path.Combine(_root, "staging");
+        var owned = StagedDirectory(stagingRoot, "owned");
+        var young = StagedDirectory(stagingRoot, "markerless-young");
+        var ancient = StagedDirectory(stagingRoot, "markerless-ancient");
+        Backdate(ancient);
+        using var owner = SplashTheme.ClaimStagingDirectory(owned);
+        Assert.NotNull(owner);
+
+        // The session sweeps belong to no import, so there is nothing to keep by name.
+        SplashTheme.CleanUpStaleStagingDirectories(stagingRoot, keep: null);
+
+        Assert.True(File.Exists(Path.Combine(owned, "logo.png")));
+        Assert.True(Directory.Exists(young));
+        Assert.False(Directory.Exists(ancient));
+    }
+
+    [Fact]
+    public void TrackedStagingOwnershipIsHeldUntilTheLastImportSessionEnds()
+    {
+        var stagingRoot = Path.Combine(_root, "staging");
+        var staged = StagedDirectory(stagingRoot, "unsaved-import");
+        SplashTheme.BeginImportSession(stagingRoot);
+        SplashTheme.TrackStagingOwnership(staged);
+
+        // A second settings window opens and closes while the import is unsaved: its
+        // close must not free the first window's staged images.
+        SplashTheme.BeginImportSession(stagingRoot);
+        SplashTheme.EndImportSession(stagingRoot);
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(Path.Combine(staged, "logo.png")));
+
+        // The window that imported closes: nothing can point at the staged images any
+        // more, so the claim is dropped and the same sweep collects the directory —
+        // which used to stay pinned until the whole shell process exited.
+        SplashTheme.EndImportSession(stagingRoot);
+
+        Assert.False(Directory.Exists(staged));
+    }
+
+    [Fact]
+    public void OpeningAnImportSessionSweepsOrphansEvenWhenNothingIsImported()
+    {
+        var stagingRoot = Path.Combine(_root, "staging");
+        var abandoned = StagedDirectory(stagingRoot, "previous-session");
+        var ancient = StagedDirectory(stagingRoot, "markerless-ancient");
+        var liveElsewhere = StagedDirectory(stagingRoot, "other-process");
+        SplashTheme.ClaimStagingDirectory(abandoned)!.Dispose();
+        Backdate(ancient);
+        using var otherProcess = SplashTheme.ClaimStagingDirectory(liveElsewhere);
+
+        // Import used to be the sweep's only caller, so a session that never imported
+        // again collected nothing at all.
+        SplashTheme.BeginImportSession(stagingRoot);
+        try
+        {
+            Assert.False(Directory.Exists(abandoned));
+            Assert.False(Directory.Exists(ancient));
+            // Another live owner's directory is never collected, whoever sweeps.
+            Assert.Equal([1, 2, 3], File.ReadAllBytes(Path.Combine(liveElsewhere, "logo.png")));
+        }
+        finally
+        {
+            SplashTheme.EndImportSession(stagingRoot);
+        }
+
+        Assert.True(Directory.Exists(liveElsewhere));
+    }
+
+    [Fact]
+    public void ReleasingStagingOwnershipLeavesOtherProcessesClaimsAlone()
+    {
+        var stagingRoot = Path.Combine(_root, "staging");
+        var ours = StagedDirectory(stagingRoot, "ours");
+        var theirs = StagedDirectory(stagingRoot, "theirs");
+        SplashTheme.TrackStagingOwnership(ours);
+        using var theirClaim = SplashTheme.ClaimStagingDirectory(theirs);
+
+        SplashTheme.ReleaseTrackedStagingOwnership();
+        SplashTheme.CleanUpStaleStagingDirectories(stagingRoot, keep: null);
+
+        Assert.False(Directory.Exists(ours));
+        Assert.True(Directory.Exists(theirs));
+    }
+
     [Fact]
     public void ImportKeepsInRangeValuesFromASharedThemeExactly()
     {

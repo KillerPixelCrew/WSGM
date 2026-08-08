@@ -31,8 +31,12 @@
                 <Border Classes="setting-row">
                     <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                         <TextBlock Text="Custom color" Classes="setting-title" VerticalAlignment="Center" />
-                        <TextBox Grid.Column="1" Width="110" Text="{Binding AccentColorHex}" VerticalAlignment="Center"
-                                 ToolTip.Tip="Hex color, e.g. #FF9D3D" />
+                        <!-- MaxLength mirrors the cap ConfigStore.Normalize enforces
+                             on AccentColor (Core\ConfigStore), exactly as the splash
+                             color boxes below do: every keystroke re-parses this value
+                             to repaint the swatches and the picker. -->
+                        <TextBox Grid.Column="1" Width="110" Text="{Binding AccentColorHex}" MaxLength="32"
+                                 VerticalAlignment="Center" ToolTip.Tip="Hex color, e.g. #FF9D3D" />
                         <ColorPicker Grid.Column="2" x:Name="AccentPicker" VerticalAlignment="Center"
                                      ColorChanged="OnAccentPickerColorChanged" />
                     </Grid>
@@ -52,7 +56,12 @@
                 <Border Classes="setting-row">
                     <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                         <TextBlock Text="Title text" Classes="setting-title" VerticalAlignment="Center" />
-                        <TextBox Grid.Column="1" Width="170" Text="{Binding SplashText}" VerticalAlignment="Center" />
+                        <!-- MaxLength mirrors the caps NormalizeSplash enforces
+                             (Core\ConfigStore): the splash title and caption are one
+                             unwrapped line each, so the editor must not be able to
+                             create a value that a later load would truncate. -->
+                        <TextBox Grid.Column="1" Width="170" Text="{Binding SplashText}" MaxLength="200"
+                                 VerticalAlignment="Center" />
                         <ToggleSwitch Grid.Column="2" IsChecked="{Binding SplashTextEnabled}" VerticalAlignment="Center"
                                       ToolTip.Tip="Show the text block (title and caption)" />
                     </Grid>
@@ -60,8 +69,8 @@
                 <Border Classes="setting-row alt">
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                         <TextBlock Text="Caption" Classes="setting-title" VerticalAlignment="Center" />
-                        <TextBox Grid.Column="1" Width="170" Text="{Binding SplashCaption}" VerticalAlignment="Center"
-                                 Watermark="No caption" />
+                        <TextBox Grid.Column="1" Width="170" Text="{Binding SplashCaption}" MaxLength="200"
+                                 VerticalAlignment="Center" Watermark="No caption" />
                     </Grid>
                 </Border>
                 <Border Classes="setting-row">
@@ -188,7 +197,11 @@
                                 BorderBrush="{StaticResource HcControlBorderBrush}" BorderThickness="1"
                                 Background="{Binding SplashBackgroundColorHex, Converter={x:Static c:HexBrushConverter.Instance}}"
                                 Click="OnSplashBackgroundSwatchClick" ToolTip.Tip="Pick a color" />
-                        <TextBox Grid.Column="2" Width="100" Text="{Binding SplashBackgroundColorHex}" VerticalAlignment="Center" />
+                        <!-- 32 = the same cap NormalizeSplash puts on the persisted
+                             color strings; the longest value that can ever parse is
+                             "#AARRGGBB" or a known-color name. -->
+                        <TextBox Grid.Column="2" Width="100" Text="{Binding SplashBackgroundColorHex}" MaxLength="32"
+                                 VerticalAlignment="Center" />
                     </Grid>
                 </Border>
                 <Border Classes="setting-row">
@@ -208,7 +221,8 @@
                                 BorderBrush="{StaticResource HcControlBorderBrush}" BorderThickness="1"
                                 Background="{Binding SplashTextColorHex, Converter={x:Static c:HexBrushConverter.Instance}}"
                                 Click="OnSplashTextSwatchClick" ToolTip.Tip="Pick a color" />
-                        <TextBox Grid.Column="2" Width="100" Text="{Binding SplashTextColorHex}" VerticalAlignment="Center" />
+                        <TextBox Grid.Column="2" Width="100" Text="{Binding SplashTextColorHex}" MaxLength="32"
+                                 VerticalAlignment="Center" />
                     </Grid>
                 </Border>
                 <Border Classes="setting-row">
@@ -219,7 +233,8 @@
                                 BorderBrush="{StaticResource HcControlBorderBrush}" BorderThickness="1"
                                 Background="{Binding SplashCaptionColorHex, Converter={x:Static c:HexBrushConverter.Instance}}"
                                 Click="OnSplashCaptionSwatchClick" ToolTip.Tip="Pick a color" />
-                        <TextBox Grid.Column="2" Width="100" Text="{Binding SplashCaptionColorHex}" VerticalAlignment="Center" />
+                        <TextBox Grid.Column="2" Width="100" Text="{Binding SplashCaptionColorHex}" MaxLength="32"
+                                 VerticalAlignment="Center" />
                     </Grid>
                 </Border>
                 <Border Classes="setting-row alt">
@@ -230,7 +245,8 @@
                                 BorderBrush="{StaticResource HcControlBorderBrush}" BorderThickness="1"
                                 Background="{Binding SplashSpinnerColorHex, Converter={x:Static c:HexBrushConverter.Instance}}"
                                 Click="OnSplashSpinnerSwatchClick" ToolTip.Tip="Pick a color" />
-                        <TextBox Grid.Column="2" Width="100" Text="{Binding SplashSpinnerColorHex}" VerticalAlignment="Center" />
+                        <TextBox Grid.Column="2" Width="100" Text="{Binding SplashSpinnerColorHex}" MaxLength="32"
+                                 VerticalAlignment="Center" />
                     </Grid>
                 </Border>
                 <Border Classes="setting-row">

@@ -60,12 +60,54 @@ public partial class BootSplashWindow : Window
     /// The memory win that motivated the cap survives: the decode stays bounded by
     /// <c>LogoMaxSize * 5</c> per rendered edge, i.e. 25x the DIP-sized buffer, not
     /// the source's own resolution. Default 200 DIP -> 1000 px cap -> at most
-    /// 1000*1000*4 B = 4 MB. The cap stops binding only at the extreme end: the
-    /// largest configurable logo (4096 DIP) puts it past
-    /// <see cref="ImageHeader.MaxDimension"/> (20000 px), where it is clamped to
-    /// that limit and the source's own ceiling takes over — <see cref="ImageHeader.MaxPixels"/>
-    /// (80 MP) = ~320 MB, the same worst case an uncapped decode would have.</summary>
+    /// 1000*1000*4 B = 4 MB. Per-edge bounding alone stops binding at the extreme
+    /// end (a 4096 DIP logo puts the cap past <see cref="ImageHeader.MaxDimension"/>),
+    /// which is why the TOTAL output area is bounded as well — see
+    /// <see cref="LogoDecodePixelBudget"/>.</summary>
     private const int LogoDecodeDpiHeadroom = 5;
+
+    /// <summary>Widest the background is ever decoded to, in PHYSICAL pixels.
+    ///
+    /// The background is a fullscreen <see cref="Stretch.UniformToFill"/> cover, so
+    /// only the panel it covers can be rendered: WSGM's supported range runs from a
+    /// 1280x800 floor to handheld panels that top out well under 4K (2560x1600 on the
+    /// largest of them). 2560 is that ceiling; beyond it the extra columns are
+    /// resampled straight back down.</summary>
+    private const int BackgroundDecodeMaxWidth = 2560;
+
+    /// <summary>Total OUTPUT pixels the background decode may produce —
+    /// 2560x1600 = 4.1 MP, the widest supported panel at its own aspect ratio,
+    /// i.e. exactly the pixels a full cover of that display can show.
+    ///
+    /// Why a pixel budget and not just <see cref="BackgroundDecodeMaxWidth"/>: a
+    /// width cap alone does not bind on a TALL source. A 2000x20000 background is
+    /// inside every <see cref="ImageHeader"/> limit and already under 2560 wide, so a
+    /// width-capped decode never scales it at all and allocates 40 MP (~160 MB at
+    /// 4 B/px) synchronously on the boot path — for an image UniformToFill then crops
+    /// nearly all the height off. Bounding the OUTPUT area instead makes the cost of
+    /// a background independent of its aspect ratio: ~16 MB worst case, whatever the
+    /// source declares.
+    ///
+    /// Deliberately not generous: this is a cover behind a splash, not detail work,
+    /// and it is decoded before the game-mode posture is applied. Landscape sources —
+    /// every realistic background — stay on the old path, because any aspect ratio at
+    /// or wider than 16:10 hits <see cref="BackgroundDecodeMaxWidth"/> first.</summary>
+    private const int BackgroundDecodePixelBudget = BackgroundDecodeMaxWidth * 1600;
+
+    /// <summary>Absolute ceiling on ANY splash element's decoded output area, in
+    /// pixels — the pixels a full cover of the widest supported panel can show
+    /// (<see cref="BackgroundDecodePixelBudget"/>).
+    ///
+    /// The splash is ONE window covering ONE screen, so no element inside it can
+    /// present more pixels than that cover: decoding past this ceiling buys detail
+    /// the compositor resamples straight back down. It exists because the
+    /// element-derived budget (<see cref="LogoDecodePixelBudget"/>) stops binding at
+    /// the top of the configurable range — at the largest logo bound ConfigStore
+    /// allows, 4096 DIP, the derived budget is 20480x20480 = 419 MP, far above what
+    /// <see cref="ImageHeader"/> admits at all — so without it a theme-supplied
+    /// <c>LogoMaxSize</c> would reinstate exactly the unbounded allocation the budget
+    /// exists to prevent, on the boot path, at every sign-in.</summary>
+    private const int SplashDecodePixelCeiling = BackgroundDecodePixelBudget;
 
     private readonly SplashConfig _splash;
     private readonly bool _preview;
@@ -172,7 +214,7 @@ public partial class BootSplashWindow : Window
         var backgroundImageLoaded = false;
         if (!string.IsNullOrWhiteSpace(_splash.BackgroundImagePath))
         {
-            _backgroundBitmap = TryLoadBitmap(_splash.BackgroundImagePath, decodeToWidth: 2560);
+            _backgroundBitmap = TryLoadBitmap(_splash.BackgroundImagePath, BackgroundDecodeWidth);
             if (_backgroundBitmap is not null)
             {
                 AddLayer(new Image { Source = _backgroundBitmap, Stretch = Stretch.UniformToFill });
@@ -193,8 +235,7 @@ public partial class BootSplashWindow : Window
             var maxSize = Math.Max(1, _splash.LogoMaxSize);
             _logoBitmap = TryLoadBitmap(
                 _splash.LogoImagePath,
-                decodeToWidth: LogoDecodeCap(maxSize),
-                capIsLongerEdge: true);
+                (sourceWidth, sourceHeight) => LogoDecodeWidth(maxSize, sourceWidth, sourceHeight));
             if (_logoBitmap is not null)
             {
                 logo = new Image
@@ -315,6 +356,110 @@ public partial class BootSplashWindow : Window
     internal static int LogoDecodeCap(int logoMaxSizeDips) =>
         (int)Math.Min((long)Math.Max(1, logoMaxSizeDips) * LogoDecodeDpiHeadroom, ImageHeader.MaxDimension);
 
+    /// <summary>Total OUTPUT pixels the logo decode may produce, for the configured
+    /// logo bound: the area of the <see cref="LogoDecodeCap"/> square the logo is
+    /// fitted into — i.e. it follows from <c>LogoMaxSize</c> and the 100-500% DPI
+    /// headroom, NOT from any display size — and never more than
+    /// <see cref="SplashDecodePixelCeiling"/>.
+    ///
+    /// Why an area budget on top of the per-edge cap: the cap alone bounds only the
+    /// decodes that actually go through <c>Bitmap.DecodeToWidth</c>. A source
+    /// NARROWER than the cap is decoded whole, and from <c>LogoMaxSize</c> 2000 up the
+    /// cap sits at or past <see cref="ImageHeader.MaxDimension"/>, so nearly every
+    /// <see cref="ImageHeader"/>-admissible source slipped through unscaled: measured
+    /// worst case 79,995,136 px (~305 MiB) at 2000 and 80,000,000 px at 4096. Since
+    /// <c>LogoMaxSize</c> is carried by a shared <c>.wsgmsplash</c> theme, an untrusted
+    /// file dictated that allocation on the BOOT path at every sign-in. Bounding the
+    /// output AREA makes the cost of a logo independent of both its aspect ratio and
+    /// its declared resolution: at most <see cref="SplashDecodePixelCeiling"/> px
+    /// (~16 MB at 4 B/px) for any configurable bound, and the default 200 DIP logo
+    /// keeps its own far smaller 1000x1000 = 1 MP (~4 MB) budget.</summary>
+    /// <param name="logoMaxSizeDips">The configured logo bound in DIPs.</param>
+    /// <returns>The largest number of pixels the logo decode may produce.</returns>
+    internal static long LogoDecodePixelBudget(int logoMaxSizeDips)
+    {
+        var cap = (long)LogoDecodeCap(logoMaxSizeDips);
+        return Math.Min(cap * cap, SplashDecodePixelCeiling);
+    }
+
+    /// <summary>The width the LOGO is decoded to, for a source of the given declared
+    /// dimensions: the largest width whose output stays inside BOTH the per-edge
+    /// <see cref="LogoDecodeCap"/> and <see cref="LogoDecodePixelBudget"/>.
+    ///
+    /// The edge bound: <see cref="Stretch.Uniform"/> with equal MaxWidth/MaxHeight
+    /// fits the LONGER edge to the cap, so for a taller-than-wide source it is the
+    /// HEIGHT that lands on the cap and the width stays smaller. Decoding such a
+    /// source to width <c>cap</c> would still produce a bitmap <c>cap * height/width</c>
+    /// tall — several times more pixels than are rendered — so the decode width is
+    /// scaled by the header's aspect ratio. Wider-than-tall sources hit the cap on the
+    /// width already and use it unchanged.
+    ///
+    /// The area bound is <c>sqrt(budget * width / height)</c>, the same construction
+    /// the background uses (<see cref="BackgroundDecodeWidth"/>): the width at which an
+    /// aspect-preserving decode produces exactly the budget's pixels.
+    ///
+    /// The result is only ever an UPPER bound: the caller decodes at the source's own
+    /// size when that is smaller, so nothing is upscaled — and a source already inside
+    /// the budget is by construction never scaled down, because <c>w*h &lt;= budget</c>
+    /// is the same inequality as <c>w &lt;= sqrt(budget * w/h)</c>. That equivalence is
+    /// what closes the hole a per-edge cap left open: whichever branch the caller takes,
+    /// the decoded area is bounded by the budget.
+    ///
+    /// Computed in <see cref="double"/> throughout: <c>cap * sourceWidth</c> reaches
+    /// 20000 * 20000 at the <see cref="ImageHeader"/> limits, which wraps a 32-bit
+    /// multiply.</summary>
+    /// <param name="logoMaxSizeDips">The configured logo bound in DIPs.</param>
+    /// <param name="sourceWidth">Width the source's header declares, in pixels.</param>
+    /// <param name="sourceHeight">Height the source's header declares, in pixels.</param>
+    /// <returns>The decode width in pixels, at least 1.</returns>
+    internal static int LogoDecodeWidth(int logoMaxSizeDips, int sourceWidth, int sourceHeight)
+    {
+        var cap = LogoDecodeCap(logoMaxSizeDips);
+        if (sourceWidth <= 0 || sourceHeight <= 0)
+        {
+            return cap;
+        }
+        var byEdge = sourceHeight > sourceWidth
+            ? Math.Ceiling((double)cap * sourceWidth / sourceHeight)
+            : cap;
+        var byArea = Math.Floor(
+            Math.Sqrt((double)LogoDecodePixelBudget(logoMaxSizeDips) * sourceWidth / sourceHeight));
+        return Math.Max(1, (int)Math.Min(byEdge, byArea));
+    }
+
+    /// <summary>The width the BACKGROUND is decoded to, for a source of the given
+    /// declared dimensions: the largest width whose output stays inside BOTH
+    /// <see cref="BackgroundDecodeMaxWidth"/> and
+    /// <see cref="BackgroundDecodePixelBudget"/>.
+    ///
+    /// The pixel bound is <c>sqrt(budget * width / height)</c> — the width at which a
+    /// decode preserving the source's aspect ratio produces exactly the budget's
+    /// area. Landscape sources hit the width cap first and are therefore decoded
+    /// exactly as before; tall ones, whose width cap never binds, are bounded by area
+    /// instead of being decoded whole.
+    ///
+    /// The result is only ever an UPPER bound: the caller decodes at the source's own
+    /// size when that is smaller, so nothing is upscaled. A source already inside the
+    /// budget is by construction never scaled down — <c>w*h &lt;= budget</c> is the same
+    /// inequality as <c>w &lt;= sqrt(budget * w/h)</c>.
+    ///
+    /// Computed in <see cref="double"/> throughout: <c>budget * width</c> is ~8.2e10 at
+    /// the <see cref="ImageHeader"/> limits and would overflow both int and the
+    /// intermediate of an int multiply.</summary>
+    /// <param name="sourceWidth">Width the source's header declares, in pixels.</param>
+    /// <param name="sourceHeight">Height the source's header declares, in pixels.</param>
+    /// <returns>The decode width in pixels, at least 1.</returns>
+    internal static int BackgroundDecodeWidth(int sourceWidth, int sourceHeight)
+    {
+        if (sourceWidth <= 0 || sourceHeight <= 0)
+        {
+            return BackgroundDecodeMaxWidth;
+        }
+        var byArea = Math.Sqrt((double)BackgroundDecodePixelBudget * sourceWidth / sourceHeight);
+        var width = (int)Math.Min(BackgroundDecodeMaxWidth, Math.Floor(byArea));
+        return Math.Max(1, width);
+    }
+
     /// <summary>Adds a layer to the root panel just before the desktop button,
     /// which must always stay the last (topmost) child.</summary>
     private void AddLayer(Control control) =>
@@ -428,14 +573,17 @@ public partial class BootSplashWindow : Window
     };
 
     /// <param name="path">Full path to the image file.</param>
-    /// <param name="decodeToWidth">Cap in PHYSICAL pixels the decode is scaled down
-    /// to, or null to decode at the source's own size. Callers whose element is
-    /// sized in DIPs must fold the DPI headroom in themselves (see
-    /// <see cref="LogoDecodeDpiHeadroom"/>) — no DPI is known here.</param>
-    /// <param name="capIsLongerEdge">True when the cap applies to the RENDERED
-    /// longer edge (a <see cref="Stretch.Uniform"/> element with equal
-    /// MaxWidth/MaxHeight) rather than to the width alone.</param>
-    private static Bitmap? TryLoadBitmap(string path, int? decodeToWidth, bool capIsLongerEdge = false)
+    /// <param name="decodeWidthFor">Given the source's DECLARED dimensions, the width
+    /// in PHYSICAL pixels the decode may go up to; null decodes at the source's own
+    /// size. Both elements bound their decode by total output area, from different
+    /// budgets — the logo from its own DIP bound (<see cref="LogoDecodeWidth"/>), the
+    /// background from the panel it covers (<see cref="BackgroundDecodeWidth"/>) — and
+    /// only the caller knows which, so the
+    /// rule comes in from outside while the header read, the downscale-only decision
+    /// and the failure handling stay here. Callers whose element is sized in DIPs must
+    /// fold the DPI headroom in themselves (see <see cref="LogoDecodeDpiHeadroom"/>) —
+    /// no DPI is known here.</param>
+    private static Bitmap? TryLoadBitmap(string path, Func<int, int, int>? decodeWidthFor)
     {
         try
         {
@@ -465,25 +613,18 @@ public partial class BootSplashWindow : Window
                         + $"per side, {ImageHeader.MaxPixels / 1_000_000} MP total), skipping element: {path}");
                 return null;
             }
-            var targetWidth = decodeToWidth;
-            if (targetWidth is int cap && capIsLongerEdge && sourceHeight > sourceWidth)
+            if (decodeWidthFor is not null)
             {
-                // Stretch=Uniform with equal MaxWidth/MaxHeight fits the LONGER
-                // edge to the cap, so for a taller-than-wide source it is the
-                // HEIGHT that lands on the cap and the width stays smaller.
-                // Decoding such a source to width `cap` would therefore still
-                // produce a bitmap `cap * height/width` tall — several times more
-                // pixels than are rendered. Scale the decode width by the header's
-                // aspect ratio so the rendered longer edge is what hits the cap.
-                targetWidth = Math.Max(1, (int)Math.Ceiling((double)cap * sourceWidth / sourceHeight));
-            }
-            if (targetWidth is int width && sourceWidth > width)
-            {
-                // Downscale-only cap: DecodeToWidth would UPSCALE smaller sources,
-                // so the header's declared width decides. (The previous full-Bitmap
-                // size probe allocated exactly the buffer this cap exists to avoid.)
-                using var stream = File.OpenRead(path);
-                return Bitmap.DecodeToWidth(stream, width);
+                var width = Math.Max(1, decodeWidthFor(sourceWidth, sourceHeight));
+                if (sourceWidth > width)
+                {
+                    // Downscale-only cap: DecodeToWidth would UPSCALE smaller sources,
+                    // so the header's declared width decides. (The previous
+                    // full-Bitmap size probe allocated exactly the buffer this cap
+                    // exists to avoid.)
+                    using var stream = File.OpenRead(path);
+                    return Bitmap.DecodeToWidth(stream, width);
+                }
             }
             return new Bitmap(path);
         }

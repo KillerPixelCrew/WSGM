@@ -208,6 +208,115 @@ public sealed class ConfigurationTests
     }
 
     [Fact]
+    public void NormalizeSplashTruncatesDisplayStringsThatCouldNotBeLaidOut()
+    {
+        // A shared .wsgmsplash may spend most of its 1 MiB splash.json allowance on
+        // one string (tiny once compressed). Both the Settings text box it is bound
+        // into on import and the boot splash's single unwrapped TextBlock would then
+        // have to lay out that whole run.
+        var splash = new SplashConfig
+        {
+            Text = new string('A', 300_000),
+            Caption = new string('B', 4_000),
+            TextColor = "#" + new string('F', 500),
+            CaptionColor = new string('c', 33),
+            SpinnerColor = new string('d', 64),
+            BackgroundColor = new string('e', 1_000_000),
+        };
+
+        ConfigStore.NormalizeSplash(splash);
+
+        Assert.Equal(200, splash.Text.Length);
+        Assert.Equal(new string('A', 200), splash.Text);
+        Assert.Equal(200, splash.Caption.Length);
+        Assert.Equal(new string('B', 200), splash.Caption);
+        Assert.Equal(32, splash.TextColor.Length);
+        Assert.Equal(32, splash.CaptionColor.Length);
+        Assert.Equal(32, splash.SpinnerColor.Length);
+        Assert.Equal(32, splash.BackgroundColor.Length);
+    }
+
+    [Fact]
+    public void NormalizeSplashLeavesOrdinarySplashTextAndColorsExactlyAsTheyAre()
+    {
+        // The caps may never cut a real splash line: a title is a few words, and the
+        // longest color string that can parse is "#AARRGGBB" or a color name.
+        var splash = new SplashConfig
+        {
+            Text = "Starting Steam Big Picture…",
+            Caption = "Please wait while the handheld finishes waking up — this takes a moment",
+            TextColor = "#FFFFFF",
+            CaptionColor = "#80FF9D3D",
+            SpinnerColor = "LightGoldenrodYellow",
+            BackgroundColor = "#0B0B0D",
+        };
+
+        ConfigStore.NormalizeSplash(splash);
+
+        Assert.Equal("Starting Steam Big Picture…", splash.Text);
+        Assert.Equal("Please wait while the handheld finishes waking up — this takes a moment", splash.Caption);
+        Assert.Equal("#FFFFFF", splash.TextColor);
+        Assert.Equal("#80FF9D3D", splash.CaptionColor);
+        Assert.Equal("LightGoldenrodYellow", splash.SpinnerColor);
+        Assert.Equal("#0B0B0D", splash.BackgroundColor);
+    }
+
+    [Fact]
+    public void NormalizeSplashNeverTruncatesBetweenTheHalvesOfASurrogatePair()
+    {
+        // The leading ASCII char puts every emoji's high surrogate on an odd index,
+        // so a blind cut at 200 would keep the first half of the 100th emoji and
+        // render a replacement glyph at the end of the line.
+        var splash = new SplashConfig { Text = "A" + string.Concat(Enumerable.Repeat("😀", 300)) };
+
+        ConfigStore.NormalizeSplash(splash);
+
+        Assert.Equal("A" + string.Concat(Enumerable.Repeat("😀", 99)), splash.Text);
+        Assert.Equal(199, splash.Text.Length);
+    }
+
+    [Fact]
+    public void ImportingASplashThemeTruncatesItsOverLongTextBeforeItReachesTheEditor()
+    {
+        // The import path deserializes the same contract from an untrusted archive
+        // and runs it through NormalizeSplash — the cap has to apply there too, since
+        // that config is bound into the Appearance text boxes immediately.
+        var root = Path.Combine(Path.GetTempPath(), "wsgm-splash-length-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var themePath = Path.Combine(root, "huge.wsgmsplash");
+            var oversized = new SplashConfig
+            {
+                Text = new string('T', 250_000),
+                Caption = new string('C', 250_000),
+                BackgroundColor = new string('#', 900),
+            };
+            // Export does not normalize, so this writes exactly the archive a
+            // malicious sharer would hand out.
+            Assert.True(SplashTheme.Export(oversized, themePath));
+
+            var imported = SplashTheme.Import(themePath, Path.Combine(root, "staged"));
+
+            Assert.NotNull(imported);
+            Assert.Equal(200, imported.Text.Length);
+            Assert.Equal(200, imported.Caption.Length);
+            Assert.Equal(32, imported.BackgroundColor.Length);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(root, recursive: true);
+            }
+            catch
+            {
+                // Temp cleanup is best effort.
+            }
+        }
+    }
+
+    [Fact]
     public void LoadingAConfigWithAnAbsurdSplashSizeClampsItOnTheLoadPath()
     {
         // Normalize is what ConfigStore.Load runs over a persisted config.json.
@@ -508,6 +617,31 @@ public sealed class ConfigurationTests
 
         Assert.NotNull(restored);
         Assert.Equal("#FF2266CC", restored.AccentColor);
+    }
+
+    [Fact]
+    public void NormalizeBoundsAHandEditedAccentColorTheSameWayTheSplashColorsAreBounded()
+    {
+        // Same shape as the splash color strings: hand-editable in config.json, bound
+        // to a TextBox, and Color.TryParse'd over its whole length on every keystroke
+        // to repaint the swatches and the picker. A 1 MiB value used to survive here.
+        var config = ConfigStore.Normalize(new AppConfig { AccentColor = new string('e', 1_000_000) });
+
+        Assert.Equal(32, config.AccentColor.Length);
+    }
+
+    [Fact]
+    public void NormalizeLeavesEveryAccentColorAUserCanActuallyPickUntouched()
+    {
+        // The cap may never cut a real value: the longest that can parse is
+        // "#AARRGGBB" or Avalonia's longest known-color name.
+        Assert.Equal(
+            "#FF9D3D", ConfigStore.Normalize(new AppConfig { AccentColor = "#FF9D3D" }).AccentColor);
+        Assert.Equal(
+            "#FFFF9D3D", ConfigStore.Normalize(new AppConfig { AccentColor = "#FFFF9D3D" }).AccentColor);
+        Assert.Equal(
+            "LightGoldenrodYellow",
+            ConfigStore.Normalize(new AppConfig { AccentColor = "LightGoldenrodYellow" }).AccentColor);
     }
 
     [Fact]

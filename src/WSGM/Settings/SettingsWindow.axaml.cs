@@ -47,6 +47,14 @@ public partial class SettingsWindow : Window
         {
             _navigation = CreateWindowNavigation();
             _gamepad.Start();
+            // Brackets the window's lifetime for splash-theme imports: an imported
+            // theme's images live in a temp staging directory this process pins open
+            // until the matching EndImportSession below, because an unsaved import must
+            // stay materializable for as long as this window can still save it. Opening
+            // the session also sweeps orphans left by earlier sessions. Paired with
+            // Opened (not the constructor) so a window that is built but never shown
+            // cannot leave a session — and therefore a pinned directory — behind.
+            SplashTheme.BeginImportSession();
         };
         Closed += (_, _) =>
         {
@@ -74,6 +82,13 @@ public partial class SettingsWindow : Window
             // Same slot the two recorders were disposed in before they moved
             // into ShortcutRecorders (key recorder first, chord second).
             _recorders.Dispose();
+            // LAST: nothing above may still read a staged import. Any save has long
+            // committed the staged images into the stable splash assets by now, and an
+            // abandoned import is exactly what this frees — up to ~128 MB of staged
+            // images per import that used to stay pinned until the shell process
+            // exited. Counted, so a second settings window's unsaved import (and any
+            // other process's) survives this.
+            SplashTheme.EndImportSession();
         };
     }
 

@@ -89,9 +89,12 @@
                           VerticalScrollBarVisibility="Disabled"
                           AllowAutoHide="True"
                           VerticalAlignment="Center">
+            <!-- Left-aligned (device-requested): the tiles start right after the
+                 home button and stay put as windows come and go, instead of the
+                 whole strip sliding sideways on every open/close. -->
             <StackPanel Orientation="Horizontal"
                         Spacing="4"
-                        HorizontalAlignment="Center"
+                        HorizontalAlignment="Left"
                         VerticalAlignment="Center">
                 <TextBlock Text="No open apps"
                            Classes="caption"
@@ -221,10 +224,15 @@
                             </StackPanel>
                         </Flyout>
                     </Button.Flyout>
+                    <!-- Width-only for the same top-left-alignment reason as the
+                         battery: this fan is 16.2x8.9, so a square box would park it
+                         against the top of the button instead of its centre. -->
                     <Path Classes="status-icon"
                           Data="{x:Static c:Icons.WiFi}"
-                          Width="20" Height="20"
-                          Stretch="Uniform" />
+                          Width="20"
+                          Stretch="Uniform"
+                          VerticalAlignment="Center"
+                          HorizontalAlignment="Center" />
                 </Button>
                 <Button x:Name="BluetoothButton"
                         Classes="status-tile"
@@ -240,34 +248,49 @@
                             </StackPanel>
                         </Flyout>
                     </Button.Flyout>
+                    <!-- Height-only: this rune is TALLER than wide (11x20), so the
+                         free axis is the horizontal one — same alignment reasoning,
+                         mirrored. -->
                     <Path Classes="status-icon"
                           Data="{x:Static c:Icons.Bluetooth}"
-                          Width="20" Height="20"
-                          Stretch="Uniform" />
+                          Height="20"
+                          Stretch="Uniform"
+                          VerticalAlignment="Center"
+                          HorizontalAlignment="Center" />
                 </Button>
                 <StackPanel Orientation="Horizontal"
                             Spacing="5"
                             VerticalAlignment="Center"
                             Margin="4,0,0,0"
                             IsVisible="{Binding HasBattery}">
+                    <!-- Width only, no Height: Avalonia's Shape scales a Uniform
+                         geometry and then aligns it TOP-LEFT inside the element box
+                         (Shape.CalculateSizeAndTransform translates only by the
+                         geometry origin), so a square box around this 18.5x8 battery
+                         left ~11 px of dead space below it and the icon rode high
+                         next to the percentage. Measuring width-only makes the box
+                         hug the drawn glyph, so VerticalAlignment actually centers it. -->
                     <Path Classes="status-icon"
                           Data="{x:Static c:Icons.Battery}"
-                          Width="20" Height="20"
+                          Width="20"
                           Stretch="Uniform"
                           VerticalAlignment="Center" />
                     <TextBlock Text="{Binding BatteryText}"
                                FontSize="12"
                                VerticalAlignment="Center" />
                 </StackPanel>
+                <!-- Time over date, both centred on the stack's own width so the
+                     shorter date sits centred under the clock rather than flush
+                     right against the bar edge. -->
                 <StackPanel VerticalAlignment="Center" Margin="8,0,4,0">
                     <TextBlock Text="{Binding ClockText}"
                                FontSize="14"
                                FontWeight="SemiBold"
-                               HorizontalAlignment="Right" />
+                               HorizontalAlignment="Center" />
                     <TextBlock Text="{Binding DateText}"
                                Classes="caption"
                                FontSize="10"
-                               HorizontalAlignment="Right" />
+                               HorizontalAlignment="Center" />
                 </StackPanel>
                 </StackPanel>
             </StackPanel>

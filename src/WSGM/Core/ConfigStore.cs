@@ -64,6 +64,7 @@ public static class ConfigStore
         config.SavedDisplayScaleEntries ??= [];
         config.PreviousConsoleLockSchemeValues ??= [];
         config.AccentColor ??= "#FFFF9D3D";
+        config.AccentColor = Truncate(config.AccentColor, MaxColorLength, "Accent color");
         config.Splash ??= new SplashConfig();
         NormalizeSplash(config.Splash);
         return config;
@@ -88,10 +89,42 @@ public static class ConfigStore
     private const int MinAbsoluteCoordinate = 0;
     private const int MaxAbsoluteCoordinate = 16384;
 
+    // Length caps for the splash STRINGS, for the same reason the numbers above are
+    // clamped — except the damage here is layout cost, not a bad value. The title
+    // and the caption are each rendered as ONE unwrapped TextBlock line
+    // (Shell\BootSplashWindow sets no TextWrapping) and are bound straight into the
+    // Appearance text boxes on import. A shared .wsgmsplash may spend nearly its
+    // whole 1 MiB splash.json allowance on one of those strings — a trivially small
+    // archive once compressed — and Avalonia would then lay out hundreds of
+    // thousands of glyphs in a single run: first in Settings when the theme is
+    // imported, then in the boot splash on every following sign-in.
+    //
+    // 200 characters cannot plausibly cut a real splash line: a title is a few
+    // words ("Please wait", "Starting Steam Big Picture…"), and even at the default
+    // 26 px title size only ~130 characters fit across a 1080p panel before the
+    // single line runs off screen, so anything approaching the cap is already
+    // unreadable by design.
+    private const int MaxSplashTextLength = 200;
+
+    // Color strings are shown verbatim in the Appearance hex boxes and parsed by
+    // Shell\SplashStyle.ParseColor (splash) or Avalonia's Color.TryParse (accent).
+    // The longest value that can ever parse is "#AARRGGBB" (9 characters) or
+    // Avalonia's longest known-color name, "LightGoldenrodYellow" (20); 32 keeps
+    // every real value with room to spare.
+    //
+    // The accent color has exactly the same shape as the splash ones — hand-editable
+    // in config.json, bound to a TextBox, and re-parsed over its WHOLE length on every
+    // keystroke (Settings\Pages\AppearancePage re-parses it on each PropertyChanged to
+    // repaint the swatches and the picker) — so it is bounded here too. Without the
+    // cap a 1 MiB value survived Normalize and made every keystroke in that box parse
+    // a megabyte.
+    private const int MaxColorLength = 32;
+
     /// <summary>Repairs explicit JSON nulls inside a splash section (see
-    /// <see cref="Normalize"/>) and clamps every numeric field into the range the
-    /// Appearance editor enforces. Shared with splash-theme import, which
-    /// deserializes the same contract from untrusted archives.</summary>
+    /// <see cref="Normalize"/>), bounds the display strings, and clamps every
+    /// numeric field into the range the Appearance editor enforces. Shared with
+    /// splash-theme import, which deserializes the same contract from untrusted
+    /// archives.</summary>
     internal static SplashConfig NormalizeSplash(SplashConfig splash)
     {
         splash.Text ??= "Please wait";
@@ -100,6 +133,15 @@ public static class ConfigStore
         splash.CaptionColor ??= "#666666";
         splash.SpinnerColor ??= "#FFFFFF";
         splash.BackgroundColor ??= "#000000";
+        // Truncate rather than reject: a theme whose title is too long is still a
+        // usable theme, and dropping the whole import over one field would lose the
+        // images and every other setting with it.
+        splash.Text = Truncate(splash.Text, MaxSplashTextLength, "Splash title text");
+        splash.Caption = Truncate(splash.Caption, MaxSplashTextLength, "Splash caption");
+        splash.TextColor = Truncate(splash.TextColor, MaxColorLength, "Splash text color");
+        splash.CaptionColor = Truncate(splash.CaptionColor, MaxColorLength, "Splash caption color");
+        splash.SpinnerColor = Truncate(splash.SpinnerColor, MaxColorLength, "Splash spinner color");
+        splash.BackgroundColor = Truncate(splash.BackgroundColor, MaxColorLength, "Splash background color");
         // "No image" has exactly one representation, "": every consumer tests these
         // with IsNullOrWhiteSpace, so a hand-edited config or an imported theme
         // carrying "   " means no image — and must not be persisted as whitespace by
@@ -129,6 +171,27 @@ public static class ConfigStore
         NormalizePlacement(splash.SpinnerPlacement);
         NormalizePlacement(splash.LogoPlacement);
         return splash;
+    }
+
+    /// <summary>Cuts an over-long display string down to <paramref name="limit"/>
+    /// characters, logging once with the original length so a truncated shared theme
+    /// (or a hand-edited config) is diagnosable from the log. Values within the limit
+    /// are returned untouched — no trimming, no other rewriting.</summary>
+    /// <param name="value">The value to bound.</param>
+    /// <param name="limit">Maximum number of characters to keep.</param>
+    /// <param name="field">Human-readable field label for the warning, written as it
+    /// should read at the start of the sentence ("Splash caption", "Accent color").</param>
+    private static string Truncate(string value, int limit, string field)
+    {
+        if (value.Length <= limit)
+        {
+            return value;
+        }
+        // Never cut between the halves of a surrogate pair — a lone surrogate would
+        // render as a replacement glyph at the end of an otherwise fine line.
+        var keep = char.IsHighSurrogate(value[limit - 1]) ? limit - 1 : limit;
+        Log.Warn($"{field} is {value.Length} characters — truncated to {keep}.");
+        return value[..keep];
     }
 
     /// <summary>Maps a null or whitespace-only image path to the single "no image"
