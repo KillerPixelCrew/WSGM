@@ -45,6 +45,44 @@ public partial class TaskbarWindow : Window
 
     private readonly double _uiScale;
 
+    /// <summary>The factor RootScale currently applies (1.0 = no transform). The
+    /// bar's inner layout happens in pre-transform units, so every budget derived
+    /// from the window's width has to divide by this first.</summary>
+    private double _contentScale = 1.0;
+
+    /// <summary>Share of the bar's inner width the tray strip may claim before it
+    /// starts scrolling. The tray is the only right-zone content whose length WSGM
+    /// does not control (the Shell_TrayWnd host takes whatever apps register), so
+    /// it is the part that gets a budget; the Wi-Fi/Bluetooth/battery/clock
+    /// controls after it are fixed-size and always keep their space.</summary>
+    private const double TrayWidthFraction = 0.30;
+
+    /// <summary>Floor for the tray budget: one 36 px tray tile plus its 2 px
+    /// spacing and 2 px focus border, so a single icon is never clipped even on an
+    /// absurdly narrow bar.</summary>
+    private const double TrayMinWidth = 40;
+
+    /// <summary>Horizontal padding the bar's Border adds inside the window (8 left
+    /// + 8 right — keep in sync with Padding="8,2" in the XAML).</summary>
+    private const double BarHorizontalPadding = 16;
+
+    /// <summary>The widest the tray strip may become before it scrolls, so that
+    /// the fixed status controls behind it always fit. Pure: the width budget is
+    /// unit-tested against this method rather than against a live window.</summary>
+    /// <param name="windowWidth">The bar window's logical (DIP) width.</param>
+    /// <param name="contentScale">The factor RootScale applies to the bar's
+    /// content (see <see cref="ApplyTouchScale"/>); 1.0 when untransformed.</param>
+    /// <returns>A MaxWidth in the bar's pre-transform layout units.</returns>
+    internal static double ComputeTrayMaxWidth(double windowWidth, double contentScale)
+    {
+        if (!double.IsFinite(windowWidth) || !double.IsFinite(contentScale) || contentScale <= 0)
+        {
+            return TrayMinWidth;
+        }
+        var inner = windowWidth / contentScale - BarHorizontalPadding;
+        return Math.Max(TrayMinWidth, inner * TrayWidthFraction);
+    }
+
     /// <summary>Creates the taskbar window bound to the supplied state.</summary>
     /// <param name="viewModel">The tile collection driving the bar.</param>
     /// <param name="status">The live clock/battery/radio status the right zone binds.</param>
@@ -62,6 +100,23 @@ public partial class TaskbarWindow : Window
         // pop above the bar's rectangle (see OverlayController.OnTappedAt).
         TrackStatusFlyout(WifiButton);
         TrackStatusFlyout(BluetoothButton);
+        // Controller navigation moves focus with InputElement.Focus(Directional),
+        // which does NOT raise RequestBringIntoView on its own — a tile scrolled
+        // out of the strip would take focus invisibly. Ask for it explicitly:
+        // Control.BringIntoView() raises Control.RequestBringIntoViewEvent, which
+        // the ScrollViewer's ScrollContentPresenter handles by scrolling. Arrow
+        // keys are safe to leave to the ScrollViewer's own handler because
+        // GamepadNavigation marks them handled from a TUNNEL handler on the
+        // window, i.e. before they ever bubble into the scroll viewer.
+        // The tray strip is bounded and scrolls the same way, so it needs the
+        // same treatment — a tray icon scrolled out of its viewport would
+        // otherwise take controller focus invisibly.
+        TileScroller.AddHandler(GotFocusEvent, OnStripGotFocus, RoutingStrategies.Bubble);
+        TrayScroller.AddHandler(GotFocusEvent, OnStripGotFocus, RoutingStrategies.Bubble);
+        // Budget the tray against the XAML's declared width right away, so the
+        // strip is bounded even on the path where DockToBottomEdge bails out (no
+        // primary screen); the dock recomputes it against the real display width.
+        TrayScroller.MaxWidth = ComputeTrayMaxWidth(Width, _contentScale);
         KeyDown += OnKeyDown;
         Opened += OnOpened;
         Closed += (_, _) => StopSlide();
@@ -97,6 +152,18 @@ public partial class TaskbarWindow : Window
         }
         flyout.Opened += (_, _) => _openStatusFlyouts++;
         flyout.Closed += (_, _) => _openStatusFlyouts = Math.Max(0, _openStatusFlyouts - 1);
+    }
+
+    /// <summary>Scrolls a newly focused tile into its strip's viewport (app tiles
+    /// and tray icons share this handler). Bubbles from the tile buttons; the
+    /// scroll viewers themselves are not focusable, and the call is a no-op when
+    /// the tile is already fully visible.</summary>
+    private void OnStripGotFocus(object? sender, GotFocusEventArgs e)
+    {
+        if (e.Source is Control control && control is not ScrollViewer)
+        {
+            control.BringIntoView();
+        }
     }
 
     private static IntPtr WndProcHook(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -143,6 +210,7 @@ public partial class TaskbarWindow : Window
             return;
         }
         Log.Info($"Taskbar UI scale {factor:0.##}x (desktop DPI over current {DesktopScaling:0.##}).");
+        _contentScale = factor;
         RootScale.LayoutTransform = new Avalonia.Media.ScaleTransform(factor, factor);
         // Sizes must be final before the dock computes the slide positions.
         UpdateLayout();
@@ -199,6 +267,10 @@ public partial class TaskbarWindow : Window
         // screen.Scaling — the screens cache is stale after a runtime
         // display-scale flip (see OverlayWindow.DockToRightEdge).
         Width = screen.Bounds.Width / DesktopScaling;
+        // Bound the tray strip against the bar that was just sized (ApplyTouchScale
+        // ran first, so _contentScale is final): everything to its right is
+        // fixed-size and must keep its space no matter how many icons register.
+        TrayScroller.MaxWidth = ComputeTrayMaxWidth(Width, _contentScale);
         // The height must be final before the dock computes the slide positions.
         UpdateLayout();
 

@@ -35,6 +35,38 @@ public partial class BootSplashWindow : Window
     /// the desktop button (which occupies roughly the bottom 68 px on the right).</summary>
     private const double SweepBottomClearance = 88;
 
+    /// <summary>DPI headroom multiplied into the logo's decode cap.
+    ///
+    /// <c>LogoMaxSize</c> bounds the Image in DIPs, but the renderer draws it in
+    /// PHYSICAL pixels — <c>DIP * DesktopScaling</c>. Decoding to the DIP number
+    /// alone therefore starves every scaled display by exactly the scale factor
+    /// and Avalonia upscales the shortfall, which is visibly soft. Two paths run
+    /// above 1.0: the Settings preview on a normal desktop (commonly 150%), and
+    /// the first boot-splash frames — the splash is raised BEFORE the 100%
+    /// game-mode posture is applied, and re-covers itself on the display change.
+    /// <see cref="BuildStyledContent"/> also runs from the constructor, before
+    /// <c>Opened</c>/<see cref="CoverPrimaryScreen"/>, so NO DPI is known at
+    /// decode time; a fixed headroom is what makes the decode DPI-independent
+    /// (re-decoding after Opened would put a second image decode, and a second
+    /// failure mode, on the boot path for no visual gain).
+    ///
+    /// 5 is the largest display scale WSGM supports: <see cref="DisplayScale"/>
+    /// offers 100-500% and rejects anything outside it. (The 3.0 the overlay,
+    /// taskbar and volume OSD clamp is a different number — the ratio between the
+    /// desktop DPI and the CURRENT one, bounding how far their touch targets may be
+    /// blown up — not a supported-DPI ceiling, and a headroom of 3 left every logo
+    /// above 300% upscaled and soft.)
+    ///
+    /// The memory win that motivated the cap survives: the decode stays bounded by
+    /// <c>LogoMaxSize * 5</c> per rendered edge, i.e. 25x the DIP-sized buffer, not
+    /// the source's own resolution. Default 200 DIP -> 1000 px cap -> at most
+    /// 1000*1000*4 B = 4 MB. The cap stops binding only at the extreme end: the
+    /// largest configurable logo (4096 DIP) puts it past
+    /// <see cref="ImageHeader.MaxDimension"/> (20000 px), where it is clamped to
+    /// that limit and the source's own ceiling takes over — <see cref="ImageHeader.MaxPixels"/>
+    /// (80 MP) = ~320 MB, the same worst case an uncapped decode would have.</summary>
+    private const int LogoDecodeDpiHeadroom = 5;
+
     private readonly SplashConfig _splash;
     private readonly bool _preview;
     private readonly RotateTransform _spinnerRotate = new();
@@ -158,10 +190,13 @@ public partial class BootSplashWindow : Window
         Control? logo = null;
         if (!string.IsNullOrWhiteSpace(_splash.LogoImagePath))
         {
-            _logoBitmap = TryLoadBitmap(_splash.LogoImagePath, decodeToWidth: null);
+            var maxSize = Math.Max(1, _splash.LogoMaxSize);
+            _logoBitmap = TryLoadBitmap(
+                _splash.LogoImagePath,
+                decodeToWidth: LogoDecodeCap(maxSize),
+                capIsLongerEdge: true);
             if (_logoBitmap is not null)
             {
-                var maxSize = Math.Max(1, _splash.LogoMaxSize);
                 logo = new Image
                 {
                     Source = _logoBitmap,
@@ -265,6 +300,20 @@ public partial class BootSplashWindow : Window
             $"caption={(captionVisible ? "on" : "off")}, spinner={_splash.SpinnerStyle} {spinnerSize}px, " +
             $"textPlacement={DescribePlacement(_splash.TextPlacement)}, preview={_preview}");
     }
+
+    /// <summary>The logo's decode cap in PHYSICAL pixels (what gets rendered), from
+    /// its bound in DIPs (what bounds the layout): <c>maxSize * LogoDecodeDpiHeadroom</c>.
+    /// Computed in <see cref="long"/> and clamped to <see cref="ImageHeader.MaxDimension"/>
+    /// so an unclamped preview config (SettingsViewModel builds a
+    /// <see cref="SplashConfig"/> without ConfigStore's 1..4096 clamp) can neither
+    /// overflow nor produce a cap larger than any source ImageHeader accepts — beyond
+    /// that width the cap could never bind anyway. Downscale-only decides the rest: a
+    /// source narrower than the cap is decoded at its own size, never stretched up to
+    /// it.</summary>
+    /// <param name="logoMaxSizeDips">The configured logo bound in DIPs.</param>
+    /// <returns>The largest edge length, in pixels, the logo may be decoded to.</returns>
+    internal static int LogoDecodeCap(int logoMaxSizeDips) =>
+        (int)Math.Min((long)Math.Max(1, logoMaxSizeDips) * LogoDecodeDpiHeadroom, ImageHeader.MaxDimension);
 
     /// <summary>Adds a layer to the root panel just before the desktop button,
     /// which must always stay the last (topmost) child.</summary>
@@ -378,7 +427,15 @@ public partial class BootSplashWindow : Window
         },
     };
 
-    private static Bitmap? TryLoadBitmap(string path, int? decodeToWidth)
+    /// <param name="path">Full path to the image file.</param>
+    /// <param name="decodeToWidth">Cap in PHYSICAL pixels the decode is scaled down
+    /// to, or null to decode at the source's own size. Callers whose element is
+    /// sized in DIPs must fold the DPI headroom in themselves (see
+    /// <see cref="LogoDecodeDpiHeadroom"/>) — no DPI is known here.</param>
+    /// <param name="capIsLongerEdge">True when the cap applies to the RENDERED
+    /// longer edge (a <see cref="Stretch.Uniform"/> element with equal
+    /// MaxWidth/MaxHeight) rather than to the width alone.</param>
+    private static Bitmap? TryLoadBitmap(string path, int? decodeToWidth, bool capIsLongerEdge = false)
     {
         try
         {
@@ -408,7 +465,19 @@ public partial class BootSplashWindow : Window
                         + $"per side, {ImageHeader.MaxPixels / 1_000_000} MP total), skipping element: {path}");
                 return null;
             }
-            if (decodeToWidth is int width && sourceWidth > width)
+            var targetWidth = decodeToWidth;
+            if (targetWidth is int cap && capIsLongerEdge && sourceHeight > sourceWidth)
+            {
+                // Stretch=Uniform with equal MaxWidth/MaxHeight fits the LONGER
+                // edge to the cap, so for a taller-than-wide source it is the
+                // HEIGHT that lands on the cap and the width stays smaller.
+                // Decoding such a source to width `cap` would therefore still
+                // produce a bitmap `cap * height/width` tall — several times more
+                // pixels than are rendered. Scale the decode width by the header's
+                // aspect ratio so the rendered longer edge is what hits the cap.
+                targetWidth = Math.Max(1, (int)Math.Ceiling((double)cap * sourceWidth / sourceHeight));
+            }
+            if (targetWidth is int width && sourceWidth > width)
             {
                 // Downscale-only cap: DecodeToWidth would UPSCALE smaller sources,
                 // so the header's declared width decides. (The previous full-Bitmap

@@ -270,4 +270,36 @@ public class SplashStyleTests
     {
         Assert.Equal(Colors.Cyan, SplashStyle.ParseColor(null, Colors.Cyan));
     }
+
+    // ---- Logo decode cap (BootSplashWindow) ----
+
+    [Theory]
+    [InlineData(200, 1000)]   // Default logo bound: 200 DIP -> 4 MB decoded, not 320 MB.
+    [InlineData(1, 5)]
+    [InlineData(3999, 19995)] // Just under ImageHeader.MaxDimension.
+    public void TheLogoDecodeCapCoversTheWholeSupportedDisplayScaleRange(int maxSizeDips, int expected)
+    {
+        // DisplayScale supports 100-500%, and the renderer draws the logo in physical
+        // pixels (DIP * scaling), so a headroom below 5 left everything above 300%
+        // upscaled from a too-small decode and visibly soft.
+        Assert.Equal(expected, BootSplashWindow.LogoDecodeCap(maxSizeDips));
+    }
+
+    [Theory]
+    [InlineData(4096)]           // Largest logo bound ConfigStore's clamp allows.
+    [InlineData(int.MaxValue)]   // A preview config is built without that clamp.
+    public void TheLogoDecodeCapStaysWithinTheImageHeaderLimitAndCannotOverflow(int maxSizeDips)
+    {
+        // Beyond the largest edge ImageHeader accepts, the cap could never bind
+        // anyway — and the multiplication must not wrap into a negative width.
+        Assert.Equal(ImageHeader.MaxDimension, BootSplashWindow.LogoDecodeCap(maxSizeDips));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-200)]
+    public void TheLogoDecodeCapNeverGoesBelowASinglePixel(int maxSizeDips)
+    {
+        Assert.True(BootSplashWindow.LogoDecodeCap(maxSizeDips) >= 1);
+    }
 }

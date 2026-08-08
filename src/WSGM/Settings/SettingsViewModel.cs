@@ -50,6 +50,16 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     /// <summary>Loads the current configuration and discovers locally installed startup suggestions.</summary>
     public SettingsViewModel()
+        : this(ConfigStore.Load()) { }
+
+    /// <summary>Builds the view model over an ALREADY LOADED configuration instead of
+    /// reading <c>%LOCALAPPDATA%\WSGM\config.json</c>. Tests must use this overload: the
+    /// parameterless constructor's <see cref="ConfigStore.Load"/> reads the developer's
+    /// real config, and its corrupt-file branch writes <c>config.bad.json</c> next to it,
+    /// so merely constructing the view model touches the real per-user directory.</summary>
+    /// <param name="config">The configuration this view model edits. It is taken over,
+    /// not copied — the save path re-loads and merges before persisting anyway.</param>
+    internal SettingsViewModel(AppConfig config)
     {
         SaveCommand = new RelayCommand(() =>
         {
@@ -103,7 +113,9 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             }
         });
 
-        _config = ConfigStore.Load();
+        // Normalize so an injected bare AppConfig gets the same non-null nested
+        // sections (and clamped splash numbers) the load path guarantees.
+        _config = ConfigStore.Normalize(config);
 
         SteamAutoRelaunch = _config.SteamAutoRelaunch;
         StartupDelayMs = _config.StartupDelayMs;
@@ -843,7 +855,13 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     }
 
     // --- Save ---
-    private void ApplyTo(AppConfig config)
+    private void ApplyTo(AppConfig config) => ApplyTo(config, BuildSplashConfig());
+
+    /// <summary>Applies the UI-owned fields over <paramref name="config"/>, taking the
+    /// splash section from <paramref name="splash"/> instead of rebuilding it — the save
+    /// path prepares (and thereby path-rewrites) its splash section BEFORE it takes the
+    /// config lock, and rebuilding here would throw that rewrite away.</summary>
+    private void ApplyTo(AppConfig config, SplashConfig splash)
     {
         config.SteamAutoRelaunch = SteamAutoRelaunch;
         config.StartupDelayMs = StartupDelayMs;
@@ -858,7 +876,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.Gestures.BottomEdgeAction = (EdgeAction)Math.Clamp(BottomEdgeActionIndex, 0, 1);
         config.GlyphStyle = (GlyphStyle)Math.Clamp(GlyphStyleIndex, 0, 2);
         config.AccentColor = AccentColorHex;
-        config.Splash = BuildSplashConfig();
+        config.Splash = splash;
         config.StartupApps = StartupApps
             .Where(r => !string.IsNullOrWhiteSpace(r.Path))
             .Select(r => new StartupAppConfig
@@ -887,41 +905,195 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// merge — so the merge has to happen here.</summary>
     private AppConfig SaveMerged()
     {
-        var config = ConfigStore.Load();
-        ApplyTo(config);
-        // Copy picked splash images into the stable per-user splash directory and
-        // persist the rewritten paths, so the boot splash never depends on the
-        // originally picked file staying in place. Two-phase on purpose: the copies
-        // are staged as sidecars and only replace the live files after the config
-        // write succeeded — a failed save must never leave the still-persisted OLD
-        // config pointing at already-replaced images.
-        using var splashAssets = SplashAssets.Prepare(config.Splash);
-        try
+        // Copy the picked splash images into the stable per-user splash directory
+        // FIRST, and deliberately OUTSIDE the cross-process config lock. Two-phase on
+        // purpose: the copies are staged as uniquely named sidecars and only replace
+        // the live files after the config write succeeded — a failed save must never
+        // leave the still-persisted OLD config pointing at already-replaced images.
+        //
+        // Why outside the lock: a picked or imported image can be tens of megabytes,
+        // while ConfigStore's mutex timeout is 2 s, sized for one small JSON write.
+        // Holding the lock across the copy would time every other WSGM process out
+        // (the shell's config FileSystemWatcher → Load, the elevated one-shots) and
+        // print "Config mutex timed out — proceeding without cross-process lock" on
+        // the primary remote-diagnosis surface, which is both log noise and real
+        // unserialized access. Staging is safe unlocked because it touches no live
+        // file and every sidecar name carries its own GUID (see SplashAssets), so two
+        // concurrent savers can no longer collide while staging.
+        var splash = BuildSplashConfig();
+        using var splashAssets = SplashAssets.Prepare(splash);
+
+        AppConfig config;
+        IReadOnlyList<string> failedSlots;
+        string? failure;
+        // The lock now covers exactly four fast operations, and nothing else:
+        //   Load → Save → Commit → (repair Save) → boot-manifest write.
+        // That is sufficient because
+        //   (a) Load..Save is the read-modify-write this merge exists for — another
+        //       process must not persist between our read and our write;
+        //   (b) Save and Commit stay in ONE scope, so a concurrent saver can never
+        //       interleave between the config write and the image promotion it
+        //       describes: whoever holds the lock last leaves config.json and the
+        //       live images agreeing (the round-3 invariant);
+        //   (c) boot.json is a projection of the config we just persisted, so it is
+        //       written before another saver can change config.json underneath it.
+        // Load/Save re-acquire the same named mutex inside this scope; a Win32 mutex
+        // is owned per thread with a recursion count, so those nested acquisitions
+        // balance their own releases and the outer hold survives (see AcquireLock).
+        using (ConfigStore.AcquireLock())
         {
+            config = ConfigStore.Load();
+            // Captured BEFORE ApplyTo overwrites them: if a staged copy cannot be
+            // promoted the persisted config has to go back to the path whose file is
+            // actually there.
+            var previousLogoPath = config.Splash.LogoImagePath;
+            var previousBackgroundPath = config.Splash.BackgroundImagePath;
+            ApplyTo(config, splash);
+            // Any throw from here to Commit leaves the transaction uncommitted, and the
+            // enclosing `using` rolls it back: the live splash assets stay untouched.
             ConfigStore.Save(config);
+            failedSlots = splashAssets.Commit();
+            // A slot that could not be promoted (locked file, AV hold, permissions)
+            // leaves the just-persisted path pointing at an image that was never
+            // written; a slot whose STAGING already failed leaves it pointing at the
+            // user's volatile pick (Downloads, a removable drive) instead of a copy
+            // WSGM owns. Commit reports both: repair the persisted state, then fail
+            // the save — a save that did neither must never log "Settings saved."
+            // (A staging failure is therefore written once and immediately corrected,
+            // both inside this lock, rather than getting its own earlier repair pass:
+            // one reported-failure path is worth more than one avoided write.)
+            failure = RestoreSlotsThatFailedToPromote(
+                config, failedSlots, previousLogoPath, previousBackgroundPath, ConfigStore.Save);
+            // Keep the logon service's view in sync — every save may change the
+            // enabled flag or the elevation inputs (elevated startup apps).
+            BootManifestWriter.WriteCurrent(config);
         }
-        catch
-        {
-            splashAssets.Rollback();
-            throw; // SaveCommand reports "Save failed"; the live splash assets are untouched.
-        }
-        splashAssets.Commit();
-        // Sync the UI back to the materialized copies — only now that they are the
-        // live files: keeping the originally picked paths would re-copy on every save
-        // and, if the source vanished, clobber the stable copy's path with a dead one
-        // on the next save.
-        SplashLogoPath = config.Splash.LogoImagePath;
-        SplashBackgroundImagePath = config.Splash.BackgroundImagePath;
-        // Keep the logon service's view in sync — every save may change the
-        // enabled flag or the elevation inputs (elevated startup apps).
-        BootManifestWriter.WriteCurrent(config);
+
+        AdoptMaterializedPaths(config.Splash, failedSlots);
         // Re-color the running UI live; Application.Current is null in unit tests.
         if (Application.Current is { } app)
         {
             AccentPalette.Apply(app, AccentPalette.Parse(config.AccentColor));
         }
+        if (failure is not null)
+        {
+            // Everything else was persisted and applied — but the save did not do what
+            // it said, so SaveCommand must report "Save failed", never "Saved".
+            throw new System.IO.IOException(failure);
+        }
         Log.Info("Settings saved.");
         return config;
+    }
+
+    private static bool Failed(IReadOnlyList<string> failedSlots, string slot) =>
+        failedSlots.Contains(slot, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Syncs the editor back to the materialized copies — only once they ARE
+    /// the live files: keeping the originally picked paths would re-copy on every save
+    /// and, if the source vanished, clobber the stable copy's path with a dead one on
+    /// the next save.
+    /// <para>A FAILED slot is skipped on purpose. Whether the sidecar could not be
+    /// staged (unreadable source, uncreatable target) or not promoted (locked live
+    /// file), config.json keeps the conservative PREVIOUS path while the view model
+    /// keeps the user's PICK, so pressing Save again after fixing the file actually
+    /// retries that image instead of silently re-saving the old one.</para></summary>
+    /// <param name="persisted">The splash section as it was just persisted (its paths
+    /// are the materialized ones for every slot that went live).</param>
+    /// <param name="failedSlots">The slot names reported by the splash-asset commit.</param>
+    internal void AdoptMaterializedPaths(SplashConfig persisted, IReadOnlyList<string> failedSlots)
+    {
+        if (!Failed(failedSlots, SplashAssets.LogoSlot))
+        {
+            SplashLogoPath = persisted.LogoImagePath;
+        }
+        if (!Failed(failedSlots, SplashAssets.BackgroundSlot))
+        {
+            SplashBackgroundImagePath = persisted.BackgroundImagePath;
+        }
+    }
+
+    /// <summary>Puts the previously persisted image path back for every slot that did
+    /// not end up as a live copy — staging failed, or the staged copy could not be
+    /// promoted — so the persisted state always names an image WSGM owns and that
+    /// exists. Pure: it only mutates <paramref name="config"/> and builds the
+    /// message — the caller performs the write (see
+    /// <see cref="RestoreSlotsThatFailedToPromote"/>), so this step is testable without
+    /// going anywhere near the real per-user config file.</summary>
+    /// <param name="config">The just-saved configuration, repaired in place.</param>
+    /// <param name="failedSlots">The slot names reported by the splash-asset commit.</param>
+    /// <param name="previousLogoPath">The logo path persisted before this save.</param>
+    /// <param name="previousBackgroundPath">The background path persisted before this save.</param>
+    /// <returns>The message to fail the save with, or null when every slot committed.</returns>
+    internal static string? RepairSlotsThatFailedToPromote(
+        AppConfig config,
+        IReadOnlyList<string> failedSlots,
+        string previousLogoPath,
+        string previousBackgroundPath)
+    {
+        if (failedSlots.Count == 0)
+        {
+            return null;
+        }
+
+        foreach (var slot in failedSlots)
+        {
+            if (string.Equals(slot, SplashAssets.LogoSlot, StringComparison.OrdinalIgnoreCase))
+            {
+                Log.Error(
+                    $"Splash logo image could not be updated — keeping the previously saved '{previousLogoPath}'.");
+                config.Splash.LogoImagePath = previousLogoPath;
+            }
+            else if (string.Equals(slot, SplashAssets.BackgroundSlot, StringComparison.OrdinalIgnoreCase))
+            {
+                Log.Error(
+                    $"Splash background image could not be updated — keeping the previously saved '{previousBackgroundPath}'.");
+                config.Splash.BackgroundImagePath = previousBackgroundPath;
+            }
+        }
+        // One message for both halves of the transaction (see SplashAssets.Commit):
+        // the copy into WSGM's splash folder failed, or the finished copy could not
+        // replace the live file. The user's action is the same either way.
+        return $"splash image not updated ({string.Join(", ", failedSlots)}) — "
+            + "the picked image could not be copied into WSGM's splash folder, or the live file "
+            + "is in use or not writable. The previous image is still configured, and your pick "
+            + "is kept: fix the file and press Save again to retry.";
+    }
+
+    /// <summary>Repairs the config for every slot whose staged copy could not be
+    /// promoted and re-persists it through <paramref name="save"/>.</summary>
+    /// <param name="config">The just-saved configuration, repaired in place.</param>
+    /// <param name="failedSlots">The slot names reported by the splash-asset commit.</param>
+    /// <param name="previousLogoPath">The logo path persisted before this save.</param>
+    /// <param name="previousBackgroundPath">The background path persisted before this save.</param>
+    /// <param name="save">Writes the repaired configuration (ConfigStore.Save in production).</param>
+    /// <returns>The message to fail the save with, or null when every slot committed.
+    /// A failing repair write does NOT replace it: the promotion failure is the cause
+    /// the user has to act on, and letting the secondary write's exception escape would
+    /// mask it — so that one is logged instead.</returns>
+    internal static string? RestoreSlotsThatFailedToPromote(
+        AppConfig config,
+        IReadOnlyList<string> failedSlots,
+        string previousLogoPath,
+        string previousBackgroundPath,
+        Action<AppConfig> save)
+    {
+        var failure = RepairSlotsThatFailedToPromote(
+            config, failedSlots, previousLogoPath, previousBackgroundPath);
+        if (failure is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            // Still inside the caller's config lock.
+            save(config);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Couldn't re-save the config after a failed splash image promotion", ex);
+        }
+        return failure;
     }
 
     /// <summary>Builds an isolated configuration snapshot for controller tests.</summary>

@@ -630,4 +630,51 @@ public sealed class SplashThemeTests : IDisposable
         Assert.True(File.Exists(imported.LogoImagePath));
         Assert.True(File.Exists(imported.BackgroundImagePath));
     }
+
+    [Fact]
+    public void ImportClampsAbsurdSizesAndUnknownEnumsFromASharedTheme()
+    {
+        // A shared theme is untrusted: the renderer only lower-bounds these values,
+        // so an int.MaxValue spinner would blow up layout before the splash is usable.
+        var themePath = Path.Combine(_root, "absurd.wsgmsplash");
+        using (var archive = ZipFile.Open(themePath, ZipArchiveMode.Create))
+        {
+            WriteJsonEntry(
+                archive,
+                """
+                { "SpinnerSize": 2147483647, "TitleFontSize": 100000, "CaptionFontSize": 0,
+                  "LogoMaxSize": -1, "SpinnerStyle": 999,
+                  "TextPlacement": { "Mode": 42, "Anchor": -1, "PaddingX": 999999, "PaddingY": -8, "X": -20000, "Y": 999999 } }
+                """
+            );
+        }
+
+        var imported = SplashTheme.Import(themePath, _targetDir);
+
+        Assert.NotNull(imported);
+        Assert.Equal(1024, imported.SpinnerSize);
+        Assert.Equal(400, imported.TitleFontSize);
+        Assert.Equal(1, imported.CaptionFontSize);
+        Assert.Equal(1, imported.LogoMaxSize);
+        Assert.Equal(SplashSpinnerStyle.Ring, imported.SpinnerStyle);
+        Assert.Equal(SplashPlacementMode.Anchor, imported.TextPlacement.Mode);
+        Assert.Equal(SplashPlacementAnchor.Center, imported.TextPlacement.Anchor);
+        Assert.Equal(4096, imported.TextPlacement.PaddingX);
+        Assert.Equal(0, imported.TextPlacement.PaddingY);
+        Assert.Equal(0, imported.TextPlacement.X);
+        Assert.Equal(16384, imported.TextPlacement.Y);
+    }
+
+    [Fact]
+    public void ImportKeepsInRangeValuesFromASharedThemeExactly()
+    {
+        var themePath = Path.Combine(_root, "in-range.wsgmsplash");
+        var original = FullyCustomized(logoPath: "", backgroundPath: "");
+
+        Assert.True(SplashTheme.Export(original, themePath));
+        var imported = SplashTheme.Import(themePath, _targetDir);
+
+        Assert.NotNull(imported);
+        AssertNonImageFieldsEqual(original, imported);
+    }
 }
