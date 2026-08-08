@@ -10,7 +10,7 @@
     <ApplicationIcon>Assets\wsgm.ico</ApplicationIcon>
     <AssemblyName>WSGM</AssemblyName>
     <RootNamespace>WSGM</RootNamespace>
-    <Version>0.9.0</Version>
+    <Version>0.9.3</Version>
 
     <!-- NativeAOT single exe -->
     <PublishAot>true</PublishAot>
