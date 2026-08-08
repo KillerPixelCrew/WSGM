@@ -102,6 +102,15 @@ public static class ExplorerControl
     private const uint ExitExplorerMessage = 0x05B4;
 
     private static readonly TimeSpan StableAbsence = TimeSpan.FromMilliseconds(500);
+
+    // After the orderly exit removes the taskbar, a shell extension can keep the
+    // ORIGINAL explorer process alive ~1 s while it finishes shutting down. That
+    // graceful exit is what Winlogon accepts without AutoRestartShell; killing the
+    // remnant before it completes reads as a shell crash and gets it respawned
+    // (device-observed as "game mode needs two tries"). Wait this long for the
+    // remnant to leave on its own before terminating a genuinely stuck one — a
+    // clean run exited ~830 ms after the taskbar went, so this clears it.
+    private static readonly TimeSpan LingerGrace = TimeSpan.FromMilliseconds(2000);
     private static readonly object ExitGate = new();
 
     /// <summary>Requests Explorer's orderly shell exit and verifies boundedly that
@@ -186,10 +195,33 @@ public static class ExplorerControl
             return false;
         }
 
-        // Explorer has already performed its intentional shell shutdown, but a
-        // shell extension or folder window can keep the original process alive.
-        // Terminate only those snapshotted PIDs; a replacement is never killed.
-        System.Threading.Thread.Sleep(300);
+        // Explorer acknowledged the orderly exit and is winding the shell down, but
+        // a shell extension or open folder window can keep the ORIGINAL process
+        // alive a moment. Let it leave on its own first: killing it mid-shutdown is
+        // what Winlogon respawns (the "two tries" symptom). Only terminate a remnant
+        // still present after the grace period. A replacement is never killed.
+        var graceDeadline = DateTime.UtcNow + LingerGrace;
+        if (graceDeadline > deadline)
+        {
+            graceDeadline = deadline;
+        }
+        while (DateTime.UtcNow < graceDeadline)
+        {
+            afterTaskbar = ExplorerProcessIdsInSession();
+            replacementAfterTaskbar = FindReplacementProcessId(initialProcessIds, afterTaskbar);
+            if (replacementAfterTaskbar != 0)
+            {
+                Log.Warn($"Winlogon restarted Explorer as pid {replacementAfterTaskbar}; takeover cancelled.");
+                return false;
+            }
+            if (afterTaskbar.Count == 0)
+            {
+                // Left on its own — the graceful path Winlogon accepts.
+                return WaitForStableExplorerAbsence(initialProcessIds, deadline);
+            }
+            System.Threading.Thread.Sleep(100);
+        }
+
         afterTaskbar = ExplorerProcessIdsInSession();
         replacementAfterTaskbar = FindReplacementProcessId(initialProcessIds, afterTaskbar);
         if (replacementAfterTaskbar != 0)
@@ -199,7 +231,8 @@ public static class ExplorerControl
         }
         if (afterTaskbar.Count > 0)
         {
-            Log.Warn($"Explorer taskbar exited but original process(es) {string.Join(", ", afterTaskbar)} lingered; terminating them.");
+            Log.Warn($"Explorer taskbar exited but original process(es) {string.Join(", ", afterTaskbar)} " +
+                     $"lingered past {LingerGrace.TotalMilliseconds:F0} ms; terminating them.");
             TerminateOriginalExplorerProcesses(initialProcessIds);
         }
         return WaitForStableExplorerAbsence(initialProcessIds, deadline);
