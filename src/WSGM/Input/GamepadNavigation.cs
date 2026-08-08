@@ -225,14 +225,14 @@ public sealed class GamepadNavigation : IDisposable
             FocusFirst();
             return;
         }
-        var next = KeyboardNavigationHandler.GetNext(current, direction);
+        var next = NextInTabOrder(current, direction);
         // Skip text fields during pad/arrow traversal: focusing one makes Windows
         // pop the touch keyboard on keyboard-less handhelds. They stay reachable
         // by tapping them (which is when the keyboard IS wanted) and by Tab.
         var guard = 0;
         while (next is TextBox textBox && guard++ < 64)
         {
-            next = KeyboardNavigationHandler.GetNext(textBox, direction);
+            next = NextInTabOrder(textBox, direction);
         }
         if (next is TextBox)
         {
@@ -261,8 +261,17 @@ public sealed class GamepadNavigation : IDisposable
         }
     }
 
+    /// <summary>Peeks at the next element in the tab order without moving focus —
+    /// the TextBox skip above depends on looking before landing, because merely
+    /// focusing a text field pops the touch keyboard. Scoped to this window so a
+    /// wrap cannot walk into another top level.</summary>
+    private IInputElement? NextInTabOrder(IInputElement from, NavigationDirection direction)
+        => TopLevel.GetTopLevel(_window)?.FocusManager?.FindNextElement(
+            direction,
+            new FindNextElementOptions { FocusedElement = from, SearchRoot = _window });
+
     private bool IsInWindow(InputElement element)
-        => element.GetVisualRoot() == _window;
+        => TopLevel.GetTopLevel(element) == _window;
 
     private void FocusFirst()
     {

@@ -8,7 +8,7 @@
         Title="WSGM Taskbar"
         SizeToContent="Height"
         Width="800"
-        SystemDecorations="None"
+        WindowDecorations="None"
         CanResize="False"
         Topmost="True"
         ShowInTaskbar="False"

@@ -8,7 +8,7 @@
         Title="WSGM Quick Access"
         Width="360"
         MinWidth="320"
-        SystemDecorations="None"
+        WindowDecorations="None"
         CanResize="False"
         Topmost="True"
         ShowInTaskbar="False"
@@ -45,7 +45,7 @@
                 <StackPanel Margin="8,8" Spacing="4">
                     <!-- Panel-level warning: sits above the tab panels, so it is
                          visible on every tab. -->
-                    <fa:InfoBar IsOpen="{Binding HasWarning}" Title="WSGM" Message="{Binding WarningText}" Severity="Warning" IsClosable="False" Margin="0,0,0,4" />
+                    <fa:FAInfoBar IsOpen="{Binding HasWarning}" Title="WSGM" Message="{Binding WarningText}" Severity="Warning" IsClosable="False" Margin="0,0,0,4" />
 
                     <StackPanel x:Name="PanelSession" Spacing="4" IsVisible="True">
                         <c:CardButton x:Name="HomeAppButton" Classes="primary" Click="OnHomeApp"

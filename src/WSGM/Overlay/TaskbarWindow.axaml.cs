@@ -158,7 +158,7 @@ public partial class TaskbarWindow : Window
     /// and tray icons share this handler). Bubbles from the tile buttons; the
     /// scroll viewers themselves are not focusable, and the call is a no-op when
     /// the tile is already fully visible.</summary>
-    private void OnStripGotFocus(object? sender, GotFocusEventArgs e)
+    private void OnStripGotFocus(object? sender, FocusChangedEventArgs e)
     {
         if (e.Source is Control control && control is not ScrollViewer)
         {

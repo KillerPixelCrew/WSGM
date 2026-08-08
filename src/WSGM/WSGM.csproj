@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net9.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -16,7 +16,9 @@
     <PublishAot>true</PublishAot>
     <InvariantGlobalization>true</InvariantGlobalization>
     <UseSystemResourceKeys>true</UseSystemResourceKeys>
-    <!-- Per Avalonia NativeAOT guidance -->
+    <!-- Managed COM interop stays off: nothing here needs it (the radio and volume
+         helpers own their COM/WinRT calls behind a flat C ABI), and leaving it off
+         keeps the NativeAOT image smaller. Avalonia only required this before 12.0. -->
     <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
 
     <!-- A resident shell on an 8-16 GB handheld: favor small heap over GC
@@ -68,20 +70,21 @@
   <ItemGroup>
     <!-- Pinned exactly: a shell replacement must ship the patch level that was
          tested on device, and rebuilding a tag must reproduce the same binaries. -->
-    <PackageReference Include="Avalonia" Version="11.3.18" />
-    <PackageReference Include="Avalonia.Desktop" Version="11.3.18" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.18" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.18" />
+    <PackageReference Include="Avalonia" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.1" />
     <!-- FluentAvaloniaTheme (the runtime accent pipeline regenerates its shades via
-         CustomAccentColor) plus WinUI-style controls such as InfoBar and ToggleSwitch. -->
-    <PackageReference Include="FluentAvaloniaUI" Version="2.4.1" />
+         CustomAccentColor) plus WinUI-style controls such as FAInfoBar and ToggleSwitch.
+         3.x is the first line built against Avalonia 12. -->
+    <PackageReference Include="FluentAvaloniaUI" Version="3.0.2" />
     <!-- Boot-splash spinner styles (Unlicense; the license text ships from
          Licenses\ beside the exe). NativeAOT-publish compatibility was proven
          with a probe build before adopting the package. -->
     <PackageReference Include="LoadingIndicators.Avalonia" Version="11.0.11.1" />
-    <!-- Pinned: FluentAvaloniaUI's transitive ColorPicker resolves at 11.2.5 against
-         Avalonia 11.3.18 — the explicit pin removes the version skew. -->
-    <PackageReference Include="Avalonia.Controls.ColorPicker" Version="11.3.18" />
+    <!-- Pinned: FluentAvaloniaUI's transitive ColorPicker can resolve below the
+         Avalonia version above — the explicit pin removes the version skew. -->
+    <PackageReference Include="Avalonia.Controls.ColorPicker" Version="12.1.1" />
     <!-- Controller input. Plain-DllImport bindings (AOT-safe), bundles native SDL3.dll
          for win-x64 so build and publish output pick it up automatically. -->
     <PackageReference Include="ppy.SDL3-CS" Version="2026.722.0" />

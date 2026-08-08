@@ -3,7 +3,7 @@
         x:Class="WSGM.Shell.VolumeIndicatorWindow"
         Title="Volume"
         Width="320" Height="106"
-        SystemDecorations="None"
+        WindowDecorations="None"
         CanResize="False"
         Topmost="True"
         ShowActivated="False"
