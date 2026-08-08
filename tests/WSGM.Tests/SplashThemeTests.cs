@@ -879,6 +879,82 @@ public sealed class SplashThemeTests : IDisposable
     }
 
     [Fact]
+    public void ClosingAnImportSessionSweepsOrphansLeftByEarlierSessions()
+    {
+        var stagingRoot = Path.Combine(_root, "staging");
+        Directory.CreateDirectory(stagingRoot);
+        // The opening sweep runs against an EMPTY root, so every orphan below appears
+        // afterwards and only the CLOSING sweep can be the one that collects it.
+        SplashTheme.BeginImportSession(stagingRoot);
+        var abandoned = StagedDirectory(stagingRoot, "earlier-session");
+        var ancient = StagedDirectory(stagingRoot, "markerless-ancient");
+        var liveElsewhere = StagedDirectory(stagingRoot, "other-process");
+        SplashTheme.ClaimStagingDirectory(abandoned)!.Dispose();
+        Backdate(ancient);
+        using var otherProcess = SplashTheme.ClaimStagingDirectory(liveElsewhere);
+        Assert.NotNull(otherProcess);
+
+        // Ending the last session is what frees the staged images — for orphans this
+        // process never owned just as much as for the ones it released itself.
+        SplashTheme.EndImportSession(stagingRoot);
+
+        Assert.False(Directory.Exists(abandoned));
+        Assert.False(Directory.Exists(ancient));
+        // Another live owner's directory is never collected, whoever sweeps.
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(Path.Combine(liveElsewhere, "logo.png")));
+    }
+
+    [Fact]
+    public void AStrayEndImportSessionCannotDesyncTheSessionCount()
+    {
+        var stagingRoot = Path.Combine(_root, "staging");
+        Directory.CreateDirectory(stagingRoot);
+        // An End with no matching Begin — a window that failed to open, or one closed
+        // twice. The count has to clamp at zero instead of going negative.
+        SplashTheme.EndImportSession(stagingRoot);
+
+        var staged = StagedDirectory(stagingRoot, "unsaved-import");
+        SplashTheme.BeginImportSession(stagingRoot);
+        SplashTheme.TrackStagingOwnership(staged);
+        SplashTheme.BeginImportSession(stagingRoot);
+        SplashTheme.EndImportSession(stagingRoot);
+
+        // A negative count makes the SECOND window's close look like the last one, so
+        // the first window's unsaved import would be freed while it is still on screen.
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(Path.Combine(staged, "logo.png")));
+
+        SplashTheme.EndImportSession(stagingRoot);
+
+        Assert.False(Directory.Exists(staged));
+    }
+
+    [Fact]
+    public void AFreshWriteKeepsAStagingDirectoryYoungHoweverOldItsCreationTimeIs()
+    {
+        var stagingRoot = Path.Combine(_root, "staging");
+        // The age rule uses the NEWER of creation and last-write time: an import that is
+        // still extracting bumps only the write time, so it must never look ancient...
+        var stillExtracting = StagedDirectory(stagingRoot, "created-long-ago-written-now");
+        Directory.SetCreationTimeUtc(stillExtracting, DateTime.UtcNow.AddDays(-2));
+        Directory.SetLastWriteTimeUtc(stillExtracting, DateTime.UtcNow);
+        // ...and a directory created moments ago must not be retired by an old write
+        // time either.
+        var justCreated = StagedDirectory(stagingRoot, "created-now-written-long-ago");
+        Directory.SetLastWriteTimeUtc(justCreated, DateTime.UtcNow.AddDays(-2));
+        Directory.SetCreationTimeUtc(justCreated, DateTime.UtcNow);
+        // Control, so a sweep that collected nothing at all cannot pass this test: only
+        // when BOTH timestamps are old does the age rule fire.
+        var untouched = StagedDirectory(stagingRoot, "untouched-for-days");
+        Backdate(untouched);
+
+        SplashTheme.CleanUpStaleStagingDirectories(stagingRoot, keep: null);
+
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(Path.Combine(stillExtracting, "logo.png")));
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(Path.Combine(justCreated, "logo.png")));
+        Assert.False(Directory.Exists(untouched));
+    }
+
+    [Fact]
     public void ReleasingStagingOwnershipLeavesOtherProcessesClaimsAlone()
     {
         var stagingRoot = Path.Combine(_root, "staging");
