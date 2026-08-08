@@ -60,9 +60,14 @@ public class SplashPresetsTests
         Assert.True(monogram.VignetteEnabled);
         Assert.Equal(17, monogram.TitleFontSize);
         Assert.Equal("#5F5F5F", monogram.CaptionColor);
+        Assert.Equal(10, monogram.CaptionFontSize);
         Assert.Equal("#FF9D3D", monogram.SpinnerColor);
         Assert.Equal(112, monogram.SpinnerSize);
-        Assert.Equal(SplashPlacementMode.WithText, monogram.SpinnerPlacement.Mode);
+        // Ring and text are two independently center-anchored layers, so the
+        // wordmark renders inside the ring (WithText would stack them).
+        Assert.Equal(SplashPlacementMode.Anchor, monogram.SpinnerPlacement.Mode);
+        Assert.Equal(SplashPlacementAnchor.Center, monogram.SpinnerPlacement.Anchor);
+        Assert.Equal(SplashPlacementAnchor.Center, monogram.TextPlacement.Anchor);
 
         var quiet = SplashPresets.Create(SplashPreset.QuietConsole);
         Assert.Equal("Starting Steam", quiet.Text);

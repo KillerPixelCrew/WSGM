@@ -95,7 +95,9 @@ internal static class SplashPresets
         TextColor = "#FFFFFF",
         Caption = "STARTING STEAM",
         CaptionColor = "#5F5F5F",
-        CaptionFontSize = 12,
+        // 10 (not 12) so the caption's width clears the ring's inner circle at
+        // the caption's off-center height — 12 px would clip the ring's edge.
+        CaptionFontSize = 10,
         SpinnerStyle = SplashSpinnerStyle.Ring,
         SpinnerColor = "#FF9D3D",
         SpinnerSize = 112,
@@ -106,7 +108,14 @@ internal static class SplashPresets
             Mode = SplashPlacementMode.Anchor,
             Anchor = SplashPlacementAnchor.Center,
         },
-        SpinnerPlacement = new SplashElementPlacement { Mode = SplashPlacementMode.WithText },
+        // Both center-ANCHORED (not WithText, which would stack the ring below
+        // the text): anchor-mode elements are independent layers, so the two
+        // centered elements overlap and the ring draws around the wordmark.
+        SpinnerPlacement = new SplashElementPlacement
+        {
+            Mode = SplashPlacementMode.Anchor,
+            Anchor = SplashPlacementAnchor.Center,
+        },
     };
 
     /// <summary>Minimal quiet look: a dim "Starting Steam" line with a tiny ring

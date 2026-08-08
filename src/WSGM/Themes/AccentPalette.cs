@@ -18,23 +18,28 @@ public static class AccentPalette
     /// configured value is missing or unparsable.</summary>
     public const string DefaultAccent = "#FFFF9D3D";
 
-    /// <summary>Parses a configured accent color string.</summary>
+    /// <summary>Parses a configured accent color string. The result is always
+    /// fully opaque (see <see cref="ForceOpaque"/>): an #AARRGGBB value keeps its
+    /// RGB but drops its alpha.</summary>
     /// <param name="value">The configured color text (e.g. "#FF9D3D"), or null.</param>
-    /// <returns>The parsed color, or the default accent when the value is missing or invalid.</returns>
+    /// <returns>The parsed color forced opaque, or the default accent when the value is missing or invalid.</returns>
     public static Color Parse(string? value)
     {
         if (!string.IsNullOrWhiteSpace(value) && Color.TryParse(value, out var color))
         {
-            return color;
+            return ForceOpaque(color);
         }
         return Color.Parse(DefaultAccent);
     }
 
-    /// <summary>Applies the accent color to the application's theme and accent resources.</summary>
+    /// <summary>Applies the accent color to the application's theme and accent
+    /// resources. The accent is normalized to full opacity first (see
+    /// <see cref="ForceOpaque"/>).</summary>
     /// <param name="app">The running Avalonia application.</param>
     /// <param name="accent">The accent color to apply.</param>
     public static void Apply(Application app, Color accent)
     {
+        accent = ForceOpaque(accent);
         var theme = app.Styles.OfType<FluentAvaloniaTheme>().FirstOrDefault();
         if (theme is not null)
         {
@@ -49,6 +54,13 @@ public static class AccentPalette
         app.Resources["HcOnAccentBrush"] = new ImmutableSolidColorBrush(onAccent);
         app.Resources["HcOnAccentCaptionBrush"] = new ImmutableSolidColorBrush(onAccentCaption);
     }
+
+    /// <summary>Normalizes an accent to full opacity (A = 255), keeping its RGB.
+    /// A translucent global accent is never rendered as-composited anyway, and a
+    /// low-alpha value would let <see cref="UseBlackForeground"/> (which reads raw
+    /// RGB) pick an unreadable on-accent foreground — so the applied accent is
+    /// always opaque.</summary>
+    internal static Color ForceOpaque(Color accent) => new(0xFF, accent.R, accent.G, accent.B);
 
     /// <summary>Decides whether black text is more legible than white on the given
     /// accent. Black wins when its WCAG contrast ratio against the accent exceeds

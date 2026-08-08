@@ -193,9 +193,39 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
         _ => "State unavailable",
     };
 
-    /// <summary>Reads the first WLAN interface's state via the flat wlanapi
-    /// (no COM/WinRT). Any failure — service down, no adapter, missing DLL —
-    /// degrades to Unknown, which renders the button neutral.</summary>
+    /// <summary>Interprets a WlanEnumInterfaces result buffer. Scans EVERY
+    /// fixed-size interface record and reports Connected when ANY interface is
+    /// connected — a disconnected onboard adapter must not mask a connected USB
+    /// adapter.</summary>
+    /// <param name="list">A non-null WLAN_INTERFACE_INFO_LIST allocation.</param>
+    internal static WifiState ReadInterfaceList(nint list)
+    {
+        // WLAN_INTERFACE_INFO_LIST header: dwNumberOfItems + dwIndex (8 bytes), then
+        // dwNumberOfItems packed WLAN_INTERFACE_INFO records:
+        // GUID (16) + WCHAR[256] description (512) + isState (4) = 532 bytes each.
+        const int HeaderSize = 8;
+        const int StateOffset = 16 + 512;
+        const int RecordSize = StateOffset + 4;
+        var count = Marshal.ReadInt32(list);
+        if (count <= 0)
+        {
+            return WifiState.Unknown;
+        }
+        for (var i = 0; i < count; i++)
+        {
+            var isState = Marshal.ReadInt32(list, HeaderSize + (i * RecordSize) + StateOffset);
+            if (isState == NativeMethods.WlanInterfaceStateConnected)
+            {
+                return WifiState.Connected;
+            }
+        }
+        return WifiState.Disconnected;
+    }
+
+    /// <summary>Reads the WLAN interfaces' state via the flat wlanapi (no
+    /// COM/WinRT); connected when any interface is connected. Any failure —
+    /// service down, no adapter, missing DLL — degrades to Unknown, which
+    /// renders the button neutral.</summary>
     private WifiState QueryWifiState()
     {
         try
@@ -212,17 +242,7 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
                 }
                 try
                 {
-                    var count = Marshal.ReadInt32(list);
-                    if (count <= 0)
-                    {
-                        return WifiState.Unknown;
-                    }
-                    // WLAN_INTERFACE_INFO_LIST header: dwNumberOfItems + dwIndex (8 bytes),
-                    // then WLAN_INTERFACE_INFO: GUID (16) + WCHAR[256] description (512) + isState.
-                    var isState = Marshal.ReadInt32(list, 8 + 16 + 512);
-                    return isState == NativeMethods.WlanInterfaceStateConnected
-                        ? WifiState.Connected
-                        : WifiState.Disconnected;
+                    return ReadInterfaceList(list);
                 }
                 finally
                 {

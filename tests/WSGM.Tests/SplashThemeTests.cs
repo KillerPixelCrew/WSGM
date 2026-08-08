@@ -225,6 +225,172 @@ public sealed class SplashThemeTests : IDisposable
     }
 
     [Fact]
+    public void OversizedImageEntryIsRejectedWithoutCreatingTheTargetDirectory()
+    {
+        var themePath = Path.Combine(_root, "huge-image.wsgmsplash");
+        using (var archive = ZipFile.Open(themePath, ZipArchiveMode.Create))
+        {
+            WriteJsonEntry(archive, "{}");
+            var logo = archive.CreateEntry("logo.png");
+            using var stream = logo.Open();
+            var chunk = new byte[1024 * 1024];
+            for (var written = 0L; written <= 64L * 1024 * 1024; written += chunk.Length)
+            {
+                stream.Write(chunk);
+            }
+        }
+
+        Assert.Null(SplashTheme.Import(themePath, _targetDir));
+        Assert.False(Directory.Exists(_targetDir));
+    }
+
+    [Fact]
+    public void OversizedSplashJsonEntryIsRejected()
+    {
+        var themePath = Path.Combine(_root, "huge-json.wsgmsplash");
+        using (var archive = ZipFile.Open(themePath, ZipArchiveMode.Create))
+        {
+            WriteJsonEntry(archive, "{}" + new string(' ', 2 * 1024 * 1024));
+        }
+
+        Assert.Null(SplashTheme.Import(themePath, _targetDir));
+        Assert.False(Directory.Exists(_targetDir));
+    }
+
+    [Theory]
+    [InlineData("../logo.png")]
+    [InlineData("..\\logo.png")]
+    [InlineData("images/logo.png")]
+    [InlineData("notes.txt")]
+    [InlineData("logo.exe")]
+    [InlineData("background.png.exe")]
+    public void TraversalOrUnknownEntryNameRejectsTheWholeArchive(string entryName)
+    {
+        var themePath = Path.Combine(_root, "hostile.wsgmsplash");
+        using (var archive = ZipFile.Open(themePath, ZipArchiveMode.Create))
+        {
+            WriteJsonEntry(archive, "{}");
+            var entry = archive.CreateEntry(entryName);
+            using var stream = entry.Open();
+            stream.Write([1, 2, 3]);
+        }
+
+        Assert.Null(SplashTheme.Import(themePath, _targetDir));
+        Assert.False(Directory.Exists(_targetDir));
+    }
+
+    [Fact]
+    public void MidExtractionFailureCleansUpTheAlreadyExtractedFiles()
+    {
+        var themePath = Path.Combine(_root, "half-extractable.wsgmsplash");
+        using (var archive = ZipFile.Open(themePath, ZipArchiveMode.Create))
+        {
+            WriteJsonEntry(archive, "{}");
+            var logo = archive.CreateEntry("logo.png");
+            using (var stream = logo.Open())
+            {
+                stream.Write([1, 2, 3]);
+            }
+            var background = archive.CreateEntry("background.png");
+            using (var stream = background.Open())
+            {
+                stream.Write([4, 5, 6]);
+            }
+        }
+        // A directory squatting on background.png's destination makes the second
+        // extraction fail after logo.png already landed — the failed import must
+        // remove the partial state it created.
+        Directory.CreateDirectory(Path.Combine(_targetDir, "background.png"));
+
+        Assert.Null(SplashTheme.Import(themePath, _targetDir));
+        Assert.False(File.Exists(Path.Combine(_targetDir, "logo.png")));
+    }
+
+    [Fact]
+    public void FailedImportIntoAFreshDirectoryDeletesTheDirectoryAgain()
+    {
+        var themePath = Path.Combine(_root, "unreadable-image.wsgmsplash");
+        using (var archive = ZipFile.Open(themePath, ZipArchiveMode.Create))
+        {
+            WriteJsonEntry(archive, "{}");
+            var logo = archive.CreateEntry("logo.png");
+            using (var stream = logo.Open())
+            {
+                stream.Write([1, 2, 3]);
+            }
+            var background = archive.CreateEntry("background.png");
+            using (var stream = background.Open())
+            {
+                stream.Write([4, 5, 6]);
+            }
+        }
+        // Corrupt background.png's compressed bytes (right after its local file
+        // header) so its extraction throws after the fresh target directory was
+        // created and logo.png staged.
+        var bytes = File.ReadAllBytes(themePath);
+        var nameOffset = IndexOf(bytes, "background.png"u8.ToArray());
+        var localHeaderOffset = nameOffset - 30;
+        var extraFieldLength = bytes[localHeaderOffset + 28] | (bytes[localHeaderOffset + 29] << 8);
+        var dataOffset = nameOffset + "background.png".Length + extraFieldLength;
+        for (var i = 0; i < 4; i++)
+        {
+            bytes[dataOffset + i] ^= 0xFF;
+        }
+        File.WriteAllBytes(themePath, bytes);
+
+        Assert.Null(SplashTheme.Import(themePath, _targetDir));
+        Assert.False(Directory.Exists(_targetDir));
+    }
+
+    [Fact]
+    public void FailedExportOverAnExistingFilePreservesTheOriginalBytesAndLeavesNoTempFile()
+    {
+        var destination = Path.Combine(_root, "existing.wsgmsplash");
+        var originalBytes = new byte[] { 0x50, 0x4B, 1, 2, 3, 4 };
+        File.WriteAllBytes(destination, originalBytes);
+        var logoPath = Path.Combine(_sourceDir, "locked.png");
+        File.WriteAllBytes(logoPath, [9]);
+
+        // An exclusively locked image makes the archive build fail mid-way; the
+        // destination must keep its previous content and no *.tmp sibling may remain.
+        using (File.Open(logoPath, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            Assert.False(SplashTheme.Export(new SplashConfig { LogoImagePath = logoPath }, destination));
+        }
+
+        Assert.Equal(originalBytes, File.ReadAllBytes(destination));
+        Assert.Equal([destination], Directory.GetFiles(_root));
+    }
+
+    private static void WriteJsonEntry(ZipArchive archive, string json)
+    {
+        var entry = archive.CreateEntry("splash.json");
+        using var writer = new StreamWriter(entry.Open());
+        writer.Write(json);
+    }
+
+    private static int IndexOf(byte[] haystack, byte[] needle)
+    {
+        for (var start = 0; start <= haystack.Length - needle.Length; start++)
+        {
+            var match = true;
+            for (var i = 0; i < needle.Length; i++)
+            {
+                if (haystack[start + i] != needle[i])
+                {
+                    match = false;
+                    break;
+                }
+            }
+            if (match)
+            {
+                return start;
+            }
+        }
+        return -1;
+    }
+
+    [Fact]
     public void ImportRewritesImagePathsIntoTheTargetDirectoryAndRepairsExplicitNulls()
     {
         var themePath = Path.Combine(_root, "handmade.wsgmsplash");

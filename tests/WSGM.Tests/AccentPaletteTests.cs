@@ -4,8 +4,8 @@ using WSGM.Themes;
 namespace WSGM.Tests;
 
 /// <summary>The executable specification of the pure accent-pipeline pieces:
-/// <see cref="AccentPalette.Parse"/> fallback behavior and the relative-luminance
-/// black/white foreground decision. The Application-mutating Apply path is
+/// <see cref="AccentPalette.Parse"/> fallback behavior, the full-opacity accent
+/// normalization, and the relative-luminance black/white foreground decision. The Application-mutating Apply path is
 /// device/manual-verified, not unit-tested (no Avalonia app in tests).</summary>
 public sealed class AccentPaletteTests
 {
@@ -18,11 +18,35 @@ public sealed class AccentPaletteTests
     }
 
     [Fact]
-    public void Parse_ValidEightDigitHex_KeepsAlpha()
+    public void Parse_ValidEightDigitHex_NormalizesToFullOpacity()
     {
+        // A translucent global accent is never rendered as-composited; the
+        // applied accent keeps its RGB but is forced opaque.
         var color = AccentPalette.Parse("#80FF0000");
 
-        Assert.Equal(new Color(0x80, 0xFF, 0x00, 0x00), color);
+        Assert.Equal(new Color(0xFF, 0xFF, 0x00, 0x00), color);
+    }
+
+    [Theory]
+    [InlineData(0x00)]
+    [InlineData(0x80)]
+    [InlineData(0xFF)]
+    public void ForceOpaque_AnyAlpha_KeepsRgbAndSetsAlphaOpaque(byte alpha)
+    {
+        var opaque = AccentPalette.ForceOpaque(new Color(alpha, 0x33, 0x66, 0x99));
+
+        Assert.Equal(new Color(0xFF, 0x33, 0x66, 0x99), opaque);
+    }
+
+    [Fact]
+    public void Parse_LowAlphaBrightAccent_LuminanceDecidesOnTheOpaqueColor()
+    {
+        // Near-invisible gold input still yields the opaque gold pairing:
+        // black foreground, not a white label on a bright accent.
+        var color = AccentPalette.Parse("#10FFD700");
+
+        Assert.Equal(new Color(0xFF, 0xFF, 0xD7, 0x00), color);
+        Assert.True(AccentPalette.UseBlackForeground(color));
     }
 
     [Theory]

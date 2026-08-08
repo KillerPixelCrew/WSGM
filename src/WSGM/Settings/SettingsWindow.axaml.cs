@@ -60,6 +60,17 @@ public partial class SettingsWindow : Window
             _splashPreview = null;
             _testOverlay?.Dispose();
             _testOverlay = null;
+            // The Appearance page live-applies accent picks to the running
+            // Application as a preview. In the long-lived shell process an
+            // unsaved close would otherwise leak that preview accent onto every
+            // surface, so re-apply the persisted accent here (after a save this
+            // re-applies the same color; after an abandoned preview it restores
+            // the saved one).
+            if (Avalonia.Application.Current is { } app)
+            {
+                Themes.AccentPalette.Apply(
+                    app, Themes.AccentPalette.Parse(ConfigStore.Load().AccentColor));
+            }
             // Same slot the two recorders were disposed in before they moved
             // into ShortcutRecorders (key recorder first, chord second).
             _recorders.Dispose();

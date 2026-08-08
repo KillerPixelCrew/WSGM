@@ -402,7 +402,10 @@ public partial class AppearancePage : UserControl
         {
             return;
         }
-        var imported = SplashTheme.Import(path, SplashAssets.Directory);
+        // Imported images land in a per-import staging directory; Save's ordinary
+        // SplashAssets.Materialize copies them into the stable splash assets — the
+        // live copies stay untouched until the user actually saves.
+        var imported = SplashTheme.Import(path);
         if (imported is null)
         {
             _viewModel.StatusText = "Couldn't import: not a readable splash theme (see wsgm.log).";
