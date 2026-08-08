@@ -25,6 +25,8 @@ public sealed class GamepadNavigation : IDisposable
     private readonly Func<bool>? _isNintendoLayout;
     private readonly Func<InputElement?>? _preferredFocus;
     private readonly Action<InputElement?>? _secondary;
+    private readonly Action? _tabPrevious;
+    private readonly Action? _tabNext;
 
     /// <summary>FocusManager fallback: in a window that never gets OS-activated
     /// (the overlay), GetFocusedElement may not track our programmatic focus.</summary>
@@ -46,9 +48,16 @@ public sealed class GamepadNavigation : IDisposable
     /// <param name="secondary">Optional secondary action for the physical west
     /// button (Xbox X), invoked with the currently focused element — the
     /// taskbar's tray-icon context menu.</param>
+    /// <param name="tabPrevious">Optional action for the left shoulder button (LB),
+    /// fired once per press — switches to the previous tab where a tab strip
+    /// exists. Null leaves the button unhandled.</param>
+    /// <param name="tabNext">Optional action for the right shoulder button (RB),
+    /// fired once per press — switches to the next tab where a tab strip exists.
+    /// Null leaves the button unhandled.</param>
     public GamepadNavigation(GamepadService gamepad, Window window, Action back,
         Func<bool>? isNintendoLayout = null, Func<InputElement?>? preferredFocus = null,
-        Action<InputElement?>? secondary = null)
+        Action<InputElement?>? secondary = null, Action? tabPrevious = null,
+        Action? tabNext = null)
     {
         _gamepad = gamepad;
         _window = window;
@@ -56,6 +65,8 @@ public sealed class GamepadNavigation : IDisposable
         _isNintendoLayout = isNintendoLayout;
         _preferredFocus = preferredFocus;
         _secondary = secondary;
+        _tabPrevious = tabPrevious;
+        _tabNext = tabNext;
         _gamepad.ButtonPressed += OnButtons;
         // Tunnel so the arrows aren't consumed by a ScrollViewer for scrolling first.
         _window.AddHandler(InputElement.KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel);
@@ -87,6 +98,18 @@ public sealed class GamepadNavigation : IDisposable
         if (_secondary is not null && buttons.HasFlag(GamepadButtons.X))
         {
             _secondary(CurrentTarget());
+            return;
+        }
+        // Shoulder buttons cycle tab strips where the host wired them up.
+        // ButtonPressed is edge-triggered, so each physical press fires once.
+        if (_tabPrevious is not null && buttons.HasFlag(GamepadButtons.LeftShoulder))
+        {
+            _tabPrevious();
+            return;
+        }
+        if (_tabNext is not null && buttons.HasFlag(GamepadButtons.RightShoulder))
+        {
+            _tabNext();
             return;
         }
 

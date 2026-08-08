@@ -1,0 +1,87 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:s="using:WSGM.Settings"
+             xmlns:c="using:WSGM.Controls"
+             x:Class="WSGM.Settings.Pages.SystemPage"
+             x:DataType="s:SettingsViewModel">
+    <!-- Dense utility layout: hero shell-status row on top, then two columns of
+         zebra setting rows. XAML element order stays the monolith's order (it is
+         the controller tab order): hero → install → boot toggle → restore →
+         recovery → diagnostics. -->
+    <Border Padding="16,10,16,10">
+        <Grid RowDefinitions="Auto,*">
+            <Border Classes="hc-device-card">
+                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                    <Path Data="{x:Static c:Icons.Monitor}"
+                          Stroke="{StaticResource HcTextPrimaryBrush}" StrokeThickness="1.8"
+                          Width="22" Height="22" Stretch="Uniform" VerticalAlignment="Center" />
+                    <StackPanel Grid.Column="1" Spacing="2">
+                        <TextBlock Text="Windows shell" Classes="setting-title" />
+                        <TextBlock Text="{Binding ShellStatusText}" Classes="caption" />
+                        <TextBlock Text="{Binding AppStatusText}" Classes="caption" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Row="1" ColumnDefinitions="*,24,*">
+                <StackPanel Grid.Column="0">
+                    <Border Classes="section-header">
+                        <TextBlock Text="SHELL" />
+                    </Border>
+                    <Border Classes="setting-row alt">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                            <StackPanel VerticalAlignment="Center" Spacing="1">
+                                <TextBlock Text="Install or update WSGM" Classes="setting-title" />
+                                <TextBlock Text="Copies WSGM to its stable per-user location. This does not change your shell." Classes="caption" />
+                            </StackPanel>
+                            <Button Grid.Column="1" Content="Install app" Command="{Binding InstallAppCommand}" VerticalAlignment="Center" />
+                        </Grid>
+                    </Border>
+                    <Border Classes="setting-row">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                            <StackPanel VerticalAlignment="Center" Spacing="1">
+                                <TextBlock Text="Start game mode at sign-in" Classes="setting-title" />
+                                <TextBlock Text="The WSGM service covers the booting desktop and switches to Big Picture once Windows finishes signing you in. Programs Windows autostarts may briefly run at sign-in." Classes="caption" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsChecked="{Binding GameModeBootEnabled}" VerticalAlignment="Center" />
+                        </Grid>
+                    </Border>
+                    <Border Classes="setting-row alt" IsVisible="{Binding ShellInstalled}">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                            <StackPanel VerticalAlignment="Center" Spacing="1">
+                                <TextBlock Text="Restore the previous shell" Classes="setting-title" />
+                                <TextBlock Text="An older WSGM registered itself as this account's shell. Restore the saved Explorer shell — game mode keeps working through the service." Classes="caption" />
+                            </StackPanel>
+                            <Button Grid.Column="1" Classes="danger" Content="Restore" Command="{Binding UninstallCommand}" VerticalAlignment="Center" />
+                        </Grid>
+                    </Border>
+                </StackPanel>
+
+                <StackPanel Grid.Column="2">
+                    <Border Classes="section-header">
+                        <TextBlock Text="RECOVERY" />
+                    </Border>
+                    <Border Classes="setting-row alt">
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                            <TextBlock Text="!" FontSize="18" FontWeight="Bold" Foreground="{StaticResource HcWarningBrush}" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="1" Text="If game mode does not come up, press Ctrl+Alt+Del, open Task Manager, then run explorer.exe. Run WSGM.exe --restore-shell to turn off game-mode boot and bring the desktop back; re-enable it here afterwards." Classes="caption" VerticalAlignment="Center" />
+                        </Grid>
+                    </Border>
+
+                    <Border Classes="section-header">
+                        <TextBlock Text="DIAGNOSTICS" />
+                    </Border>
+                    <Border Classes="setting-row alt">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                            <StackPanel VerticalAlignment="Center" Spacing="1">
+                                <TextBlock Text="Log file" Classes="setting-title" />
+                                <TextBlock Text="wsgm.log records everything WSGM does — attach it when reporting a problem." Classes="caption" />
+                            </StackPanel>
+                            <Button Grid.Column="1" Content="Open log location" Command="{Binding OpenLogLocationCommand}" VerticalAlignment="Center" />
+                        </Grid>
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </Border>
+</UserControl>

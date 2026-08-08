@@ -63,7 +63,29 @@ public static class ConfigStore
         config.SavedDisplayScales ??= [];
         config.SavedDisplayScaleEntries ??= [];
         config.PreviousConsoleLockSchemeValues ??= [];
+        config.AccentColor ??= "#FFFF9D3D";
+        config.Splash ??= new SplashConfig();
+        NormalizeSplash(config.Splash);
         return config;
+    }
+
+    /// <summary>Repairs explicit JSON nulls inside a splash section (see
+    /// <see cref="Normalize"/>). Shared with splash-theme import, which
+    /// deserializes the same contract from untrusted archives.</summary>
+    internal static SplashConfig NormalizeSplash(SplashConfig splash)
+    {
+        splash.Text ??= "Please wait";
+        splash.TextColor ??= "#FFFFFF";
+        splash.Caption ??= "";
+        splash.CaptionColor ??= "#666666";
+        splash.SpinnerColor ??= "#FFFFFF";
+        splash.BackgroundColor ??= "#000000";
+        splash.BackgroundImagePath ??= "";
+        splash.LogoImagePath ??= "";
+        splash.TextPlacement ??= new SplashElementPlacement();
+        splash.SpinnerPlacement ??= new SplashElementPlacement { Mode = SplashPlacementMode.WithText };
+        splash.LogoPlacement ??= new SplashElementPlacement { Mode = SplashPlacementMode.WithText };
+        return splash;
     }
 
     private static void PreserveCorruptFile()

@@ -14,8 +14,8 @@
     <Viewbox Stretch="Uniform">
         <Border Width="320" Height="106"
                 IsHitTestVisible="False"
-                Background="#E61B1B1B"
-                BorderBrush="#FF3A3A3A"
+                Background="{StaticResource HcOsdBackgroundBrush}"
+                BorderBrush="{StaticResource HcControlBrush}"
                 BorderThickness="1"
                 CornerRadius="10"
                 Padding="20,14">
@@ -39,8 +39,8 @@
                                  Minimum="0"
                                  Maximum="100"
                                  Height="8"
-                                 Foreground="{StaticResource HcAccentBrush}"
-                                 Background="#FF484848" />
+                                 Foreground="{DynamicResource HcAccentBrush}"
+                                 Background="{StaticResource HcControlHoverBrush}" />
                 </StackPanel>
             </Grid>
         </Border>

@@ -1,337 +1,107 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:s="using:WSGM.Settings"
-        xmlns:fa="using:FluentAvalonia.UI.Controls"
+        xmlns:pages="using:WSGM.Settings.Pages"
+        xmlns:c="using:WSGM.Controls"
+        xmlns:ov="using:WSGM.Overlay"
         x:Class="WSGM.Settings.SettingsWindow"
         x:DataType="s:SettingsViewModel"
         Title="WSGM"
-        Width="1280" Height="720" MinWidth="640" MinHeight="480"
+        Width="1280" Height="720" MinWidth="1024" MinHeight="640"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource HcBackgroundBrush}">
 
-    <!-- Direct port of Handheld Companion's MainWindow composition: a top
-         NavigationView, full-width settings pages, and a gamepad action footer. -->
-    <Grid Background="{StaticResource HcBackgroundBrush}">
-        <fa:NavigationView x:Name="MainNavigation"
-                           PaneDisplayMode="Top"
-                           IsPaneToggleButtonVisible="False"
-                           IsSettingsVisible="False"
-                           SelectionFollowsFocus="True"
-                           ItemInvoked="OnNavigationItemInvoked">
-            <fa:NavigationView.MenuItems>
-                <fa:NavigationViewItem Tag="0" IsSelected="True">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="⌂" Classes="nav-icon" />
-                        <TextBlock Text="System" />
+    <!-- Dense two-column utility layout (approved "Option 3 rev 2"): bumper
+         TabStrip on top, five always-alive pages toggled by IsVisible (scroll
+         positions survive), status strip at the bottom. These styles are the
+         setting-row family shared by every page: zebra rows on the page surface
+         (HcHeaderBrush) with HcBackgroundBrush "alt" stripes, a 2 px transparent
+         border that turns accent when the row's focusable control holds focus,
+         accent uppercase section headers with a hairline rule, and compact
+         "mini" control metrics. -->
+    <Window.Styles>
+        <Style Selector="Border.section-header">
+            <Setter Property="BorderBrush" Value="{StaticResource HcCardBorderBrush}" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="Padding" Value="2,0,0,4" />
+            <Setter Property="Margin" Value="0,8,0,4" />
+        </Style>
+        <Style Selector="Border.section-header TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource HcAccentBrush}" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="LetterSpacing" Value="1.5" />
+        </Style>
+
+        <Style Selector="Border.setting-row">
+            <Setter Property="MinHeight" Value="38" />
+            <Setter Property="Padding" Value="10,5" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="2" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+        </Style>
+        <Style Selector="Border.setting-row.alt">
+            <Setter Property="Background" Value="{StaticResource HcBackgroundBrush}" />
+        </Style>
+        <Style Selector="Border.setting-row:focus-within">
+            <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+        </Style>
+
+        <!-- Mini controls inside rows: one step tighter than the app-wide metrics. -->
+        <Style Selector="Border.setting-row TextBlock.setting-title">
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+        <Style Selector="Border.setting-row Button">
+            <Setter Property="MinHeight" Value="24" />
+            <Setter Property="Padding" Value="8,1" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+        <Style Selector="Border.setting-row TextBox, Border.setting-row ComboBox, Border.setting-row NumericUpDown">
+            <Setter Property="MinHeight" Value="26" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+        <Style Selector="Border.setting-row ToggleSwitch, Border.setting-row CheckBox">
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+    </Window.Styles>
+
+    <Grid RowDefinitions="Auto,*,Auto">
+        <Border Grid.Row="0"
+                Background="{StaticResource HcBackgroundBrush}"
+                BorderBrush="{StaticResource HcCardBorderBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="14,6">
+            <!-- Tab descriptors (labels + Icons geometries) are assigned in
+                 code-behind; LB/RB cycle via GamepadNavigation. -->
+            <c:TabStrip x:Name="Tabs" />
+        </Border>
+
+        <Grid Grid.Row="1" Background="{StaticResource HcHeaderBrush}">
+            <pages:SystemPage x:Name="PageSystem" IsVisible="True" />
+            <pages:SteamPage x:Name="PageSteam" IsVisible="False" />
+            <pages:StartupPage x:Name="PageStartup" IsVisible="False" />
+            <pages:QuickAccessPage x:Name="PageQuickAccess" IsVisible="False" />
+            <pages:AppearancePage x:Name="PageAppearance" IsVisible="False" />
+        </Grid>
+
+        <Border Grid.Row="2" Classes="hc-footer">
+            <Grid Margin="12,5" ColumnDefinitions="Auto,Auto,Auto,*,Auto" ColumnSpacing="16">
+                <Button Classes="primary" Content="Save changes" Command="{Binding SaveCommand}" MinWidth="120" />
+                <TextBlock Grid.Column="1" Text="{Binding ServiceStateText}" Classes="caption" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="2" Text="{Binding ShellStateText}" Classes="caption" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="3" Text="{Binding StatusText}" Classes="caption" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <ov:GlyphIcon Width="18" Height="18" Button="a" GlyphStyle="{Binding GlyphStyle}" VerticalAlignment="Center" />
+                        <TextBlock Text="Select" Classes="caption" VerticalAlignment="Center" />
                     </StackPanel>
-                </fa:NavigationViewItem>
-                <fa:NavigationViewItem Tag="1">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="▶" Classes="nav-icon" />
-                        <TextBlock Text="Home" />
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <ov:GlyphIcon Width="18" Height="18" Button="b" GlyphStyle="{Binding GlyphStyle}" VerticalAlignment="Center" />
+                        <TextBlock Text="Back" Classes="caption" VerticalAlignment="Center" />
                     </StackPanel>
-                </fa:NavigationViewItem>
-                <fa:NavigationViewItem Tag="2">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="▦" Classes="nav-icon" />
-                        <TextBlock Text="Startup" />
-                    </StackPanel>
-                </fa:NavigationViewItem>
-                <fa:NavigationViewItem Tag="3">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="☰" Classes="nav-icon" />
-                        <TextBlock Text="Quick access" />
-                    </StackPanel>
-                </fa:NavigationViewItem>
-            </fa:NavigationView.MenuItems>
-
-            <fa:NavigationView.Content>
-                <Grid>
-                    <!-- NavigationView owns navigation. Keep the four page views
-                         alive and switch their visibility directly. This avoids a
-                         second tab strip and preserves each page's scroll position. -->
-                    <ScrollViewer x:Name="SystemPage" IsVisible="True" VerticalScrollBarVisibility="Auto">
-                            <StackPanel Margin="12,4,16,46" Spacing="3">
-                                <TextBlock Text="System" Classes="page-title" />
-
-                                <TextBlock Text="Shell" Classes="section-title" />
-                                <Border Classes="hc-device-card">
-                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
-                                        <TextBlock Text="⊞" FontSize="20" VerticalAlignment="Center" />
-                                        <StackPanel Grid.Column="1" Spacing="2">
-                                            <TextBlock Text="Windows shell" Classes="setting-title" />
-                                            <TextBlock Text="{Binding ShellStatusText}" Classes="caption" />
-                                        </StackPanel>
-                                        <TextBlock Grid.Column="2" Text="{Binding AppStatusText}" Classes="caption" MaxWidth="520" TextAlignment="Right" VerticalAlignment="Center" />
-                                    </Grid>
-                                </Border>
-
-                                <Border Classes="hc-settings-card">
-                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
-                                        <TextBlock Text="↓" FontSize="20" VerticalAlignment="Center" />
-                                        <StackPanel Grid.Column="1" Spacing="2">
-                                            <TextBlock Text="Install or update WSGM" Classes="setting-title" />
-                                            <TextBlock Text="Copies WSGM to its stable per-user location. This does not change your shell." Classes="caption" />
-                                        </StackPanel>
-                                        <Button Grid.Column="2" Content="Install app" Click="OnInstallApp" VerticalAlignment="Center" />
-                                    </Grid>
-                                </Border>
-                                <Border Classes="hc-settings-card">
-                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
-                                        <TextBlock Text="↪" FontSize="20" VerticalAlignment="Center" />
-                                        <StackPanel Grid.Column="1" Spacing="2">
-                                            <TextBlock Text="Start game mode at sign-in" Classes="setting-title" />
-                                            <TextBlock Text="The WSGM service covers the booting desktop and switches to Big Picture once Windows finishes signing you in. Programs Windows autostarts may briefly run at sign-in." Classes="caption" />
-                                        </StackPanel>
-                                        <ToggleSwitch Grid.Column="2" IsChecked="{Binding GameModeBootEnabled}" VerticalAlignment="Center" />
-                                    </Grid>
-                                </Border>
-                                <Border Classes="hc-settings-card" IsVisible="{Binding ShellInstalled}">
-                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
-                                        <TextBlock Text="↶" FontSize="20" VerticalAlignment="Center" />
-                                        <StackPanel Grid.Column="1" Spacing="2">
-                                            <TextBlock Text="Restore the previous shell" Classes="setting-title" />
-                                            <TextBlock Text="An older WSGM registered itself as this account's shell. Restore the saved Explorer shell — game mode keeps working through the service." Classes="caption" />
-                                        </StackPanel>
-                                        <Button Grid.Column="2" Classes="danger" Content="Restore" Click="OnUninstall" VerticalAlignment="Center" />
-                                    </Grid>
-                                </Border>
-
-                                <TextBlock Text="Recovery" Classes="section-title" />
-                                <Border Classes="hc-settings-card">
-                                    <Grid ColumnDefinitions="32,*" ColumnSpacing="12">
-                                        <TextBlock Text="!" FontSize="20" Foreground="{StaticResource HcWarningBrush}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="1" Text="If game mode does not come up, press Ctrl+Alt+Del, open Task Manager, then run explorer.exe. Run WSGM.exe --restore-shell to turn off game-mode boot and bring the desktop back; re-enable it here afterwards." Classes="caption" VerticalAlignment="Center" />
-                                    </Grid>
-                                </Border>
-
-                                <TextBlock Text="Diagnostics" Classes="section-title" />
-                                <Border Classes="hc-settings-card">
-                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
-                                        <TextBlock Text="🗒" FontSize="20" VerticalAlignment="Center" />
-                                        <StackPanel Grid.Column="1" Spacing="2">
-                                            <TextBlock Text="Log file" Classes="setting-title" />
-                                            <TextBlock Text="wsgm.log records everything WSGM does — attach it when reporting a problem." Classes="caption" />
-                                        </StackPanel>
-                                        <Button Grid.Column="2" Content="Open log location" Click="OnOpenLogLocation" VerticalAlignment="Center" />
-                                    </Grid>
-                                </Border>
-                            </StackPanel>
-                    </ScrollViewer>
-
-                    <ScrollViewer x:Name="HomePage" IsVisible="False" VerticalScrollBarVisibility="Auto">
-                            <StackPanel Margin="12,4,16,46" Spacing="3">
-                                <TextBlock Text="Home" Classes="page-title" />
-
-                                <TextBlock Text="Steam" Classes="section-title" />
-                                <Border Classes="hc-settings-card">
-                                    <Grid ColumnDefinitions="32,*" ColumnSpacing="12">
-                                        <TextBlock Text="▶" FontSize="18" VerticalAlignment="Center" />
-                                        <StackPanel Grid.Column="1" Spacing="2">
-                                            <TextBlock Text="Steam Big Picture" Classes="setting-title" />
-                                            <TextBlock Text="WSGM starts Steam Big Picture at logon and returns to it when you leave the desktop. Steam is found automatically." Classes="caption" />
-                                        </StackPanel>
-                                    </Grid>
-                                </Border>
-                                <TextBlock Text="{Binding SteamStatusText}" Classes="caption" Margin="12,0,12,2" />
-
-                                <TextBlock Text="Session behaviour" Classes="section-title" />
-                                <Border Classes="hc-settings-card">
-                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
-                                        <TextBlock Text="↻" FontSize="20" VerticalAlignment="Center" />
-                                        <StackPanel Grid.Column="1" Spacing="2">
-                                            <TextBlock Text="Restart Steam when it exits" Classes="setting-title" />
-                                            <TextBlock Text="Automatically bring Big Picture back after Steam closes." Classes="caption" />
-                                        </StackPanel>
-                                        <ToggleSwitch Grid.Column="2" IsChecked="{Binding SteamAutoRelaunch}" VerticalAlignment="Center" />
-                                    </Grid>
-                                </Border>
-                                <Border Classes="hc-settings-card">
-                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
-                                        <TextBlock Text="!" FontSize="20" Foreground="{StaticResource HcWarningBrush}" VerticalAlignment="Center" />
-                                        <StackPanel Grid.Column="1" Spacing="2">
-                                            <TextBlock Text="Never show UAC prompts on this PC" Classes="setting-title" />
-                                            <TextBlock Text="Applies to every administrator account. Enable only on a personal device you trust." Classes="caption" />
-                                        </StackPanel>
-                                        <ToggleSwitch Grid.Column="2" x:Name="UacCheckBox" IsChecked="{Binding UacPromptsDisabled, Mode=OneWay}" Click="OnToggleUac" VerticalAlignment="Center" />
-                                    </Grid>
-                                </Border>
-                                <TextBlock Text="{Binding UacStatusText}" Classes="caption" Margin="12,0,12,2" />
-                                <Border Classes="hc-settings-card">
-                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
-                                        <TextBlock Text="☾" FontSize="20" VerticalAlignment="Center" />
-                                        <StackPanel Grid.Column="1" Spacing="2">
-                                            <TextBlock Text="No lock screen after standby" Classes="setting-title" />
-                                            <TextBlock Text="Keep a personal handheld ready after it wakes. Anyone with the device can use the current session." Classes="caption" />
-                                        </StackPanel>
-                                        <ToggleSwitch Grid.Column="2" x:Name="LockOnWakeCheckBox" IsChecked="{Binding LockOnWakeDisabled, Mode=OneWay}" Click="OnToggleLockOnWake" VerticalAlignment="Center" />
-                                    </Grid>
-                                </Border>
-                                <TextBlock Text="{Binding LockOnWakeStatusText}" Classes="caption" Margin="12,0,12,2" />
-                            </StackPanel>
-                    </ScrollViewer>
-
-                    <ScrollViewer x:Name="StartupPage" IsVisible="False" VerticalScrollBarVisibility="Auto">
-                            <StackPanel Margin="12,4,16,46" Spacing="3">
-                                <TextBlock Text="Startup" Classes="page-title" />
-                                <TextBlock Text="Startup apps" Classes="section-title" />
-                                <TextBlock Text="Applications run here, in order, before the home launcher starts." Classes="caption" Margin="0,0,0,4" />
-                                <ItemsControl ItemsSource="{Binding StartupApps}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate x:DataType="s:StartupAppRow">
-                                            <Border Classes="hc-settings-card" Margin="0,0,0,4">
-                                                <Grid ColumnDefinitions="Auto,*,180,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="6">
-                                                    <ToggleSwitch Grid.Column="0" IsChecked="{Binding Enabled}" OnContent="" OffContent="" MinWidth="42" VerticalAlignment="Center" />
-                                                    <TextBox Grid.Column="1" Text="{Binding Path}" Watermark="Application path" />
-                                                    <TextBox Grid.Column="2" Text="{Binding Args}" Watermark="Arguments" />
-                                                    <CheckBox Grid.Column="3" IsChecked="{Binding Elevated}" Content="Admin" VerticalAlignment="Center" />
-                                                    <CheckBox Grid.Column="4" IsChecked="{Binding AutoRelaunch}" Content="Restart" VerticalAlignment="Center"
-                                                              ToolTip.Tip="Relaunch this tool automatically if it exits or crashes" />
-                                                    <Button Grid.Column="5" Classes="icon" Content="↑" Click="OnMoveUp" ToolTip.Tip="Move up" />
-                                                    <Button Grid.Column="6" Classes="icon" Content="↓" Click="OnMoveDown" ToolTip.Tip="Move down" />
-                                                    <Button Grid.Column="7" Content="Browse" Click="OnBrowseStartupApp" />
-                                                    <Button Grid.Column="8" Classes="icon danger" Content="×" Click="OnRemoveApp" ToolTip.Tip="Remove" />
-                                                </Grid>
-                                            </Border>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                                <Border Classes="hc-settings-card">
-                                    <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
-                                        <ComboBox Grid.Column="0" ItemsSource="{Binding StartupSuggestions}" SelectedIndex="{Binding SelectedSuggestionIndex}" ToolTip.Tip="Programs found on this PC that can start before the launcher" />
-                                        <Button Grid.Column="1" Classes="primary" Content="Add app" Click="OnAddApp" />
-                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                            <TextBlock Text="First app delay (ms)" Classes="caption" VerticalAlignment="Center"
-                                                       ToolTip.Tip="Wait after logon before the first app starts, so the session and the game-mode display change settle. Tools started too early can hang." />
-                                            <NumericUpDown Value="{Binding StartupDelayMs}" Minimum="0" Maximum="30000" Increment="250" Width="130" FormatString="0" />
-                                        </StackPanel>
-                                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                            <TextBlock Text="Between apps (ms)" Classes="caption" VerticalAlignment="Center"
-                                                       ToolTip.Tip="Extra wait between one startup app and the next" />
-                                            <NumericUpDown Value="{Binding StaggerDelayMs}" Minimum="0" Maximum="30000" Increment="250" Width="130" FormatString="0" />
-                                        </StackPanel>
-                                    </Grid>
-                                </Border>
-
-                                <TextBlock Text="Boot" Classes="section-title" Margin="0,8,0,0" />
-                                <Border Classes="hc-settings-card">
-                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
-                                        <TextBlock Text="⏳" FontSize="20" VerticalAlignment="Center" />
-                                        <StackPanel Grid.Column="1" Spacing="2">
-                                            <TextBlock Text="Boot splash" Classes="setting-title" />
-                                            <TextBlock Text="Show a black 'Please wait' screen at sign-in that hides startup-app windows until Steam Big Picture is on screen." Classes="caption" />
-                                        </StackPanel>
-                                        <ToggleSwitch Grid.Column="2" IsChecked="{Binding BootSplashEnabled}" VerticalAlignment="Center" />
-                                    </Grid>
-                                </Border>
-                            </StackPanel>
-                    </ScrollViewer>
-
-                    <ScrollViewer x:Name="QuickAccessPage" IsVisible="False" VerticalScrollBarVisibility="Auto">
-                            <StackPanel Margin="12,4,16,46" Spacing="3">
-                                <TextBlock Text="Quick access" Classes="page-title" />
-
-                                <TextBlock Text="Quick panel" Classes="section-title" />
-                                <Border Classes="hc-settings-card">
-                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
-                                        <TextBlock Text="☰" FontSize="20" VerticalAlignment="Center" />
-                                        <StackPanel Grid.Column="1" Spacing="2">
-                                            <TextBlock Text="Right-side quick panel" Classes="setting-title" />
-                                            <TextBlock Text="A Steam-QAM-style panel that slides in from the right edge and leaves the game visible." Classes="caption" />
-                                        </StackPanel>
-                                        <Button Grid.Column="2" Content="Test panel" Click="OnTestOverlay" VerticalAlignment="Center" />
-                                    </Grid>
-                                </Border>
-                                <Border Classes="hc-settings-card">
-                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
-                                        <TextBlock Text="▭" FontSize="20" VerticalAlignment="Center" />
-                                        <StackPanel Grid.Column="1" Spacing="2">
-                                            <TextBlock Text="Game-mode taskbar" Classes="setting-title" />
-                                            <TextBlock Text="A thin bottom bar with your open programs and tray icons — swipe up from the bottom edge in game mode." Classes="caption" />
-                                        </StackPanel>
-                                        <Button Grid.Column="2" Content="Test taskbar" Click="OnTestTaskbar" VerticalAlignment="Center" />
-                                    </Grid>
-                                </Border>
-                                <Border Classes="hc-settings-card">
-                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
-                                        <TextBlock Text="🎮" FontSize="20" VerticalAlignment="Center" />
-                                        <StackPanel Grid.Column="1" Spacing="2">
-                                            <TextBlock Text="Block Steam Input while panels are open" Classes="setting-title" />
-                                            <TextBlock Text="Keeps the controller usable in quick access and the taskbar by leasing it away from Steam Input. Turn off to leave Steam completely untouched — panels may then only react to touch while Steam's desktop profile holds the controller." Classes="caption" />
-                                        </StackPanel>
-                                        <ToggleSwitch Grid.Column="2" IsChecked="{Binding SteamInputLeaseEnabled}" VerticalAlignment="Center" />
-                                    </Grid>
-                                </Border>
-                                <Border Classes="hc-settings-card">
-                                    <Grid ColumnDefinitions="32,*,180,Auto" ColumnSpacing="12">
-                                        <TextBlock Text="⌁" FontSize="20" VerticalAlignment="Center" />
-                                        <StackPanel Grid.Column="1" Spacing="2">
-                                            <TextBlock Text="Controller button glyphs" Classes="setting-title" />
-                                            <TextBlock Text="Choose the labels shown in quick access and the settings footer." Classes="caption" />
-                                        </StackPanel>
-                                        <ComboBox Grid.Column="2" ItemsSource="{Binding GlyphStyles}" SelectedIndex="{Binding GlyphStyleIndex}" VerticalAlignment="Center" />
-                                        <Button Grid.Column="3" Content="Touch keyboard" Click="OnTouchKeyboard" VerticalAlignment="Center" />
-                                    </Grid>
-                                </Border>
-
-                                <TextBlock Text="Open quick access" Classes="section-title" />
-                                <Border Classes="hc-settings-card">
-                                    <Grid ColumnDefinitions="32,*,Auto,Auto" ColumnSpacing="12">
-                                        <TextBlock Text="⌨" FontSize="20" VerticalAlignment="Center" />
-                                        <StackPanel Grid.Column="1" Spacing="2">
-                                            <TextBlock Text="Keyboard shortcut" Classes="setting-title" />
-                                            <TextBlock Text="{Binding HotkeyText}" Classes="caption" />
-                                        </StackPanel>
-                                        <Button Grid.Column="2" Content="Record" Click="OnRecordHotkey" VerticalAlignment="Center" />
-                                        <Button Grid.Column="3" Content="Clear" Click="OnClearHotkey" VerticalAlignment="Center" />
-                                    </Grid>
-                                </Border>
-                                <Border Classes="hc-settings-card">
-                                    <Grid ColumnDefinitions="32,*,Auto,Auto" ColumnSpacing="12">
-                                        <TextBlock Text="⌁" FontSize="20" VerticalAlignment="Center" />
-                                        <StackPanel Grid.Column="1" Spacing="2">
-                                            <TextBlock Text="Controller shortcut" Classes="setting-title" />
-                                            <TextBlock Text="{Binding ChordText}" Classes="caption" />
-                                        </StackPanel>
-                                        <Button Grid.Column="2" Content="Record" Click="OnRecordChord" VerticalAlignment="Center" />
-                                        <Button Grid.Column="3" Content="Clear" Click="OnClearChord" VerticalAlignment="Center" />
-                                    </Grid>
-                                </Border>
-                                <Border Classes="hc-settings-card">
-                                    <Grid ColumnDefinitions="32,*,150,Auto" ColumnSpacing="12">
-                                        <TextBlock Text="↑" FontSize="20" VerticalAlignment="Center" />
-                                        <StackPanel Grid.Column="1" Spacing="2">
-                                            <TextBlock Text="Swipe from the bottom edge" Classes="setting-title" />
-                                            <TextBlock Text="A short upward swipe opens the taskbar (game mode) or the panel." Classes="caption" />
-                                        </StackPanel>
-                                        <ComboBox Grid.Column="2" ItemsSource="{Binding BottomEdgeActions}" SelectedIndex="{Binding BottomEdgeActionIndex}" VerticalAlignment="Center" />
-                                        <ToggleSwitch Grid.Column="3" IsChecked="{Binding GestureBottom}" VerticalAlignment="Center" />
-                                    </Grid>
-                                </Border>
-                                <Border Classes="hc-settings-card">
-                                    <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="12">
-                                        <TextBlock Text="←" FontSize="20" VerticalAlignment="Center" />
-                                        <StackPanel Grid.Column="1" Spacing="2">
-                                            <TextBlock Text="Swipe from the right edge" Classes="setting-title" />
-                                            <TextBlock Text="Open the panel with a short leftward swipe." Classes="caption" />
-                                        </StackPanel>
-                                        <ToggleSwitch Grid.Column="2" IsChecked="{Binding GestureRight}" VerticalAlignment="Center" />
-                                    </Grid>
-                                </Border>
-                            </StackPanel>
-                    </ScrollViewer>
-                </Grid>
-            </fa:NavigationView.Content>
-        </fa:NavigationView>
-
-        <Border Classes="hc-footer" VerticalAlignment="Bottom">
-            <Grid Margin="12,4" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-                <Button Classes="primary" Content="Save changes" Click="OnSave" MinWidth="120" />
-                <TextBlock Grid.Column="1" x:Name="SaveStatus" Classes="caption" VerticalAlignment="Center" />
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="22" VerticalAlignment="Center">
-                    <TextBlock Text="☰  Open navigation" Classes="caption" />
-                    <TextBlock Text="D-pad  Navigate" Classes="caption" />
-                    <TextBlock Text="A  Select" Classes="caption" />
+                    <TextBlock Text="LB/RB  Tab" Classes="caption" VerticalAlignment="Center" />
+                    <TextBlock Text="D-pad  Navigate" Classes="caption" VerticalAlignment="Center" />
                 </StackPanel>
             </Grid>
         </Border>

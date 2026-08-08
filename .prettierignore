@@ -1,5 +1,9 @@
 # C# is formatted by dotnet format; generated and binary output is never formatted.
 AGENTS.md
+
+# Agent worktrees checked out under .claude/ carry their own repo copy; formatting
+# them from the outer checkout dirties another agent's working tree.
+.claude/
 **/*.cs
 **/*.axaml.cs
 **/bin/

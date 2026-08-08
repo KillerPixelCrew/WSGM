@@ -1,0 +1,102 @@
+<!-- ControlTheme + state styles for the shared CardButton control (icon,
+     title, description, trailing text). The visuals are the established
+     quick-row look: MinHeight 44 card with a 2 px border that flips to the
+     accent color on focus (the device-proven border-based focus visual —
+     FocusAdorner stays null), plus the primary/danger style classes.
+     Accent-family tokens are consumed via DynamicResource (runtime accent
+     pipeline); everything else StaticResource. The state styles live at the
+     Styles root (not inside the ControlTheme) so they carry regular style
+     priority and can override the typography classes used by the template,
+     mirroring the previous Window.Styles quick-row rules. -->
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:c="using:WSGM.Controls">
+    <Styles.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceInclude Source="/Themes/Palette.axaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <ControlTheme x:Key="{x:Type c:CardButton}" TargetType="c:CardButton">
+                <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
+                <Setter Property="BorderBrush" Value="{StaticResource HcCardBorderBrush}" />
+                <Setter Property="BorderThickness" Value="2" />
+                <Setter Property="CornerRadius" Value="4" />
+                <Setter Property="MinHeight" Value="44" />
+                <Setter Property="Padding" Value="10,6" />
+                <Setter Property="HorizontalAlignment" Value="Stretch" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="Foreground" Value="{StaticResource HcTextPrimaryBrush}" />
+                <Setter Property="FocusAdorner" Value="{x:Null}" />
+                <Setter Property="Template">
+                    <ControlTemplate TargetType="c:CardButton">
+                        <Border Name="PART_Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="{TemplateBinding CornerRadius}"
+                                Padding="{TemplateBinding Padding}">
+                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                                <Path Name="PART_Icon"
+                                      Width="20"
+                                      Height="20"
+                                      Data="{TemplateBinding IconGeometry}"
+                                      Stretch="Uniform"
+                                      Stroke="{TemplateBinding Foreground}"
+                                      StrokeThickness="1.8"
+                                      StrokeLineCap="Round"
+                                      StrokeJoin="Round"
+                                      VerticalAlignment="Center"
+                                      IsVisible="{TemplateBinding IconGeometry, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                    <TextBlock Name="PART_Title"
+                                               Classes="setting-title"
+                                               Text="{TemplateBinding Title}" />
+                                    <TextBlock Name="PART_Description"
+                                               Classes="caption"
+                                               Text="{TemplateBinding Description}"
+                                               IsVisible="{TemplateBinding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                </StackPanel>
+                                <TextBlock Name="PART_Trailing"
+                                           Grid.Column="2"
+                                           FontWeight="SemiBold"
+                                           VerticalAlignment="Center"
+                                           Text="{TemplateBinding TrailingText}"
+                                           IsVisible="{TemplateBinding TrailingText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                            </Grid>
+                        </Border>
+                    </ControlTemplate>
+                </Setter>
+            </ControlTheme>
+        </ResourceDictionary>
+    </Styles.Resources>
+
+    <!-- State styles set control-level properties so the TemplateBindings
+         above propagate them (icon stroke and title follow Foreground).
+         Declaration order is load-bearing: .primary comes after :pointerover
+         so a hovered primary card keeps the accent background, and
+         .primary:focus comes last so its white border wins. -->
+    <Style Selector="c|CardButton:pointerover">
+        <Setter Property="Background" Value="{StaticResource HcCardHoverBrush}" />
+    </Style>
+    <Style Selector="c|CardButton:focus">
+        <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+    </Style>
+    <Style Selector="c|CardButton.primary">
+        <Setter Property="Background" Value="{DynamicResource HcAccentBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource HcOnAccentBrush}" />
+    </Style>
+    <Style Selector="c|CardButton.primary:focus">
+        <Setter Property="BorderBrush" Value="White" />
+    </Style>
+    <Style Selector="c|CardButton.primary /template/ TextBlock#PART_Description">
+        <Setter Property="Foreground" Value="{DynamicResource HcOnAccentCaptionBrush}" />
+    </Style>
+    <Style Selector="c|CardButton.danger /template/ TextBlock#PART_Title">
+        <Setter Property="Foreground" Value="{StaticResource HcDangerBrush}" />
+    </Style>
+    <Style Selector="c|CardButton.danger /template/ Path#PART_Icon">
+        <Setter Property="Stroke" Value="{StaticResource HcDangerBrush}" />
+    </Style>
+</Styles>

@@ -1,116 +1,280 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ov="using:WSGM.Overlay"
+        xmlns:c="using:WSGM.Controls"
+        xmlns:sh="using:WSGM.Shell"
         x:Class="WSGM.Overlay.TaskbarWindow"
         x:DataType="ov:TaskbarViewModel"
         Title="WSGM Taskbar"
-        SizeToContent="WidthAndHeight"
-        MinWidth="120"
+        SizeToContent="Height"
+        Width="800"
         SystemDecorations="None"
         CanResize="False"
         Topmost="True"
         ShowInTaskbar="False"
         Background="{StaticResource HcBackgroundBrush}">
 
-    <!-- Thin Windows-11-style icon strip: app tiles left, tray icons right.
-         Same opaque-surface constraint as the overlay: no rounded corners.
+    <!-- Full-width three-zone bar (approved redesign): WSGM home button on the
+         left, the app tiles + tray in the absolute center (the two star columns
+         split the leftover space equally), status cluster on the right. Opaque,
+         square corners, border on the top edge only. Height stays content-sized;
+         the code-behind spans the width across the primary display and slides the
+         bar up from the bottom edge.
          RootScale: game mode forces 100% display scaling, so DIP sizes render
          1:1 on very dense handheld panels — the code-behind scales the whole
-         strip by screen height to keep tiles touchable (see ApplyTouchScale). -->
+         bar by the desktop DPI to keep tiles touchable (see ApplyTouchScale). -->
     <LayoutTransformControl x:Name="RootScale">
-    <Border BorderBrush="#FF343434" BorderThickness="1,1,1,0" Padding="6,4">
-        <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-            <TextBlock Text="No open apps"
-                       Classes="caption"
-                       VerticalAlignment="Center"
-                       Margin="10,0"
-                       IsVisible="{Binding !HasEntries}" />
-            <ItemsControl ItemsSource="{Binding Entries}">
-                <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                        <StackPanel Orientation="Horizontal" Spacing="4" />
-                    </ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="ov:TaskbarEntry">
-                        <Button Classes="task-tile"
-                                Classes.active="{Binding IsActive}"
-                                Classes.minimized="{Binding IsMinimized}"
-                                Click="OnPickWindow"
-                                ToolTip.Tip="{Binding Title}">
-                            <Panel Width="32" Height="34">
-                                <Image Source="{Binding Icon}"
-                                       Width="32" Height="32"
-                                       VerticalAlignment="Top" />
-                                <!-- Fallback glyph when no icon could be resolved. -->
-                                <TextBlock Text="▢"
-                                           FontSize="22"
-                                           VerticalAlignment="Top"
-                                           HorizontalAlignment="Center"
-                                           IsVisible="{Binding HasNoIcon}" />
-                                <Border Classes="active-indicator"
-                                        Width="16" Height="3"
-                                        CornerRadius="1.5"
-                                        VerticalAlignment="Bottom"
-                                        HorizontalAlignment="Center" />
-                            </Panel>
-                        </Button>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
+    <Border BorderBrush="{StaticResource HcCardBorderBrush}" BorderThickness="0,1,0,0" Padding="8,2">
+        <Grid ColumnDefinitions="*,Auto,*">
+            <!-- Left zone: quick-access home button. -->
+            <Button Grid.Column="0"
+                    x:Name="HomeButton"
+                    Classes="home-tile"
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Center"
+                    Click="OnHome"
+                    ToolTip.Tip="Open quick access">
+                <TextBlock Text="WSGM"
+                           FontSize="14"
+                           FontWeight="Bold"
+                           Foreground="{DynamicResource HcAccentBrush}" />
+            </Button>
 
-            <!-- Tray area (populated by the Shell_TrayWnd host; hidden when empty). -->
-            <Border Width="1" Height="30"
-                    Background="#FF343434"
-                    Margin="4,0"
-                    IsVisible="{Binding HasTrayIcons}" />
-            <ItemsControl ItemsSource="{Binding TrayIcons}" IsVisible="{Binding HasTrayIcons}">
-                <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                        <StackPanel Orientation="Horizontal" Spacing="2" />
-                    </ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="ov:TrayIconEntry">
-                        <Button Classes="task-tile tray"
-                                Click="OnTrayClick"
-                                PointerReleased="OnTrayPointerReleased"
-                                ToolTip.Tip="{Binding Tip}">
-                            <Image Source="{Binding Image}" Width="20" Height="20" />
-                        </Button>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-        </StackPanel>
+            <!-- Center zone: app tiles + tray icons, centered on the bar. -->
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                <TextBlock Text="No open apps"
+                           Classes="caption"
+                           VerticalAlignment="Center"
+                           Margin="10,0"
+                           IsVisible="{Binding !HasEntries}" />
+                <ItemsControl x:Name="AppTiles" ItemsSource="{Binding Entries}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" Spacing="4" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="ov:TaskbarEntry">
+                            <!-- Fixed 44 px tiles: reconcile-in-place must never
+                                 shift geometry under the focused button. -->
+                            <Button Classes="task-tile"
+                                    Classes.active="{Binding IsActive}"
+                                    Classes.minimized="{Binding IsMinimized}"
+                                    Click="OnPickWindow"
+                                    ToolTip.Tip="{Binding Title}">
+                                <Panel Width="40" Height="40">
+                                    <Image Source="{Binding Icon}"
+                                           Width="28" Height="28"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" />
+                                    <!-- Fallback glyph when no icon could be resolved. -->
+                                    <TextBlock Text="▢"
+                                               FontSize="20"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               IsVisible="{Binding HasNoIcon}" />
+                                    <Border Classes="active-indicator"
+                                            Width="20" Height="3"
+                                            CornerRadius="1.5"
+                                            VerticalAlignment="Bottom"
+                                            HorizontalAlignment="Center" />
+                                </Panel>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+            </StackPanel>
+
+            <!-- Right zone per the approved design: tray · Wi-Fi · Bluetooth ·
+                 battery · clock. The tray part binds the taskbar view model, so
+                 it sits OUTSIDE StatusZone's SystemStatus data context. -->
+            <StackPanel Grid.Column="2"
+                        Orientation="Horizontal"
+                        Spacing="4"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Center">
+                <!-- Tray area (populated by the Shell_TrayWnd host; hidden when empty). -->
+                <ItemsControl ItemsSource="{Binding TrayIcons}" IsVisible="{Binding HasTrayIcons}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" Spacing="2" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="ov:TrayIconEntry">
+                            <Button Classes="task-tile tray"
+                                    Click="OnTrayClick"
+                                    PointerReleased="OnTrayPointerReleased"
+                                    ToolTip.Tip="{Binding Tip}">
+                                <Image Source="{Binding Image}" Width="20" Height="20" />
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Border Width="1" Height="28"
+                        Background="{StaticResource HcCardBorderBrush}"
+                        Margin="4,0"
+                        IsVisible="{Binding HasTrayIcons}" />
+                <StackPanel x:Name="StatusZone"
+                            x:DataType="sh:SystemStatus"
+                            Orientation="Horizontal"
+                            Spacing="4"
+                            VerticalAlignment="Center">
+                <Button x:Name="WifiButton"
+                        Classes="status-tile"
+                        Classes.active="{Binding WifiConnected}"
+                        ToolTip.Tip="Wi-Fi">
+                    <Button.Flyout>
+                        <Flyout Placement="Top">
+                            <StackPanel MaxWidth="240" Spacing="4">
+                                <TextBlock Text="Wi-Fi" FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding WifiStateText}" Classes="caption" />
+                                <TextBlock Text="Radio controls arrive in a later update."
+                                           Classes="caption"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Flyout>
+                    </Button.Flyout>
+                    <Path Classes="status-icon"
+                          Data="{x:Static c:Icons.WiFi}"
+                          Width="20" Height="20"
+                          Stretch="Uniform" />
+                </Button>
+                <Button x:Name="BluetoothButton"
+                        Classes="status-tile"
+                        ToolTip.Tip="Bluetooth">
+                    <Button.Flyout>
+                        <Flyout Placement="Top">
+                            <StackPanel MaxWidth="240" Spacing="4">
+                                <TextBlock Text="Bluetooth" FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding BluetoothStateText}" Classes="caption" />
+                                <TextBlock Text="Radio controls arrive in a later update."
+                                           Classes="caption"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Flyout>
+                    </Button.Flyout>
+                    <Path Classes="status-icon"
+                          Data="{x:Static c:Icons.Bluetooth}"
+                          Width="20" Height="20"
+                          Stretch="Uniform" />
+                </Button>
+                <StackPanel Orientation="Horizontal"
+                            Spacing="5"
+                            VerticalAlignment="Center"
+                            Margin="4,0,0,0"
+                            IsVisible="{Binding HasBattery}">
+                    <Path Classes="status-icon"
+                          Data="{x:Static c:Icons.Battery}"
+                          Width="20" Height="20"
+                          Stretch="Uniform"
+                          VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding BatteryText}"
+                               FontSize="12"
+                               VerticalAlignment="Center" />
+                </StackPanel>
+                <StackPanel VerticalAlignment="Center" Margin="8,0,4,0">
+                    <TextBlock Text="{Binding ClockText}"
+                               FontSize="14"
+                               FontWeight="SemiBold"
+                               HorizontalAlignment="Right" />
+                    <TextBlock Text="{Binding DateText}"
+                               Classes="caption"
+                               FontSize="10"
+                               HorizontalAlignment="Right" />
+                </StackPanel>
+                </StackPanel>
+            </StackPanel>
+        </Grid>
     </Border>
     </LayoutTransformControl>
 
     <Window.Styles>
-        <!-- Stable in-button focus border, no adorner (see OverlayWindow). -->
-        <Style Selector="Button">
-            <Setter Property="FocusAdorner" Value="{x:Null}" />
-        </Style>
+        <!-- App tiles: fixed 44 px, card background, accent underline when
+             active, dimmed content when minimized. The :focus/:pointerover rules
+             are restated here to win the equal-specificity tie against
+             Shared.axaml's global Button styles. -->
         <Style Selector="Button.task-tile">
-            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Width" Value="44" />
+            <Setter Property="Height" Value="44" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
             <Setter Property="BorderBrush" Value="Transparent" />
             <Setter Property="BorderThickness" Value="2" />
             <Setter Property="CornerRadius" Value="4" />
-            <Setter Property="Padding" Value="5,3" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
         <Style Selector="Button.task-tile:focus">
-            <Setter Property="BorderBrush" Value="{StaticResource HcAccentBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
         </Style>
         <Style Selector="Button.task-tile:pointerover">
-            <Setter Property="Background" Value="#FF383838" />
+            <Setter Property="Background" Value="{StaticResource HcCardHoverBrush}" />
         </Style>
         <Style Selector="Button.task-tile.minimized Image">
+            <Setter Property="Opacity" Value="0.55" />
+        </Style>
+        <Style Selector="Button.task-tile.minimized TextBlock">
             <Setter Property="Opacity" Value="0.55" />
         </Style>
         <Style Selector="Button.task-tile Border.active-indicator">
             <Setter Property="Background" Value="Transparent" />
         </Style>
         <Style Selector="Button.task-tile.active Border.active-indicator">
-            <Setter Property="Background" Value="{StaticResource HcAccentBrush}" />
+            <Setter Property="Background" Value="{DynamicResource HcAccentBrush}" />
+        </Style>
+        <Style Selector="Button.task-tile.tray">
+            <Setter Property="Width" Value="36" />
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+
+        <!-- WSGM home button (left zone). -->
+        <Style Selector="Button.home-tile">
+            <Setter Property="MinHeight" Value="40" />
+            <Setter Property="Padding" Value="12,4" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="2" />
+            <Setter Property="CornerRadius" Value="4" />
+        </Style>
+        <Style Selector="Button.home-tile:focus">
+            <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+        </Style>
+        <Style Selector="Button.home-tile:pointerover">
+            <Setter Property="Background" Value="{StaticResource HcCardHoverBrush}" />
+        </Style>
+
+        <!-- Status buttons (right zone): neutral stroke icons; only a known-on
+             radio state (Wi-Fi connected) tints the icon with the accent. -->
+        <Style Selector="Button.status-tile">
+            <Setter Property="Width" Value="36" />
+            <Setter Property="Height" Value="40" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="2" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.status-tile:focus">
+            <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+        </Style>
+        <Style Selector="Button.status-tile:pointerover">
+            <Setter Property="Background" Value="{StaticResource HcCardHoverBrush}" />
+        </Style>
+        <!-- Stroke-rendered like the TabStrip icons: the Icons geometries are
+             stroke-style, filling them collapses interior detail. -->
+        <Style Selector="Path.status-icon">
+            <Setter Property="Fill" Value="{x:Null}" />
+            <Setter Property="Stroke" Value="{StaticResource HcTextMutedBrush}" />
+            <Setter Property="StrokeThickness" Value="1.5" />
+            <Setter Property="StrokeJoin" Value="Round" />
+            <Setter Property="StrokeLineCap" Value="Round" />
+        </Style>
+        <Style Selector="Button.status-tile.active Path.status-icon">
+            <Setter Property="Stroke" Value="{DynamicResource HcAccentBrush}" />
         </Style>
     </Window.Styles>
 </Window>

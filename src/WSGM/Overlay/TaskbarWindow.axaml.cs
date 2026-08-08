@@ -5,13 +5,15 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using WSGM.Core;
+using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
-/// <summary>The game-mode taskbar: a thin, centered, bottom-docked icon strip of
-/// the switchable windows (and, when the tray host is live, tray icons). Shares the
-/// overlay's focus-taking model: safe only because the Steam Input lease keeps the
-/// pad readable while a WSGM window is foreground.</summary>
+/// <summary>The game-mode taskbar: a full-width, bottom-docked three-zone bar —
+/// WSGM home button, centered app tiles (and, when the tray host is live, tray
+/// icons), and the system status cluster (Wi-Fi/Bluetooth/battery/clock). Shares
+/// the overlay's focus-taking model: safe only because the Steam Input lease keeps
+/// the pad readable while a WSGM window is foreground.</summary>
 public partial class TaskbarWindow : Window
 {
     private DispatcherTimer? _slideTimer;
@@ -30,32 +32,47 @@ public partial class TaskbarWindow : Window
     /// <summary>Raised when the taskbar is dismissed without another action.</summary>
     public event Action? Dismissed;
 
+    /// <summary>Raised when the WSGM home button is pressed: the controller opens
+    /// quick access through its existing taskbar-to-overlay handover (restore
+    /// target inherited, shared lease kept alive).</summary>
+    public event Action? HomeRequested;
+
     /// <summary>The control gamepad navigation should land on when the bar opens:
-    /// the first application tile (null before the ItemsControl materializes).</summary>
+    /// the first application tile — explicitly, because the window's visual-tree
+    /// order now puts the home button first (falls back to the first visible
+    /// button when no tiles exist).</summary>
     internal InputElement? DefaultFocusTarget => FindFirstTile();
 
     private readonly double _uiScale;
 
     /// <summary>Creates the taskbar window bound to the supplied state.</summary>
-    /// <param name="viewModel">The tile collection driving the strip.</param>
+    /// <param name="viewModel">The tile collection driving the bar.</param>
+    /// <param name="status">The live clock/battery/radio status the right zone binds.</param>
     /// <param name="uiScale">The desktop-DPI scale factor for WSGM UI (e.g. 1.5
     /// for a 150% desktop; see DisplayScale.GetUiScalePercent).</param>
-    public TaskbarWindow(TaskbarViewModel viewModel, double uiScale = 1.0)
+    public TaskbarWindow(TaskbarViewModel viewModel, SystemStatus status, double uiScale = 1.0)
     {
         _uiScale = uiScale;
         InitializeComponent();
         DataContext = viewModel;
+        // The right zone binds a different object than the window (compiled
+        // bindings: x:DataType="sh:SystemStatus" on the StatusZone subtree).
+        StatusZone.DataContext = status;
+        // Tap-outside dismissal must ignore taps on the status flyouts, which
+        // pop above the bar's rectangle (see OverlayController.OnTappedAt).
+        TrackStatusFlyout(WifiButton);
+        TrackStatusFlyout(BluetoothButton);
         KeyDown += OnKeyDown;
         Opened += OnOpened;
         Closed += (_, _) => StopSlide();
-        // SizeToContent: the strip grows/shrinks as the 1 s refresh adds or drops
-        // tiles — keep it centered on the bottom edge (skip during the slide-in,
-        // which owns Position until it finishes).
+        // SizeToContent height: the bar's height can change as tiles appear —
+        // keep it flush on the bottom edge (skip during the slide-in, which owns
+        // Position until it finishes).
         SizeChanged += (_, _) =>
         {
             if (_slideTimer is null && IsVisible)
             {
-                SnapToBottomCenter();
+                SnapToBottomEdge();
             }
         };
 
@@ -64,6 +81,22 @@ public partial class TaskbarWindow : Window
         // synthesized mouse click delivered late; eat it here, and let the
         // controller's deferred Close() keep this window alive to do so.
         Win32Properties.AddWndProcHookCallback(this, WndProcHook);
+    }
+
+    private int _openStatusFlyouts;
+
+    /// <summary>Whether a Wi-Fi/Bluetooth status flyout is currently open — their
+    /// popups sit above the bar, outside the tap-outside hit rectangle.</summary>
+    internal bool IsStatusFlyoutOpen => _openStatusFlyouts > 0;
+
+    private void TrackStatusFlyout(Button button)
+    {
+        if (button.Flyout is not { } flyout)
+        {
+            return;
+        }
+        flyout.Opened += (_, _) => _openStatusFlyouts++;
+        flyout.Closed += (_, _) => _openStatusFlyouts = Math.Max(0, _openStatusFlyouts - 1);
     }
 
     private static IntPtr WndProcHook(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -117,6 +150,16 @@ public partial class TaskbarWindow : Window
 
     private InputElement? FindFirstTile()
     {
+        // The first APP TILE, not the window's first button (that is the home
+        // button since the three-zone rebuild).
+        foreach (var descendant in Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(AppTiles))
+        {
+            if (descendant is Button { IsEffectivelyVisible: true } button)
+            {
+                return button;
+            }
+        }
+        // No tiles: fall back to the window-wide walk (lands on the home button).
         foreach (var descendant in Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(this))
         {
             if (descendant is Button { IsEffectivelyVisible: true } button)
@@ -127,7 +170,7 @@ public partial class TaskbarWindow : Window
         return null;
     }
 
-    private PixelPoint ComputeBottomCenter()
+    private PixelPoint ComputeDockedPosition()
     {
         var screen = Screens?.Primary;
         if (screen is null)
@@ -135,19 +178,14 @@ public partial class TaskbarWindow : Window
             return Position;
         }
         var bounds = screen.Bounds;
-        var scaling = DesktopScaling;
-        var widthPx = (int)Math.Ceiling(Width * scaling);
-        var heightPx = (int)Math.Ceiling(Height * scaling);
-        return new PixelPoint(
-            bounds.X + Math.Max(0, (bounds.Width - widthPx) / 2),
-            bounds.Y + bounds.Height - heightPx);
+        var heightPx = (int)Math.Ceiling(Height * DesktopScaling);
+        return new PixelPoint(bounds.X, bounds.Y + bounds.Height - heightPx);
     }
 
-    private void SnapToBottomCenter() => Position = ComputeBottomCenter();
+    private void SnapToBottomEdge() => Position = ComputeDockedPosition();
 
-    /// <summary>Centers the bar over the bottom edge of the primary display and
-    /// slides it up from below the screen (mirror of the overlay's right-edge
-    /// slide-in).</summary>
+    /// <summary>Spans the bar across the primary display's bottom edge and slides
+    /// it up from below the screen (mirror of the overlay's right-edge slide-in).</summary>
     private void DockToBottomEdge()
     {
         var screen = Screens?.Primary;
@@ -156,7 +194,15 @@ public partial class TaskbarWindow : Window
             return;
         }
 
-        _slideEnd = ComputeBottomCenter();
+        // Full width: the window spans the display; only the height is
+        // content-sized (SizeToContent="Height"). Window scaling, not
+        // screen.Scaling — the screens cache is stale after a runtime
+        // display-scale flip (see OverlayWindow.DockToRightEdge).
+        Width = screen.Bounds.Width / DesktopScaling;
+        // The height must be final before the dock computes the slide positions.
+        UpdateLayout();
+
+        _slideEnd = ComputeDockedPosition();
         _slideStart = new PixelPoint(_slideEnd.X, screen.Bounds.Y + screen.Bounds.Height);
         Position = _slideStart;
 
@@ -201,6 +247,8 @@ public partial class TaskbarWindow : Window
             Dismissed?.Invoke();
         }
     }
+
+    private void OnHome(object? sender, RoutedEventArgs e) => HomeRequested?.Invoke();
 
     private void OnPickWindow(object? sender, RoutedEventArgs e)
     {

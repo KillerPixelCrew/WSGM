@@ -4,41 +4,30 @@
         Title="WSGM Setup"
         Width="560" Height="440" CanResize="False"
         WindowStartupLocation="CenterScreen"
-        TransparencyLevelHint="AcrylicBlur"
-        Background="Transparent">
+        Background="{StaticResource HcBackgroundBrush}">
 
-    <ExperimentalAcrylicBorder CornerRadius="16" Margin="1">
-        <ExperimentalAcrylicBorder.Material>
-            <ExperimentalAcrylicMaterial BackgroundSource="Digger"
-                                         TintColor="#101729"
-                                         TintOpacity="0.88"
-                                         MaterialOpacity="0.72"
-                                         FallbackColor="#FF101729" />
-        </ExperimentalAcrylicBorder.Material>
+    <StackPanel Margin="36" Spacing="20" VerticalAlignment="Center">
 
-        <StackPanel Margin="36" Spacing="20" VerticalAlignment="Center">
-
-            <StackPanel Spacing="6">
-                <TextBlock Classes="eyebrow" Text="WELCOME" />
-                <TextBlock Classes="page-title" x:Name="TitleText" Text="Install WSGM?" />
-                <TextBlock Classes="caption" TextWrapping="Wrap" x:Name="BodyText"
-                           Text="WSGM copies itself to a stable per-user location (no administrator rights needed), adds a Start Menu entry, and appears in Settings → Apps for clean removal. Your shell is NOT changed by this — that stays a separate, explicit step in Settings." />
-            </StackPanel>
-
-            <Border Classes="glass-panel">
-                <StackPanel Spacing="12">
-                    <Button Classes="primary" x:Name="InstallButton" Content="Install (recommended)"
-                            HorizontalAlignment="Stretch" MinHeight="52" FontSize="16"
-                            Click="OnInstall" />
-                    <Button Content="Run without installing"
-                            HorizontalAlignment="Stretch" MinHeight="44"
-                            Click="OnPortable" />
-                </StackPanel>
-            </Border>
-
-            <TextBlock Classes="caption" TextWrapping="Wrap" Opacity="0.6"
-                       Text="You can undo everything later from Settings → Apps → WSGM." />
-
+        <StackPanel Spacing="6">
+            <TextBlock Classes="eyebrow" Text="WELCOME" />
+            <TextBlock Classes="page-title" x:Name="TitleText" Text="Install WSGM?" />
+            <TextBlock Classes="caption" TextWrapping="Wrap" x:Name="BodyText"
+                       Text="WSGM copies itself to a stable per-user location (no administrator rights needed), adds a Start Menu entry, and appears in Settings → Apps for clean removal. Your shell is NOT changed by this — that stays a separate, explicit step in Settings." />
         </StackPanel>
-    </ExperimentalAcrylicBorder>
+
+        <Border Classes="hc-settings-card" Padding="16">
+            <StackPanel Spacing="12">
+                <Button Classes="primary" x:Name="InstallButton" Content="Install (recommended)"
+                        HorizontalAlignment="Stretch" MinHeight="52" FontSize="16"
+                        Click="OnInstall" />
+                <Button Content="Run without installing"
+                        HorizontalAlignment="Stretch" MinHeight="44"
+                        Click="OnPortable" />
+            </StackPanel>
+        </Border>
+
+        <TextBlock Classes="caption" TextWrapping="Wrap" Opacity="0.6"
+                   Text="You can undo everything later from Settings → Apps → WSGM." />
+
+    </StackPanel>
 </Window>

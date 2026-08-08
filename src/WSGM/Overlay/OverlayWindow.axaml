@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ov="using:WSGM.Overlay"
+        xmlns:c="using:WSGM.Controls"
         xmlns:fa="using:FluentAvalonia.UI.Controls"
         x:Class="WSGM.Overlay.OverlayWindow"
         x:DataType="ov:OverlayViewModel"
@@ -13,8 +14,9 @@
         ShowInTaskbar="False"
         Background="{StaticResource HcBackgroundBrush}">
 
-    <!-- Ported from Handheld Companion QuickTools: compact status strip, grouped
-         SettingsCard-style rows, and a bottom controller-navigation bar.
+    <!-- Approved quick-access redesign: slim header, bumper TabStrip
+         (Session / Tools / Power, LB/RB cycle with wrap), three always-alive
+         per-tab panels toggled by IsVisible, CardButton rows, glyph footer.
          No CornerRadius/Background here: the window surface behind it is opaque
          and identically colored, so rounded corners could never render.
          RootScale: renders the panel at the desktop's DPI — game mode forces
@@ -22,131 +24,91 @@
          (see DockToRightEdge / DisplayScale.GetUiScalePercent). -->
     <LayoutTransformControl x:Name="RootScale">
     <Border>
-        <Grid RowDefinitions="Auto,*,Auto">
-            <Border Grid.Row="0" Background="#FF282828" BorderBrush="#FF343434" BorderThickness="0,0,0,1" Padding="10,6">
+        <Grid RowDefinitions="Auto,Auto,*,Auto">
+            <Border Grid.Row="0" Background="{StaticResource HcHeaderBrush}" BorderBrush="{StaticResource HcCardBorderBrush}" BorderThickness="0,0,0,1" Padding="10,6">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                     <StackPanel Orientation="Horizontal" Spacing="9">
                         <TextBlock Text="WSGM" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        <TextBlock Text="QUICK ACCESS" FontSize="10" Foreground="{StaticResource HcTextMutedBrush}" VerticalAlignment="Center" />
+                        <TextBlock Text="QUICK ACCESS" Classes="eyebrow" VerticalAlignment="Center" />
                     </StackPanel>
                     <Button Grid.Column="1" Classes="icon close" Content="×" Click="OnClose" ToolTip.Tip="Close quick access" />
                 </Grid>
             </Border>
 
-            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <!-- Tab descriptors (labels + Icons geometries) are assigned in
+                 code-behind; LB/RB cycle via GamepadNavigation. -->
+            <Border Grid.Row="1" Background="{StaticResource HcBackgroundBrush}" BorderBrush="{StaticResource HcCardBorderBrush}" BorderThickness="0,0,0,1">
+                <c:TabStrip x:Name="Tabs" />
+            </Border>
+
+            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="8,8" Spacing="4">
+                    <!-- Panel-level warning: sits above the tab panels, so it is
+                         visible on every tab. -->
                     <fa:InfoBar IsOpen="{Binding HasWarning}" Title="WSGM" Message="{Binding WarningText}" Severity="Warning" IsClosable="False" Margin="0,0,0,4" />
 
-                    <TextBlock Text="Session" Classes="section-title" Margin="0,0,0,2" />
-                    <Button x:Name="HomeAppButton" Classes="quick-row primary" Click="OnHomeApp">
-                        <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="10">
-                            <TextBlock Text="▶" FontSize="15" VerticalAlignment="Center" HorizontalAlignment="Center" />
-                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
-                                <TextBlock Text="{Binding HomeAppButtonText}" Classes="setting-title" />
-                                <TextBlock Text="Open Steam Big Picture" Classes="caption" />
-                            </StackPanel>
-                            <TextBlock Grid.Column="2" Text="A" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        </Grid>
-                    </Button>
-                    <Button x:Name="DesktopButton" Classes="quick-row" Click="OnDesktop">
-                        <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
-                            <TextBlock Text="▣" FontSize="15" VerticalAlignment="Center" HorizontalAlignment="Center" />
-                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
-                                <TextBlock Text="{Binding DesktopButtonText}" Classes="setting-title" />
-                                <TextBlock Text="Show or hide the Windows desktop" Classes="caption" />
-                            </StackPanel>
-                        </Grid>
-                    </Button>
-                    <Button x:Name="ExitBigPictureButton" Classes="quick-row" Click="OnExitBigPicture">
-                        <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
-                            <TextBlock Text="⤢" FontSize="15" VerticalAlignment="Center" HorizontalAlignment="Center" />
-                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
-                                <TextBlock Text="Exit Big Picture" Classes="setting-title" />
-                                <TextBlock Text="Switch Steam to its desktop window" Classes="caption" />
-                            </StackPanel>
-                        </Grid>
-                    </Button>
-                    <Button x:Name="CloseLauncherButton" Classes="quick-row" Click="OnCloseLauncher"
-                            IsVisible="{Binding HomeAppAlive}">
-                        <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
-                            <TextBlock Text="✕" FontSize="14" VerticalAlignment="Center" HorizontalAlignment="Center" />
-                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
-                                <TextBlock Text="{Binding CloseLauncherText}" Classes="setting-title" />
-                                <TextBlock Text="Quit Steam completely" Classes="caption" />
-                            </StackPanel>
-                        </Grid>
-                    </Button>
+                    <StackPanel x:Name="PanelSession" Spacing="4" IsVisible="True">
+                        <c:CardButton x:Name="HomeAppButton" Classes="primary" Click="OnHomeApp"
+                                      IconGeometry="{x:Static c:Icons.Play}"
+                                      Title="{Binding HomeAppButtonText}"
+                                      Description="Open Steam Big Picture"
+                                      TrailingText="A" />
+                        <c:CardButton x:Name="DesktopButton" Click="OnDesktop"
+                                      IconGeometry="{x:Static c:Icons.Monitor}"
+                                      Title="{Binding DesktopButtonText}"
+                                      Description="Show or hide the Windows desktop" />
+                        <c:CardButton x:Name="ExitBigPictureButton" Click="OnExitBigPicture"
+                                      IconGeometry="{x:Static c:Icons.ExitFullscreen}"
+                                      Title="Exit Big Picture"
+                                      Description="Switch Steam to its desktop window" />
+                        <c:CardButton x:Name="CloseLauncherButton" Click="OnCloseLauncher"
+                                      IsVisible="{Binding HomeAppAlive}"
+                                      IconGeometry="{x:Static c:Icons.Close}"
+                                      Title="{Binding CloseLauncherText}"
+                                      Description="Quit Steam completely" />
+                    </StackPanel>
 
-                    <TextBlock Text="WSGM" Classes="section-title" Margin="0,4,0,2" />
-                    <Button Classes="quick-row" Click="OnSettings">
-                        <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
-                            <TextBlock Text="⚙" FontSize="16" VerticalAlignment="Center" HorizontalAlignment="Center" />
-                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
-                                <TextBlock Text="Settings" Classes="setting-title" />
-                                <TextBlock Text="Shell, startup, and quick access configuration" Classes="caption" />
-                            </StackPanel>
-                        </Grid>
-                    </Button>
-                    <Button Classes="quick-row" Click="OnTaskManager">
-                        <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
-                            <TextBlock Text="▦" FontSize="15" VerticalAlignment="Center" HorizontalAlignment="Center" />
-                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
-                                <TextBlock Text="Task Manager" Classes="setting-title" />
-                                <TextBlock Text="Processes and performance" Classes="caption" />
-                            </StackPanel>
-                        </Grid>
-                    </Button>
-                    <Button Classes="quick-row" Click="OnCopyDeelevationCommand">
-                        <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
-                            <TextBlock Text="⧉" FontSize="16" VerticalAlignment="Center" HorizontalAlignment="Center" />
-                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
-                                <TextBlock x:Name="DeelevationCommandTitle" Text="Copy de-elevation command" Classes="setting-title" />
-                                <TextBlock Text="Paste into a game's Steam launch options" Classes="caption" />
-                            </StackPanel>
-                        </Grid>
-                    </Button>
-                    <Button Classes="quick-row" Click="OnCopySteamInputBlockCommand">
-                        <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
-                            <TextBlock Text="⨂" FontSize="16" VerticalAlignment="Center" HorizontalAlignment="Center" />
-                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
-                                <TextBlock x:Name="SteamInputBlockCommandTitle" Text="Copy Steam Input block command" Classes="setting-title" />
-                                <TextBlock Text="For games that read the controller themselves" Classes="caption" />
-                            </StackPanel>
-                        </Grid>
-                    </Button>
+                    <StackPanel x:Name="PanelTools" Spacing="4" IsVisible="False">
+                        <c:CardButton Click="OnSettings"
+                                      IconGeometry="{x:Static c:Icons.Gear}"
+                                      Title="Settings"
+                                      Description="Shell, startup, and quick access configuration" />
+                        <c:CardButton Click="OnTaskManager"
+                                      IconGeometry="{x:Static c:Icons.Grid4}"
+                                      Title="Task Manager"
+                                      Description="Processes and performance" />
+                        <!-- The x:Name lives on the button: the copy handlers
+                             rewrite its Title with the copy result. -->
+                        <c:CardButton x:Name="DeelevationCommandTitle" Click="OnCopyDeelevationCommand"
+                                      IconGeometry="{x:Static c:Icons.CopyDoc}"
+                                      Title="Copy de-elevation command"
+                                      Description="Paste into a game's Steam launch options" />
+                        <c:CardButton x:Name="SteamInputBlockCommandTitle" Click="OnCopySteamInputBlockCommand"
+                                      IconGeometry="{x:Static c:Icons.BlockedCircle}"
+                                      Title="Copy Steam Input block command"
+                                      Description="For games that read the controller themselves" />
+                    </StackPanel>
 
-                    <TextBlock Text="Power" Classes="section-title" Margin="0,4,0,2" />
-                    <Button Classes="quick-row" Click="OnSleep">
-                        <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
-                            <TextBlock Text="☾" FontSize="16" VerticalAlignment="Center" HorizontalAlignment="Center" />
-                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
-                                <TextBlock Text="Sleep" Classes="setting-title" />
-                                <TextBlock Text="Put this handheld to sleep" Classes="caption" />
-                            </StackPanel>
-                        </Grid>
-                    </Button>
-                    <Button x:Name="RestartButton" Classes="quick-row" Click="OnRestart">
-                        <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
-                            <TextBlock Text="↻" FontSize="16" VerticalAlignment="Center" HorizontalAlignment="Center" />
-                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
-                                <TextBlock x:Name="RestartTitle" Text="Restart" Classes="setting-title" />
-                                <TextBlock Text="Restart Windows" Classes="caption" />
-                            </StackPanel>
-                        </Grid>
-                    </Button>
-                    <Button x:Name="ShutdownButton" Classes="quick-row danger" Click="OnShutdown">
-                        <Grid ColumnDefinitions="32,*" ColumnSpacing="10">
-                            <TextBlock Text="⏻" FontSize="16" VerticalAlignment="Center" HorizontalAlignment="Center" />
-                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
-                                <TextBlock x:Name="ShutdownTitle" Text="Shut down" Classes="setting-title" />
-                                <TextBlock Text="Turn off this handheld" Classes="caption" />
-                            </StackPanel>
-                        </Grid>
-                    </Button>
+                    <StackPanel x:Name="PanelPower" Spacing="4" IsVisible="False">
+                        <c:CardButton Click="OnSleep"
+                                      IconGeometry="{x:Static c:Icons.Moon}"
+                                      Title="Sleep"
+                                      Description="Put this handheld to sleep" />
+                        <!-- The two-step confirms rewrite Title ("Really?") from
+                             code-behind, same auto-revert as before. -->
+                        <c:CardButton x:Name="RestartButton" Click="OnRestart"
+                                      IconGeometry="{x:Static c:Icons.Restart}"
+                                      Title="Restart"
+                                      Description="Restart Windows" />
+                        <c:CardButton x:Name="ShutdownButton" Classes="danger" Click="OnShutdown"
+                                      IconGeometry="{x:Static c:Icons.Power}"
+                                      Title="Shut down"
+                                      Description="Turn off this handheld" />
+                    </StackPanel>
                 </StackPanel>
             </ScrollViewer>
 
-            <Border Grid.Row="2" Classes="hc-footer" Padding="8,5">
+            <Border Grid.Row="3" Classes="hc-footer" Padding="8,5">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                     <StackPanel Orientation="Horizontal" Spacing="17">
                         <StackPanel Orientation="Horizontal" Spacing="5">
@@ -158,7 +120,10 @@
                             <TextBlock Text="Back" Classes="caption" VerticalAlignment="Center" />
                         </StackPanel>
                     </StackPanel>
-                    <TextBlock Grid.Column="1" Text="D-pad  Navigate" Classes="caption" VerticalAlignment="Center" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="14">
+                        <TextBlock Text="LB/RB  Tab" Classes="caption" VerticalAlignment="Center" />
+                        <TextBlock Text="D-pad  Navigate" Classes="caption" VerticalAlignment="Center" />
+                    </StackPanel>
                 </Grid>
             </Border>
         </Grid>
@@ -166,47 +131,13 @@
     </LayoutTransformControl>
 
     <Window.Styles>
-        <!-- Focus ring flicker fix: Avalonia's default focus visual is an ADORNER
-             that is destroyed and rebuilt on every focus move (and silently lost
-             on activation blips). Kill it and paint a stable :focus border inside
-             the buttons instead — constant 2px thickness so nothing shifts. -->
-        <Style Selector="Button">
-            <Setter Property="FocusAdorner" Value="{x:Null}" />
-        </Style>
-        <Style Selector="Button.quick-row">
-            <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
-            <Setter Property="BorderBrush" Value="{StaticResource HcCardBorderBrush}" />
-            <Setter Property="BorderThickness" Value="2" />
-            <Setter Property="CornerRadius" Value="4" />
-            <Setter Property="MinHeight" Value="44" />
-            <Setter Property="Padding" Value="10,6" />
-            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-            <Setter Property="HorizontalAlignment" Value="Stretch" />
-        </Style>
-        <Style Selector="Button.quick-row:focus">
-            <Setter Property="BorderBrush" Value="{StaticResource HcAccentBrush}" />
-        </Style>
-        <Style Selector="Button.quick-row.primary:focus">
-            <Setter Property="BorderBrush" Value="White" />
-        </Style>
-        <Style Selector="Button.close:focus">
-            <Setter Property="Foreground" Value="White" />
-        </Style>
-        <Style Selector="Button.quick-row:pointerover">
-            <Setter Property="Background" Value="#FF383838" />
-        </Style>
-        <Style Selector="Button.quick-row.primary">
-            <Setter Property="Background" Value="{StaticResource HcAccentBrush}" />
-            <Setter Property="BorderBrush" Value="{StaticResource HcAccentBrush}" />
-            <Setter Property="Foreground" Value="Black" />
-        </Style>
-        <Style Selector="Button.quick-row.primary TextBlock.caption">
-            <Setter Property="Foreground" Value="#CC000000" />
-        </Style>
         <Style Selector="Button.close">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderBrush" Value="Transparent" />
             <Setter Property="Foreground" Value="{StaticResource HcTextMutedBrush}" />
+        </Style>
+        <Style Selector="Button.close:focus">
+            <Setter Property="Foreground" Value="White" />
         </Style>
     </Window.Styles>
 </Window>

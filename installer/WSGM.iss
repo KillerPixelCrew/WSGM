@@ -67,6 +67,8 @@ Source: "{#PublishDir}\steam-input-lease.exe"; DestDir: "{app}"; Flags: ignoreve
 Source: "{#PublishDir}\*.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PublishDir}\SteamInputLease-*.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PublishDir}\SteamInputLease-*.md"; DestDir: "{app}"; Flags: ignoreversion
+; Third-party license texts for managed packages (src\WSGM\Licenses\).
+Source: "{#PublishDir}\LoadingIndicators.Avalonia-UNLICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{userprograms}\{#AppName}"; Filename: "{app}\WSGM.exe"; Comment: "WSGM settings"
