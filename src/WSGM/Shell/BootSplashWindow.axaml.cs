@@ -1,14 +1,24 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Shapes;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using LoadingIndicators.Avalonia;
+using WSGM.Core;
 
 namespace WSGM.Shell;
 
-/// <summary>The borderless startup splash shown while Steam Big Picture launches.</summary>
+/// <summary>The borderless startup splash shown while Steam Big Picture launches.
+/// Its whole look (background, vignette, text, spinner, logo, placements) comes
+/// from a <see cref="SplashConfig"/>; elements that are disabled or fail to load
+/// are omitted from the visual tree entirely.</summary>
 public partial class BootSplashWindow : Window
 {
     /// <summary>Raised when the user chooses the desktop fallback.</summary>
@@ -18,7 +28,57 @@ public partial class BootSplashWindow : Window
     /// press. Nothing is focused on open, so a stray A press activates nothing.</summary>
     internal InputElement DefaultFocusTarget => DesktopButton;
 
+    private const double SweepPeriodMs = 1600;
+    private const double SweepLineThickness = 3;
+
+    /// <summary>Bottom margin of the bottom-edge sweep line, keeping it clear of
+    /// the desktop button (which occupies roughly the bottom 68 px on the right).</summary>
+    private const double SweepBottomClearance = 88;
+
+    /// <summary>DPI headroom multiplied into the logo's decode cap.
+    ///
+    /// <c>LogoMaxSize</c> bounds the Image in DIPs, but the renderer draws it in
+    /// PHYSICAL pixels — <c>DIP * DesktopScaling</c>. Decoding to the DIP number
+    /// alone therefore starves every scaled display by exactly the scale factor
+    /// and Avalonia upscales the shortfall, which is visibly soft. Two paths run
+    /// above 1.0: the Settings preview on a normal desktop (commonly 150%), and
+    /// the first boot-splash frames — the splash is raised BEFORE the 100%
+    /// game-mode posture is applied, and re-covers itself on the display change.
+    /// <see cref="BuildStyledContent"/> also runs from the constructor, before
+    /// <c>Opened</c>/<see cref="CoverPrimaryScreen"/>, so NO DPI is known at
+    /// decode time; a fixed headroom is what makes the decode DPI-independent
+    /// (re-decoding after Opened would put a second image decode, and a second
+    /// failure mode, on the boot path for no visual gain).
+    ///
+    /// 5 is the largest display scale WSGM supports: <see cref="DisplayScale"/>
+    /// offers 100-500% and rejects anything outside it. (The 3.0 the overlay,
+    /// taskbar and volume OSD clamp is a different number — the ratio between the
+    /// desktop DPI and the CURRENT one, bounding how far their touch targets may be
+    /// blown up — not a supported-DPI ceiling, and a headroom of 3 left every logo
+    /// above 300% upscaled and soft.)
+    ///
+    /// The memory win that motivated the cap survives: the decode stays bounded by
+    /// <c>LogoMaxSize * 5</c> per rendered edge, i.e. 25x the DIP-sized buffer, not
+    /// the source's own resolution. Default 200 DIP -> 1000 px cap -> at most
+    /// 1000*1000*4 B = 4 MB. The cap stops binding only at the extreme end: the
+    /// largest configurable logo (4096 DIP) puts it past
+    /// <see cref="ImageHeader.MaxDimension"/> (20000 px), where it is clamped to
+    /// that limit and the source's own ceiling takes over — <see cref="ImageHeader.MaxPixels"/>
+    /// (80 MP) = ~320 MB, the same worst case an uncapped decode would have.</summary>
+    private const int LogoDecodeDpiHeadroom = 5;
+
+    private readonly SplashConfig _splash;
+    private readonly bool _preview;
     private readonly RotateTransform _spinnerRotate = new();
+    private readonly TranslateTransform _sweepTransform = new();
+    private readonly List<(Control Control, SplashElementPlacement Placement)> _absoluteElements = [];
+
+    private Arc? _ringSpinner;
+    private Border? _sweepLine;
+    private Panel? _sweepHost;
+    private Canvas? _absoluteCanvas;
+    private Bitmap? _backgroundBitmap;
+    private Bitmap? _logoBitmap;
     private DispatcherTimer? _spinnerTimer;
     private DispatcherTimer? _fadeTimer;
     private DateTime _spinnerStartedUtc;
@@ -27,20 +87,47 @@ public partial class BootSplashWindow : Window
     private Action? _fadeDone;
     private nint _hwnd;
 
-    /// <summary>Creates the splash window and its controller navigation.</summary>
+    /// <summary>XAML-designer/default constructor: classic look, boot behavior.</summary>
     public BootSplashWindow()
+        : this(new SplashConfig(), preview: false)
     {
+    }
+
+    /// <summary>Creates the splash window styled by <paramref name="splash"/>.</summary>
+    /// <param name="splash">The splash customization to render. Must not be null.</param>
+    /// <param name="preview">True when shown as a Settings preview: Escape and any
+    /// pointer press close the window; all rendering behavior stays identical.</param>
+    public BootSplashWindow(SplashConfig splash, bool preview = false)
+    {
+        ArgumentNullException.ThrowIfNull(splash);
+        _splash = splash;
+        _preview = preview;
         InitializeComponent();
-        // Non-control objects don't get x:Name codegen fields — wire in code.
-        Spinner.RenderTransform = _spinnerRotate;
+        Background = new SolidColorBrush(SplashStyle.ParseColor(splash.BackgroundColor, Colors.Black));
+        BuildStyledContent();
         Opened += OnOpened;
-        Closed += (_, _) => StopTimers();
+        Closed += (_, _) =>
+        {
+            StopTimers();
+            // Bitmaps are disposed strictly AFTER the timers stopped — a late tick
+            // must never touch a disposed source.
+            _backgroundBitmap?.Dispose();
+            _backgroundBitmap = null;
+            _logoBitmap?.Dispose();
+            _logoBitmap = null;
+        };
 
         // Touch pass-through defense, same as OverlayWindow: Avalonia never marks
         // touch raw events handled, so WM_POINTER falls to DefWindowProc, which
         // promotes a tap into a delayed synthesized mouse click. Eat those here so
         // a splash tap can never land on whatever the splash was covering.
         Win32Properties.AddWndProcHookCallback(this, WndProcHook);
+
+        if (_preview)
+        {
+            KeyDown += OnPreviewKeyDown;
+            PointerPressed += OnPreviewPointerPressed;
+        }
     }
 
     private static IntPtr WndProcHook(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -59,9 +146,362 @@ public partial class BootSplashWindow : Window
         return IntPtr.Zero;
     }
 
+    private void OnPreviewKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            e.Handled = true;
+            Close();
+        }
+    }
+
+    private void OnPreviewPointerPressed(object? sender, PointerPressedEventArgs e) => Close();
+
+    /// <summary>Builds the configured visual tree. Every element is optional and
+    /// only ever ADDED when enabled and loadable — disabled/broken elements are
+    /// left out of the tree entirely (StackPanel Spacing would otherwise gap
+    /// around invisible children). The desktop button stays the last child of
+    /// <c>RootPanel</c> so it remains topmost.</summary>
+    private void BuildStyledContent()
+    {
+        var textBrush = new SolidColorBrush(SplashStyle.ParseColor(_splash.TextColor, Colors.White));
+        var captionBrush = new SolidColorBrush(SplashStyle.ParseColor(_splash.CaptionColor, Color.Parse("#666666")));
+        var spinnerBrush = new SolidColorBrush(SplashStyle.ParseColor(_splash.SpinnerColor, Colors.White));
+
+        // Background image (below everything else).
+        var backgroundImageLoaded = false;
+        if (!string.IsNullOrWhiteSpace(_splash.BackgroundImagePath))
+        {
+            _backgroundBitmap = TryLoadBitmap(_splash.BackgroundImagePath, decodeToWidth: 2560);
+            if (_backgroundBitmap is not null)
+            {
+                AddLayer(new Image { Source = _backgroundBitmap, Stretch = Stretch.UniformToFill });
+                backgroundImageLoaded = true;
+            }
+        }
+
+        // Vignette (darkens edges, above the background, below the elements).
+        if (_splash.VignetteEnabled)
+        {
+            AddLayer(CreateVignette());
+        }
+
+        // Logo.
+        Control? logo = null;
+        if (!string.IsNullOrWhiteSpace(_splash.LogoImagePath))
+        {
+            var maxSize = Math.Max(1, _splash.LogoMaxSize);
+            _logoBitmap = TryLoadBitmap(
+                _splash.LogoImagePath,
+                decodeToWidth: LogoDecodeCap(maxSize),
+                capIsLongerEdge: true);
+            if (_logoBitmap is not null)
+            {
+                logo = new Image
+                {
+                    Source = _logoBitmap,
+                    Stretch = Stretch.Uniform,
+                    MaxWidth = maxSize,
+                    MaxHeight = maxSize,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                };
+            }
+        }
+
+        // Spinner. SweepLine is edge-hosted and ignores SpinnerPlacement; the
+        // other styles produce a control placed like any element.
+        Control? spinner = null;
+        var spinnerSize = Math.Max(1, _splash.SpinnerSize);
+        switch (_splash.SpinnerStyle)
+        {
+            case SplashSpinnerStyle.Off:
+                break;
+            case SplashSpinnerStyle.Ring:
+                _ringSpinner = new Arc
+                {
+                    Width = spinnerSize,
+                    Height = spinnerSize,
+                    Stroke = spinnerBrush,
+                    StrokeThickness = 3,
+                    StartAngle = 0,
+                    SweepAngle = 270,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    RenderTransform = _spinnerRotate,
+                };
+                spinner = _ringSpinner;
+                break;
+            case SplashSpinnerStyle.SweepLine:
+                BuildSweepLine(spinnerBrush);
+                break;
+            default:
+                spinner = new LoadingIndicator
+                {
+                    Mode = MapIndicatorMode(_splash.SpinnerStyle),
+                    Foreground = spinnerBrush,
+                    Width = spinnerSize,
+                    Height = spinnerSize,
+                    IsActive = true,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                };
+                break;
+        }
+
+        // Text stack: logo above title, caption under title, spinner below the
+        // caption — WithText elements ride this stack (Spacing 26, classic look).
+        var captionVisible = _splash.TextEnabled && !string.IsNullOrEmpty(_splash.Caption);
+        var stack = new StackPanel { Spacing = 26 };
+        if (logo is not null && _splash.LogoPlacement.Mode == SplashPlacementMode.WithText)
+        {
+            stack.Children.Add(logo);
+        }
+        if (_splash.TextEnabled && !string.IsNullOrEmpty(_splash.Text))
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = _splash.Text,
+                FontSize = Math.Max(1, _splash.TitleFontSize),
+                FontWeight = FontWeight.Light,
+                Foreground = textBrush,
+                HorizontalAlignment = HorizontalAlignment.Center,
+            });
+        }
+        if (captionVisible)
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = _splash.Caption,
+                FontSize = Math.Max(1, _splash.CaptionFontSize),
+                Foreground = captionBrush,
+                HorizontalAlignment = HorizontalAlignment.Center,
+            });
+        }
+        if (spinner is not null && _splash.SpinnerPlacement.Mode == SplashPlacementMode.WithText)
+        {
+            stack.Children.Add(spinner);
+        }
+        if (stack.Children.Count > 0)
+        {
+            PlaceElement(stack, _splash.TextPlacement);
+        }
+
+        // Independently placed spinner/logo (Anchor or Absolute modes).
+        if (spinner is not null && _splash.SpinnerPlacement.Mode != SplashPlacementMode.WithText)
+        {
+            PlaceElement(spinner, _splash.SpinnerPlacement);
+        }
+        if (logo is not null && _splash.LogoPlacement.Mode != SplashPlacementMode.WithText)
+        {
+            PlaceElement(logo, _splash.LogoPlacement);
+        }
+
+        Log.Info(
+            $"Splash style: bg={_splash.BackgroundColor}, bgImage={(backgroundImageLoaded ? "yes" : "no")}, " +
+            $"logo={(logo is not null ? "yes" : "no")}, text={(_splash.TextEnabled ? "on" : "off")}, " +
+            $"caption={(captionVisible ? "on" : "off")}, spinner={_splash.SpinnerStyle} {spinnerSize}px, " +
+            $"textPlacement={DescribePlacement(_splash.TextPlacement)}, preview={_preview}");
+    }
+
+    /// <summary>The logo's decode cap in PHYSICAL pixels (what gets rendered), from
+    /// its bound in DIPs (what bounds the layout): <c>maxSize * LogoDecodeDpiHeadroom</c>.
+    /// Computed in <see cref="long"/> and clamped to <see cref="ImageHeader.MaxDimension"/>
+    /// so an unclamped preview config (SettingsViewModel builds a
+    /// <see cref="SplashConfig"/> without ConfigStore's 1..4096 clamp) can neither
+    /// overflow nor produce a cap larger than any source ImageHeader accepts — beyond
+    /// that width the cap could never bind anyway. Downscale-only decides the rest: a
+    /// source narrower than the cap is decoded at its own size, never stretched up to
+    /// it.</summary>
+    /// <param name="logoMaxSizeDips">The configured logo bound in DIPs.</param>
+    /// <returns>The largest edge length, in pixels, the logo may be decoded to.</returns>
+    internal static int LogoDecodeCap(int logoMaxSizeDips) =>
+        (int)Math.Min((long)Math.Max(1, logoMaxSizeDips) * LogoDecodeDpiHeadroom, ImageHeader.MaxDimension);
+
+    /// <summary>Adds a layer to the root panel just before the desktop button,
+    /// which must always stay the last (topmost) child.</summary>
+    private void AddLayer(Control control) =>
+        RootPanel.Children.Insert(RootPanel.Children.Count - 1, control);
+
+    /// <summary>Places an element per its configured placement: alignment + margin
+    /// directly on the element for anchor mode, or onto the shared Canvas (position
+    /// applied once the window covers the screen) for absolute mode.</summary>
+    private void PlaceElement(Control control, SplashElementPlacement placement)
+    {
+        if (placement.Mode == SplashPlacementMode.Absolute)
+        {
+            if (_absoluteCanvas is null)
+            {
+                _absoluteCanvas = new Canvas();
+                AddLayer(_absoluteCanvas);
+            }
+            _absoluteCanvas.Children.Add(control);
+            _absoluteElements.Add((control, placement));
+            return;
+        }
+
+        // Anchor mode ignores the screen/element sizes entirely.
+        var layout = SplashStyle.MapPlacement(placement, default, default);
+        control.HorizontalAlignment = layout.HorizontalAlignment;
+        control.VerticalAlignment = layout.VerticalAlignment;
+        control.Margin = layout.Margin;
+        AddLayer(control);
+    }
+
+    /// <summary>Recomputes Canvas positions for absolute-mode elements against the
+    /// current window size (called after the window covers the screen and again
+    /// after display changes; clamping needs real dimensions).</summary>
+    private void UpdateAbsolutePositions()
+    {
+        if (_absoluteElements.Count == 0)
+        {
+            return;
+        }
+        var size = ClientSize;
+        if (size.Width <= 0 || size.Height <= 0)
+        {
+            return;
+        }
+        foreach (var (control, placement) in _absoluteElements)
+        {
+            control.Measure(Size.Infinity);
+            var layout = SplashStyle.MapPlacement(placement, size, control.DesiredSize);
+            Canvas.SetLeft(control, layout.CanvasX);
+            Canvas.SetTop(control, layout.CanvasY);
+        }
+    }
+
+    private void BuildSweepLine(IBrush brush)
+    {
+        _sweepLine = new Border
+        {
+            Height = SweepLineThickness,
+            Background = brush,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            RenderTransform = _sweepTransform,
+        };
+        var bottom = _splash.SweepEdge == SweepEdge.Bottom;
+        _sweepHost = new Panel
+        {
+            Height = SweepLineThickness,
+            VerticalAlignment = bottom ? VerticalAlignment.Bottom : VerticalAlignment.Top,
+            // Bottom edge keeps clear of the desktop button; the top edge has
+            // nothing to collide with.
+            Margin = bottom ? new Thickness(0, 0, 0, SweepBottomClearance) : default,
+        };
+        _sweepHost.Children.Add(_sweepLine);
+        AddLayer(_sweepHost);
+    }
+
+    private static LoadingIndicatorMode MapIndicatorMode(SplashSpinnerStyle style) => style switch
+    {
+        SplashSpinnerStyle.LiArc => LoadingIndicatorMode.Arc,
+        SplashSpinnerStyle.LiArcs => LoadingIndicatorMode.Arcs,
+        SplashSpinnerStyle.LiArcsRing => LoadingIndicatorMode.ArcsRing,
+        SplashSpinnerStyle.LiDoubleBounce => LoadingIndicatorMode.DoubleBounce,
+        SplashSpinnerStyle.LiFlipPlane => LoadingIndicatorMode.FlipPlane,
+        SplashSpinnerStyle.LiPulse => LoadingIndicatorMode.Pulse,
+        SplashSpinnerStyle.LiRing => LoadingIndicatorMode.Ring,
+        SplashSpinnerStyle.LiThreeDots => LoadingIndicatorMode.ThreeDots,
+        SplashSpinnerStyle.LiWave => LoadingIndicatorMode.Wave,
+        _ => LoadingIndicatorMode.Ring,
+    };
+
+    private static string DescribePlacement(SplashElementPlacement placement) =>
+        placement.Mode == SplashPlacementMode.Absolute
+            ? $"Absolute({placement.X},{placement.Y})"
+            : $"Anchor({placement.Anchor})";
+
+    private static Border CreateVignette() => new()
+    {
+        IsHitTestVisible = false,
+        Background = new RadialGradientBrush
+        {
+            Center = RelativePoint.Center,
+            GradientOrigin = RelativePoint.Center,
+            RadiusX = new RelativeScalar(0.75, RelativeUnit.Relative),
+            RadiusY = new RelativeScalar(0.75, RelativeUnit.Relative),
+            GradientStops =
+            {
+                new GradientStop(Color.FromArgb(0, 0, 0, 0), 0),
+                new GradientStop(Color.FromArgb(0, 0, 0, 0), 0.55),
+                new GradientStop(Color.FromArgb(0xA0, 0, 0, 0), 1),
+            },
+        },
+    };
+
+    /// <param name="path">Full path to the image file.</param>
+    /// <param name="decodeToWidth">Cap in PHYSICAL pixels the decode is scaled down
+    /// to, or null to decode at the source's own size. Callers whose element is
+    /// sized in DIPs must fold the DPI headroom in themselves (see
+    /// <see cref="LogoDecodeDpiHeadroom"/>) — no DPI is known here.</param>
+    /// <param name="capIsLongerEdge">True when the cap applies to the RENDERED
+    /// longer edge (a <see cref="Stretch.Uniform"/> element with equal
+    /// MaxWidth/MaxHeight) rather than to the width alone.</param>
+    private static Bitmap? TryLoadBitmap(string path, int? decodeToWidth, bool capIsLongerEdge = false)
+    {
+        try
+        {
+            if (!File.Exists(path))
+            {
+                Log.Warn($"Splash: image not found, skipping element: {path}");
+                return null;
+            }
+            // Splash images can come from an imported (therefore untrusted)
+            // .wsgmsplash theme, whose caps bound only the ENCODED bytes: a tiny
+            // file may declare enormous dimensions. Read the declared size from
+            // the header — no decode — and refuse the absurd ones outright, so the
+            // boot path never commits an unbounded pixel buffer. Header values are
+            // what the file CLAIMS; a lying one fails the decode below, which is
+            // caught like any other load failure.
+            if (!ImageHeader.TryReadSize(path, out var sourceWidth, out var sourceHeight))
+            {
+                Log.Warn(
+                    "Splash: unsupported image format or truncated header (supported: PNG, JPEG, BMP), "
+                        + $"skipping element: {path}");
+                return null;
+            }
+            if (!ImageHeader.IsWithinLimits(sourceWidth, sourceHeight))
+            {
+                Log.Warn(
+                    $"Splash: image declares {sourceWidth}x{sourceHeight} px (limit {ImageHeader.MaxDimension} px "
+                        + $"per side, {ImageHeader.MaxPixels / 1_000_000} MP total), skipping element: {path}");
+                return null;
+            }
+            var targetWidth = decodeToWidth;
+            if (targetWidth is int cap && capIsLongerEdge && sourceHeight > sourceWidth)
+            {
+                // Stretch=Uniform with equal MaxWidth/MaxHeight fits the LONGER
+                // edge to the cap, so for a taller-than-wide source it is the
+                // HEIGHT that lands on the cap and the width stays smaller.
+                // Decoding such a source to width `cap` would therefore still
+                // produce a bitmap `cap * height/width` tall — several times more
+                // pixels than are rendered. Scale the decode width by the header's
+                // aspect ratio so the rendered longer edge is what hits the cap.
+                targetWidth = Math.Max(1, (int)Math.Ceiling((double)cap * sourceWidth / sourceHeight));
+            }
+            if (targetWidth is int width && sourceWidth > width)
+            {
+                // Downscale-only cap: DecodeToWidth would UPSCALE smaller sources,
+                // so the header's declared width decides. (The previous full-Bitmap
+                // size probe allocated exactly the buffer this cap exists to avoid.)
+                using var stream = File.OpenRead(path);
+                return Bitmap.DecodeToWidth(stream, width);
+            }
+            return new Bitmap(path);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Splash: failed to load image '{path}', skipping element: {ex.Message}");
+            return null;
+        }
+    }
+
     private void OnOpened(object? sender, EventArgs e)
     {
         CoverPrimaryScreen();
+        UpdateAbsolutePositions();
+        // ClientSize lags the CoverPrimaryScreen resize until the platform delivers
+        // it — absolute-mode clamping must recompute once the real size arrives.
+        Resized += OnResized;
+        Closed += (_, _) => Resized -= OnResized;
         // Service boots apply the 100% game-mode scale while the splash is already
         // up (the cover must precede the posture change) — re-cover so the DPI
         // change can't leave desktop pixels exposed around a stale-sized splash.
@@ -82,17 +522,38 @@ public partial class BootSplashWindow : Window
             Interop.NativeMethods.SetLayeredWindowAttributes(_hwnd, 0, 255, Interop.NativeMethods.LwaAlpha);
         }
 
-        _spinnerStartedUtc = DateTime.UtcNow;
-        _spinnerTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
-        _spinnerTimer.Tick += OnSpinnerTick;
-        _spinnerTimer.Start();
+        // The animation timer exists only for the in-repo spinners; the Li*
+        // styles animate themselves and Off has nothing to animate.
+        if (_ringSpinner is not null || _sweepLine is not null)
+        {
+            _spinnerStartedUtc = DateTime.UtcNow;
+            _spinnerTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
+            _spinnerTimer.Tick += OnSpinnerTick;
+            _spinnerTimer.Start();
+        }
     }
 
     private void OnSpinnerTick(object? sender, EventArgs e)
     {
-        // Time-based (one revolution per second) so a busy UI thread can't slow it.
+        // Time-based so a busy UI thread can't slow it (ring: one revolution per
+        // second; sweep line: one edge-to-edge pass per 1.6 s).
         var elapsed = (DateTime.UtcNow - _spinnerStartedUtc).TotalMilliseconds;
-        _spinnerRotate.Angle = elapsed * 0.36 % 360;
+        if (_ringSpinner is not null)
+        {
+            _spinnerRotate.Angle = elapsed * 0.36 % 360;
+        }
+        if (_sweepLine is not null && _sweepHost is not null)
+        {
+            var hostWidth = _sweepHost.Bounds.Width;
+            if (hostWidth <= 0)
+            {
+                return;
+            }
+            var lineWidth = Math.Min(hostWidth, Math.Max(120, hostWidth * 0.2));
+            _sweepLine.Width = lineWidth;
+            var progress = elapsed % SweepPeriodMs / SweepPeriodMs;
+            _sweepTransform.X = progress * (hostWidth - lineWidth);
+        }
     }
 
     /// <summary>Fades the whole window (layered alpha) over what's underneath, then
@@ -128,9 +589,12 @@ public partial class BootSplashWindow : Window
         }
     }
 
+    private void OnResized(object? sender, WindowResizedEventArgs e) => UpdateAbsolutePositions();
+
     private void OnScreensChanged(object? sender, EventArgs e)
     {
         CoverPrimaryScreen();
+        UpdateAbsolutePositions();
         Core.Log.Info("Boot splash resized after display change.");
     }
 

@@ -1,0 +1,75 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:s="using:WSGM.Settings"
+             xmlns:c="using:WSGM.Controls"
+             x:Class="WSGM.Settings.Pages.SteamPage"
+             x:DataType="s:SettingsViewModel">
+    <!-- The old "Home" page. Element order preserved (controller tab order):
+         Big Picture info → Steam status → auto-relaunch → UAC → lock-on-wake. -->
+    <Border Padding="16,10,16,10">
+        <Grid ColumnDefinitions="*,24,*">
+            <StackPanel Grid.Column="0">
+                <Border Classes="section-header">
+                    <TextBlock Text="STEAM" />
+                </Border>
+                <Border Classes="setting-row alt">
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                        <Path Data="{x:Static c:Icons.SteamLike}"
+                              Stroke="{StaticResource HcTextPrimaryBrush}" StrokeThickness="1.8"
+                              Width="20" Height="20" Stretch="Uniform" VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                            <TextBlock Text="Steam Big Picture" Classes="setting-title" />
+                            <TextBlock Text="WSGM starts Steam Big Picture at logon and returns to it when you leave the desktop. Steam is found automatically." Classes="caption" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+                <Border Classes="setting-row">
+                    <TextBlock Text="{Binding SteamStatusText}" Classes="caption" VerticalAlignment="Center" />
+                </Border>
+
+                <Border Classes="section-header">
+                    <TextBlock Text="SESSION" />
+                </Border>
+                <Border Classes="setting-row alt">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel VerticalAlignment="Center" Spacing="1">
+                            <TextBlock Text="Restart Steam when it exits" Classes="setting-title" />
+                            <TextBlock Text="Automatically bring Big Picture back after Steam closes." Classes="caption" />
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding SteamAutoRelaunch}" VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+            </StackPanel>
+
+            <StackPanel Grid.Column="2">
+                <Border Classes="section-header">
+                    <TextBlock Text="WINDOWS POLICIES" />
+                </Border>
+                <Border Classes="setting-row alt">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel VerticalAlignment="Center" Spacing="1">
+                            <TextBlock Text="Never show UAC prompts on this PC" Classes="setting-title" />
+                            <TextBlock Text="Applies to every administrator account. Enable only on a personal device you trust." Classes="caption" />
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" x:Name="UacCheckBox" IsChecked="{Binding UacPromptsDisabled, Mode=OneWay}" Click="OnToggleUac" VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+                <Border Classes="setting-row">
+                    <TextBlock Text="{Binding UacStatusText}" Classes="caption" VerticalAlignment="Center" />
+                </Border>
+                <Border Classes="setting-row alt">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel VerticalAlignment="Center" Spacing="1">
+                            <TextBlock Text="No lock screen after standby" Classes="setting-title" />
+                            <TextBlock Text="Keep a personal handheld ready after it wakes. Anyone with the device can use the current session." Classes="caption" />
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" x:Name="LockOnWakeCheckBox" IsChecked="{Binding LockOnWakeDisabled, Mode=OneWay}" Click="OnToggleLockOnWake" VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+                <Border Classes="setting-row">
+                    <TextBlock Text="{Binding LockOnWakeStatusText}" Classes="caption" VerticalAlignment="Center" />
+                </Border>
+            </StackPanel>
+        </Grid>
+    </Border>
+</UserControl>

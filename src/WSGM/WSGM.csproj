@@ -9,7 +9,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>WSGM</AssemblyName>
     <RootNamespace>WSGM</RootNamespace>
-    <Version>0.5.1</Version>
+    <Version>0.9.0</Version>
 
     <!-- NativeAOT single exe -->
     <PublishAot>true</PublishAot>
@@ -51,6 +51,13 @@
           Link="%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" />
+    <!-- Third-party license texts for managed packages we redistribute. Same
+         ship-beside-the-exe pattern as the SteamInputLease license files above;
+         the installer lists them explicitly in [Files]. -->
+    <None Include="Licenses\*.txt"
+          Link="%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <!-- 1-9: how hard the GC works to keep the heap small; 9 = maximum. Reads
@@ -64,9 +71,16 @@
     <PackageReference Include="Avalonia.Desktop" Version="11.3.18" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.18" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.18" />
-    <!-- WinUI-style NavigationView, SettingsCard, ToggleSwitch and InfoBar: the
-         Avalonia counterparts to the iNKORE Modern WPF controls used by Handheld Companion. -->
+    <!-- FluentAvaloniaTheme (the runtime accent pipeline regenerates its shades via
+         CustomAccentColor) plus WinUI-style controls such as InfoBar and ToggleSwitch. -->
     <PackageReference Include="FluentAvaloniaUI" Version="2.4.1" />
+    <!-- Boot-splash spinner styles (Unlicense; the license text ships from
+         Licenses\ beside the exe). NativeAOT-publish compatibility was proven
+         with a probe build before adopting the package. -->
+    <PackageReference Include="LoadingIndicators.Avalonia" Version="11.0.11.1" />
+    <!-- Pinned: FluentAvaloniaUI's transitive ColorPicker resolves at 11.2.5 against
+         Avalonia 11.3.18 — the explicit pin removes the version skew. -->
+    <PackageReference Include="Avalonia.Controls.ColorPicker" Version="11.3.18" />
     <!-- Controller input. Plain-DllImport bindings (AOT-safe), bundles native SDL3.dll
          for win-x64 so build and publish output pick it up automatically. -->
     <PackageReference Include="ppy.SDL3-CS" Version="2026.722.0" />

@@ -101,12 +101,24 @@ public sealed class RegressionCoverageTests
         var hotkey = new HotkeyConfig { Enabled = true, VirtualKey = 0x41 };
         var chord = new GamepadChordConfig { Enabled = true, Buttons = (int)GamepadButtons.A };
         var gestures = new GestureConfig { BottomEdge = true };
+        var textPlacement = new SplashElementPlacement { Anchor = SplashPlacementAnchor.BottomCenter };
+        var spinnerPlacement = new SplashElementPlacement { Mode = SplashPlacementMode.Absolute, X = 10, Y = 20 };
+        var logoPlacement = new SplashElementPlacement { Mode = SplashPlacementMode.Anchor };
+        var splash = new SplashConfig
+        {
+            Text = "Custom",
+            TextPlacement = textPlacement,
+            SpinnerPlacement = spinnerPlacement,
+            LogoPlacement = logoPlacement,
+        };
         var config = new AppConfig
         {
             StartupApps = apps,
             Hotkey = hotkey,
             GamepadChord = chord,
             Gestures = gestures,
+            Splash = splash,
+            AccentColor = "#FF123456",
         };
 
         var normalized = ConfigStore.Normalize(config);
@@ -116,6 +128,12 @@ public sealed class RegressionCoverageTests
         Assert.Same(hotkey, normalized.Hotkey);
         Assert.Same(chord, normalized.GamepadChord);
         Assert.Same(gestures, normalized.Gestures);
+        Assert.Same(splash, normalized.Splash);
+        Assert.Same(textPlacement, normalized.Splash.TextPlacement);
+        Assert.Same(spinnerPlacement, normalized.Splash.SpinnerPlacement);
+        Assert.Same(logoPlacement, normalized.Splash.LogoPlacement);
+        Assert.Equal("Custom", normalized.Splash.Text);
+        Assert.Equal("#FF123456", normalized.AccentColor);
     }
 
     [Theory]

@@ -1,0 +1,77 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:s="using:WSGM.Settings"
+             x:Class="WSGM.Settings.Pages.StartupPage"
+             x:DataType="s:SettingsViewModel">
+    <!-- Startup apps + delays + boot splash toggle. The app list is the one
+         Settings surface allowed to scroll — internally, in the * row; the page
+         itself never scrolls. Element order preserved: list → add row/delays →
+         boot splash. -->
+    <Border Padding="16,10,16,10">
+        <Grid RowDefinitions="Auto,Auto,*,Auto,Auto,Auto">
+            <Border Classes="section-header">
+                <TextBlock Text="STARTUP APPS" />
+            </Border>
+            <TextBlock Grid.Row="1" Text="Applications run here, in order, before the home launcher starts." Classes="caption" Margin="2,0,0,6" />
+
+            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                <ItemsControl ItemsSource="{Binding StartupApps}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="s:StartupAppRow">
+                            <Border Classes="setting-row alt" Margin="0,0,0,3">
+                                <Grid ColumnDefinitions="Auto,*,180,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="6">
+                                    <ToggleSwitch Grid.Column="0" IsChecked="{Binding Enabled}" OnContent="" OffContent="" MinWidth="42" VerticalAlignment="Center" />
+                                    <TextBox Grid.Column="1" Text="{Binding Path}" Watermark="Application path" />
+                                    <TextBox Grid.Column="2" Text="{Binding Args}" Watermark="Arguments" />
+                                    <CheckBox Grid.Column="3" IsChecked="{Binding Elevated}" Content="Admin" VerticalAlignment="Center" />
+                                    <CheckBox Grid.Column="4" IsChecked="{Binding AutoRelaunch}" Content="Restart" VerticalAlignment="Center"
+                                              ToolTip.Tip="Relaunch this tool automatically if it exits or crashes" />
+                                    <Button Grid.Column="5" Classes="icon" Content="↑" ToolTip.Tip="Move up"
+                                            Command="{Binding $parent[ItemsControl].((s:SettingsViewModel)DataContext).MoveUpCommand}"
+                                            CommandParameter="{Binding}" />
+                                    <Button Grid.Column="6" Classes="icon" Content="↓" ToolTip.Tip="Move down"
+                                            Command="{Binding $parent[ItemsControl].((s:SettingsViewModel)DataContext).MoveDownCommand}"
+                                            CommandParameter="{Binding}" />
+                                    <Button Grid.Column="7" Content="Browse" Click="OnBrowseStartupApp" />
+                                    <Button Grid.Column="8" Classes="icon danger" Content="×" ToolTip.Tip="Remove"
+                                            Command="{Binding $parent[ItemsControl].((s:SettingsViewModel)DataContext).RemoveAppCommand}"
+                                            CommandParameter="{Binding}" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+
+            <Border Grid.Row="3" Classes="setting-row" Margin="0,4,0,0">
+                <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
+                    <ComboBox Grid.Column="0" ItemsSource="{Binding StartupSuggestions}" SelectedIndex="{Binding SelectedSuggestionIndex}" ToolTip.Tip="Programs found on this PC that can start before the launcher" />
+                    <Button Grid.Column="1" Classes="primary" Content="Add app" Click="OnAddApp" />
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <TextBlock Text="First app delay (ms)" Classes="caption" VerticalAlignment="Center"
+                                   ToolTip.Tip="Wait after logon before the first app starts, so the session and the game-mode display change settle. Tools started too early can hang." />
+                        <NumericUpDown Value="{Binding StartupDelayMs}" Minimum="0" Maximum="30000" Increment="250" Width="130" FormatString="0" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <TextBlock Text="Between apps (ms)" Classes="caption" VerticalAlignment="Center"
+                                   ToolTip.Tip="Extra wait between one startup app and the next" />
+                        <NumericUpDown Value="{Binding StaggerDelayMs}" Minimum="0" Maximum="30000" Increment="250" Width="130" FormatString="0" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Border Grid.Row="4" Classes="section-header">
+                <TextBlock Text="BOOT" />
+            </Border>
+            <Border Grid.Row="5" Classes="setting-row alt">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                    <StackPanel VerticalAlignment="Center" Spacing="1">
+                        <TextBlock Text="Boot splash" Classes="setting-title" />
+                        <TextBlock Text="Show a black 'Please wait' screen at sign-in that hides startup-app windows until Steam Big Picture is on screen." Classes="caption" />
+                    </StackPanel>
+                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding BootSplashEnabled}" VerticalAlignment="Center" />
+                </Grid>
+            </Border>
+        </Grid>
+    </Border>
+</UserControl>

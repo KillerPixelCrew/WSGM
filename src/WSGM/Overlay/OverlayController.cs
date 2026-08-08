@@ -30,6 +30,7 @@ public sealed class OverlayController : IDisposable
     private TaskbarWindow? _taskbar;
     private TaskbarViewModel? _taskbarViewModel;
     private GamepadNavigation? _taskbarNavigation;
+    private SystemStatus? _systemStatus;
     private WindowIconCache? _iconCache;
     private Avalonia.Threading.DispatcherTimer? _taskbarRefresh;
     private TrayHost? _trayHost;
@@ -154,6 +155,9 @@ public sealed class OverlayController : IDisposable
     public void ApplyConfig(AppConfig config)
     {
         _config = config;
+        // Accent re-apply must run on the UI thread; the debounced config watcher
+        // may deliver this call from a worker thread.
+        Avalonia.Threading.Dispatcher.UIThread.Post(() => Themes.AccentPalette.Apply(Avalonia.Application.Current!, Themes.AccentPalette.Parse(config.AccentColor)));
         _modes.ApplyConfig(config);
         _hotkey.Apply(config.Hotkey);
         _chordWatcher.ApplyConfig(config.GamepadChord);
@@ -504,7 +508,9 @@ public sealed class OverlayController : IDisposable
         var overlay = _overlay;
         _navigation = new GamepadNavigation(_gamepad, _overlay, CloseOverlay,
             isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
-            preferredFocus: () => overlay.DefaultFocusTarget);
+            preferredFocus: () => overlay.DefaultFocusTarget,
+            tabPrevious: () => _overlay?.SelectPreviousTab(),
+            tabNext: () => _overlay?.SelectNextTab());
         _gamepad.Start();
         _overlay.Show();
         // Game-Bar-style: the game stops receiving input while the panel is up.
@@ -533,6 +539,13 @@ public sealed class OverlayController : IDisposable
         }
         if (_taskbar is not null && !HitsWindow(_taskbar, x, y))
         {
+            // A status flyout (Wi-Fi/Bluetooth) pops ABOVE the bar, outside its
+            // rectangle — a tap on it must not read as tap-outside. Its own
+            // light-dismiss handles taps elsewhere.
+            if (_taskbar.IsStatusFlyoutOpen)
+            {
+                return;
+            }
             Log.Info("Touch outside taskbar — dismissing.");
             CloseTaskbar();
         }
@@ -613,7 +626,14 @@ public sealed class OverlayController : IDisposable
         Log.Info($"Taskbar shown ({vm.Entries.Count} windows).");
 
         OnTrayIconsChanged();
-        _taskbar = new TaskbarWindow(vm, UiScale());
+        // The bar's status cluster (clock/battery/Wi-Fi) lives only while the bar
+        // is open; OnTaskbarClosed disposes it with the window.
+        _systemStatus = new SystemStatus();
+        _systemStatus.Start();
+        _taskbar = new TaskbarWindow(vm, _systemStatus, UiScale());
+        // The home button rides the existing surface handover: ShowOverlay closes
+        // the bar, inherits its restore target, and keeps the shared lease.
+        _taskbar.HomeRequested += ShowOverlay;
         _taskbar.WindowPicked += PickTaskbarWindow;
         _taskbar.TrayIconActivated += OnTrayIconActivated;
         _taskbar.Dismissed += CloseTaskbar;
@@ -622,6 +642,9 @@ public sealed class OverlayController : IDisposable
             isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
             preferredFocus: () => _taskbar?.DefaultFocusTarget,
             secondary: focused => _taskbar?.RequestTrayContextMenu(focused));
+        // No tab callbacks on the taskbar: during the 150 ms surface handover
+        // BOTH navigations are alive with _overlay non-null, so routing LB/RB
+        // to the overlay here would double-advance its tab strip per press.
         _gamepad.Start();
         _taskbar.Show();
         _taskbar.Activate();
@@ -747,6 +770,8 @@ public sealed class OverlayController : IDisposable
         }
         _taskbar = null;
         _taskbarViewModel = null;
+        _systemStatus?.Dispose();
+        _systemStatus = null;
         // Free the rasterized icons with the bar; the next open re-resolves.
         _iconCache?.Clear();
         // Game mode only, and only when no tile pick redirected focus (invariant 6).

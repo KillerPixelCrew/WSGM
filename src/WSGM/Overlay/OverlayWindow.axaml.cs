@@ -1,9 +1,12 @@
 using System;
+using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
+using WSGM.Controls;
 using WSGM.Core;
 
 namespace WSGM.Overlay;
@@ -43,8 +46,30 @@ public partial class OverlayWindow : Window
     private bool _confirmCloseLauncher;
 
     /// <summary>The control gamepad navigation should land on when the panel opens
-    /// or when focus tracking is lost.</summary>
-    internal InputElement DefaultFocusTarget => HomeAppButton;
+    /// or when focus tracking is lost: the ACTIVE tab's first row — HomeAppButton
+    /// is invisible on the Tools/Power tabs and focusing it would fall through to
+    /// the header close button.</summary>
+    internal InputElement DefaultFocusTarget
+    {
+        get
+        {
+            var panel = Tabs.SelectedIndex switch
+            {
+                1 => (Control)PanelTools,
+                2 => PanelPower,
+                _ => PanelSession,
+            };
+            foreach (var visual in panel.GetVisualDescendants())
+            {
+                if (visual is Button { Focusable: true, IsEffectivelyEnabled: true } button
+                    && button.IsEffectivelyVisible)
+                {
+                    return button;
+                }
+            }
+            return HomeAppButton;
+        }
+    }
 
     private readonly double _uiScale;
 
@@ -57,6 +82,19 @@ public partial class OverlayWindow : Window
         _uiScale = uiScale;
         InitializeComponent();
         DataContext = viewModel;
+
+        Tabs.Tabs = new List<TabStripItem>
+        {
+            new("Session", Icons.Play, 0),
+            new("Tools", Icons.Wrench, 1),
+            new("Power", Icons.Power, 2),
+        };
+        Tabs.SelectionChanged += OnTabSelectionChanged;
+        // The panel opens on Session every time. Activated covers both the fresh
+        // open (a no-op — the index is already 0) and a re-summon of a still-open
+        // panel (hotkey/swipe while browsing another tab).
+        Activated += (_, _) => Tabs.SelectedIndex = 0;
+
         KeyDown += OnKeyDown;
         Opened += OnOpened;
         Closed += (_, _) => { StopSlide(); ResetConfirms(); };
@@ -100,6 +138,48 @@ public partial class OverlayWindow : Window
     {
         DockToRightEdge();
         HomeAppButton.Focus(NavigationMethod.Directional);
+    }
+
+    /// <summary>Selects the previous tab (LB), wrapping from the first to the last.</summary>
+    internal void SelectPreviousTab() => Tabs.SelectPrevious();
+
+    /// <summary>Selects the next tab (RB), wrapping from the last to the first.</summary>
+    internal void SelectNextTab() => Tabs.SelectNext();
+
+    /// <summary>One selection path for touch, mouse and the LB/RB shoulder buttons:
+    /// the TabStrip owns the index, this toggles the three always-alive panels'
+    /// visibility and lands controller focus on the new tab's first row (mirrors
+    /// SettingsWindow — without it the next D-pad press would fall back to the
+    /// window's first focusable, the close button).</summary>
+    private void OnTabSelectionChanged(object? sender, TabStripSelectionChangedEventArgs e)
+    {
+        PanelSession.IsVisible = e.NewIndex == 0;
+        PanelTools.IsVisible = e.NewIndex == 1;
+        PanelPower.IsVisible = e.NewIndex == 2;
+
+        var panel = e.NewIndex switch
+        {
+            0 => (Control)PanelSession,
+            1 => PanelTools,
+            _ => PanelPower,
+        };
+        FocusFirstControl(panel);
+    }
+
+    private static void FocusFirstControl(Control panel)
+    {
+        foreach (var visual in panel.GetVisualDescendants())
+        {
+            // TextBoxes are excluded for the same reason D-pad traversal skips
+            // them: focusing one pops the touch keyboard.
+            if (visual is InputElement { Focusable: true, IsEffectivelyEnabled: true } element
+                && element is not TextBox
+                && element.IsEffectivelyVisible)
+            {
+                element.Focus(NavigationMethod.Directional);
+                return;
+            }
+        }
     }
 
     /// <summary>Fits the panel to the primary display and slides it in from the right.
@@ -195,7 +275,7 @@ public partial class OverlayWindow : Window
         var helperPath = DeelevationCommand.HelperPathForCurrentDeployment();
         if (!System.IO.File.Exists(helperPath))
         {
-            DeelevationCommandTitle.Text = "De-elevation helper missing";
+            DeelevationCommandTitle.Title = "De-elevation helper missing";
             Log.Warn($"Cannot copy Steam de-elevation command; helper not found: {helperPath}");
             return;
         }
@@ -203,7 +283,7 @@ public partial class OverlayWindow : Window
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
         if (clipboard is null)
         {
-            DeelevationCommandTitle.Text = "Clipboard unavailable";
+            DeelevationCommandTitle.Title = "Clipboard unavailable";
             Log.Warn("Cannot copy Steam de-elevation command; no clipboard is available.");
             return;
         }
@@ -211,12 +291,12 @@ public partial class OverlayWindow : Window
         try
         {
             await clipboard.SetTextAsync(DeelevationCommand.SteamLaunchOptions(helperPath));
-            DeelevationCommandTitle.Text = "Copied to clipboard";
+            DeelevationCommandTitle.Title = "Copied to clipboard";
             Log.Info("Copied Steam de-elevation launch-option command to clipboard.");
         }
         catch (Exception ex)
         {
-            DeelevationCommandTitle.Text = "Clipboard copy failed";
+            DeelevationCommandTitle.Title = "Clipboard copy failed";
             Log.Error("Could not copy Steam de-elevation command", ex);
         }
     }
@@ -226,7 +306,7 @@ public partial class OverlayWindow : Window
         var helperPath = SteamInputLeaseCommand.HelperPathForCurrentDeployment();
         if (!System.IO.File.Exists(helperPath))
         {
-            SteamInputBlockCommandTitle.Text = "Steam Input wrapper missing";
+            SteamInputBlockCommandTitle.Title = "Steam Input wrapper missing";
             Log.Warn($"Cannot copy Steam Input block command; wrapper not found: {helperPath}");
             return;
         }
@@ -234,7 +314,7 @@ public partial class OverlayWindow : Window
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
         if (clipboard is null)
         {
-            SteamInputBlockCommandTitle.Text = "Clipboard unavailable";
+            SteamInputBlockCommandTitle.Title = "Clipboard unavailable";
             Log.Warn("Cannot copy Steam Input block command; no clipboard is available.");
             return;
         }
@@ -242,12 +322,12 @@ public partial class OverlayWindow : Window
         try
         {
             await clipboard.SetTextAsync(SteamInputLeaseCommand.SteamLaunchOptions(helperPath));
-            SteamInputBlockCommandTitle.Text = "Copied to clipboard";
+            SteamInputBlockCommandTitle.Title = "Copied to clipboard";
             Log.Info("Copied Steam Input block launch-option command to clipboard.");
         }
         catch (Exception ex)
         {
-            SteamInputBlockCommandTitle.Text = "Clipboard copy failed";
+            SteamInputBlockCommandTitle.Title = "Clipboard copy failed";
             Log.Error("Could not copy Steam Input block command", ex);
         }
     }
@@ -282,7 +362,7 @@ public partial class OverlayWindow : Window
         if (!_confirmRestart)
         {
             _confirmRestart = true;
-            RestartTitle.Text = "Really?";
+            RestartButton.Title = "Really?";
             ArmConfirmReset();
             return;
         }
@@ -294,7 +374,7 @@ public partial class OverlayWindow : Window
         if (!_confirmShutdown)
         {
             _confirmShutdown = true;
-            ShutdownTitle.Text = "Really?";
+            ShutdownButton.Title = "Really?";
             ArmConfirmReset();
             return;
         }
@@ -327,7 +407,7 @@ public partial class OverlayWindow : Window
         {
             vm.ConfirmingCloseLauncher = false;
         }
-        RestartTitle.Text = "Restart";
-        ShutdownTitle.Text = "Shut down";
+        RestartButton.Title = "Restart";
+        ShutdownButton.Title = "Shut down";
     }
 }

@@ -1,0 +1,45 @@
+<!-- Single source of truth for the WSGM color vocabulary. Handheld Companion's
+     ModernWPF theme is a charcoal WinUI surface with an orange accent; these
+     tokens carry that vocabulary through FluentAvalonia instead of inventing a
+     separate visual language. Accent-family tokens (HcAccentColor, HcAccentBrush,
+     HcOnAccentBrush, HcOnAccentCaptionBrush) are shadowed at runtime by the
+     accent pipeline, so consumers must reference them via DynamicResource; every
+     other token is stable and consumed via StaticResource. -->
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- Surfaces -->
+    <SolidColorBrush x:Key="HcBackgroundBrush" Color="#FF232323" />
+    <SolidColorBrush x:Key="HcCardBrush" Color="#FF2C2C2C" />
+    <SolidColorBrush x:Key="HcCardBorderBrush" Color="#FF343434" />
+    <SolidColorBrush x:Key="HcCardHoverBrush" Color="#FF383838" />
+    <SolidColorBrush x:Key="HcHeroCardBrush" Color="#FF000000" />
+    <SolidColorBrush x:Key="HcHeaderBrush" Color="#FF282828" />
+    <SolidColorBrush x:Key="HcFooterBrush" Color="#F0222222" />
+    <SolidColorBrush x:Key="HcOsdBackgroundBrush" Color="#E61B1B1B" />
+
+    <!-- Interactive controls (buttons, inputs) -->
+    <SolidColorBrush x:Key="HcControlBrush" Color="#FF3A3A3A" />
+    <SolidColorBrush x:Key="HcControlBorderBrush" Color="#FF454545" />
+    <SolidColorBrush x:Key="HcControlHoverBrush" Color="#FF484848" />
+
+    <!-- Buttons that sit on near-black hero surfaces -->
+    <SolidColorBrush x:Key="HcOnBlackButtonBrush" Color="#FF161616" />
+    <SolidColorBrush x:Key="HcOnBlackButtonBorderBrush" Color="#FF2E2E2E" />
+    <SolidColorBrush x:Key="HcOnBlackButtonHoverBrush" Color="#FF242424" />
+
+    <!-- Text -->
+    <SolidColorBrush x:Key="HcTextPrimaryBrush" Color="White" />
+    <SolidColorBrush x:Key="HcTextSecondaryBrush" Color="#FFD6D6D6" />
+    <SolidColorBrush x:Key="HcTextMutedBrush" Color="#FFB8B8B8" />
+
+    <!-- Accent family: shadowed in Application.Resources by the runtime accent
+         pipeline. Consume via DynamicResource only. -->
+    <Color x:Key="HcAccentColor">#FFFF9D3D</Color>
+    <SolidColorBrush x:Key="HcAccentBrush" Color="#FFFF9D3D" />
+    <SolidColorBrush x:Key="HcOnAccentBrush" Color="Black" />
+    <SolidColorBrush x:Key="HcOnAccentCaptionBrush" Color="#CC000000" />
+
+    <!-- Status -->
+    <SolidColorBrush x:Key="HcDangerBrush" Color="#FFFFA0A0" />
+    <SolidColorBrush x:Key="HcWarningBrush" Color="#FFFFC66D" />
+</ResourceDictionary>

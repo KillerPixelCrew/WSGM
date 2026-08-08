@@ -5,6 +5,10 @@ and DIY Steam Machines / living-room builds alike. It replaces the Windows shell
 account only** and boots straight into Steam Big Picture. A touch/hotkey/controller overlay lets you
 hop to the desktop, back to game mode, switch between running apps, and power the device down.
 
+## Demo
+
+![WSGM in action: boot splash, Steam Big Picture, the quick access panel and the game-mode taskbar](docs/demo.webp)
+
 ## ⚠ Recovery — read this FIRST
 
 WSGM replaces your shell. If anything goes wrong you will see a black screen instead of a desktop.

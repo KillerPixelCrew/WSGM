@@ -5,13 +5,15 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using WSGM.Core;
+using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
-/// <summary>The game-mode taskbar: a thin, centered, bottom-docked icon strip of
-/// the switchable windows (and, when the tray host is live, tray icons). Shares the
-/// overlay's focus-taking model: safe only because the Steam Input lease keeps the
-/// pad readable while a WSGM window is foreground.</summary>
+/// <summary>The game-mode taskbar: a full-width, bottom-docked three-zone bar —
+/// WSGM home button, centered app tiles (and, when the tray host is live, tray
+/// icons), and the system status cluster (Wi-Fi/Bluetooth/battery/clock). Shares
+/// the overlay's focus-taking model: safe only because the Steam Input lease keeps
+/// the pad readable while a WSGM window is foreground.</summary>
 public partial class TaskbarWindow : Window
 {
     private DispatcherTimer? _slideTimer;
@@ -30,32 +32,102 @@ public partial class TaskbarWindow : Window
     /// <summary>Raised when the taskbar is dismissed without another action.</summary>
     public event Action? Dismissed;
 
+    /// <summary>Raised when the WSGM home button is pressed: the controller opens
+    /// quick access through its existing taskbar-to-overlay handover (restore
+    /// target inherited, shared lease kept alive).</summary>
+    public event Action? HomeRequested;
+
     /// <summary>The control gamepad navigation should land on when the bar opens:
-    /// the first application tile (null before the ItemsControl materializes).</summary>
+    /// the first application tile — explicitly, because the window's visual-tree
+    /// order now puts the home button first (falls back to the first visible
+    /// button when no tiles exist).</summary>
     internal InputElement? DefaultFocusTarget => FindFirstTile();
 
     private readonly double _uiScale;
 
+    /// <summary>The factor RootScale currently applies (1.0 = no transform). The
+    /// bar's inner layout happens in pre-transform units, so every budget derived
+    /// from the window's width has to divide by this first.</summary>
+    private double _contentScale = 1.0;
+
+    /// <summary>Share of the bar's inner width the tray strip may claim before it
+    /// starts scrolling. The tray is the only right-zone content whose length WSGM
+    /// does not control (the Shell_TrayWnd host takes whatever apps register), so
+    /// it is the part that gets a budget; the Wi-Fi/Bluetooth/battery/clock
+    /// controls after it are fixed-size and always keep their space.</summary>
+    private const double TrayWidthFraction = 0.30;
+
+    /// <summary>Floor for the tray budget: one 36 px tray tile plus its 2 px
+    /// spacing and 2 px focus border, so a single icon is never clipped even on an
+    /// absurdly narrow bar.</summary>
+    private const double TrayMinWidth = 40;
+
+    /// <summary>Horizontal padding the bar's Border adds inside the window (8 left
+    /// + 8 right — keep in sync with Padding="8,2" in the XAML).</summary>
+    private const double BarHorizontalPadding = 16;
+
+    /// <summary>The widest the tray strip may become before it scrolls, so that
+    /// the fixed status controls behind it always fit. Pure: the width budget is
+    /// unit-tested against this method rather than against a live window.</summary>
+    /// <param name="windowWidth">The bar window's logical (DIP) width.</param>
+    /// <param name="contentScale">The factor RootScale applies to the bar's
+    /// content (see <see cref="ApplyTouchScale"/>); 1.0 when untransformed.</param>
+    /// <returns>A MaxWidth in the bar's pre-transform layout units.</returns>
+    internal static double ComputeTrayMaxWidth(double windowWidth, double contentScale)
+    {
+        if (!double.IsFinite(windowWidth) || !double.IsFinite(contentScale) || contentScale <= 0)
+        {
+            return TrayMinWidth;
+        }
+        var inner = windowWidth / contentScale - BarHorizontalPadding;
+        return Math.Max(TrayMinWidth, inner * TrayWidthFraction);
+    }
+
     /// <summary>Creates the taskbar window bound to the supplied state.</summary>
-    /// <param name="viewModel">The tile collection driving the strip.</param>
+    /// <param name="viewModel">The tile collection driving the bar.</param>
+    /// <param name="status">The live clock/battery/radio status the right zone binds.</param>
     /// <param name="uiScale">The desktop-DPI scale factor for WSGM UI (e.g. 1.5
     /// for a 150% desktop; see DisplayScale.GetUiScalePercent).</param>
-    public TaskbarWindow(TaskbarViewModel viewModel, double uiScale = 1.0)
+    public TaskbarWindow(TaskbarViewModel viewModel, SystemStatus status, double uiScale = 1.0)
     {
         _uiScale = uiScale;
         InitializeComponent();
         DataContext = viewModel;
+        // The right zone binds a different object than the window (compiled
+        // bindings: x:DataType="sh:SystemStatus" on the StatusZone subtree).
+        StatusZone.DataContext = status;
+        // Tap-outside dismissal must ignore taps on the status flyouts, which
+        // pop above the bar's rectangle (see OverlayController.OnTappedAt).
+        TrackStatusFlyout(WifiButton);
+        TrackStatusFlyout(BluetoothButton);
+        // Controller navigation moves focus with InputElement.Focus(Directional),
+        // which does NOT raise RequestBringIntoView on its own — a tile scrolled
+        // out of the strip would take focus invisibly. Ask for it explicitly:
+        // Control.BringIntoView() raises Control.RequestBringIntoViewEvent, which
+        // the ScrollViewer's ScrollContentPresenter handles by scrolling. Arrow
+        // keys are safe to leave to the ScrollViewer's own handler because
+        // GamepadNavigation marks them handled from a TUNNEL handler on the
+        // window, i.e. before they ever bubble into the scroll viewer.
+        // The tray strip is bounded and scrolls the same way, so it needs the
+        // same treatment — a tray icon scrolled out of its viewport would
+        // otherwise take controller focus invisibly.
+        TileScroller.AddHandler(GotFocusEvent, OnStripGotFocus, RoutingStrategies.Bubble);
+        TrayScroller.AddHandler(GotFocusEvent, OnStripGotFocus, RoutingStrategies.Bubble);
+        // Budget the tray against the XAML's declared width right away, so the
+        // strip is bounded even on the path where DockToBottomEdge bails out (no
+        // primary screen); the dock recomputes it against the real display width.
+        TrayScroller.MaxWidth = ComputeTrayMaxWidth(Width, _contentScale);
         KeyDown += OnKeyDown;
         Opened += OnOpened;
         Closed += (_, _) => StopSlide();
-        // SizeToContent: the strip grows/shrinks as the 1 s refresh adds or drops
-        // tiles — keep it centered on the bottom edge (skip during the slide-in,
-        // which owns Position until it finishes).
+        // SizeToContent height: the bar's height can change as tiles appear —
+        // keep it flush on the bottom edge (skip during the slide-in, which owns
+        // Position until it finishes).
         SizeChanged += (_, _) =>
         {
             if (_slideTimer is null && IsVisible)
             {
-                SnapToBottomCenter();
+                SnapToBottomEdge();
             }
         };
 
@@ -64,6 +136,34 @@ public partial class TaskbarWindow : Window
         // synthesized mouse click delivered late; eat it here, and let the
         // controller's deferred Close() keep this window alive to do so.
         Win32Properties.AddWndProcHookCallback(this, WndProcHook);
+    }
+
+    private int _openStatusFlyouts;
+
+    /// <summary>Whether a Wi-Fi/Bluetooth status flyout is currently open — their
+    /// popups sit above the bar, outside the tap-outside hit rectangle.</summary>
+    internal bool IsStatusFlyoutOpen => _openStatusFlyouts > 0;
+
+    private void TrackStatusFlyout(Button button)
+    {
+        if (button.Flyout is not { } flyout)
+        {
+            return;
+        }
+        flyout.Opened += (_, _) => _openStatusFlyouts++;
+        flyout.Closed += (_, _) => _openStatusFlyouts = Math.Max(0, _openStatusFlyouts - 1);
+    }
+
+    /// <summary>Scrolls a newly focused tile into its strip's viewport (app tiles
+    /// and tray icons share this handler). Bubbles from the tile buttons; the
+    /// scroll viewers themselves are not focusable, and the call is a no-op when
+    /// the tile is already fully visible.</summary>
+    private void OnStripGotFocus(object? sender, GotFocusEventArgs e)
+    {
+        if (e.Source is Control control && control is not ScrollViewer)
+        {
+            control.BringIntoView();
+        }
     }
 
     private static IntPtr WndProcHook(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -110,6 +210,7 @@ public partial class TaskbarWindow : Window
             return;
         }
         Log.Info($"Taskbar UI scale {factor:0.##}x (desktop DPI over current {DesktopScaling:0.##}).");
+        _contentScale = factor;
         RootScale.LayoutTransform = new Avalonia.Media.ScaleTransform(factor, factor);
         // Sizes must be final before the dock computes the slide positions.
         UpdateLayout();
@@ -117,6 +218,16 @@ public partial class TaskbarWindow : Window
 
     private InputElement? FindFirstTile()
     {
+        // The first APP TILE, not the window's first button (that is the home
+        // button since the three-zone rebuild).
+        foreach (var descendant in Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(AppTiles))
+        {
+            if (descendant is Button { IsEffectivelyVisible: true } button)
+            {
+                return button;
+            }
+        }
+        // No tiles: fall back to the window-wide walk (lands on the home button).
         foreach (var descendant in Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(this))
         {
             if (descendant is Button { IsEffectivelyVisible: true } button)
@@ -127,7 +238,7 @@ public partial class TaskbarWindow : Window
         return null;
     }
 
-    private PixelPoint ComputeBottomCenter()
+    private PixelPoint ComputeDockedPosition()
     {
         var screen = Screens?.Primary;
         if (screen is null)
@@ -135,19 +246,14 @@ public partial class TaskbarWindow : Window
             return Position;
         }
         var bounds = screen.Bounds;
-        var scaling = DesktopScaling;
-        var widthPx = (int)Math.Ceiling(Width * scaling);
-        var heightPx = (int)Math.Ceiling(Height * scaling);
-        return new PixelPoint(
-            bounds.X + Math.Max(0, (bounds.Width - widthPx) / 2),
-            bounds.Y + bounds.Height - heightPx);
+        var heightPx = (int)Math.Ceiling(Height * DesktopScaling);
+        return new PixelPoint(bounds.X, bounds.Y + bounds.Height - heightPx);
     }
 
-    private void SnapToBottomCenter() => Position = ComputeBottomCenter();
+    private void SnapToBottomEdge() => Position = ComputeDockedPosition();
 
-    /// <summary>Centers the bar over the bottom edge of the primary display and
-    /// slides it up from below the screen (mirror of the overlay's right-edge
-    /// slide-in).</summary>
+    /// <summary>Spans the bar across the primary display's bottom edge and slides
+    /// it up from below the screen (mirror of the overlay's right-edge slide-in).</summary>
     private void DockToBottomEdge()
     {
         var screen = Screens?.Primary;
@@ -156,7 +262,19 @@ public partial class TaskbarWindow : Window
             return;
         }
 
-        _slideEnd = ComputeBottomCenter();
+        // Full width: the window spans the display; only the height is
+        // content-sized (SizeToContent="Height"). Window scaling, not
+        // screen.Scaling — the screens cache is stale after a runtime
+        // display-scale flip (see OverlayWindow.DockToRightEdge).
+        Width = screen.Bounds.Width / DesktopScaling;
+        // Bound the tray strip against the bar that was just sized (ApplyTouchScale
+        // ran first, so _contentScale is final): everything to its right is
+        // fixed-size and must keep its space no matter how many icons register.
+        TrayScroller.MaxWidth = ComputeTrayMaxWidth(Width, _contentScale);
+        // The height must be final before the dock computes the slide positions.
+        UpdateLayout();
+
+        _slideEnd = ComputeDockedPosition();
         _slideStart = new PixelPoint(_slideEnd.X, screen.Bounds.Y + screen.Bounds.Height);
         Position = _slideStart;
 
@@ -201,6 +319,8 @@ public partial class TaskbarWindow : Window
             Dismissed?.Invoke();
         }
     }
+
+    private void OnHome(object? sender, RoutedEventArgs e) => HomeRequested?.Invoke();
 
     private void OnPickWindow(object? sender, RoutedEventArgs e)
     {

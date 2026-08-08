@@ -46,7 +46,7 @@ public sealed class BootSplash
     /// <summary>UI thread only (ShellSession.Start is).</summary>
     public void Show()
     {
-        _window = new BootSplashWindow();
+        _window = new BootSplashWindow(_config.Splash);
         _window.DesktopRequested += OnDesktopRequested;
         _window.Closed += (_, _) => OnWindowClosed();
         _window.Opened += (_, _) =>

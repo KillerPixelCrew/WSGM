@@ -33,6 +33,39 @@ public sealed class TaskbarTests
         int? saved, uint current, uint recommended, uint expected)
         => Assert.Equal(expected, DisplayScale.PickUiScalePercent(saved, current, recommended));
 
+    // ---- Tray width budget: the right zone must never grow past the bar ----
+
+    [Theory]
+    [InlineData(1280.0, 1.0, 379.2)] // 1280 px bar, no touch transform
+    [InlineData(1920.0, 1.0, 571.2)]
+    [InlineData(1280.0, 1.5, 251.2)] // RootScale 1.5x shrinks the inner layout width
+    [InlineData(0.0, 1.0, 40.0)] // degenerate inputs never fall below one tray tile
+    [InlineData(1280.0, 0.0, 40.0)]
+    [InlineData(double.NaN, 1.0, 40.0)]
+    public void TheTrayStripIsCappedAtAFractionOfTheBarsInnerWidth(double width, double scale, double expected)
+        => Assert.Equal(expected, TaskbarWindow.ComputeTrayMaxWidth(width, scale), 3);
+
+    [Fact]
+    public void TheCappedTrayLeavesTheFixedStatusClusterAndAUsableTileStrip()
+    {
+        // Fixed right-zone cost at 1280 px logical, added up from the XAML:
+        // Wi-Fi 36 + Bluetooth 36 + battery ~57 + clock ~67 + 3x4 spacing = ~208,
+        // plus the 9 px separator and the two 4 px gaps around it = ~225. The home
+        // button and the bar's 2x8 padding take ~92 more.
+        const double bar = 1280;
+        const double statusCluster = 225;
+        const double homeAndPadding = 92;
+
+        var tray = TaskbarWindow.ComputeTrayMaxWidth(bar, 1.0);
+        var tiles = bar - tray - statusCluster - homeAndPadding;
+
+        // Before the cap an unbounded tray (17+ icons ≈ 646 px) pushed the status
+        // cluster off the right edge. Capped, the cluster always fits and the tile
+        // strip still shows a useful number of 48 px tiles.
+        Assert.True(tiles > 0, $"status cluster does not fit (tile band {tiles:0.#} px)");
+        Assert.True(tiles > 48 * 8, $"tile strip squeezed to {tiles:0.#} px");
+    }
+
     private static WindowFinder.AppWindow Window(nint hwnd, string title, bool minimized = false)
         => new(hwnd, title, (uint)hwnd) { IsMinimized = minimized };
 

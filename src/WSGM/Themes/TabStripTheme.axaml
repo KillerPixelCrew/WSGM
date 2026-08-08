@@ -1,0 +1,109 @@
+<!-- ControlTheme for the shared bumper TabStrip control (quick access +
+     Settings): LB/RB chips at the ends, flex-equal icon+label tab buttons in a
+     UniformGrid, accent underline on the active tab. The tab buttons are built
+     in code (Controls\TabStrip.cs) and styled here via the tab-strip-* classes;
+     selection state is the "active" style class. Accent via DynamicResource
+     (runtime accent pipeline), everything else StaticResource. -->
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="using:WSGM.Controls">
+    <Styles.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceInclude Source="/Themes/Palette.axaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <ControlTheme x:Key="{x:Type controls:TabStrip}" TargetType="controls:TabStrip">
+                <Setter Property="Template">
+                    <ControlTemplate>
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <Border Grid.Column="0"
+                                    Classes="tab-strip-bumper"
+                                    Margin="0,0,10,0"
+                                    IsVisible="{TemplateBinding ShowBumperHints}">
+                                <TextBlock Text="LB" />
+                            </Border>
+                            <UniformGrid Name="PART_TabsHost" Grid.Column="1" Rows="1" />
+                            <Border Grid.Column="2"
+                                    Classes="tab-strip-bumper"
+                                    Margin="10,0,0,0"
+                                    IsVisible="{TemplateBinding ShowBumperHints}">
+                                <TextBlock Text="RB" />
+                            </Border>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter>
+            </ControlTheme>
+        </ResourceDictionary>
+    </Styles.Resources>
+
+    <!-- LB/RB bumper hint chips -->
+    <Style Selector="Border.tab-strip-bumper">
+        <Setter Property="BorderBrush" Value="{StaticResource HcCardBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1.5" />
+        <Setter Property="CornerRadius" Value="4" />
+        <Setter Property="Padding" Value="8,2" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.tab-strip-bumper TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource HcTextMutedBrush}" />
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <!-- Tab buttons: flat over the host surface, muted at rest, primary text +
+         accent underline when active. The 2 px transparent border keeps the
+         unified border-based focus visual (Shared.axaml) without a size jump;
+         this file is included after Shared.axaml, so the :focus and
+         :pointerover rules are restated here to win the equal-specificity tie. -->
+    <Style Selector="Button.tab-strip-tab">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="2" />
+        <Setter Property="CornerRadius" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="MinHeight" Value="40" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="VerticalAlignment" Value="Stretch" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="VerticalContentAlignment" Value="Stretch" />
+        <Setter Property="Foreground" Value="{StaticResource HcTextMutedBrush}" />
+    </Style>
+    <Style Selector="Button.tab-strip-tab:pointerover">
+        <Setter Property="Background" Value="{StaticResource HcCardHoverBrush}" />
+    </Style>
+    <Style Selector="Button.tab-strip-tab:focus">
+        <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+    </Style>
+    <Style Selector="Button.tab-strip-tab.active">
+        <Setter Property="Foreground" Value="{StaticResource HcTextPrimaryBrush}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <!-- Tab icons follow the label color (a Path does not inherit Foreground).
+         The Icons geometries are stroke-style: filling them collapses interior
+         detail into silhouettes, so they must render stroked with no fill. -->
+    <Style Selector="Button.tab-strip-tab Path.tab-strip-icon">
+        <Setter Property="Fill" Value="{x:Null}" />
+        <Setter Property="Stroke" Value="{StaticResource HcTextMutedBrush}" />
+        <Setter Property="StrokeThickness" Value="1.5" />
+        <Setter Property="StrokeJoin" Value="Round" />
+        <Setter Property="StrokeLineCap" Value="Round" />
+    </Style>
+    <Style Selector="Button.tab-strip-tab.active Path.tab-strip-icon">
+        <Setter Property="Stroke" Value="{StaticResource HcTextPrimaryBrush}" />
+    </Style>
+
+    <!-- Accent underline marking the active tab -->
+    <Style Selector="Button.tab-strip-tab Border.tab-strip-underline">
+        <Setter Property="Background" Value="{DynamicResource HcAccentBrush}" />
+        <Setter Property="Height" Value="3" />
+        <Setter Property="VerticalAlignment" Value="Bottom" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="CornerRadius" Value="1.5,1.5,0,0" />
+        <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Button.tab-strip-tab.active Border.tab-strip-underline">
+        <Setter Property="IsVisible" Value="True" />
+    </Style>
+</Styles>

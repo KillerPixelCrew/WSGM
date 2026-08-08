@@ -393,6 +393,41 @@ internal static partial class NativeMethods
         [MarshalAs(UnmanagedType.U1)] bool forceCritical,
         [MarshalAs(UnmanagedType.U1)] bool disableWakeEvent);
 
+    // ---- System status (taskbar clock/battery/Wi-Fi cluster) ----
+    /// <summary>SYSTEM_POWER_STATUS: BatteryFlag 128 = no system battery, 255 = unknown;
+    /// BatteryLifePercent 255 = unknown.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct SystemPowerStatus
+    {
+        public byte ACLineStatus;
+        public byte BatteryFlag;
+        public byte BatteryLifePercent;
+        public byte SystemStatusFlag;
+        public uint BatteryLifeTime;
+        public uint BatteryFullLifeTime;
+    }
+
+    [LibraryImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetSystemPowerStatus(out SystemPowerStatus status);
+
+    // wlanapi is a flat (COM-free) Win32 API; used read-only for the taskbar's
+    // best-effort Wi-Fi state. WlanEnumInterfaces returns an allocation that must
+    // be freed with WlanFreeMemory.
+    internal const int WlanInterfaceStateConnected = 1;
+
+    [LibraryImport("wlanapi.dll")]
+    internal static partial uint WlanOpenHandle(uint dwClientVersion, nint pReserved, out uint pdwNegotiatedVersion, out nint phClientHandle);
+
+    [LibraryImport("wlanapi.dll")]
+    internal static partial uint WlanCloseHandle(nint hClientHandle, nint pReserved);
+
+    [LibraryImport("wlanapi.dll")]
+    internal static partial uint WlanEnumInterfaces(nint hClientHandle, nint pReserved, out nint ppInterfaceList);
+
+    [LibraryImport("wlanapi.dll")]
+    internal static partial void WlanFreeMemory(nint pMemory);
+
     // ---- Window icons (taskbar) ----
     internal const uint WmGetIcon = 0x007F;
     internal const uint WmQueryDragIcon = 0x0037;

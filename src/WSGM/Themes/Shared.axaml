@@ -1,0 +1,100 @@
+<!-- Shared control styling for every WSGM window: base window chrome, buttons
+     (with the unified border-based focus visual), inputs, toggles and the
+     hc-* card/footer classes. Accent-family tokens are consumed via
+     DynamicResource (runtime accent pipeline); everything else StaticResource. -->
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Styles.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceInclude Source="/Themes/Palette.axaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Styles.Resources>
+
+    <Style Selector="Window">
+        <Setter Property="FontFamily" Value="Inter, Segoe UI Symbol, Segoe UI" />
+        <Setter Property="Foreground" Value="{StaticResource HcTextPrimaryBrush}" />
+        <Setter Property="Background" Value="{StaticResource HcBackgroundBrush}" />
+    </Style>
+
+    <!-- Avalonia port of iNKORE Modern WPF SettingsCard: icon, title,
+         description and a trailing interactive control. -->
+    <Style Selector="Border.hc-settings-card">
+        <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource HcCardBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="4" />
+        <Setter Property="Padding" Value="10,6" />
+    </Style>
+    <Style Selector="Border.hc-device-card">
+        <Setter Property="Background" Value="{StaticResource HcHeroCardBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource HcHeroCardBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="4" />
+        <Setter Property="Padding" Value="10,6" />
+    </Style>
+    <Style Selector="Border.hc-footer">
+        <Setter Property="Background" Value="{StaticResource HcFooterBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource HcCardBorderBrush}" />
+        <Setter Property="BorderThickness" Value="0,1,0,0" />
+    </Style>
+
+    <!-- Unified focus visual: no focus adorner anywhere; every button carries a
+         2 px border that flips to the accent color on focus (the device-proven
+         overlay mechanism). Padding is 1 px smaller than the historical 1 px
+         border style so the rendered size is unchanged. -->
+    <Style Selector="Button">
+        <Setter Property="MinHeight" Value="26" />
+        <Setter Property="Padding" Value="7,2" />
+        <Setter Property="Background" Value="{StaticResource HcControlBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource HcControlBorderBrush}" />
+        <Setter Property="BorderThickness" Value="2" />
+        <Setter Property="CornerRadius" Value="4" />
+        <Setter Property="Foreground" Value="{StaticResource HcTextPrimaryBrush}" />
+        <Setter Property="FocusAdorner" Value="{x:Null}" />
+    </Style>
+    <Style Selector="Button:pointerover">
+        <Setter Property="Background" Value="{StaticResource HcControlHoverBrush}" />
+    </Style>
+    <Style Selector="Button:focus">
+        <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+    </Style>
+    <Style Selector="Button.primary">
+        <Setter Property="Background" Value="{DynamicResource HcAccentBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource HcOnAccentBrush}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Button.danger">
+        <Setter Property="Foreground" Value="{StaticResource HcDangerBrush}" />
+    </Style>
+    <Style Selector="Button.icon">
+        <Setter Property="MinWidth" Value="34" />
+        <Setter Property="Padding" Value="5" />
+    </Style>
+    <!-- Buttons placed on near-black hero surfaces (device card, splash). -->
+    <Style Selector="Button.on-black">
+        <Setter Property="Background" Value="{StaticResource HcOnBlackButtonBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource HcOnBlackButtonBorderBrush}" />
+    </Style>
+    <Style Selector="Button.on-black:pointerover">
+        <Setter Property="Background" Value="{StaticResource HcOnBlackButtonHoverBrush}" />
+    </Style>
+
+    <Style Selector="TextBox, ComboBox, NumericUpDown">
+        <Setter Property="Background" Value="{StaticResource HcControlBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource HcControlBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Foreground" Value="{StaticResource HcTextPrimaryBrush}" />
+        <Setter Property="MinHeight" Value="28" />
+    </Style>
+    <Style Selector="TextBox:focus, ComboBox:focus-within, NumericUpDown:focus-within">
+        <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+    </Style>
+    <Style Selector="ToggleSwitch">
+        <Setter Property="OnContent" Value="On" />
+        <Setter Property="OffContent" Value="Off" />
+        <Setter Property="MinWidth" Value="72" />
+    </Style>
+</Styles>
