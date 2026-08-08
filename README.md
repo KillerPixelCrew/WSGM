@@ -1,4 +1,6 @@
-# WSGM — Windows Steam Game Mode
+<p align="center">
+  <img src="docs/banner.svg" alt="WSGM — Windows Steam Game Mode" width="810">
+</p>
 
 WSGM reconstructs the SteamOS Game Mode experience on Windows 11 — on gaming handhelds, gaming PCs,
 and DIY Steam Machines / living-room builds alike. It boots straight into Steam Big Picture and

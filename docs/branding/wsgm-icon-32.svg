@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- 32 px source: the master's linework divides cleanly to 1 px strokes at
+       this size, but its vector play mark antialiases to mud — so the geometry
+       is the master ÷ 8 with the triangle rebuilt from whole pixels. -->
+  <rect width="32" height="32" fill="#1B1B1B"/>
+  <g fill="none" stroke="#E9E5DF" stroke-width="1">
+    <rect x="4.5" y="10.5" width="23" height="11"/>
+    <rect x="11.5" y="12.5" width="9" height="7"/>
+    <rect x="6.5" y="14.5" width="3" height="3"/>
+    <rect x="22.5" y="14.5" width="3" height="3"/>
+  </g>
+  <g fill="#FF9D3D">
+    <rect x="14" y="14" width="2" height="4"/>
+    <rect x="16" y="15" width="1" height="2"/>
+  </g>
+  <g fill="none" stroke="#FF9D3D" stroke-width="1">
+    <path d="M3 3.5 H6 M3.5 3 V6"/>
+    <path d="M29 3.5 H26 M28.5 3 V6"/>
+    <path d="M3 28.5 H6 M3.5 29 V26"/>
+    <path d="M29 28.5 H26 M28.5 29 V26"/>
+  </g>
+</svg>

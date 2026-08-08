@@ -118,7 +118,13 @@ public static class SteamInputBlocker
 
     /// <summary>Uses the host resolver rather than the payload capability bit as
     /// the compatibility authority. The payload and host resolve independently;
-    /// a missing in-process target does not mean WSGM cannot restore Steam input.</summary>
+    /// a missing in-process target does not mean WSGM cannot restore Steam input.
+    /// This runs at acquire, moments after the lease revoked Steam's HID handles,
+    /// so Steam is mid-teardown of its HID thread and the live-object election
+    /// races an abandoned look-alike. A failure here is therefore only a
+    /// heads-up, NOT proof recovery will fail: the release path performs the real
+    /// recovery and is the user-facing authority. Log it for diagnosis; do not
+    /// raise the panel warning off this probe.</summary>
     private static void CheckHostRecoveryBestEffort()
     {
         try
@@ -128,8 +134,7 @@ public static class SteamInputBlocker
         }
         catch (Exception ex)
         {
-            Log.Error("Steam Input host recovery probe failed.", ex);
-            RaiseRecoveryWarning();
+            Log.Warn($"Steam Input acquire-time host recovery probe failed (release-path recovery remains authoritative): {ex.Message}");
         }
     }
 

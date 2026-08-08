@@ -39,6 +39,7 @@ SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\WSGM.exe
+SetupIconFile=..\src\WSGM\Assets\wsgm.ico
 CloseApplications=yes
 ; win-x64-only binary: refuse ARM64 (x64os, not x64compatible) — an emulated
 ; shell replacement is an untested configuration. Needs Inno Setup 6.3+.

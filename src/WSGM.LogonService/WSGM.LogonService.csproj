@@ -9,6 +9,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\WSGM\Assets\wsgm.ico</ApplicationIcon>
     <AssemblyName>WSGM.LogonService</AssemblyName>
     <RootNamespace>WSGM.LogonService</RootNamespace>
     <PublishAot>true</PublishAot>

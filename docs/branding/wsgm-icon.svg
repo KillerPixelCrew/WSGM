@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- WSGM app icon, "Schematic" direction: technical linework, butt caps, right
+       angles only, orange reserved for the play mark and registration ticks.
+       Stroke edges sit on multiples of 8 so the 128/64/32 px renders divide to
+       whole pixels; 48/24/16 have hand-aligned sources beside this file. -->
+  <rect width="256" height="256" fill="#1B1B1B"/>
+  <g fill="none" stroke="#E9E5DF" stroke-width="8">
+    <rect x="36" y="84" width="184" height="88"/>
+    <rect x="92" y="100" width="72" height="56"/>
+    <rect x="52" y="116" width="24" height="24"/>
+    <rect x="180" y="116" width="24" height="24"/>
+  </g>
+  <path d="M112 112 V144 L144 128 Z" fill="#FF9D3D"/>
+  <g fill="none" stroke="#FF9D3D" stroke-width="8">
+    <path d="M24 28 H48 M28 24 V48"/>
+    <path d="M232 28 H208 M228 24 V48"/>
+    <path d="M24 228 H48 M28 232 V208"/>
+    <path d="M232 228 H208 M228 232 V208"/>
+  </g>
+</svg>

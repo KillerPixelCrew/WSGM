@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <!-- 24 px source: drawn in whole pixels as fills (no strokes). The screen
+       outline and ticks are dropped; device outline, sticks and play mark stay. -->
+  <rect width="24" height="24" fill="#1B1B1B"/>
+  <path fill="#E9E5DF" fill-rule="evenodd" d="M1 5 H23 V19 H1 Z M2 6 V18 H22 V6 Z"/>
+  <rect x="4" y="11" width="2" height="2" fill="#E9E5DF"/>
+  <rect x="18" y="11" width="2" height="2" fill="#E9E5DF"/>
+  <g fill="#FF9D3D">
+    <rect x="10" y="8" width="2" height="8"/>
+    <rect x="12" y="10" width="2" height="4"/>
+    <rect x="14" y="11" width="1" height="2"/>
+  </g>
+</svg>

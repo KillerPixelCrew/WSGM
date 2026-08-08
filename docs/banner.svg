@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 810 240" role="img" aria-label="WSGM — Windows Steam Game Mode">
+  <!-- README banner, same schematic language as the app icon. The ink and
+       accent colors follow the viewer's GitHub theme via prefers-color-scheme;
+       the wordmark is hand-drawn geometry, not text, so it renders identically
+       everywhere. -->
+  <style>
+    :root { --ink: #26221E; --org: #C86A0D; }
+    @media (prefers-color-scheme: dark) { :root { --ink: #E9E5DF; --org: #FF9D3D; } }
+    .ink  { stroke: var(--ink); }
+    .inkf { fill: var(--ink); }
+    .orgf { fill: var(--org); }
+    .orgs { stroke: var(--org); }
+  </style>
+
+  <defs>
+    <pattern id="grid" width="30" height="30" patternUnits="userSpaceOnUse">
+      <path d="M30 0 H0 V30" fill="none" class="ink" stroke-opacity=".07" stroke-width="1"/>
+    </pattern>
+  </defs>
+  <rect width="810" height="240" fill="url(#grid)"/>
+
+  <!-- corner registration ticks -->
+  <g fill="none" class="orgs" stroke-width="6">
+    <path d="M10 16 H34 M16 10 V34"/>
+    <path d="M800 16 H776 M794 10 V34"/>
+    <path d="M10 224 H34 M16 230 V206"/>
+    <path d="M800 224 H776 M794 230 V206"/>
+  </g>
+
+  <!-- the device -->
+  <g fill="none" class="ink" stroke-width="8">
+    <rect x="64" y="64" width="192" height="96"/>
+    <rect x="122" y="82" width="76" height="60"/>
+    <rect x="80" y="100" width="24" height="24"/>
+    <rect x="216" y="100" width="24" height="24"/>
+  </g>
+  <path d="M143 95 V129 L177 112 Z" class="orgf"/>
+
+  <!-- dimension line -->
+  <g fill="none" class="ink" stroke-width="2" stroke-opacity=".45">
+    <path d="M64 184 H256 M64 178 V190 M256 178 V190"/>
+  </g>
+
+  <!-- WSGM wordmark: square engineering capitals, 56-unit grid, advance 70 -->
+  <g class="inkf" transform="translate(312 66) scale(1.62)">
+    <path d="M0 0 H11 L21 34 L25 12 H31 L35 34 L45 0 H56 L41 56 H31 L28 38 L25 56 H15 Z"/>
+    <path transform="translate(70 0)" d="M56 0 H0 V33 H46 V46 H0 V56 H56 V23 H10 V10 H56 Z"/>
+    <path transform="translate(140 0)" d="M56 0 H0 V56 H56 V23 H28 V33 H46 V46 H10 V10 H56 Z"/>
+    <path transform="translate(210 0)" d="M0 56 V0 H12 L28 22 L44 0 H56 V56 H45 V16 L28 36 L11 16 V56 Z"/>
+  </g>
+
+  <!-- subline -->
+  <text x="314" y="192" class="orgf"
+        font-family="'Cascadia Mono', Consolas, 'Courier New', monospace"
+        font-size="19" letter-spacing="7.4">WINDOWS STEAM GAME MODE</text>
+</svg>
