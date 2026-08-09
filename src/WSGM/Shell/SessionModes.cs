@@ -23,9 +23,11 @@ public sealed class SessionModes
     private DateTime _lastHomeLaunchUtc;
 
     private static readonly TimeSpan HomeLaunchCooldown = TimeSpan.FromSeconds(5);
-    // Device-proven budget from the service era: the orderly exit either lands in
-    // ~1-3 s or explorer is wedged and the transition fails open.
-    private static readonly TimeSpan ExplorerExitTimeout = TimeSpan.FromSeconds(5);
+    // Budget for the orderly exit including ExplorerControl's 8 s linger grace
+    // (device-proven 2026-08-09: remnants can outlive the old 2 s grace, and
+    // terminating them is what got the shell respawned). The transition still
+    // fails open when explorer is genuinely wedged.
+    private static readonly TimeSpan ExplorerExitTimeout = TimeSpan.FromSeconds(15);
 
     /// <summary>The warning shown when explorer refused its orderly exit and the
     /// session stayed in desktop mode (fail open, never a half game mode).</summary>
