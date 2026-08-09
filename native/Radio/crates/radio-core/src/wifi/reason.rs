@@ -7,7 +7,21 @@
 //! typing, because re-prompting for a password that was correct is worse than
 //! saying the network could not be reached.
 
-use windows::Win32::NetworkManagement::WiFi::WlanReasonCodeToString;
+// Declared here rather than taken from the `windows` crate: its generated
+// binding takes the output buffer as a SHARED slice and transmutes the pointer
+// for the call. Windows writes through it, which breaks Rust's aliasing
+// contract on a `&` reference no matter where the storage lives, and is exactly
+// the kind of thing the optimiser is allowed to miscompile. raw-dylib matches
+// how the crate links the rest of wlanapi, so this needs no import library.
+#[link(name = "wlanapi", kind = "raw-dylib")]
+unsafe extern "system" {
+    fn WlanReasonCodeToString(
+        reason_code: u32,
+        buffer_size: u32,
+        buffer: *mut u16,
+        reserved: *mut core::ffi::c_void,
+    ) -> u32;
+}
 
 /// What a connection failure should tell the user to do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,13 +103,17 @@ pub fn verdict(code: u32) -> Verdict {
 #[must_use]
 pub fn describe(code: u32) -> String {
     // The documented buffer size for this call is 1024 characters.
-    //
-    // Heap-allocated rather than a stack array on purpose: the generated binding
-    // takes a shared slice and casts it to a mutable pointer for the FFI call, so
-    // a local array could in principle be assumed unchanged across it. A `Vec`'s
-    // buffer escapes through the pointer, which it cannot.
-    let buffer = vec![0u16; 1024];
-    let status = unsafe { WlanReasonCodeToString(code, &buffer, None) };
+    let mut buffer = vec![0u16; 1024];
+    // SAFETY: an exclusive pointer to storage of exactly the length declared,
+    // which is what this API's contract asks for.
+    let status = unsafe {
+        WlanReasonCodeToString(
+            code,
+            buffer.len() as u32,
+            buffer.as_mut_ptr(),
+            std::ptr::null_mut(),
+        )
+    };
     if status != 0 {
         return format!("Wi-Fi reason code {code}");
     }

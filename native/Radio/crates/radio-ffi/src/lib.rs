@@ -10,7 +10,9 @@
 //! available from [`wsgm_radio_last_error`].
 //!
 //! Array-returning calls hand back an allocation that the caller must release
-//! with the matching `*_free`, exactly like the WLAN API this wraps.
+//! with the matching `*_free`, exactly like the WLAN API this wraps. Each one
+//! travels as a boxed slice (see [`leak_slice`]) so the layout the caller
+//! returns is exactly the one that was allocated.
 
 #![deny(missing_docs)]
 
@@ -56,6 +58,37 @@ where
             set_error("the radio helper panicked");
             WSGM_RADIO_PANIC
         }
+    }
+}
+
+/// Hands a vector's storage to the caller as a bare pointer and a count.
+///
+/// Via `into_boxed_slice`, NOT `shrink_to_fit` + `into_raw_parts`: shrinking is
+/// documented as *allowed* to leave spare capacity, and reconstructing such an
+/// allocation later with `count` as both length and capacity would hand the
+/// allocator a layout it never issued — undefined behaviour on free. A boxed
+/// slice's capacity is its length by construction, so the matching
+/// [`reclaim_slice`] always sees the original layout.
+fn leak_slice<T>(items: Vec<T>) -> (*mut T, u32) {
+    let count = items.len() as u32;
+    let boxed = items.into_boxed_slice();
+    (Box::into_raw(boxed).cast::<T>(), count)
+}
+
+/// Takes back what [`leak_slice`] handed out.
+///
+/// # Safety
+/// `items`/`count` must be exactly one `leak_slice` result, reclaimed once.
+unsafe fn reclaim_slice<T>(items: *mut T, count: u32) {
+    if items.is_null() {
+        return;
+    }
+    // SAFETY: rebuilds the very boxed slice that leak_slice released.
+    unsafe {
+        drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(
+            items,
+            count as usize,
+        )));
     }
 }
 
@@ -347,7 +380,7 @@ pub unsafe extern "system" fn wsgm_wifi_list(
             *out_count = 0;
         }
         let networks = wifi::networks()?;
-        let mut flat: Vec<WsgmWifiNetwork> = networks
+        let flat: Vec<WsgmWifiNetwork> = networks
             .iter()
             .map(|n| {
                 let mut entry = WsgmWifiNetwork {
@@ -367,11 +400,8 @@ pub unsafe extern "system" fn wsgm_wifi_list(
                 entry
             })
             .collect();
-        flat.shrink_to_fit();
-        let count = flat.len() as u32;
-        let pointer = flat.as_mut_ptr();
         // Ownership moves to the caller until wsgm_wifi_free takes it back.
-        std::mem::forget(flat);
+        let (pointer, count) = leak_slice(flat);
         unsafe {
             *out_items = pointer;
             *out_count = count;
@@ -386,14 +416,7 @@ pub unsafe extern "system" fn wsgm_wifi_list(
 /// `items`/`count` must be exactly what `wsgm_wifi_list` produced, released once.
 #[unsafe(no_mangle)]
 pub unsafe extern "system" fn wsgm_wifi_free(items: *mut WsgmWifiNetwork, count: u32) {
-    if items.is_null() {
-        return;
-    }
-    // SAFETY: reconstitutes the Vec that `wsgm_wifi_list` forgot, with the same
-    // length and capacity (shrink_to_fit made them equal).
-    unsafe {
-        drop(Vec::from_raw_parts(items, count as usize, count as usize));
-    }
+    unsafe { reclaim_slice(items, count) };
 }
 
 /// Installs a profile for `ssid` and connects.
@@ -532,7 +555,7 @@ pub unsafe extern "system" fn wsgm_bt_list(
         } else {
             bluetooth::devices()?
         };
-        let mut flat: Vec<WsgmBtDevice> = devices
+        let flat: Vec<WsgmBtDevice> = devices
             .iter()
             .map(|d| {
                 let mut entry = WsgmBtDevice {
@@ -549,10 +572,7 @@ pub unsafe extern "system" fn wsgm_bt_list(
                 entry
             })
             .collect();
-        flat.shrink_to_fit();
-        let count = flat.len() as u32;
-        let pointer = flat.as_mut_ptr();
-        std::mem::forget(flat);
+        let (pointer, count) = leak_slice(flat);
         unsafe {
             *out_items = pointer;
             *out_count = count;
@@ -567,13 +587,7 @@ pub unsafe extern "system" fn wsgm_bt_list(
 /// `items`/`count` must be exactly what `wsgm_bt_list` produced, released once.
 #[unsafe(no_mangle)]
 pub unsafe extern "system" fn wsgm_bt_free(items: *mut WsgmBtDevice, count: u32) {
-    if items.is_null() {
-        return;
-    }
-    // SAFETY: as in wsgm_wifi_free.
-    unsafe {
-        drop(Vec::from_raw_parts(items, count as usize, count as usize));
-    }
+    unsafe { reclaim_slice(items, count) };
 }
 
 /// Called when Windows asks a pairing question.
@@ -819,7 +833,7 @@ pub unsafe extern "system" fn wsgm_bt_audio_list(
             *out_count = 0;
         }
         let containers = radio_core::audio::audio_containers()?;
-        let mut flat: Vec<WsgmBtAudioContainer> = containers
+        let flat: Vec<WsgmBtAudioContainer> = containers
             .iter()
             .map(|c| {
                 let mut entry = WsgmBtAudioContainer {
@@ -830,10 +844,7 @@ pub unsafe extern "system" fn wsgm_bt_audio_list(
                 entry
             })
             .collect();
-        flat.shrink_to_fit();
-        let count = flat.len() as u32;
-        let pointer = flat.as_mut_ptr();
-        std::mem::forget(flat);
+        let (pointer, count) = leak_slice(flat);
         unsafe {
             *out_items = pointer;
             *out_count = count;
@@ -848,13 +859,7 @@ pub unsafe extern "system" fn wsgm_bt_audio_list(
 /// `items`/`count` must be exactly what `wsgm_bt_audio_list` produced.
 #[unsafe(no_mangle)]
 pub unsafe extern "system" fn wsgm_bt_audio_free(items: *mut WsgmBtAudioContainer, count: u32) {
-    if items.is_null() {
-        return;
-    }
-    // SAFETY: as in wsgm_wifi_free.
-    unsafe {
-        drop(Vec::from_raw_parts(items, count as usize, count as usize));
-    }
+    unsafe { reclaim_slice(items, count) };
 }
 
 /// Connects or disconnects a paired Bluetooth AUDIO device by its container

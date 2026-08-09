@@ -17,6 +17,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use windows::Win32::Foundation::HANDLE;
+use windows_core::GUID;
 use windows::Win32::NetworkManagement::WiFi::{
     L2_NOTIFICATION_DATA, WLAN_CONNECTION_NOTIFICATION_DATA, WLAN_NOTIFICATION_SOURCE_ACM,
     WLAN_NOTIFICATION_SOURCE_MSM, WLAN_NOTIFICATION_SOURCE_NONE, WlanCloseHandle, WlanOpenHandle,
@@ -175,9 +176,20 @@ pub struct ConnectionOutcome {
 pub struct ConnectionWatch {
     handle: HANDLE,
     receiver: Receiver<ConnectionOutcome>,
-    /// The boxed sender the callback context points at. Owned here and freed
-    /// only after the registration is torn down.
-    context: *mut SyncSender<ConnectionOutcome>,
+    /// The boxed context the callback points at. Owned here and freed only
+    /// after the registration is torn down.
+    context: *mut WatchContext,
+}
+
+/// What the callback needs: where to send the verdict, and which adapter's
+/// verdict actually counts.
+struct WatchContext {
+    sender: SyncSender<ConnectionOutcome>,
+    /// The interface `WlanConnect` was called on. Notifications are
+    /// process-wide, so a second adapter's automatic reconnect would otherwise
+    /// be read as this attempt's outcome — and could roll back the profile
+    /// authored for a network that was still connecting.
+    interface: GUID,
 }
 
 // SAFETY: the raw pointer is an owned Box this type alone frees, and the only
@@ -192,15 +204,22 @@ unsafe extern "system" fn on_connection(data: *mut L2_NOTIFICATION_DATA, context
         return;
     }
     // SAFETY: the service passes a valid record for the duration of the call.
-    let (source, code, payload, size) = unsafe {
+    let (source, code, interface, payload, size) = unsafe {
         (
             (*data).NotificationSource,
             (*data).NotificationCode,
+            (*data).InterfaceGuid,
             (*data).pData,
             (*data).dwDataSize as usize,
         )
     };
     if source != WLAN_NOTIFICATION_SOURCE_ACM {
+        return;
+    }
+    // SAFETY: the context outlives the registration (see Drop).
+    let watch = unsafe { &*context.cast::<WatchContext>() };
+    // Another adapter's event is not this attempt's verdict.
+    if interface != watch.interface {
         return;
     }
     if !matches!(code, ACM_CONNECTION_COMPLETE | ACM_CONNECTION_ATTEMPT_FAIL) {
@@ -219,19 +238,23 @@ unsafe extern "system" fn on_connection(data: *mut L2_NOTIFICATION_DATA, context
     // the verdict. Trusting the event was how a rejected password still read as
     // a successful connection — and kept the bad profile it had just saved.
     let succeeded = code == ACM_CONNECTION_COMPLETE && reason == WLAN_REASON_CODE_SUCCESS;
-    // SAFETY: the context outlives the registration (see Drop).
-    let sender = unsafe { &*context.cast::<SyncSender<ConnectionOutcome>>() };
     // try_send: a service callback must never block, and one outcome is all
     // the caller waits for.
-    let _ = sender.try_send(ConnectionOutcome { succeeded, reason });
+    let _ = watch
+        .sender
+        .try_send(ConnectionOutcome { succeeded, reason });
 }
 
 impl ConnectionWatch {
-    /// Registers for connection outcomes. Arm this BEFORE calling
-    /// `WlanConnect`, or a fast verdict is missed entirely.
-    pub fn start() -> Result<Self> {
+    /// Registers for connection outcomes on one interface. Arm this BEFORE
+    /// calling `WlanConnect`, or a fast verdict is missed entirely.
+    ///
+    /// # Parameters
+    /// * `interface` — the adapter the attempt runs on; every other adapter's
+    ///   notifications are ignored.
+    pub fn start(interface: GUID) -> Result<Self> {
         let (sender, receiver) = sync_channel::<ConnectionOutcome>(4);
-        let context = Box::into_raw(Box::new(sender));
+        let context = Box::into_raw(Box::new(WatchContext { sender, interface }));
 
         let mut negotiated = 0u32;
         let mut handle = HANDLE::default();

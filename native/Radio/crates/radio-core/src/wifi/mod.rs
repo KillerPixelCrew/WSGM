@@ -505,9 +505,24 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
             // none at all AND needs no key. Anything else is either already
             // joinable or genuinely missing a password.
             if existing.is_none() {
-                let owe = facts.security == Some(Security::EnhancedOpen);
-                set_profile(&client, &guid, &profile::open_profile(ssid, raw, owe))?;
-                authored = Some(ssid.to_owned());
+                // And only when the scan says it really is keyless. The caller
+                // arrives here whenever it believes a profile exists — a belief
+                // that goes stale when the profile was deleted elsewhere, or
+                // when its name differs from the SSID. Authoring open/none for
+                // a secured access point installs cleanly and then cannot
+                // connect, so say what is actually missing instead.
+                match facts.security {
+                    Some(Security::Open) | Some(Security::EnhancedOpen) => {
+                        let owe = facts.security == Some(Security::EnhancedOpen);
+                        set_profile(&client, &guid, &profile::open_profile(ssid, raw, owe))?;
+                        authored = Some(ssid.to_owned());
+                    }
+                    _ => {
+                        return Err(Error::InvalidArgument(
+                            "this network needs a password and has no saved profile",
+                        ));
+                    }
+                }
             }
         }
     }
@@ -532,7 +547,7 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
 
     // Armed BEFORE the call: WlanConnect only reports that the request was
     // ACCEPTED, and a fast verdict would otherwise land before anyone listens.
-    let watch = notify::ConnectionWatch::start().ok();
+    let watch = notify::ConnectionWatch::start(guid).ok();
     let status = unsafe { WlanConnect(client.0, &guid, &parameters, None) };
     win32("WlanConnect", status)?;
 

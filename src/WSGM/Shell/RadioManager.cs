@@ -1046,8 +1046,23 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     /// <param name="ssid">The network to forget.</param>
     public async Task ForgetAsync(string ssid)
     {
-        await Task.Run(() => NativeRadio.ForgetWifi(ssid));
-        Log.Info($"Wi-Fi forget: {ssid}.");
+        var result = await Task.Run(() =>
+        {
+            var status = NativeRadio.ForgetWifi(ssid);
+            return (status, error: NativeRadio.LastError());
+        });
+        if (result.status == NativeRadio.Ok)
+        {
+            Log.Info($"Wi-Fi forget: {ssid}.");
+            StatusText = "";
+        }
+        else
+        {
+            // Reported, not assumed: a profile that survived a Forget keeps
+            // auto-joining, and silence here looks exactly like success.
+            Log.Warn($"Wi-Fi forget: {ssid} failed: {result.error}");
+            StatusText = $"Could not forget {ssid}.";
+        }
         QueueRefresh();
     }
 

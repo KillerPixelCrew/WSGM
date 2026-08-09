@@ -125,6 +125,10 @@ public static class ExplorerControl
     /// every manual second attempt succeeded). Guarded by <see cref="ExitGate"/>.</summary>
     private static bool _respawnCancelled;
 
+    /// <summary>The pid Winlogon respawned, so the retry can wait for THAT
+    /// shell's taskbar. Guarded by <see cref="ExitGate"/>.</summary>
+    private static uint _respawnProcessId;
+
     /// <summary>Requests Explorer's orderly shell exit and verifies boundedly that
     /// no current-session Explorer remains before a replacement tray is created.
     /// Fails OPEN: on refusal, timeout, or a Winlogon respawn the caller must
@@ -155,26 +159,38 @@ public static class ExplorerControl
             {
                 return false;
             }
-            if (!WaitForCurrentSessionTaskbar(RespawnTaskbarWait))
+            if (!WaitForReplacementTaskbar(_respawnProcessId, RespawnTaskbarWait))
             {
                 Log.Warn("Respawned Explorer showed no taskbar to retry against; staying in desktop mode.");
                 return false;
             }
-            Log.Info("Retrying orderly Explorer exit once against the respawned shell.");
+            Log.Info($"Retrying orderly Explorer exit once against the respawned shell (pid {_respawnProcessId}).");
             return ExitExplorerAndWaitCore(timeout);
         }
     }
 
-    /// <summary>Waits for a current-session Shell_TrayWnd plus a short settle, so
-    /// the respawn-retry addresses a shell that is far enough along to honor the
-    /// exit command.</summary>
-    private static bool WaitForCurrentSessionTaskbar(TimeSpan timeout)
+    /// <summary>Waits until the taskbar belongs to the REPLACEMENT explorer,
+    /// plus a short settle.
+    ///
+    /// The owning pid is what makes this safe: the original shell can still own
+    /// a dying <c>Shell_TrayWnd</c> when Winlogon has already started its
+    /// replacement, and accepting any current-session taskbar posted the second
+    /// exit request into the process that was already leaving — so nothing
+    /// happened, and the retry timed out instead of entering game mode.</summary>
+    /// <param name="replacementProcessId">The pid Winlogon started.</param>
+    /// <param name="timeout">How long to wait for its taskbar.</param>
+    private static bool WaitForReplacementTaskbar(uint replacementProcessId, TimeSpan timeout)
     {
+        if (replacementProcessId == 0)
+        {
+            return false;
+        }
         var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
         {
             var taskbar = Interop.NativeMethods.FindWindowW("Shell_TrayWnd", null);
-            if (IsCurrentSessionWindow(taskbar))
+            if (IsWindowOwnedByProcess(taskbar, replacementProcessId)
+                && IsCurrentSessionWindow(taskbar))
             {
                 // Freshly created; give the message loop a moment before the
                 // exit command lands in it.
@@ -189,6 +205,7 @@ public static class ExplorerControl
     private static bool ExitExplorerAndWaitCore(TimeSpan timeout)
     {
         _respawnCancelled = false;
+        _respawnProcessId = 0;
         var initialProcessIds = ExplorerProcessIdsInSession();
         if (initialProcessIds.Count == 0)
         {
@@ -223,6 +240,7 @@ public static class ExplorerControl
             if (replacementProcessId != 0)
             {
                 _respawnCancelled = true;
+                _respawnProcessId = checked((uint)replacementProcessId);
                 Log.Warn($"Winlogon restarted Explorer as pid {replacementProcessId}; takeover cancelled.");
                 return false;
             }
@@ -246,6 +264,10 @@ public static class ExplorerControl
         if (taskbarStillPresent || replacementAfterTaskbar != 0)
         {
             _respawnCancelled = !taskbarStillPresent;
+            if (_respawnCancelled)
+            {
+                _respawnProcessId = checked((uint)replacementAfterTaskbar);
+            }
             Log.Warn(taskbarStillPresent
                 ? "Explorer did not honor the orderly exit request before timeout."
                 : $"Winlogon restarted Explorer as pid {replacementAfterTaskbar}; takeover cancelled.");
@@ -269,6 +291,7 @@ public static class ExplorerControl
             if (replacementAfterTaskbar != 0)
             {
                 _respawnCancelled = true;
+                _respawnProcessId = checked((uint)replacementAfterTaskbar);
                 Log.Warn($"Winlogon restarted Explorer as pid {replacementAfterTaskbar}; takeover cancelled.");
                 return false;
             }
@@ -309,6 +332,7 @@ public static class ExplorerControl
             if (replacementProcessId != 0)
             {
                 _respawnCancelled = true;
+                _respawnProcessId = checked((uint)replacementProcessId);
                 Log.Warn($"Winlogon restarted Explorer as pid {replacementProcessId}; takeover cancelled.");
                 return false;
             }
