@@ -15,8 +15,8 @@
         Background="{StaticResource HcBackgroundBrush}">
 
     <!-- Full-width three-zone bar (approved redesign): WSGM home button on the
-         left, the app tile strip in the middle, status cluster (tray, Wi-Fi,
-         Bluetooth, battery, clock) on the right. Opaque, square corners, border
+         left, the app tile strip in the middle, status cluster (tray, audio,
+         Wi-Fi, Bluetooth, battery, clock) on the right. Opaque, square corners, border
          on the top edge only. Height stays content-sized; the code-behind spans
          the width across the primary display and slides the bar up from the
          bottom edge.
@@ -142,8 +142,8 @@
             </StackPanel>
             </ScrollViewer>
 
-            <!-- Right zone per the approved design: tray · Wi-Fi · Bluetooth ·
-                 battery · clock. The tray part binds the taskbar view model, so
+            <!-- Right zone: tray · audio · Wi-Fi · Bluetooth · battery · clock.
+                 The tray part binds the taskbar view model, so
                  it sits OUTSIDE StatusZone's SystemStatus data context.
 
                  This Auto column is bounded by budgeting the TRAY only. The tray
@@ -210,6 +210,17 @@
                             Orientation="Horizontal"
                             Spacing="4"
                             VerticalAlignment="Center">
+                <Button x:Name="AudioButton"
+                        Classes="status-tile"
+                        ToolTip.Tip="{Binding Audio.VolumeText}"
+                        Click="OnAudioTileClicked">
+                    <Path Classes="status-icon"
+                          Data="{x:Static c:Icons.Volume}"
+                          Width="20"
+                          Stretch="Uniform"
+                          VerticalAlignment="Center"
+                          HorizontalAlignment="Center" />
+                </Button>
                 <Button x:Name="WifiButton"
                         Classes="status-tile"
                         ToolTip.Tip="Wi-Fi"

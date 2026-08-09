@@ -11,10 +11,9 @@ namespace WSGM.Shell;
 /// and battery level (GetSystemPowerStatus). Refreshes on a 1 s UI-thread timer
 /// while started; the taskbar binds its status cluster to this object.
 ///
-/// Radio state is not read here. It lives on <see cref="Radios"/>, which this
-/// object owns and starts, because Wi-Fi and Bluetooth now need the native helper
-/// rather than a single flat wlanapi call — and the same manager backs both the
-/// tiles and the radio panel, so the two can never disagree.</summary>
+/// Radio and audio state are not read here. They live on <see cref="Radios"/>
+/// and <see cref="Audio"/>, which this object owns and starts; the same manager
+/// instances back the taskbar tiles and their panels, so each pair stays in sync.</summary>
 public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
 {
     /// <summary>Raised after a status property changes.</summary>
@@ -75,6 +74,10 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
     /// tiles and the radio panel. Owned and disposed with this object.</summary>
     public RadioManager Radios { get; } = new();
 
+    /// <summary>Gets the master-volume and endpoint manager backing the taskbar's
+    /// audio tile and audio panel. Owned and disposed with this object.</summary>
+    public AudioManager Audio { get; } = new();
+
     /// <summary>Performs an immediate refresh and starts the 1 s update timer.
     /// UI-thread callers only (the timer is a DispatcherTimer). Idempotent.</summary>
     public void Start()
@@ -85,6 +88,7 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
         }
         Refresh();
         Radios.Start();
+        Audio.Start();
         Log.Info($"System status started (battery: {(HasBattery ? BatteryText : "none")}).");
         // Parameterless ctor + explicit Start: the 3-arg ctor auto-starts.
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -96,6 +100,7 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
     public void Dispose()
     {
         Radios.Dispose();
+        Audio.Dispose();
         if (_timer is null)
         {
             return;

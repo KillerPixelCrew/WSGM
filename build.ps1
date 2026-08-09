@@ -63,7 +63,7 @@ New-Item -ItemType Directory -Path $nativeTemp | Out-Null
 try {
     # Compile in a disposable directory: link.exe also emits .lib/.exp files,
     # neither of which belongs in the portable publish layout.
-    $compile = "call `"$devCmd`" -no_logo -arch=x64 -host_arch=x64 >nul && pushd `"$nativeTemp`" && cl.exe /nologo /std:c++17 /O2 /LD `"$nativeSource`" /link ole32.lib /OUT:`"$nativeTempOutput`" /INCREMENTAL:NO"
+    $compile = "call `"$devCmd`" -no_logo -arch=x64 -host_arch=x64 >nul && pushd `"$nativeTemp`" && cl.exe /nologo /std:c++17 /O2 /LD `"$nativeSource`" /link ole32.lib winmm.lib /OUT:`"$nativeTempOutput`" /INCREMENTAL:NO"
     & $env:ComSpec /d /s /c $compile
     if ($LASTEXITCODE -ne 0) { throw "VolumeControl native helper build failed" }
     Copy-Item $nativeTempOutput $nativeOutput

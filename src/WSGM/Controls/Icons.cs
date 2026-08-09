@@ -83,6 +83,12 @@ public static class Icons
             "M 2.5,8 L 18.5,8 L 18.5,16 L 2.5,16 Z M 21,10.5 L 21,13.5 "
                 + "M 5.5,10.5 L 5.5,13.5 M 8.5,10.5 L 8.5,13.5 M 11.5,10.5 L 11.5,13.5");
 
+    /// <summary>Speaker cone with two sound-wave arcs.</summary>
+    public static StreamGeometry Volume { get; } =
+        StreamGeometry.Parse(
+            "M 3,10 L 7,10 L 12,6 L 12,18 L 7,14 L 3,14 Z "
+                + "M 15,9 A 4,4 0 0 1 15,15 M 17.5,6.5 A 7.5,7.5 0 0 1 17.5,17.5");
+
     /// <summary>Window with a right-hand side panel (quick access).</summary>
     public static StreamGeometry Panel { get; } =
         StreamGeometry.Parse(

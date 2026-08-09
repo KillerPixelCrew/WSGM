@@ -11,7 +11,7 @@ namespace WSGM.Overlay;
 
 /// <summary>The game-mode taskbar: a full-width, bottom-docked three-zone bar —
 /// WSGM home button, centered app tiles (and, when the tray host is live, tray
-/// icons), and the system status cluster (Wi-Fi/Bluetooth/battery/clock). Shares
+/// icons), and the system status cluster (audio/Wi-Fi/Bluetooth/battery/clock). Shares
 /// the overlay's focus-taking model: safe only because the Steam Input lease keeps
 /// the pad readable while a WSGM window is foreground.</summary>
 public partial class TaskbarWindow : Window
@@ -37,6 +37,9 @@ public partial class TaskbarWindow : Window
     /// target inherited, shared lease kept alive).</summary>
     public event Action? HomeRequested;
 
+    /// <summary>Raised when the audio tile is pressed.</summary>
+    public event Action? AudioPanelRequested;
+
     /// <summary>The control gamepad navigation should land on when the bar opens:
     /// the first application tile — explicitly, because the window's visual-tree
     /// order now puts the home button first (falls back to the first visible
@@ -53,7 +56,7 @@ public partial class TaskbarWindow : Window
     /// <summary>Share of the bar's inner width the tray strip may claim before it
     /// starts scrolling. The tray is the only right-zone content whose length WSGM
     /// does not control (the Shell_TrayWnd host takes whatever apps register), so
-    /// it is the part that gets a budget; the Wi-Fi/Bluetooth/battery/clock
+    /// it is the part that gets a budget; the audio/Wi-Fi/Bluetooth/battery/clock
     /// controls after it are fixed-size and always keep their space.</summary>
     private const double TrayWidthFraction = 0.30;
 
@@ -148,6 +151,9 @@ public partial class TaskbarWindow : Window
         // controller at all. The panel is a real window for both reasons.
         RadioPanelRequested?.Invoke((sender as Control)?.Tag as string == "bluetooth");
     }
+
+    private void OnAudioTileClicked(object? sender, RoutedEventArgs e)
+        => AudioPanelRequested?.Invoke();
 
     /// <summary>Scrolls a newly focused tile into its strip's viewport (app tiles
     /// and tray icons share this handler). Bubbles from the tile buttons; the

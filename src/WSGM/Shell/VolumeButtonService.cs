@@ -34,6 +34,7 @@ internal sealed class VolumeButtonService : IDisposable
         _gameModeActive = active;
         if (active)
         {
+            VolumeFeedback.Initialize();
             if (_window.RegisterShellHook())
             {
                 Log.Info("Game-mode volume buttons enabled (shell hook + default audio endpoint).");
@@ -75,6 +76,7 @@ internal sealed class VolumeButtonService : IDisposable
             {
                 Log.Info($"Volume button {VolumeAppCommands.Describe(command)} applied to the default audio endpoint " +
                          $"({percentage}%, muted={muted != 0}).");
+                VolumeFeedback.Play();
                 if (VolumeOsdVisibility.CanShow())
                 {
                     _indicator.Show(percentage, muted != 0);

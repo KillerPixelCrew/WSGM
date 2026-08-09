@@ -1,0 +1,120 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:sh="using:WSGM.Shell"
+        x:Class="WSGM.Overlay.AudioWindow"
+        x:DataType="sh:AudioManager"
+        WindowDecorations="None"
+        CanResize="False"
+        ShowInTaskbar="False"
+        Topmost="True"
+        SizeToContent="Manual"
+        Width="500"
+        Height="340"
+        Background="{StaticResource HcBackgroundBrush}"
+        Title="Audio">
+    <!-- This is a real top-level window, not a popup: GamepadNavigation only
+         traverses its window, and the output/input ComboBoxes must remain fully
+         controller reachable while the taskbar stays open underneath. -->
+    <LayoutTransformControl x:Name="RootScale">
+        <Border BorderBrush="{StaticResource HcCardBorderBrush}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Padding="14">
+            <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" RowSpacing="12">
+                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" VerticalAlignment="Center">
+                    <TextBlock Text="Audio"
+                               FontSize="19"
+                               FontWeight="SemiBold"
+                               VerticalAlignment="Center" />
+                    <Button Grid.Column="1"
+                            Content="Refresh"
+                            Click="OnRefreshClicked"
+                            ToolTip.Tip="Refresh audio devices" />
+                </Grid>
+
+                <TextBlock Grid.Row="1"
+                           Text="{Binding ErrorText}"
+                           Foreground="{StaticResource HcDangerBrush}"
+                           TextWrapping="Wrap"
+                           IsVisible="{Binding HasError}" />
+
+                <Border Grid.Row="2" Classes="audio-row slider-row">
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                        <TextBlock Text="Volume"
+                                   MinWidth="92"
+                                   VerticalAlignment="Center" />
+                        <Slider x:Name="VolumeSlider"
+                                Grid.Column="1"
+                                Minimum="0"
+                                Maximum="100"
+                                TickFrequency="1"
+                                FocusAdorner="{x:Null}"
+                                Value="{Binding VolumePercent, Mode=TwoWay}"
+                                VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="2"
+                                   Text="{Binding VolumeText}"
+                                   MinWidth="42"
+                                   HorizontalAlignment="Right"
+                                   VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="3" Classes="audio-row">
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                        <TextBlock Text="Audio output"
+                                   MinWidth="92"
+                                   VerticalAlignment="Center" />
+                        <ComboBox Grid.Column="1"
+                                  ItemsSource="{Binding OutputEndpoints}"
+                                  SelectedItem="{Binding SelectedOutput, Mode=TwoWay}"
+                                  PlaceholderText="No active outputs"
+                                  FocusAdorner="{x:Null}"
+                                  HorizontalContentAlignment="Stretch"
+                                  ToolTip.Tip="Default playback device">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="sh:AudioEndpointEntry">
+                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="4" Classes="audio-row" VerticalAlignment="Top">
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                        <TextBlock Text="Audio input"
+                                   MinWidth="92"
+                                   VerticalAlignment="Center" />
+                        <ComboBox Grid.Column="1"
+                                  ItemsSource="{Binding InputEndpoints}"
+                                  SelectedItem="{Binding SelectedInput, Mode=TwoWay}"
+                                  PlaceholderText="No active inputs"
+                                  FocusAdorner="{x:Null}"
+                                  HorizontalContentAlignment="Stretch"
+                                  ToolTip.Tip="Default recording device">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="sh:AudioEndpointEntry">
+                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Border>
+    </LayoutTransformControl>
+
+    <Window.Styles>
+        <!-- Constant border geometry; focus changes only its tokenized colour. -->
+        <Style Selector="Border.audio-row">
+            <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource HcCardBorderBrush}" />
+            <Setter Property="BorderThickness" Value="2" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Padding" Value="10,8" />
+        </Style>
+        <Style Selector="Border.slider-row:focus-within">
+            <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+        </Style>
+    </Window.Styles>
+</Window>

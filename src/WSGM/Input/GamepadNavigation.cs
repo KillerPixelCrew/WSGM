@@ -8,7 +8,7 @@ using WSGM.Core;
 namespace WSGM.Input;
 
 /// <summary>Drives Avalonia keyboard focus from gamepad input: D-pad/stick moves
-/// focus through the tab order, A activates (synthesized Enter), B invokes a back
+/// focus in the matching visual direction, A activates (synthesized Enter), B invokes a back
 /// action. Arrow keys mirror the D-pad so windows that hold real keyboard focus
 /// (Settings) are also navigable by Steam Input's desktop-layout key emission.
 /// Deterministic and AOT-safe.</summary>
@@ -37,10 +37,20 @@ public sealed class GamepadNavigation : IDisposable
     private InputElement? _lastFocused;
     private DateTime _suppressKeyboardUntil;
     private DateTime _suppressPadUntil;
+    private DateTime _suppressConfirmKeyboardUntil;
+    private DateTime _suppressConfirmPadUntil;
+    private DateTime _suppressBackKeyboardUntil;
+    private DateTime _suppressBackPadUntil;
+    private bool _raisingSynthesizedInput;
     private bool _loggedFocusFallback;
-    private bool _loggedWrap;
+    private bool _loggedEdge;
     private bool _loggedTextBoxCycle;
     private bool _loggedKeyboardLed;
+
+    /// <summary>Whether this instance currently owns controller navigation for
+    /// its window. Covered windows remain alive during surface handovers, so
+    /// visibility alone cannot decide which one should receive a press.</summary>
+    internal bool IsEnabled { get; set; } = true;
 
     /// <summary>Attaches controller navigation to a window.</summary>
     /// <param name="gamepad">The source of controller button presses.</param>
@@ -80,7 +90,7 @@ public sealed class GamepadNavigation : IDisposable
 
     private void OnButtons(GamepadButtons buttons)
     {
-        if (!_window.IsVisible)
+        if (!IsEnabled || !_window.IsVisible)
         {
             return;
         }
@@ -88,22 +98,48 @@ public sealed class GamepadNavigation : IDisposable
         var nintendoLayout = _isNintendoLayout?.Invoke() ?? false;
         var confirm = nintendoLayout ? GamepadButtons.B : GamepadButtons.A;
         var back = nintendoLayout ? GamepadButtons.A : GamepadButtons.B;
+        var target = CurrentTarget();
 
         if (buttons.HasFlag(back))
         {
+            if (DateTime.UtcNow < _suppressBackPadUntil)
+            {
+                return;
+            }
+            _suppressBackKeyboardUntil = DateTime.UtcNow + CrossSourceSuppression;
+            if (target is ComboBox { IsDropDownOpen: true } openCombo)
+            {
+                openCombo.IsDropDownOpen = false;
+                return;
+            }
             _back();
             return;
         }
         if (buttons.HasFlag(confirm) || buttons.HasFlag(GamepadButtons.Start))
         {
-            Activate(CurrentTarget());
+            if (DateTime.UtcNow < _suppressConfirmPadUntil)
+            {
+                return;
+            }
+            _suppressConfirmKeyboardUntil = DateTime.UtcNow + CrossSourceSuppression;
+            if (target is ComboBox combo)
+            {
+                // Avalonia does not give a programmatically raised Enter the
+                // same popup behavior as a real keyboard event on every host.
+                // Own this operation explicitly so SDL confirmation is reliable.
+                combo.IsDropDownOpen = !combo.IsDropDownOpen;
+            }
+            else
+            {
+                RaiseActivation(target);
+            }
             return;
         }
         // Physical west button (same position on every layout). Only wired where
         // a secondary action exists (tray-icon context menus on the taskbar).
         if (_secondary is not null && buttons.HasFlag(GamepadButtons.X))
         {
-            _secondary(CurrentTarget());
+            _secondary(target);
             return;
         }
         // Shoulder buttons cycle tab strips where the host wired them up.
@@ -119,24 +155,102 @@ public sealed class GamepadNavigation : IDisposable
             return;
         }
 
-        if (buttons.HasFlag(GamepadButtons.DPadDown) || buttons.HasFlag(GamepadButtons.DPadRight))
+        const GamepadButtons directions = GamepadButtons.DPadUp
+            | GamepadButtons.DPadDown
+            | GamepadButtons.DPadLeft
+            | GamepadButtons.DPadRight;
+        var hasDirection = (buttons & directions) != 0;
+        if (hasDirection && PadStepSuppressed())
         {
-            if (PadStepSuppressed())
-            {
-                return;
-            }
-            _suppressKeyboardUntil = DateTime.UtcNow + CrossSourceSuppression;
-            MoveFocus(NavigationDirection.Next);
+            return;
         }
-        else if (buttons.HasFlag(GamepadButtons.DPadUp) || buttons.HasFlag(GamepadButtons.DPadLeft))
+        // Value controls need
+        // the same arrows they would receive from a keyboard: left/right nudges
+        // a slider and up/down changes the current ComboBox item. Without this,
+        // the taskbar audio panel was keyboard/touch-only despite being focused.
+        if (target is Slider slider
+            && (buttons.HasFlag(GamepadButtons.DPadLeft)
+                || buttons.HasFlag(GamepadButtons.DPadRight)))
         {
-            if (PadStepSuppressed())
-            {
-                return;
-            }
             _suppressKeyboardUntil = DateTime.UtcNow + CrossSourceSuppression;
-            MoveFocus(NavigationDirection.Previous);
+            slider.Value = AdjustSliderValue(
+                slider.Value,
+                slider.Minimum,
+                slider.Maximum,
+                slider.TickFrequency,
+                buttons.HasFlag(GamepadButtons.DPadRight));
+            return;
         }
+        if (target is ComboBox { IsDropDownOpen: true } openSelector
+            && (buttons.HasFlag(GamepadButtons.DPadUp)
+                || buttons.HasFlag(GamepadButtons.DPadDown)))
+        {
+            _suppressKeyboardUntil = DateTime.UtcNow + CrossSourceSuppression;
+            var forward = buttons.HasFlag(GamepadButtons.DPadDown);
+            openSelector.SelectedIndex = AdjustComboBoxIndex(
+                openSelector.SelectedIndex,
+                openSelector.ItemCount,
+                forward);
+            return;
+        }
+
+        var direction = DirectionForButtons(buttons);
+        if (direction is not null)
+        {
+            _suppressKeyboardUntil = DateTime.UtcNow + CrossSourceSuppression;
+            MoveFocus(direction.Value);
+        }
+    }
+
+    /// <summary>Maps each physical direction to Avalonia's matching spatial
+    /// direction. Kept pure so the layout-navigation contract is unit-tested.</summary>
+    internal static NavigationDirection? DirectionForButtons(GamepadButtons buttons)
+    {
+        if (buttons.HasFlag(GamepadButtons.DPadUp))
+        {
+            return NavigationDirection.Up;
+        }
+        if (buttons.HasFlag(GamepadButtons.DPadDown))
+        {
+            return NavigationDirection.Down;
+        }
+        if (buttons.HasFlag(GamepadButtons.DPadLeft))
+        {
+            return NavigationDirection.Left;
+        }
+        if (buttons.HasFlag(GamepadButtons.DPadRight))
+        {
+            return NavigationDirection.Right;
+        }
+        return null;
+    }
+
+    /// <summary>Applies one controller step to a slider and clamps it to the
+    /// control's range. Invalid/non-positive tick sizes fall back to one unit.</summary>
+    internal static double AdjustSliderValue(
+        double value,
+        double minimum,
+        double maximum,
+        double tickFrequency,
+        bool increase)
+    {
+        var step = double.IsFinite(tickFrequency) && tickFrequency > 0 ? tickFrequency : 1;
+        return Math.Clamp(value + (increase ? step : -step), minimum, maximum);
+    }
+
+    /// <summary>Applies one controller step to an open selector. An unselected
+    /// list enters at the nearest end; established selections stop at an edge.</summary>
+    internal static int AdjustComboBoxIndex(int selectedIndex, int itemCount, bool increase)
+    {
+        if (itemCount <= 0)
+        {
+            return -1;
+        }
+        if (selectedIndex < 0)
+        {
+            return increase ? 0 : itemCount - 1;
+        }
+        return Math.Clamp(selectedIndex + (increase ? 1 : -1), 0, itemCount - 1);
     }
 
     /// <summary>True when Steam's mirrored arrow key already moved focus for the
@@ -163,20 +277,80 @@ public sealed class GamepadNavigation : IDisposable
     /// usable even while Steam swallows it from every gamepad API.</summary>
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
+        if (!IsEnabled || _raisingSynthesizedInput)
+        {
+            return;
+        }
+        if (e.Key == Key.Escape)
+        {
+            if (DateTime.UtcNow < _suppressBackKeyboardUntil)
+            {
+                e.Handled = true;
+                return;
+            }
+            _suppressBackPadUntil = DateTime.UtcNow + CrossSourceSuppression;
+            if (CurrentTarget() is ComboBox { IsDropDownOpen: true } combo)
+            {
+                e.Handled = true;
+                combo.IsDropDownOpen = false;
+            }
+            return;
+        }
+        if (e.Key is Key.Enter or Key.Space)
+        {
+            // Confirmation has the same two-source path as directions. Without
+            // this gate, SDL opens a ComboBox and Steam's mirrored Enter closes
+            // it immediately (or a Button command fires twice).
+            if (DateTime.UtcNow < _suppressConfirmKeyboardUntil)
+            {
+                e.Handled = true;
+                return;
+            }
+            _suppressConfirmPadUntil = DateTime.UtcNow + CrossSourceSuppression;
+            if (CurrentTarget() is ComboBox combo)
+            {
+                e.Handled = true;
+                combo.IsDropDownOpen = !combo.IsDropDownOpen;
+            }
+            return;
+        }
         var direction = e.Key switch
         {
-            Key.Down or Key.Right => NavigationDirection.Next,
-            Key.Up or Key.Left => (NavigationDirection?)NavigationDirection.Previous,
+            Key.Up => NavigationDirection.Up,
+            Key.Down => NavigationDirection.Down,
+            Key.Left => NavigationDirection.Left,
+            Key.Right => (NavigationDirection?)NavigationDirection.Right,
             _ => null,
         };
         if (direction is null)
         {
             return;
         }
-        // Controls that consume arrows themselves keep them (caret movement,
-        // dropdown selection, value nudging).
-        if (GetFocused() is TextBox or ComboBox or Slider)
+        // Popup content lives in a separate top level, so use the same fallback
+        // target resolution as SDL; while a ComboBox popup owns OS focus this
+        // still resolves to the selector that opened it.
+        var focused = CurrentTarget();
+        // Controls keep only the directions that operate their current state.
+        // A closed ComboBox must let Up/Down leave the row; A opens it, after
+        // which those directions select an item. Likewise, a horizontal Slider
+        // keeps Left/Right while Up/Down continues through the visual layout.
+        var controlConsumesDirection = focused is TextBox
+            || (focused is Slider && e.Key is Key.Left or Key.Right)
+            || (focused is ComboBox { IsDropDownOpen: true }
+                && e.Key is Key.Up or Key.Down);
+        if (controlConsumesDirection)
         {
+            // SDL already applied this physical press directly. Consume Steam's
+            // mirrored key before the control sees it and applies a second step.
+            if (DateTime.UtcNow < _suppressKeyboardUntil)
+            {
+                e.Handled = true;
+                return;
+            }
+            // The control consumes this key itself. Still arm the opposite input
+            // source so the SDL edge for the same physical press cannot apply a
+            // second value change a few milliseconds later.
+            _suppressPadUntil = DateTime.UtcNow + CrossSourceSuppression;
             return;
         }
         e.Handled = true;
@@ -225,14 +399,14 @@ public sealed class GamepadNavigation : IDisposable
             FocusFirst();
             return;
         }
-        var next = NextInTabOrder(current, direction);
+        var next = NextInDirection(current, direction);
         // Skip text fields during pad/arrow traversal: focusing one makes Windows
         // pop the touch keyboard on keyboard-less handhelds. They stay reachable
         // by tapping them (which is when the keyboard IS wanted) and by Tab.
         var guard = 0;
         while (next is TextBox textBox && guard++ < 64)
         {
-            next = NextInTabOrder(textBox, direction);
+            next = NextInDirection(textBox, direction);
         }
         if (next is TextBox)
         {
@@ -241,7 +415,7 @@ public sealed class GamepadNavigation : IDisposable
             if (!_loggedTextBoxCycle)
             {
                 _loggedTextBoxCycle = true;
-                Log.Warn("Gamepad nav: TextBox-skip guard exhausted (only text boxes in tab order), focus unchanged.");
+                Log.Warn("Gamepad nav: TextBox-skip guard exhausted, focus unchanged.");
             }
             return;
         }
@@ -252,20 +426,19 @@ public sealed class GamepadNavigation : IDisposable
         }
         else
         {
-            if (!_loggedWrap)
+            if (!_loggedEdge)
             {
-                _loggedWrap = true;
-                Log.Info("Gamepad nav: end of tab order, wrapping to default element.");
+                _loggedEdge = true;
+                Log.Info($"Gamepad nav: no focusable control in the {direction} direction; focus unchanged.");
             }
-            FocusFirst();
         }
     }
 
-    /// <summary>Peeks at the next element in the tab order without moving focus —
+    /// <summary>Peeks at the next element in the requested visual direction without moving focus —
     /// the TextBox skip above depends on looking before landing, because merely
     /// focusing a text field pops the touch keyboard. Scoped to this window so a
-    /// wrap cannot walk into another top level.</summary>
-    private IInputElement? NextInTabOrder(IInputElement from, NavigationDirection direction)
+    /// search cannot walk into another top level.</summary>
+    private IInputElement? NextInDirection(IInputElement from, NavigationDirection direction)
         => TopLevel.GetTopLevel(_window)?.FocusManager?.FindNextElement(
             direction,
             new FindNextElementOptions { FocusedElement = from, SearchRoot = _window });
@@ -294,7 +467,7 @@ public sealed class GamepadNavigation : IDisposable
         Log.Warn("Gamepad nav: no focusable element found in window.");
     }
 
-    private static void Activate(InputElement? element)
+    private void RaiseActivation(InputElement? element)
     {
         if (element is null)
         {
@@ -302,18 +475,26 @@ public sealed class GamepadNavigation : IDisposable
         }
         // Synthesize Enter so the control's own activation logic runs
         // (Button click + command, ToggleSwitch flip, ...).
-        element.RaiseEvent(new KeyEventArgs
+        _raisingSynthesizedInput = true;
+        try
         {
-            RoutedEvent = InputElement.KeyDownEvent,
-            Key = Key.Enter,
-            Source = element,
-        });
-        element.RaiseEvent(new KeyEventArgs
+            element.RaiseEvent(new KeyEventArgs
+            {
+                RoutedEvent = InputElement.KeyDownEvent,
+                Key = Key.Enter,
+                Source = element,
+            });
+            element.RaiseEvent(new KeyEventArgs
+            {
+                RoutedEvent = InputElement.KeyUpEvent,
+                Key = Key.Enter,
+                Source = element,
+            });
+        }
+        finally
         {
-            RoutedEvent = InputElement.KeyUpEvent,
-            Key = Key.Enter,
-            Source = element,
-        });
+            _raisingSynthesizedInput = false;
+        }
     }
 
     /// <summary>Detaches controller navigation from the window and input service.</summary>

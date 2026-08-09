@@ -1,3 +1,4 @@
+using Avalonia.Input;
 using WSGM.Core;
 using WSGM.Input;
 
@@ -34,6 +35,53 @@ public sealed class InputTests
 
         Assert.Equal("Hold A + LB + Start", GamepadService.Describe(buttons, hold: true));
     }
+
+    [Theory]
+    [InlineData(GamepadButtons.DPadUp, NavigationDirection.Up)]
+    [InlineData(GamepadButtons.DPadDown, NavigationDirection.Down)]
+    [InlineData(GamepadButtons.DPadLeft, NavigationDirection.Left)]
+    [InlineData(GamepadButtons.DPadRight, NavigationDirection.Right)]
+    public void DpadMapsToMatchingSpatialDirection(
+        GamepadButtons buttons,
+        NavigationDirection expected)
+        => Assert.Equal(expected, GamepadNavigation.DirectionForButtons(buttons));
+
+    [Fact]
+    public void NonDirectionalButtonHasNoNavigationDirection()
+        => Assert.Null(GamepadNavigation.DirectionForButtons(GamepadButtons.A));
+
+    [Theory]
+    [InlineData(50, 0, 100, 1, true, 51)]
+    [InlineData(50, 0, 100, 5, false, 45)]
+    [InlineData(100, 0, 100, 1, true, 100)]
+    [InlineData(0, 0, 100, 1, false, 0)]
+    [InlineData(50, 0, 100, 0, true, 51)]
+    public void SliderControllerStepUsesTickAndClampsToRange(
+        double value,
+        double minimum,
+        double maximum,
+        double tickFrequency,
+        bool increase,
+        double expected)
+        => Assert.Equal(
+            expected,
+            GamepadNavigation.AdjustSliderValue(value, minimum, maximum, tickFrequency, increase));
+
+    [Theory]
+    [InlineData(-1, 3, true, 0)]
+    [InlineData(-1, 3, false, 2)]
+    [InlineData(0, 3, false, 0)]
+    [InlineData(1, 3, true, 2)]
+    [InlineData(2, 3, true, 2)]
+    [InlineData(0, 0, true, -1)]
+    public void OpenDropdownControllerStepSelectsNearestItemAndStopsAtEdges(
+        int selectedIndex,
+        int itemCount,
+        bool increase,
+        int expected)
+        => Assert.Equal(
+            expected,
+            GamepadNavigation.AdjustComboBoxIndex(selectedIndex, itemCount, increase));
 
     [Fact]
     public void ChordTrackerKeepsEachPadIndependentAndUnionsUntilRelease()

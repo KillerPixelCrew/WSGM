@@ -49,11 +49,12 @@ public sealed class TaskbarTests
     public void TheCappedTrayLeavesTheFixedStatusClusterAndAUsableTileStrip()
     {
         // Fixed right-zone cost at 1280 px logical, added up from the XAML:
-        // Wi-Fi 36 + Bluetooth 36 + battery ~57 + clock ~67 + 3x4 spacing = ~208,
-        // plus the 9 px separator and the two 4 px gaps around it = ~225. The home
+        // Audio 36 + Wi-Fi 36 + Bluetooth 36 + battery ~57 + clock ~67 + 4x4
+        // spacing = ~248, plus the 9 px separator and the two 4 px gaps around it
+        // = ~265. The home
         // button and the bar's 2x8 padding take ~92 more.
         const double bar = 1280;
-        const double statusCluster = 225;
+        const double statusCluster = 265;
         const double homeAndPadding = 92;
 
         var tray = TaskbarWindow.ComputeTrayMaxWidth(bar, 1.0);

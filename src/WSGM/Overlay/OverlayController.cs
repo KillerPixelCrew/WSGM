@@ -366,6 +366,10 @@ public sealed class OverlayController : IDisposable
         {
             inheritedRestore = _taskbarRestoreFocusTo;
             _taskbarSuppressFocusRestore = true;
+            if (_taskbarNavigation is not null)
+            {
+                _taskbarNavigation.IsEnabled = false;
+            }
             CloseTaskbar();
         }
         if (_overlay is null)
@@ -377,6 +381,10 @@ public sealed class OverlayController : IDisposable
         HideTouchEdges();
         if (_overlay is not null)
         {
+            if (_navigation is not null)
+            {
+                _navigation.IsEnabled = true;
+            }
             if (_closePending)
             {
                 // Re-summoned inside the 150 ms deferred close: cancel the pending
@@ -579,6 +587,15 @@ public sealed class OverlayController : IDisposable
             }
             return;
         }
+        if (_audioPanel is not null)
+        {
+            if (!HitsWindow(_audioPanel, x, y))
+            {
+                Log.Info("Touch outside audio panel — dismissing.");
+                CloseAudioPanel();
+            }
+            return;
+        }
         if (_taskbar is not null && !HitsWindow(_taskbar, x, y))
         {
             Log.Info("Touch outside taskbar — dismissing.");
@@ -629,12 +646,20 @@ public sealed class OverlayController : IDisposable
         {
             inheritedRestore = _restoreFocusTo;
             _suppressFocusRestore = true;
+            if (_navigation is not null)
+            {
+                _navigation.IsEnabled = false;
+            }
             CloseOverlay();
         }
         AcquireSteamInputLease();
         HideTouchEdges();
         if (_taskbar is not null)
         {
+            if (_taskbarNavigation is not null)
+            {
+                _taskbarNavigation.IsEnabled = _radioPanel is null && _audioPanel is null;
+            }
             if (_taskbarClosePending)
             {
                 // Re-summoned inside the deferred close — keep the window alive
@@ -676,14 +701,14 @@ public sealed class OverlayController : IDisposable
         _taskbar.TrayIconActivated += OnTrayIconActivated;
         _taskbar.Dismissed += CloseTaskbar;
         _taskbar.RadioPanelRequested += ShowRadioPanel;
+        _taskbar.AudioPanelRequested += ShowAudioPanel;
         _taskbar.Closed += (_, _) => OnTaskbarClosed();
         _taskbarNavigation = new GamepadNavigation(_gamepad, _taskbar, CloseTaskbar,
             isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
             preferredFocus: () => _taskbar?.DefaultFocusTarget,
             secondary: focused => _taskbar?.RequestTrayContextMenu(focused));
-        // No tab callbacks on the taskbar: during the 150 ms surface handover
-        // BOTH navigations are alive with _overlay non-null, so routing LB/RB
-        // to the overlay here would double-advance its tab strip per press.
+        // The taskbar has no tab strip. Its navigation is paused whenever a
+        // child panel covers it and during the 150 ms surface handover.
         _gamepad.Start();
         _taskbar.Show();
         _taskbar.Activate();
@@ -723,11 +748,29 @@ public sealed class OverlayController : IDisposable
     /// <param name="bluetooth">True to open on the Bluetooth tab.</param>
     private void ShowRadioPanel(bool bluetooth)
     {
+        if (_audioPanel is not null)
+        {
+            _audioPanel.Close();
+        }
         if (_radioPanel is not null)
         {
+            if (_radioClosePending)
+            {
+                _pendingRadioClose?.Dispose();
+                _pendingRadioClose = null;
+                _radioClosePending = false;
+            }
             // The tile carries which radio was tapped, so an open panel follows
             // it rather than leaving the user on the tab it opened with.
             _radioPanel.SelectTab(bluetooth);
+            if (_taskbarNavigation is not null)
+            {
+                _taskbarNavigation.IsEnabled = false;
+            }
+            if (_radioNavigation is not null)
+            {
+                _radioNavigation.IsEnabled = true;
+            }
             _radioPanel.Activate();
             return;
         }
@@ -738,6 +781,10 @@ public sealed class OverlayController : IDisposable
         Log.Info($"Radio panel opened ({(bluetooth ? "Bluetooth" : "Wi-Fi")}).");
         var panel = new RadioWindow(_systemStatus.Radios, bluetooth, UiScale());
         _radioPanel = panel;
+        if (_taskbarNavigation is not null)
+        {
+            _taskbarNavigation.IsEnabled = false;
+        }
         // Its own navigation instance: the panel holds focus while it is open,
         // and B must close the panel rather than the bar behind it.
         _radioNavigation = new GamepadNavigation(_gamepad, panel, () => panel.Close(),
@@ -754,6 +801,10 @@ public sealed class OverlayController : IDisposable
             _pendingRadioClose = null;
             Log.Info("Radio panel closed.");
             // Hand focus back to the bar, which is still open underneath.
+            if (_taskbarNavigation is not null)
+            {
+                _taskbarNavigation.IsEnabled = _audioPanel is null;
+            }
             _taskbar?.Activate();
         };
         panel.Show();
@@ -761,6 +812,88 @@ public sealed class OverlayController : IDisposable
         // window rather than a registered appbar, so the screen's working area
         // does not account for it and computing the position from screen height
         // minus bar height left a visible gap.
+        panel.DockAboveTaskbar(_taskbar?.Position.Y ?? 0);
+        panel.Activate();
+    }
+
+    private AudioWindow? _audioPanel;
+    private GamepadNavigation? _audioNavigation;
+    private bool _audioClosePending;
+    private IDisposable? _pendingAudioClose;
+
+    /// <summary>Closes the audio panel after the touch-promotion grace window.</summary>
+    private void CloseAudioPanel()
+    {
+        if (_audioPanel is null || _audioClosePending)
+        {
+            return;
+        }
+        _audioClosePending = true;
+        _pendingAudioClose = RunOnUiThreadAfter(TimeSpan.FromMilliseconds(150), () =>
+        {
+            _audioClosePending = false;
+            _pendingAudioClose = null;
+            _audioPanel?.Close();
+        });
+    }
+
+    /// <summary>Opens the master-volume and default-device panel above the taskbar.</summary>
+    private void ShowAudioPanel()
+    {
+        if (_radioPanel is not null)
+        {
+            _radioPanel.Close();
+        }
+        if (_audioPanel is not null)
+        {
+            if (_audioClosePending)
+            {
+                _pendingAudioClose?.Dispose();
+                _pendingAudioClose = null;
+                _audioClosePending = false;
+            }
+            if (_taskbarNavigation is not null)
+            {
+                _taskbarNavigation.IsEnabled = false;
+            }
+            if (_audioNavigation is not null)
+            {
+                _audioNavigation.IsEnabled = true;
+            }
+            _audioPanel.Activate();
+            return;
+        }
+        if (_systemStatus is null)
+        {
+            return;
+        }
+
+        Log.Info("Audio panel opened.");
+        var panel = new AudioWindow(_systemStatus.Audio, UiScale());
+        _audioPanel = panel;
+        if (_taskbarNavigation is not null)
+        {
+            _taskbarNavigation.IsEnabled = false;
+        }
+        _audioNavigation = new GamepadNavigation(_gamepad, panel, () => panel.Close(),
+            isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
+            preferredFocus: () => panel.DefaultFocusTarget);
+        panel.Closed += (_, _) =>
+        {
+            _audioNavigation?.Dispose();
+            _audioNavigation = null;
+            _audioPanel = null;
+            _audioClosePending = false;
+            _pendingAudioClose?.Dispose();
+            _pendingAudioClose = null;
+            Log.Info("Audio panel closed.");
+            if (_taskbarNavigation is not null)
+            {
+                _taskbarNavigation.IsEnabled = _radioPanel is null;
+            }
+            _taskbar?.Activate();
+        };
+        panel.Show();
         panel.DockAboveTaskbar(_taskbar?.Position.Y ?? 0);
         panel.Activate();
     }
@@ -884,6 +1017,11 @@ public sealed class OverlayController : IDisposable
         {
             Log.Info("Taskbar closed with the radio panel open — closing the panel.");
             _radioPanel.Close();
+        }
+        if (_audioPanel is not null)
+        {
+            Log.Info("Taskbar closed with the audio panel open — closing the panel.");
+            _audioPanel.Close();
         }
         _taskbarClosePending = false;
         _pendingTaskbarClose = null;
