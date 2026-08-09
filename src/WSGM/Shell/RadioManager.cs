@@ -347,8 +347,14 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     /// enumeration is still running there froze the panel on open. And they
     /// must not interleave — a stop racing a start would leave the watcher in
     /// whichever state finished last. UI-thread callers only, so the field
-    /// needs no lock.</summary>
-    private Task _feedWork = Task.CompletedTask;
+    /// needs no lock.
+    ///
+    /// STATIC on purpose: the native watchers are process-wide singletons, but
+    /// managers are not — closing and reopening the taskbar builds a new one
+    /// while the old is still tearing down. With a queue each, the old
+    /// manager's stop could land after the new manager's start and silently
+    /// leave the reopened panel with no discovery at all.</summary>
+    private static Task _feedWork = Task.CompletedTask;
 
     private void QueueFeedWork(Action work)
     {
@@ -687,8 +693,11 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         if (change == 2)
         {
             // A row mid-operation is never removed: a device dropping out of
-            // range must not cancel the pairing the user just started.
-            if (row is not null && !row.Busy)
+            // range must not cancel the pairing the user just started. Nor is a
+            // PAIRED one — it is legitimately known whether or not it is in
+            // range, and dropping it would take its Paired status and Remove
+            // button with it. Same rule the sweep cleanup applies.
+            if (row is not null && !row.Busy && !row.Paired)
             {
                 BluetoothDevices.Remove(row);
             }

@@ -190,6 +190,10 @@ struct WatchContext {
     /// be read as this attempt's outcome — and could roll back the profile
     /// authored for a network that was still connecting.
     interface: GUID,
+    /// The profile the attempt names. The same adapter can finish an automatic
+    /// or already-in-flight attempt for a DIFFERENT network after this watcher
+    /// is armed, and the interface alone cannot tell the two apart.
+    profile: String,
 }
 
 // SAFETY: the raw pointer is an owned Box this type alone frees, and the only
@@ -225,14 +229,25 @@ unsafe extern "system" fn on_connection(data: *mut L2_NOTIFICATION_DATA, context
     if !matches!(code, ACM_CONNECTION_COMPLETE | ACM_CONNECTION_ATTEMPT_FAIL) {
         return;
     }
-    // The reason code lives in the payload; a short or absent one is reported
-    // as zero rather than read past its end.
-    let reason = if !payload.is_null() && size >= size_of::<WLAN_CONNECTION_NOTIFICATION_DATA>() {
+    // The reason code and the profile name both live in the payload; a short or
+    // absent one is reported as zero rather than read past its end.
+    let (reason, profile) = if !payload.is_null()
+        && size >= size_of::<WLAN_CONNECTION_NOTIFICATION_DATA>()
+    {
         // SAFETY: size checked against the record this notification carries.
-        unsafe { (*payload.cast::<WLAN_CONNECTION_NOTIFICATION_DATA>()).wlanReasonCode }
+        let data = unsafe { &*payload.cast::<WLAN_CONNECTION_NOTIFICATION_DATA>() };
+        let name = &data.strProfileName;
+        let end = name.iter().position(|&c| c == 0).unwrap_or(name.len());
+        (data.wlanReasonCode, String::from_utf16_lossy(&name[..end]))
     } else {
-        0
+        (0, String::new())
     };
+    // A verdict for another network is not this attempt's verdict. Compared
+    // only when the notification actually named a profile, so a payload-less
+    // event still reaches the caller rather than hanging it.
+    if !profile.is_empty() && profile != watch.profile {
+        return;
+    }
     // The EVENT alone does not mean the join worked: connection_complete is
     // also how a failed authentication is reported, with the reason carrying
     // the verdict. Trusting the event was how a rejected password still read as
@@ -252,9 +267,15 @@ impl ConnectionWatch {
     /// # Parameters
     /// * `interface` — the adapter the attempt runs on; every other adapter's
     ///   notifications are ignored.
-    pub fn start(interface: GUID) -> Result<Self> {
+    /// * `profile` — the profile the attempt names, so another network's
+    ///   outcome on the same adapter is not mistaken for this one's.
+    pub fn start(interface: GUID, profile: &str) -> Result<Self> {
         let (sender, receiver) = sync_channel::<ConnectionOutcome>(4);
-        let context = Box::into_raw(Box::new(WatchContext { sender, interface }));
+        let context = Box::into_raw(Box::new(WatchContext {
+            sender,
+            interface,
+            profile: profile.to_owned(),
+        }));
 
         let mut negotiated = 0u32;
         let mut handle = HANDLE::default();

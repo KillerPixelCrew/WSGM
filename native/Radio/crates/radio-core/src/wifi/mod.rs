@@ -117,6 +117,38 @@ impl<T> Drop for WlanBuffer<T> {
     }
 }
 
+/// Every WLAN interface on the machine, with its state.
+///
+/// All of them, because one adapter is not the machine: a second Wi-Fi adapter
+/// can be the one that sees the network the user wants, or the only one that is
+/// usable at all, and keying every operation to a single GUID made those
+/// networks simply never appear.
+fn all_interfaces(client: &Client) -> Result<Vec<(GUID, InterfaceState)>> {
+    let mut list: *mut WLAN_INTERFACE_INFO_LIST = null_mut();
+    let status = unsafe { WlanEnumInterfaces(client.0, None, &mut list) };
+    win32("WlanEnumInterfaces", status)?;
+    let _owned = WlanBuffer(list);
+    if list.is_null() {
+        return Err(Error::NotFound("WLAN interface"));
+    }
+    // SAFETY: the list is a valid allocation and dwNumberOfItems describes how
+    // many records follow the header, despite the [T; 1] in the declaration.
+    let (count, items) = unsafe {
+        let count = (*list).dwNumberOfItems as usize;
+        (
+            count,
+            std::slice::from_raw_parts((*list).InterfaceInfo.as_ptr(), count),
+        )
+    };
+    if count == 0 {
+        return Err(Error::NotFound("WLAN interface"));
+    }
+    Ok(items
+        .iter()
+        .map(|i| (i.InterfaceGuid, InterfaceState::from_raw(i.isState)))
+        .collect())
+}
+
 /// The GUID of the first WLAN interface, and its state.
 fn first_interface(client: &Client) -> Result<(GUID, InterfaceState)> {
     let mut list: *mut WLAN_INTERFACE_INFO_LIST = null_mut();
@@ -303,16 +335,26 @@ fn decode_fixed(field: &[u16]) -> String {
     String::from_utf16_lossy(&field[..end])
 }
 
-/// Asks the driver to start a scan.
+/// Asks the drivers to start a scan.
 ///
-/// Returns as soon as the request is accepted; results appear in the available
-/// network list a few seconds later, which is why the caller polls rather than
-/// expecting fresh results immediately.
+/// Returns as soon as the requests are accepted; results appear in the
+/// available network list a few seconds later, which is why the caller polls
+/// rather than expecting fresh results immediately. Every adapter is asked, so
+/// a network only the second one can hear still turns up.
 pub fn request_scan() -> Result<()> {
     let client = Client::open()?;
-    let (guid, _) = first_interface(&client)?;
-    let status = unsafe { WlanScan(client.0, &guid, None, None, None) };
-    win32("WlanScan", status)
+    let mut last = Err(Error::NotFound("WLAN interface"));
+    for (guid, _) in all_interfaces(&client)? {
+        let status = unsafe { WlanScan(client.0, &guid, None, None, None) };
+        let result = win32("WlanScan", status);
+        // One adapter refusing (radio off, driver not started) must not stop
+        // the others; success anywhere is success.
+        if result.is_ok() {
+            return Ok(());
+        }
+        last = result;
+    }
+    last
 }
 
 /// Lists the networks the driver currently knows about.
@@ -321,15 +363,38 @@ pub fn request_scan() -> Result<()> {
 /// that is the 24H2 gate, not a missing adapter.
 pub fn networks() -> Result<Vec<Network>> {
     let client = Client::open()?;
-    let (guid, _) = first_interface(&client)?;
+    let interfaces = all_interfaces(&client)?;
+    let mut networks: Vec<Network> = Vec::new();
+    let mut last_error = None;
+    // Every adapter contributes: the merge below keeps the strongest sighting
+    // of each SSID, so a network only the second radio can hear still appears.
+    for (guid, _) in &interfaces {
+        match networks_on(&client, guid, &mut networks) {
+            Ok(()) => {}
+            Err(error) => last_error = Some(error),
+        }
+    }
+    // Only a total failure is reported: one dead adapter among several must not
+    // empty a list the others filled.
+    if networks.is_empty()
+        && let Some(error) = last_error
+    {
+        return Err(error);
+    }
+    networks.sort_by(|a, b| b.signal.cmp(&a.signal).then_with(|| a.ssid.cmp(&b.ssid)));
+    Ok(networks)
+}
+
+/// Merges one interface's visible networks into `networks`.
+fn networks_on(client: &Client, guid: &GUID, networks: &mut Vec<Network>) -> Result<()> {
     let mut list: *mut WLAN_AVAILABLE_NETWORK_LIST = null_mut();
     // Flag 0: only networks the driver can actually see, and one entry per
     // visible SSID rather than one per profile.
-    let status = unsafe { WlanGetAvailableNetworkList(client.0, &guid, 0, None, &mut list) };
+    let status = unsafe { WlanGetAvailableNetworkList(client.0, guid, 0, None, &mut list) };
     win32("WlanGetAvailableNetworkList", status)?;
     let _owned = WlanBuffer(list);
     if list.is_null() {
-        return Ok(Vec::new());
+        return Ok(());
     }
     // SAFETY: as in first_interface — dwNumberOfItems describes the real length.
     let entries = unsafe {
@@ -340,10 +405,9 @@ pub fn networks() -> Result<Vec<Network>> {
     // Both read from the service rather than being inferred from the scan list:
     // getting "saved" wrong is what makes the UI ask for a password it already
     // has, and then overwrite the stored one.
-    let saved_profiles = profile_names(&client, &guid).unwrap_or_default();
-    let connected = current_ssid(&client, &guid);
+    let saved_profiles = profile_names(client, guid).unwrap_or_default();
+    let connected = current_ssid(client, guid);
 
-    let mut networks: Vec<Network> = Vec::with_capacity(entries.len());
     for entry in entries {
         let ssid = decode_ssid(&entry.dot11Ssid.ucSSID, entry.dot11Ssid.uSSIDLength as usize);
         // A hidden network broadcasts an empty SSID. Connecting names the
@@ -359,12 +423,14 @@ pub fn networks() -> Result<Vec<Network>> {
         );
         let saved = entry.strProfileName[0] != 0 || saved_profiles.contains(&ssid);
         let is_connected = connected.as_deref() == Some(ssid.as_str());
-        // The list can carry the same SSID more than once (different PHY types);
-        // keep the strongest, and let any saved entry win the saved flag.
+        // The list can carry the same SSID more than once (different PHY types,
+        // and now different adapters); keep the strongest sighting, and let any
+        // entry that is saved, joinable or joined win that flag.
         if let Some(existing) = networks.iter_mut().find(|n| n.ssid == ssid) {
             existing.signal = existing.signal.max(entry.wlanSignalQuality);
             existing.saved |= saved;
             existing.connectable |= entry.bNetworkConnectable.as_bool();
+            existing.connected |= is_connected;
             continue;
         }
         networks.push(Network {
@@ -376,8 +442,7 @@ pub fn networks() -> Result<Vec<Network>> {
             connected: is_connected,
         });
     }
-    networks.sort_by(|a, b| b.signal.cmp(&a.signal).then_with(|| a.ssid.cmp(&b.ssid)));
-    Ok(networks)
+    Ok(())
 }
 
 /// An SSID is a byte string, not text. Windows shows it as UTF-8, and a
@@ -445,9 +510,31 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
     }
 
     let client = Client::open()?;
-    let (guid, _) = first_interface(&client)?;
-
-    let facts = scan_facts(&client, &guid, ssid);
+    // The adapter that can actually see this network, not simply the first one:
+    // with two radios the network may be visible to only one of them, and
+    // connecting on the other can never work.
+    let interfaces = all_interfaces(&client)?;
+    let mut chosen = None;
+    let mut chosen_facts = ScanFacts::default();
+    for (candidate, _) in &interfaces {
+        let facts = scan_facts(&client, candidate, ssid);
+        if !facts.raw_ssid.is_empty() {
+            chosen = Some(*candidate);
+            chosen_facts = facts;
+            break;
+        }
+        // Remember a saved profile as the fallback for a network that is out of
+        // range but still joinable once it returns.
+        if chosen.is_none() && facts.profile.is_some() {
+            chosen = Some(*candidate);
+            chosen_facts = facts;
+        }
+    }
+    let guid = match chosen {
+        Some(guid) => guid,
+        None => first_interface(&client)?.0,
+    };
+    let facts = chosen_facts;
     let raw = (!facts.raw_ssid.is_empty()).then_some(facts.raw_ssid.as_slice());
     let existing = facts.profile.clone();
 
@@ -547,7 +634,7 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
 
     // Armed BEFORE the call: WlanConnect only reports that the request was
     // ACCEPTED, and a fast verdict would otherwise land before anyone listens.
-    let watch = notify::ConnectionWatch::start(guid).ok();
+    let watch = notify::ConnectionWatch::start(guid, &profile_name).ok();
     let status = unsafe { WlanConnect(client.0, &guid, &parameters, None) };
     win32("WlanConnect", status)?;
 
@@ -556,7 +643,14 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
         // connection, and returning Ok here would report a join that may still
         // fail while leaving the profile just authored in place. Fall back to
         // asking the interface itself.
-        return poll_for_connection(&client, &guid, ssid, CONNECT_TIMEOUT);
+        let polled = poll_for_connection(&client, &guid, ssid, CONNECT_TIMEOUT);
+        if polled.is_err() {
+            // Verified not connected, so a profile authored by THIS call is
+            // unproven: leaving it makes the network read as saved, which stops
+            // the panel ever asking for the password again.
+            roll_back_authored(&client, &guid, authored.as_deref());
+        }
+        return polled;
     };
     match watch.wait(CONNECT_TIMEOUT) {
         Some(outcome) if outcome.succeeded => Ok(()),
@@ -565,19 +659,33 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
             // password behind. Left there, the network reads as "saved", the
             // panel stops asking for a password, and every later attempt fails
             // in silence — so the profile this call authored is rolled back.
-            if let Some(name) = authored
-                && matches!(
-                    reason::verdict(outcome.reason),
-                    reason::Verdict::WrongPassword | reason::Verdict::BadProfile
-                )
-            {
-                delete_profile(&client, &guid, &name);
+            if matches!(
+                reason::verdict(outcome.reason),
+                reason::Verdict::WrongPassword | reason::Verdict::BadProfile
+            ) {
+                roll_back_authored(&client, &guid, authored.as_deref());
             }
             Err(notify::connection_error(outcome))
         }
         // Silence is not success: report it as a failure the user can retry
-        // rather than claiming a connection that never happened.
-        None => Err(Error::TimedOut("the connection attempt")),
+        // rather than claiming a connection that never happened. The profile
+        // goes only if the interface confirms nothing came up, so a verdict
+        // lost in transit cannot destroy a working profile.
+        None => {
+            if current_connection(&client, &guid).is_none_or(|(joined, _)| joined != ssid) {
+                roll_back_authored(&client, &guid, authored.as_deref());
+            }
+            Err(Error::TimedOut("the connection attempt"))
+        }
+    }
+}
+
+/// Removes a profile this call authored, after the attempt it was written for
+/// failed. A pre-existing profile is never touched: the user's stored
+/// credentials are not ours to delete.
+fn roll_back_authored(client: &Client, guid: &GUID, authored: Option<&str>) {
+    if let Some(name) = authored {
+        delete_profile(client, guid, name);
     }
 }
 
@@ -655,12 +763,31 @@ fn set_profile(client: &Client, guid: &GUID, xml: &str) -> Result<()> {
     win32("WlanSetProfile", status)
 }
 
-/// Disconnects the Wi-Fi interface.
+/// Disconnects every connected Wi-Fi interface.
+///
+/// All of them: with two adapters the connected one is not necessarily the one
+/// a single-interface disconnect would have picked, and leaving it joined looks
+/// exactly like the button doing nothing.
 pub fn disconnect() -> Result<()> {
     let client = Client::open()?;
-    let (guid, _) = first_interface(&client)?;
-    let status = unsafe { WlanDisconnect(client.0, &guid, None) };
-    win32("WlanDisconnect", status)
+    let interfaces = all_interfaces(&client)?;
+    let mut last = Ok(());
+    let mut acted = false;
+    for (guid, state) in &interfaces {
+        if !matches!(state, InterfaceState::Connected | InterfaceState::Connecting) {
+            continue;
+        }
+        acted = true;
+        let status = unsafe { WlanDisconnect(client.0, guid, None) };
+        if let Err(error) = win32("WlanDisconnect", status) {
+            last = Err(error);
+        }
+    }
+    if !acted {
+        // Nothing was joined, which is the state the caller asked for.
+        return Ok(());
+    }
+    last
 }
 
 /// Reads one saved profile's XML document.
@@ -692,8 +819,21 @@ fn profile_xml(client: &Client, guid: &GUID, name: &str) -> Option<String> {
 /// Removes a saved profile, so the network stops joining automatically.
 pub fn forget(ssid: &str) -> Result<()> {
     let client = Client::open()?;
-    let (guid, _) = first_interface(&client)?;
-    let facts = scan_facts(&client, &guid, ssid);
+    let mut last = Ok(());
+    // Profiles are per-interface, so a second adapter keeps its own copy and
+    // would happily rejoin a network the user just forgot.
+    for (guid, _) in all_interfaces(&client)? {
+        if let Err(error) = forget_on(&client, &guid, ssid) {
+            last = Err(error);
+        }
+    }
+    last
+}
+
+/// Removes every profile for `ssid` from one interface.
+fn forget_on(client: &Client, guid: &GUID, ssid: &str) -> Result<()> {
+    let guid = *guid;
+    let facts = scan_facts(client, &guid, ssid);
     // Matched on each profile's OWN SSID, read back out of its document, not on
     // its name: Windows names the second profile for one network "<SSID> 2",
     // so a name comparison leaves every duplicate behind to keep auto-joining
@@ -704,8 +844,8 @@ pub fn forget(ssid: &str) -> Result<()> {
         facts.raw_ssid.clone()
     };
     let mut names: Vec<String> = Vec::new();
-    for name in profile_names(&client, &guid)? {
-        let matches = match profile_xml(&client, &guid, &name) {
+    for name in profile_names(client, &guid)? {
+        let matches = match profile_xml(client, &guid, &name) {
             Some(xml) => profile::ssid_of_profile(&xml).is_some_and(|found| found == target),
             // Unreadable document: fall back to the name, which is what the
             // profile is called for a network of the same name anyway.

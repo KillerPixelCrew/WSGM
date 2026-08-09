@@ -174,35 +174,42 @@ public static class RadioProbe
     internal static void ProbePairing(string needle)
     {
         Log.Info($"Radio probe: pairing test against a device matching '{needle}'.");
-        if (NativeRadio.ListBluetoothDevices(0, out var items, out var count) != NativeRadio.Ok)
+        using var finished = new ManualResetEventSlim(false);
+        var manager = new RadioManager();
+
+        // Found through the live watcher, never the blocking list: that
+        // enumeration runs a real inquiry and takes ~30 s, by which time a
+        // controller has left pairing mode and the managed callback path this
+        // probe exists to exercise is never reached at all. The panel and the
+        // native probe both discover this way for the same reason.
+        BluetoothDeviceEntry? found = null;
+        manager.StartScanning();
+        var searchDeadline = DateTime.UtcNow.AddSeconds(20);
+        while (found is null && DateTime.UtcNow < searchDeadline)
         {
-            Log.Warn($"Radio probe: pairing test could not list devices: {NativeRadio.LastError()}");
-            return;
-        }
-        string? target = null;
-        var targetName = "";
-        for (var i = 0; i < count; i++)
-        {
-            var device = NativeRadio.ReadBluetoothDevice(
-                items + (i * NativeRadio.BluetoothRecordSize));
-            if (!device.Paired && device.CanPair
-                && (needle.Length == 0 || device.Name.Contains(needle, StringComparison.OrdinalIgnoreCase)))
+            Dispatcher.UIThread.RunJobs();
+            foreach (var candidate in manager.BluetoothDevices)
             {
-                target = device.Id;
-                targetName = device.Name;
-                break;
+                if (!candidate.Paired && candidate.CanPair
+                    && (needle.Length == 0
+                        || candidate.Name.Contains(needle, StringComparison.OrdinalIgnoreCase)))
+                {
+                    found = candidate;
+                    break;
+                }
             }
+            Thread.Sleep(50);
         }
-        NativeRadio.FreeBluetoothDevices(items, count);
-        if (target is null)
+        if (found is null)
         {
+            manager.StopScanning();
+            manager.Dispose();
             Log.Warn($"Radio probe: no unpaired, pairable device matching '{needle}'.");
             return;
         }
+        var targetName = found.Name;
 
         Log.Info($"Radio probe: pairing with {targetName}.");
-        using var finished = new ManualResetEventSlim(false);
-        var manager = new RadioManager();
         var answered = false;
         manager.PairingRequested += prompt =>
         {
@@ -215,7 +222,7 @@ public static class RadioProbe
             Log.Info($"Radio probe: pairing finished: {summary}");
             finished.Set();
         };
-        manager.BeginPairing(new BluetoothDeviceEntry(target) { Name = targetName });
+        manager.BeginPairing(found);
 
         // The dispatcher must keep running or the posted callbacks never arrive,
         // which is itself one of the things being tested.
@@ -228,6 +235,8 @@ public static class RadioProbe
         Log.Info(finished.IsSet
             ? "Radio probe: pairing test completed."
             : $"Radio probe: pairing test TIMED OUT (question reached the UI: {answered}).");
+        manager.StopScanning();
+        manager.Dispose();
     }
 
     private static void ProbeTouchKeyboard()

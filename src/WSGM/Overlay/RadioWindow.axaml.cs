@@ -432,6 +432,15 @@ public partial class RadioWindow : Window
         var text = PromptInput.Text ?? "";
         var ssid = _promptSsid;
         var token = _promptToken;
+        // An empty PIN cannot answer the provide-pin ceremony: the helper reads
+        // it as the no-PIN Accept overload, so the pairing fails for a reason
+        // the user never sees. Keep the prompt open instead.
+        if (mode == PromptMode.PairingPin && text.Length == 0)
+        {
+            PromptDetail.Text = "Enter the PIN shown on the device to continue.";
+            PromptInput.Focus();
+            return;
+        }
         HidePrompt();
         switch (mode)
         {

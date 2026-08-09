@@ -36,7 +36,13 @@ public static class TouchKeyboard
                 }
                 return;
             }
-            Log.Info("Touch keyboard: shown.");
+            // "Accepted", not "shown": ITipInvocation.Toggle reports only that
+            // the request reached the shell. It cannot say whether
+            // TextInputHost actually rendered — and because it TOGGLES, an
+            // already-visible keyboard is hidden by this very call. The probe
+            // reads this line as evidence, so it must not claim more than the
+            // API returned.
+            Log.Info("Touch keyboard: toggle request accepted (visibility not confirmed).");
         }
         catch (Exception ex)
         {
