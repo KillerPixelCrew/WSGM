@@ -267,8 +267,11 @@ public sealed class ShellSession
         }
 
         // Already off the UI thread — the bounded exit wait never blocks the
-        // splash's spinner/fade. Logs its own outcome.
-        var exited = ExplorerControl.ExitExplorerAndWait(TimeSpan.FromSeconds(5));
+        // splash's spinner/fade. Logs its own outcome. The budget covers
+        // ExplorerControl's 8 s linger grace (waiting out a slow remnant is
+        // cheaper than terminating it — that is what Winlogon respawns) AND the
+        // respawn retry, which shares the same deadline.
+        var exited = ExplorerControl.ExitExplorerAndWait(TimeSpan.FromSeconds(30));
         if (!exited && ExplorerControl.IsRunningInSession())
         {
             // Fail open (era-proven): never enter a half game mode next to a live

@@ -21,8 +21,8 @@
                             <Border Classes="setting-row alt" Margin="0,0,0,3">
                                 <Grid ColumnDefinitions="Auto,*,180,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="6">
                                     <ToggleSwitch Grid.Column="0" IsChecked="{Binding Enabled}" OnContent="" OffContent="" MinWidth="42" VerticalAlignment="Center" />
-                                    <TextBox Grid.Column="1" Text="{Binding Path}" Watermark="Application path" />
-                                    <TextBox Grid.Column="2" Text="{Binding Args}" Watermark="Arguments" />
+                                    <TextBox Grid.Column="1" Text="{Binding Path}" PlaceholderText="Application path" />
+                                    <TextBox Grid.Column="2" Text="{Binding Args}" PlaceholderText="Arguments" />
                                     <CheckBox Grid.Column="3" IsChecked="{Binding Elevated}" Content="Admin" VerticalAlignment="Center" />
                                     <CheckBox Grid.Column="4" IsChecked="{Binding AutoRelaunch}" Content="Restart" VerticalAlignment="Center"
                                               ToolTip.Tip="Relaunch this tool automatically if it exits or crashes" />

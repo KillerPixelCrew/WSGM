@@ -1,0 +1,245 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:c="using:WSGM.Controls"
+        xmlns:sh="using:WSGM.Shell"
+        x:Class="WSGM.Overlay.RadioWindow"
+        x:DataType="sh:RadioManager"
+        WindowDecorations="None"
+        CanResize="False"
+        ShowInTaskbar="False"
+        Topmost="True"
+        SizeToContent="Manual"
+        Width="500"
+        Height="600"
+        Background="{StaticResource HcBackgroundBrush}"
+        Title="Wi-Fi and Bluetooth">
+    <!-- RootScale: game mode forces 100% display scaling, so DIP sizes render
+         1:1 on very dense handheld panels — the code-behind scales the whole
+         panel (and its keyboard) by the desktop DPI, the same treatment the
+         taskbar and quick access get (see ApplyTouchScale). -->
+    <LayoutTransformControl x:Name="RootScale">
+    <Border BorderBrush="{StaticResource HcCardBorderBrush}"
+            BorderThickness="1"
+            CornerRadius="8"
+            Padding="14">
+        <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="10">
+
+            <!-- Header: title, rescan, and the radio's own switch. -->
+            <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" VerticalAlignment="Center">
+                <TextBlock x:Name="PanelTitle"
+                           Text="Wi-Fi"
+                           FontSize="19"
+                           FontWeight="SemiBold"
+                           VerticalAlignment="Center" />
+                <Button x:Name="RescanButton"
+                        Grid.Column="1"
+                        Content="Refresh"
+                        Margin="0,0,8,0"
+                        Click="OnRescanClicked"
+                        ToolTip.Tip="Look again for networks and devices" />
+                <ToggleSwitch x:Name="RadioSwitch"
+                              Grid.Column="2"
+                              OnContent=""
+                              OffContent=""
+                              IsCheckedChanged="OnRadioSwitchToggled" />
+            </Grid>
+
+            <c:TabStrip x:Name="Tabs" Grid.Row="1" ShowBumperHints="True" />
+
+            <!-- Named so the code-behind can scroll a controller-focused row
+                 into view: directional Focus() does not raise
+                 RequestBringIntoView, so a row below the fold would take focus
+                 invisibly (same handler the taskbar's strips use). -->
+            <ScrollViewer x:Name="ListScroller"
+                          Grid.Row="2"
+                          HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Spacing="4">
+
+                    <!-- Wi-Fi -->
+                    <StackPanel x:Name="PanelWifi" Spacing="4">
+                        <!-- Names the actual reason: a blocked or missing
+                             adapter is not the same as one switched off, and
+                             the switch cannot fix either. -->
+                        <TextBlock Text="{Binding WifiUnavailableText}"
+                                   Classes="caption"
+                                   TextWrapping="Wrap"
+                                   IsVisible="{Binding !WifiOn}" />
+                        <ItemsControl ItemsSource="{Binding Networks}"
+                                      IsVisible="{Binding WifiOn}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="sh:WifiNetworkEntry">
+                                    <!-- The row and its actions live in one
+                                         expander so the list reads like the
+                                         Windows applet: pick a network, then
+                                         decide what to do with it. -->
+                                    <Border Classes="radio-row"
+                                            Classes.selected="{Binding Expanded}"
+                                            Margin="0,0,0,3">
+                                        <StackPanel>
+                                            <Button Classes="radio-row-header"
+                                                    Click="OnNetworkClicked">
+                                                <Grid ColumnDefinitions="Auto,*,Auto"
+                                                      VerticalAlignment="Center">
+                                                    <c:RadioIcon Width="22" Height="22"
+                                                                 Margin="0,0,10,0"
+                                                                 Signal="{Binding Signal}"
+                                                                 State="{Binding IconState}"
+                                                                 Accent="{DynamicResource HcAccentBrush}"
+                                                                 Muted="{DynamicResource HcTextPrimaryBrush}" />
+                                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding Ssid}" />
+                                                        <TextBlock Text="{Binding StatusLine}"
+                                                                   Classes="caption"
+                                                                   IsVisible="{Binding HasStatusLine}" />
+                                                    </StackPanel>
+                                                    <c:RadioIcon Grid.Column="2"
+                                                                 Width="16" Height="16"
+                                                                 IsVisible="{Binding Secured}"
+                                                                 Bluetooth="False"
+                                                                 State="Disconnected"
+                                                                 Signal="0"
+                                                                 Muted="{DynamicResource HcTextMutedBrush}"
+                                                                 Opacity="0" />
+                                                </Grid>
+                                            </Button>
+                                            <StackPanel Classes="radio-row-actions"
+                                                        IsVisible="{Binding Expanded}">
+                                                <!-- Disabled for a network the
+                                                     driver says cannot be joined:
+                                                     the attempt could only fail. -->
+                                                <Button x:Name="ConnectButton"
+                                                        Content="{Binding ActionText}"
+                                                        IsEnabled="{Binding ActionEnabled}"
+                                                        Click="OnNetworkAction" />
+                                                <Button Content="Forget"
+                                                        Click="OnNetworkForget"
+                                                        IsVisible="{Binding Saved}" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+
+                    <!-- Bluetooth -->
+                    <StackPanel x:Name="PanelBluetooth" Spacing="4" IsVisible="False">
+                        <TextBlock Text="{Binding BluetoothUnavailableText}"
+                                   Classes="caption"
+                                   TextWrapping="Wrap"
+                                   IsVisible="{Binding !BluetoothOn}" />
+                        <TextBlock Text="Looking for devices..."
+                                   Classes="caption"
+                                   IsVisible="{Binding BluetoothScanning}" />
+                        <ItemsControl ItemsSource="{Binding BluetoothDevices}"
+                                      IsVisible="{Binding BluetoothOn}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="sh:BluetoothDeviceEntry">
+                                    <Border Classes="radio-row"
+                                            Classes.selected="{Binding Expanded}"
+                                            Margin="0,0,0,3">
+                                        <StackPanel>
+                                            <Button Classes="radio-row-header"
+                                                    Click="OnDeviceClicked">
+                                                <Grid ColumnDefinitions="Auto,*"
+                                                      VerticalAlignment="Center">
+                                                    <c:RadioIcon Width="22" Height="22"
+                                                                 Margin="0,0,10,0"
+                                                                 Bluetooth="True"
+                                                                 State="{Binding IconState}"
+                                                                 Accent="{DynamicResource HcAccentBrush}"
+                                                                 Muted="{DynamicResource HcTextPrimaryBrush}" />
+                                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding Name}" />
+                                                        <TextBlock Text="{Binding StatusLine}"
+                                                                   Classes="caption"
+                                                                   IsVisible="{Binding HasStatusLine}" />
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Button>
+                                            <StackPanel Classes="radio-row-actions"
+                                                        IsVisible="{Binding Expanded}">
+                                                <!-- Pair / Connect / Disconnect. Hidden for a
+                                                     paired non-audio device: those reconnect on
+                                                     their own when used, so the host has nothing
+                                                     to offer but Remove. -->
+                                                <Button Content="{Binding ActionText}"
+                                                        Click="OnDeviceAction"
+                                                        IsVisible="{Binding PrimaryActionVisible}"
+                                                        IsEnabled="{Binding !Busy}" />
+                                                <!-- The destructive action stays its own button:
+                                                     disconnect must never mean unpair. -->
+                                                <Button Content="Remove"
+                                                        Click="OnDeviceRemove"
+                                                        IsVisible="{Binding RemoveVisible}"
+                                                        IsEnabled="{Binding !Busy}" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+
+                    <!-- Password / PIN prompt. Replaces the list in place rather
+                         than opening a second window, so controller focus stays
+                         on one surface. -->
+                    <StackPanel x:Name="PromptPanel" Spacing="8" IsVisible="False">
+                        <TextBlock x:Name="PromptTitle" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock x:Name="PromptDetail" Classes="caption" TextWrapping="Wrap" />
+                        <TextBox x:Name="PromptInput" PasswordChar="●" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="PromptAccept" Content="Connect" Click="OnPromptAccept" />
+                            <Button Content="Cancel" Click="OnPromptCancel" />
+                            <Button x:Name="PromptReveal"
+                                    Content="Show"
+                                    Click="OnPromptReveal"
+                                    ToolTip.Tip="Show what has been typed" />
+                        </StackPanel>
+                        <!-- Drawn by WSGM, not the Windows touch keyboard: that
+                             one is rendered by TextInputHost, an immersive-shell
+                             AppX that cannot activate with no Explorer running. -->
+                        <c:OnScreenKeyboard x:Name="Keyboard" />
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+
+            <StackPanel Grid.Row="3" Spacing="8">
+                <TextBlock Text="{Binding StatusText}"
+                           Classes="caption"
+                           TextWrapping="Wrap"
+                           IsVisible="{Binding HasStatus}" />
+                <Button x:Name="CloseButton"
+                        Content="Close"
+                        HorizontalAlignment="Right"
+                        Click="OnCloseClicked" />
+            </StackPanel>
+        </Grid>
+    </Border>
+    </LayoutTransformControl>
+
+    <Window.Styles>
+        <Style Selector="Border.radio-row">
+            <Setter Property="Background" Value="{DynamicResource HcCardBrush}" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="BorderThickness" Value="2" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+        </Style>
+        <Style Selector="Border.radio-row.selected">
+            <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+        </Style>
+        <Style Selector="Button.radio-row-header">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Padding" Value="10,8" />
+            <Setter Property="FocusAdorner" Value="{x:Null}" />
+        </Style>
+        <Style Selector="StackPanel.radio-row-actions">
+            <Setter Property="Orientation" Value="Horizontal" />
+            <Setter Property="Spacing" Value="8" />
+            <Setter Property="Margin" Value="10,0,10,10" />
+        </Style>
+    </Window.Styles>
+</Window>

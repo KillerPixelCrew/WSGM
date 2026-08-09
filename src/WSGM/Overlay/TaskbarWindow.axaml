@@ -8,7 +8,7 @@
         Title="WSGM Taskbar"
         SizeToContent="Height"
         Width="800"
-        SystemDecorations="None"
+        WindowDecorations="None"
         CanResize="False"
         Topmost="True"
         ShowInTaskbar="False"
@@ -212,52 +212,32 @@
                             VerticalAlignment="Center">
                 <Button x:Name="WifiButton"
                         Classes="status-tile"
-                        Classes.active="{Binding WifiConnected}"
-                        ToolTip.Tip="Wi-Fi">
-                    <Button.Flyout>
-                        <Flyout Placement="Top">
-                            <StackPanel MaxWidth="240" Spacing="4">
-                                <TextBlock Text="Wi-Fi" FontWeight="SemiBold" />
-                                <TextBlock Text="{Binding WifiStateText}" Classes="caption" />
-                                <TextBlock Text="Radio controls arrive in a later update."
-                                           Classes="caption"
-                                           TextWrapping="Wrap" />
-                            </StackPanel>
-                        </Flyout>
-                    </Button.Flyout>
-                    <!-- Width-only for the same top-left-alignment reason as the
-                         battery: this fan is 16.2x8.9, so a square box would park it
-                         against the top of the button instead of its centre. -->
-                    <Path Classes="status-icon"
-                          Data="{x:Static c:Icons.WiFi}"
-                          Width="20"
-                          Stretch="Uniform"
-                          VerticalAlignment="Center"
-                          HorizontalAlignment="Center" />
+                        ToolTip.Tip="Wi-Fi"
+                        Click="OnRadioTileClicked"
+                        Tag="wifi">
+                    <!-- Drawn, not a static path: the tile has to distinguish
+                         off from merely disconnected from connected, and show
+                         signal strength, which one glyph cannot express. -->
+                    <c:RadioIcon Width="20" Height="20"
+                                 State="{Binding Radios.WifiIconState}"
+                                 Signal="{Binding Radios.WifiSignal}"
+                                 Accent="{DynamicResource HcAccentBrush}"
+                                 Muted="{DynamicResource HcTextPrimaryBrush}"
+                                 VerticalAlignment="Center"
+                                 HorizontalAlignment="Center" />
                 </Button>
                 <Button x:Name="BluetoothButton"
                         Classes="status-tile"
-                        ToolTip.Tip="Bluetooth">
-                    <Button.Flyout>
-                        <Flyout Placement="Top">
-                            <StackPanel MaxWidth="240" Spacing="4">
-                                <TextBlock Text="Bluetooth" FontWeight="SemiBold" />
-                                <TextBlock Text="{Binding BluetoothStateText}" Classes="caption" />
-                                <TextBlock Text="Radio controls arrive in a later update."
-                                           Classes="caption"
-                                           TextWrapping="Wrap" />
-                            </StackPanel>
-                        </Flyout>
-                    </Button.Flyout>
-                    <!-- Height-only: this rune is TALLER than wide (11x20), so the
-                         free axis is the horizontal one — same alignment reasoning,
-                         mirrored. -->
-                    <Path Classes="status-icon"
-                          Data="{x:Static c:Icons.Bluetooth}"
-                          Height="20"
-                          Stretch="Uniform"
-                          VerticalAlignment="Center"
-                          HorizontalAlignment="Center" />
+                        ToolTip.Tip="Bluetooth"
+                        Click="OnRadioTileClicked"
+                        Tag="bluetooth">
+                    <c:RadioIcon Width="20" Height="20"
+                                 Bluetooth="True"
+                                 State="{Binding Radios.BluetoothIconState}"
+                                 Accent="{DynamicResource HcAccentBrush}"
+                                 Muted="{DynamicResource HcTextPrimaryBrush}"
+                                 VerticalAlignment="Center"
+                                 HorizontalAlignment="Center" />
                 </Button>
                 <StackPanel Orientation="Horizontal"
                             Spacing="5"

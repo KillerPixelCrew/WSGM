@@ -96,10 +96,7 @@ public partial class TaskbarWindow : Window
         // The right zone binds a different object than the window (compiled
         // bindings: x:DataType="sh:SystemStatus" on the StatusZone subtree).
         StatusZone.DataContext = status;
-        // Tap-outside dismissal must ignore taps on the status flyouts, which
-        // pop above the bar's rectangle (see OverlayController.OnTappedAt).
-        TrackStatusFlyout(WifiButton);
-        TrackStatusFlyout(BluetoothButton);
+        _status = status;
         // Controller navigation moves focus with InputElement.Focus(Directional),
         // which does NOT raise RequestBringIntoView on its own — a tile scrolled
         // out of the strip would take focus invisibly. Ask for it explicitly:
@@ -138,27 +135,25 @@ public partial class TaskbarWindow : Window
         Win32Properties.AddWndProcHookCallback(this, WndProcHook);
     }
 
-    private int _openStatusFlyouts;
+    private readonly SystemStatus _status;
 
-    /// <summary>Whether a Wi-Fi/Bluetooth status flyout is currently open — their
-    /// popups sit above the bar, outside the tap-outside hit rectangle.</summary>
-    internal bool IsStatusFlyoutOpen => _openStatusFlyouts > 0;
+    /// <summary>Raised when a radio tile is tapped. The flag selects the tab to
+    /// open on: true for Bluetooth, false for Wi-Fi.</summary>
+    public event Action<bool>? RadioPanelRequested;
 
-    private void TrackStatusFlyout(Button button)
+    private void OnRadioTileClicked(object? sender, RoutedEventArgs e)
     {
-        if (button.Flyout is not { } flyout)
-        {
-            return;
-        }
-        flyout.Opened += (_, _) => _openStatusFlyouts++;
-        flyout.Closed += (_, _) => _openStatusFlyouts = Math.Max(0, _openStatusFlyouts - 1);
+        // A 240 px flyout cannot hold a network list, and GamepadNavigation has
+        // no popup awareness, so a list inside one would not be reachable with a
+        // controller at all. The panel is a real window for both reasons.
+        RadioPanelRequested?.Invoke((sender as Control)?.Tag as string == "bluetooth");
     }
 
     /// <summary>Scrolls a newly focused tile into its strip's viewport (app tiles
     /// and tray icons share this handler). Bubbles from the tile buttons; the
     /// scroll viewers themselves are not focusable, and the call is a no-op when
     /// the tile is already fully visible.</summary>
-    private void OnStripGotFocus(object? sender, GotFocusEventArgs e)
+    private void OnStripGotFocus(object? sender, FocusChangedEventArgs e)
     {
         if (e.Source is Control control && control is not ScrollViewer)
         {

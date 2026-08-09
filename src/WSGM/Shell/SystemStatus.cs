@@ -1,27 +1,26 @@
 using System;
 using System.ComponentModel;
 using System.Globalization;
-using System.Runtime.InteropServices;
 using Avalonia.Threading;
 using WSGM.Core;
 using WSGM.Interop;
 
 namespace WSGM.Shell;
 
-/// <summary>Live system status for the game-mode taskbar's right zone: clock, date,
-/// battery level (GetSystemPowerStatus) and best-effort Wi-Fi state (flat wlanapi,
-/// read-only). Refreshes on a 1 s UI-thread timer while started; the taskbar binds
-/// its status cluster to this object. Bluetooth soft-radio state has no cheap
-/// COM/WinRT-free Win32 API, so it stays "State unavailable" and its button renders
-/// neutral — the flyouts are forward-prep for a hand-rolled radio manager.</summary>
+/// <summary>Live system status for the game-mode taskbar's right zone: clock, date
+/// and battery level (GetSystemPowerStatus). Refreshes on a 1 s UI-thread timer
+/// while started; the taskbar binds its status cluster to this object.
+///
+/// Radio state is not read here. It lives on <see cref="Radios"/>, which this
+/// object owns and starts, because Wi-Fi and Bluetooth now need the native helper
+/// rather than a single flat wlanapi call — and the same manager backs both the
+/// tiles and the radio panel, so the two can never disagree.</summary>
 public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
 {
     /// <summary>Raised after a status property changes.</summary>
     public event PropertyChangedEventHandler? PropertyChanged;
 
     private DispatcherTimer? _timer;
-    private int _ticks;
-    private bool _wifiFailureLogged;
 
     private string _clockText = "";
     /// <summary>Gets the current time of day, e.g. "21:37".</summary>
@@ -72,28 +71,9 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
         private set => Set(ref _batteryText, value, nameof(BatteryText));
     }
 
-    private bool _wifiConnected;
-    /// <summary>Gets whether Wi-Fi is currently connected to a network — the only
-    /// state that tints the taskbar's Wi-Fi button with the accent color.</summary>
-    public bool WifiConnected
-    {
-        get => _wifiConnected;
-        private set => Set(ref _wifiConnected, value, nameof(WifiConnected));
-    }
-
-    private string _wifiStateText = "State unavailable";
-    /// <summary>Gets the Wi-Fi state line for the button's flyout: "Connected",
-    /// "Not connected", or "State unavailable" when the state cannot be read.</summary>
-    public string WifiStateText
-    {
-        get => _wifiStateText;
-        private set => Set(ref _wifiStateText, value, nameof(WifiStateText));
-    }
-
-    /// <summary>Gets the Bluetooth state line for the button's flyout. Always
-    /// "State unavailable": reading the soft-radio state requires WinRT/COM, which
-    /// this NativeAOT build deliberately excludes.</summary>
-    public string BluetoothStateText => "State unavailable";
+    /// <summary>Gets the Wi-Fi and Bluetooth manager backing the taskbar's radio
+    /// tiles and the radio panel. Owned and disposed with this object.</summary>
+    public RadioManager Radios { get; } = new();
 
     /// <summary>Performs an immediate refresh and starts the 1 s update timer.
     /// UI-thread callers only (the timer is a DispatcherTimer). Idempotent.</summary>
@@ -103,8 +83,9 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
         {
             return;
         }
-        Refresh(refreshWifi: true);
-        Log.Info($"System status started (battery: {(HasBattery ? BatteryText : "none")}, Wi-Fi: {WifiStateText}).");
+        Refresh();
+        Radios.Start();
+        Log.Info($"System status started (battery: {(HasBattery ? BatteryText : "none")}).");
         // Parameterless ctor + explicit Start: the 3-arg ctor auto-starts.
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _timer.Tick += OnTick;
@@ -114,6 +95,7 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
     /// <summary>Stops the update timer. Idempotent; bound values keep their last state.</summary>
     public void Dispose()
     {
+        Radios.Dispose();
         if (_timer is null)
         {
             return;
@@ -123,15 +105,9 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
         _timer = null;
     }
 
-    private void OnTick(object? sender, EventArgs e)
-    {
-        // The Wi-Fi read opens a WLAN handle — every 5th tick is plenty for a
-        // status tint, the clock and battery are cheap enough for every second.
-        _ticks++;
-        Refresh(refreshWifi: _ticks % 5 == 0);
-    }
+    private void OnTick(object? sender, EventArgs e) => Refresh();
 
-    private void Refresh(bool refreshWifi)
+    private void Refresh()
     {
         var now = DateTime.Now;
         ClockText = FormatClock(now);
@@ -142,26 +118,6 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
         HasBattery = hasBattery;
         BatteryPercent = percent;
         BatteryText = text;
-
-        if (refreshWifi)
-        {
-            var state = QueryWifiState();
-            WifiConnected = state == WifiState.Connected;
-            WifiStateText = DescribeWifi(state);
-        }
-    }
-
-    /// <summary>Best-effort Wi-Fi adapter state.</summary>
-    internal enum WifiState
-    {
-        /// <summary>No adapter, the WLAN service is unavailable, or the query failed.</summary>
-        Unknown,
-
-        /// <summary>An adapter exists but is not connected to a network.</summary>
-        Disconnected,
-
-        /// <summary>Connected to a network.</summary>
-        Connected,
     }
 
     /// <summary>Formats the taskbar clock ("21:37"). 24-hour, culture-independent.</summary>
@@ -183,86 +139,6 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
             return (false, 0, "");
         }
         return (true, lifePercent, lifePercent + "%");
-    }
-
-    /// <summary>The flyout's state line for a Wi-Fi query result.</summary>
-    internal static string DescribeWifi(WifiState state) => state switch
-    {
-        WifiState.Connected => "Connected",
-        WifiState.Disconnected => "Not connected",
-        _ => "State unavailable",
-    };
-
-    /// <summary>Interprets a WlanEnumInterfaces result buffer. Scans EVERY
-    /// fixed-size interface record and reports Connected when ANY interface is
-    /// connected — a disconnected onboard adapter must not mask a connected USB
-    /// adapter.</summary>
-    /// <param name="list">A non-null WLAN_INTERFACE_INFO_LIST allocation.</param>
-    internal static WifiState ReadInterfaceList(nint list)
-    {
-        // WLAN_INTERFACE_INFO_LIST header: dwNumberOfItems + dwIndex (8 bytes), then
-        // dwNumberOfItems packed WLAN_INTERFACE_INFO records:
-        // GUID (16) + WCHAR[256] description (512) + isState (4) = 532 bytes each.
-        const int HeaderSize = 8;
-        const int StateOffset = 16 + 512;
-        const int RecordSize = StateOffset + 4;
-        var count = Marshal.ReadInt32(list);
-        if (count <= 0)
-        {
-            return WifiState.Unknown;
-        }
-        for (var i = 0; i < count; i++)
-        {
-            var isState = Marshal.ReadInt32(list, HeaderSize + (i * RecordSize) + StateOffset);
-            if (isState == NativeMethods.WlanInterfaceStateConnected)
-            {
-                return WifiState.Connected;
-            }
-        }
-        return WifiState.Disconnected;
-    }
-
-    /// <summary>Reads the WLAN interfaces' state via the flat wlanapi (no
-    /// COM/WinRT); connected when any interface is connected. Any failure —
-    /// service down, no adapter, missing DLL — degrades to Unknown, which
-    /// renders the button neutral.</summary>
-    private WifiState QueryWifiState()
-    {
-        try
-        {
-            if (NativeMethods.WlanOpenHandle(2, 0, out _, out var client) != 0)
-            {
-                return WifiState.Unknown;
-            }
-            try
-            {
-                if (NativeMethods.WlanEnumInterfaces(client, 0, out var list) != 0 || list == 0)
-                {
-                    return WifiState.Unknown;
-                }
-                try
-                {
-                    return ReadInterfaceList(list);
-                }
-                finally
-                {
-                    NativeMethods.WlanFreeMemory(list);
-                }
-            }
-            finally
-            {
-                _ = NativeMethods.WlanCloseHandle(client, 0);
-            }
-        }
-        catch (Exception ex)
-        {
-            if (!_wifiFailureLogged)
-            {
-                _wifiFailureLogged = true;
-                Log.Warn($"Wi-Fi state query failed; rendering neutral: {ex.Message}");
-            }
-            return WifiState.Unknown;
-        }
     }
 
     private void Set(ref string field, string value, string name)

@@ -566,15 +566,21 @@ public sealed class OverlayController : IDisposable
             }
             return;
         }
+        // The radio panel sits ABOVE the bar, outside its rectangle. A tap in
+        // it must not read as tap-outside; a tap anywhere else closes the
+        // panel first and keeps the bar — one dismissal per tap, so a stray
+        // touch can't tear down both surfaces at once.
+        if (_radioPanel is not null)
+        {
+            if (!HitsWindow(_radioPanel, x, y))
+            {
+                Log.Info("Touch outside radio panel — dismissing.");
+                CloseRadioPanel();
+            }
+            return;
+        }
         if (_taskbar is not null && !HitsWindow(_taskbar, x, y))
         {
-            // A status flyout (Wi-Fi/Bluetooth) pops ABOVE the bar, outside its
-            // rectangle — a tap on it must not read as tap-outside. Its own
-            // light-dismiss handles taps elsewhere.
-            if (_taskbar.IsStatusFlyoutOpen)
-            {
-                return;
-            }
             Log.Info("Touch outside taskbar — dismissing.");
             CloseTaskbar();
         }
@@ -588,7 +594,10 @@ public sealed class OverlayController : IDisposable
             // that is still coming up.
             return true;
         }
-        var scaling = window.Screens?.Primary?.Scaling ?? 1.0;
+        // Window scaling, not the screens cache — the cache reports the
+        // pre-game-mode factor after the runtime display-scale flip, which
+        // inflates the hit box and swallows taps just outside the window.
+        var scaling = window.DesktopScaling;
         var pos = window.Position;
         var w = (int)Math.Ceiling(window.Width * scaling);
         var h = (int)Math.Ceiling(window.Height * scaling);
@@ -666,6 +675,7 @@ public sealed class OverlayController : IDisposable
         _taskbar.WindowPicked += PickTaskbarWindow;
         _taskbar.TrayIconActivated += OnTrayIconActivated;
         _taskbar.Dismissed += CloseTaskbar;
+        _taskbar.RadioPanelRequested += ShowRadioPanel;
         _taskbar.Closed += (_, _) => OnTaskbarClosed();
         _taskbarNavigation = new GamepadNavigation(_gamepad, _taskbar, CloseTaskbar,
             isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
@@ -682,6 +692,77 @@ public sealed class OverlayController : IDisposable
         {
             _touchSwipes.WatchTaps = true;
         }
+    }
+
+    private RadioWindow? _radioPanel;
+    private GamepadNavigation? _radioNavigation;
+    private bool _radioClosePending;
+    private IDisposable? _pendingRadioClose;
+
+    /// <summary>Closes the radio panel through the same deferred path as the
+    /// other two surfaces: the 150 ms grace lets the window's WndProc hook eat
+    /// the touch-promotion ghost click (invariant 3). Closing immediately from
+    /// the raw-touch callback destroys the window before the synthesized click
+    /// arrives, and it then lands on whatever is underneath.</summary>
+    private void CloseRadioPanel()
+    {
+        if (_radioPanel is null || _radioClosePending)
+        {
+            return;
+        }
+        _radioClosePending = true;
+        _pendingRadioClose = RunOnUiThreadAfter(TimeSpan.FromMilliseconds(150), () =>
+        {
+            _radioClosePending = false;
+            _pendingRadioClose = null;
+            _radioPanel?.Close();
+        });
+    }
+
+    /// <summary>Opens the Wi-Fi/Bluetooth panel above the taskbar.</summary>
+    /// <param name="bluetooth">True to open on the Bluetooth tab.</param>
+    private void ShowRadioPanel(bool bluetooth)
+    {
+        if (_radioPanel is not null)
+        {
+            // The tile carries which radio was tapped, so an open panel follows
+            // it rather than leaving the user on the tab it opened with.
+            _radioPanel.SelectTab(bluetooth);
+            _radioPanel.Activate();
+            return;
+        }
+        if (_systemStatus is null)
+        {
+            return;
+        }
+        Log.Info($"Radio panel opened ({(bluetooth ? "Bluetooth" : "Wi-Fi")}).");
+        var panel = new RadioWindow(_systemStatus.Radios, bluetooth, UiScale());
+        _radioPanel = panel;
+        // Its own navigation instance: the panel holds focus while it is open,
+        // and B must close the panel rather than the bar behind it.
+        _radioNavigation = new GamepadNavigation(_gamepad, panel, () => panel.Close(),
+            isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
+            tabPrevious: panel.SelectPreviousTab,
+            tabNext: panel.SelectNextTab);
+        panel.Closed += (_, _) =>
+        {
+            _radioNavigation?.Dispose();
+            _radioNavigation = null;
+            _radioPanel = null;
+            _radioClosePending = false;
+            _pendingRadioClose?.Dispose();
+            _pendingRadioClose = null;
+            Log.Info("Radio panel closed.");
+            // Hand focus back to the bar, which is still open underneath.
+            _taskbar?.Activate();
+        };
+        panel.Show();
+        // The bar's real top edge, not a height to subtract: it is a topmost
+        // window rather than a registered appbar, so the screen's working area
+        // does not account for it and computing the position from screen height
+        // minus bar height left a visible gap.
+        panel.DockAboveTaskbar(_taskbar?.Position.Y ?? 0);
+        panel.Activate();
     }
 
     /// <summary>The desktop-DPI factor for WSGM surfaces. The boost exists ONLY
@@ -793,6 +874,17 @@ public sealed class OverlayController : IDisposable
 
     private void OnTaskbarClosed()
     {
+        // The panel is a child of the bar in everything but parenthood: it
+        // binds the SystemStatus disposed below and runs its own gamepad
+        // navigation. Leaving it alive past its bar (quick access opened by
+        // hotkey or edge swipe takes this path) left a topmost window bound to
+        // a disposed manager, competing for controller input with the overlay.
+        // Closed directly, not deferred: the bar is already going.
+        if (_radioPanel is not null)
+        {
+            Log.Info("Taskbar closed with the radio panel open — closing the panel.");
+            _radioPanel.Close();
+        }
         _taskbarClosePending = false;
         _pendingTaskbarClose = null;
         _pendingTopmostRestore?.Dispose();

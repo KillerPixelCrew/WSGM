@@ -65,6 +65,10 @@ Source: "{#PublishDir}\WSGM.Deelevate.exe"; DestDir: "{app}"; Flags: ignoreversi
 ; why the user-writable app path is not an escalation.
 Source: "{#PublishDir}\WSGM.LogonService.exe"; DestDir: "{autopf}\WSGM"; Flags: ignoreversion
 Source: "{#PublishDir}\steam-input-lease.exe"; DestDir: "{app}"; Flags: ignoreversion
+; Read-only radio diagnostic. Reports what the docs cannot settle for a given
+; machine: whether radio control works with no shell running, and whether the
+; Wi-Fi scan is blocked by the location-consent gate.
+Source: "{#PublishDir}\WSGM.RadioProbe.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PublishDir}\*.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PublishDir}\SteamInputLease-*.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PublishDir}\SteamInputLease-*.md"; DestDir: "{app}"; Flags: ignoreversion
