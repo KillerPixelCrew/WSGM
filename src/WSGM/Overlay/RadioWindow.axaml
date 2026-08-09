@@ -46,7 +46,13 @@
 
             <c:TabStrip x:Name="Tabs" Grid.Row="1" ShowBumperHints="True" />
 
-            <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
+            <!-- Named so the code-behind can scroll a controller-focused row
+                 into view: directional Focus() does not raise
+                 RequestBringIntoView, so a row below the fold would take focus
+                 invisibly (same handler the taskbar's strips use). -->
+            <ScrollViewer x:Name="ListScroller"
+                          Grid.Row="2"
+                          HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Spacing="4">
 
                     <!-- Wi-Fi -->

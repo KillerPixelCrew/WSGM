@@ -674,12 +674,20 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             for (var i = BluetoothDevices.Count - 1; i >= 0; i--)
             {
                 var candidate = BluetoothDevices[i];
-                if (!candidate.Paired && !candidate.Busy
-                    && !_seenThisSweep.Contains(candidate.Id))
+                if (_seenThisSweep.Contains(candidate.Id) || candidate.Busy)
                 {
-                    BluetoothDevices.RemoveAt(i);
-                    stale++;
+                    continue;
                 }
+                if (candidate.Paired)
+                {
+                    // Retained as a known device, but a sweep that did not see
+                    // it is the evidence that it is offline.
+                    candidate.Connected = false;
+                    candidate.AudioActive = false;
+                    continue;
+                }
+                BluetoothDevices.RemoveAt(i);
+                stale++;
             }
             Log.Info($"Bluetooth discovery complete ({BluetoothDevices.Count} device(s), "
                 + $"{stale} stale dropped).");
@@ -700,6 +708,13 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             if (row is not null && !row.Busy && !row.Paired)
             {
                 BluetoothDevices.Remove(row);
+            }
+            else if (row is not null && row.Paired)
+            {
+                // Kept, but no longer here: nothing else clears these, so the
+                // row would go on claiming a live connection forever.
+                row.Connected = false;
+                row.AudioActive = false;
             }
             return;
         }

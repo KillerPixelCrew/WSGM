@@ -89,6 +89,11 @@ public partial class RadioWindow : Window
             _radios.PairingRequested -= OnPairingRequested;
             _radios.PropertyChanged -= OnRadiosPropertyChanged;
         };
+        // Controller navigation moves focus with Focus(Directional), which does
+        // NOT raise RequestBringIntoView — a network or device row below the
+        // fold would take focus while staying offscreen. Ask for it explicitly,
+        // exactly as the taskbar's scrolling strips do.
+        ListScroller.AddHandler(GotFocusEvent, OnRowGotFocus, RoutingStrategies.Bubble);
         // Same touch-promotion defense as the overlay and taskbar (invariant 3):
         // Avalonia never marks touch handled, so DefWindowProc synthesizes a
         // late mouse click that would press whatever sits under the panel.
@@ -182,6 +187,16 @@ public partial class RadioWindow : Window
             y = area.Y;
         }
         Position = new PixelPoint(x, y);
+    }
+
+    /// <summary>Scrolls a newly focused row (or its action button) into the
+    /// viewport. A no-op when it is already fully visible.</summary>
+    private void OnRowGotFocus(object? sender, Avalonia.Input.FocusChangedEventArgs e)
+    {
+        if (e.Source is Control control && control is not ScrollViewer)
+        {
+            control.BringIntoView();
+        }
     }
 
     private static IntPtr WndProcHook(

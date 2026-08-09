@@ -76,6 +76,7 @@ public sealed class WifiNetworkEntry : INotifyPropertyChanged
                 Raise(nameof(NeedsPassword));
                 Raise(nameof(Secured));
                 Raise(nameof(StatusLine));
+                Raise(nameof(ActionEnabled));
             }
         }
     }
@@ -119,8 +120,11 @@ public sealed class WifiNetworkEntry : INotifyPropertyChanged
 
     /// <summary>Gets whether the row's action button may be pressed. A joined
     /// network can always be disconnected, whatever the scan says about
-    /// joining it again.</summary>
-    public bool ActionEnabled => Connected || Connectable;
+    /// joining it again — but an enterprise network is never joinable here (it
+    /// needs an EAP flow this panel does not offer), and an enabled button that
+    /// silently does nothing is worse than a disabled one.</summary>
+    public bool ActionEnabled =>
+        Connected || (Connectable && Security != WifiSecurity.Enterprise);
 
     private bool _connected;
     /// <summary>Gets whether this is the network currently joined.</summary>

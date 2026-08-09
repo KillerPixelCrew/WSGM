@@ -529,11 +529,19 @@ fn pair_blocking<R>(device_id: &str, on_request: R) -> Result<(PairOutcome, i32)
 where
     R: Fn(PairingRequest) + Send + 'static,
 {
+    // Reopened as an ASSOCIATION ENDPOINT, the kind every id here was
+    // discovered as. The plain overload resolves ids as device interfaces,
+    // which is a different namespace; matching the watcher removes any
+    // dependence on Windows inferring the kind from the id's shape.
     let id = HSTRING::from(device_id);
-    let info = DeviceInformation::CreateFromIdAsync(&id)
-        .map_err(|e| winrt("DeviceInformation.CreateFromIdAsync", e))?
-        .join()
-        .map_err(|e| winrt("DeviceInformation.CreateFromIdAsync (join)", e))?;
+    let info = DeviceInformation::CreateFromIdAsyncWithKindAndAdditionalProperties(
+        &id,
+        Some(&aep_properties()),
+        DeviceInformationKind::AssociationEndpoint,
+    )
+    .map_err(|e| winrt("DeviceInformation.CreateFromIdAsync", e))?
+    .join()
+    .map_err(|e| winrt("DeviceInformation.CreateFromIdAsync (join)", e))?;
     let device_name = info.Name().map(|s| s.to_string_lossy()).unwrap_or_default();
 
     let pairing = info
@@ -667,10 +675,15 @@ pub fn respond(token: u32, accept: bool, pin: &str) -> Result<()> {
 pub fn unpair(device_id: &str) -> Result<bool> {
     let id = device_id.to_owned();
     on_mta(move || {
-        let info = DeviceInformation::CreateFromIdAsync(&HSTRING::from(id.as_str()))
-            .map_err(|e| winrt("DeviceInformation.CreateFromIdAsync", e))?
-            .join()
-            .map_err(|e| winrt("DeviceInformation.CreateFromIdAsync (join)", e))?;
+        // Same association-endpoint kind as pair() and the watcher.
+        let info = DeviceInformation::CreateFromIdAsyncWithKindAndAdditionalProperties(
+            &HSTRING::from(id.as_str()),
+            Some(&aep_properties()),
+            DeviceInformationKind::AssociationEndpoint,
+        )
+        .map_err(|e| winrt("DeviceInformation.CreateFromIdAsync", e))?
+        .join()
+        .map_err(|e| winrt("DeviceInformation.CreateFromIdAsync (join)", e))?;
         let status = info
             .Pairing()
             .map_err(|e| winrt("DeviceInformation.Pairing", e))?
