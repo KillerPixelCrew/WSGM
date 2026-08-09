@@ -28,8 +28,8 @@ use windows::Win32::NetworkManagement::WiFi::{
     DOT11_AUTH_ALGO_WPA_PSK, WLAN_AVAILABLE_NETWORK_LIST, WLAN_CONNECTION_ATTRIBUTES,
     WLAN_CONNECTION_PARAMETERS, WLAN_INTERFACE_INFO_LIST, WLAN_INTERFACE_STATE,
     WLAN_PROFILE_INFO_LIST, WlanCloseHandle, WlanConnect, WlanDeleteProfile, WlanDisconnect,
-    WlanEnumInterfaces, WlanFreeMemory, WlanGetAvailableNetworkList, WlanGetProfileList,
-    WlanOpenHandle, WlanQueryInterface, WlanScan, WlanSetProfile,
+    WlanEnumInterfaces, WlanFreeMemory, WlanGetAvailableNetworkList, WlanGetProfile,
+    WlanGetProfileList, WlanOpenHandle, WlanQueryInterface, WlanScan, WlanSetProfile,
     dot11_BSS_type_infrastructure, wlan_connection_mode_profile,
     wlan_intf_opcode_current_connection,
 };
@@ -202,6 +202,10 @@ struct ScanFacts {
     raw_ssid: Vec<u8>,
     /// How the network protects itself, when it was seen.
     security: Option<Security>,
+    /// The advertised authentication algorithm, which decides the profile
+    /// shape — a legacy WPA/TKIP access point needs a different document from a
+    /// WPA2 one, and installing the wrong one succeeds and then never connects.
+    auth: Option<i32>,
 }
 
 /// Everything `connect` needs from the scan list, in one pass.
@@ -239,6 +243,7 @@ fn scan_facts(client: &Client, guid: &GUID, ssid: &str) -> ScanFacts {
                 entry.bSecurityEnabled.as_bool(),
                 entry.dot11DefaultAuthAlgorithm.0,
             ));
+            facts.auth.get_or_insert(entry.dot11DefaultAuthAlgorithm.0);
             let profile = decode_fixed(&entry.strProfileName);
             if facts.profile.is_none() && !profile.is_empty() {
                 facts.profile = Some(profile);
@@ -454,12 +459,29 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
     let mut authored: Option<String> = None;
     match passphrase {
         Some(pass) => {
-            // Prefer WPA3 transition mode so one profile covers WPA3-Personal
-            // and WPA2-PSK alike, falling back when the adapter rejects it.
-            let attempts = [
-                profile::psk_profile(ssid, raw, pass, true),
-                profile::psk_profile(ssid, raw, pass, false),
-            ];
+            // Ordered by what the access point actually advertises, not by
+            // preference: WlanSetProfile accepts a document whether or not it
+            // describes the network, so the FIRST attempt is almost always the
+            // one that gets installed — and a WPA2/AES profile authored for a
+            // legacy WPA/TKIP network installs cleanly and then never connects.
+            let flavors: &[profile::PskFlavor] = match facts.auth {
+                Some(a) if a == DOT11_AUTH_ALGO_WPA_PSK.0 => &[
+                    profile::PskFlavor::WpaTkip,
+                    profile::PskFlavor::Wpa2Aes,
+                    profile::PskFlavor::Wpa3Transition,
+                ],
+                // WPA3 transition mode covers WPA3-Personal and WPA2-PSK alike;
+                // the plain WPA2 document is the fallback for Windows 10 and
+                // adapters whose driver predates WPA3.
+                _ => &[
+                    profile::PskFlavor::Wpa3Transition,
+                    profile::PskFlavor::Wpa2Aes,
+                ],
+            };
+            let attempts: Vec<String> = flavors
+                .iter()
+                .map(|flavor| profile::psk_profile(ssid, raw, pass, *flavor))
+                .collect();
             let mut last: Option<Error> = None;
             let mut installed = false;
             for xml in &attempts {
@@ -600,18 +622,59 @@ pub fn disconnect() -> Result<()> {
     win32("WlanDisconnect", status)
 }
 
+/// Reads one saved profile's XML document.
+fn profile_xml(client: &Client, guid: &GUID, name: &str) -> Option<String> {
+    let wide_name = wide(name);
+    let mut document = windows_core::PWSTR::null();
+    let status = unsafe {
+        WlanGetProfile(
+            client.0,
+            guid,
+            PCWSTR(wide_name.as_ptr()),
+            None,
+            &mut document,
+            None,
+            None,
+        )
+    };
+    if status != 0 || document.is_null() {
+        return None;
+    }
+    // SAFETY: a successful call returns a NUL-terminated WlanFreeMemory
+    // allocation, which the buffer guard releases.
+    unsafe {
+        let _owned = WlanBuffer(document.0);
+        document.to_string().ok()
+    }
+}
+
 /// Removes a saved profile, so the network stops joining automatically.
 pub fn forget(ssid: &str) -> Result<()> {
     let client = Client::open()?;
     let (guid, _) = first_interface(&client)?;
-    // Deletes every profile that joins this network, not just one named after
-    // it: a duplicate like "<SSID> 2" would otherwise survive a Forget and keep
-    // rejoining, which looks exactly like Forget having done nothing.
-    let mut names: Vec<String> = profile_names(&client, &guid)?
-        .into_iter()
-        .filter(|name| name == ssid)
-        .collect();
-    if let Some(bound) = scan_facts(&client, &guid, ssid).profile
+    let facts = scan_facts(&client, &guid, ssid);
+    // Matched on each profile's OWN SSID, read back out of its document, not on
+    // its name: Windows names the second profile for one network "<SSID> 2",
+    // so a name comparison leaves every duplicate behind to keep auto-joining
+    // the network the user just forgot.
+    let target: Vec<u8> = if facts.raw_ssid.is_empty() {
+        ssid.as_bytes().to_vec()
+    } else {
+        facts.raw_ssid.clone()
+    };
+    let mut names: Vec<String> = Vec::new();
+    for name in profile_names(&client, &guid)? {
+        let matches = match profile_xml(&client, &guid, &name) {
+            Some(xml) => profile::ssid_of_profile(&xml).is_some_and(|found| found == target),
+            // Unreadable document: fall back to the name, which is what the
+            // profile is called for a network of the same name anyway.
+            None => name == ssid,
+        };
+        if matches && !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    if let Some(bound) = facts.profile
         && !names.contains(&bound)
     {
         names.push(bound);

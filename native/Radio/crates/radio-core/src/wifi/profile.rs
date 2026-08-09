@@ -104,6 +104,40 @@ pub fn open_profile(ssid: &str, raw: Option<&[u8]>, owe: bool) -> String {
     xml
 }
 
+/// Which pre-shared-key profile shape to author.
+///
+/// The advertised authentication algorithm decides this, and it has to: a
+/// profile is accepted by `WlanSetProfile` whether or not it describes the
+/// network, so authoring WPA2/AES for a legacy WPA/TKIP access point installs
+/// cleanly and then simply never connects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PskFlavor {
+    /// WPA3-SAE in transition mode: one profile joins WPA3-Personal and
+    /// WPA2-PSK networks alike.
+    Wpa3Transition,
+
+    /// WPA2-PSK with AES.
+    Wpa2Aes,
+
+    /// Legacy WPA-PSK with TKIP, for an access point that offers nothing newer.
+    WpaTkip,
+}
+
+impl PskFlavor {
+    /// The `<authentication>`, `<encryption>` and transition-element text.
+    fn parts(self) -> (&'static str, &'static str, &'static str) {
+        match self {
+            Self::Wpa3Transition => (
+                "WPA3SAE",
+                "AES",
+                "\n      <transitionMode xmlns=\"http://www.microsoft.com/networking/WLAN/profile/v4\">true</transitionMode>",
+            ),
+            Self::Wpa2Aes => ("WPA2PSK", "AES", ""),
+            Self::WpaTkip => ("WPAPSK", "TKIP", ""),
+        }
+    }
+}
+
 /// Builds a pre-shared-key profile.
 ///
 /// When `wpa3` is set the profile is authored as `WPA3SAE` with
@@ -115,7 +149,7 @@ pub fn open_profile(ssid: &str, raw: Option<&[u8]>, owe: bool) -> String {
 /// `wpa3` must be false on Windows 10, where the WPA3 authentication values do
 /// not exist (they need Windows 11 21H2 or Server 2022).
 #[must_use]
-pub fn psk_profile(ssid: &str, raw: Option<&[u8]>, passphrase: &str, wpa3: bool) -> String {
+pub fn psk_profile(ssid: &str, raw: Option<&[u8]>, passphrase: &str, flavor: PskFlavor) -> String {
     let name = escape(ssid);
     let ssid_element = ssid_element(&name, raw);
     let key = escape(passphrase);
@@ -127,14 +161,7 @@ pub fn psk_profile(ssid: &str, raw: Option<&[u8]>, passphrase: &str, wpa3: bool)
     } else {
         "passPhrase"
     };
-    let (auth, transition) = if wpa3 {
-        (
-            "WPA3SAE",
-            "\n      <transitionMode xmlns=\"http://www.microsoft.com/networking/WLAN/profile/v4\">true</transitionMode>",
-        )
-    } else {
-        ("WPA2PSK", "")
-    };
+    let (auth, encryption, transition) = flavor.parts();
     let mut xml = String::new();
     let _ = write!(
         xml,
@@ -147,7 +174,7 @@ pub fn psk_profile(ssid: &str, raw: Option<&[u8]>, passphrase: &str, wpa3: bool)
   <MSM><security>
     <authEncryption>
       <authentication>{auth}</authentication>
-      <encryption>AES</encryption>
+      <encryption>{encryption}</encryption>
       <useOneX>false</useOneX>{transition}
     </authEncryption>
     <sharedKey>
@@ -159,6 +186,54 @@ pub fn psk_profile(ssid: &str, raw: Option<&[u8]>, passphrase: &str, wpa3: bool)
 </WLANProfile>"#
     );
     xml
+}
+
+/// The SSID a saved profile actually joins, read back out of its XML.
+///
+/// Profile names do not identify networks: Windows names a second profile for
+/// the same SSID "<SSID> 2", so matching by name alone leaves duplicates behind
+/// that keep auto-joining a network the user just forgot. Returns the SSID's
+/// bytes — decoded from `<hex>` when present, otherwise the `<name>` text — or
+/// `None` when the document carries neither.
+#[must_use]
+pub fn ssid_of_profile(xml: &str) -> Option<Vec<u8>> {
+    // Deliberately a scan for the SSIDConfig block rather than an XML parse:
+    // this reads back a document Windows itself produced, and a dependency-free
+    // pure function is testable without a radio.
+    let config = slice_between(xml, "<SSIDConfig>", "</SSIDConfig>")?;
+    if let Some(hex) = slice_between(config, "<hex>", "</hex>") {
+        let trimmed = hex.trim();
+        if trimmed.len() % 2 != 0 {
+            return None;
+        }
+        let mut bytes = Vec::with_capacity(trimmed.len() / 2);
+        for pair in trimmed.as_bytes().chunks(2) {
+            let text = std::str::from_utf8(pair).ok()?;
+            bytes.push(u8::from_str_radix(text, 16).ok()?);
+        }
+        return Some(bytes);
+    }
+    slice_between(config, "<name>", "</name>").map(|name| unescape(name.trim()).into_bytes())
+}
+
+/// The text between the first `open` and the following `close`.
+fn slice_between<'a>(haystack: &'a str, open: &str, close: &str) -> Option<&'a str> {
+    let start = haystack.find(open)? + open.len();
+    let rest = &haystack[start..];
+    let end = rest.find(close)?;
+    Some(&rest[..end])
+}
+
+/// Reverses [`escape`], so an SSID containing `&` compares equal to the one the
+/// scan list reported.
+fn unescape(value: &str) -> String {
+    value
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        // Ampersand last: doing it first would re-expand the entities above.
+        .replace("&amp;", "&")
 }
 
 /// Whether a passphrase can be used as a WPA-PSK passphrase at all.
@@ -192,10 +267,13 @@ mod tests {
         // crate's own validator accepts would otherwise be unusable.
         let raw = "a1B2".repeat(16);
         assert!(passphrase_is_valid(&raw));
-        let xml = psk_profile("Net", None, &raw, true);
+        let xml = psk_profile("Net", None, &raw, PskFlavor::Wpa3Transition);
         assert!(xml.contains("<keyType>networkKey</keyType>"));
         // An ordinary passphrase keeps the passPhrase form.
-        assert!(psk_profile("Net", None, "password1", true).contains("<keyType>passPhrase</keyType>"));
+        assert!(
+            psk_profile("Net", None, "password1", PskFlavor::Wpa3Transition)
+                .contains("<keyType>passPhrase</keyType>")
+        );
     }
 
     #[test]
@@ -203,11 +281,14 @@ mod tests {
         // The lossy string carries U+FFFD where the air carried raw bytes, so a
         // <name> profile would describe a different network entirely.
         let raw = [0x41u8, 0xff, 0x42];
-        let xml = psk_profile("A\u{fffd}B", Some(&raw), "password1", false);
+        let xml = psk_profile("A\u{fffd}B", Some(&raw), "password1", PskFlavor::Wpa2Aes);
         assert!(xml.contains("<hex>41FF42</hex>"));
         assert!(!xml.contains("<SSID><name>"));
         // A valid-UTF-8 SSID keeps the readable form.
-        assert!(psk_profile("Cafe", Some(b"Cafe"), "password1", false).contains("<SSID><name>Cafe</name></SSID>"));
+        assert!(
+            psk_profile("Cafe", Some(b"Cafe"), "password1", PskFlavor::Wpa2Aes)
+                .contains("<SSID><name>Cafe</name></SSID>")
+        );
     }
 
     #[test]
@@ -221,7 +302,7 @@ mod tests {
 
     #[test]
     fn psk_profile_uses_the_v4_namespace_for_transition_mode_only() {
-        let xml = psk_profile("Net", None, "password1", true);
+        let xml = psk_profile("Net", None, "password1", PskFlavor::Wpa3Transition);
         assert!(xml.contains("<authentication>WPA3SAE</authentication>"));
         assert!(xml.contains(
             r#"<transitionMode xmlns="http://www.microsoft.com/networking/WLAN/profile/v4">true</transitionMode>"#
@@ -234,14 +315,14 @@ mod tests {
 
     #[test]
     fn the_wpa2_fallback_carries_no_transition_element() {
-        let xml = psk_profile("Net", None, "password1", false);
+        let xml = psk_profile("Net", None, "password1", PskFlavor::Wpa2Aes);
         assert!(xml.contains("<authentication>WPA2PSK</authentication>"));
         assert!(!xml.contains("transitionMode"));
     }
 
     #[test]
     fn ssid_and_passphrase_are_xml_escaped() {
-        let xml = psk_profile("A&B<C>", None, "pw\"&<>'x", true);
+        let xml = psk_profile("A&B<C>", None, "pw\"&<>'x", PskFlavor::Wpa3Transition);
         assert!(xml.contains("<name>A&amp;B&lt;C&gt;</name>"));
         assert!(xml.contains("<keyMaterial>pw&quot;&amp;&lt;&gt;&apos;x</keyMaterial>"));
         // No raw metacharacter may survive into the document body.
@@ -253,6 +334,38 @@ mod tests {
         let xml = open_profile("Cafe", None, false);
         assert_eq!(xml.matches("<name>Cafe</name>").count(), 2);
         assert!(xml.contains("<authentication>open</authentication>"));
+    }
+
+    #[test]
+    fn a_legacy_wpa_network_gets_a_profile_that_can_actually_join_it() {
+        // WlanSetProfile accepts a profile whether or not it describes the
+        // network, so a WPA2/AES document installs cleanly for a WPA/TKIP AP
+        // and then simply never connects.
+        let xml = psk_profile("Old", None, "password1", PskFlavor::WpaTkip);
+        assert!(xml.contains("<authentication>WPAPSK</authentication>"));
+        assert!(xml.contains("<encryption>TKIP</encryption>"));
+    }
+
+    #[test]
+    fn a_profiles_real_ssid_is_read_back_out_of_its_xml() {
+        // Profile names do not identify networks: Windows calls the second
+        // profile for one SSID "<SSID> 2", and matching by name leaves it
+        // behind to keep auto-joining a network the user forgot.
+        let xml = psk_profile("Cafe", None, "password1", PskFlavor::Wpa2Aes);
+        assert_eq!(ssid_of_profile(&xml).as_deref(), Some(&b"Cafe"[..]));
+
+        // The hex form, and an escaped name, both round-trip.
+        let hex = psk_profile("A\u{fffd}B", Some(&[0x41, 0xff, 0x42]), "password1", PskFlavor::Wpa2Aes);
+        assert_eq!(ssid_of_profile(&hex).as_deref(), Some(&[0x41u8, 0xff, 0x42][..]));
+        let escaped = open_profile("A&B", None, false);
+        assert_eq!(ssid_of_profile(&escaped).as_deref(), Some(&b"A&B"[..]));
+    }
+
+    #[test]
+    fn a_document_with_no_ssid_block_yields_nothing_rather_than_a_guess() {
+        assert!(ssid_of_profile("<WLANProfile></WLANProfile>").is_none());
+        // An odd-length hex body is malformed, not half an SSID.
+        assert!(ssid_of_profile("<SSIDConfig><SSID><hex>ABC</hex></SSID></SSIDConfig>").is_none());
     }
 
     #[test]

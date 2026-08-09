@@ -202,6 +202,12 @@ public partial class RadioWindow : Window
         return IntPtr.Zero;
     }
 
+    /// <summary>Shows the Wi-Fi or Bluetooth tab. Lets an already-open panel
+    /// honour the tile that was tapped instead of staying on whichever tab it
+    /// happened to open on.</summary>
+    /// <param name="bluetooth">True for the Bluetooth tab.</param>
+    internal void SelectTab(bool bluetooth) => Tabs.SelectedIndex = bluetooth ? 1 : 0;
+
     /// <summary>Moves to the previous tab (left shoulder).</summary>
     public void SelectPreviousTab() => Tabs.SelectPrevious();
 
@@ -328,7 +334,7 @@ public partial class RadioWindow : Window
         }
         if (entry.AudioConnectable)
         {
-            await _radios.SetAudioConnectionAsync(entry, connect: !entry.Connected);
+            await _radios.SetAudioConnectionAsync(entry, connect: !entry.AudioActive);
         }
     }
 

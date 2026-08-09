@@ -725,6 +725,9 @@ public sealed class OverlayController : IDisposable
     {
         if (_radioPanel is not null)
         {
+            // The tile carries which radio was tapped, so an open panel follows
+            // it rather than leaving the user on the tab it opened with.
+            _radioPanel.SelectTab(bluetooth);
             _radioPanel.Activate();
             return;
         }

@@ -135,26 +135,37 @@ fn cache() -> &'static Mutex<Vec<(RadioKind, Radio)>> {
     CACHE.get_or_init(|| Mutex::new(Vec::new()))
 }
 
-fn cached(kind: RadioKind) -> Option<Radio> {
+fn cached(kind: RadioKind) -> Vec<Radio> {
     cache()
         .lock()
-        .ok()?
-        .iter()
-        .find(|(cached_kind, _)| *cached_kind == kind)
-        .map(|(_, radio)| radio.clone())
+        .map(|entries| {
+            entries
+                .iter()
+                .filter(|(cached_kind, _)| *cached_kind == kind)
+                .map(|(_, radio)| radio.clone())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
-fn first_of(kind: RadioKind) -> Result<Option<Radio>> {
-    if let Some(radio) = cached(kind) {
-        // Prove the cached object still answers; a radio can be removed.
-        if radio.State().is_ok() {
-            return Ok(Some(radio));
+/// Every radio of one kind.
+///
+/// All of them, not the first: a handheld with built-in Bluetooth and a USB
+/// adapter has two, and picking one meant the reported state could flip between
+/// polls (the cache answered with the first, a refresh with the last) while the
+/// single UI switch toggled only whichever the cache happened to return.
+fn all_of(kind: RadioKind) -> Result<Vec<Radio>> {
+    let cached_radios = cached(kind);
+    if !cached_radios.is_empty() {
+        // Prove the cached objects still answer; a radio can be removed.
+        if cached_radios.iter().all(|radio| radio.State().is_ok()) {
+            return Ok(cached_radios);
         }
         if let Ok(mut entries) = cache().lock() {
             entries.clear();
         }
     }
-    let mut found = None;
+    let mut found = Vec::new();
     let mut entries = Vec::new();
     for radio in all_radios()? {
         let actual = radio.Kind().map_err(|e| winrt("Radio.Kind", e))?;
@@ -162,7 +173,7 @@ fn first_of(kind: RadioKind) -> Result<Option<Radio>> {
             if candidate.matches(actual) {
                 entries.push((candidate, radio.clone()));
                 if candidate == kind {
-                    found = Some(radio.clone());
+                    found.push(radio.clone());
                 }
             }
         }
@@ -173,17 +184,42 @@ fn first_of(kind: RadioKind) -> Result<Option<Radio>> {
     Ok(found)
 }
 
+/// The state to report for a kind that has several radios.
+///
+/// On wins: the question the tile answers is "can this machine use Bluetooth
+/// right now", and one live adapter is enough. Off beats the non-answers so a
+/// switchable radio still offers its switch.
+pub(crate) fn aggregate(states: &[RadioPower]) -> RadioPower {
+    for preferred in [
+        RadioPower::On,
+        RadioPower::Off,
+        RadioPower::Disabled,
+        RadioPower::Unknown,
+    ] {
+        if states.contains(&preferred) {
+            return preferred;
+        }
+    }
+    RadioPower::Absent
+}
+
 /// Reads the current power state of a radio.
 ///
 /// Never requires permission. Returns [`RadioPower::Absent`] when the machine
 /// has no such radio, which the taskbar renders as a neutral tile.
 pub fn power(kind: RadioKind) -> Result<RadioPower> {
     on_mta(move || {
-        let Some(radio) = first_of(kind)? else {
+        let radios = all_of(kind)?;
+        if radios.is_empty() {
             return Ok(RadioPower::Absent);
-        };
-        let state = radio.State().map_err(|e| winrt("Radio.State", e))?;
-        Ok(RadioPower::from_winrt(state))
+        }
+        let mut states = Vec::with_capacity(radios.len());
+        for radio in &radios {
+            states.push(RadioPower::from_winrt(
+                radio.State().map_err(|e| winrt("Radio.State", e))?,
+            ));
+        }
+        Ok(aggregate(&states))
     })?
 }
 
@@ -218,23 +254,79 @@ pub fn set_power(kind: RadioKind, on: bool) -> Result<RadioAccess> {
         if access != RadioAccess::Allowed {
             return Ok(access);
         }
-        let Some(radio) = first_of(kind)? else {
+        let radios = all_of(kind)?;
+        if radios.is_empty() {
             return Err(crate::error::Error::NotFound("radio"));
-        };
+        }
         let target = if on {
             WinRtRadioState::On
         } else {
             WinRtRadioState::Off
         };
-        // The SET's own decision, not the earlier request's: permission can be
-        // refused between the two calls (policy, a hardware switch), and
-        // returning the stale Allowed made the UI report a state change that
-        // never happened.
-        let applied = radio
-            .SetStateAsync(target)
-            .map_err(|e| winrt("Radio.SetStateAsync", e))?
-            .join()
-            .map_err(|e| winrt("Radio.SetStateAsync (join)", e))?;
-        Ok(RadioAccess::from_winrt(applied))
+        // EVERY radio of the kind, because the UI has one switch: leaving the
+        // second adapter alone means the tile reports a state the machine is
+        // not actually in.
+        let mut refusal = None;
+        let mut last_error = None;
+        let mut applied_any = false;
+        for radio in &radios {
+            match radio
+                .SetStateAsync(target)
+                .map_err(|e| winrt("Radio.SetStateAsync", e))
+                .and_then(|operation| {
+                    operation
+                        .join()
+                        .map_err(|e| winrt("Radio.SetStateAsync (join)", e))
+                }) {
+                // The SET's own decision, not the earlier request's: permission
+                // can be refused between the two calls (policy, a hardware
+                // switch), and returning the stale Allowed made the UI report a
+                // state change that never happened.
+                Ok(status) => {
+                    applied_any = true;
+                    let decision = RadioAccess::from_winrt(status);
+                    if decision != RadioAccess::Allowed && refusal.is_none() {
+                        refusal = Some(decision);
+                    }
+                }
+                Err(error) => last_error = Some(error),
+            }
+        }
+        if !applied_any {
+            return Err(last_error.unwrap_or(crate::error::Error::NotFound("radio")));
+        }
+        Ok(refusal.unwrap_or(RadioAccess::Allowed))
     })?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn one_live_adapter_is_enough_for_the_tile_to_read_on() {
+        // "Can this machine use Bluetooth right now" is the question a tile
+        // answers, and a second adapter being off does not change it.
+        assert_eq!(
+            aggregate(&[RadioPower::Off, RadioPower::On]),
+            RadioPower::On
+        );
+    }
+
+    #[test]
+    fn a_switchable_radio_outranks_the_states_that_offer_no_switch() {
+        assert_eq!(
+            aggregate(&[RadioPower::Unknown, RadioPower::Off]),
+            RadioPower::Off
+        );
+        assert_eq!(
+            aggregate(&[RadioPower::Unknown, RadioPower::Disabled]),
+            RadioPower::Disabled
+        );
+    }
+
+    #[test]
+    fn no_radios_at_all_is_absent() {
+        assert_eq!(aggregate(&[]), RadioPower::Absent);
+    }
 }

@@ -533,10 +533,21 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     /// when the sweep completes is no longer there.</summary>
     private readonly HashSet<string> _seenThisSweep = new(StringComparer.Ordinal);
 
-    /// <summary>Containers with Bluetooth audio endpoints — the devices whose
-    /// rows get a Connect/Disconnect action. Refreshed with each panel-open
-    /// snapshot.</summary>
-    private readonly HashSet<string> _audioContainers = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Containers with Bluetooth audio endpoints, mapped to whether
+    /// those endpoints are live. The devices whose rows get a
+    /// Connect/Disconnect action, and which way round it reads. Refreshed with
+    /// each panel-open snapshot.</summary>
+    private readonly Dictionary<string, bool> _audioContainers =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Applies the audio-endpoint facts to one row.</summary>
+    private void ApplyAudioState(BluetoothDeviceEntry row)
+    {
+        var known = row.ContainerId.Length > 0
+            && _audioContainers.TryGetValue(row.ContainerId, out var active);
+        row.AudioConnectable = known;
+        row.AudioActive = known && _audioContainers[row.ContainerId];
+    }
 
     /// <summary>Starts the live Bluetooth and Wi-Fi feeds.
     ///
@@ -694,7 +705,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         row.CanPair = canPair;
         row.Connected = connected;
         row.ContainerId = container;
-        row.AudioConnectable = container.Length > 0 && _audioContainers.Contains(container);
+        ApplyAudioState(row);
         BluetoothStateText = DescribeBluetooth(BluetoothPower, BluetoothDevices.Count);
     }
 
@@ -756,12 +767,14 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             _audioContainers.Clear();
             foreach (var container in audio)
             {
-                _audioContainers.Add(container.Container);
+                // Active kept, not just the id: it is what the Connect button
+                // actually toggles, and the row's broader AEP state can say
+                // "connected" while the audio endpoints sit unplugged.
+                _audioContainers[container.Container] = container.Active;
             }
             foreach (var row in BluetoothDevices)
             {
-                row.AudioConnectable =
-                    row.ContainerId.Length > 0 && _audioContainers.Contains(row.ContainerId);
+                ApplyAudioState(row);
             }
         }
     }
@@ -827,6 +840,10 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             row.Signal = source.Signal;
             row.Security = (WifiSecurity)source.Security;
             row.Saved = source.Saved;
+            // Carried through rather than dropped: a network the driver has
+            // already rejected must not show an enabled Connect that can only
+            // fail.
+            row.Connectable = source.Connectable;
             // Reported by the WLAN service, never guessed from list position:
             // the joined network is not always the strongest one visible.
             row.Connected = source.Connected;
@@ -839,10 +856,14 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         {
             Networks.RemoveAt(i);
         }
-        ConnectedSsid = connected;
-        if (connected.Length == 0)
+        // Only when the scan positively named a joined network. The interface
+        // status read in Apply is authoritative and already correct; clearing
+        // it here because no ROW happened to be marked connected (a hidden
+        // network, or a scan refresh mid-flight) made the taskbar lose its
+        // network name and signal bars the moment the panel opened.
+        if (connected.Length > 0)
         {
-            WifiSignal = 0;
+            ConnectedSsid = connected;
         }
     }
 
@@ -878,8 +899,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             row.CanPair = source.CanPair;
             row.Connected = source.Connected;
             row.ContainerId = source.Container;
-            row.AudioConnectable =
-                source.Container.Length > 0 && _audioContainers.Contains(source.Container);
+            ApplyAudioState(row);
         }
         for (var i = BluetoothDevices.Count - 1; i >= 0; i--)
         {
@@ -945,34 +965,55 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     /// <summary>Joins a network, installing a profile with the password first.</summary>
     /// <param name="ssid">The network to join.</param>
     /// <param name="password">The password, or null for an open or saved network.</param>
-    /// <returns>True when the join was accepted; false leaves a reason in
-    /// <see cref="StatusText"/>.</returns>
+    /// <returns>True when the network was actually joined; false leaves a
+    /// reason in <see cref="StatusText"/>.</returns>
     public async Task<bool> ConnectAsync(string ssid, string? password)
     {
-        StatusText = $"Connecting to {ssid}...";
-        var result = await Task.Run(() =>
+        // One attempt at a time. The helper now waits out the real verdict, so
+        // a second Connect would run a concurrent attempt whose scoped watcher
+        // sees the same process-wide WLAN events: the two would consume each
+        // other's outcomes, report the wrong result, and roll back a profile
+        // over a cancellation the user never asked for.
+        if (Interlocked.CompareExchange(ref _connecting, 1, 0) != 0)
         {
-            var status = NativeRadio.ConnectWifi(ssid, password, out var reason);
-            return (status, reason, error: NativeRadio.LastError());
-        });
-
-        if (result.status == NativeRadio.Ok)
-        {
-            Log.Info($"Wi-Fi connect: requested {ssid}.");
-            StatusText = "";
-            QueueRefresh();
-            return true;
+            Log.Info($"Wi-Fi connect: {ssid} ignored, an attempt is already running.");
+            StatusText = "Still working on the last connection attempt...";
+            return false;
         }
+        try
+        {
+            StatusText = $"Connecting to {ssid}...";
+            var result = await Task.Run(() =>
+            {
+                var status = NativeRadio.ConnectWifi(ssid, password, out var reason);
+                return (status, reason, error: NativeRadio.LastError());
+            });
 
-        var verdict = result.reason != 0
-            ? await Task.Run(() => NativeRadio.GetReasonVerdict(result.reason))
-            : 4;
-        StatusText = DescribeConnectFailure(verdict, result.reason, result.error);
-        Log.Warn(
-            $"Wi-Fi connect: {ssid} failed (verdict {verdict}, reason {result.reason}): {result.error}");
-        QueueRefresh();
-        return false;
+            if (result.status == NativeRadio.Ok)
+            {
+                Log.Info($"Wi-Fi connect: {ssid} connected.");
+                StatusText = "";
+                QueueRefresh();
+                return true;
+            }
+
+            var verdict = result.reason != 0
+                ? await Task.Run(() => NativeRadio.GetReasonVerdict(result.reason))
+                : 4;
+            StatusText = DescribeConnectFailure(verdict, result.reason, result.error);
+            Log.Warn(
+                $"Wi-Fi connect: {ssid} failed (verdict {verdict}, reason {result.reason}): {result.error}");
+            QueueRefresh();
+            return false;
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _connecting, 0);
+        }
     }
+
+    /// <summary>Non-zero while a connection attempt is in flight.</summary>
+    private int _connecting;
 
     /// <summary>The message for a failed join.
     ///
@@ -1035,9 +1076,9 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         if (result.status == NativeRadio.Ok)
         {
             Log.Info($"Bluetooth audio {(connect ? "connect" : "disconnect")}: {entry.Name}.");
-            // Optimistic: the AEP watcher confirms shortly, but the button the
-            // user just pressed should react immediately.
-            entry.Connected = connect;
+            // Optimistic on the AUDIO state specifically — that is what this
+            // one-shot moved. The next snapshot confirms it from the endpoints.
+            entry.AudioActive = connect;
             StatusText = "";
         }
         else

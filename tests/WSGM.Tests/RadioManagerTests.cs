@@ -273,11 +273,27 @@ public class RadioEntryTests
         entry.AudioConnectable = true;
         Assert.Equal("Connect", entry.ActionText);
 
-        entry.Connected = true;
+        entry.AudioActive = true;
         Assert.Equal("Disconnect", entry.ActionText);
 
         entry.Busy = true;
         Assert.Equal("Working...", entry.ActionText);
+    }
+
+    [Fact]
+    public void TheConnectActionFollowsTheAudioEndpointsNotTheAssociation()
+    {
+        // A headset can hold an association for another profile while its audio
+        // endpoints are unplugged. Reading the broader state would label the
+        // button Disconnect and then send the opposite one-shot.
+        var entry = new BluetoothDeviceEntry("BT#1")
+        {
+            Paired = true,
+            AudioConnectable = true,
+            Connected = true,
+            AudioActive = false,
+        };
+        Assert.Equal("Connect", entry.ActionText);
     }
 
     [Fact]
@@ -289,8 +305,11 @@ public class RadioEntryTests
         Assert.False(entry.PrimaryActionVisible);
         Assert.True(entry.RemoveVisible);
 
-        // An unpaired stranger is the mirror image: Pair, and nothing to remove.
+        // An unpaired stranger offers Pair only while Windows says pairing is
+        // actually possible — a stale endpoint would fail every time.
         var stranger = new BluetoothDeviceEntry("BT#2");
+        Assert.False(stranger.PrimaryActionVisible);
+        stranger.CanPair = true;
         Assert.True(stranger.PrimaryActionVisible);
         Assert.False(stranger.RemoveVisible);
     }

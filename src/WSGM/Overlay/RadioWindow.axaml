@@ -94,8 +94,12 @@
                                             </Button>
                                             <StackPanel Classes="radio-row-actions"
                                                         IsVisible="{Binding Expanded}">
+                                                <!-- Disabled for a network the
+                                                     driver says cannot be joined:
+                                                     the attempt could only fail. -->
                                                 <Button x:Name="ConnectButton"
                                                         Content="{Binding ActionText}"
+                                                        IsEnabled="{Binding ActionEnabled}"
                                                         Click="OnNetworkAction" />
                                                 <Button Content="Forget"
                                                         Click="OnNetworkForget"

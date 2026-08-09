@@ -97,6 +97,31 @@ public sealed class WifiNetworkEntry : INotifyPropertyChanged
         }
     }
 
+    private bool _connectable = true;
+    /// <summary>Gets whether the driver believes this network can be joined at
+    /// all. False leaves the row visible but its action disabled: offering a
+    /// Connect the driver has already rejected produces a doomed attempt with
+    /// nothing to explain it.</summary>
+    public bool Connectable
+    {
+        get => _connectable;
+        internal set
+        {
+            if (_connectable != value)
+            {
+                _connectable = value;
+                Raise(nameof(Connectable));
+                Raise(nameof(ActionEnabled));
+                Raise(nameof(StatusLine));
+            }
+        }
+    }
+
+    /// <summary>Gets whether the row's action button may be pressed. A joined
+    /// network can always be disconnected, whatever the scan says about
+    /// joining it again.</summary>
+    public bool ActionEnabled => Connected || Connectable;
+
     private bool _connected;
     /// <summary>Gets whether this is the network currently joined.</summary>
     public bool Connected
@@ -111,6 +136,7 @@ public sealed class WifiNetworkEntry : INotifyPropertyChanged
                 Raise(nameof(IconState));
                 Raise(nameof(StatusLine));
                 Raise(nameof(ActionText));
+                Raise(nameof(ActionEnabled));
             }
         }
     }
@@ -142,6 +168,8 @@ public sealed class WifiNetworkEntry : INotifyPropertyChanged
     /// <summary>Gets the second line under the name.</summary>
     public string StatusLine => Connected
         ? "Connected"
+        : !Connectable
+        ? "Not available right now"
         : Security switch
         {
             WifiSecurity.Enterprise => "Enterprise network (not supported here)",
@@ -240,6 +268,9 @@ public sealed class BluetoothDeviceEntry : INotifyPropertyChanged
                 _canPair = value;
                 Raise(nameof(CanPair));
                 Raise(nameof(StatusLine));
+                // A device that enters pairing mode later must reveal its Pair
+                // button without the row being rebuilt.
+                Raise(nameof(PrimaryActionVisible));
             }
         }
     }
@@ -301,6 +332,27 @@ public sealed class BluetoothDeviceEntry : INotifyPropertyChanged
         }
     }
 
+    private bool _audioActive;
+    /// <summary>Gets whether this device's AUDIO endpoints are live, which is
+    /// what the connect action actually toggles. Deliberately separate from
+    /// <see cref="Connected"/>: a headset can hold an association for another
+    /// profile while its audio endpoints sit unplugged, and reading the broader
+    /// state there would label the button Disconnect and then send the opposite
+    /// one-shot.</summary>
+    public bool AudioActive
+    {
+        get => _audioActive;
+        internal set
+        {
+            if (_audioActive != value)
+            {
+                _audioActive = value;
+                Raise(nameof(AudioActive));
+                Raise(nameof(ActionText));
+            }
+        }
+    }
+
     private bool _busy;
     /// <summary>Gets whether an operation is in flight for this device.</summary>
     public bool Busy
@@ -324,12 +376,14 @@ public sealed class BluetoothDeviceEntry : INotifyPropertyChanged
     public string ActionText => Busy
         ? "Working..."
         : !Paired ? "Pair"
-        : Connected ? "Disconnect" : "Connect";
+        : AudioActive ? "Disconnect" : "Connect";
 
     /// <summary>Gets whether the primary button is shown at all. A paired
     /// non-audio device has no on-demand connect (it reconnects itself when
-    /// used), so its only action is Remove.</summary>
-    public bool PrimaryActionVisible => !Paired || AudioConnectable;
+    /// used), so its only action is Remove — and an unpaired device Windows
+    /// says cannot be paired offers nothing at all rather than a Pair button
+    /// that is guaranteed to fail.</summary>
+    public bool PrimaryActionVisible => Paired ? AudioConnectable : CanPair;
 
     /// <summary>Gets whether the Remove (unpair) button is shown.</summary>
     public bool RemoveVisible => Paired;

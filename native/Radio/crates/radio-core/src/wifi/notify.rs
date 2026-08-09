@@ -49,6 +49,10 @@ const ACM_CONNECTION_COMPLETE: u32 = wlan_notification_acm_connection_complete.0
 const ACM_CONNECTION_ATTEMPT_FAIL: u32 = wlan_notification_acm_connection_attempt_fail.0 as u32;
 const ACM_DISCONNECTED: u32 = wlan_notification_acm_disconnected.0 as u32;
 
+/// `WLAN_REASON_CODE_SUCCESS`. The only reason value that means the attempt
+/// actually succeeded.
+const WLAN_REASON_CODE_SUCCESS: u32 = 0;
+
 type Sink = Box<dyn Fn(WifiEvent) + Send + Sync + 'static>;
 
 static SINK: OnceLock<Mutex<Option<Sink>>> = OnceLock::new();
@@ -199,11 +203,9 @@ unsafe extern "system" fn on_connection(data: *mut L2_NOTIFICATION_DATA, context
     if source != WLAN_NOTIFICATION_SOURCE_ACM {
         return;
     }
-    let succeeded = match code {
-        ACM_CONNECTION_COMPLETE => true,
-        ACM_CONNECTION_ATTEMPT_FAIL => false,
-        _ => return,
-    };
+    if !matches!(code, ACM_CONNECTION_COMPLETE | ACM_CONNECTION_ATTEMPT_FAIL) {
+        return;
+    }
     // The reason code lives in the payload; a short or absent one is reported
     // as zero rather than read past its end.
     let reason = if !payload.is_null() && size >= size_of::<WLAN_CONNECTION_NOTIFICATION_DATA>() {
@@ -212,6 +214,11 @@ unsafe extern "system" fn on_connection(data: *mut L2_NOTIFICATION_DATA, context
     } else {
         0
     };
+    // The EVENT alone does not mean the join worked: connection_complete is
+    // also how a failed authentication is reported, with the reason carrying
+    // the verdict. Trusting the event was how a rejected password still read as
+    // a successful connection — and kept the bad profile it had just saved.
+    let succeeded = code == ACM_CONNECTION_COMPLETE && reason == WLAN_REASON_CODE_SUCCESS;
     // SAFETY: the context outlives the registration (see Drop).
     let sender = unsafe { &*context.cast::<SyncSender<ConnectionOutcome>>() };
     // try_send: a service callback must never block, and one outcome is all
