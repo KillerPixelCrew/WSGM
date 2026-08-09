@@ -44,54 +44,69 @@ pub enum Verdict {
     Unknown,
 }
 
-// From the documented WLAN_REASON_CODE ranges. The MSMSEC block is the one that
-// carries pre-shared-key failures.
-const MSMSEC_BASE: u32 = 229376; // WLAN_REASON_CODE_MSMSEC_BASE
-const MSM_BASE: u32 = 163840; // WLAN_REASON_CODE_MSM_BASE
-const AC_BASE: u32 = 131072; // WLAN_REASON_CODE_AC_BASE
+// Taken from the crate's own WLAN_REASON_CODE definitions, never computed from
+// a base plus an offset. The hand-derived versions were wrong in a way nothing
+// could notice: the value used as MSMSEC_BASE was in fact MSM_CONNECT_BASE, so
+// every constant below missed its real code, no failure ever classified as a
+// wrong password, and the profile rollback that depends on that verdict was
+// unreachable. A mistyped password therefore looked like an unexplained failure
+// AND left its bad profile saved.
+use windows::Win32::NetworkManagement::WiFi::{
+    WLAN_REASON_CODE_AC_BASE, WLAN_REASON_CODE_AC_END, WLAN_REASON_CODE_MSM_BASE,
+    WLAN_REASON_CODE_MSM_END, WLAN_REASON_CODE_MSMSEC_BASE, WLAN_REASON_CODE_MSMSEC_CONNECT_BASE,
+    WLAN_REASON_CODE_MSMSEC_DOWNGRADE_DETECTED, WLAN_REASON_CODE_MSMSEC_END,
+    WLAN_REASON_CODE_MSMSEC_KEY_FORMAT, WLAN_REASON_CODE_MSMSEC_KEY_START_TIMEOUT,
+    WLAN_REASON_CODE_MSMSEC_KEY_SUCCESS_TIMEOUT, WLAN_REASON_CODE_MSMSEC_M2_MISSING_KEY_DATA,
+    WLAN_REASON_CODE_MSMSEC_M3_MISSING_IE, WLAN_REASON_CODE_MSMSEC_M3_MISSING_KEY_DATA,
+    WLAN_REASON_CODE_MSMSEC_PROFILE_PASSPHRASE_CHAR, WLAN_REASON_CODE_MSMSEC_PROFILE_PSK_LENGTH,
+    WLAN_REASON_CODE_MSMSEC_PROFILE_WRONG_KEYTYPE, WLAN_REASON_CODE_MSMSEC_PSK_MISMATCH_SUSPECTED,
+    WLAN_REASON_CODE_NETWORK_NOT_AVAILABLE, WLAN_REASON_CODE_NO_AUTO_CONNECTION,
+};
 
-/// The key was tried and rejected.
-pub const MSMSEC_PSK_MISMATCH_SUSPECTED: u32 = MSMSEC_BASE + 82;
-/// The security handshake produced mismatched keys.
-pub const MSMSEC_KEY_MISMATCH: u32 = MSMSEC_BASE + 71;
-/// The 4-way handshake never finished; overwhelmingly a wrong key.
-pub const MSMSEC_M3_MISSING_KEY_DATA: u32 = MSMSEC_BASE + 63;
-/// The handshake timed out waiting for the key exchange to start.
-pub const MSMSEC_KEY_START_TIMEOUT: u32 = MSMSEC_BASE + 54;
-/// The handshake timed out partway through the key exchange.
-pub const MSMSEC_KEY_SUCCESS_TIMEOUT: u32 = MSMSEC_BASE + 55;
-
-/// The profile's pre-shared key was not a legal length.
-pub const MSMSEC_PROFILE_PSK_LENGTH: u32 = MSMSEC_BASE + 16;
-/// The profile's passphrase contained an illegal character.
-pub const MSMSEC_PROFILE_PASSPHRASE_CHAR: u32 = MSMSEC_BASE + 18;
-/// The profile named the wrong key type for its authentication mode.
-pub const MSMSEC_PROFILE_WRONG_KEYTYPE: u32 = MSMSEC_BASE + 12;
-
-/// Association failed outright.
-pub const MSM_ASSOCIATION_FAILURE: u32 = MSM_BASE + 6;
-/// Association timed out.
-pub const MSM_ASSOCIATION_TIMEOUT: u32 = MSM_BASE + 7;
-/// The network was not there to join.
-pub const AC_NETWORK_NOT_AVAILABLE: u32 = AC_BASE + 9;
-/// The network is on the automatic-connect blocklist.
-pub const AC_PROFILE_NOT_ALLOWED: u32 = AC_BASE + 6;
+/// The key was tried and rejected. Re-exported under a short name because it is
+/// the one code the tests and the ABI care about by name.
+pub const MSMSEC_PSK_MISMATCH_SUSPECTED: u32 = WLAN_REASON_CODE_MSMSEC_PSK_MISMATCH_SUSPECTED;
 
 /// Classifies a reason code into the advice the UI should give.
 #[must_use]
 pub fn verdict(code: u32) -> Verdict {
     match code {
         0 => Verdict::Success,
-        MSMSEC_PSK_MISMATCH_SUSPECTED
-        | MSMSEC_KEY_MISMATCH
-        | MSMSEC_M3_MISSING_KEY_DATA
-        | MSMSEC_KEY_START_TIMEOUT
-        | MSMSEC_KEY_SUCCESS_TIMEOUT => Verdict::WrongPassword,
-        MSMSEC_PROFILE_PSK_LENGTH | MSMSEC_PROFILE_PASSPHRASE_CHAR | MSMSEC_PROFILE_WRONG_KEYTYPE => {
+        // The key exchange failed, which is what a mistyped password looks
+        // like from here.
+        WLAN_REASON_CODE_MSMSEC_PSK_MISMATCH_SUSPECTED
+        | WLAN_REASON_CODE_MSMSEC_KEY_FORMAT
+        | WLAN_REASON_CODE_MSMSEC_DOWNGRADE_DETECTED
+        | WLAN_REASON_CODE_MSMSEC_M3_MISSING_KEY_DATA
+        | WLAN_REASON_CODE_MSMSEC_M3_MISSING_IE
+        | WLAN_REASON_CODE_MSMSEC_M2_MISSING_KEY_DATA
+        | WLAN_REASON_CODE_MSMSEC_KEY_START_TIMEOUT
+        | WLAN_REASON_CODE_MSMSEC_KEY_SUCCESS_TIMEOUT => Verdict::WrongPassword,
+        // The profile document itself was rejected.
+        WLAN_REASON_CODE_MSMSEC_PROFILE_PSK_LENGTH
+        | WLAN_REASON_CODE_MSMSEC_PROFILE_PASSPHRASE_CHAR
+        | WLAN_REASON_CODE_MSMSEC_PROFILE_WRONG_KEYTYPE => Verdict::BadProfile,
+        WLAN_REASON_CODE_NETWORK_NOT_AVAILABLE | WLAN_REASON_CODE_NO_AUTO_CONNECTION => {
+            Verdict::Unreachable
+        }
+        // Range fallbacks, so a code Windows names but this list does not still
+        // lands in the right family instead of "unknown". The MSMSEC block
+        // splits at its connect base: below it is profile validation, above it
+        // is the security handshake.
+        c if (WLAN_REASON_CODE_MSMSEC_BASE..WLAN_REASON_CODE_MSMSEC_CONNECT_BASE).contains(&c) => {
             Verdict::BadProfile
         }
-        MSM_ASSOCIATION_FAILURE | MSM_ASSOCIATION_TIMEOUT | AC_NETWORK_NOT_AVAILABLE
-        | AC_PROFILE_NOT_ALLOWED => Verdict::Unreachable,
+        c if (WLAN_REASON_CODE_MSMSEC_CONNECT_BASE..=WLAN_REASON_CODE_MSMSEC_END).contains(&c) => {
+            Verdict::WrongPassword
+        }
+        // Association and auto-config failures are reachability problems, and
+        // must never be blamed on the user's typing.
+        c if (WLAN_REASON_CODE_MSM_BASE..=WLAN_REASON_CODE_MSM_END).contains(&c) => {
+            Verdict::Unreachable
+        }
+        c if (WLAN_REASON_CODE_AC_BASE..=WLAN_REASON_CODE_AC_END).contains(&c) => {
+            Verdict::Unreachable
+        }
         _ => Verdict::Unknown,
     }
 }
@@ -134,21 +149,52 @@ mod tests {
     #[test]
     fn the_psk_mismatch_code_is_the_one_that_re_prompts_for_a_password() {
         assert_eq!(verdict(MSMSEC_PSK_MISMATCH_SUSPECTED), Verdict::WrongPassword);
-        assert_eq!(verdict(MSMSEC_KEY_MISMATCH), Verdict::WrongPassword);
+        assert_eq!(
+            verdict(WLAN_REASON_CODE_MSMSEC_M3_MISSING_KEY_DATA),
+            Verdict::WrongPassword
+        );
+    }
+
+    #[test]
+    fn the_constants_are_the_ones_wlanapi_actually_defines() {
+        // Pinned against the real values: the previous set was derived from a
+        // base that was actually MSM_CONNECT_BASE, so every code missed, no
+        // failure ever read as a wrong password, and the profile rollback that
+        // hangs off that verdict could never run.
+        assert_eq!(MSMSEC_PSK_MISMATCH_SUSPECTED, 294932);
+        assert_eq!(WLAN_REASON_CODE_MSMSEC_BASE, 262144);
+        assert_eq!(WLAN_REASON_CODE_MSM_BASE, 196608);
+        assert_eq!(WLAN_REASON_CODE_AC_BASE, 131072);
     }
 
     #[test]
     fn an_unreachable_network_never_blames_the_password() {
         // Re-prompting here would be wrong: the key was never tried.
-        assert_eq!(verdict(MSM_ASSOCIATION_TIMEOUT), Verdict::Unreachable);
-        assert_eq!(verdict(AC_NETWORK_NOT_AVAILABLE), Verdict::Unreachable);
-        assert_ne!(verdict(MSM_ASSOCIATION_FAILURE), Verdict::WrongPassword);
+        assert_eq!(
+            verdict(WLAN_REASON_CODE_NETWORK_NOT_AVAILABLE),
+            Verdict::Unreachable
+        );
+        assert_eq!(
+            verdict(WLAN_REASON_CODE_NO_AUTO_CONNECTION),
+            Verdict::Unreachable
+        );
+        // Anything in the association block is reachability, not typing.
+        assert_ne!(
+            verdict(WLAN_REASON_CODE_MSM_BASE + 6),
+            Verdict::WrongPassword
+        );
     }
 
     #[test]
     fn profile_authoring_faults_are_distinct_from_a_rejected_key() {
-        assert_eq!(verdict(MSMSEC_PROFILE_PSK_LENGTH), Verdict::BadProfile);
-        assert_eq!(verdict(MSMSEC_PROFILE_PASSPHRASE_CHAR), Verdict::BadProfile);
+        assert_eq!(
+            verdict(WLAN_REASON_CODE_MSMSEC_PROFILE_PSK_LENGTH),
+            Verdict::BadProfile
+        );
+        assert_eq!(
+            verdict(WLAN_REASON_CODE_MSMSEC_PROFILE_PASSPHRASE_CHAR),
+            Verdict::BadProfile
+        );
     }
 
     #[test]

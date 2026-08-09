@@ -602,6 +602,17 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
     let raw = (!facts.raw_ssid.is_empty()).then_some(facts.raw_ssid.as_slice());
     let existing = facts.profile.clone();
 
+    // The name to author under. Not simply the SSID: a profile of that name may
+    // already exist for a DIFFERENT network (Windows allows it), and writing
+    // over it would destroy that network's stored credentials — which the
+    // rollback would then delete rather than restore.
+    let target: Vec<u8> = if facts.raw_ssid.is_empty() {
+        ssid.as_bytes().to_vec()
+    } else {
+        facts.raw_ssid.clone()
+    };
+    let new_profile_name = free_profile_name(&client, &guid, ssid, &target);
+
     // A profile is authored ONLY when the caller supplied a passphrase. Writing
     // one for a network that already has a saved profile would overwrite it —
     // and with no passphrase to put in it, an open-network profile would replace
@@ -631,7 +642,9 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
             };
             let attempts: Vec<String> = flavors
                 .iter()
-                .map(|flavor| profile::psk_profile(ssid, raw, pass, *flavor))
+                .map(|flavor| {
+                    profile::psk_profile(&new_profile_name, ssid, raw, pass, *flavor)
+                })
                 .collect();
             let mut last: Option<Error> = None;
             let mut installed = false;
@@ -649,7 +662,7 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
                     last.unwrap_or(Error::InvalidArgument("profile could not be installed"))
                 );
             }
-            authored = Some(ssid.to_owned());
+            authored = Some(new_profile_name.clone());
         }
         None => {
             // No passphrase: only ever create a profile when the network has
@@ -670,8 +683,12 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
                     }
                     Some(Security::Open) | Some(Security::EnhancedOpen) => {
                         let owe = facts.security == Some(Security::EnhancedOpen);
-                        set_profile(&client, &guid, &profile::open_profile(ssid, raw, owe))?;
-                        authored = Some(ssid.to_owned());
+                        set_profile(
+                            &client,
+                            &guid,
+                            &profile::open_profile(&new_profile_name, ssid, raw, owe),
+                        )?;
+                        authored = Some(new_profile_name.clone());
                     }
                     _ => {
                         return Err(Error::InvalidArgument(
@@ -863,6 +880,42 @@ pub fn disconnect() -> Result<()> {
         return Ok(());
     }
     last
+}
+
+/// A profile name that is free to author under for `target`.
+///
+/// The SSID itself when nothing holds that name, or when the profile holding it
+/// already joins this very network (overwriting our own is the intent). When it
+/// belongs to a DIFFERENT network, Windows' own convention is followed and a
+/// numbered name is taken instead — overwriting would destroy that network's
+/// stored credentials, and the rollback on a failed attempt would then delete
+/// the replacement without restoring the original.
+fn free_profile_name(client: &Client, guid: &GUID, ssid: &str, target: &[u8]) -> String {
+    let existing = profile_ssids(client, guid);
+    let owner = |name: &str| {
+        existing
+            .iter()
+            .find(|(existing_name, _)| existing_name == name)
+            .map(|(_, saved)| saved.clone())
+    };
+    match owner(ssid) {
+        None => ssid.to_owned(),
+        Some(saved) if saved == target => ssid.to_owned(),
+        Some(_) => {
+            // Same shape Windows uses for its own duplicates.
+            for suffix in 2..=64 {
+                let candidate = format!("{ssid} {suffix}");
+                match owner(&candidate) {
+                    None => return candidate,
+                    Some(saved) if saved == target => return candidate,
+                    Some(_) => {}
+                }
+            }
+            // Beyond any plausible number of collisions; the overwrite that
+            // follows is the lesser evil against failing the join outright.
+            ssid.to_owned()
+        }
+    }
 }
 
 /// Every saved profile paired with the SSID it actually joins.
