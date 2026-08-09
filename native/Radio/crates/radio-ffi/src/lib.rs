@@ -282,7 +282,8 @@ pub struct WsgmWifiNetwork {
     pub ssid: [u16; 64],
     /// Signal quality, 0-100.
     pub signal: u32,
-    /// 0 open, 1 pre-shared key, 2 enterprise, 3 Enhanced Open (OWE).
+    /// 0 open, 1 pre-shared key, 2 enterprise, 3 Enhanced Open (OWE),
+    /// 4 unsupported protection (WEP).
     pub security: i32,
     /// Non-zero when a saved profile exists.
     pub saved: i32,
@@ -391,6 +392,7 @@ pub unsafe extern "system" fn wsgm_wifi_list(
                         Security::PersonalPsk => 1,
                         Security::Enterprise => 2,
                         Security::EnhancedOpen => 3,
+                        Security::Unsupported => 4,
                     },
                     saved: i32::from(n.saved),
                     connectable: i32::from(n.connectable),

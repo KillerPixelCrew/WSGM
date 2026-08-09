@@ -519,6 +519,11 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
 
         IReadOnlyList<NativeRadio.WifiNetwork> networks = [];
         string? failure = null;
+        // Only a SUCCESSFUL listing counts as carrying a network list. Marking
+        // a failed one as included made Apply reconcile against an empty
+        // collection and wipe every row, so one transient WLAN-service error
+        // took away the Connect and Forget actions for networks still in range.
+        var listed = false;
 
         if (includeNetworks && wifiPower == RadioPower.On)
         {
@@ -527,6 +532,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
                 networks = ReadArray(
                     items, count, NativeRadio.WifiRecordSize, NativeRadio.ReadWifiNetwork);
                 NativeRadio.FreeWifiNetworks(items, count);
+                listed = true;
             }
             else
             {
@@ -557,7 +563,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             wifiState,
             wifiSignal,
             wifiSsid,
-            includeNetworks && wifiPower == RadioPower.On,
+            listed,
             networks,
             audio,
             failure);

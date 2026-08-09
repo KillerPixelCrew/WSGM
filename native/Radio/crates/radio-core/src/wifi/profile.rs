@@ -26,6 +26,12 @@ pub enum Security {
     /// `open`/`none` for it. Its own variant precisely so it cannot be
     /// authored as a legacy open network and then fail to connect.
     EnhancedOpen,
+
+    /// A protection this crate cannot author a profile for — WEP, whose
+    /// open-system authentication otherwise looks exactly like an unsecured
+    /// network. Named so the UI can decline instead of installing an
+    /// `open`/`none` profile that can never join.
+    Unsupported,
 }
 
 /// Escapes text for an XML element body.

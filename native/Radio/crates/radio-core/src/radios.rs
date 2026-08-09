@@ -11,6 +11,7 @@
 //!   privacy setting. Reading state and enumerating are never gated.
 
 use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use windows::Devices::Radios::{
     Radio, RadioAccessStatus, RadioKind as WinRtRadioKind, RadioState as WinRtRadioState,
@@ -129,23 +130,42 @@ fn all_radios() -> Result<Vec<Radio>> {
 /// tick, which is what made the panel take about ten seconds to show anything.
 /// The objects themselves are long-lived and agile, and `State()` on a cached
 /// one reflects the live value, so only the lookup is cached, never the state.
-static CACHE: OnceLock<Mutex<Vec<(RadioKind, Radio)>>> = OnceLock::new();
+/// The cached enumeration, with when it was taken. `None` means never
+/// enumerated — distinct from "enumerated and this machine has no such radio",
+/// which is a real answer worth keeping: without that distinction every status
+/// tick re-ran the multi-second `GetRadiosAsync` on a machine simply lacking
+/// Wi-Fi or Bluetooth, tying up the shared MTA worker the watchers also use.
+/// One enumeration of every radio, with the moment it was taken.
+type RadioSnapshot = (Instant, Vec<(RadioKind, Radio)>);
 
-fn cache() -> &'static Mutex<Vec<(RadioKind, Radio)>> {
-    CACHE.get_or_init(|| Mutex::new(Vec::new()))
+static CACHE: OnceLock<Mutex<Option<RadioSnapshot>>> = OnceLock::new();
+
+/// How long an ABSENT kind is believed before looking again, so a radio
+/// plugged in later is still noticed without paying for an enumeration every
+/// two seconds.
+const ABSENT_RECHECK: Duration = Duration::from_secs(30);
+
+fn cache() -> &'static Mutex<Option<RadioSnapshot>> {
+    CACHE.get_or_init(|| Mutex::new(None))
 }
 
-fn cached(kind: RadioKind) -> Vec<Radio> {
-    cache()
-        .lock()
-        .map(|entries| {
-            entries
-                .iter()
-                .filter(|(cached_kind, _)| *cached_kind == kind)
-                .map(|(_, radio)| radio.clone())
-                .collect()
-        })
-        .unwrap_or_default()
+/// The cached radios of one kind, and whether the cache had been filled at all.
+fn cached(kind: RadioKind) -> (bool, Instant, Vec<Radio>) {
+    match cache().lock() {
+        Ok(guard) => match guard.as_ref() {
+            Some((taken, entries)) => (
+                true,
+                *taken,
+                entries
+                    .iter()
+                    .filter(|(cached_kind, _)| *cached_kind == kind)
+                    .map(|(_, radio)| radio.clone())
+                    .collect(),
+            ),
+            None => (false, Instant::now(), Vec::new()),
+        },
+        Err(_) => (false, Instant::now(), Vec::new()),
+    }
 }
 
 /// Every radio of one kind.
@@ -155,15 +175,19 @@ fn cached(kind: RadioKind) -> Vec<Radio> {
 /// polls (the cache answered with the first, a refresh with the last) while the
 /// single UI switch toggled only whichever the cache happened to return.
 fn all_of(kind: RadioKind) -> Result<Vec<Radio>> {
-    let cached_radios = cached(kind);
-    if !cached_radios.is_empty() {
+    let (filled, taken, cached_radios) = cached(kind);
+    if filled && !cached_radios.is_empty() {
         // Prove the cached objects still answer; a radio can be removed.
         if cached_radios.iter().all(|radio| radio.State().is_ok()) {
             return Ok(cached_radios);
         }
         if let Ok(mut entries) = cache().lock() {
-            entries.clear();
+            *entries = None;
         }
+    } else if filled && taken.elapsed() < ABSENT_RECHECK {
+        // Enumerated already, and this machine genuinely has no radio of this
+        // kind. A real answer, not a cache miss.
+        return Ok(Vec::new());
     }
     let mut found = Vec::new();
     let mut entries = Vec::new();
@@ -179,7 +203,7 @@ fn all_of(kind: RadioKind) -> Result<Vec<Radio>> {
         }
     }
     if let Ok(mut cache_entries) = cache().lock() {
-        *cache_entries = entries;
+        *cache_entries = Some((Instant::now(), entries));
     }
     Ok(found)
 }

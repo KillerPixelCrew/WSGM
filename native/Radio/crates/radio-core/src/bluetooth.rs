@@ -586,7 +586,8 @@ where
 
     // Every ceremony we can actually render, and deliberately NOT DisplayPin
     // together with ProvidePin: when both are offered Windows picks DisplayPin
-    // and the pairing then fails.
+    // and the pairing then fails. Devices that need DisplayPin are covered by
+    // the retry below instead, so omitting it here costs them nothing.
     let kinds = DevicePairingKinds::ConfirmOnly
         | DevicePairingKinds::ProvidePin
         | DevicePairingKinds::ConfirmPinMatch;
@@ -594,6 +595,40 @@ where
     // Bounded, because PairAsync has no timeout of its own and can wait
     // indefinitely on a device that never answers. A row stuck on "Working..."
     // with no way out is worse than a failure the user can retry.
+    let status = match attempt_pairing(&custom, kinds) {
+        Ok(status) => status,
+        Err(error) => {
+            let _ = custom.RemovePairingRequested(token);
+            return Err(error);
+        }
+    };
+
+    // A device whose only ceremony is DisplayPin — some Bluetooth keyboards —
+    // reports that none of the offered kinds fit. It cannot ride in the set
+    // above (Windows then prefers it over ProvidePin and the pairing fails), so
+    // it gets its own attempt, made only when the first one proved it is
+    // needed.
+    let status = if status == DevicePairingResultStatus::RequiredHandlerNotRegistered {
+        match attempt_pairing(&custom, DevicePairingKinds::DisplayPin) {
+            Ok(retried) => retried,
+            Err(error) => {
+                let _ = custom.RemovePairingRequested(token);
+                return Err(error);
+            }
+        }
+    } else {
+        status
+    };
+
+    let _ = custom.RemovePairingRequested(token);
+    Ok((PairOutcome::from_winrt(status), status.0))
+}
+
+/// Runs one bounded `PairAsync` and returns its status.
+fn attempt_pairing(
+    custom: &DeviceInformationCustomPairing,
+    kinds: DevicePairingKinds,
+) -> Result<DevicePairingResultStatus> {
     let (finished_tx, finished_rx) = std::sync::mpsc::channel();
     let operation = custom
         .PairWithProtectionLevelAsync(kinds, DevicePairingProtectionLevel::Default)
@@ -606,7 +641,7 @@ where
 
     let result = match finished_rx.recv_timeout(PAIRING_TIMEOUT) {
         Ok(outcome) => outcome
-            .map_err(|e| winrt("DeviceInformationCustomPairing.PairAsync (result)", e)),
+            .map_err(|e| winrt("DeviceInformationCustomPairing.PairAsync (result)", e))?,
         Err(_) => {
             // CANCEL the OS-side operation, not just our wait: an abandoned
             // PairAsync keeps running inside the Device Association service,
@@ -618,18 +653,12 @@ where
             // Drop any question still waiting for an answer, or its deferral
             // would keep the ceremony alive after we have given up on it.
             discard_pending();
-            let _ = custom.RemovePairingRequested(token);
             return Err(Error::TimedOut("pairing"));
         }
     };
-
-    let _ = custom.RemovePairingRequested(token);
-
-    let result = result?;
-    let status = result
+    result
         .Status()
-        .map_err(|e| winrt("DevicePairingResult.Status", e))?;
-    Ok((PairOutcome::from_winrt(status), status.0))
+        .map_err(|e| winrt("DevicePairingResult.Status", e))
 }
 
 /// Answers a pairing request raised through [`pair`].

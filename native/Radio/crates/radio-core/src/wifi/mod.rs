@@ -22,7 +22,8 @@ use std::ptr::null_mut;
 
 use windows::Win32::Foundation::{ERROR_SUCCESS, HANDLE};
 use windows::Win32::NetworkManagement::WiFi::{
-    DOT11_AUTH_ALGO_80211_OPEN, DOT11_AUTH_ALGO_OWE, DOT11_AUTH_ALGO_RSNA,
+    DOT11_AUTH_ALGO_80211_OPEN, DOT11_AUTH_ALGO_80211_SHARED_KEY, DOT11_AUTH_ALGO_OWE,
+    DOT11_AUTH_ALGO_RSNA,
     DOT11_AUTH_ALGO_RSNA_PSK, DOT11_AUTH_ALGO_WPA, DOT11_AUTH_ALGO_WPA3,
     DOT11_AUTH_ALGO_WPA3_ENT, DOT11_AUTH_ALGO_WPA3_ENT_192, DOT11_AUTH_ALGO_WPA3_SAE,
     DOT11_AUTH_ALGO_WPA_PSK, WLAN_AVAILABLE_NETWORK_LIST, WLAN_CONNECTION_ATTRIBUTES,
@@ -485,7 +486,13 @@ fn classify(secured: bool, auth: i32) -> Security {
         // needs its own profile shape — sharing Security::Open authored an
         // open/none profile that could never join it.
         a if a == DOT11_AUTH_ALGO_OWE.0 => Security::EnhancedOpen,
-        a if a == DOT11_AUTH_ALGO_80211_OPEN.0 => Security::Open,
+        // Open-system auth on a SECURED network is WEP, not an open network:
+        // the flag is the only thing telling them apart, and treating it as
+        // open skipped the password prompt and then authored open/none.
+        // Shared-key is WEP's other half. Neither has a profile shape here.
+        a if a == DOT11_AUTH_ALGO_80211_OPEN.0 || a == DOT11_AUTH_ALGO_80211_SHARED_KEY.0 => {
+            Security::Unsupported
+        }
         a if a == DOT11_AUTH_ALGO_WPA_PSK.0
             || a == DOT11_AUTH_ALGO_RSNA_PSK.0
             || a == DOT11_AUTH_ALGO_WPA3_SAE.0 =>
@@ -645,6 +652,11 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
                 // a secured access point installs cleanly and then cannot
                 // connect, so say what is actually missing instead.
                 match facts.security {
+                    Some(Security::Unsupported) => {
+                        return Err(Error::InvalidArgument(
+                            "this network's security (WEP) is not supported",
+                        ));
+                    }
                     Some(Security::Open) | Some(Security::EnhancedOpen) => {
                         let owe = facts.security == Some(Security::EnhancedOpen);
                         set_profile(&client, &guid, &profile::open_profile(ssid, raw, owe))?;
@@ -682,7 +694,13 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
     // ACCEPTED, and a fast verdict would otherwise land before anyone listens.
     let watch = notify::ConnectionWatch::start(guid, &profile_name).ok();
     let status = unsafe { WlanConnect(client.0, &guid, &parameters, None) };
-    win32("WlanConnect", status)?;
+    if let Err(error) = win32("WlanConnect", status) {
+        // Rejected outright (adapter gone, radio switched off between the two
+        // calls): the profile this call authored was never tried, so leaving it
+        // saved would suppress the password prompt on every later attempt.
+        roll_back_authored(&client, &guid, authored.as_deref());
+        return Err(error);
+    }
 
     let Some(watch) = watch else {
         // No registration to wait on — but the request being accepted is NOT a
@@ -940,8 +958,10 @@ mod connect_tests {
             classify(true, DOT11_AUTH_ALGO_OWE.0),
             Security::EnhancedOpen
         );
+        // Open-system auth on a SECURED network is WEP, not an open one; the
+        // genuinely open case carries no security flag.
         assert_eq!(
-            classify(true, DOT11_AUTH_ALGO_80211_OPEN.0),
+            classify(false, DOT11_AUTH_ALGO_80211_OPEN.0),
             Security::Open
         );
     }
@@ -954,6 +974,26 @@ mod tests {
     #[test]
     fn an_unsecured_network_is_open_whatever_the_algorithm_says() {
         assert_eq!(classify(false, DOT11_AUTH_ALGO_RSNA_PSK.0), Security::Open);
+    }
+
+    #[test]
+    fn wep_is_not_mistaken_for_an_open_network() {
+        // Open-system auth WITH security enabled is WEP. The flag is the only
+        // thing separating the two, and calling it open skipped the password
+        // prompt and then authored an open/none profile that cannot join.
+        assert_eq!(
+            classify(true, DOT11_AUTH_ALGO_80211_OPEN.0),
+            Security::Unsupported
+        );
+        assert_eq!(
+            classify(true, DOT11_AUTH_ALGO_80211_SHARED_KEY.0),
+            Security::Unsupported
+        );
+        // Without the security flag it really is an open network.
+        assert_eq!(
+            classify(false, DOT11_AUTH_ALGO_80211_OPEN.0),
+            Security::Open
+        );
     }
 
     #[test]

@@ -19,6 +19,12 @@ public enum WifiSecurity
     /// network, but encrypted. Its own value because the profile Windows needs
     /// differs from a legacy open network's.</summary>
     EnhancedOpen = 3,
+
+    /// <summary>A protection this panel cannot join — WEP. Listed, but not
+    /// offered: its open-system authentication otherwise looks exactly like an
+    /// unsecured network, so it would skip the password prompt and then fail.
+    /// </summary>
+    Unsupported = 4,
 }
 
 /// <summary>The power state of a radio.</summary>
@@ -123,8 +129,10 @@ public sealed class WifiNetworkEntry : INotifyPropertyChanged
     /// joining it again — but an enterprise network is never joinable here (it
     /// needs an EAP flow this panel does not offer), and an enabled button that
     /// silently does nothing is worse than a disabled one.</summary>
-    public bool ActionEnabled =>
-        Connected || (Connectable && Security != WifiSecurity.Enterprise);
+    public bool ActionEnabled => Connected
+        || (Connectable
+            && Security != WifiSecurity.Enterprise
+            && Security != WifiSecurity.Unsupported);
 
     private bool _connected;
     /// <summary>Gets whether this is the network currently joined.</summary>
@@ -177,6 +185,7 @@ public sealed class WifiNetworkEntry : INotifyPropertyChanged
         : Security switch
         {
             WifiSecurity.Enterprise => "Enterprise network (not supported here)",
+            WifiSecurity.Unsupported => "WEP network (not supported here)",
             WifiSecurity.Open => Saved ? "Open, saved" : "Open",
             WifiSecurity.EnhancedOpen => Saved ? "Open (encrypted), saved" : "Open (encrypted)",
             _ => Saved ? "Saved" : "Secured",
