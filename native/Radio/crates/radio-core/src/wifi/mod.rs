@@ -296,9 +296,17 @@ fn scan_facts(client: &Client, guid: &GUID, ssid: &str) -> ScanFacts {
         }
     }
     if facts.profile.is_none() {
-        facts.profile = profile_names(client, guid)
-            .ok()
-            .and_then(|names| names.into_iter().find(|name| name == ssid));
+        // Matched on the profile's own SSID, so a generated "<SSID> 2" name is
+        // still recognised as this network's profile.
+        let target: Vec<u8> = if facts.raw_ssid.is_empty() {
+            ssid.as_bytes().to_vec()
+        } else {
+            facts.raw_ssid.clone()
+        };
+        facts.profile = profile_ssids(client, guid)
+            .into_iter()
+            .find(|(_, saved)| *saved == target)
+            .map(|(name, _)| name);
     }
     facts
 }
@@ -424,7 +432,9 @@ fn networks_on(client: &Client, guid: &GUID, networks: &mut Vec<Network>) -> Res
     // Both read from the service rather than being inferred from the scan list:
     // getting "saved" wrong is what makes the UI ask for a password it already
     // has, and then overwrite the stored one.
-    let saved_profiles = profile_names(client, guid).unwrap_or_default();
+    // Keyed by the SSID each profile joins, not by its name: a profile Windows
+    // generated as "<SSID> 2" belongs to this network just as much.
+    let saved_profiles = profile_ssids(client, guid);
     let connected = current_ssid(client, guid);
 
     for entry in entries {
@@ -441,13 +451,14 @@ fn networks_on(client: &Client, guid: &GUID, networks: &mut Vec<Network>) -> Res
             entry.bSecurityEnabled.as_bool(),
             entry.dot11DefaultAuthAlgorithm.0,
         );
-        let saved = entry.strProfileName[0] != 0 || saved_profiles.contains(&ssid);
+        let raw = entry.dot11Ssid.ucSSID[..length].to_vec();
+        let saved = entry.strProfileName[0] != 0
+            || saved_profiles.iter().any(|(_, target)| *target == raw);
         let is_connected = connected.as_deref() == Some(ssid.as_str());
         // Merged on the SSID's BYTES, not its display text. Two different
         // networks whose invalid UTF-8 decodes to the same replacement string
         // are different networks, and folding them into one row would combine
         // their saved/joinable facts and let an action land on the wrong one.
-        let raw = entry.dot11Ssid.ucSSID[..length].to_vec();
         if let Some(existing) = networks.iter_mut().find(|n| n.raw_ssid == raw) {
             existing.signal = existing.signal.max(entry.wlanSignalQuality);
             existing.saved |= saved;
@@ -854,6 +865,25 @@ pub fn disconnect() -> Result<()> {
     last
 }
 
+/// Every saved profile paired with the SSID it actually joins.
+///
+/// Read from each profile's XML rather than taken from its name, because the
+/// two are not the same thing: Windows names a second profile for one network
+/// "<SSID> 2", so a name comparison reports that network as unsaved and sends
+/// the user back to re-type a password Windows already has.
+fn profile_ssids(client: &Client, guid: &GUID) -> Vec<(String, Vec<u8>)> {
+    let mut found = Vec::new();
+    for name in profile_names(client, guid).unwrap_or_default() {
+        let ssid = profile_xml(client, guid, &name)
+            .and_then(|xml| profile::ssid_of_profile(&xml))
+            // An unreadable document falls back to the name, which is what the
+            // profile is called for a network of the same name anyway.
+            .unwrap_or_else(|| name.as_bytes().to_vec());
+        found.push((name, ssid));
+    }
+    found
+}
+
 /// Reads one saved profile's XML document.
 fn profile_xml(client: &Client, guid: &GUID, name: &str) -> Option<String> {
     let wide_name = wide(name);
@@ -915,14 +945,8 @@ fn forget_on(client: &Client, guid: &GUID, ssid: &str) -> Result<()> {
         facts.raw_ssid.clone()
     };
     let mut names: Vec<String> = Vec::new();
-    for name in profile_names(client, &guid)? {
-        let matches = match profile_xml(client, &guid, &name) {
-            Some(xml) => profile::ssid_of_profile(&xml).is_some_and(|found| found == target),
-            // Unreadable document: fall back to the name, which is what the
-            // profile is called for a network of the same name anyway.
-            None => name == ssid,
-        };
-        if matches && !names.contains(&name) {
+    for (name, saved) in profile_ssids(client, &guid) {
+        if saved == target && !names.contains(&name) {
             names.push(name);
         }
     }

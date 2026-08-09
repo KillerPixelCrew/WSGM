@@ -140,10 +140,13 @@ type RadioSnapshot = (Instant, Vec<(RadioKind, Radio)>);
 
 static CACHE: OnceLock<Mutex<Option<RadioSnapshot>>> = OnceLock::new();
 
-/// How long an ABSENT kind is believed before looking again, so a radio
-/// plugged in later is still noticed without paying for an enumeration every
-/// two seconds.
-const ABSENT_RECHECK: Duration = Duration::from_secs(30);
+/// How long any enumeration is believed before it is taken again.
+///
+/// Applies to a populated cache as much as an empty one: cached objects go on
+/// answering `State()` after a SECOND adapter is attached, so trusting them
+/// indefinitely left the new radio out of the aggregate state and out of every
+/// power change, while the single UI switch claims to control them all.
+const CACHE_TTL: Duration = Duration::from_secs(30);
 
 fn cache() -> &'static Mutex<Option<RadioSnapshot>> {
     CACHE.get_or_init(|| Mutex::new(None))
@@ -176,18 +179,18 @@ fn cached(kind: RadioKind) -> (bool, Instant, Vec<Radio>) {
 /// single UI switch toggled only whichever the cache happened to return.
 fn all_of(kind: RadioKind) -> Result<Vec<Radio>> {
     let (filled, taken, cached_radios) = cached(kind);
-    if filled && !cached_radios.is_empty() {
-        // Prove the cached objects still answer; a radio can be removed.
-        if cached_radios.iter().all(|radio| radio.State().is_ok()) {
+    if filled && taken.elapsed() < CACHE_TTL {
+        // An enumerated-EMPTY result is a real answer, not a cache miss: this
+        // machine has no radio of that kind, and re-running the multi-second
+        // enumeration on every two-second tick only starved the shared worker.
+        // A populated one still has to prove its objects answer, because a
+        // radio can be removed.
+        if cached_radios.is_empty() || cached_radios.iter().all(|radio| radio.State().is_ok()) {
             return Ok(cached_radios);
         }
-        if let Ok(mut entries) = cache().lock() {
-            *entries = None;
-        }
-    } else if filled && taken.elapsed() < ABSENT_RECHECK {
-        // Enumerated already, and this machine genuinely has no radio of this
-        // kind. A real answer, not a cache miss.
-        return Ok(Vec::new());
+    }
+    if let Ok(mut entries) = cache().lock() {
+        *entries = None;
     }
     let mut found = Vec::new();
     let mut entries = Vec::new();

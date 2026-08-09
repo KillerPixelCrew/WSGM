@@ -144,6 +144,11 @@ public static class ExplorerControl
     {
         lock (ExitGate)
         {
+            // ONE deadline for the whole operation, retry included. Giving the
+            // second attempt a fresh full budget (plus the taskbar wait) let a
+            // caller asking for 15 s sit in the transition for more than twice
+            // that, with the splash or the overlay waiting on it.
+            var deadline = DateTime.UtcNow + timeout;
             if (ExitExplorerAndWaitCore(timeout))
             {
                 return true;
@@ -159,13 +164,26 @@ public static class ExplorerControl
             {
                 return false;
             }
-            if (!WaitForReplacementTaskbar(_respawnProcessId, RespawnTaskbarWait))
+            var remaining = deadline - DateTime.UtcNow;
+            var taskbarWait = remaining < RespawnTaskbarWait ? remaining : RespawnTaskbarWait;
+            if (taskbarWait <= TimeSpan.Zero)
+            {
+                Log.Warn("No budget left to retry the orderly Explorer exit; staying in desktop mode.");
+                return false;
+            }
+            if (!WaitForReplacementTaskbar(_respawnProcessId, taskbarWait))
             {
                 Log.Warn("Respawned Explorer showed no taskbar to retry against; staying in desktop mode.");
                 return false;
             }
-            Log.Info($"Retrying orderly Explorer exit once against the respawned shell (pid {_respawnProcessId}).");
-            return ExitExplorerAndWaitCore(timeout);
+            remaining = deadline - DateTime.UtcNow;
+            if (remaining <= TimeSpan.Zero)
+            {
+                Log.Warn("No budget left to retry the orderly Explorer exit; staying in desktop mode.");
+                return false;
+            }
+            Log.Info($"Retrying orderly Explorer exit once against the respawned shell (pid {_respawnProcessId}, {remaining.TotalSeconds:F0}s left).");
+            return ExitExplorerAndWaitCore(remaining);
         }
     }
 

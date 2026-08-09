@@ -1289,11 +1289,20 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     {
         Log.Info($"Bluetooth pairing: answering token {token} with "
             + $"{(accept ? "accept" : "decline")}{(pin is { Length: > 0 } ? " and a PIN" : "")}.");
-        var status = NativeRadio.RespondToPairing(token, accept ? 1 : 0, pin);
-        if (status != NativeRadio.Ok)
+        // Off the UI thread: the helper's reply blocks on the shared MTA
+        // worker, which a radio enumeration is explicitly allowed to hold for
+        // seconds — so answering a ceremony froze the panel at exactly the
+        // moment the user pressed Pair. Nothing here needs the result, and a
+        // second reply for the same token is a no-op.
+        _ = Task.Run(() =>
         {
-            Log.Warn($"Bluetooth pairing: reply to token {token} failed: {NativeRadio.LastError()}");
-        }
+            var status = NativeRadio.RespondToPairing(token, accept ? 1 : 0, pin);
+            if (status != NativeRadio.Ok)
+            {
+                Log.Warn(
+                    $"Bluetooth pairing: reply to token {token} failed: {NativeRadio.LastError()}");
+            }
+        });
     }
 
     private void FinishPairing()
