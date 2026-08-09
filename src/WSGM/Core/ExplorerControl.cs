@@ -308,6 +308,7 @@ public static class ExplorerControl
         if (replacementAfterTaskbar != 0)
         {
             _respawnCancelled = true;
+            _respawnProcessId = checked((uint)replacementAfterTaskbar);
             Log.Warn($"Winlogon restarted Explorer as pid {replacementAfterTaskbar}; takeover cancelled.");
             return false;
         }

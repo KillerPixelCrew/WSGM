@@ -552,9 +552,11 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
     win32("WlanConnect", status)?;
 
     let Some(watch) = watch else {
-        // No registration: nothing to wait on, so the request itself is all
-        // that can be reported. Better than failing a join that may succeed.
-        return Ok(());
+        // No registration to wait on — but the request being accepted is NOT a
+        // connection, and returning Ok here would report a join that may still
+        // fail while leaving the profile just authored in place. Fall back to
+        // asking the interface itself.
+        return poll_for_connection(&client, &guid, ssid, CONNECT_TIMEOUT);
     };
     match watch.wait(CONNECT_TIMEOUT) {
         Some(outcome) if outcome.succeeded => Ok(()),
@@ -577,6 +579,30 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
         // rather than claiming a connection that never happened.
         None => Err(Error::TimedOut("the connection attempt")),
     }
+}
+
+/// Watches the interface itself for the requested SSID to come up.
+///
+/// The fallback for when notifications could not be registered. Slower and
+/// blunter than a verdict — it cannot tell a wrong password from an absent
+/// network, so it reports a timeout and lets the caller say so — but it never
+/// claims a connection that did not happen.
+fn poll_for_connection(
+    client: &Client,
+    guid: &GUID,
+    ssid: &str,
+    timeout: std::time::Duration,
+) -> Result<()> {
+    let deadline = std::time::Instant::now() + timeout;
+    while std::time::Instant::now() < deadline {
+        if let Some((joined, _)) = current_connection(client, guid)
+            && joined == ssid
+        {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    Err(Error::TimedOut("the connection attempt"))
 }
 
 /// How long to wait for the WLAN service's verdict on a connection attempt.

@@ -1036,9 +1036,23 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     /// <summary>Leaves the current network.</summary>
     public async Task DisconnectAsync()
     {
-        await Task.Run(() => NativeRadio.DisconnectWifi());
-        Log.Info("Wi-Fi disconnect: requested.");
-        StatusText = "";
+        var result = await Task.Run(() =>
+        {
+            var status = NativeRadio.DisconnectWifi();
+            return (status, error: NativeRadio.LastError());
+        });
+        if (result.status == NativeRadio.Ok)
+        {
+            Log.Info("Wi-Fi disconnect: requested.");
+            StatusText = "";
+        }
+        else
+        {
+            // The row stays connected on the next refresh, so silence here
+            // reads as the button having done nothing at all.
+            Log.Warn($"Wi-Fi disconnect failed: {result.error}");
+            StatusText = "Could not disconnect from this network.";
+        }
         QueueRefresh();
     }
 
