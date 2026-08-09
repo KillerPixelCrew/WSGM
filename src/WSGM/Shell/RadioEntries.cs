@@ -14,6 +14,11 @@ public enum WifiSecurity
     /// <summary>802.1X. Not supported here — it needs an EAP configuration and a
     /// credential flow a game-mode panel has no business guessing at.</summary>
     Enterprise = 2,
+
+    /// <summary>OWE ("Enhanced Open"): joined without a password like an open
+    /// network, but encrypted. Its own value because the profile Windows needs
+    /// differs from a legacy open network's.</summary>
+    EnhancedOpen = 3,
 }
 
 /// <summary>The power state of a radio.</summary>
@@ -111,7 +116,8 @@ public sealed class WifiNetworkEntry : INotifyPropertyChanged
     }
 
     /// <summary>Gets whether joining this network needs a password prompt: it is
-    /// secured, and no saved profile already carries the key.</summary>
+    /// secured, and no saved profile already carries the key. Enhanced Open is
+    /// encrypted but keyless, so it never prompts.</summary>
     public bool NeedsPassword => Security == WifiSecurity.Personal && !Saved;
 
     /// <summary>Gets whether the network is protected at all.</summary>
@@ -140,6 +146,7 @@ public sealed class WifiNetworkEntry : INotifyPropertyChanged
         {
             WifiSecurity.Enterprise => "Enterprise network (not supported here)",
             WifiSecurity.Open => Saved ? "Open, saved" : "Open",
+            WifiSecurity.EnhancedOpen => Saved ? "Open (encrypted), saved" : "Open (encrypted)",
             _ => Saved ? "Saved" : "Secured",
         };
 

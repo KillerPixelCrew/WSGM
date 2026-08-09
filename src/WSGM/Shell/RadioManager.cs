@@ -296,7 +296,6 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             // Restarting the watcher re-runs the initial enumeration, which is
             // what picks up a device that has only just been put into pairing
             // mode. Existing rows survive because they are matched by id.
-            NativeRadio.StopBluetoothWatch();
             StopAndRestartBluetoothWatch();
         }
         _ = Task.Run(() =>
@@ -309,21 +308,73 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         QueueRefresh();
     }
 
-    private unsafe void StopAndRestartBluetoothWatch()
+    private void StopAndRestartBluetoothWatch()
     {
         if (!_watchHandle.IsAllocated)
         {
             return;
         }
         var context = GCHandle.ToIntPtr(_watchHandle);
-        if (NativeRadio.StartBluetoothWatch(
-            (nint)(delegate* unmanaged[Stdcall]<nint, int, nint, nint, int, int, int, nint, void>)
-                &OnBluetoothChanged,
-            context) != NativeRadio.Ok)
+        var callback = BluetoothCallback;
+        QueueFeedWork(() =>
         {
-            Log.Warn($"Bluetooth watch could not restart: {NativeRadio.LastError()}");
-            BluetoothScanning = false;
-        }
+            NativeRadio.StopBluetoothWatch();
+            if (NativeRadio.StartBluetoothWatch(callback, context) != NativeRadio.Ok)
+            {
+                var error = NativeRadio.LastError();
+                Dispatcher.UIThread.Post(() =>
+                {
+                    Log.Warn($"Bluetooth watch could not restart: {error}");
+                    BluetoothScanning = false;
+                });
+            }
+        });
+    }
+
+    /// <summary>The watcher entry points, as plain pointers so the background
+    /// feed work can capture them without an unsafe closure.</summary>
+    private static unsafe nint BluetoothCallback =>
+        (nint)(delegate* unmanaged[Stdcall]<nint, int, nint, nint, int, int, int, nint, void>)
+            &OnBluetoothChanged;
+
+    private static unsafe nint WifiCallback =>
+        (nint)(delegate* unmanaged[Stdcall]<nint, int, void>)&OnWifiEvent;
+
+    /// <summary>Serializes the native feed operations onto background threads.
+    ///
+    /// Two reasons, both load-bearing. They BLOCK: every one of them crosses to
+    /// the helper's single MTA worker, and starting a watcher while a radio
+    /// enumeration is still running there froze the panel on open. And they
+    /// must not interleave — a stop racing a start would leave the watcher in
+    /// whichever state finished last. UI-thread callers only, so the field
+    /// needs no lock.</summary>
+    private Task _feedWork = Task.CompletedTask;
+
+    private void QueueFeedWork(Action work)
+    {
+        _feedWork = _feedWork.ContinueWith(
+            _ =>
+            {
+                try
+                {
+                    work();
+                }
+                catch (DllNotFoundException ex)
+                {
+                    WarnHelperMissing(ex.Message);
+                }
+                catch (EntryPointNotFoundException ex)
+                {
+                    WarnHelperMissing(ex.Message);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"Radio feed operation failed: {ex.Message}");
+                }
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.None,
+            TaskScheduler.Default);
     }
 
     private bool _bluetoothScanning;
@@ -495,31 +546,29 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     /// watcher reports the first device in about 10 ms. Wi-Fi likewise: the
     /// driver refreshes its scan list when it feels like it, so an interval
     /// either wastes work or shows a network seconds late.</summary>
-    private unsafe void StartFeeds()
+    private void StartFeeds()
     {
         if (_watchHandle.IsAllocated)
         {
             return;
         }
+        // Allocated here, on the UI thread, so a stop queued straight after an
+        // open still sees live feeds and tears them down in order.
         _watchHandle = GCHandle.Alloc(this);
         var context = GCHandle.ToIntPtr(_watchHandle);
-
-        var bluetooth = NativeRadio.StartBluetoothWatch(
-            (nint)(delegate* unmanaged[Stdcall]<nint, int, nint, nint, int, int, int, nint, void>)
-                &OnBluetoothChanged,
-            context);
-        if (bluetooth != NativeRadio.Ok)
+        var bluetooth = BluetoothCallback;
+        var wifi = WifiCallback;
+        QueueFeedWork(() =>
         {
-            Log.Warn($"Bluetooth watch could not start: {NativeRadio.LastError()}");
-        }
-
-        var wifi = NativeRadio.StartWifiWatch(
-            (nint)(delegate* unmanaged[Stdcall]<nint, int, void>)&OnWifiEvent,
-            context);
-        if (wifi != NativeRadio.Ok)
-        {
-            Log.Warn($"Wi-Fi watch could not start: {NativeRadio.LastError()}");
-        }
+            if (NativeRadio.StartBluetoothWatch(bluetooth, context) != NativeRadio.Ok)
+            {
+                Log.Warn($"Bluetooth watch could not start: {NativeRadio.LastError()}");
+            }
+            if (NativeRadio.StartWifiWatch(wifi, context) != NativeRadio.Ok)
+            {
+                Log.Warn($"Wi-Fi watch could not start: {NativeRadio.LastError()}");
+            }
+        });
     }
 
     private void StopFeeds()
@@ -528,11 +577,22 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         {
             return;
         }
-        NativeRadio.StopBluetoothWatch();
-        NativeRadio.StopWifiWatch();
-        // Freed only after both feeds are stopped, or a late callback would
-        // resolve a dead handle.
-        _watchHandle.Free();
+        // Cleared before the work is queued: to every UI-thread caller the
+        // feeds are already gone, while the teardown itself runs in order
+        // behind whatever start is still in flight.
+        var handle = _watchHandle;
+        _watchHandle = default;
+        QueueFeedWork(() =>
+        {
+            NativeRadio.StopBluetoothWatch();
+            NativeRadio.StopWifiWatch();
+            // Freed only after both feeds are stopped, or a late callback would
+            // resolve a dead handle.
+            if (handle.IsAllocated)
+            {
+                handle.Free();
+            }
+        });
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvStdcall)])]

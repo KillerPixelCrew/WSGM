@@ -226,11 +226,15 @@ pub fn set_power(kind: RadioKind, on: bool) -> Result<RadioAccess> {
         } else {
             WinRtRadioState::Off
         };
-        radio
+        // The SET's own decision, not the earlier request's: permission can be
+        // refused between the two calls (policy, a hardware switch), and
+        // returning the stale Allowed made the UI report a state change that
+        // never happened.
+        let applied = radio
             .SetStateAsync(target)
             .map_err(|e| winrt("Radio.SetStateAsync", e))?
             .join()
             .map_err(|e| winrt("Radio.SetStateAsync (join)", e))?;
-        Ok(access)
+        Ok(RadioAccess::from_winrt(applied))
     })?
 }

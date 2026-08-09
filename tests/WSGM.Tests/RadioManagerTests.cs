@@ -266,11 +266,33 @@ public class RadioEntryTests
         var entry = new BluetoothDeviceEntry("BT#1");
         Assert.Equal("Pair", entry.ActionText);
 
+        // Paired is where the primary action becomes the SOFT one. Unpairing
+        // lives on its own button, so a tap meant as "disconnect" can never
+        // destroy the pairing.
         entry.Paired = true;
-        Assert.Equal("Remove", entry.ActionText);
+        entry.AudioConnectable = true;
+        Assert.Equal("Connect", entry.ActionText);
+
+        entry.Connected = true;
+        Assert.Equal("Disconnect", entry.ActionText);
 
         entry.Busy = true;
         Assert.Equal("Working...", entry.ActionText);
+    }
+
+    [Fact]
+    public void APairedDeviceWithNoConnectActionOffersOnlyRemove()
+    {
+        // Mice and gamepads reconnect on their own initiative when used; there
+        // is no host-side connect for them, and Windows shows none either.
+        var entry = new BluetoothDeviceEntry("BT#1") { Paired = true };
+        Assert.False(entry.PrimaryActionVisible);
+        Assert.True(entry.RemoveVisible);
+
+        // An unpaired stranger is the mirror image: Pair, and nothing to remove.
+        var stranger = new BluetoothDeviceEntry("BT#2");
+        Assert.True(stranger.PrimaryActionVisible);
+        Assert.False(stranger.RemoveVisible);
     }
 
     [Fact]

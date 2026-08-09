@@ -12,15 +12,21 @@
 //! when MSM is refused.
 
 use std::ffi::c_void;
+use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::NetworkManagement::WiFi::{
-    L2_NOTIFICATION_DATA, WLAN_NOTIFICATION_SOURCE_ACM,
-    WLAN_NOTIFICATION_SOURCE_MSM, WlanCloseHandle, WlanOpenHandle, WlanRegisterNotification,
+    L2_NOTIFICATION_DATA, WLAN_CONNECTION_NOTIFICATION_DATA, WLAN_NOTIFICATION_SOURCE_ACM,
+    WLAN_NOTIFICATION_SOURCE_MSM, WLAN_NOTIFICATION_SOURCE_NONE, WlanCloseHandle, WlanOpenHandle,
+    WlanRegisterNotification,
+    wlan_notification_acm_connection_attempt_fail, wlan_notification_acm_connection_complete,
+    wlan_notification_acm_disconnected, wlan_notification_acm_scan_complete,
+    wlan_notification_acm_scan_list_refresh,
 };
 
-use crate::error::{Result, win32};
+use crate::error::{Error, Result, win32};
 
 /// What the WLAN service reported.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,11 +38,16 @@ pub enum WifiEvent {
     ConnectionChanged,
 }
 
-// From WLAN_NOTIFICATION_ACM.
-const ACM_SCAN_COMPLETE: u32 = 7;
-const ACM_SCAN_LIST_REFRESH: u32 = 9;
-const ACM_CONNECTION_COMPLETE: u32 = 10;
-const ACM_DISCONNECTED: u32 = 12;
+// From WLAN_NOTIFICATION_ACM, taken from the crate's own constants rather than
+// written out here: the hand-copied numbers were wrong (9 is connection_start,
+// not scan_list_refresh; 12 is filter_list_change, not disconnected), so the
+// picker was reacting to events it never meant to watch and ignoring the two it
+// did.
+const ACM_SCAN_COMPLETE: u32 = wlan_notification_acm_scan_complete.0 as u32;
+const ACM_SCAN_LIST_REFRESH: u32 = wlan_notification_acm_scan_list_refresh.0 as u32;
+const ACM_CONNECTION_COMPLETE: u32 = wlan_notification_acm_connection_complete.0 as u32;
+const ACM_CONNECTION_ATTEMPT_FAIL: u32 = wlan_notification_acm_connection_attempt_fail.0 as u32;
+const ACM_DISCONNECTED: u32 = wlan_notification_acm_disconnected.0 as u32;
 
 type Sink = Box<dyn Fn(WifiEvent) + Send + Sync + 'static>;
 
@@ -135,6 +146,155 @@ where
     Ok(())
 }
 
+/// How one connection attempt ended.
+#[derive(Debug, Clone, Copy)]
+pub struct ConnectionOutcome {
+    /// Whether the interface actually associated.
+    pub succeeded: bool,
+    /// The WLAN reason code, which is what distinguishes a rejected key from an
+    /// unreachable network. Zero when the service reported none.
+    pub reason: u32,
+}
+
+/// A scoped ACM registration that reports the next connection outcome.
+///
+/// This exists because `WlanConnect` returning `ERROR_SUCCESS` means only that
+/// the request was *accepted*. The verdict — wrong password, network out of
+/// range, associated — arrives later as a notification. Reporting success at
+/// the call was how a mistyped password looked like a successful join, while
+/// the bad profile it had just saved stayed behind and stopped the panel from
+/// ever asking for the password again.
+///
+/// Its own handle, deliberately: the panel's live feed is a process-wide
+/// registration with a different job, and one attempt's verdict must not
+/// depend on whether the panel happens to be open.
+pub struct ConnectionWatch {
+    handle: HANDLE,
+    receiver: Receiver<ConnectionOutcome>,
+    /// The boxed sender the callback context points at. Owned here and freed
+    /// only after the registration is torn down.
+    context: *mut SyncSender<ConnectionOutcome>,
+}
+
+// SAFETY: the raw pointer is an owned Box this type alone frees, and the only
+// other reader is the WLAN callback, which the Drop order guarantees has
+// finished by then.
+unsafe impl Send for ConnectionWatch {}
+
+/// The callback for a [`ConnectionWatch`]. Runs on a WLAN service thread, so it
+/// only classifies and forwards; it never blocks.
+unsafe extern "system" fn on_connection(data: *mut L2_NOTIFICATION_DATA, context: *mut c_void) {
+    if data.is_null() || context.is_null() {
+        return;
+    }
+    // SAFETY: the service passes a valid record for the duration of the call.
+    let (source, code, payload, size) = unsafe {
+        (
+            (*data).NotificationSource,
+            (*data).NotificationCode,
+            (*data).pData,
+            (*data).dwDataSize as usize,
+        )
+    };
+    if source != WLAN_NOTIFICATION_SOURCE_ACM {
+        return;
+    }
+    let succeeded = match code {
+        ACM_CONNECTION_COMPLETE => true,
+        ACM_CONNECTION_ATTEMPT_FAIL => false,
+        _ => return,
+    };
+    // The reason code lives in the payload; a short or absent one is reported
+    // as zero rather than read past its end.
+    let reason = if !payload.is_null() && size >= size_of::<WLAN_CONNECTION_NOTIFICATION_DATA>() {
+        // SAFETY: size checked against the record this notification carries.
+        unsafe { (*payload.cast::<WLAN_CONNECTION_NOTIFICATION_DATA>()).wlanReasonCode }
+    } else {
+        0
+    };
+    // SAFETY: the context outlives the registration (see Drop).
+    let sender = unsafe { &*context.cast::<SyncSender<ConnectionOutcome>>() };
+    // try_send: a service callback must never block, and one outcome is all
+    // the caller waits for.
+    let _ = sender.try_send(ConnectionOutcome { succeeded, reason });
+}
+
+impl ConnectionWatch {
+    /// Registers for connection outcomes. Arm this BEFORE calling
+    /// `WlanConnect`, or a fast verdict is missed entirely.
+    pub fn start() -> Result<Self> {
+        let (sender, receiver) = sync_channel::<ConnectionOutcome>(4);
+        let context = Box::into_raw(Box::new(sender));
+
+        let mut negotiated = 0u32;
+        let mut handle = HANDLE::default();
+        let status = unsafe { WlanOpenHandle(2, None, &mut negotiated, &mut handle) };
+        if let Err(error) = win32("WlanOpenHandle", status) {
+            // SAFETY: nothing else ever saw this pointer.
+            drop(unsafe { Box::from_raw(context) });
+            return Err(error);
+        }
+
+        let status = unsafe {
+            WlanRegisterNotification(
+                handle,
+                WLAN_NOTIFICATION_SOURCE_ACM,
+                true,
+                Some(on_connection),
+                Some(context.cast()),
+                None,
+                None,
+            )
+        };
+        if status != 0 {
+            unsafe {
+                let _ = WlanCloseHandle(handle, None);
+                drop(Box::from_raw(context));
+            }
+            return win32("WlanRegisterNotification", status).map(|()| unreachable!());
+        }
+        Ok(Self {
+            handle,
+            receiver,
+            context,
+        })
+    }
+
+    /// Waits for the first outcome, or `None` when the service stayed silent.
+    pub fn wait(&self, timeout: Duration) -> Option<ConnectionOutcome> {
+        self.receiver.recv_timeout(timeout).ok()
+    }
+}
+
+impl Drop for ConnectionWatch {
+    fn drop(&mut self) {
+        unsafe {
+            // Deregister FIRST: this waits for any callback already running, so
+            // the boxed sender can never be freed under a live callback.
+            let _ = WlanRegisterNotification(
+                self.handle,
+                WLAN_NOTIFICATION_SOURCE_NONE,
+                false,
+                None,
+                None,
+                None,
+                None,
+            );
+            let _ = WlanCloseHandle(self.handle, None);
+            drop(Box::from_raw(self.context));
+        }
+    }
+}
+
+/// Maps an unsuccessful outcome onto the error the ABI reports, carrying the
+/// reason code the caller classifies with [`super::reason::verdict`].
+pub(crate) fn connection_error(outcome: ConnectionOutcome) -> Error {
+    Error::Win32 {
+        api: "WlanConnect (connection attempt)",
+        code: outcome.reason,
+    }
+}
+
 /// Stops delivering WLAN events. Idempotent.
 pub fn stop() {
     let existing = client().lock().ok().and_then(|mut guard| guard.take());
@@ -154,13 +314,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_the_scan_and_connection_codes_are_interesting() {
-        // Guards the constants against a careless edit: these four are the ones
-        // the picker reacts to, and the numbers come from WLAN_NOTIFICATION_ACM.
+    fn the_acm_codes_are_the_ones_wlanapi_actually_defines() {
+        // Pinned because the previous hand-written numbers were wrong: 9 is
+        // connection_start and 12 is filter_list_change, so the picker watched
+        // two events it did not care about and missed both it did.
         assert_eq!(ACM_SCAN_COMPLETE, 7);
-        assert_eq!(ACM_SCAN_LIST_REFRESH, 9);
+        assert_eq!(ACM_SCAN_LIST_REFRESH, 26);
         assert_eq!(ACM_CONNECTION_COMPLETE, 10);
-        assert_eq!(ACM_DISCONNECTED, 12);
+        assert_eq!(ACM_CONNECTION_ATTEMPT_FAIL, 11);
+        assert_eq!(ACM_DISCONNECTED, 21);
     }
 
     #[test]

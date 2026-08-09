@@ -74,10 +74,25 @@ public partial class RadioWindow : Window
         Opened += (_, _) => _radios.StartScanning();
         Closed += (_, _) =>
         {
+            // A prompt on screen when the panel goes means Windows is still
+            // waiting on an answer. Unsubscribing alone left the deferral
+            // pending until its 90 s timeout, with the row stuck on Working and
+            // no way to start another pairing until it expired — so an
+            // abandoned ceremony is declined, not just forgotten.
+            if (_prompt is PromptMode.PairingPin or PromptMode.PairingConfirm)
+            {
+                Log.Info("Radio panel closed with a pairing question open — declining it.");
+                _radios.RespondToPairing(_promptToken, accept: false, null);
+                _prompt = PromptMode.None;
+            }
             _radios.StopScanning();
             _radios.PairingRequested -= OnPairingRequested;
             _radios.PropertyChanged -= OnRadiosPropertyChanged;
         };
+        // Same touch-promotion defense as the overlay and taskbar (invariant 3):
+        // Avalonia never marks touch handled, so DefWindowProc synthesizes a
+        // late mouse click that would press whatever sits under the panel.
+        Win32Properties.AddWndProcHookCallback(this, WndProcHook);
         KeyDown += (_, e) =>
         {
             if (e.Key == Avalonia.Input.Key.Escape)
@@ -167,6 +182,24 @@ public partial class RadioWindow : Window
             y = area.Y;
         }
         Position = new PixelPoint(x, y);
+    }
+
+    private static IntPtr WndProcHook(
+        IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg is Interop.NativeMethods.WmMouseMove
+                or Interop.NativeMethods.WmLButtonDown
+                or Interop.NativeMethods.WmLButtonUp)
+        {
+            var extra = (uint)Interop.NativeMethods.GetMessageExtraInfo();
+            if ((extra & Interop.NativeMethods.MiWpSignatureMask)
+                == Interop.NativeMethods.MiWpSignature)
+            {
+                handled = true;
+                return IntPtr.Zero;
+            }
+        }
+        return IntPtr.Zero;
     }
 
     /// <summary>Moves to the previous tab (left shoulder).</summary>

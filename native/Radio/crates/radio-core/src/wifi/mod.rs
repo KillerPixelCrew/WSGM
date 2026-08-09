@@ -192,15 +192,31 @@ fn profile_names(client: &Client, guid: &GUID) -> Result<Vec<String>> {
         .collect())
 }
 
-/// The name of the saved profile that joins `ssid`, if there is one.
+/// What the scan list knows about one SSID.
+#[derive(Debug, Default, Clone)]
+struct ScanFacts {
+    /// The profile Windows would use, which is NOT always the SSID.
+    profile: Option<String>,
+    /// The SSID's bytes exactly as advertised. Empty when the network is not
+    /// currently visible.
+    raw_ssid: Vec<u8>,
+    /// How the network protects itself, when it was seen.
+    security: Option<Security>,
+}
+
+/// Everything `connect` needs from the scan list, in one pass.
 ///
-/// Not the same as the SSID, and assuming it was is a real failure mode: when a
-/// profile of that name already exists Windows creates the new one as
-/// "<SSID> 2", so a connect keyed on the SSID matches nothing and the network
-/// sits there looking saved but unjoinable. The scan list's own profile name is
-/// authoritative — it is the profile Windows would use — with an exact
-/// name match as the fallback for a network that is saved but not in range.
-fn profile_for_ssid(client: &Client, guid: &GUID, ssid: &str) -> Option<String> {
+/// The profile name matters because assuming it equals the SSID is a real
+/// failure mode: when a profile of that name already exists Windows creates the
+/// new one as "<SSID> 2", so a connect keyed on the SSID matches nothing and
+/// the network sits there looking saved but unjoinable. The scan list's own
+/// profile name is authoritative, with an exact name match as the fallback for
+/// a network that is saved but out of range.
+///
+/// The raw bytes matter because an SSID is a byte string: the text form is
+/// lossy, and a profile authored from it names a different network.
+fn scan_facts(client: &Client, guid: &GUID, ssid: &str) -> ScanFacts {
+    let mut facts = ScanFacts::default();
     let mut list: *mut WLAN_AVAILABLE_NETWORK_LIST = null_mut();
     let status = unsafe { WlanGetAvailableNetworkList(client.0, guid, 0, None, &mut list) };
     if status == 0 && !list.is_null() {
@@ -211,20 +227,30 @@ fn profile_for_ssid(client: &Client, guid: &GUID, ssid: &str) -> Option<String> 
             std::slice::from_raw_parts((*list).Network.as_ptr(), count)
         };
         for entry in entries {
-            let name = decode_ssid(&entry.dot11Ssid.ucSSID, entry.dot11Ssid.uSSIDLength as usize);
+            let length = (entry.dot11Ssid.uSSIDLength as usize).min(entry.dot11Ssid.ucSSID.len());
+            let name = decode_ssid(&entry.dot11Ssid.ucSSID, length);
             if name != ssid {
                 continue;
             }
+            if facts.raw_ssid.is_empty() {
+                facts.raw_ssid = entry.dot11Ssid.ucSSID[..length].to_vec();
+            }
+            facts.security.get_or_insert(classify(
+                entry.bSecurityEnabled.as_bool(),
+                entry.dot11DefaultAuthAlgorithm.0,
+            ));
             let profile = decode_fixed(&entry.strProfileName);
-            if !profile.is_empty() {
-                return Some(profile);
+            if facts.profile.is_none() && !profile.is_empty() {
+                facts.profile = Some(profile);
             }
         }
     }
-    profile_names(client, guid)
-        .ok()?
-        .into_iter()
-        .find(|name| name == ssid)
+    if facts.profile.is_none() {
+        facts.profile = profile_names(client, guid)
+            .ok()
+            .and_then(|names| names.into_iter().find(|name| name == ssid));
+    }
+    facts
 }
 
 /// The SSID of the network currently joined, if any.
@@ -363,7 +389,11 @@ fn classify(secured: bool, auth: i32) -> Security {
         return Security::Open;
     }
     match auth {
-        a if a == DOT11_AUTH_ALGO_80211_OPEN.0 || a == DOT11_AUTH_ALGO_OWE.0 => Security::Open,
+        // Enhanced Open is passwordless like an open network but encrypted, and
+        // needs its own profile shape — sharing Security::Open authored an
+        // open/none profile that could never join it.
+        a if a == DOT11_AUTH_ALGO_OWE.0 => Security::EnhancedOpen,
+        a if a == DOT11_AUTH_ALGO_80211_OPEN.0 => Security::Open,
         a if a == DOT11_AUTH_ALGO_WPA_PSK.0
             || a == DOT11_AUTH_ALGO_RSNA_PSK.0
             || a == DOT11_AUTH_ALGO_WPA3_SAE.0 =>
@@ -412,22 +442,23 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
     let client = Client::open()?;
     let (guid, _) = first_interface(&client)?;
 
-    // The profile Windows would use for this network, which is NOT always named
-    // after the SSID — see profile_for_ssid.
-    let existing = profile_for_ssid(&client, &guid, ssid);
+    let facts = scan_facts(&client, &guid, ssid);
+    let raw = (!facts.raw_ssid.is_empty()).then_some(facts.raw_ssid.as_slice());
+    let existing = facts.profile.clone();
 
     // A profile is authored ONLY when the caller supplied a passphrase. Writing
     // one for a network that already has a saved profile would overwrite it —
     // and with no passphrase to put in it, an open-network profile would replace
     // the user's stored credentials and destroy them. Joining a saved network
     // means connecting to the profile that is already there, untouched.
+    let mut authored: Option<String> = None;
     match passphrase {
         Some(pass) => {
             // Prefer WPA3 transition mode so one profile covers WPA3-Personal
             // and WPA2-PSK alike, falling back when the adapter rejects it.
             let attempts = [
-                profile::psk_profile(ssid, pass, true),
-                profile::psk_profile(ssid, pass, false),
+                profile::psk_profile(ssid, raw, pass, true),
+                profile::psk_profile(ssid, raw, pass, false),
             ];
             let mut last: Option<Error> = None;
             let mut installed = false;
@@ -445,13 +476,16 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
                     last.unwrap_or(Error::InvalidArgument("profile could not be installed"))
                 );
             }
+            authored = Some(ssid.to_owned());
         }
         None => {
             // No passphrase: only ever create a profile when the network has
             // none at all AND needs no key. Anything else is either already
             // joinable or genuinely missing a password.
             if existing.is_none() {
-                set_profile(&client, &guid, &profile::open_profile(ssid))?;
+                let owe = facts.security == Some(Security::EnhancedOpen);
+                set_profile(&client, &guid, &profile::open_profile(ssid, raw, owe))?;
+                authored = Some(ssid.to_owned());
             }
         }
     }
@@ -460,8 +494,8 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
     // network stuck on "saved": the profile was called "<SSID> 2" and nothing
     // matched. After authoring a profile ourselves the name IS the SSID,
     // because that is what we wrote into it.
-    let profile_name = match passphrase {
-        Some(_) => ssid.to_owned(),
+    let profile_name = match authored {
+        Some(ref name) => name.clone(),
         None => existing.unwrap_or_else(|| ssid.to_owned()),
     };
     let name = wide(&profile_name);
@@ -473,8 +507,53 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
         dot11BssType: dot11_BSS_type_infrastructure,
         dwFlags: 0,
     };
+
+    // Armed BEFORE the call: WlanConnect only reports that the request was
+    // ACCEPTED, and a fast verdict would otherwise land before anyone listens.
+    let watch = notify::ConnectionWatch::start().ok();
     let status = unsafe { WlanConnect(client.0, &guid, &parameters, None) };
-    win32("WlanConnect", status)
+    win32("WlanConnect", status)?;
+
+    let Some(watch) = watch else {
+        // No registration: nothing to wait on, so the request itself is all
+        // that can be reported. Better than failing a join that may succeed.
+        return Ok(());
+    };
+    match watch.wait(CONNECT_TIMEOUT) {
+        Some(outcome) if outcome.succeeded => Ok(()),
+        Some(outcome) => {
+            // A key the AP rejected leaves a saved profile carrying the wrong
+            // password behind. Left there, the network reads as "saved", the
+            // panel stops asking for a password, and every later attempt fails
+            // in silence — so the profile this call authored is rolled back.
+            if let Some(name) = authored
+                && matches!(
+                    reason::verdict(outcome.reason),
+                    reason::Verdict::WrongPassword | reason::Verdict::BadProfile
+                )
+            {
+                delete_profile(&client, &guid, &name);
+            }
+            Err(notify::connection_error(outcome))
+        }
+        // Silence is not success: report it as a failure the user can retry
+        // rather than claiming a connection that never happened.
+        None => Err(Error::TimedOut("the connection attempt")),
+    }
+}
+
+/// How long to wait for the WLAN service's verdict on a connection attempt.
+/// Association and authentication are seconds; this only has to outlast a slow
+/// AP, not DHCP (`connection_complete` fires at L2).
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25);
+
+/// Deletes one profile, ignoring failure: this is cleanup on an error path and
+/// the error already being reported is the one that matters.
+fn delete_profile(client: &Client, guid: &GUID, name: &str) {
+    let wide_name = wide(name);
+    unsafe {
+        let _ = WlanDeleteProfile(client.0, guid, PCWSTR(wide_name.as_ptr()), None);
+    }
 }
 
 /// Installs one profile document.
@@ -532,7 +611,7 @@ pub fn forget(ssid: &str) -> Result<()> {
         .into_iter()
         .filter(|name| name == ssid)
         .collect();
-    if let Some(bound) = profile_for_ssid(&client, &guid, ssid)
+    if let Some(bound) = scan_facts(&client, &guid, ssid).profile
         && !names.contains(&bound)
     {
         names.push(bound);
@@ -550,6 +629,25 @@ pub fn forget(ssid: &str) -> Result<()> {
         }
     }
     last
+}
+
+#[cfg(test)]
+mod connect_tests {
+    use super::*;
+
+    #[test]
+    fn owe_networks_are_classified_apart_from_legacy_open_ones() {
+        // Sharing Security::Open authored an open/none profile, which does not
+        // describe an OWE network and cannot join it.
+        assert_eq!(
+            classify(true, DOT11_AUTH_ALGO_OWE.0),
+            Security::EnhancedOpen
+        );
+        assert_eq!(
+            classify(true, DOT11_AUTH_ALGO_80211_OPEN.0),
+            Security::Open
+        );
+    }
 }
 
 #[cfg(test)]

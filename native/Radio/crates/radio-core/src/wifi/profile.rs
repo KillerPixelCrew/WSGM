@@ -20,6 +20,12 @@ pub enum Security {
     /// 802.1X / enterprise. Not supported: it needs EAP configuration and a
     /// credential flow that a handheld game-mode panel has no business guessing.
     Enterprise,
+
+    /// OWE ("Enhanced Open"): joined without a password like an open network,
+    /// but encrypted, and Windows rejects a profile that claims
+    /// `open`/`none` for it. Its own variant precisely so it cannot be
+    /// authored as a legacy open network and then fail to connect.
+    EnhancedOpen,
 }
 
 /// Escapes text for an XML element body.
@@ -41,23 +47,55 @@ fn escape(value: &str) -> String {
     out
 }
 
-/// Builds an open-network profile.
+/// The `<SSID>` element body.
+///
+/// An SSID is 32 arbitrary bytes, not text. When those bytes are not valid
+/// UTF-8 the `<name>` form cannot express them — the lossy string carries
+/// U+FFFD where the original had raw bytes, and Windows would then author a
+/// profile for a network that does not exist. `<hex>` is the documented way to
+/// name such an SSID exactly.
+fn ssid_element(name: &str, raw: Option<&[u8]>) -> String {
+    match raw {
+        Some(bytes) if std::str::from_utf8(bytes).is_err() => {
+            let mut hex = String::with_capacity(bytes.len() * 2);
+            for byte in bytes {
+                let _ = write!(hex, "{byte:02X}");
+            }
+            format!("<hex>{hex}</hex>")
+        }
+        _ => format!("<name>{name}</name>"),
+    }
+}
+
+/// Builds a profile for a network that needs no password.
+///
+/// `raw` is the SSID's original bytes when they are known; see
+/// [`ssid_element`]. `owe` authors an Enhanced Open profile instead of a
+/// legacy unsecured one.
 #[must_use]
-pub fn open_profile(ssid: &str) -> String {
+pub fn open_profile(ssid: &str, raw: Option<&[u8]>, owe: bool) -> String {
     let name = escape(ssid);
+    let ssid_element = ssid_element(&name, raw);
+    // OWE is passwordless but encrypted: authoring it as open/none describes a
+    // different network and the join fails.
+    let (auth, encryption) = if owe {
+        ("OWE", "AES")
+    } else {
+        ("open", "none")
+    };
     let mut xml = String::new();
     let _ = write!(
         xml,
         r#"<?xml version="1.0"?>
 <WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
   <name>{name}</name>
-  <SSIDConfig><SSID><name>{name}</name></SSID></SSIDConfig>
+  <SSIDConfig><SSID>{ssid_element}</SSID></SSIDConfig>
   <connectionType>ESS</connectionType>
   <connectionMode>auto</connectionMode>
   <MSM><security>
     <authEncryption>
-      <authentication>open</authentication>
-      <encryption>none</encryption>
+      <authentication>{auth}</authentication>
+      <encryption>{encryption}</encryption>
       <useOneX>false</useOneX>
     </authEncryption>
   </security></MSM>
@@ -77,9 +115,18 @@ pub fn open_profile(ssid: &str) -> String {
 /// `wpa3` must be false on Windows 10, where the WPA3 authentication values do
 /// not exist (they need Windows 11 21H2 or Server 2022).
 #[must_use]
-pub fn psk_profile(ssid: &str, passphrase: &str, wpa3: bool) -> String {
+pub fn psk_profile(ssid: &str, raw: Option<&[u8]>, passphrase: &str, wpa3: bool) -> String {
     let name = escape(ssid);
+    let ssid_element = ssid_element(&name, raw);
     let key = escape(passphrase);
+    // A 64-hex-digit value is a raw PSK, not a passphrase, and Windows rejects
+    // the profile if it is labelled as one — which made a key this crate's own
+    // validator accepts unusable.
+    let key_type = if is_raw_key(passphrase) {
+        "networkKey"
+    } else {
+        "passPhrase"
+    };
     let (auth, transition) = if wpa3 {
         (
             "WPA3SAE",
@@ -94,7 +141,7 @@ pub fn psk_profile(ssid: &str, passphrase: &str, wpa3: bool) -> String {
         r#"<?xml version="1.0"?>
 <WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
   <name>{name}</name>
-  <SSIDConfig><SSID><name>{name}</name></SSID></SSIDConfig>
+  <SSIDConfig><SSID>{ssid_element}</SSID></SSIDConfig>
   <connectionType>ESS</connectionType>
   <connectionMode>auto</connectionMode>
   <MSM><security>
@@ -104,7 +151,7 @@ pub fn psk_profile(ssid: &str, passphrase: &str, wpa3: bool) -> String {
       <useOneX>false</useOneX>{transition}
     </authEncryption>
     <sharedKey>
-      <keyType>passPhrase</keyType>
+      <keyType>{key_type}</keyType>
       <protected>false</protected>
       <keyMaterial>{key}</keyMaterial>
     </sharedKey>
@@ -121,11 +168,18 @@ pub fn psk_profile(ssid: &str, passphrase: &str, wpa3: bool) -> String {
 /// characters, or exactly 64 hex digits for a raw key.
 #[must_use]
 pub fn passphrase_is_valid(passphrase: &str) -> bool {
-    let len = passphrase.chars().count();
-    if len == 64 && passphrase.chars().all(|c| c.is_ascii_hexdigit()) {
+    if is_raw_key(passphrase) {
         return true;
     }
+    let len = passphrase.chars().count();
     (8..=63).contains(&len) && passphrase.chars().all(|c| ('\u{20}'..='\u{7e}').contains(&c))
+}
+
+/// Whether the value is a raw 64-hex-digit PSK rather than a passphrase. The
+/// two take different `keyType` values in the profile.
+#[must_use]
+pub fn is_raw_key(passphrase: &str) -> bool {
+    passphrase.len() == 64 && passphrase.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 #[cfg(test)]
@@ -133,8 +187,41 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_raw_64_digit_key_is_labelled_a_network_key_not_a_passphrase() {
+        // Windows rejects a 64-digit PSK declared as passPhrase, so a key this
+        // crate's own validator accepts would otherwise be unusable.
+        let raw = "a1B2".repeat(16);
+        assert!(passphrase_is_valid(&raw));
+        let xml = psk_profile("Net", None, &raw, true);
+        assert!(xml.contains("<keyType>networkKey</keyType>"));
+        // An ordinary passphrase keeps the passPhrase form.
+        assert!(psk_profile("Net", None, "password1", true).contains("<keyType>passPhrase</keyType>"));
+    }
+
+    #[test]
+    fn a_non_utf8_ssid_is_named_in_hex_rather_than_lossy_text() {
+        // The lossy string carries U+FFFD where the air carried raw bytes, so a
+        // <name> profile would describe a different network entirely.
+        let raw = [0x41u8, 0xff, 0x42];
+        let xml = psk_profile("A\u{fffd}B", Some(&raw), "password1", false);
+        assert!(xml.contains("<hex>41FF42</hex>"));
+        assert!(!xml.contains("<SSID><name>"));
+        // A valid-UTF-8 SSID keeps the readable form.
+        assert!(psk_profile("Cafe", Some(b"Cafe"), "password1", false).contains("<SSID><name>Cafe</name></SSID>"));
+    }
+
+    #[test]
+    fn enhanced_open_is_not_authored_as_a_legacy_open_network() {
+        let xml = open_profile("Cafe", None, true);
+        assert!(xml.contains("<authentication>OWE</authentication>"));
+        // open/none describes a different network and would fail to join.
+        assert!(!xml.contains("<encryption>none</encryption>"));
+        assert!(open_profile("Cafe", None, false).contains("<authentication>open</authentication>"));
+    }
+
+    #[test]
     fn psk_profile_uses_the_v4_namespace_for_transition_mode_only() {
-        let xml = psk_profile("Net", "password1", true);
+        let xml = psk_profile("Net", None, "password1", true);
         assert!(xml.contains("<authentication>WPA3SAE</authentication>"));
         assert!(xml.contains(
             r#"<transitionMode xmlns="http://www.microsoft.com/networking/WLAN/profile/v4">true</transitionMode>"#
@@ -147,14 +234,14 @@ mod tests {
 
     #[test]
     fn the_wpa2_fallback_carries_no_transition_element() {
-        let xml = psk_profile("Net", "password1", false);
+        let xml = psk_profile("Net", None, "password1", false);
         assert!(xml.contains("<authentication>WPA2PSK</authentication>"));
         assert!(!xml.contains("transitionMode"));
     }
 
     #[test]
     fn ssid_and_passphrase_are_xml_escaped() {
-        let xml = psk_profile("A&B<C>", "pw\"&<>'x", true);
+        let xml = psk_profile("A&B<C>", None, "pw\"&<>'x", true);
         assert!(xml.contains("<name>A&amp;B&lt;C&gt;</name>"));
         assert!(xml.contains("<keyMaterial>pw&quot;&amp;&lt;&gt;&apos;x</keyMaterial>"));
         // No raw metacharacter may survive into the document body.
@@ -163,7 +250,7 @@ mod tests {
 
     #[test]
     fn the_ssid_appears_as_both_profile_name_and_ssid() {
-        let xml = open_profile("Cafe");
+        let xml = open_profile("Cafe", None, false);
         assert_eq!(xml.matches("<name>Cafe</name>").count(), 2);
         assert!(xml.contains("<authentication>open</authentication>"));
     }
