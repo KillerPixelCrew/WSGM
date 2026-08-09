@@ -215,6 +215,8 @@ public sealed class BluetoothDeviceEntry : INotifyPropertyChanged
                 Raise(nameof(ActionText));
                 Raise(nameof(IconState));
                 Raise(nameof(StatusLine));
+                Raise(nameof(PrimaryActionVisible));
+                Raise(nameof(RemoveVisible));
             }
         }
     }
@@ -231,6 +233,63 @@ public sealed class BluetoothDeviceEntry : INotifyPropertyChanged
                 _canPair = value;
                 Raise(nameof(CanPair));
                 Raise(nameof(StatusLine));
+            }
+        }
+    }
+
+    private bool _connected;
+    /// <summary>Gets whether the device has a live connection right now. Paired
+    /// and connected are different states: a paired headset that is switched
+    /// off must not read as "connected".</summary>
+    public bool Connected
+    {
+        get => _connected;
+        internal set
+        {
+            if (_connected != value)
+            {
+                _connected = value;
+                Raise(nameof(Connected));
+                Raise(nameof(IconState));
+                Raise(nameof(StatusLine));
+                Raise(nameof(ActionText));
+            }
+        }
+    }
+
+    private string _containerId = "";
+    /// <summary>Gets the device container id, which ties the device to its
+    /// audio endpoints. Empty when Windows reported none.</summary>
+    public string ContainerId
+    {
+        get => _containerId;
+        internal set
+        {
+            if (_containerId != value)
+            {
+                _containerId = value;
+                Raise(nameof(ContainerId));
+            }
+        }
+    }
+
+    private bool _audioConnectable;
+    /// <summary>Gets whether this device can be connected/disconnected on
+    /// demand — true only for devices with audio endpoints. Everything else
+    /// (mice, gamepads) reconnects on its own initiative when used, and
+    /// Windows offers no host-side connect for them; the row then shows only
+    /// Pair or Remove, the same choice the Settings app makes.</summary>
+    public bool AudioConnectable
+    {
+        get => _audioConnectable;
+        internal set
+        {
+            if (_audioConnectable != value)
+            {
+                _audioConnectable = value;
+                Raise(nameof(AudioConnectable));
+                Raise(nameof(ActionText));
+                Raise(nameof(PrimaryActionVisible));
             }
         }
     }
@@ -252,8 +311,21 @@ public sealed class BluetoothDeviceEntry : INotifyPropertyChanged
         }
     }
 
-    /// <summary>Gets the label for this row's button.</summary>
-    public string ActionText => Busy ? "Working..." : Paired ? "Remove" : "Pair";
+    /// <summary>Gets the label for this row's primary button: Pair for a
+    /// stranger; Connect/Disconnect for a paired audio device. The pairing
+    /// itself is only ever touched by the separate Remove button.</summary>
+    public string ActionText => Busy
+        ? "Working..."
+        : !Paired ? "Pair"
+        : Connected ? "Disconnect" : "Connect";
+
+    /// <summary>Gets whether the primary button is shown at all. A paired
+    /// non-audio device has no on-demand connect (it reconnects itself when
+    /// used), so its only action is Remove.</summary>
+    public bool PrimaryActionVisible => !Paired || AudioConnectable;
+
+    /// <summary>Gets whether the Remove (unpair) button is shown.</summary>
+    public bool RemoveVisible => Paired;
 
     private bool _expanded;
     /// <summary>Gets whether this row is showing its actions. Same reasoning as
@@ -264,15 +336,16 @@ public sealed class BluetoothDeviceEntry : INotifyPropertyChanged
         internal set => Set(ref _expanded, value, nameof(Expanded));
     }
 
-    /// <summary>Gets the icon state. A paired device reads as connected, which
-    /// is the distinction that matters in a picker full of nearby strangers.</summary>
-    public Controls.RadioIconState IconState => Paired
+    /// <summary>Gets the icon state: accent only for a live connection, muted
+    /// for everything else — the same rule as the taskbar tile.</summary>
+    public Controls.RadioIconState IconState => Connected
         ? Controls.RadioIconState.Connected
         : Controls.RadioIconState.Disconnected;
 
     /// <summary>Gets the second line under the name.</summary>
     public string StatusLine => Busy
         ? "Working..."
+        : Connected ? "Connected"
         : Paired ? "Paired" : CanPair ? "Available" : "Not available";
 
     /// <summary>Gets whether the second line has anything to say.</summary>

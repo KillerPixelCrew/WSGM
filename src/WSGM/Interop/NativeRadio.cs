@@ -116,6 +116,25 @@ internal static unsafe partial class NativeRadio
     [LibraryImport(Library, EntryPoint = "wsgm_bt_unpair", StringMarshalling = StringMarshalling.Utf16)]
     internal static partial int UnpairBluetooth(string deviceId, out int removed);
 
+    /// <summary>Counts Bluetooth devices with a live connection. Fast: answered
+    /// from PnP state, no inquiry, so the status tick may poll it.</summary>
+    [LibraryImport(Library, EntryPoint = "wsgm_bt_connected_count")]
+    internal static partial int ConnectedBluetoothCount(out uint count);
+
+    /// <summary>Lists the device containers that expose Bluetooth audio
+    /// endpoints — the devices a Connect/Disconnect action exists for.</summary>
+    [LibraryImport(Library, EntryPoint = "wsgm_bt_audio_list")]
+    internal static partial int ListBluetoothAudio(out nint items, out uint count);
+
+    [LibraryImport(Library, EntryPoint = "wsgm_bt_audio_free")]
+    internal static partial void FreeBluetoothAudio(nint items, uint count);
+
+    /// <summary>Connects or disconnects a paired Bluetooth audio device by its
+    /// container id — the same one-shot the Settings app's Connect button uses.
+    /// Soft: pairing is untouched.</summary>
+    [LibraryImport(Library, EntryPoint = "wsgm_bt_audio_set", StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial int SetBluetoothAudio(string container, int connect);
+
     [LibraryImport(Library, EntryPoint = "wsgm_bt_watch_start")]
     internal static partial int StartBluetoothWatch(nint onChange, nint context);
 
@@ -148,15 +167,25 @@ internal static unsafe partial class NativeRadio
     /// <summary>The size of one WsgmWifiNetwork record.</summary>
     internal const int WifiRecordSize = WifiConnectedOffset + 4;
 
-    // WsgmBtDevice: id[256] then name[128] UTF-16, then two 4-byte fields.
+    // WsgmBtDevice: id[256] then name[128] UTF-16, three 4-byte fields, then
+    // container[40] UTF-16.
     private const int BtIdUnits = 256;
     private const int BtNameUnits = 128;
+    private const int BtContainerUnits = 40;
     private const int BtNameOffset = BtIdUnits * 2;
     private const int BtPairedOffset = BtNameOffset + (BtNameUnits * 2);
     private const int BtCanPairOffset = BtPairedOffset + 4;
+    private const int BtConnectedOffset = BtCanPairOffset + 4;
+    private const int BtContainerOffset = BtConnectedOffset + 4;
 
     /// <summary>The size of one WsgmBtDevice record.</summary>
-    internal const int BluetoothRecordSize = BtCanPairOffset + 4;
+    internal const int BluetoothRecordSize = BtContainerOffset + (BtContainerUnits * 2);
+
+    // WsgmBtAudioContainer: container[40] UTF-16, then one 4-byte field.
+    private const int AudioActiveOffset = BtContainerUnits * 2;
+
+    /// <summary>The size of one WsgmBtAudioContainer record.</summary>
+    internal const int BluetoothAudioRecordSize = AudioActiveOffset + 4;
 
     /// <summary>One visible Wi-Fi network.</summary>
     /// <param name="Ssid">The network name.</param>
@@ -173,8 +202,15 @@ internal static unsafe partial class NativeRadio
     /// <param name="Name">The display name, possibly empty.</param>
     /// <param name="Paired">Whether the device is paired.</param>
     /// <param name="CanPair">Whether Windows thinks pairing is possible.</param>
+    /// <param name="Connected">Whether the device has a live connection.</param>
+    /// <param name="Container">The device container id, or empty.</param>
     internal readonly record struct BluetoothDevice(
-        string Id, string Name, bool Paired, bool CanPair);
+        string Id, string Name, bool Paired, bool CanPair, bool Connected, string Container);
+
+    /// <summary>One device container with Bluetooth audio endpoints.</summary>
+    /// <param name="Container">The container id; matches <see cref="BluetoothDevice.Container"/>.</param>
+    /// <param name="Active">Whether the audio device is connected right now.</param>
+    internal readonly record struct BluetoothAudioContainer(string Container, bool Active);
 
     /// <summary>Reads a NUL-terminated UTF-16 field of at most <paramref name="units"/>
     /// characters. Stops at the terminator, and at the field edge when the helper
@@ -209,7 +245,15 @@ internal static unsafe partial class NativeRadio
         ReadFixedString(record, 0, BtIdUnits),
         ReadFixedString(record, BtNameOffset, BtNameUnits),
         Marshal.ReadInt32(record, BtPairedOffset) != 0,
-        Marshal.ReadInt32(record, BtCanPairOffset) != 0);
+        Marshal.ReadInt32(record, BtCanPairOffset) != 0,
+        Marshal.ReadInt32(record, BtConnectedOffset) != 0,
+        ReadFixedString(record, BtContainerOffset, BtContainerUnits));
+
+    /// <summary>Decodes one WsgmBtAudioContainer record.</summary>
+    /// <param name="record">A pointer to the record.</param>
+    internal static BluetoothAudioContainer ReadBluetoothAudio(nint record) => new(
+        ReadFixedString(record, 0, BtContainerUnits),
+        Marshal.ReadInt32(record, AudioActiveOffset) != 0);
 
     /// <summary>Reads the helper's message for the last failure on this thread.
     /// Returns an empty string when there is none.</summary>

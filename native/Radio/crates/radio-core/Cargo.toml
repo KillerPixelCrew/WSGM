@@ -10,6 +10,7 @@ name = "radio_core"
 
 [dependencies]
 windows-core.workspace = true
+windows-collections.workspace = true
 
 [dependencies.windows]
 workspace = true
@@ -29,6 +30,13 @@ features = [
     "Win32_Foundation",
     "Win32_System_Com",
     "Win32_System_WinRT",
+    # Bluetooth audio connect/disconnect: Core Audio endpoint topology plus the
+    # kernel-streaming BtAudio one-shot properties.
+    "Win32_Media_Audio",
+    "Win32_Media_KernelStreaming",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
+    "Win32_UI_Shell_PropertiesSystem",
     # Read-only: reports the privacy consent values that gate scan and toggle.
     "Win32_System_Registry",
     "Win32_Security",

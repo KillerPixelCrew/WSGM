@@ -135,12 +135,16 @@ public class RadioManagerTests
             WriteUtf16(buffer, 512, "WH-1000XM5");
             Marshal.WriteInt32(buffer, 768, 1); // paired
             Marshal.WriteInt32(buffer, 772, 0); // can pair
+            Marshal.WriteInt32(buffer, 776, 1); // connected
+            WriteUtf16(buffer, 780, "8c7ed206-3f8a-4827-b3ab-ae9e1faefc6c");
 
             var device = NativeRadio.ReadBluetoothDevice(buffer);
             Assert.Equal("BT#abc", device.Id);
             Assert.Equal("WH-1000XM5", device.Name);
             Assert.True(device.Paired);
             Assert.False(device.CanPair);
+            Assert.True(device.Connected);
+            Assert.Equal("8c7ed206-3f8a-4827-b3ab-ae9e1faefc6c", device.Container);
         }
         finally
         {
@@ -188,9 +192,11 @@ public class RadioManagerTests
     [Fact]
     public void TheRecordSizesMatchTheRustDeclarations()
     {
-        // ssid[64] + 5 ints, and id[256] + name[128] + 2 ints.
+        // ssid[64] + 5 ints; id[256] + name[128] + 3 ints + container[40];
+        // container[40] + 1 int.
         Assert.Equal(148, NativeRadio.WifiRecordSize);
-        Assert.Equal(776, NativeRadio.BluetoothRecordSize);
+        Assert.Equal(860, NativeRadio.BluetoothRecordSize);
+        Assert.Equal(84, NativeRadio.BluetoothAudioRecordSize);
     }
 
     private static void Zero(nint buffer, int bytes)

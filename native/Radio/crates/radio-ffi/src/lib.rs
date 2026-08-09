@@ -499,6 +499,11 @@ pub struct WsgmBtDevice {
     pub paired: i32,
     /// Non-zero when Windows thinks pairing is possible.
     pub can_pair: i32,
+    /// Non-zero when the device has a live connection right now.
+    pub connected: i32,
+    /// NUL-terminated container id (36-char GUID text), or empty. Matches the
+    /// container field of [`WsgmBtAudioContainer`].
+    pub container: [u16; 40],
 }
 
 /// Returns Bluetooth devices; `paired_only` limits the list to paired ones.
@@ -534,9 +539,12 @@ pub unsafe extern "system" fn wsgm_bt_list(
                     name: [0; 128],
                     paired: i32::from(d.paired),
                     can_pair: i32::from(d.can_pair),
+                    connected: i32::from(d.connected),
+                    container: [0; 40],
                 };
                 fill(&mut entry.id, &d.id);
                 fill(&mut entry.name, &d.name);
+                fill(&mut entry.container, &d.container);
                 entry
             })
             .collect();
@@ -583,8 +591,12 @@ pub type WsgmPairingRequestFn = extern "system" fn(
 /// Called once when a pairing attempt finishes.
 ///
 /// `outcome` is 0 paired, 1 already-paired, 2 rejected, 3 failed,
-/// 4 access-denied, 5 other, or -1 when the attempt errored before starting,
-/// in which case `message` describes it.
+/// 4 access-denied, 5 other, 6 an earlier pairing operation for the device is
+/// still in flight inside Windows, or -1 when the attempt errored before
+/// starting.
+/// `message` carries the error text for -1 and the raw
+/// `DevicePairingResultStatus` number otherwise — the grouped outcome lumps
+/// rare statuses together, and a remote diagnosis needs the exact one.
 pub type WsgmPairingDoneFn =
     extern "system" fn(context: *mut c_void, outcome: i32, message: *const u16);
 
@@ -622,6 +634,7 @@ fn outcome_code(outcome: PairOutcome) -> i32 {
         PairOutcome::Failed => 3,
         PairOutcome::AccessDenied => 4,
         PairOutcome::Other => 5,
+        PairOutcome::AlreadyInProgress => 6,
     }
 }
 
@@ -679,7 +692,13 @@ pub unsafe extern "system" fn wsgm_bt_pair(
                 );
             },
             move |result| match result {
-                Ok(outcome) => on_done(done_context.get(), outcome_code(outcome), std::ptr::null()),
+                Ok((outcome, raw_status)) => {
+                    let message: Vec<u16> = format!("DevicePairingResultStatus {raw_status}")
+                        .encode_utf16()
+                        .chain(std::iter::once(0))
+                        .collect();
+                    on_done(done_context.get(), outcome_code(outcome), message.as_ptr());
+                }
                 Err(error) => {
                     let message: Vec<u16> = error
                         .to_string()
@@ -705,6 +724,8 @@ pub type WsgmBtWatchFn = extern "system" fn(
     name: *const u16,
     paired: i32,
     can_pair: i32,
+    connected: i32,
+    container: *const u16,
 );
 
 /// Starts streaming Bluetooth devices instead of enumerating them in one call.
@@ -745,6 +766,13 @@ pub unsafe extern "system" fn wsgm_bt_watch_start(
                 .encode_utf16()
                 .chain(std::iter::once(0))
                 .collect();
+            let container: Vec<u16> = device
+                .as_ref()
+                .map(|d| d.container.as_str())
+                .unwrap_or_default()
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect();
             on_change(
                 cookie.get(),
                 change,
@@ -752,8 +780,114 @@ pub unsafe extern "system" fn wsgm_bt_watch_start(
                 name.as_ptr(),
                 i32::from(device.as_ref().is_some_and(|d| d.paired)),
                 i32::from(device.as_ref().is_some_and(|d| d.can_pair)),
+                i32::from(device.as_ref().is_some_and(|d| d.connected)),
+                container.as_ptr(),
             );
         })
+    })
+}
+
+/// One device container that has Bluetooth audio endpoints.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct WsgmBtAudioContainer {
+    /// NUL-terminated container id (36-char GUID text). Matches the container
+    /// field of [`WsgmBtDevice`].
+    pub container: [u16; 40],
+    /// Non-zero when the audio device is connected right now.
+    pub active: i32,
+}
+
+/// Lists the device containers that expose Bluetooth audio endpoints — the
+/// devices a Connect/Disconnect action exists for. Release with
+/// [`wsgm_bt_audio_free`]. Fast: local endpoint enumeration, no radio traffic.
+///
+/// # Safety
+/// Both out pointers must be writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn wsgm_bt_audio_list(
+    out_items: *mut *mut WsgmBtAudioContainer,
+    out_count: *mut u32,
+) -> i32 {
+    guard(|| {
+        if out_items.is_null() || out_count.is_null() {
+            return Err(Error::InvalidArgument("out pointers"));
+        }
+        unsafe {
+            *out_items = null_mut();
+            *out_count = 0;
+        }
+        let containers = radio_core::audio::audio_containers()?;
+        let mut flat: Vec<WsgmBtAudioContainer> = containers
+            .iter()
+            .map(|c| {
+                let mut entry = WsgmBtAudioContainer {
+                    container: [0; 40],
+                    active: i32::from(c.active),
+                };
+                fill(&mut entry.container, &c.container);
+                entry
+            })
+            .collect();
+        flat.shrink_to_fit();
+        let count = flat.len() as u32;
+        let pointer = flat.as_mut_ptr();
+        std::mem::forget(flat);
+        unsafe {
+            *out_items = pointer;
+            *out_count = count;
+        }
+        Ok(())
+    })
+}
+
+/// Releases a list returned by [`wsgm_bt_audio_list`].
+///
+/// # Safety
+/// `items`/`count` must be exactly what `wsgm_bt_audio_list` produced.
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn wsgm_bt_audio_free(items: *mut WsgmBtAudioContainer, count: u32) {
+    if items.is_null() {
+        return;
+    }
+    // SAFETY: as in wsgm_wifi_free.
+    unsafe {
+        drop(Vec::from_raw_parts(items, count as usize, count as usize));
+    }
+}
+
+/// Connects or disconnects a paired Bluetooth AUDIO device by its container
+/// id — the BtAudio one-shot the Settings app's own Connect button uses. Soft:
+/// pairing is untouched.
+///
+/// # Safety
+/// `container` must be a NUL-terminated UTF-16 string.
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn wsgm_bt_audio_set(container: *const u16, connect: i32) -> i32 {
+    guard(|| {
+        let Some(container) = (unsafe { read_utf16(container) }) else {
+            return Err(Error::InvalidArgument("container id"));
+        };
+        radio_core::audio::set_audio_connection(&container, connect != 0)
+    })
+}
+
+/// Counts Bluetooth devices with a live connection.
+///
+/// Fast — answered from PnP state, no inquiry — so it is safe to poll from a
+/// status tick.
+///
+/// # Safety
+/// `out_count` must point to a writable `u32`.
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn wsgm_bt_connected_count(out_count: *mut u32) -> i32 {
+    guard(|| {
+        if out_count.is_null() {
+            return Err(Error::InvalidArgument("out_count"));
+        }
+        let count = bluetooth::connected_count()?;
+        unsafe { *out_count = count };
+        Ok(())
     })
 }
 

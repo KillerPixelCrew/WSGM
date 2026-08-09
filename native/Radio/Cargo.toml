@@ -20,6 +20,10 @@ radio-core = { path = "crates/radio-core" }
 # from the same crate, so one dependency covers both halves of the ABI.
 windows = "0.62"
 windows-core = "0.62"
+# The WinRT collection interfaces (IIterable for AEP additional-property
+# lists). A separate crate since windows 0.60; the version is the one the
+# windows crate itself depends on.
+windows-collections = "0.3"
 
 [profile.release]
 lto = "thin"

@@ -40,13 +40,22 @@ public partial class RadioWindow : Window
     {
     }
 
+    /// <summary>The window's design size in DIPs, before the touch scale.</summary>
+    private const double BaseWidth = 500;
+    private const double BaseHeight = 600;
+
+    private readonly double _uiScale;
+
     /// <summary>Creates the panel.</summary>
     /// <param name="radios">The manager backing both tabs. Not owned: the taskbar's
     /// status object outlives this window.</param>
     /// <param name="bluetooth">True to open on the Bluetooth tab.</param>
-    public RadioWindow(RadioManager radios, bool bluetooth)
+    /// <param name="uiScale">The desktop-DPI scale factor for WSGM UI (e.g. 1.5
+    /// for a 150% desktop; see DisplayScale.GetUiScalePercent).</param>
+    public RadioWindow(RadioManager radios, bool bluetooth, double uiScale = 1.0)
     {
         _radios = radios;
+        _uiScale = uiScale;
         InitializeComponent();
         DataContext = radios;
 
@@ -78,6 +87,40 @@ public partial class RadioWindow : Window
         };
     }
 
+    /// <summary>Renders the panel at the user's desktop DPI. Game mode forces
+    /// every display to 100% scaling, which shrinks a DIP-sized panel — and the
+    /// on-screen keyboard inside it — to millimeters on dense handheld panels.
+    /// Same mechanism as the taskbar: a layout transform by the desktop factor,
+    /// with the window itself grown to hold the scaled content and clamped to
+    /// the display so it can never outgrow a short screen (the list scrolls).</summary>
+    /// <param name="taskbarTop">The bar's top edge in physical screen pixels, or
+    /// 0 when it is not on screen.</param>
+    private void ApplyTouchScale(int taskbarTop)
+    {
+        // Window scaling, not screen.Scaling — the screens cache is stale after
+        // a runtime display-scale flip (see OverlayWindow.DockToRightEdge).
+        var factor = Math.Clamp(_uiScale / DesktopScaling, 1.0, 3.0);
+        if (Math.Abs(factor - 1.0) >= 0.01)
+        {
+            Log.Info($"Radio panel UI scale {factor:0.##}x (desktop DPI over current {DesktopScaling:0.##}).");
+            RootScale.LayoutTransform = new Avalonia.Media.ScaleTransform(factor, factor);
+        }
+
+        var screen = Screens.Primary ?? (Screens.ScreenCount > 0 ? Screens.All[0] : null);
+        if (screen is not null)
+        {
+            // Clamp against the space above the bar, in DIPs. The content
+            // scroll viewer absorbs a shortened panel.
+            var bottom = taskbarTop > 0 ? taskbarTop : screen.Bounds.Y + screen.Bounds.Height;
+            var availableWidth = (screen.Bounds.Width / DesktopScaling) - 12;
+            var availableHeight = ((bottom - screen.Bounds.Y) / DesktopScaling) - 8;
+            Width = Math.Min(BaseWidth * factor, availableWidth);
+            Height = Math.Min(BaseHeight * factor, availableHeight);
+        }
+        // Sizes must be final before the dock computes the position.
+        UpdateLayout();
+    }
+
     /// <summary>Places the panel just above the taskbar, at the right-hand end
     /// where its tiles are.
     ///
@@ -89,13 +132,18 @@ public partial class RadioWindow : Window
     /// 0 when it is not on screen.</param>
     internal void DockAboveTaskbar(int taskbarTop = 0)
     {
+        ApplyTouchScale(taskbarTop);
         var screen = Screens.Primary ?? (Screens.ScreenCount > 0 ? Screens.All[0] : null);
         if (screen is null)
         {
             return;
         }
         var area = screen.Bounds;
-        var scale = screen.Scaling;
+        // Window scaling, not screen.Scaling — the screens cache reports the
+        // pre-game-mode factor after the runtime display-scale flip, which is
+        // exactly when this window positions itself, and a wrong factor here
+        // parked the panel far from the bar (device-reported).
+        var scale = DesktopScaling;
         var width = (int)Math.Round(Width * scale);
         var height = (int)Math.Round(Height * scale);
         // Small and deliberate: the panel should look attached to the bar, not
@@ -231,18 +279,32 @@ public partial class RadioWindow : Window
         }
     }
 
+    /// <summary>The primary action: pair a stranger, or soft-connect/disconnect
+    /// a paired audio device. Never unpairs — that is the Remove button's job,
+    /// so a tap meant as "disconnect" can never destroy the pairing.</summary>
     private async void OnDeviceAction(object? sender, RoutedEventArgs e)
     {
         if ((sender as Control)?.DataContext is not BluetoothDeviceEntry entry || entry.Busy)
         {
             return;
         }
-        if (entry.Paired)
+        if (!entry.Paired)
         {
-            await _radios.UnpairAsync(entry);
+            _radios.BeginPairing(entry);
             return;
         }
-        _radios.BeginPairing(entry);
+        if (entry.AudioConnectable)
+        {
+            await _radios.SetAudioConnectionAsync(entry, connect: !entry.Connected);
+        }
+    }
+
+    private async void OnDeviceRemove(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is BluetoothDeviceEntry { Busy: false } entry)
+        {
+            await _radios.UnpairAsync(entry);
+        }
     }
 
     private void OnRescanClicked(object? sender, RoutedEventArgs e) => _radios.Rescan();

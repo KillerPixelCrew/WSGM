@@ -566,14 +566,21 @@ public sealed class OverlayController : IDisposable
             }
             return;
         }
+        // The radio panel sits ABOVE the bar, outside its rectangle. A tap in
+        // it must not read as tap-outside; a tap anywhere else closes the
+        // panel first and keeps the bar — one dismissal per tap, so a stray
+        // touch can't tear down both surfaces at once.
+        if (_radioPanel is not null)
+        {
+            if (!HitsWindow(_radioPanel, x, y))
+            {
+                Log.Info("Touch outside radio panel — dismissing.");
+                _radioPanel.Close();
+            }
+            return;
+        }
         if (_taskbar is not null && !HitsWindow(_taskbar, x, y))
         {
-            // The radio panel sits ABOVE the bar, outside its rectangle — a tap
-            // in it must not read as tap-outside and close the bar underneath.
-            if (_radioPanel is not null)
-            {
-                return;
-            }
             Log.Info("Touch outside taskbar — dismissing.");
             CloseTaskbar();
         }
@@ -587,7 +594,10 @@ public sealed class OverlayController : IDisposable
             // that is still coming up.
             return true;
         }
-        var scaling = window.Screens?.Primary?.Scaling ?? 1.0;
+        // Window scaling, not the screens cache — the cache reports the
+        // pre-game-mode factor after the runtime display-scale flip, which
+        // inflates the hit box and swallows taps just outside the window.
+        var scaling = window.DesktopScaling;
         var pos = window.Position;
         var w = (int)Math.Ceiling(window.Width * scaling);
         var h = (int)Math.Ceiling(window.Height * scaling);
@@ -701,7 +711,7 @@ public sealed class OverlayController : IDisposable
             return;
         }
         Log.Info($"Radio panel opened ({(bluetooth ? "Bluetooth" : "Wi-Fi")}).");
-        var panel = new RadioWindow(_systemStatus.Radios, bluetooth);
+        var panel = new RadioWindow(_systemStatus.Radios, bluetooth, UiScale());
         _radioPanel = panel;
         // Its own navigation instance: the panel holds focus while it is open,
         // and B must close the panel rather than the bar behind it.

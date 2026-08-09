@@ -111,12 +111,33 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         _ => Controls.RadioIconState.Off,
     };
 
-    /// <summary>Gets what the taskbar's Bluetooth tile should show.</summary>
+    /// <summary>Gets what the taskbar's Bluetooth tile should show. Accent only
+    /// when a device is actually connected — a lone powered radio is
+    /// "disconnected", the same distinction the Wi-Fi tile draws.</summary>
     public Controls.RadioIconState BluetoothIconState => BluetoothPower switch
     {
-        RadioPower.On => Controls.RadioIconState.Connected,
+        RadioPower.On when BluetoothConnectedCount > 0 => Controls.RadioIconState.Connected,
+        RadioPower.On => Controls.RadioIconState.Disconnected,
         _ => Controls.RadioIconState.Off,
     };
+
+    private int _bluetoothConnectedCount;
+    /// <summary>Gets how many Bluetooth devices have a live connection. Read
+    /// from PnP state every status tick, so the tile is correct whether or not
+    /// the panel has ever been opened.</summary>
+    public int BluetoothConnectedCount
+    {
+        get => _bluetoothConnectedCount;
+        private set
+        {
+            if (_bluetoothConnectedCount != value)
+            {
+                _bluetoothConnectedCount = value;
+                Raise(nameof(BluetoothConnectedCount));
+                Raise(nameof(BluetoothIconState));
+            }
+        }
+    }
 
     private bool _wifiConnected;
     /// <summary>Gets whether Wi-Fi is joined to a network — the only state that
@@ -296,7 +317,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         }
         var context = GCHandle.ToIntPtr(_watchHandle);
         if (NativeRadio.StartBluetoothWatch(
-            (nint)(delegate* unmanaged[Stdcall]<nint, int, nint, nint, int, int, void>)
+            (nint)(delegate* unmanaged[Stdcall]<nint, int, nint, nint, int, int, int, nint, void>)
                 &OnBluetoothChanged,
             context) != NativeRadio.Ok)
         {
@@ -369,16 +390,29 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     private sealed record Snapshot(
         RadioPower WifiPower,
         RadioPower BluetoothPower,
+        int BluetoothConnected,
         int WifiState,
         int WifiSignal,
         string WifiSsid,
+        bool IncludedNetworks,
         IReadOnlyList<NativeRadio.WifiNetwork> Networks,
+        IReadOnlyList<NativeRadio.BluetoothAudioContainer>? AudioContainers,
         string? Failure);
 
     private static Snapshot ReadSnapshot(bool includeNetworks)
     {
         var wifiPower = ReadPower(KindWifi);
         var bluetoothPower = ReadPower(KindBluetooth);
+
+        // Answered from PnP state, no inquiry — cheap enough for every tick,
+        // and the only way the tile can distinguish "on" from "connected"
+        // without the panel's watcher running.
+        var bluetoothConnected = 0;
+        if (bluetoothPower == RadioPower.On
+            && NativeRadio.ConnectedBluetoothCount(out var connectedCount) == NativeRadio.Ok)
+        {
+            bluetoothConnected = (int)connectedCount;
+        }
 
         // State, signal and SSID together, every tick: reading the signal only
         // while the panel was open left the taskbar tile with no bars until the
@@ -411,8 +445,33 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             }
         }
 
+        // Only while the panel is open: the audio-endpoint set decides which
+        // Bluetooth rows get a Connect action, and only the panel shows rows.
+        // Local PnP enumeration, no radio traffic.
+        IReadOnlyList<NativeRadio.BluetoothAudioContainer>? audio = null;
+        if (includeNetworks
+            && NativeRadio.ListBluetoothAudio(out var audioItems, out var audioCount)
+                == NativeRadio.Ok)
+        {
+            audio = ReadArray(
+                audioItems,
+                audioCount,
+                NativeRadio.BluetoothAudioRecordSize,
+                NativeRadio.ReadBluetoothAudio);
+            NativeRadio.FreeBluetoothAudio(audioItems, audioCount);
+        }
+
         return new Snapshot(
-            wifiPower, bluetoothPower, wifiState, wifiSignal, wifiSsid, networks, failure);
+            wifiPower,
+            bluetoothPower,
+            bluetoothConnected,
+            wifiState,
+            wifiSignal,
+            wifiSsid,
+            includeNetworks && wifiPower == RadioPower.On,
+            networks,
+            audio,
+            failure);
     }
 
     // Watch callbacks must be static under NativeAOT, so the manager travels
@@ -422,6 +481,11 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     /// <summary>Ids reported during the current discovery sweep. Anything absent
     /// when the sweep completes is no longer there.</summary>
     private readonly HashSet<string> _seenThisSweep = new(StringComparer.Ordinal);
+
+    /// <summary>Containers with Bluetooth audio endpoints — the devices whose
+    /// rows get a Connect/Disconnect action. Refreshed with each panel-open
+    /// snapshot.</summary>
+    private readonly HashSet<string> _audioContainers = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Starts the live Bluetooth and Wi-Fi feeds.
     ///
@@ -441,7 +505,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         var context = GCHandle.ToIntPtr(_watchHandle);
 
         var bluetooth = NativeRadio.StartBluetoothWatch(
-            (nint)(delegate* unmanaged[Stdcall]<nint, int, nint, nint, int, int, void>)
+            (nint)(delegate* unmanaged[Stdcall]<nint, int, nint, nint, int, int, int, nint, void>)
                 &OnBluetoothChanged,
             context);
         if (bluetooth != NativeRadio.Ok)
@@ -473,18 +537,22 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
 
     [UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvStdcall)])]
     private static void OnBluetoothChanged(
-        nint context, int change, nint id, nint name, int paired, int canPair)
+        nint context, int change, nint id, nint name, int paired, int canPair, int connected,
+        nint container)
     {
         // Arrives on a WinRT worker. Copy the strings before returning.
         var deviceId = Marshal.PtrToStringUni(id) ?? "";
         var deviceName = Marshal.PtrToStringUni(name) ?? "";
+        var containerId = Marshal.PtrToStringUni(container) ?? "";
         var manager = FromContext(context);
         if (manager is null)
         {
             return;
         }
         Dispatcher.UIThread.Post(() =>
-            manager.ApplyDeviceChange(change, deviceId, deviceName, paired != 0, canPair != 0));
+            manager.ApplyDeviceChange(
+                change, deviceId, deviceName, paired != 0, canPair != 0, connected != 0,
+                containerId));
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvStdcall)])]
@@ -510,7 +578,11 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     /// <param name="name">The display name.</param>
     /// <param name="paired">Whether it is paired.</param>
     /// <param name="canPair">Whether it can be paired.</param>
-    private void ApplyDeviceChange(int change, string id, string name, bool paired, bool canPair)
+    /// <param name="connected">Whether it has a live connection.</param>
+    /// <param name="container">The device container id, or empty.</param>
+    private void ApplyDeviceChange(
+        int change, string id, string name, bool paired, bool canPair, bool connected,
+        string container)
     {
         if (change == 3)
         {
@@ -560,6 +632,9 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         row.Name = name;
         row.Paired = paired;
         row.CanPair = canPair;
+        row.Connected = connected;
+        row.ContainerId = container;
+        row.AudioConnectable = container.Length > 0 && _audioContainers.Contains(container);
         BluetoothStateText = DescribeBluetooth(BluetoothPower, BluetoothDevices.Count);
     }
 
@@ -593,6 +668,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     {
         WifiPower = snapshot.WifiPower;
         BluetoothPower = snapshot.BluetoothPower;
+        BluetoothConnectedCount = snapshot.BluetoothConnected;
         WifiConnected = snapshot.WifiState == 0;
         // Straight from the interface, so the tile has bars whether or not the
         // panel has ever been opened.
@@ -606,7 +682,28 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             StatusText = DescribeScanFailure(failure);
         }
 
-        ReconcileNetworks(snapshot.Networks);
+        // Only when the snapshot actually carried a network list. Reconciling
+        // the always-empty closed-panel list wiped the rows AND zeroed the
+        // signal that was just set — which is why the tile only showed bars
+        // after the panel had been opened once.
+        if (snapshot.IncludedNetworks)
+        {
+            ReconcileNetworks(snapshot.Networks);
+        }
+
+        if (snapshot.AudioContainers is { } audio)
+        {
+            _audioContainers.Clear();
+            foreach (var container in audio)
+            {
+                _audioContainers.Add(container.Container);
+            }
+            foreach (var row in BluetoothDevices)
+            {
+                row.AudioConnectable =
+                    row.ContainerId.Length > 0 && _audioContainers.Contains(row.ContainerId);
+            }
+        }
     }
 
     /// <summary>Turns a scan failure into something actionable. The consent gate
@@ -719,6 +816,10 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             row.Name = source.Name;
             row.Paired = source.Paired;
             row.CanPair = source.CanPair;
+            row.Connected = source.Connected;
+            row.ContainerId = source.Container;
+            row.AudioConnectable =
+                source.Container.Length > 0 && _audioContainers.Contains(source.Container);
         }
         for (var i = BluetoothDevices.Count - 1; i >= 0; i--)
         {
@@ -849,6 +950,47 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         QueueRefresh();
     }
 
+    /// <summary>Connects or disconnects a paired Bluetooth audio device — the
+    /// soft action, distinct from removing the pairing. Only meaningful for
+    /// rows with <see cref="BluetoothDeviceEntry.AudioConnectable"/>: other
+    /// device classes reconnect on their own initiative and Windows offers no
+    /// host-side connect for them.</summary>
+    /// <param name="entry">The device to connect or disconnect.</param>
+    /// <param name="connect">True to connect, false to disconnect.</param>
+    public async Task SetAudioConnectionAsync(BluetoothDeviceEntry entry, bool connect)
+    {
+        if (entry.ContainerId.Length == 0)
+        {
+            return;
+        }
+        entry.Busy = true;
+        StatusText = $"{(connect ? "Connecting" : "Disconnecting")} {entry.Name}...";
+        var container = entry.ContainerId;
+        var result = await Task.Run(() =>
+        {
+            var status = NativeRadio.SetBluetoothAudio(container, connect ? 1 : 0);
+            return (status, error: NativeRadio.LastError());
+        });
+        entry.Busy = false;
+        if (result.status == NativeRadio.Ok)
+        {
+            Log.Info($"Bluetooth audio {(connect ? "connect" : "disconnect")}: {entry.Name}.");
+            // Optimistic: the AEP watcher confirms shortly, but the button the
+            // user just pressed should react immediately.
+            entry.Connected = connect;
+            StatusText = "";
+        }
+        else
+        {
+            Log.Warn($"Bluetooth audio {(connect ? "connect" : "disconnect")} failed for "
+                + $"{entry.Name}: {result.error}");
+            StatusText = connect
+                ? $"Could not connect {entry.Name}. Make sure it is switched on and in range."
+                : $"Could not disconnect {entry.Name}.";
+        }
+        QueueRefresh();
+    }
+
     /// <summary>Removes a Bluetooth pairing.</summary>
     /// <param name="entry">The device to unpair.</param>
     public async Task UnpairAsync(BluetoothDeviceEntry entry)
@@ -891,6 +1033,11 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         // cookie; it is freed in OnPairingDone, which always runs.
         _pairingHandle = GCHandle.Alloc(this);
         StatusText = $"Pairing with {entry.Name}...";
+        // Discovery keeps running through the whole ceremony ON PURPOSE, the
+        // way the Windows applet does it: PairAsync needs the association
+        // endpoint pair-ready, which for an advertising device is exactly what
+        // the live scan maintains. Stopping the watcher before PairAsync made
+        // every attempt fail instantly (device-observed 2026-08-09).
         Log.Info($"Bluetooth pairing: started for {entry.Name}.");
 
         var id = entry.Id;
@@ -999,7 +1146,10 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             }
             manager.FinishPairing();
             var summary = DescribePairOutcome(outcome, name, text);
-            Log.Info($"Bluetooth pairing: finished for {name} (outcome {outcome}). {summary}");
+            // The raw status rides along: the grouped outcome deliberately
+            // lumps rare statuses, and remote diagnosis needs the exact one.
+            Log.Info($"Bluetooth pairing: finished for {name} (outcome {outcome}"
+                + $"{(text.Length > 0 ? $", {text}" : "")}). {summary}");
             manager.StatusText = outcome is 0 or 1 ? "" : summary;
             manager.PairingFinished?.Invoke(summary);
         });
@@ -1016,6 +1166,10 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             // The broker runs unelevated and may be unable to inspect an
             // elevated caller; that is a different problem from a sulky device.
             4 => $"Windows denied pairing with {device}.",
+            // A hung earlier ceremony inside the Device Association service —
+            // it survives WSGM, so only the radio (or a reboot) can clear it.
+            6 => $"Windows is still busy with an earlier pairing attempt for {device}. "
+                + "Turn Bluetooth off and on, then try again.",
             -1 => message.Length > 0 ? message : $"Pairing with {device} failed.",
             _ => $"Pairing with {device} did not complete.",
         };

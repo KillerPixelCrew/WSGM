@@ -16,14 +16,16 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
+use windows::Devices::Bluetooth::{BluetoothConnectionStatus, BluetoothDevice, BluetoothLEDevice};
 use windows::Devices::Enumeration::{
     DeviceInformation, DeviceInformationCustomPairing, DeviceInformationKind,
     DeviceInformationUpdate, DevicePairingKinds, DevicePairingProtectionLevel,
     DevicePairingRequestedEventArgs, DevicePairingResultStatus, DeviceUnpairingResultStatus,
     DeviceWatcher,
 };
-use windows::Foundation::{Deferral, TypedEventHandler};
-use windows_core::HSTRING;
+use windows::Foundation::{Deferral, IReference, TypedEventHandler};
+use windows_collections::IIterable;
+use windows_core::{HSTRING, Interface};
 
 use crate::error::{Error, Result, winrt};
 use crate::mta::{detached_mta, on_mta};
@@ -39,6 +41,14 @@ pub struct Device {
     pub paired: bool,
     /// Whether Windows thinks pairing is currently possible.
     pub can_pair: bool,
+    /// Whether the device has a live connection right now. Paired and
+    /// connected are different states a picker must not conflate: a paired
+    /// headset that is switched off is not "connected".
+    pub connected: bool,
+    /// The device container id (see [`crate::audio::format_guid`] for the
+    /// shape), or empty. This is what ties the device to its audio endpoints,
+    /// which is what decides whether a Connect action exists for it.
+    pub container: String,
 }
 
 /// The ceremony Windows wants for a pairing.
@@ -102,6 +112,11 @@ pub enum PairOutcome {
     /// Access was denied. On an elevated process this is the case to watch:
     /// the broker runs unelevated and may not be able to inspect us.
     AccessDenied,
+    /// Windows still has an earlier pairing operation for this device in
+    /// flight. Its own state, not ours — it survives our process — so the only
+    /// cure is letting it die (radio toggle or reboot). Distinct because the
+    /// user can actually act on it.
+    AlreadyInProgress,
     /// Any other status.
     Other,
 }
@@ -114,6 +129,7 @@ impl PairOutcome {
             DevicePairingResultStatus::RejectedByHandler
             | DevicePairingResultStatus::PairingCanceled => Self::Rejected,
             DevicePairingResultStatus::AccessDenied => Self::AccessDenied,
+            DevicePairingResultStatus::OperationAlreadyInProgress => Self::AlreadyInProgress,
             DevicePairingResultStatus::Failed
             | DevicePairingResultStatus::ConnectionRejected
             | DevicePairingResultStatus::TooManyConnections
@@ -182,17 +198,55 @@ const BLUETOOTH_AQS: &str = concat!(
     " OR System.Devices.Aep.ProtocolId:=\"{bb7bb05e-5972-42b5-94fc-76eaa7084d49}\")"
 );
 
+/// The AEP property carrying live connection state. Requested explicitly on
+/// every query: only Id, Name and Pairing are populated by default.
+const AEP_IS_CONNECTED: &str = "System.Devices.Aep.IsConnected";
+
+/// The AEP property carrying the device container, which ties the endpoint to
+/// the device's audio endpoints for the Connect action.
+const AEP_CONTAINER_ID: &str = "System.Devices.Aep.ContainerId";
+
+/// The extra properties every AEP query asks for.
+fn aep_properties() -> IIterable<HSTRING> {
+    IIterable::from(vec![
+        HSTRING::from(AEP_IS_CONNECTED),
+        HSTRING::from(AEP_CONTAINER_ID),
+    ])
+}
+
+/// Reads the requested `IsConnected` property off a device record. Absent or
+/// unreadable reads as "not connected", never as an error: connection state is
+/// decoration on the row, not something worth losing the device over.
+fn read_is_connected(info: &DeviceInformation) -> bool {
+    info.Properties()
+        .ok()
+        .and_then(|properties| properties.Lookup(&HSTRING::from(AEP_IS_CONNECTED)).ok())
+        .and_then(|value| value.cast::<IReference<bool>>().ok())
+        .and_then(|reference| reference.Value().ok())
+        .unwrap_or(false)
+}
+
+/// Reads the requested container id, empty when absent — a device without one
+/// simply gets no Connect action.
+fn read_container_id(info: &DeviceInformation) -> String {
+    info.Properties()
+        .ok()
+        .and_then(|properties| properties.Lookup(&HSTRING::from(AEP_CONTAINER_ID)).ok())
+        .and_then(|value| value.cast::<IReference<windows_core::GUID>>().ok())
+        .and_then(|reference| reference.Value().ok())
+        .map(|guid| crate::audio::format_guid(&guid))
+        .unwrap_or_default()
+}
+
 fn read_devices(filter: &str) -> Result<Vec<Device>> {
     let aqs = HSTRING::from(filter);
     // The kind is load-bearing, not a default worth omitting: these filters
     // query System.Devices.Aep.* properties, which only exist on association
     // endpoints. The plain FindAllAsyncAqsFilter overload searches device
     // interfaces instead and silently returns nothing at all.
-    // No extra properties: Id, Name and Pairing are always populated, and every
-    // additional property is another cross-process read per device.
     let found = DeviceInformation::FindAllAsyncWithKindAqsFilterAndAdditionalProperties(
         &aqs,
-        None,
+        Some(&aep_properties()),
         DeviceInformationKind::AssociationEndpoint,
     )
     .map_err(|e| winrt("DeviceInformation.FindAllAsync (association endpoints)", e))?
@@ -224,6 +278,8 @@ fn read_devices(filter: &str) -> Result<Vec<Device>> {
             name,
             paired,
             can_pair,
+            connected: read_is_connected(&info),
+            container: read_container_id(&info),
         });
     }
     // Unnamed devices are near-useless in a picker; sort them last rather than
@@ -288,6 +344,8 @@ fn read_one(info: &DeviceInformation) -> Option<Device> {
         name,
         paired,
         can_pair,
+        connected: read_is_connected(info),
+        container: read_container_id(info),
     })
 }
 
@@ -318,7 +376,7 @@ where
         // interfaces instead silently finds nothing.
         let watcher = DeviceInformation::CreateWatcherWithKindAqsFilterAndAdditionalProperties(
             &aqs,
-            None,
+            Some(&aep_properties()),
             DeviceInformationKind::AssociationEndpoint,
         )
         .map_err(|e| winrt("DeviceInformation.CreateWatcher", e))?;
@@ -340,10 +398,17 @@ where
             .Updated(&TypedEventHandler::new(
                 move |_, update: windows_core::Ref<'_, DeviceInformationUpdate>| {
                     // An update carries only the changed properties, so the id is
-                    // re-resolved to pick up a pairing change.
+                    // re-resolved to pick up a pairing or connection change. The
+                    // kind and property list must match the watcher's, or the
+                    // re-resolved record has no IsConnected to read.
                     if let Some(update) = update.as_ref()
                         && let Ok(id) = update.Id()
-                        && let Ok(operation) = DeviceInformation::CreateFromIdAsync(&id)
+                        && let Ok(operation) =
+                            DeviceInformation::CreateFromIdAsyncWithKindAndAdditionalProperties(
+                                &id,
+                                Some(&aep_properties()),
+                                DeviceInformationKind::AssociationEndpoint,
+                            )
                         && let Ok(info) = operation.join()
                         && let Some(device) = read_one(&info)
                     {
@@ -396,6 +461,36 @@ pub fn stop_watch() {
     });
 }
 
+/// Counts Bluetooth devices — classic or Low Energy — with a live connection.
+///
+/// Deliberately a device-interface query, not an association-endpoint one: an
+/// AEP enumeration performs a live inquiry and takes ~30 s, while the
+/// connection-status selectors are answered from PnP state in milliseconds —
+/// cheap enough for a taskbar tile to poll.
+pub fn connected_count() -> Result<u32> {
+    on_mta(|| {
+        let mut count = 0u32;
+        let selectors = [
+            BluetoothDevice::GetDeviceSelectorFromConnectionStatus(
+                BluetoothConnectionStatus::Connected,
+            )
+            .map_err(|e| winrt("BluetoothDevice.GetDeviceSelector", e))?,
+            BluetoothLEDevice::GetDeviceSelectorFromConnectionStatus(
+                BluetoothConnectionStatus::Connected,
+            )
+            .map_err(|e| winrt("BluetoothLEDevice.GetDeviceSelector", e))?,
+        ];
+        for selector in selectors {
+            let found = DeviceInformation::FindAllAsyncAqsFilter(&selector)
+                .map_err(|e| winrt("DeviceInformation.FindAllAsync (connected)", e))?
+                .join()
+                .map_err(|e| winrt("DeviceInformation.FindAllAsync (connected join)", e))?;
+            count += found.Size().unwrap_or(0);
+        }
+        Ok(count)
+    })?
+}
+
 /// Lists only devices that are already paired.
 pub fn paired_devices() -> Result<Vec<Device>> {
     on_mta(|| {
@@ -409,14 +504,17 @@ pub fn paired_devices() -> Result<Vec<Device>> {
 ///
 /// Returns as soon as the attempt is under way. `on_request` is called when
 /// Windows asks a question — possibly on an arbitrary thread — and the caller
-/// must eventually answer with [`respond`]. `on_finished` reports the outcome.
+/// must eventually answer with [`respond`]. `on_finished` reports the outcome
+/// together with the raw `DevicePairingResultStatus` value, because the
+/// grouped outcome deliberately lumps rare statuses together and a remote
+/// diagnosis needs the exact one.
 ///
 /// The attempt runs on its own MTA thread: it blocks until the ceremony
 /// completes, and answering it from the shared worker would deadlock.
 pub fn pair<R, F>(device_id: &str, on_request: R, on_finished: F) -> Result<()>
 where
     R: Fn(PairingRequest) + Send + 'static,
-    F: FnOnce(std::result::Result<PairOutcome, Error>) + Send + 'static,
+    F: FnOnce(std::result::Result<(PairOutcome, i32), Error>) + Send + 'static,
 {
     if device_id.is_empty() {
         return Err(Error::InvalidArgument("empty device id"));
@@ -427,7 +525,7 @@ where
     })
 }
 
-fn pair_blocking<R>(device_id: &str, on_request: R) -> Result<PairOutcome>
+fn pair_blocking<R>(device_id: &str, on_request: R) -> Result<(PairOutcome, i32)>
 where
     R: Fn(PairingRequest) + Send + 'static,
 {
@@ -502,6 +600,13 @@ where
         Ok(outcome) => outcome
             .map_err(|e| winrt("DeviceInformationCustomPairing.PairAsync (result)", e)),
         Err(_) => {
+            // CANCEL the OS-side operation, not just our wait: an abandoned
+            // PairAsync keeps running inside the Device Association service,
+            // where it survives even this process — and every later attempt
+            // for the device then fails instantly with
+            // OperationAlreadyInProgress (device-observed 2026-08-09,
+            // status 15 across a restart).
+            let _ = operation.Cancel();
             // Drop any question still waiting for an answer, or its deferral
             // would keep the ceremony alive after we have given up on it.
             discard_pending();
@@ -516,32 +621,46 @@ where
     let status = result
         .Status()
         .map_err(|e| winrt("DevicePairingResult.Status", e))?;
-    Ok(PairOutcome::from_winrt(status))
+    Ok((PairOutcome::from_winrt(status), status.0))
 }
 
 /// Answers a pairing request raised through [`pair`].
 ///
 /// `pin` is used only for [`PairingKind::ProvidePin`]. Answering a token twice
 /// is a no-op, because the request is removed when it is answered.
+///
+/// The answer is delivered ON THE MTA WORKER, never on the caller's thread.
+/// This is load-bearing, not hygiene: completing the deferral from an STA
+/// (which the Avalonia UI thread is) returns S_OK but hangs the Windows
+/// Device Association Service SYSTEM-WIDE — the ceremony never finishes, and
+/// every later pairing attempt for the device fails with
+/// OperationAlreadyInProgress until the machine is rebooted. Chromium's
+/// bluetooth_pairing_winrt.cc documents the same quirk and likewise completes
+/// its deferral on an MTA thread. Device-observed here 2026-08-09: accept
+/// delivered from the UI thread → 90 s timeout → status 15 on every retry,
+/// surviving process restarts and radio toggles.
 pub fn respond(token: u32, accept: bool, pin: &str) -> Result<()> {
     let Some(request) = pending().lock().ok().and_then(|mut m| m.remove(&token)) else {
         return Err(Error::NotFound("pairing request"));
     };
-    if accept {
-        let outcome = if pin.is_empty() {
-            request.args.Accept()
-        } else {
-            request.args.AcceptWithPin(&HSTRING::from(pin))
-        };
-        outcome.map_err(|e| winrt("DevicePairingRequestedEventArgs.Accept", e))?;
-    }
-    // Completing the deferral without accepting is how a rejection is
-    // expressed; there is no explicit Reject.
-    request
-        .deferral
-        .Complete()
-        .map_err(|e| winrt("Deferral.Complete", e))?;
-    Ok(())
+    let pin = pin.to_owned();
+    on_mta(move || {
+        if accept {
+            let outcome = if pin.is_empty() {
+                request.args.Accept()
+            } else {
+                request.args.AcceptWithPin(&HSTRING::from(pin.as_str()))
+            };
+            outcome.map_err(|e| winrt("DevicePairingRequestedEventArgs.Accept", e))?;
+        }
+        // Completing the deferral without accepting is how a rejection is
+        // expressed; there is no explicit Reject.
+        request
+            .deferral
+            .Complete()
+            .map_err(|e| winrt("Deferral.Complete", e))?;
+        Ok(())
+    })?
 }
 
 /// Removes a pairing.

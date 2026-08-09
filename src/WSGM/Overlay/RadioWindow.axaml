@@ -13,6 +13,11 @@
         Height="600"
         Background="{StaticResource HcBackgroundBrush}"
         Title="Wi-Fi and Bluetooth">
+    <!-- RootScale: game mode forces 100% display scaling, so DIP sizes render
+         1:1 on very dense handheld panels — the code-behind scales the whole
+         panel (and its keyboard) by the desktop DPI, the same treatment the
+         taskbar and quick access get (see ApplyTouchScale). -->
+    <LayoutTransformControl x:Name="RootScale">
     <Border BorderBrush="{StaticResource HcCardBorderBrush}"
             BorderThickness="1"
             CornerRadius="8"
@@ -139,8 +144,19 @@
                                             </Button>
                                             <StackPanel Classes="radio-row-actions"
                                                         IsVisible="{Binding Expanded}">
+                                                <!-- Pair / Connect / Disconnect. Hidden for a
+                                                     paired non-audio device: those reconnect on
+                                                     their own when used, so the host has nothing
+                                                     to offer but Remove. -->
                                                 <Button Content="{Binding ActionText}"
                                                         Click="OnDeviceAction"
+                                                        IsVisible="{Binding PrimaryActionVisible}"
+                                                        IsEnabled="{Binding !Busy}" />
+                                                <!-- The destructive action stays its own button:
+                                                     disconnect must never mean unpair. -->
+                                                <Button Content="Remove"
+                                                        Click="OnDeviceRemove"
+                                                        IsVisible="{Binding RemoveVisible}"
                                                         IsEnabled="{Binding !Busy}" />
                                             </StackPanel>
                                         </StackPanel>
@@ -185,6 +201,7 @@
             </StackPanel>
         </Grid>
     </Border>
+    </LayoutTransformControl>
 
     <Window.Styles>
         <Style Selector="Border.radio-row">

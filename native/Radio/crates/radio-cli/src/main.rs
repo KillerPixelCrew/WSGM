@@ -270,9 +270,9 @@ fn probe_pairing(needle: &str) {
         }
 
         match rx.recv_timeout(std::time::Duration::from_secs(40)) {
-            Ok(Ok(outcome)) => {
+            Ok(Ok((outcome, raw_status))) => {
                 println!(
-                    "  attempt {attempt} finished after {:.1}s: {outcome:?}",
+                    "  attempt {attempt} finished after {:.1}s: {outcome:?} (DevicePairingResultStatus {raw_status})",
                     started.elapsed().as_secs_f32()
                 );
                 if outcome.is_success() || outcome == bluetooth::PairOutcome::Rejected {
