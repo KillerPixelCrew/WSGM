@@ -73,6 +73,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
                 Raise(nameof(WifiPower));
                 Raise(nameof(WifiOn));
                 Raise(nameof(WifiStateText));
+                Raise(nameof(WifiUnavailableText));
                 Raise(nameof(WifiIconState));
             }
         }
@@ -91,6 +92,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
                 Raise(nameof(BluetoothPower));
                 Raise(nameof(BluetoothOn));
                 Raise(nameof(BluetoothStateText));
+                Raise(nameof(BluetoothUnavailableText));
                 Raise(nameof(BluetoothIconState));
             }
         }
@@ -101,6 +103,28 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
 
     /// <summary>Gets whether the Bluetooth radio is on.</summary>
     public bool BluetoothOn => BluetoothPower == RadioPower.On;
+
+    /// <summary>Gets what to tell the user when the Wi-Fi list is empty because
+    /// the radio is not usable. "Off" is only one of the reasons, and the least
+    /// alarming: a blocked or missing adapter cannot be switched on at all, and
+    /// saying "off" leaves the user pressing a dead switch.</summary>
+    public string WifiUnavailableText => DescribeUnavailable(WifiPower, "Wi-Fi");
+
+    /// <summary>Gets the same explanation for Bluetooth.</summary>
+    public string BluetoothUnavailableText => DescribeUnavailable(BluetoothPower, "Bluetooth");
+
+    /// <summary>The reason a radio is not usable, named rather than flattened
+    /// into "off".</summary>
+    /// <param name="power">The radio's power state.</param>
+    /// <param name="label">The radio's display name.</param>
+    internal static string DescribeUnavailable(RadioPower power, string label) => power switch
+    {
+        RadioPower.Off => $"{label} is off.",
+        RadioPower.Disabled => $"{label} is blocked by Windows or a hardware switch.",
+        RadioPower.Absent => $"This device has no {label} adapter.",
+        RadioPower.Unknown => $"{label} state is unavailable.",
+        _ => "",
+    };
 
     /// <summary>Gets what the taskbar's Wi-Fi tile should show. Off and merely
     /// disconnected are different problems and must not look the same.</summary>
@@ -196,6 +220,10 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         private set => Set(ref _bluetoothStateText, value, nameof(BluetoothStateText));
     }
 
+    /// <summary>Whether <see cref="StatusText"/> currently holds a scan
+    /// failure, and may therefore be cleared once scanning recovers.</summary>
+    private bool _statusIsScanFailure;
+
     private string _statusText = "";
     /// <summary>Gets the last thing that happened, for the panel's status line.
     /// Empty when there is nothing to report.</summary>
@@ -204,6 +232,10 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         get => _statusText;
         private set
         {
+            // Any writer takes ownership of the message; only Apply's own scan
+            // branch re-claims it, so a connect or pairing result is never
+            // cleared by an unrelated successful scan.
+            _statusIsScanFailure = false;
             if (_statusText != value)
             {
                 _statusText = value;
@@ -775,6 +807,17 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         if (snapshot.Failure is { Length: > 0 } failure)
         {
             StatusText = DescribeScanFailure(failure);
+            // Re-claimed AFTER the setter cleared it: this message is the one
+            // that may be withdrawn when scanning recovers.
+            _statusIsScanFailure = true;
+        }
+        else if (_statusIsScanFailure && snapshot.IncludedNetworks)
+        {
+            // The scan recovered, so its complaint goes. Tracked rather than
+            // blanket-cleared: a connect or pairing result shown since must not
+            // be wiped by an unrelated successful snapshot.
+            _statusIsScanFailure = false;
+            StatusText = "";
         }
 
         // Only when the snapshot actually carried a network list. Reconciling
@@ -956,12 +999,35 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     {
         var kind = bluetooth ? KindBluetooth : KindWifi;
         var label = bluetooth ? "Bluetooth" : "Wi-Fi";
-        var result = await Task.Run(() =>
+        // One power change at a time per radio. Two Task.Run delegates can
+        // reach the helper's MTA queue in either order, so a quick Off-then-On
+        // could settle with the radio OFF while the switch shows on — and the
+        // two completions would overwrite each other's status besides.
+        var gate = bluetooth ? _bluetoothPowerGate : _wifiPowerGate;
+        await gate.WaitAsync();
+        try
         {
-            var status = NativeRadio.SetRadioPower(kind, on ? 1 : 0, out var access);
-            return (status, access, error: NativeRadio.LastError());
-        });
+            var result = await Task.Run(() =>
+            {
+                var status = NativeRadio.SetRadioPower(kind, on ? 1 : 0, out var access);
+                return (status, access, error: NativeRadio.LastError());
+            });
+            ApplyRadioResult(label, on, result);
+        }
+        finally
+        {
+            gate.Release();
+        }
+        QueueRefresh();
+    }
 
+    // One gate per radio: a Wi-Fi toggle must not wait behind a Bluetooth one.
+    private readonly SemaphoreSlim _wifiPowerGate = new(1, 1);
+    private readonly SemaphoreSlim _bluetoothPowerGate = new(1, 1);
+
+    private void ApplyRadioResult(
+        string label, bool on, (int status, int access, string error) result)
+    {
         if (result.status != NativeRadio.Ok)
         {
             Log.Warn($"Radio set {label}={on} failed: {result.error}");
@@ -983,7 +1049,6 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             Log.Info($"Radio set {label}={on}.");
             StatusText = "";
         }
-        QueueRefresh();
     }
 
     /// <summary>Joins a network, installing a profile with the password first.</summary>

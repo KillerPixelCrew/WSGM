@@ -57,8 +57,12 @@
 
                     <!-- Wi-Fi -->
                     <StackPanel x:Name="PanelWifi" Spacing="4">
-                        <TextBlock Text="Wi-Fi is off."
+                        <!-- Names the actual reason: a blocked or missing
+                             adapter is not the same as one switched off, and
+                             the switch cannot fix either. -->
+                        <TextBlock Text="{Binding WifiUnavailableText}"
                                    Classes="caption"
+                                   TextWrapping="Wrap"
                                    IsVisible="{Binding !WifiOn}" />
                         <ItemsControl ItemsSource="{Binding Networks}"
                                       IsVisible="{Binding WifiOn}">
@@ -120,8 +124,9 @@
 
                     <!-- Bluetooth -->
                     <StackPanel x:Name="PanelBluetooth" Spacing="4" IsVisible="False">
-                        <TextBlock Text="Bluetooth is off."
+                        <TextBlock Text="{Binding BluetoothUnavailableText}"
                                    Classes="caption"
+                                   TextWrapping="Wrap"
                                    IsVisible="{Binding !BluetoothOn}" />
                         <TextBlock Text="Looking for devices..."
                                    Classes="caption"

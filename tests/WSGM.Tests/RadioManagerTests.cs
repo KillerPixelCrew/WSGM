@@ -35,6 +35,18 @@ public class RadioManagerTests
         RadioPower power, int devices, string expected)
         => Assert.Equal(expected, RadioManager.DescribeBluetooth(power, devices));
 
+    [Theory]
+    [InlineData(RadioPower.Off, "is off")]
+    [InlineData(RadioPower.Disabled, "blocked")]
+    [InlineData(RadioPower.Absent, "no Wi-Fi adapter")]
+    [InlineData(RadioPower.Unknown, "unavailable")]
+    public void AnUnusableRadioSaysWhyRatherThanJustOff(RadioPower power, string expected)
+    {
+        // "Off" for a policy-blocked or missing adapter leaves the user
+        // pressing a switch that cannot do anything.
+        Assert.Contains(expected, RadioManager.DescribeUnavailable(power, "Wi-Fi"));
+    }
+
     [Fact]
     public void OnlyARejectedKeyAsksTheUserToRetypeThePassword()
     {

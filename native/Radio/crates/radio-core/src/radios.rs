@@ -292,8 +292,15 @@ pub fn set_power(kind: RadioKind, on: bool) -> Result<RadioAccess> {
                 Err(error) => last_error = Some(error),
             }
         }
+        // Any failure is THE result, even alongside a success: reporting
+        // Allowed after one adapter changed and another did not claims a
+        // machine-wide state the machine is not in — and the aggregate tile
+        // then immediately contradicts the switch.
+        if let Some(error) = last_error {
+            return Err(error);
+        }
         if !applied_any {
-            return Err(last_error.unwrap_or(crate::error::Error::NotFound("radio")));
+            return Err(crate::error::Error::NotFound("radio"));
         }
         Ok(refusal.unwrap_or(RadioAccess::Allowed))
     })?

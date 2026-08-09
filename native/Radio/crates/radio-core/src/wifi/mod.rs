@@ -69,8 +69,11 @@ impl InterfaceState {
 /// One visible network, flattened for the UI.
 #[derive(Debug, Clone)]
 pub struct Network {
-    /// The SSID as text. Empty for a hidden network.
+    /// The SSID as text, for display. Lossy: an SSID is a byte string, so this
+    /// is not an identity — see [`Network::raw_ssid`].
     pub ssid: String,
+    /// The SSID exactly as advertised. The real identity of the network.
+    pub raw_ssid: Vec<u8>,
     /// Signal quality, 0-100 as Windows reports it.
     pub signal: u32,
     /// How the network is protected.
@@ -238,6 +241,10 @@ struct ScanFacts {
     /// shape — a legacy WPA/TKIP access point needs a different document from a
     /// WPA2 one, and installing the wrong one succeeds and then never connects.
     auth: Option<i32>,
+    /// Set when two DIFFERENT advertised SSIDs share this display text, which
+    /// invalid UTF-8 can produce. The name then identifies nothing, and acting
+    /// on a guess would join or forget a network the user never picked.
+    ambiguous: bool,
 }
 
 /// Everything `connect` needs from the scan list, in one pass.
@@ -268,8 +275,13 @@ fn scan_facts(client: &Client, guid: &GUID, ssid: &str) -> ScanFacts {
             if name != ssid {
                 continue;
             }
+            let raw = entry.dot11Ssid.ucSSID[..length].to_vec();
             if facts.raw_ssid.is_empty() {
-                facts.raw_ssid = entry.dot11Ssid.ucSSID[..length].to_vec();
+                facts.raw_ssid = raw;
+            } else if facts.raw_ssid != raw {
+                // Same text, different bytes: this name cannot address one
+                // network. Recorded rather than resolved by guessing.
+                facts.ambiguous = true;
             }
             facts.security.get_or_insert(classify(
                 entry.bSecurityEnabled.as_bool(),
@@ -344,17 +356,19 @@ fn decode_fixed(field: &[u16]) -> String {
 pub fn request_scan() -> Result<()> {
     let client = Client::open()?;
     let mut last = Err(Error::NotFound("WLAN interface"));
+    let mut any_ok = false;
     for (guid, _) in all_interfaces(&client)? {
         let status = unsafe { WlanScan(client.0, &guid, None, None, None) };
-        let result = win32("WlanScan", status);
-        // One adapter refusing (radio off, driver not started) must not stop
-        // the others; success anywhere is success.
-        if result.is_ok() {
-            return Ok(());
+        // EVERY adapter is asked before returning: stopping at the first
+        // success left the others un-scanned, so a network only a later one
+        // can hear never refreshed. One adapter refusing (radio off, driver
+        // not started) must not stop the rest.
+        match win32("WlanScan", status) {
+            Ok(()) => any_ok = true,
+            Err(error) => last = Err(error),
         }
-        last = result;
     }
-    last
+    if any_ok { Ok(()) } else { last }
 }
 
 /// Lists the networks the driver currently knows about.
@@ -366,17 +380,21 @@ pub fn networks() -> Result<Vec<Network>> {
     let interfaces = all_interfaces(&client)?;
     let mut networks: Vec<Network> = Vec::new();
     let mut last_error = None;
+    let mut any_ok = false;
     // Every adapter contributes: the merge below keeps the strongest sighting
     // of each SSID, so a network only the second radio can hear still appears.
     for (guid, _) in &interfaces {
         match networks_on(&client, guid, &mut networks) {
-            Ok(()) => {}
+            Ok(()) => any_ok = true,
             Err(error) => last_error = Some(error),
         }
     }
-    // Only a total failure is reported: one dead adapter among several must not
-    // empty a list the others filled.
-    if networks.is_empty()
+    // Only a TOTAL failure is reported. Keyed on whether any adapter answered,
+    // not on whether the list came back non-empty: an adapter that legitimately
+    // sees nothing is a successful empty scan, and reporting that as an error
+    // because a second adapter is disabled would turn "no networks here" into
+    // "scanning failed".
+    if !any_ok
         && let Some(error) = last_error
     {
         return Err(error);
@@ -409,7 +427,8 @@ fn networks_on(client: &Client, guid: &GUID, networks: &mut Vec<Network>) -> Res
     let connected = current_ssid(client, guid);
 
     for entry in entries {
-        let ssid = decode_ssid(&entry.dot11Ssid.ucSSID, entry.dot11Ssid.uSSIDLength as usize);
+        let length = (entry.dot11Ssid.uSSIDLength as usize).min(entry.dot11Ssid.ucSSID.len());
+        let ssid = decode_ssid(&entry.dot11Ssid.ucSSID, length);
         // A hidden network broadcasts an empty SSID. Connecting names the
         // profile by SSID, so there is nothing this panel could do with the
         // entry, and an unjoinable blank row is worse than no row. Joining one
@@ -423,10 +442,12 @@ fn networks_on(client: &Client, guid: &GUID, networks: &mut Vec<Network>) -> Res
         );
         let saved = entry.strProfileName[0] != 0 || saved_profiles.contains(&ssid);
         let is_connected = connected.as_deref() == Some(ssid.as_str());
-        // The list can carry the same SSID more than once (different PHY types,
-        // and now different adapters); keep the strongest sighting, and let any
-        // entry that is saved, joinable or joined win that flag.
-        if let Some(existing) = networks.iter_mut().find(|n| n.ssid == ssid) {
+        // Merged on the SSID's BYTES, not its display text. Two different
+        // networks whose invalid UTF-8 decodes to the same replacement string
+        // are different networks, and folding them into one row would combine
+        // their saved/joinable facts and let an action land on the wrong one.
+        let raw = entry.dot11Ssid.ucSSID[..length].to_vec();
+        if let Some(existing) = networks.iter_mut().find(|n| n.raw_ssid == raw) {
             existing.signal = existing.signal.max(entry.wlanSignalQuality);
             existing.saved |= saved;
             existing.connectable |= entry.bNetworkConnectable.as_bool();
@@ -435,6 +456,7 @@ fn networks_on(client: &Client, guid: &GUID, networks: &mut Vec<Network>) -> Res
         }
         networks.push(Network {
             ssid,
+            raw_ssid: raw,
             signal: entry.wlanSignalQuality,
             security,
             saved,
@@ -516,16 +538,32 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
     let interfaces = all_interfaces(&client)?;
     let mut chosen = None;
     let mut chosen_facts = ScanFacts::default();
+    let mut chosen_rank = 0u8;
     for (candidate, _) in &interfaces {
         let facts = scan_facts(&client, candidate, ssid);
-        if !facts.raw_ssid.is_empty() {
-            chosen = Some(*candidate);
-            chosen_facts = facts;
-            break;
-        }
-        // Remember a saved profile as the fallback for a network that is out of
-        // range but still joinable once it returns.
-        if chosen.is_none() && facts.profile.is_some() {
+        let visible = !facts.raw_ssid.is_empty();
+        let saved = facts.profile.is_some();
+        // Ranked, not first-past-the-post. The merged UI row reports "saved"
+        // when ANY adapter holds the profile, so a keyless attempt routed to a
+        // different adapter that merely sees the network finds no profile and
+        // fails asking for a password the row does not offer. An adapter that
+        // both sees it and holds the profile is the only one certain to work.
+        let rank = match (visible, saved) {
+            (true, true) => 4,
+            // With no passphrase the profile is what makes the join possible;
+            // with one, seeing the network is.
+            (false, true) => {
+                if passphrase.is_none() {
+                    3
+                } else {
+                    1
+                }
+            }
+            (true, false) => 2,
+            (false, false) => 0,
+        };
+        if rank > chosen_rank {
+            chosen_rank = rank;
             chosen = Some(*candidate);
             chosen_facts = facts;
         }
@@ -535,6 +573,14 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
         None => first_interface(&client)?.0,
     };
     let facts = chosen_facts;
+    // Refused rather than guessed: joining "the first network whose lossy name
+    // matches" could authenticate against an access point the user never
+    // selected, and hand it the password they typed.
+    if facts.ambiguous {
+        return Err(Error::InvalidArgument(
+            "more than one network advertises this name; it cannot be identified",
+        ));
+    }
     let raw = (!facts.raw_ssid.is_empty()).then_some(facts.raw_ssid.as_slice());
     let existing = facts.profile.clone();
 
@@ -834,6 +880,13 @@ pub fn forget(ssid: &str) -> Result<()> {
 fn forget_on(client: &Client, guid: &GUID, ssid: &str) -> Result<()> {
     let guid = *guid;
     let facts = scan_facts(client, &guid, ssid);
+    // Same rule as connect: deleting the profile of a network the user did not
+    // pick is worse than declining to act.
+    if facts.ambiguous {
+        return Err(Error::InvalidArgument(
+            "more than one network advertises this name; it cannot be identified",
+        ));
+    }
     // Matched on each profile's OWN SSID, read back out of its document, not on
     // its name: Windows names the second profile for one network "<SSID> 2",
     // so a name comparison leaves every duplicate behind to keep auto-joining
