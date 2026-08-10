@@ -62,6 +62,31 @@ public static class SteamInputBlocker
         }
     }
 
+    /// <summary>Adds a Steam library folder to the LIVE client through the
+    /// injected payload — Steam adds, persists, mounts and scans it with no
+    /// restart and no config-file editing. Injects the payload if needed (which
+    /// requires Steam to be running). Best-effort: returns false and logs on any
+    /// failure so the caller can fall back.</summary>
+    /// <param name="path">The library folder, e.g. <c>E:\SteamLibrary</c>.</param>
+    public static bool AddSteamLibrary(string path)
+    {
+        lock (Sync)
+        {
+            try
+            {
+                _client ??= new SteamInputClient();
+                _client.AddLibraryFolder(path);
+                Log.Info($"Steam library added to the live client: {path}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Live Steam library add failed for {path}: {ex.Message}");
+                return false;
+            }
+        }
+    }
+
     /// <summary>Releases the shared lease and asks the gate to resume Steam's
     /// controller discovery. Never throws because it runs during shutdown.</summary>
     public static void ReleaseBestEffort(string reason)

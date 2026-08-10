@@ -270,6 +270,11 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             row.SizeBytes = target.SizeBytes;
             row.BusType = target.BusType;
             row.HasLinuxPartitions = target.HasLinuxPartitions;
+            // The card's current letter, pinned so the format reassigns exactly
+            // it — a card reader must keep its letter across reformats and swaps
+            // (emulator/library paths depend on it). '\0' only for a card with no
+            // letter at all (raw / ext4 Deck card being set up the first time).
+            row.PreferredLetter = target.Letters.Count > 0 ? target.Letters[0] : '\0';
             row.Detail = DescribeTarget(target);
         }
         for (var i = Targets.Count - 1; i >= 0; i--)
@@ -299,14 +304,23 @@ public sealed class SdFormatManager : INotifyPropertyChanged
     /// <summary>The diskpart script for one target. Quick NTFS format with 128K
     /// allocation units (the proven game-library tuning); `clean` (never
     /// `clean all`) wipes any prior layout — GPT+ext4 Deck cards included —
-    /// and MBR is the correct default for removable SD media.</summary>
+    /// and MBR is the correct default for removable SD media.
+    ///
+    /// The letter is PINNED to the card's current one when it has it: a bare
+    /// `assign` hands out the next free letter, which device-observed moved a
+    /// card from E: to D: across a format and collided with another library's
+    /// path. A card reader's letter must stay put across reformats and swaps.
+    /// A letterless card (raw / ext4 Deck card) gets a bare `assign`.</summary>
     /// <param name="diskNumber">The physical disk number.</param>
-    internal static string BuildDiskpartScript(int diskNumber) =>
+    /// <param name="preferredLetter">The letter to reassign, or '\0' for none.</param>
+    internal static string BuildDiskpartScript(int diskNumber, char preferredLetter = '\0') =>
         $"select disk {diskNumber.ToString(CultureInfo.InvariantCulture)}\r\n"
         + "clean\r\n"
         + "create partition primary\r\n"
         + $"format fs=ntfs quick unit=128k label={VolumeLabel}\r\n"
-        + "assign\r\n";
+        + (preferredLetter is >= 'A' and <= 'Z'
+            ? $"assign letter={preferredLetter}\r\n"
+            : "assign\r\n");
 
     /// <summary>Erases and formats one target and puts a Steam library on it.
     /// Serialized; progress lands in <see cref="StatusText"/>; the terminal
@@ -342,7 +356,8 @@ public sealed class SdFormatManager : INotifyPropertyChanged
                 return;
             }
 
-            var (exitCode, output) = await RunDiskpart(entry.DiskNumber);
+            var keepLetter = entry.PreferredLetter;
+            var (exitCode, output) = await RunDiskpart(entry.DiskNumber, keepLetter);
             if (exitCode != 0)
             {
                 Log.Warn($"Format: diskpart failed (exit {exitCode}). Output:\n{output}");
@@ -360,7 +375,21 @@ public sealed class SdFormatManager : INotifyPropertyChanged
                     + "Reinsert the card.", false);
                 return;
             }
-            Log.Info($"Format: disk {entry.DiskNumber} mounted as {letter}:.");
+            // The card reader must keep its letter. If diskpart could not put it
+            // back (letter held by something else), stop rather than silently
+            // leaving the card on a different one that would break every path
+            // pointing at it (emulators, libraries).
+            if (keepLetter is >= 'A' and <= 'Z' && letter.Value != keepLetter)
+            {
+                Log.Warn($"Format: expected to keep letter {keepLetter}: but disk "
+                    + $"{entry.DiskNumber} mounted as {letter}:.");
+                Finish($"Formatted, but Windows could not keep drive letter {keepLetter}:. "
+                    + $"It is now {letter}: — free {keepLetter}: and reformat, or reassign "
+                    + $"the letter in Disk Management.", false);
+                return;
+            }
+            Log.Info($"Format: disk {entry.DiskNumber} mounted as {letter}: "
+                + $"(letter preserved={keepLetter is >= 'A' and <= 'Z'}).");
 
             StatusText = "Creating Steam library...";
             var summary = await Task.Run(() => CreateSteamLibrary(letter.Value, entry.SizeBytes));
@@ -412,9 +441,10 @@ public sealed class SdFormatManager : INotifyPropertyChanged
     /// <summary>Writes the script beside the log (an elevated diskpart consumes
     /// it — never %TEMP%, same rule as the de-elevation task XML), runs
     /// diskpart, deletes the script.</summary>
-    private static async Task<(int ExitCode, string Output)> RunDiskpart(int diskNumber)
+    private static async Task<(int ExitCode, string Output)> RunDiskpart(
+        int diskNumber, char preferredLetter)
     {
-        var script = BuildDiskpartScript(diskNumber);
+        var script = BuildDiskpartScript(diskNumber, preferredLetter);
         Log.Info($"Format: diskpart script:\n{script.TrimEnd()}");
         var scriptPath = Path.Combine(Log.Directory, "format-disk.dp.txt");
         await File.WriteAllTextAsync(scriptPath, script);
@@ -510,25 +540,41 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         return $"{letter}: is ready as a Steam library. {registration}";
     }
 
-    /// <summary>Registers the library by splicing the entry into
-    /// config\libraryfolders.vdf. Writes it whenever the path is not already
-    /// present — including while Steam is running (under test: whether a live
-    /// Steam adopts an external edit or rewrites it from memory on exit is being
-    /// verified on device). A backup is kept beside the file. Returns the
+    /// <summary>Registers the library with Steam. When Steam is RUNNING this
+    /// adds it to the live client through the injected payload
+    /// (CApplicationManager::AddLibraryFolder) — Steam adopts, persists, mounts
+    /// and scans it with no restart, which a file edit cannot do against a live
+    /// client (Steam holds libraries in memory and rewrites the file on exit).
+    /// When Steam is CLOSED, the entry is spliced into config\libraryfolders.vdf
+    /// so Steam reads it on next start; dedup there is by CONTENT ID (a card
+    /// reader reuses its drive letter, so the path repeats per card). Returns the
     /// summary sentence.</summary>
     private static string RegisterLibrary(
         string? configPath, string? configText, string libraryPath, string contentId,
         long sizeBytes)
     {
+        // Live client: add through the payload — the only thing that actually
+        // makes a running Steam show the library without a restart.
+        if (Steam.IsRunning)
+        {
+            if (SteamInputBlocker.AddSteamLibrary(libraryPath))
+            {
+                return "Added to Steam.";
+            }
+            Log.Warn("Format: live library add failed — leaving it for a Steam restart.");
+            return "Created. Restart Steam to see it.";
+        }
+
+        // Steam closed: safe to write the config; it is read on next start.
         if (configPath is null || configText is null)
         {
             Log.Warn("Format: Steam config not found — skipping registration.");
             return "Add it in Steam under Settings > Storage.";
         }
-        if (SteamLibraryVdf.IsRegistered(configText, libraryPath))
+        if (SteamLibraryVdf.IsContentIdRegistered(configText, contentId))
         {
-            Log.Info($"Format: {libraryPath} already registered in libraryfolders.vdf.");
-            return "Steam already knows this drive letter.";
+            Log.Info($"Format: content id {contentId} already in libraryfolders.vdf.");
+            return "This library is already in Steam.";
         }
         if (!SteamLibraryVdf.TrySplice(configText, libraryPath, contentId, sizeBytes,
                 out var updated))
@@ -539,9 +585,8 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         File.Copy(configPath, configPath + ".wsgm-bak", overwrite: true);
         var utf8NoBom = new System.Text.UTF8Encoding(false);
         File.WriteAllText(configPath, updated, utf8NoBom);
-        Log.Info($"Format: {libraryPath} registered in libraryfolders.vdf "
-            + $"(backup written, Steam running={Steam.IsRunning}).");
-        return "Added to Steam's library list.";
+        Log.Info($"Format: {libraryPath} registered in libraryfolders.vdf (backup written).");
+        return "Added to Steam's library list (on next start).";
     }
 
     // ---- add an existing location as a library (no formatting) ----
