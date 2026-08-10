@@ -1,6 +1,5 @@
-// Mirrors exactly what SteamLibraryTabs.SyncTabsAsync emits: the resident setup
-// (verbatim from the C# raw string) + a window.__wsgm.tabs push. Validates the
-// productionized C# injection logic against live Steam. Two test tabs with real appids.
+// Standalone live-Steam smoke probe for the tab mechanism. Production is authoritative in
+// SteamLibraryTabs.cs; keep behavior changes synchronized there before using this probe.
 (() => {
   try {
     var W = (window.__wsgm = window.__wsgm || {});

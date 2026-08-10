@@ -17,6 +17,11 @@ public sealed class ConfigurationTests
             SavedDisplayScales = null!,
             SavedDisplayScaleEntries = null!,
             PreviousConsoleLockSchemeValues = null!,
+            CardLibraries = null!,
+            ForgottenInsertedCardIds = null!,
+            CategoryTabs = null!,
+            CustomTabs = null!,
+            SteamGridDbApiKey = null!,
             AccentColor = null!,
             Splash = null!,
         };
@@ -30,6 +35,11 @@ public sealed class ConfigurationTests
         Assert.NotNull(normalized.SavedDisplayScales);
         Assert.NotNull(normalized.SavedDisplayScaleEntries);
         Assert.NotNull(normalized.PreviousConsoleLockSchemeValues);
+        Assert.NotNull(normalized.CardLibraries);
+        Assert.NotNull(normalized.ForgottenInsertedCardIds);
+        Assert.NotNull(normalized.CategoryTabs);
+        Assert.NotNull(normalized.CustomTabs);
+        Assert.Equal("", normalized.SteamGridDbApiKey);
         Assert.Equal("#FFFF9D3D", normalized.AccentColor);
         Assert.NotNull(normalized.Splash);
     }
@@ -71,6 +81,26 @@ public sealed class ConfigurationTests
         Assert.Equal(SplashPlacementMode.WithText, splash.SpinnerPlacement.Mode);
         Assert.NotNull(splash.LogoPlacement);
         Assert.Equal(SplashPlacementMode.WithText, splash.LogoPlacement.Mode);
+    }
+
+    [Fact]
+    public void NormalizeRepairsInvalidPersistedFilterEnums()
+    {
+        var tab = new CustomTabConfig
+        {
+            FilterTree = new FilterNode
+            {
+                Kind = (FilterKind)999,
+                Mode = (FilterMode)999,
+                CardScope = (SdCardScope)999,
+            },
+        };
+
+        var normalized = ConfigStore.Normalize(new AppConfig { CustomTabs = [tab] });
+
+        Assert.Equal(FilterKind.Installed, normalized.CustomTabs[0].FilterTree!.Kind);
+        Assert.Equal(FilterMode.And, normalized.CustomTabs[0].FilterTree!.Mode);
+        Assert.Equal(SdCardScope.Inserted, normalized.CustomTabs[0].FilterTree!.CardScope);
     }
 
     [Fact]

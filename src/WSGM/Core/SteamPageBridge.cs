@@ -11,11 +11,10 @@ namespace WSGM.Core;
 /// <summary>Reaches into Steam's own library UI over the CEF leg (<see cref="SteamCef"/>):
 /// <list type="bullet">
 /// <item><b>Current-game detection</b> — which game page the user is viewing, read from
-/// Steam's SPA route. Robust (a route contract, not the DOM); the substrate a future
-/// SteamGridDB art picker targets.</item>
+/// the largest visible wide library-asset image in the rendered DOM.</item>
 /// <item><b>In-page card badge</b> — a resident script installs a <c>MutationObserver</c>
 /// that renders an "On: &lt;card&gt;" badge on a game page when that game lives on a
-/// tracked card. The observer runs inside <c>SharedJSContext</c>, so it survives library
+/// tracked card. The observer runs inside the visible Steam page and survives its SPA
 /// navigations; WSGM re-asserts it on reconnect (idempotent via a
 /// <c>window.__wsgm</c> sentinel).</item>
 /// </list>
@@ -75,6 +74,13 @@ public static class SteamPageBridge
         }
         return 0;
     }
+
+    /// <summary>Disconnects the resident badge observer and removes its node from the
+    /// visible Steam page. Best-effort shutdown for desktop mode and process exit.</summary>
+    public static Task<CefEvalResult> DisableBadgeAsync(CancellationToken cancellationToken = default)
+        => SteamCef.EvaluateOnVisibleWindowAsync(
+            "(()=>{try{window.__wsgm&&window.__wsgm.disableBadge&&window.__wsgm.disableBadge();return JSON.stringify({ok:true});}catch(e){return JSON.stringify({ok:false,err:String(e)});}})()",
+            Budget, cancellationToken);
 
     /// <summary>Installs (idempotently) the resident badge observer and pushes the
     /// current app-id → card-name map. Call whenever the card set changes or after a

@@ -398,19 +398,19 @@ public sealed class AppConfig
     /// via the registry (see Core.Steam) — there is nothing else to configure.</summary>
     public bool SteamAutoRelaunch { get; set; }
 
-    /// <summary>Keep a card's library tab (Steam collection) after the card is
+    /// <summary>Keep a card's injected library tab after the card is
     /// ejected. The games show as not-installed until it is reinserted.</summary>
     public bool KeepEjectedCardTabs { get; set; } = true;
 
     /// <summary>Tracked removable Steam libraries, keyed by content id, used to
-    /// maintain per-card Steam collections ("library tabs").</summary>
+    /// maintain per-card injected library tabs.</summary>
     public List<CardLibraryConfig> CardLibraries { get; set; } = [];
 
-    /// <summary>Generate a Steam collection ("tab") per top store-tag genre.</summary>
-    public bool CategoryTabsEnabled { get; set; } = true;
+    /// <summary>Cards forgotten while still inserted. Discovery skips these identities
+    /// until a scan observes them absent, so Forget does not immediately undo itself.</summary>
+    public List<string> ForgottenInsertedCardIds { get; set; } = [];
 
-    /// <summary>WSGM-owned category ("genre") collections, so they update in place
-    /// and are pruned when a genre drops out of the top set.</summary>
+    /// <summary>Legacy WSGM-owned genre collection IDs retained only until cleanup.</summary>
     public List<CategoryTabConfig> CategoryTabs { get; set; } = [];
 
     /// <summary>User-built custom filter tabs (the TabMaster analog).</summary>

@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Interop;
@@ -21,6 +22,7 @@ public sealed class ShellSession
     private TrayHost? _trayHost;
     private VolumeButtonService? _volumeButtons;
     private BootSplash? _splash;
+    private readonly CancellationTokenSource _tabBootSyncCancellation = new();
     // Field-rooted deliberately: an unreferenced enabled FileSystemWatcher is
     // GC-collectible (it holds only a WeakReference to itself in its pending
     // ReadDirectoryChangesW state) and silently stops raising events.
@@ -53,6 +55,9 @@ public sealed class ShellSession
         // TaskbarCreated broadcast.
         _modes.DesktopModeStarting += () =>
         {
+            _tabBootSyncCancellation.Cancel();
+            _ = SteamPageBridge.DisableBadgeAsync();
+            _ = SteamLibraryTabs.DisableAsync();
             _volumeButtons?.SetGameModeActive(false);
             _overlay?.AttachTrayHost(null);
             _trayHost?.Dispose();
@@ -433,6 +438,6 @@ public sealed class ShellSession
 
         // Inject the WSGM library tabs once Steam's UI has loaded, so they appear at
         // boot without the user opening the overlay. Fire-and-forget; self-limiting.
-        _ = new LibraryTabManager().SyncOnBootAsync();
+        _ = new LibraryTabManager().SyncOnBootAsync(_tabBootSyncCancellation.Token);
     }
 }

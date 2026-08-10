@@ -227,6 +227,28 @@ public sealed class SdFormatTests
     }
 
     [Fact]
+    public void RemovingFirstContentIdRenumbersRemainingEntries()
+    {
+        var removed = SteamLibraryVdf.TryRemoveContentId(TwoEntryConfig, "111", out var updated);
+
+        Assert.True(removed);
+        Assert.NotNull(updated);
+        Assert.Contains("\t\"0\"\n", updated);
+        Assert.DoesNotContain("\t\"1\"\n", updated);
+        Assert.Contains("\"contentid\"\t\t\"222\"", updated);
+    }
+
+    [Fact]
+    public void LabelLookupStaysPairedWithItsContentId()
+    {
+        var labeled = TwoEntryConfig
+            .Replace("\t\t\"contentid\"\t\t\"111\"", "\t\t\"label\"\t\t\"Primary\"\n\t\t\"contentid\"\t\t\"111\"")
+            .Replace("\t\t\"contentid\"\t\t\"222\"", "\t\t\"label\"\t\t\"Card\"\n\t\t\"contentid\"\t\t\"222\"");
+        Assert.Equal("Primary", SteamLibraryVdf.LabelForContentId(labeled, "111"));
+        Assert.Equal("Card", SteamLibraryVdf.LabelForContentId(labeled, "222"));
+    }
+
+    [Fact]
     public void SpliceRejectsAFileThatIsNotALibraryFoldersConfig()
     {
         var ok = SteamLibraryVdf.TrySplice(

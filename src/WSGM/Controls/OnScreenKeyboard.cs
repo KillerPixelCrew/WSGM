@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
+using Avalonia.Threading;
 
 namespace WSGM.Controls;
 
@@ -110,6 +112,7 @@ public sealed class OnScreenKeyboard : Decorator
             {
                 _layer = (_layer + 1) % 3;
                 Build();
+                FocusControl(_layer == LayerSymbols ? "#+=" : _layer == LayerMoreSymbols ? "abc" : "?123");
             },
             width: 58));
         controls.Children.Add(KeyButton("Shift", () =>
@@ -117,6 +120,7 @@ public sealed class OnScreenKeyboard : Decorator
             _shift = !_shift;
             _layer = LayerLetters;
             Build();
+            FocusControl("Shift");
         }, width: 62));
         controls.Children.Add(KeyButton("Space", () => Insert(" "), width: 150));
         controls.Children.Add(KeyButton("Back", Backspace, width: 62));
@@ -124,6 +128,21 @@ public sealed class OnScreenKeyboard : Decorator
             width: 68));
         _root.Children.Add(controls);
     }
+
+    private void FocusControl(string label) => Dispatcher.UIThread.Post(() =>
+    {
+        foreach (var row in _root.Children.OfType<Panel>())
+        {
+            foreach (var button in row.Children.OfType<Button>())
+            {
+                if (string.Equals(button.Content?.ToString(), label, StringComparison.Ordinal))
+                {
+                    button.Focus();
+                    return;
+                }
+            }
+        }
+    });
 
     private Button KeyButton(string label, Action action, double width = 38)
     {

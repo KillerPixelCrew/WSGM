@@ -28,7 +28,7 @@ public partial class KeyboardWindow : Window
 
     /// <summary>Design-time constructor for the XAML loader.</summary>
     public KeyboardWindow()
-        : this("Enter text", "", 1.0)
+        : this("Enter text", "", 256, 1.0)
     {
     }
 
@@ -36,12 +36,14 @@ public partial class KeyboardWindow : Window
     /// <param name="prompt">The label shown above the field.</param>
     /// <param name="initial">The starting text.</param>
     /// <param name="uiScale">Desktop-DPI scale factor for WSGM UI.</param>
-    public KeyboardWindow(string prompt, string initial, double uiScale = 1.0)
+    /// <param name="maxLength">Maximum accepted character count.</param>
+    public KeyboardWindow(string prompt, string initial, int maxLength, double uiScale = 1.0)
     {
         _uiScale = uiScale;
         InitializeComponent();
         PromptText.Text = prompt;
         Input.Text = initial;
+        Input.MaxLength = maxLength;
         Keyboard.Target = Input;
         Keyboard.Accepted += (_, _) => Commit();
         Win32Properties.AddWndProcHookCallback(this, WndProcHook);
@@ -76,6 +78,10 @@ public partial class KeyboardWindow : Window
 
     private void Commit()
     {
+        if (_committed || _closePending)
+        {
+            return;
+        }
         _committed = true;
         Accepted?.Invoke(Input.Text ?? "");
         DeferredClose();

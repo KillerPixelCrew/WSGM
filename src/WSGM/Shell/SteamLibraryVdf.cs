@@ -194,6 +194,39 @@ public static class SteamLibraryVdf
         return string.Equals(currentId, contentId, StringComparison.Ordinal) ? path : null;
     }
 
+    /// <summary>Finds the label belonging to a specific content-id registration.</summary>
+    /// <param name="vdf">The current libraryfolders configuration text.</param>
+    /// <param name="contentId">The stable library identity.</param>
+    /// <returns>The matching label, or null when the identity is absent.</returns>
+    public static string? LabelForContentId(string vdf, string contentId)
+    {
+        string? label = null;
+        string? currentId = null;
+        foreach (var rawLine in vdf.Split('\n'))
+        {
+            var line = rawLine.TrimEnd('\r');
+            if (IsTopLevelEntry(line))
+            {
+                if (string.Equals(currentId, contentId, StringComparison.Ordinal))
+                {
+                    return label;
+                }
+                label = null;
+                currentId = null;
+                continue;
+            }
+            if (TryReadValue(line, "label", out var candidateLabel))
+            {
+                label = candidateLabel;
+            }
+            else if (TryReadValue(line, "contentid", out var candidateId))
+            {
+                currentId = candidateId;
+            }
+        }
+        return string.Equals(currentId, contentId, StringComparison.Ordinal) ? label : null;
+    }
+
     /// <summary>Removes exactly one top-level library registration selected by
     /// content id, preserving all other configuration bytes. Used only while
     /// Steam is closed; a running client is changed through its CEF API instead.</summary>
@@ -204,6 +237,12 @@ public static class SteamLibraryVdf
     public static bool TryRemoveContentId(string vdf, string contentId, out string? updated)
     {
         updated = null;
+        if (!vdf.TrimStart('\uFEFF', ' ', '\r', '\n', '\t')
+                .StartsWith("\"libraryfolders\"", StringComparison.Ordinal)
+            || vdf.LastIndexOf('}') < 0)
+        {
+            return false;
+        }
         var starts = new List<int>();
         var lineStart = 0;
         while (lineStart < vdf.Length)
@@ -229,10 +268,28 @@ public static class SteamLibraryVdf
             {
                 continue;
             }
-            updated = vdf.Remove(starts[i], end - starts[i]);
+            updated = RenumberEntries(vdf.Remove(starts[i], end - starts[i]));
             return true;
         }
         return false;
+    }
+
+    private static string RenumberEntries(string vdf)
+    {
+        var lines = vdf.Split('\n');
+        var index = 0;
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var raw = lines[i];
+            var line = raw.TrimEnd('\r');
+            if (!IsTopLevelEntry(line))
+            {
+                continue;
+            }
+            var suffix = raw.EndsWith('\r') ? "\r" : "";
+            lines[i] = $"\t\"{index++}\"{suffix}";
+        }
+        return string.Join("\n", lines);
     }
 
     private static bool IsTopLevelEntry(string line)

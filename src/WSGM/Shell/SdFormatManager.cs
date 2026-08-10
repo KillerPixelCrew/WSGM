@@ -131,6 +131,10 @@ public sealed class SdFormatManager : INotifyPropertyChanged
     /// bound list. Called when the flow opens and from its refresh button.</summary>
     public void Refresh()
     {
+        if (Busy)
+        {
+            return;
+        }
         if (Interlocked.CompareExchange(ref _refreshing, 1, 0) != 0)
         {
             return;
@@ -398,6 +402,7 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             var (exitCode, output) = await RunDiskpart(entry.DiskNumber, keepLetter, label);
             if (exitCode != 0)
             {
+                await Task.Run(() => RestoreRemovedLibraryIfCardSurvived(entry, retiredContentId));
                 Log.Warn($"Format: diskpart failed (exit {exitCode}). Output:\n{output}");
                 Finish("Formatting failed — Windows could not rebuild the drive. "
                     + "Reinsert the card and try again.", false);
@@ -505,8 +510,8 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         {
             return null;
         }
-        var marker = $@"{entry.PreferredLetter}:\SteamLibrary\libraryfolder.vdf";
-        if (!File.Exists(marker))
+        var marker = FindExistingMarker(entry);
+        if (marker is null)
         {
             return null;
         }
@@ -541,9 +546,8 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         }
         if (configPath is null || configText is null)
         {
-            Log.Warn($"Format: cannot resolve existing library content id {contentId}; config missing.");
-            return "Could not find Steam's library registration for this card. "
-                + "Close Steam and add the card library again before formatting.";
+            Log.Info($"Format: Steam has no libraryfolders config; {contentId} is not registered.");
+            return null;
         }
 
         if (Steam.IsRunning)
@@ -567,7 +571,7 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             }
             var result = SteamCdp.RemoveLibraryByContentIdAsync(contentId, configText)
                 .GetAwaiter().GetResult();
-            if (result.Status is SteamLibraryRemoveStatus.Removed or SteamLibraryRemoveStatus.NotPresent)
+            if (result.Status == SteamLibraryRemoveStatus.Removed)
             {
                 Log.Info($"Format: removed existing live Steam library (content id {contentId}, "
                     + $"status {result.Status}).");
@@ -576,7 +580,7 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             Log.Warn($"Format: could not remove existing live library {contentId} "
                 + $"({result.Status}: {result.Detail ?? "no detail"}).");
             return "Steam could not remove this card's existing library. "
-                + "Keep Steam running and try again.";
+                + "Close Steam completely and try again.";
         }
 
         if (!SteamLibraryVdf.TryRemoveContentId(configText, contentId, out var updated)
@@ -585,8 +589,13 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             Log.Info($"Format: no closed-Steam registration found for content id {contentId}.");
             return null;
         }
-        File.Copy(configPath, configPath + ".wsgm-bak", overwrite: true);
-        File.WriteAllText(configPath, updated, new System.Text.UTF8Encoding(false));
+        if (Steam.IsRunning)
+        {
+            return "Steam started while the card library was being prepared for removal. "
+                + "Close Steam and try formatting again.";
+        }
+        BackupOnce(configPath);
+        WriteAtomically(configPath, updated);
         Log.Info($"Format: removed closed-Steam library registration for content id {contentId}.");
         return null;
     }
@@ -597,8 +606,8 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         {
             return null;
         }
-        var marker = $@"{entry.PreferredLetter}:\SteamLibrary\libraryfolder.vdf";
-        if (!File.Exists(marker))
+        var marker = FindExistingMarker(entry);
+        if (marker is null)
         {
             return null;
         }
@@ -614,6 +623,60 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         }
     }
 
+    private static string? FindExistingMarker(FormatTargetEntry entry)
+    {
+        if (entry.PreferredLetter is < 'A' or > 'Z') { return null; }
+        var root = $@"{entry.PreferredLetter}:\";
+        var candidates = new List<string> { Path.Combine(root, "SteamLibrary", "libraryfolder.vdf") };
+        var steamExe = Steam.ExePath;
+        if (steamExe is not null)
+        {
+            var config = Path.Combine(Path.GetDirectoryName(steamExe)!, "config", "libraryfolders.vdf");
+            if (File.Exists(config))
+            {
+                foreach (var path in SteamLibraryVdf.ValuesOf(File.ReadAllText(config), "path"))
+                {
+                    var decoded = path.Replace("\\\\", "\\");
+                    if (string.Equals(Path.GetPathRoot(decoded), root, StringComparison.OrdinalIgnoreCase))
+                    {
+                        candidates.Add(Path.Combine(decoded, "libraryfolder.vdf"));
+                    }
+                }
+            }
+        }
+        return candidates.Distinct(StringComparer.OrdinalIgnoreCase).FirstOrDefault(File.Exists);
+    }
+
+    private static void RestoreRemovedLibraryIfCardSurvived(
+        FormatTargetEntry entry, string? contentId)
+    {
+        if (string.IsNullOrEmpty(contentId)) { return; }
+        var marker = FindExistingMarker(entry);
+        if (marker is null) { return; }
+        var libraryPath = Path.GetDirectoryName(marker)!;
+        if (Steam.IsRunning)
+        {
+            var liveRestore = SteamCdp.AddLibrary(libraryPath);
+            Log.Info($"Format: compensation after diskpart failure returned {liveRestore.Status}.");
+            return;
+        }
+        var steamExe = Steam.ExePath;
+        if (steamExe is null) { return; }
+        var configPath = Path.Combine(Path.GetDirectoryName(steamExe)!, "config", "libraryfolders.vdf");
+        if (!File.Exists(configPath))
+        {
+            return;
+        }
+        var current = File.ReadAllText(configPath);
+        if (!SteamLibraryVdf.IsContentIdRegistered(current, contentId)
+            && SteamLibraryVdf.TrySplice(current, libraryPath, contentId, entry.SizeBytes,
+                out var restored, label: "") && restored is not null)
+        {
+            WriteAtomically(configPath, restored);
+            Log.Info($"Format: restored library registration {contentId} after diskpart failure.");
+        }
+    }
+
     /// <summary>Writes the script beside the log (an elevated diskpart consumes
     /// it — never %TEMP%, same rule as the de-elevation task XML), runs
     /// diskpart, deletes the script.</summary>
@@ -622,10 +685,23 @@ public sealed class SdFormatManager : INotifyPropertyChanged
     {
         var script = BuildDiskpartScript(diskNumber, preferredLetter, label);
         Log.Info($"Format: diskpart script:\n{script.TrimEnd()}");
-        var scriptPath = Path.Combine(Log.Directory, "format-disk.dp.txt");
-        await File.WriteAllTextAsync(scriptPath, script);
+        var scriptPath = Path.Combine(Log.Directory, $"format-disk-{Guid.NewGuid():N}.dp.txt");
+        await using (var stream = new FileStream(scriptPath, FileMode.CreateNew, FileAccess.Write,
+            FileShare.None, 4096, FileOptions.WriteThrough))
+        await using (var writer = new StreamWriter(stream, new System.Text.UTF8Encoding(false)))
+        {
+            await writer.WriteAsync(script);
+            await writer.FlushAsync();
+            stream.Flush(flushToDisk: true);
+        }
         try
         {
+            var (aclExit, aclOutput) = await ConsoleTool.RunCapturedAsync(
+                "icacls.exe", $"\"{scriptPath}\" /setintegritylevel H", timeoutMs: 10_000);
+            if (aclExit != 0)
+            {
+                throw new IOException($"Could not protect diskpart script ({aclExit}): {aclOutput}");
+            }
             return await ConsoleTool.RunCapturedAsync(
                 "diskpart.exe", $"/s \"{scriptPath}\"", timeoutMs: 600_000);
         }
@@ -779,8 +855,8 @@ public sealed class SdFormatManager : INotifyPropertyChanged
                     Log.Warn($"Format: Steam refused the library add ({live.Detail}).");
                     return $"Steam did not accept it: {live.Detail}.";
                 default:
-                    Log.Warn("Format: Steam debug port unavailable — writing config for next start.");
-                    break;
+                    Log.Warn("Format: Steam debug port unavailable — not editing its live config.");
+                    return "Restart Steam, then add the library under Settings > Storage.";
             }
         }
 
@@ -802,9 +878,8 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             Log.Warn("Format: libraryfolders.vdf has an unexpected shape — not editing it.");
             return "Add it in Steam under Settings > Storage.";
         }
-        File.Copy(configPath, configPath + ".wsgm-bak", overwrite: true);
-        var utf8NoBom = new System.Text.UTF8Encoding(false);
-        File.WriteAllText(configPath, updated, utf8NoBom);
+        BackupOnce(configPath);
+        WriteAtomically(configPath, updated!);
         Log.Info($"Format: {libraryPath} registered in libraryfolders.vdf (backup written).");
         return "Added to Steam's library list (on next start).";
     }
@@ -962,6 +1037,36 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             Log.Warn($"Format: failed — {message}");
         }
         Finished?.Invoke(message, success);
+    }
+
+    private static void WriteAtomically(string path, string content)
+    {
+        var temporary = path + $".wsgm-{Guid.NewGuid():N}.tmp";
+        try
+        {
+            using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write,
+                FileShare.None, 4096, FileOptions.WriteThrough))
+            using (var writer = new StreamWriter(stream, new System.Text.UTF8Encoding(false)))
+            {
+                writer.Write(content);
+                writer.Flush();
+                stream.Flush(flushToDisk: true);
+            }
+            File.Move(temporary, path, overwrite: true);
+        }
+        finally
+        {
+            try { File.Delete(temporary); } catch (IOException) { }
+        }
+    }
+
+    private static void BackupOnce(string path)
+    {
+        var backup = path + ".wsgm-bak";
+        if (!File.Exists(backup))
+        {
+            File.Copy(path, backup, overwrite: false);
+        }
     }
 
     private void Raise(string name) =>

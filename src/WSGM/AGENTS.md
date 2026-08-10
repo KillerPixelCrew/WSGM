@@ -11,3 +11,5 @@ quick-access/taskbar surfaces, and the per-user configuration and boot manifest.
 - Runtime config reload replaces the config object. Keep transient state in its controller/manager,
   not in `AppConfig` references.
 - Update this file when this executable's responsibilities or safety boundaries change.
+- `SkipNativeArtifacts=true` is a compile/test-only escape hatch for non-Windows CI diagnostics;
+  release and supported verification builds must never set it.

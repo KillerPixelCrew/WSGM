@@ -35,6 +35,8 @@ public sealed class LibraryTabsView : UserControl
     private IReadOnlyList<SteamCollections.TagInfo>? _tags;
     private IReadOnlyList<SteamCollectionInfo>? _collections;
     private int _navigationGeneration;
+    private string? _notice;
+    private HashSet<string> _openedTabIds = new(StringComparer.Ordinal);
 
     /// <summary>Raised when the user backs out of the top level (the overlay then
     /// returns to the Tools list).</summary>
@@ -46,12 +48,23 @@ public sealed class LibraryTabsView : UserControl
     public void Open(LibraryTabManager manager)
     {
         _manager = manager;
-        _config = LibraryTabManager.LoadConfig();
         _stack.Clear();
         _current = null;
         _games = null;
         _tags = null;
         _collections = null;
+        var generation = ++_navigationGeneration;
+        RenderLoading("Library Tabs");
+        _ = RunSafelyAsync(LoadAndRenderAsync(generation), "open");
+    }
+
+    private async Task LoadAndRenderAsync(int generation)
+    {
+        var config = await Task.Run(LibraryTabManager.LoadConfig);
+        if (generation != _navigationGeneration) { return; }
+        _config = config;
+        _openedTabIds = _config.CustomTabs.Select(static tab => tab.Id)
+            .ToHashSet(StringComparer.Ordinal);
         Navigate(RenderTabList);
     }
 
@@ -192,7 +205,9 @@ public sealed class LibraryTabsView : UserControl
         SetContent(stack);
     }
 
-    private async void SaveTab()
+    private void SaveTab() => _ = RunSafelyAsync(SaveTabAsync(), "save");
+
+    private async Task SaveTabAsync()
     {
         if (string.IsNullOrWhiteSpace(_editing.Name))
         {
@@ -232,7 +247,9 @@ public sealed class LibraryTabsView : UserControl
         _ = SyncQuietly();
     }
 
-    private async void DeleteTab()
+    private void DeleteTab() => _ = RunSafelyAsync(DeleteTabAsync(), "delete");
+
+    private async Task DeleteTabAsync()
     {
         if (_editingOriginal is null)
         {
@@ -250,10 +267,24 @@ public sealed class LibraryTabsView : UserControl
 
     private Task PersistTabsAsync()
     {
-        var tabs = _config.CustomTabs;
+        var tabs = _config.CustomTabs.Select(Clone).ToList();
+        var baseline = _openedTabIds.ToHashSet(StringComparer.Ordinal);
         return LibraryTabManager.MutateConfigAsync<object?>(cfg =>
         {
-            cfg.CustomTabs = tabs;
+            var wanted = tabs.Select(static tab => tab.Id).ToHashSet(StringComparer.Ordinal);
+            cfg.CustomTabs.RemoveAll(tab => baseline.Contains(tab.Id) && !wanted.Contains(tab.Id));
+            foreach (var tab in tabs)
+            {
+                var index = cfg.CustomTabs.FindIndex(existing => existing.Id == tab.Id);
+                if (index >= 0)
+                {
+                    cfg.CustomTabs[index] = tab;
+                }
+                else
+                {
+                    cfg.CustomTabs.Add(tab);
+                }
+            }
             return null;
         });
     }
@@ -263,12 +294,14 @@ public sealed class LibraryTabsView : UserControl
         try
         {
             await PersistTabsAsync();
+            _openedTabIds = _config.CustomTabs.Select(static tab => tab.Id)
+                .ToHashSet(StringComparer.Ordinal);
             return true;
         }
         catch (Exception ex)
         {
             Log.Warn($"Library tab {operation} failed: {ex.Message}");
-            _config = LibraryTabManager.LoadConfig();
+            _config = await Task.Run(LibraryTabManager.LoadConfig);
             Toast($"Could not {operation} the tab. Try again.");
             _stack.Clear();
             Replace(RenderTabList);
@@ -574,7 +607,9 @@ public sealed class LibraryTabsView : UserControl
 
     // ---- Pickers (async data) ----
 
-    private async void OpenTagPicker(FilterNode node)
+    private void OpenTagPicker(FilterNode node) => _ = RunSafelyAsync(OpenTagPickerAsync(node), "tag picker");
+
+    private async Task OpenTagPickerAsync(FilterNode node)
     {
         Navigate(() => RenderLoading("Tags"));
         var generation = _navigationGeneration;
@@ -593,7 +628,9 @@ public sealed class LibraryTabsView : UserControl
         }));
     }
 
-    private async void OpenGamePicker(FilterNode node)
+    private void OpenGamePicker(FilterNode node) => _ = RunSafelyAsync(OpenGamePickerAsync(node), "game picker");
+
+    private async Task OpenGamePickerAsync(FilterNode node)
     {
         Navigate(() => RenderLoading("Games"));
         var generation = _navigationGeneration;
@@ -611,7 +648,9 @@ public sealed class LibraryTabsView : UserControl
         }));
     }
 
-    private async void OpenCollectionPicker(FilterNode node)
+    private void OpenCollectionPicker(FilterNode node) => _ = RunSafelyAsync(OpenCollectionPickerAsync(node), "collection picker");
+
+    private async Task OpenCollectionPickerAsync(FilterNode node)
     {
         Navigate(() => RenderLoading("Collections"));
         var generation = _navigationGeneration;
@@ -642,11 +681,28 @@ public sealed class LibraryTabsView : UserControl
     }
 
     private void RenderMultiSelect(string title, IEnumerable<(long Id, string Label)> items,
-        HashSet<long> selected, Action onDone)
+        HashSet<long> selected, Action onDone, int page = 0)
     {
+        const int pageSize = 200;
+        var all = items.ToList();
+        var pageCount = Math.Max(1, (all.Count + pageSize - 1) / pageSize);
+        page = Math.Clamp(page, 0, pageCount - 1);
         var stack = NewStack(title);
         stack.Children.Add(PrimaryRow("Done", $"{selected.Count} selected", Icons.Play, onDone));
-        foreach (var (id, label) in items)
+        if (pageCount > 1)
+        {
+            var currentPage = page;
+            stack.Children.Add(Row($"Page {page + 1} of {pageCount}", $"{all.Count} entries · previous",
+                Icons.Restart, page > 0
+                    ? () => Replace(() => RenderMultiSelect(title, all, selected, onDone, currentPage - 1))
+                    : null));
+            if (page + 1 < pageCount)
+            {
+                stack.Children.Add(Row("Next page", $"Entries {(page + 1) * pageSize + 1}–{Math.Min(all.Count, (page + 2) * pageSize)}",
+                    Icons.Play, () => Replace(() => RenderMultiSelect(title, all, selected, onDone, currentPage + 1))));
+            }
+        }
+        foreach (var (id, label) in all.Skip(page * pageSize).Take(pageSize))
         {
             var itemId = id;
             var check = selected.Contains(itemId) ? "✓ " : "";
@@ -666,7 +722,9 @@ public sealed class LibraryTabsView : UserControl
 
     // ---- Level: card manager ----
 
-    private async void RenderCardList()
+    private void RenderCardList() => _ = RunSafelyAsync(RenderCardListAsync(), "card list");
+
+    private async Task RenderCardListAsync()
     {
         var generation = _navigationGeneration;
         SetContent(NewStack("Card Manager").Also(s => s.Children.Add(Caption("Scanning cards…"))));
@@ -710,46 +768,71 @@ public sealed class LibraryTabsView : UserControl
             var stack = NewStack(card.Name);
             stack.Children.Add(Caption(card.Inserted ? "Currently inserted." : "Not inserted (remembered)."));
             stack.Children.Add(Row("Rename", card.Name, Icons.CopyDoc, () =>
-                EditText("Card name", card.Name, 40, async v =>
+                EditText("Card name", card.Name, 40, v => _ = RunCardMutationAsync(
+                    () => _manager.RenameCardAsync(card.ContentId, v), () =>
                 {
-                    await _manager.RenameCardAsync(card.ContentId, v);
                     // Drop the text-entry level and the card editor, landing on a fresh
                     // card list (with the tab list still underneath).
                     PopIfAny();
                     Replace(RenderCardList);
                     _ = SyncQuietly();
-                })));
-            stack.Children.Add(CycleRow("Steam tab", card.Enabled ? "On" : "Off", async () =>
+                }))));
+            stack.Children.Add(CycleRow("Steam tab", card.Enabled ? "On" : "Off", () =>
+                _ = RunCardMutationAsync(
+                    () => _manager.SetCardEnabledAsync(card.ContentId, !card.Enabled), () =>
             {
-                await _manager.SetCardEnabledAsync(card.ContentId, !card.Enabled);
                 PopIfAny();
                 Replace(RenderCardList);
                 _ = SyncQuietly();
-            }));
-            stack.Children.Add(CycleRow("Hidden", card.Hidden ? "Yes" : "No", async () =>
+            })));
+            stack.Children.Add(CycleRow("Hidden", card.Hidden ? "Yes" : "No", () =>
+                _ = RunCardMutationAsync(
+                    () => _manager.SetCardHiddenAsync(card.ContentId, !card.Hidden), () =>
             {
-                await _manager.SetCardHiddenAsync(card.ContentId, !card.Hidden);
                 PopIfAny();
                 Replace(RenderCardList);
                 _ = SyncQuietly();
-            }));
+            })));
             stack.Children.Add(Row("View games", $"{card.GameCount} installed", Icons.Grid4,
                 () => OpenGameList(card)));
             stack.Children.Add(SectionLabel(""));
             stack.Children.Add(DangerRow("Forget card", "Remove its tab and tracking", Icons.Close,
-                async () =>
+                () => _ = RunCardMutationAsync(
+                    () => _manager.ForgetCardAsync(card.ContentId), () =>
                 {
-                    await _manager.ForgetCardAsync(card.ContentId);
                     PopIfAny();
                     Replace(RenderCardList);
                     _ = SyncQuietly();
-                }));
+                })));
             stack.Children.Add(Row("Back", "Return to cards", Icons.ExitFullscreen, () => Back()));
             SetContent(stack);
         });
     }
 
-    private async void OpenGameList(LibraryTabManager.CardView card)
+    private static async Task RunSafelyAsync(Task task, string operation)
+    {
+        try { await task; }
+        catch (Exception ex) { Log.Error($"Library tabs {operation} failed.", ex); }
+    }
+
+    private async Task RunCardMutationAsync(Func<Task> mutation, Action completed)
+    {
+        try
+        {
+            await mutation();
+            completed();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Card manager change failed: {ex.Message}");
+            _config = LibraryTabManager.LoadConfig();
+            Toast("Could not save the card change. Try again.");
+        }
+    }
+
+    private void OpenGameList(LibraryTabManager.CardView card) => _ = RunSafelyAsync(OpenGameListAsync(card), "card games");
+
+    private async Task OpenGameListAsync(LibraryTabManager.CardView card)
     {
         Navigate(() => RenderLoading(card.Name));
         var generation = _navigationGeneration;
@@ -784,7 +867,7 @@ public sealed class LibraryTabsView : UserControl
     {
         // Prefer the separate keyboard window beside the sidebar (game mode); fall back
         // to an inline keyboard screen if none is available.
-        if (KeyboardService.Request(title, current, v => onAccept(v ?? "")))
+        if (KeyboardService.Request(title, current, maxLen, v => onAccept(v ?? "")))
         {
             return;
         }
@@ -817,6 +900,11 @@ public sealed class LibraryTabsView : UserControl
                 FontWeight = FontWeight.SemiBold,
                 Margin = new Avalonia.Thickness(0, 0, 0, 4),
             });
+        }
+        if (!string.IsNullOrEmpty(_notice))
+        {
+            stack.Children.Add(Caption(_notice));
+            _notice = null;
         }
         return stack;
     }
@@ -924,7 +1012,12 @@ public sealed class LibraryTabsView : UserControl
         }
     });
 
-    private void Toast(string message) => Log.Info($"Library tabs: {message}");
+    private void Toast(string message)
+    {
+        Log.Info($"Library tabs: {message}");
+        _notice = message;
+        _current?.Invoke();
+    }
 
     // ---- Value helpers ----
 

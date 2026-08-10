@@ -14,3 +14,5 @@ startup applications, tray host, removable storage, radio, audio, and system sta
   device-facing failures through logs and retryable UI states.
 - Card-reader paths are reusable identities: discover physical removable/hot-pluggable devices and
   key registration, removal, and retirement by `contentId`, never by drive letter alone.
+- Steam VDF mutations are shape-checked, renumbered, backed up once, and atomically replaced; a
+  random write-through diskpart script and post-failure compensation protect destructive formats.

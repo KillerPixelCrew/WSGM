@@ -438,6 +438,7 @@ public sealed class GamepadNavigation : IDisposable
             // window (the keyboard beside the sidebar) if one is there.
             if (_onEdge is not null)
             {
+                Log.Info($"Gamepad nav: window edge in the {direction} direction; invoking peer handoff.");
                 _onEdge(direction);
                 return;
             }

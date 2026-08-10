@@ -14,5 +14,7 @@ utilities.
   never replace it with `Process.Kill` or Restart Manager shutdown.
 - Steam interactions use protocol URLs or the CEF front-end bridge. Never call Steam internals from
   the injected gate; JS values embedded in CEF expressions must be JSON-encoded.
+- CEF debugger sockets must remain loopback-only; artwork downloads accept bounded static PNG/JPEG
+  data over HTTPS, and protocol/JavaScript errors remain distinct from an unreachable Steam client.
 - Keep recovery paths (`--restore-shell`, legacy shell migration, de-elevation) usable before normal
   logging or Avalonia initialization.

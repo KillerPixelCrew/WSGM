@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -18,6 +19,8 @@ namespace WSGM.Overlay;
 /// <summary>The fullscreen, controller-friendly overlay window.</summary>
 public partial class OverlayWindow : Window
 {
+    /// <summary>Raised when a Tools sub-view is torn down so auxiliary peer windows close too.</summary>
+    public event Action? SubViewClosed;
     private bool _confirmRestart;
     private bool _confirmShutdown;
     private DispatcherTimer? _confirmResetTimer;
@@ -540,7 +543,7 @@ public partial class OverlayWindow : Window
     // Debounce for the on-open auto-sync, shared across overlay instances (the
     // window is recreated per open). Auto-sync keeps card and category tabs current
     // without the user pressing the button; the button forces an immediate sync.
-    private static DateTime _lastAutoTabSync = DateTime.MinValue;
+    private static long _lastAutoTabSyncTicks;
     private static readonly TimeSpan AutoTabSyncInterval = TimeSpan.FromMinutes(10);
 
     /// <summary>Opens the Library Tabs builder / SD-card manager sub-view (the
@@ -566,6 +569,7 @@ public partial class OverlayWindow : Window
             return;
         }
         InLibraryTabsSubView = false;
+        SubViewClosed?.Invoke();
         LibraryTabsHost.IsVisible = false;
         PanelTools.IsVisible = Tabs.SelectedIndex == 1;
         if (PanelTools.IsVisible)
@@ -596,6 +600,7 @@ public partial class OverlayWindow : Window
             return;
         }
         InArtworkSubView = false;
+        SubViewClosed?.Invoke();
         ArtworkHost.Close();
         ArtworkHost.IsVisible = false;
         PanelTools.IsVisible = Tabs.SelectedIndex == 1;
@@ -610,7 +615,8 @@ public partial class OverlayWindow : Window
     /// closed Steam simply leaves the tabs for the next open.</summary>
     private void MaybeAutoSyncTabs()
     {
-        if (DateTime.UtcNow - _lastAutoTabSync < AutoTabSyncInterval)
+        if (DateTime.UtcNow.Ticks - Interlocked.Read(ref _lastAutoTabSyncTicks)
+            < AutoTabSyncInterval.Ticks)
         {
             return;
         }
@@ -618,11 +624,11 @@ public partial class OverlayWindow : Window
         {
             try
             {
-                var summary = await LibraryTabs.SyncAllAsync();
-                Log.Info($"Library tabs auto-sync: {summary}");
-                if (!summary.Contains("isn't reachable", StringComparison.Ordinal))
+                var result = await LibraryTabs.SyncAllDetailedAsync();
+                Log.Info($"Library tabs auto-sync: {result.Summary}");
+                if (result.Success)
                 {
-                    _lastAutoTabSync = DateTime.UtcNow;
+                    Interlocked.Exchange(ref _lastAutoTabSyncTicks, DateTime.UtcNow.Ticks);
                 }
             }
             catch (Exception ex)

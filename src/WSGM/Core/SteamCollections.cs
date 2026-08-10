@@ -23,12 +23,9 @@ public sealed record SteamCollectionInfo(string Id, string Name, IReadOnlyList<l
 public readonly record struct SteamCollectionSyncResult(
     bool Reachable, bool Ok, string? Id, string? Error);
 
-/// <summary>Creates and maintains real Steam user collections by driving Steam's
-/// own <c>collectionStore</c> over the CEF port (<see cref="SteamCef"/>). A
-/// collection is Steam's native "library tab", so materializing a category or a
-/// MicroSD card as a collection makes Steam render it as a tab with no restart and
-/// no UI injection. Membership is synced by name: WSGM owns the set, Steam owns the
-/// rendering. Verified end-to-end (create → populate → delete) on device.</summary>
+/// <summary>Reads Steam library data and cleans up collection IDs created by the
+/// retired collection-backed tab implementation. New tabs are injected by
+/// <see cref="SteamLibraryTabs"/> and never create user collections.</summary>
 public static class SteamCollections
 {
     private static readonly TimeSpan Budget = TimeSpan.FromSeconds(12);
@@ -210,74 +207,59 @@ public static class SteamCollections
         }
     }
 
-    /// <summary>A named group of apps (e.g. a genre) to become a collection.</summary>
-    /// <param name="Name">The group/genre name.</param>
-    /// <param name="AppIds">The apps in the group.</param>
-    public sealed record AppGroup(string Name, IReadOnlyList<long> AppIds);
-
-    /// <summary>Reads the library's top store-tag genres and the apps in each — the
-    /// basis for category tabs. Names come from Steam's own localized tag map (so
-    /// they match the client language). Returns the largest
-    /// <paramref name="maxGenres"/> genres with at least
-    /// <paramref name="minCount"/> apps, largest first.</summary>
-    /// <param name="minCount">Minimum apps for a genre to qualify.</param>
-    /// <param name="maxGenres">Maximum number of genres to return.</param>
+    /// <summary>Evaluates multiple compiled filters in one CEF exchange.</summary>
+    /// <param name="filterExpressions">Self-contained filter IIFEs.</param>
     /// <param name="cancellationToken">Cancels the exchange.</param>
-    public static async Task<IReadOnlyList<AppGroup>> GetGenreGroupsAsync(
-        int minCount = 4, int maxGenres = 12, CancellationToken cancellationToken = default)
+    public static async Task<IReadOnlyList<FilterEvalResult>> EvaluateFiltersAsync(
+        IReadOnlyList<string> filterExpressions, CancellationToken cancellationToken = default)
     {
-        var min = minCount.ToString(CultureInfo.InvariantCulture);
-        var max = maxGenres.ToString(CultureInfo.InvariantCulture);
-        var expression =
-            "(()=>{try{const cs=collectionStore,as=appStore;" +
-            "const games=cs.GetCollection('type-games');" +
-            "const apps=(games&&(games.allApps||games.visibleApps))||[];" +
-            "const m=as.m_mapStoreTagLocalization||{};const byTag={};" +
-            "for(const a of apps)for(const t of (a.store_tag||[])){const nm=m[t];if(!nm)continue;" +
-            "(byTag[nm]=byTag[nm]||[]).push(a.appid);}" +
-            "const out=Object.entries(byTag).filter(([k,v])=>v.length>=" + min + ")" +
-            ".sort((a,b)=>b[1].length-a[1].length).slice(0," + max + ");" +
-            "return JSON.stringify({ok:true,genres:out.map(([name,ids])=>({name,ids}))});}" +
-            "catch(e){return JSON.stringify({ok:false,err:String((e&&e.message)||e)});}})()";
-
+        if (filterExpressions.Count == 0)
+        {
+            return Array.Empty<FilterEvalResult>();
+        }
+        var expression = "(()=>JSON.stringify({values:[" + string.Join(",", filterExpressions
+            .Select(static value => "JSON.parse((" + value + "))")) + "]}))()";
         var result = await SteamCef.EvaluateAsync(expression, Budget, cancellationToken)
             .ConfigureAwait(false);
         if (!result.Reachable || result.Value is null)
         {
-            return Array.Empty<AppGroup>();
+            return Enumerable.Repeat(
+                new FilterEvalResult(false, false, Array.Empty<long>()), filterExpressions.Count).ToList();
         }
         try
         {
             using var document = JsonDocument.Parse(result.Value);
-            var root = document.RootElement;
-            if (!root.TryGetProperty("ok", out var ok) || ok.ValueKind != JsonValueKind.True
-                || !root.TryGetProperty("genres", out var genres))
+            var values = document.RootElement.GetProperty("values");
+            var output = new List<FilterEvalResult>();
+            foreach (var value in values.EnumerateArray())
             {
-                return Array.Empty<AppGroup>();
-            }
-            var list = new List<AppGroup>();
-            foreach (var genre in genres.EnumerateArray())
-            {
-                var name = genre.GetProperty("name").GetString() ?? "";
-                var ids = new List<long>();
-                foreach (var appId in genre.GetProperty("ids").EnumerateArray())
+                if (!value.TryGetProperty("ok", out var ok) || ok.ValueKind != JsonValueKind.True
+                    || !value.TryGetProperty("appids", out var appids))
                 {
-                    if (appId.TryGetInt64(out var value))
+                    output.Add(new FilterEvalResult(true, false, Array.Empty<long>()));
+                    continue;
+                }
+                var ids = new List<long>();
+                foreach (var appid in appids.EnumerateArray())
+                {
+                    if (appid.TryGetInt64(out var id))
                     {
-                        ids.Add(value);
+                        ids.Add(id);
                     }
                 }
-                if (name.Length > 0 && ids.Count > 0)
-                {
-                    list.Add(new AppGroup(name, ids));
-                }
+                output.Add(new FilterEvalResult(true, true, ids));
             }
-            return list;
+            while (output.Count < filterExpressions.Count)
+            {
+                output.Add(new FilterEvalResult(true, false, Array.Empty<long>()));
+            }
+            return output;
         }
         catch (Exception ex)
         {
-            Log.Warn($"Steam genre read failed: {ex.Message}");
-            return Array.Empty<AppGroup>();
+            Log.Warn($"Batched filter evaluation parse failed: {ex.Message}");
+            return Enumerable.Repeat(
+                new FilterEvalResult(true, false, Array.Empty<long>()), filterExpressions.Count).ToList();
         }
     }
 

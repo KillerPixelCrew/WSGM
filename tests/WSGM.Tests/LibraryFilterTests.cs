@@ -97,6 +97,29 @@ public sealed class LibraryFilterTests
     }
 
     [Fact]
+    public void LastPlayedAbsoluteDateUsesUtcEpoch()
+    {
+        var js = Compile(new FilterNode
+        {
+            Kind = FilterKind.LastPlayed,
+            Year = 2025,
+            Month = 7,
+            Day = 3,
+            Condition = ThresholdCondition.Above,
+        });
+        Assert.Contains("rt_last_time_played", js);
+        Assert.Contains("Date.UTC(2025,6,3)", js);
+    }
+
+    [Fact]
+    public void CatastrophicRegexIsRejectedBeforeSteamEvaluation()
+        => Assert.False(LibraryFilter.IsValid(new FilterNode
+        {
+            Kind = FilterKind.Regex,
+            Pattern = "(a+)+b",
+        }));
+
+    [Fact]
     public void SdCardBakesResolvedAppIdsAsSet()
     {
         var cards = new StubCards([7, 8, 9]);

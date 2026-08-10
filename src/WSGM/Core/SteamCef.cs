@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Net.WebSockets;
@@ -101,9 +102,9 @@ public static class SteamCef
     private static async Task<CefEvalResult> EvaluateOnAsync(
         WhichTarget which, string expression, TimeSpan timeout, CancellationToken cancellationToken)
     {
-        EnsureRemoteDebuggingEnabled();
         try
         {
+            await Task.Run(EnsureRemoteDebuggingEnabled, cancellationToken).ConfigureAwait(false);
             using var timed = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timed.CancelAfter(timeout);
             var token = timed.Token;
@@ -135,6 +136,11 @@ public static class SteamCef
 
     private static async Task<string?> GetSocketAsync(WhichTarget which, CancellationToken token)
     {
+        if (!await IsSteamPortOwnerAsync(token).ConfigureAwait(false))
+        {
+            Log.Warn($"Steam CEF refused port {DebugPort}: listener is not a Steam process.");
+            return null;
+        }
         string json;
         try
         {
@@ -154,11 +160,47 @@ public static class SteamCef
                 && target.TryGetProperty("webSocketDebuggerUrl", out var url)
                 && url.ValueKind == JsonValueKind.String)
             {
-                return url.GetString();
+                var candidate = url.GetString();
+                if (Uri.TryCreate(candidate, UriKind.Absolute, out var socketUri)
+                    && socketUri.Scheme is "ws" or "wss"
+                    && (socketUri.Host == "127.0.0.1" || socketUri.Host == "localhost")
+                    && socketUri.Port == DebugPort)
+                {
+                    return candidate;
+                }
+                Log.Warn($"Steam CEF rejected non-local debugger URL: {candidate}.");
             }
         }
         Log.Warn($"Steam CEF: {which} target not found.");
         return null;
+    }
+
+    private static async Task<bool> IsSteamPortOwnerAsync(CancellationToken token)
+    {
+        var (exitCode, output) = await ConsoleTool.RunCapturedAsync(
+            "netstat.exe", "-ano -p tcp", timeoutMs: 5000).ConfigureAwait(false);
+        if (exitCode != 0) { return false; }
+        foreach (var line in output.Split('\n'))
+        {
+            var columns = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            if (columns.Length < 5 || !columns[1].EndsWith($":{DebugPort}", StringComparison.Ordinal)
+                || !string.Equals(columns[3], "LISTENING", StringComparison.OrdinalIgnoreCase)
+                || !int.TryParse(columns[4], out var pid))
+            {
+                continue;
+            }
+            try
+            {
+                using var process = Process.GetProcessById(pid);
+                return process.ProcessName is "steamwebhelper" or "steam";
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Steam CEF listener ownership check failed: {ex.Message}");
+                return false;
+            }
+        }
+        return false;
     }
 
     private static bool Matches(WhichTarget which, JsonElement target)
@@ -232,7 +274,13 @@ public static class SteamCef
             {
                 return value.GetString();
             }
-            return null;
+            var detail = root.TryGetProperty("error", out var protocolError)
+                ? protocolError.GetRawText()
+                : root.TryGetProperty("result", out var result)
+                    && result.TryGetProperty("exceptionDetails", out var exception)
+                    ? exception.GetRawText()
+                    : "missing by-value string result";
+            throw new InvalidDataException($"Steam CEF evaluation failed: {detail}");
         }
     }
 

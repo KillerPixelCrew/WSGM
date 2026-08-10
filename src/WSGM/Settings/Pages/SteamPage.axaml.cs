@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using WSGM.Controls;
 
 namespace WSGM.Settings.Pages;
 
@@ -10,6 +11,27 @@ public partial class SteamPage : UserControl
 {
     /// <summary>Loads the compiled page XAML.</summary>
     public SteamPage() => InitializeComponent();
+
+    private void OnOpenApiKeyKeyboard(object? sender, RoutedEventArgs e)
+    {
+        var keyboard = new OnScreenKeyboard { Target = SteamGridDbKeyBox };
+        var window = new Window
+        {
+            Title = "SteamGridDB API key",
+            Width = 760,
+            Height = 430,
+            Content = keyboard,
+        };
+        keyboard.Accepted += (_, _) => window.Close();
+        if (VisualRoot is Window owner)
+        {
+            _ = window.ShowDialog(owner);
+        }
+        else
+        {
+            window.Show();
+        }
+    }
 
     private void OnToggleUac(object? sender, RoutedEventArgs e)
     {
