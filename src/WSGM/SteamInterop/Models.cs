@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 
-namespace SteamInputLease;
+namespace SteamInterop;
 
 /// <summary>Configuration for locating a target process and injected Rust payload.</summary>
 /// <remarks>

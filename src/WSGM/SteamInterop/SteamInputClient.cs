@@ -2,7 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Threading;
 
-namespace SteamInputLease;
+namespace SteamInterop;
 
 /// <summary>
 /// Loads and controls the process-global Steam Input gate. Instances are cheap;

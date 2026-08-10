@@ -1,5 +1,5 @@
 using System;
-using SteamInputLease;
+using SteamInterop;
 
 namespace WSGM.Core;
 
