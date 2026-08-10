@@ -39,6 +39,20 @@
                         <ToggleSwitch Grid.Column="1" IsChecked="{Binding SteamAutoRelaunch}" VerticalAlignment="Center" />
                     </Grid>
                 </Border>
+
+                <Border Classes="section-header">
+                    <TextBlock Text="STEAMGRIDDB" />
+                </Border>
+                <Border Classes="setting-row alt">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="Change Artwork API key" Classes="setting-title" />
+                        <TextBlock Text="Paste your free SteamGridDB key to enable swapping game art from the overlay (Tools → Change Artwork)."
+                                   Classes="caption" TextWrapping="Wrap" />
+                        <TextBox Text="{Binding SteamGridDbApiKey}" PlaceholderText="SteamGridDB API key" />
+                        <TextBlock Text="Get one free at steamgriddb.com/profile/preferences/api"
+                                   Classes="caption" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
             </StackPanel>
 
             <StackPanel Grid.Column="2">

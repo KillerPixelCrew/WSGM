@@ -382,6 +382,17 @@ public sealed class SdFormatManager : INotifyPropertyChanged
                 return;
             }
 
+            // A card reader reuses its drive letter. If this is a WSGM-formatted
+            // card, first remove its existing Steam library by the marker's stable
+            // content id; otherwise the live client keeps the old app list as
+            // ghost entries after diskpart has erased the manifests.
+            var removalFailure = await Task.Run(() => RemoveExistingLibrary(entry));
+            if (removalFailure is not null)
+            {
+                Finish(removalFailure, false);
+                return;
+            }
+
             var keepLetter = entry.PreferredLetter;
             var (exitCode, output) = await RunDiskpart(entry.DiskNumber, keepLetter, label);
             if (exitCode != 0)
@@ -468,6 +479,82 @@ public sealed class SdFormatManager : INotifyPropertyChanged
                 + $"(size {entry.SizeBytes}->{size}, bus {entry.BusType}->{busType}).");
             return "The drive changed since it was listed — refresh and pick it again.";
         }
+        return null;
+    }
+
+    /// <summary>Removes the existing WSGM library on a card before it is erased.
+    /// The card marker's content id selects the registration, so a fixed reader
+    /// drive letter cannot remove the library belonging to another card. A live
+    /// Steam is changed only through CEF; when Steam is closed its next-start
+    /// configuration is cleaned directly.</summary>
+    /// <param name="entry">The re-verified card selected for formatting.</param>
+    /// <returns>A user-facing refusal when the old library cannot safely be removed.</returns>
+    private static string? RemoveExistingLibrary(FormatTargetEntry entry)
+    {
+        if (entry.PreferredLetter is < 'A' or > 'Z')
+        {
+            return null;
+        }
+        var marker = $@"{entry.PreferredLetter}:\SteamLibrary\libraryfolder.vdf";
+        if (!File.Exists(marker))
+        {
+            return null;
+        }
+        string contentId;
+        try
+        {
+            var values = SteamLibraryVdf.ValuesOf(File.ReadAllText(marker), "contentid");
+            if (values.Count == 0 || string.IsNullOrWhiteSpace(values[0]))
+            {
+                Log.Warn($"Format: existing marker at {marker} has no content id.");
+                return null;
+            }
+            contentId = values[0];
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Format: could not read existing marker {marker}: {ex.Message}");
+            return "Could not verify the existing Steam library on this card. "
+                + "Close Steam and try again.";
+        }
+
+        var steamExe = Steam.ExePath;
+        var configPath = steamExe is null
+            ? null : Path.Combine(Path.GetDirectoryName(steamExe)!, "config", "libraryfolders.vdf");
+        var configText = configPath is not null && File.Exists(configPath)
+            ? File.ReadAllText(configPath) : null;
+        if (configPath is null || configText is null)
+        {
+            Log.Warn($"Format: cannot resolve existing library content id {contentId}; config missing.");
+            return "Could not find Steam's library registration for this card. "
+                + "Close Steam and add the card library again before formatting.";
+        }
+
+        if (Steam.IsRunning)
+        {
+            var result = SteamCdp.RemoveLibraryByContentIdAsync(contentId, configText)
+                .GetAwaiter().GetResult();
+            if (result.Status is SteamLibraryRemoveStatus.Removed or SteamLibraryRemoveStatus.NotPresent)
+            {
+                Log.Info($"Format: removed existing live Steam library (content id {contentId}, "
+                    + $"status {result.Status}).");
+                return null;
+            }
+            Log.Warn($"Format: could not remove existing live library {contentId} "
+                + $"({result.Status}: {result.Detail ?? "no detail"}).");
+            return "Steam could not remove this card's existing library. "
+                + "Keep Steam running and try again.";
+        }
+
+        if (!SteamLibraryVdf.TryRemoveContentId(configText, contentId, out var updated)
+            || updated is null)
+        {
+            Log.Info($"Format: no closed-Steam registration found for content id {contentId}.");
+            return null;
+        }
+        File.Copy(configPath, configPath + ".wsgm-bak", overwrite: true);
+        File.WriteAllText(configPath, updated, new System.Text.UTF8Encoding(false));
+        Log.Info($"Format: removed closed-Steam library registration for content id {contentId}.");
         return null;
     }
 

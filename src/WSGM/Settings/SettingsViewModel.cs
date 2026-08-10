@@ -118,6 +118,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         _config = ConfigStore.Normalize(config);
 
         SteamAutoRelaunch = _config.SteamAutoRelaunch;
+        SteamGridDbApiKey = _config.SteamGridDbApiKey;
         StartupDelayMs = _config.StartupDelayMs;
         StaggerDelayMs = _config.StaggerDelayMs;
         BootSplashEnabled = _config.BootSplashEnabled;
@@ -370,6 +371,12 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     /// <summary>Gets or sets whether the Steam monitor restarts Steam after an unexpected exit.</summary>
     public bool SteamAutoRelaunch { get => _steamAutoRelaunch; set { _steamAutoRelaunch = value; Raise(nameof(SteamAutoRelaunch)); } }
+
+    private string _steamGridDbApiKey = "";
+
+    /// <summary>Gets or sets the user's SteamGridDB API key (for the Change Artwork
+    /// feature). Empty disables it; get a free key at <see cref="Core.SteamGridDb.KeyPageUrl"/>.</summary>
+    public string SteamGridDbApiKey { get => _steamGridDbApiKey; set { _steamGridDbApiKey = value; Raise(nameof(SteamGridDbApiKey)); } }
 
     // --- Startup apps ---
     /// <summary>Gets the ordered startup programs shown in the settings editor.</summary>
@@ -848,6 +855,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private void ApplyTo(AppConfig config, SplashConfig splash)
     {
         config.SteamAutoRelaunch = SteamAutoRelaunch;
+        config.SteamGridDbApiKey = (SteamGridDbApiKey ?? "").Trim();
         config.StartupDelayMs = StartupDelayMs;
         config.StaggerDelayMs = StaggerDelayMs;
         config.BootSplashEnabled = BootSplashEnabled;

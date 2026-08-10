@@ -159,6 +159,117 @@ public static class SteamLibraryVdf
         return false;
     }
 
+    /// <summary>Finds the registered library path for a stable content id. This
+    /// deliberately selects the registration by content id, not by path: a card
+    /// reader can assign the same letter to many different cards.</summary>
+    /// <param name="vdf">The current libraryfolders configuration text.</param>
+    /// <param name="contentId">The library identity from its card marker.</param>
+    /// <returns>The unescaped registered path, or null when the id is absent.</returns>
+    public static string? PathForContentId(string vdf, string contentId)
+    {
+        string? path = null;
+        string? currentId = null;
+        foreach (var rawLine in vdf.Split('\n'))
+        {
+            var line = rawLine.TrimEnd('\r');
+            if (IsTopLevelEntry(line))
+            {
+                if (string.Equals(currentId, contentId, StringComparison.Ordinal))
+                {
+                    return path;
+                }
+                path = null;
+                currentId = null;
+                continue;
+            }
+            if (TryReadValue(line, "path", out var candidatePath))
+            {
+                path = candidatePath.Replace("\\\\", "\\");
+            }
+            else if (TryReadValue(line, "contentid", out var candidateId))
+            {
+                currentId = candidateId;
+            }
+        }
+        return string.Equals(currentId, contentId, StringComparison.Ordinal) ? path : null;
+    }
+
+    /// <summary>Removes exactly one top-level library registration selected by
+    /// content id, preserving all other configuration bytes. Used only while
+    /// Steam is closed; a running client is changed through its CEF API instead.</summary>
+    /// <param name="vdf">The current libraryfolders configuration text.</param>
+    /// <param name="contentId">The stable library identity to remove.</param>
+    /// <param name="updated">The text without the matching entry on success.</param>
+    /// <returns>True when a matching registration was removed.</returns>
+    public static bool TryRemoveContentId(string vdf, string contentId, out string? updated)
+    {
+        updated = null;
+        var starts = new List<int>();
+        var lineStart = 0;
+        while (lineStart < vdf.Length)
+        {
+            var lineEnd = vdf.IndexOf('\n', lineStart);
+            if (lineEnd < 0)
+            {
+                lineEnd = vdf.Length;
+            }
+            var line = vdf[lineStart..lineEnd].TrimEnd('\r');
+            if (IsTopLevelEntry(line))
+            {
+                starts.Add(lineStart);
+            }
+            lineStart = lineEnd + 1;
+        }
+        var rootClose = vdf.LastIndexOf('}');
+        for (var i = 0; i < starts.Count; i++)
+        {
+            var end = i + 1 < starts.Count ? starts[i + 1] : rootClose;
+            if (end <= starts[i]
+                || !IsContentIdRegistered(vdf[starts[i]..end], contentId))
+            {
+                continue;
+            }
+            updated = vdf.Remove(starts[i], end - starts[i]);
+            return true;
+        }
+        return false;
+    }
+
+    private static bool IsTopLevelEntry(string line)
+    {
+        if (line.Length < 4 || line[0] != '\t' || line[1] != '"'
+            || line.StartsWith("\t\t", StringComparison.Ordinal))
+        {
+            return false;
+        }
+        var end = line.IndexOf('"', 2);
+        return end > 2 && int.TryParse(line[2..end], NumberStyles.None,
+            CultureInfo.InvariantCulture, out _);
+    }
+
+    private static bool TryReadValue(string line, string key, out string value)
+    {
+        value = "";
+        var trimmed = line.TrimStart('\t', ' ');
+        var marker = $"\"{key}\"";
+        if (!trimmed.StartsWith(marker, StringComparison.Ordinal))
+        {
+            return false;
+        }
+        var rest = trimmed[marker.Length..].TrimStart('\t', ' ');
+        if (rest.Length < 2 || rest[0] != '"')
+        {
+            return false;
+        }
+        var end = rest.IndexOf('"', 1);
+        if (end <= 0)
+        {
+            return false;
+        }
+        value = rest[1..end];
+        return true;
+    }
+
     /// <summary>The next free top-level entry index: highest existing numbered
     /// block + 1. Line-based scan for <c>\t"N"</c> at nesting depth one.</summary>
     /// <param name="vdf">The config file text.</param>

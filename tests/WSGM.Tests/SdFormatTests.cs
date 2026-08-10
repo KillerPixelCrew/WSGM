@@ -208,6 +208,25 @@ public sealed class SdFormatTests
     }
 
     [Fact]
+    public void RegisteredPathIsResolvedByContentIdNotTheReusedDriveLetter()
+    {
+        Assert.Equal(@"D:\SteamLibrary", SteamLibraryVdf.PathForContentId(TwoEntryConfig, "222"));
+        Assert.Null(SteamLibraryVdf.PathForContentId(TwoEntryConfig, "999"));
+    }
+
+    [Fact]
+    public void RemovingByContentIdKeepsTheOtherRegistrationByteForByte()
+    {
+        var removed = SteamLibraryVdf.TryRemoveContentId(TwoEntryConfig, "222", out var updated);
+
+        Assert.True(removed);
+        Assert.NotNull(updated);
+        Assert.Contains("\"contentid\"\t\t\"111\"", updated);
+        Assert.DoesNotContain("\"contentid\"\t\t\"222\"", updated);
+        Assert.EndsWith("}\n", updated);
+    }
+
+    [Fact]
     public void SpliceRejectsAFileThatIsNotALibraryFoldersConfig()
     {
         var ok = SteamLibraryVdf.TrySplice(

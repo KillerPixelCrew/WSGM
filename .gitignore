@@ -506,3 +506,9 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# External reference clones (nested repos, not part of WSGM)
+_ref/
+
+# Local MCP server config (per-machine)
+.mcp.json

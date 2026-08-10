@@ -63,6 +63,9 @@ public static class ConfigStore
         config.SavedDisplayScales ??= [];
         config.SavedDisplayScaleEntries ??= [];
         config.PreviousConsoleLockSchemeValues ??= [];
+        config.CardLibraries ??= [];
+        config.CategoryTabs ??= [];
+        config.CustomTabs ??= [];
         config.AccentColor ??= "#FFFF9D3D";
         config.AccentColor = Truncate(config.AccentColor, MaxColorLength, "Accent color");
         config.Splash ??= new SplashConfig();

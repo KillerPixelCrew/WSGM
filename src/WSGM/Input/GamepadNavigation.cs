@@ -32,6 +32,11 @@ public sealed class GamepadNavigation : IDisposable
     private readonly Action? _tabPrevious;
     private readonly Action? _tabNext;
 
+    /// <summary>Invoked when a directional move finds no focusable control in that
+    /// direction (a window edge). Lets the controller hand focus to an adjacent window
+    /// — e.g. crossing left from the sidebar into the keyboard window beside it.</summary>
+    private readonly Action<NavigationDirection>? _onEdge;
+
     /// <summary>FocusManager fallback: in a window that never gets OS-activated
     /// (the overlay), GetFocusedElement may not track our programmatic focus.</summary>
     private InputElement? _lastFocused;
@@ -70,10 +75,12 @@ public sealed class GamepadNavigation : IDisposable
     /// <param name="tabNext">Optional action for the right shoulder button (RB),
     /// fired once per press — switches to the next tab where a tab strip exists.
     /// Null leaves the button unhandled.</param>
+    /// <param name="onEdge">Optional callback when a directional move finds no target in
+    /// that direction (a window edge) — used to cross focus into an adjacent window.</param>
     public GamepadNavigation(GamepadService gamepad, Window window, Action back,
         Func<bool>? isNintendoLayout = null, Func<InputElement?>? preferredFocus = null,
         Action<InputElement?>? secondary = null, Action? tabPrevious = null,
-        Action? tabNext = null)
+        Action? tabNext = null, Action<NavigationDirection>? onEdge = null)
     {
         _gamepad = gamepad;
         _window = window;
@@ -83,6 +90,7 @@ public sealed class GamepadNavigation : IDisposable
         _secondary = secondary;
         _tabPrevious = tabPrevious;
         _tabNext = tabNext;
+        _onEdge = onEdge;
         _gamepad.ButtonPressed += OnButtons;
         // Tunnel so the arrows aren't consumed by a ScrollViewer for scrolling first.
         _window.AddHandler(InputElement.KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel);
@@ -426,6 +434,13 @@ public sealed class GamepadNavigation : IDisposable
         }
         else
         {
+            // Window edge in this direction: let the controller cross into an adjacent
+            // window (the keyboard beside the sidebar) if one is there.
+            if (_onEdge is not null)
+            {
+                _onEdge(direction);
+                return;
+            }
             if (!_loggedEdge)
             {
                 _loggedEdge = true;

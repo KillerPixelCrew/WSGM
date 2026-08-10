@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -56,6 +57,16 @@ public partial class OverlayWindow : Window
     /// than closing the overlay.</summary>
     internal bool InFormatSubView { get; private set; }
 
+    /// <summary>Whether the Library Tabs builder/card-manager sub-view is showing.
+    /// Same LB/RB-suppress + B-cancels rules as the format sub-view.</summary>
+    internal bool InLibraryTabsSubView { get; private set; }
+
+    /// <summary>Whether the SteamGridDB artwork picker sub-view is showing.</summary>
+    internal bool InArtworkSubView { get; private set; }
+
+    /// <summary>Whether any in-place Tools sub-view owns the surface.</summary>
+    private bool AnySubView => InFormatSubView || InLibraryTabsSubView || InArtworkSubView;
+
     /// <summary>Gives the overlay the shared removable-storage format manager so
     /// its Tools sub-view can drive it. Called by the controller right after
     /// construction (the manager outlives the window).</summary>
@@ -77,11 +88,14 @@ public partial class OverlayWindow : Window
     {
         get
         {
-            // The Format/Add-library sub-view lives inside the Tools tab; focus
-            // lands there while it is open, not on the tab's ordinary rows.
-            if (InFormatSubView)
+            // The Tools sub-views live inside the Tools tab; focus lands there while
+            // one is open, not on the tab's ordinary rows.
+            if (AnySubView)
             {
-                foreach (var visual in PanelFormat.GetVisualDescendants())
+                var host = InLibraryTabsSubView ? (Control)LibraryTabsHost
+                    : InArtworkSubView ? ArtworkHost
+                    : PanelFormat;
+                foreach (var visual in host.GetVisualDescendants())
                 {
                     if (visual is Button { Focusable: true, IsEffectivelyEnabled: true } b
                         && b.IsEffectivelyVisible)
@@ -134,8 +148,13 @@ public partial class OverlayWindow : Window
         Activated += (_, _) =>
         {
             LeaveFormatSubView();
+            LeaveLibraryTabsSubView();
+            LeaveArtworkSubView();
             Tabs.SelectedIndex = 0;
         };
+
+        LibraryTabsHost.CloseRequested += LeaveLibraryTabsSubView;
+        ArtworkHost.CloseRequested += LeaveArtworkSubView;
 
         KeyDown += OnKeyDown;
         Opened += OnOpened;
@@ -180,6 +199,7 @@ public partial class OverlayWindow : Window
     {
         DockToRightEdge();
         HomeAppButton.Focus(NavigationMethod.Directional);
+        MaybeAutoSyncTabs();
     }
 
     /// <summary>Selects the previous tab (LB), wrapping from the first to the
@@ -187,16 +207,16 @@ public partial class OverlayWindow : Window
     /// press must not switch tabs out from under it.</summary>
     internal void SelectPreviousTab()
     {
-        if (!InFormatSubView)
+        if (!AnySubView)
         {
             Tabs.SelectPrevious();
         }
     }
 
-    /// <summary>Selects the next tab (RB). Suppressed in the Format sub-view.</summary>
+    /// <summary>Selects the next tab (RB). Suppressed while a Tools sub-view is open.</summary>
     internal void SelectNextTab()
     {
-        if (!InFormatSubView)
+        if (!AnySubView)
         {
             Tabs.SelectNext();
         }
@@ -208,6 +228,16 @@ public partial class OverlayWindow : Window
     /// the view resets. Returns true when it handled the press.</summary>
     internal bool TryCancelSubView()
     {
+        if (InLibraryTabsSubView)
+        {
+            // The builder handles Back internally (popping a level); at its root it
+            // raises CloseRequested, which leaves the sub-view.
+            return LibraryTabsHost.Back();
+        }
+        if (InArtworkSubView)
+        {
+            return ArtworkHost.Back();
+        }
         if (!InFormatSubView)
         {
             return false;
@@ -228,6 +258,14 @@ public partial class OverlayWindow : Window
         if (InFormatSubView)
         {
             LeaveFormatSubView();
+        }
+        if (InLibraryTabsSubView)
+        {
+            LeaveLibraryTabsSubView();
+        }
+        if (InArtworkSubView)
+        {
+            LeaveArtworkSubView();
         }
         PanelSession.IsVisible = e.NewIndex == 0;
         PanelTools.IsVisible = e.NewIndex == 1;
@@ -482,10 +520,105 @@ public partial class OverlayWindow : Window
         var target = _pendingTarget;
         var name = FormatNameInput.Text;
         ShowFormatState(pick: false, confirm: false, progress: true);
+        ScrollFormatToTop();
         await _format.FormatAsync(target, name);
     }
 
     private void OnFormatCancel(object? sender, RoutedEventArgs e) => LeaveFormatSubView();
+
+    private Shell.LibraryTabManager? _libraryTabs;
+    private Shell.LibraryTabManager LibraryTabs => _libraryTabs ??= new Shell.LibraryTabManager();
+
+    // Debounce for the on-open auto-sync, shared across overlay instances (the
+    // window is recreated per open). Auto-sync keeps card and category tabs current
+    // without the user pressing the button; the button forces an immediate sync.
+    private static DateTime _lastAutoTabSync = DateTime.MinValue;
+    private static readonly TimeSpan AutoTabSyncInterval = TimeSpan.FromMinutes(10);
+
+    /// <summary>Opens the Library Tabs builder / SD-card manager sub-view (the
+    /// gamepad-driven custom-tab UI). Its own "Sync now" materializes the tabs.</summary>
+    private void OnLibraryTabs(object? sender, RoutedEventArgs e)
+    {
+        LibraryTabsHost.Open(LibraryTabs);
+        EnterLibraryTabsSubView();
+    }
+
+    private void EnterLibraryTabsSubView()
+    {
+        InLibraryTabsSubView = true;
+        PanelTools.IsVisible = false;
+        LibraryTabsHost.IsVisible = true;
+        FocusFirstControl(LibraryTabsHost);
+    }
+
+    private void LeaveLibraryTabsSubView()
+    {
+        if (!InLibraryTabsSubView)
+        {
+            return;
+        }
+        InLibraryTabsSubView = false;
+        LibraryTabsHost.IsVisible = false;
+        PanelTools.IsVisible = Tabs.SelectedIndex == 1;
+        if (PanelTools.IsVisible)
+        {
+            FocusFirstControl(PanelTools);
+        }
+    }
+
+    /// <summary>Opens the SteamGridDB artwork picker sub-view.</summary>
+    private void OnChangeArtwork(object? sender, RoutedEventArgs e)
+    {
+        ArtworkHost.Open();
+        EnterArtworkSubView();
+    }
+
+    private void EnterArtworkSubView()
+    {
+        InArtworkSubView = true;
+        PanelTools.IsVisible = false;
+        ArtworkHost.IsVisible = true;
+        FocusFirstControl(ArtworkHost);
+    }
+
+    private void LeaveArtworkSubView()
+    {
+        if (!InArtworkSubView)
+        {
+            return;
+        }
+        InArtworkSubView = false;
+        ArtworkHost.IsVisible = false;
+        PanelTools.IsVisible = Tabs.SelectedIndex == 1;
+        if (PanelTools.IsVisible)
+        {
+            FocusFirstControl(PanelTools);
+        }
+    }
+
+    /// <summary>Fire-and-forget background sync when the overlay opens, throttled so
+    /// it runs at most once per <see cref="AutoTabSyncInterval"/>. Best-effort — a
+    /// closed Steam simply leaves the tabs for the next open.</summary>
+    private void MaybeAutoSyncTabs()
+    {
+        if (DateTime.UtcNow - _lastAutoTabSync < AutoTabSyncInterval)
+        {
+            return;
+        }
+        _lastAutoTabSync = DateTime.UtcNow;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var summary = await LibraryTabs.SyncAllAsync();
+                Log.Info($"Library tabs auto-sync: {summary}");
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Library tabs auto-sync failed: {ex.Message}");
+            }
+        });
+    }
 
     private async void OnAddLibrary(object? sender, RoutedEventArgs e)
     {
@@ -551,6 +684,22 @@ public partial class OverlayWindow : Window
         FormatConfirmView.IsVisible = confirm;
         FormatProgressView.IsVisible = progress;
     }
+
+    /// <summary>Brings a controller-focused control into the overlay viewport.
+    /// Directional focus navigation does not raise this request on its own, so
+    /// without it the lower keyboard rows could be focused off-screen.</summary>
+    private void OnContentGotFocus(object? sender, FocusChangedEventArgs e)
+    {
+        if (e.Source is Control control && control is not ScrollViewer)
+        {
+            control.BringIntoView();
+        }
+    }
+
+    /// <summary>Returns the format flow to its heading when its state changes.
+    /// The confirmation keyboard can leave the scroller at its bottom, where the
+    /// terminal format message would otherwise be invisible.</summary>
+    private void ScrollFormatToTop() => ContentScroller.Offset = new Vector(0, 0);
 
     private void OnSleep(object? sender, RoutedEventArgs e)
     {

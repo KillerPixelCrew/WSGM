@@ -549,6 +549,8 @@ public sealed class OverlayController : IDisposable
             _reopenOverlayForWarning = false;
             _navigation?.Dispose();
             _navigation = null;
+            KeyboardService.Handler = null;
+            _keyboardWindow?.Close();
             // Keep polling if the controller chord or the open taskbar still needs it.
             if (!(_config.GamepadChord.Enabled && _config.GamepadChord.Buttons != 0) && _taskbar is null)
             {
@@ -595,7 +597,11 @@ public sealed class OverlayController : IDisposable
             isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
             preferredFocus: () => overlay.DefaultFocusTarget,
             tabPrevious: () => _overlay?.SelectPreviousTab(),
-            tabNext: () => _overlay?.SelectNextTab());
+            tabNext: () => _overlay?.SelectNextTab(),
+            onEdge: OnOverlayEdge);
+        // The slim sidebar can't hold a keyboard; text entry pops the keyboard window
+        // beside it. Registered while the overlay owns navigation.
+        KeyboardService.Handler = OpenKeyboard;
         _gamepad.Start();
         _overlay.Show();
         // Game-Bar-style: the game stops receiving input while the panel is up.
@@ -782,6 +788,116 @@ public sealed class OverlayController : IDisposable
     private GamepadNavigation? _radioNavigation;
     private bool _radioClosePending;
     private IDisposable? _pendingRadioClose;
+
+    private KeyboardWindow? _keyboardWindow;
+    private GamepadNavigation? _keyboardNavigation;
+
+    /// <summary>Opens the keyboard window beside the sidebar for one text field
+    /// (<see cref="KeyboardService"/>). Gamepad focus moves to it; crossing back to the
+    /// sidebar (D-pad right off its right edge) or accepting/cancelling returns focus.
+    /// Runs on the UI thread. Returns true (the request is handled).</summary>
+    private bool OpenKeyboard(string prompt, string initial, Action<string> onAccept)
+    {
+        _keyboardWindow?.Close();
+
+        var overlay = _overlay;
+        if (overlay is null)
+        {
+            return false;
+        }
+        var window = new KeyboardWindow(prompt, initial, UiScale());
+        _keyboardWindow = window;
+        window.Accepted += text => onAccept(text);
+        window.Show();
+        PositionKeyboardBesideOverlay(window, overlay);
+
+        _keyboardNavigation = new GamepadNavigation(_gamepad, window, () => window.Close(),
+            isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
+            onEdge: OnKeyboardEdge);
+        // Focus is in the keyboard now; the sidebar's nav stands down until we cross back.
+        if (_navigation is not null)
+        {
+            _navigation.IsEnabled = false;
+        }
+        window.Closed += (_, _) =>
+        {
+            _keyboardNavigation?.Dispose();
+            _keyboardNavigation = null;
+            _keyboardWindow = null;
+            if (_navigation is not null)
+            {
+                _navigation.IsEnabled = true;
+            }
+            overlay.Activate();
+            overlay.DefaultFocusTarget.Focus(Avalonia.Input.NavigationMethod.Directional);
+        };
+        window.Activate();
+        window.FocusDefault();
+        return true;
+    }
+
+    private static void PositionKeyboardBesideOverlay(KeyboardWindow window, OverlayWindow overlay)
+    {
+        // Left of the sidebar (which is docked to the right edge), vertically centred.
+        var scaling = window.DesktopScaling;
+        var widthPx = (int)Math.Ceiling(Math.Max(window.Bounds.Width, 300) * scaling);
+        var heightPx = (int)Math.Ceiling(Math.Max(window.Bounds.Height, 200) * scaling);
+        var overlayHeightPx = (int)Math.Ceiling(overlay.Bounds.Height * scaling);
+        var y = overlay.Position.Y + Math.Max(0, (overlayHeightPx - heightPx) / 2);
+        window.Position = new Avalonia.PixelPoint(overlay.Position.X - widthPx - 8, y);
+    }
+
+    // The sidebar rows are a single column, so any Left press is at the left edge: if
+    // the keyboard window is open beside it, hand focus over.
+    private void OnOverlayEdge(Avalonia.Input.NavigationDirection direction)
+    {
+        if (direction == Avalonia.Input.NavigationDirection.Left && _keyboardWindow is not null)
+        {
+            CrossToKeyboard();
+        }
+    }
+
+    // Crossing off the keyboard's right edge returns to the sidebar.
+    private void OnKeyboardEdge(Avalonia.Input.NavigationDirection direction)
+    {
+        if (direction == Avalonia.Input.NavigationDirection.Right)
+        {
+            CrossToSidebar();
+        }
+    }
+
+    private void CrossToKeyboard()
+    {
+        if (_keyboardWindow is null || _keyboardNavigation is null)
+        {
+            return;
+        }
+        if (_navigation is not null)
+        {
+            _navigation.IsEnabled = false;
+        }
+        _keyboardNavigation.IsEnabled = true;
+        _keyboardWindow.Activate();
+        _keyboardWindow.FocusDefault();
+    }
+
+    private void CrossToSidebar()
+    {
+        if (_overlay is null)
+        {
+            return;
+        }
+        if (_keyboardNavigation is not null)
+        {
+            _keyboardNavigation.IsEnabled = false;
+        }
+        if (_navigation is not null)
+        {
+            _navigation.IsEnabled = true;
+        }
+        _overlay.Activate();
+        _overlay.DefaultFocusTarget.Focus(Avalonia.Input.NavigationMethod.Directional);
+    }
 
     /// <summary>Closes the radio panel through the same deferred path as the
     /// other two surfaces: the 150 ms grace lets the window's WndProc hook eat

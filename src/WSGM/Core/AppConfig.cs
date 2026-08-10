@@ -316,12 +316,106 @@ public sealed class SplashConfig
     public SplashElementPlacement LogoPlacement { get; set; } = new() { Mode = SplashPlacementMode.WithText };
 }
 
+/// <summary>One Steam library on a removable drive (a MicroSD card or external
+/// drive), tracked so WSGM can render it as a Steam collection ("library tab").
+/// Keyed by the card's <c>libraryfolder.vdf</c> content id, which is stable across
+/// drive-letter changes and reinserts. Games are remembered so the tab persists
+/// while the card is ejected.</summary>
+public sealed class CardLibraryConfig
+{
+    /// <summary>The card's library content id — its stable identity.</summary>
+    public string ContentId { get; set; } = "";
+
+    /// <summary>Display/collection name (the card's label, or a fallback).</summary>
+    public string Name { get; set; } = "";
+
+    /// <summary>Whether a Steam collection ("tab") is maintained for this card.</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>Hidden from the card manager list (still tracked, no tab). Mirrors
+    /// MicroSDeck's per-card hide.</summary>
+    public bool Hidden { get; set; }
+
+    /// <summary>App ids installed on the card (remembered while it is ejected).</summary>
+    public List<int> AppIds { get; set; } = [];
+
+    /// <summary>The Steam collection id WSGM created for this card's tab, so it
+    /// updates its own collection in place and never adopts a same-named user one.</summary>
+    public string CollectionId { get; set; } = "";
+
+    /// <summary>Ticks (UTC) the card was last seen inserted.</summary>
+    public long LastSeenTicks { get; set; }
+
+    /// <summary>The drive letter the card last mounted as (diagnostic only).</summary>
+    public string LastLetter { get; set; } = "";
+}
+
+/// <summary>One auto-generated category ("genre") library tab: a WSGM-owned Steam
+/// collection whose membership is recomputed from the library's store tags.</summary>
+public sealed class CategoryTabConfig
+{
+    /// <summary>The genre/category name (also the collection's display name).</summary>
+    public string Name { get; set; } = "";
+
+    /// <summary>The Steam collection id WSGM created for this category.</summary>
+    public string CollectionId { get; set; } = "";
+}
+
+/// <summary>One user-built custom library tab: a WSGM-owned Steam collection whose
+/// membership is recomputed by evaluating <see cref="FilterTree"/> over the library.
+/// The TabMaster analog, materialized as a native Steam collection.</summary>
+public sealed class CustomTabConfig
+{
+    /// <summary>Display name (also the Steam collection's name).</summary>
+    public string Name { get; set; } = "";
+
+    /// <summary>Whether the tab is synced (a disabled tab's collection is removed).</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>Sort order in the builder list (ascending).</summary>
+    public int Position { get; set; }
+
+    /// <summary>Category prefilter bitfield (see <see cref="LibraryFilter.Categories"/>);
+    /// 0 defaults to Games at evaluation time.</summary>
+    public int Categories { get; set; } = (int)LibraryFilter.Categories.Games;
+
+    /// <summary>The top-level filter group. Its <see cref="FilterNode.Mode"/> is the
+    /// tab's AND/OR; its children are the filters.</summary>
+    public FilterNode FilterTree { get; set; } = new() { Kind = FilterKind.Merge };
+
+    /// <summary>The Steam collection id WSGM created for this tab, so it updates its
+    /// own collection in place and never adopts a same-named user one.</summary>
+    public string CollectionId { get; set; } = "";
+}
+
 /// <summary>Persisted user settings and exact Windows-state snapshots for WSGM.</summary>
 public sealed class AppConfig
 {
     /// <summary>Restart Steam automatically when it exits. Steam itself is located
     /// via the registry (see Core.Steam) — there is nothing else to configure.</summary>
     public bool SteamAutoRelaunch { get; set; }
+
+    /// <summary>Keep a card's library tab (Steam collection) after the card is
+    /// ejected. The games show as not-installed until it is reinserted.</summary>
+    public bool KeepEjectedCardTabs { get; set; } = true;
+
+    /// <summary>Tracked removable Steam libraries, keyed by content id, used to
+    /// maintain per-card Steam collections ("library tabs").</summary>
+    public List<CardLibraryConfig> CardLibraries { get; set; } = [];
+
+    /// <summary>Generate a Steam collection ("tab") per top store-tag genre.</summary>
+    public bool CategoryTabsEnabled { get; set; } = true;
+
+    /// <summary>WSGM-owned category ("genre") collections, so they update in place
+    /// and are pruned when a genre drops out of the top set.</summary>
+    public List<CategoryTabConfig> CategoryTabs { get; set; } = [];
+
+    /// <summary>User-built custom filter tabs (the TabMaster analog).</summary>
+    public List<CustomTabConfig> CustomTabs { get; set; } = [];
+
+    /// <summary>Optional SteamGridDB API key. Empty = use the bundled default key
+    /// (shared quota); set your own free key from steamgriddb.com to avoid it.</summary>
+    public string SteamGridDbApiKey { get; set; } = "";
 
     /// <summary>Programs to start before Steam, in launch order.</summary>
     public List<StartupAppConfig> StartupApps { get; set; } = [];
@@ -465,6 +559,10 @@ public sealed class AppConfig
 /// <summary>Source-generated JSON metadata for the persisted <see cref="AppConfig"/> contract.</summary>
 [JsonSerializable(typeof(AppConfig))]
 [JsonSerializable(typeof(SplashConfig))]
+[JsonSerializable(typeof(CardLibraryConfig))]
+[JsonSerializable(typeof(CategoryTabConfig))]
+[JsonSerializable(typeof(CustomTabConfig))]
+[JsonSerializable(typeof(FilterNode))]
 [JsonSourceGenerationOptions(WriteIndented = true, UseStringEnumConverter = true)]
 public partial class ConfigJsonContext : JsonSerializerContext
 {

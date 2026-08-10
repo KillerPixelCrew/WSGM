@@ -43,7 +43,13 @@
                 <c:TabStrip x:Name="Tabs" />
             </Border>
 
-            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+            <!-- Directional Focus() does not request scrolling itself. Keep the
+                 format keyboard and terminal status reachable as their focused
+                 controls move below the fold. -->
+            <ScrollViewer Grid.Row="2"
+                          x:Name="ContentScroller"
+                          VerticalScrollBarVisibility="Auto"
+                          GotFocus="OnContentGotFocus">
                 <StackPanel Margin="8,8" Spacing="4">
                     <!-- Panel-level warning: sits above the tab panels, so it is
                          visible on every tab. -->
@@ -97,6 +103,14 @@
                                       IconGeometry="{x:Static c:Icons.FolderPlus}"
                                       Title="Add Steam Library"
                                       Description="Register a folder, drive, or network share" />
+                        <c:CardButton Click="OnLibraryTabs"
+                                      IconGeometry="{x:Static c:Icons.SteamLike}"
+                                      Title="Library Tabs"
+                                      Description="Custom filter tabs, SD cards, and genres" />
+                        <c:CardButton Click="OnChangeArtwork"
+                                      IconGeometry="{x:Static c:Icons.Palette}"
+                                      Title="Change Artwork"
+                                      Description="Swap game art from SteamGridDB" />
                     </StackPanel>
 
                     <!-- Format flow lives in-place (a Popup/Flyout would be
@@ -179,6 +193,14 @@
                                     HorizontalAlignment="Left" />
                         </StackPanel>
                     </StackPanel>
+
+                    <!-- Custom-tab builder + SD-card manager sub-view. Self-drawing
+                         gamepad UI (see LibraryTabsView); hidden from the tab strip like
+                         PanelFormat, with the same LB/RB-suppress + B-cancels wiring. -->
+                    <ov:LibraryTabsView x:Name="LibraryTabsHost" IsVisible="False" />
+
+                    <!-- SteamGridDB artwork picker sub-view (self-drawing gamepad UI). -->
+                    <ov:ArtworkView x:Name="ArtworkHost" IsVisible="False" />
 
                     <StackPanel x:Name="PanelPower" Spacing="4" IsVisible="False">
                         <c:CardButton Click="OnSleep"

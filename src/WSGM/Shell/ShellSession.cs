@@ -430,5 +430,9 @@ public sealed class ShellSession
                 _overlay?.ShowOverlay();
             });
         }
+
+        // Inject the WSGM library tabs once Steam's UI has loaded, so they appear at
+        // boot without the user opening the overlay. Fire-and-forget; self-limiting.
+        _ = new LibraryTabManager().SyncOnBootAsync();
     }
 }
