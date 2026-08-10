@@ -337,7 +337,7 @@ public sealed class CardLibraryConfig
     public bool Hidden { get; set; }
 
     /// <summary>App ids installed on the card (remembered while it is ejected).</summary>
-    public List<int> AppIds { get; set; } = [];
+    public List<long> AppIds { get; set; } = [];
 
     /// <summary>The Steam collection id WSGM created for this card's tab, so it
     /// updates its own collection in place and never adopts a same-named user one.</summary>
@@ -366,6 +366,9 @@ public sealed class CategoryTabConfig
 /// The TabMaster analog, materialized as a native Steam collection.</summary>
 public sealed class CustomTabConfig
 {
+    /// <summary>Stable unique identity, independent of the editable display name.</summary>
+    public string Id { get; set; } = System.Guid.NewGuid().ToString("N");
+
     /// <summary>Display name (also the Steam collection's name).</summary>
     public string Name { get; set; } = "";
 

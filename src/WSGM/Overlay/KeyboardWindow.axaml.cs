@@ -3,7 +3,9 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
+using WSGM.Interop;
 
 namespace WSGM.Overlay;
 
@@ -16,6 +18,7 @@ public partial class KeyboardWindow : Window
 {
     private readonly double _uiScale;
     private bool _committed;
+    private bool _closePending;
 
     /// <summary>Raised with the final text when the user accepts.</summary>
     public event Action<string>? Accepted;
@@ -41,6 +44,7 @@ public partial class KeyboardWindow : Window
         Input.Text = initial;
         Keyboard.Target = Input;
         Keyboard.Accepted += (_, _) => Commit();
+        Win32Properties.AddWndProcHookCallback(this, WndProcHook);
 
         Opened += (_, _) =>
         {
@@ -68,13 +72,38 @@ public partial class KeyboardWindow : Window
 
     private void OnAccept(object? sender, RoutedEventArgs e) => Commit();
 
-    private void OnCancel(object? sender, RoutedEventArgs e) => Close();
+    private void OnCancel(object? sender, RoutedEventArgs e) => DeferredClose();
 
     private void Commit()
     {
         _committed = true;
         Accepted?.Invoke(Input.Text ?? "");
-        Close();
+        DeferredClose();
+    }
+
+    private void DeferredClose()
+    {
+        if (_closePending)
+        {
+            return;
+        }
+        _closePending = true;
+        DispatcherTimer.RunOnce(Close, TimeSpan.FromMilliseconds(150));
+    }
+
+    private static IntPtr WndProcHook(
+        IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg is NativeMethods.WmMouseMove or NativeMethods.WmLButtonDown or NativeMethods.WmLButtonUp)
+        {
+            var extra = (uint)NativeMethods.GetMessageExtraInfo();
+            if ((extra & NativeMethods.MiWpSignatureMask) == NativeMethods.MiWpSignature)
+            {
+                handled = true;
+                return IntPtr.Zero;
+            }
+        }
+        return IntPtr.Zero;
     }
 
     /// <summary>Focuses the first key so the user can start typing immediately (used on

@@ -28,7 +28,7 @@ public sealed class ArtworkView : UserControl
     private readonly Stack<Action> _stack = new();
     private Action? _current;
 
-    private int _appId;
+    private long _appId;
     private string _appName = "";
     private string _apiKey = "";
     private IReadOnlyList<SteamCollections.AppInfo>? _games;
@@ -37,6 +37,7 @@ public sealed class ArtworkView : UserControl
     // instead of the target's Steam app id — needed for non-Steam shortcuts / ROMs and
     // when the auto-detected game is wrong. The art still APPLIES to _appId.
     private int _sgdbGameId;
+    private int _generation;
 
     /// <summary>Raised when the user backs out of the top level.</summary>
     public event Action? CloseRequested;
@@ -44,6 +45,7 @@ public sealed class ArtworkView : UserControl
     /// <summary>Loads config, detects the current game, and opens the picker.</summary>
     public async void Open()
     {
+        var generation = ++_generation;
         _stack.Clear();
         _current = null;
         _sgdbGameId = 0;
@@ -59,6 +61,10 @@ public sealed class ArtworkView : UserControl
         try
         {
             _appId = await SteamPageBridge.GetCurrentAppIdAsync();
+            if (generation != _generation)
+            {
+                return;
+            }
         }
         catch (Exception ex)
         {
@@ -69,6 +75,10 @@ public sealed class ArtworkView : UserControl
         if (_appId > 0)
         {
             _games ??= await SafeGamesAsync();
+            if (generation != _generation)
+            {
+                return;
+            }
             _appName = NameFor(_appId);
             Replace(RenderAssetTypes);
         }
@@ -77,6 +87,9 @@ public sealed class ArtworkView : UserControl
             Replace(RenderGameList);
         }
     }
+
+    /// <summary>Invalidates outstanding work when the host hides this view.</summary>
+    public void Close() => _generation++;
 
     /// <summary>Handles Back/B: pops one level or requests close at the top.</summary>
     public bool Back()
@@ -393,7 +406,7 @@ public sealed class ArtworkView : UserControl
         }
     }
 
-    private string NameFor(int appId)
+    private string NameFor(long appId)
         => _games?.FirstOrDefault(g => g.AppId == appId)?.Name ?? $"App {appId}";
 
     private static string AssetLabel(ArtworkAsset asset)
