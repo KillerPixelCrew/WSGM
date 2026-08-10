@@ -510,10 +510,12 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         return $"{letter}: is ready as a Steam library. {registration}";
     }
 
-    /// <summary>Registers the library in config\libraryfolders.vdf when that is
-    /// safe: only when the path is missing AND Steam is not running (Steam
-    /// rewrites the file on exit, losing a live edit). Returns the sentence for
-    /// the summary.</summary>
+    /// <summary>Registers the library by splicing the entry into
+    /// config\libraryfolders.vdf. Writes it whenever the path is not already
+    /// present — including while Steam is running (under test: whether a live
+    /// Steam adopts an external edit or rewrites it from memory on exit is being
+    /// verified on device). A backup is kept beside the file. Returns the
+    /// summary sentence.</summary>
     private static string RegisterLibrary(
         string? configPath, string? configText, string libraryPath, string contentId,
         long sizeBytes)
@@ -528,12 +530,6 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             Log.Info($"Format: {libraryPath} already registered in libraryfolders.vdf.");
             return "Steam already knows this drive letter.";
         }
-        if (Steam.IsRunning)
-        {
-            Log.Info("Format: Steam is running — not editing libraryfolders.vdf "
-                + "(Steam overwrites it on exit).");
-            return "Add it once in Steam under Settings > Storage.";
-        }
         if (!SteamLibraryVdf.TrySplice(configText, libraryPath, contentId, sizeBytes,
                 out var updated))
         {
@@ -544,8 +540,8 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         var utf8NoBom = new System.Text.UTF8Encoding(false);
         File.WriteAllText(configPath, updated, utf8NoBom);
         Log.Info($"Format: {libraryPath} registered in libraryfolders.vdf "
-            + $"(backup written).");
-        return "Steam will see it on next start.";
+            + $"(backup written, Steam running={Steam.IsRunning}).");
+        return "Added to Steam's library list.";
     }
 
     // ---- add an existing location as a library (no formatting) ----
