@@ -807,6 +807,7 @@ public sealed class OverlayController : IDisposable
         }
         var window = new KeyboardWindow(prompt, initial, UiScale());
         _keyboardWindow = window;
+        overlay.KeyboardOwnsFocus = true;
         window.Accepted += text => onAccept(text);
         window.Show();
         PositionKeyboardBesideOverlay(window, overlay);
@@ -824,6 +825,7 @@ public sealed class OverlayController : IDisposable
             _keyboardNavigation?.Dispose();
             _keyboardNavigation = null;
             _keyboardWindow = null;
+            overlay.KeyboardOwnsFocus = false;
             if (_navigation is not null)
             {
                 _navigation.IsEnabled = true;

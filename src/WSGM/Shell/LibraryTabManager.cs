@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
@@ -55,7 +54,30 @@ public sealed class LibraryTabManager
                 await CleanupLegacyCollectionsAsync(config, cancellationToken).ConfigureAwait(false);
             }
 
-            await Task.Run(() => ConfigStore.Save(config), cancellationToken).ConfigureAwait(false);
+            // CEF work above may take seconds. Merge only this sync's discovery and
+            // successful legacy-id clears into a freshly loaded config under the
+            // cross-process read-modify-write lock; never save the stale snapshot.
+            var clearedCards = config.CardLibraries.Where(c => string.IsNullOrEmpty(c.CollectionId))
+                .Select(c => c.ContentId).ToHashSet(StringComparer.Ordinal);
+            var clearedTabs = config.CustomTabs.Where(t => string.IsNullOrEmpty(t.CollectionId))
+                .Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
+            var remainingCategories = config.CategoryTabs.Select(c => c.CollectionId)
+                .ToHashSet(StringComparer.Ordinal);
+            config = await MutateConfigAsync(fresh =>
+            {
+                MergeDiscovery(fresh, discovered);
+                foreach (var card in fresh.CardLibraries.Where(c => clearedCards.Contains(c.ContentId)))
+                {
+                    card.CollectionId = "";
+                }
+                foreach (var tab in fresh.CustomTabs.Where(t => clearedTabs.Contains(t.Id)))
+                {
+                    tab.CollectionId = "";
+                }
+                fresh.CategoryTabs.RemoveAll(
+                    category => !remainingCategories.Contains(category.CollectionId));
+                return fresh;
+            }, cancellationToken).ConfigureAwait(false);
 
             if (!reachable || !ok)
             {
@@ -133,13 +155,13 @@ public sealed class LibraryTabManager
                 tab.FilterTree ?? new FilterNode { Kind = FilterKind.Merge }, categories, resolver);
             var eval = await SteamCollections.EvaluateFilterAsync(js, cancellationToken)
                 .ConfigureAwait(false);
-            if (!eval.Reachable)
+            if (!eval.Reachable || !eval.Ok)
             {
                 return (tabs, false);
             }
             if (eval.AppIds.Count > 0)
             {
-                tabs.Add(new InjectedTab($"wsgm-custom-{Slug(tab.Name)}", tab.Name, eval.AppIds));
+                tabs.Add(new InjectedTab($"wsgm-custom-{tab.Id}", tab.Name, eval.AppIds));
             }
         }
 
@@ -183,28 +205,14 @@ public sealed class LibraryTabManager
         }
         foreach (var cat in config.CategoryTabs.ToList())
         {
-            await Drop(cat.CollectionId, () => cat.CollectionId = "").ConfigureAwait(false);
-            config.CategoryTabs.Remove(cat);
-        }
-    }
-
-    /// <summary>Makes a name id-safe (lowercase alphanumerics + dashes) for an injected
-    /// tab id.</summary>
-    private static string Slug(string name)
-    {
-        var sb = new StringBuilder(name.Length);
-        foreach (var ch in name)
-        {
-            if (char.IsLetterOrDigit(ch))
+            var removed = string.IsNullOrEmpty(cat.CollectionId)
+                || await SteamCollections.DeleteByIdAsync(cat.CollectionId, cancellationToken)
+                    .ConfigureAwait(false);
+            if (removed)
             {
-                sb.Append(char.ToLowerInvariant(ch));
-            }
-            else if (sb.Length > 0 && sb[^1] != '-')
-            {
-                sb.Append('-');
+                config.CategoryTabs.Remove(cat);
             }
         }
-        return sb.Length == 0 ? "x" : sb.ToString().Trim('-');
     }
 
     /// <summary>Pushes the per-game card badge map (app id → card name) into Steam's
@@ -214,7 +222,7 @@ public sealed class LibraryTabManager
     {
         try
         {
-            var map = new Dictionary<int, string>();
+            var map = new Dictionary<long, string>();
             foreach (var card in config.CardLibraries.Where(c => c is { Enabled: true, Hidden: false }))
             {
                 foreach (var id in card.AppIds)
@@ -238,7 +246,7 @@ public sealed class LibraryTabManager
         private readonly HashSet<string> _present = new(
             discovered.Select(d => d.ContentId), StringComparer.Ordinal);
 
-        public IReadOnlyCollection<int> Resolve(SdCardScope scope, string contentId)
+        public IReadOnlyCollection<long> Resolve(SdCardScope scope, string contentId)
         {
             IEnumerable<CardLibraryConfig> cards = scope switch
             {
@@ -247,7 +255,7 @@ public sealed class LibraryTabManager
                 _ => config.CardLibraries.Where(
                     c => string.Equals(c.ContentId, contentId, StringComparison.Ordinal)),
             };
-            var ids = new HashSet<int>();
+            var ids = new HashSet<long>();
             foreach (var card in cards)
             {
                 foreach (var id in card.AppIds)
@@ -272,7 +280,7 @@ public sealed class LibraryTabManager
     /// <param name="AppIds">Remembered installed app ids.</param>
     public sealed record CardView(
         string ContentId, string Name, bool Enabled, bool Hidden, int GameCount, bool Inserted,
-        IReadOnlyList<int> AppIds);
+        IReadOnlyList<long> AppIds);
 
     /// <summary>Scans drives, refreshes the card DB, and returns the current cards with
     /// live inserted state — the card manager's data source.</summary>
@@ -378,7 +386,7 @@ public sealed class LibraryTabManager
     public static AppConfig LoadConfig() => ConfigStore.Load();
 
     /// <summary>A removable Steam library found on a mounted drive.</summary>
-    private sealed record Discovered(string ContentId, string Name, List<int> AppIds, char Letter);
+    private sealed record Discovered(string ContentId, string Name, List<long> AppIds, char Letter);
 
     /// <summary>Scans every ready drive for a <c>&lt;X&gt;:\SteamLibrary</c> marker and
     /// reads its identity, label and installed app ids. The primary Steam install
@@ -391,7 +399,7 @@ public sealed class LibraryTabManager
         {
             try
             {
-                if (!drive.IsReady)
+                if (!drive.IsReady || drive.DriveType != DriveType.Removable)
                 {
                     continue;
                 }
@@ -492,9 +500,9 @@ public sealed class LibraryTabManager
 
     /// <summary>Reads app ids from <c>appmanifest_&lt;appid&gt;.acf</c> file names — the
     /// id is in the name, so no VDF parsing is needed for membership.</summary>
-    private static List<int> ReadAcfAppIds(string steamAppsDir)
+    private static List<long> ReadAcfAppIds(string steamAppsDir)
     {
-        var ids = new List<int>();
+        var ids = new List<long>();
         if (!Directory.Exists(steamAppsDir))
         {
             return ids;
@@ -503,7 +511,7 @@ public sealed class LibraryTabManager
         {
             var stem = Path.GetFileNameWithoutExtension(file);
             var idText = stem["appmanifest_".Length..];
-            if (int.TryParse(idText, out var id) && id > 0)
+            if (long.TryParse(idText, out var id) && id > 0)
             {
                 ids.Add(id);
             }
@@ -527,7 +535,10 @@ public sealed class LibraryTabManager
                 existing = new CardLibraryConfig { ContentId = card.ContentId, Enabled = true };
                 db.Add(existing);
             }
-            existing.Name = card.Name;
+            if (string.IsNullOrWhiteSpace(existing.Name))
+            {
+                existing.Name = card.Name;
+            }
             existing.AppIds = card.AppIds;
             existing.LastSeenTicks = now;
             existing.LastLetter = card.Letter.ToString();

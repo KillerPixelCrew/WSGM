@@ -13,7 +13,7 @@ namespace WSGM.Core;
 /// <param name="Id">Steam's collection id (e.g. <c>uc-…</c>).</param>
 /// <param name="Name">The display name.</param>
 /// <param name="AppIds">The app ids currently in the collection.</param>
-public sealed record SteamCollectionInfo(string Id, string Name, IReadOnlyList<int> AppIds);
+public sealed record SteamCollectionInfo(string Id, string Name, IReadOnlyList<long> AppIds);
 
 /// <summary>Outcome of a collection sync.</summary>
 /// <param name="Reachable">Whether Steam's debug port answered.</param>
@@ -65,10 +65,10 @@ public static class SteamCollections
             {
                 var id = col.GetProperty("id").GetString() ?? "";
                 var name = col.GetProperty("name").GetString() ?? "";
-                var appIds = new List<int>();
+                var appIds = new List<long>();
                 foreach (var appId in col.GetProperty("appids").EnumerateArray())
                 {
-                    if (appId.TryGetInt32(out var value))
+                    if (appId.TryGetInt64(out var value))
                     {
                         appIds.Add(value);
                     }
@@ -95,7 +95,7 @@ public static class SteamCollections
     /// null to always create a new one.</param>
     /// <param name="cancellationToken">Cancels the exchange.</param>
     public static async Task<SteamCollectionSyncResult> SyncAsync(
-        string name, IReadOnlyCollection<int> appIds, string? existingId = null,
+        string name, IReadOnlyCollection<long> appIds, string? existingId = null,
         CancellationToken cancellationToken = default)
     {
         var nameLiteral = SteamCef.JsString(name);
@@ -158,8 +158,9 @@ public static class SteamCollections
 
     /// <summary>Outcome of evaluating a compiled filter over the library.</summary>
     /// <param name="Reachable">Whether Steam's debug port answered.</param>
-    /// <param name="AppIds">The matching app ids (empty when unreachable/error).</param>
-    public readonly record struct FilterEvalResult(bool Reachable, IReadOnlyList<int> AppIds);
+    /// <param name="Ok">Whether Steam evaluated and returned a valid result.</param>
+    /// <param name="AppIds">The matching app ids (empty is a valid successful result).</param>
+    public readonly record struct FilterEvalResult(bool Reachable, bool Ok, IReadOnlyList<long> AppIds);
 
     /// <summary>Runs a compiled filter evaluation (from
     /// <see cref="LibraryFilter.BuildEvaluation"/>) in Steam's <c>appStore</c> and
@@ -175,11 +176,11 @@ public static class SteamCollections
             .ConfigureAwait(false);
         if (!result.Reachable)
         {
-            return new FilterEvalResult(false, Array.Empty<int>());
+            return new FilterEvalResult(false, false, Array.Empty<long>());
         }
         if (result.Value is null)
         {
-            return new FilterEvalResult(true, Array.Empty<int>());
+            return new FilterEvalResult(true, false, Array.Empty<long>());
         }
         try
         {
@@ -190,29 +191,29 @@ public static class SteamCollections
             {
                 var err = root.TryGetProperty("err", out var e) ? e.GetString() : "unknown error";
                 Log.Warn($"Filter evaluation failed: {err}.");
-                return new FilterEvalResult(true, Array.Empty<int>());
+                return new FilterEvalResult(true, false, Array.Empty<long>());
             }
-            var list = new List<int>();
+            var list = new List<long>();
             foreach (var appId in ids.EnumerateArray())
             {
-                if (appId.TryGetInt32(out var value))
+                if (appId.TryGetInt64(out var value))
                 {
                     list.Add(value);
                 }
             }
-            return new FilterEvalResult(true, list);
+            return new FilterEvalResult(true, true, list);
         }
         catch (Exception ex)
         {
             Log.Warn($"Filter evaluation parse failed: {ex.Message}");
-            return new FilterEvalResult(true, Array.Empty<int>());
+            return new FilterEvalResult(true, false, Array.Empty<long>());
         }
     }
 
     /// <summary>A named group of apps (e.g. a genre) to become a collection.</summary>
     /// <param name="Name">The group/genre name.</param>
     /// <param name="AppIds">The apps in the group.</param>
-    public sealed record AppGroup(string Name, IReadOnlyList<int> AppIds);
+    public sealed record AppGroup(string Name, IReadOnlyList<long> AppIds);
 
     /// <summary>Reads the library's top store-tag genres and the apps in each — the
     /// basis for category tabs. Names come from Steam's own localized tag map (so
@@ -258,10 +259,10 @@ public static class SteamCollections
             foreach (var genre in genres.EnumerateArray())
             {
                 var name = genre.GetProperty("name").GetString() ?? "";
-                var ids = new List<int>();
+                var ids = new List<long>();
                 foreach (var appId in genre.GetProperty("ids").EnumerateArray())
                 {
-                    if (appId.TryGetInt32(out var value))
+                    if (appId.TryGetInt64(out var value))
                     {
                         ids.Add(value);
                     }
@@ -284,7 +285,7 @@ public static class SteamCollections
     /// card "view games" name resolution).</summary>
     /// <param name="AppId">The Steam app id.</param>
     /// <param name="Name">The display name.</param>
-    public sealed record AppInfo(int AppId, string Name);
+    public sealed record AppInfo(long AppId, string Name);
 
     /// <summary>Lists the user's games (id + name), sorted by name — the source for
     /// the whitelist/blacklist app pickers and for resolving a card's installed ids
@@ -319,7 +320,7 @@ public static class SteamCollections
             var list = new List<AppInfo>();
             foreach (var app in apps.EnumerateArray())
             {
-                if (app.GetProperty("id").TryGetInt32(out var id))
+                if (app.GetProperty("id").TryGetInt64(out var id))
                 {
                     list.Add(new AppInfo(id, app.GetProperty("name").GetString() ?? id.ToString(CultureInfo.InvariantCulture)));
                 }

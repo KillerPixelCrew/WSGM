@@ -4,9 +4,9 @@ namespace WSGM.Tests;
 
 public sealed class LibraryFilterTests
 {
-    private sealed class StubCards(IReadOnlyCollection<int> ids) : ISdCardResolver
+    private sealed class StubCards(IReadOnlyCollection<long> ids) : ISdCardResolver
     {
-        public IReadOnlyCollection<int> Resolve(SdCardScope scope, string contentId) => ids;
+        public IReadOnlyCollection<long> Resolve(SdCardScope scope, string contentId) => ids;
     }
 
     private static readonly ISdCardResolver NoCards = new StubCards([]);

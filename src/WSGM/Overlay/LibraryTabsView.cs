@@ -220,7 +220,10 @@ public sealed class LibraryTabsView : UserControl
             }
         }
 
-        await PersistTabsAsync();
+        if (!await TryPersistTabsAsync("save"))
+        {
+            return;
+        }
         // Drop back to the list, then materialize in the background.
         _stack.Clear();
         Replace(RenderTabList);
@@ -234,7 +237,10 @@ public sealed class LibraryTabsView : UserControl
             return;
         }
         _config.CustomTabs.Remove(_editingOriginal);
-        await PersistTabsAsync();
+        if (!await TryPersistTabsAsync("delete"))
+        {
+            return;
+        }
         _stack.Clear();
         Replace(RenderTabList);
         _ = SyncQuietly();
@@ -248,6 +254,24 @@ public sealed class LibraryTabsView : UserControl
             cfg.CustomTabs = tabs;
             return null;
         });
+    }
+
+    private async Task<bool> TryPersistTabsAsync(string operation)
+    {
+        try
+        {
+            await PersistTabsAsync();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Library tab {operation} failed: {ex.Message}");
+            _config = LibraryTabManager.LoadConfig();
+            Toast($"Could not {operation} the tab. Try again.");
+            _stack.Clear();
+            Replace(RenderTabList);
+            return false;
+        }
     }
 
     private async Task SyncQuietly()
@@ -317,6 +341,7 @@ public sealed class LibraryTabsView : UserControl
             {
                 list[idx] = node;
             }
+            PopIfAny();
         }
         else
         {
@@ -552,11 +577,11 @@ public sealed class LibraryTabsView : UserControl
     {
         Navigate(() => RenderLoading("Tags"));
         _tags ??= await SteamCollections.GetLibraryTagsAsync();
-        var selected = new HashSet<int>(node.TagIds);
-        Replace(() => RenderMultiSelect("Tags", _tags!.Select(t => (t.TagId, $"{t.Name} ({t.Count})")),
+        var selected = new HashSet<long>(node.TagIds.Select(static id => (long)id));
+        Replace(() => RenderMultiSelect("Tags", _tags!.Select(t => ((long)t.TagId, $"{t.Name} ({t.Count})")),
             selected, () =>
         {
-            node.TagIds = selected.ToList();
+            node.TagIds = selected.Select(static id => checked((int)id)).ToList();
             Back();
         }));
     }
@@ -565,7 +590,7 @@ public sealed class LibraryTabsView : UserControl
     {
         Navigate(() => RenderLoading("Games"));
         _games ??= await SteamCollections.GetGamesAsync();
-        var selected = new HashSet<int>(node.AppIds);
+        var selected = new HashSet<long>(node.AppIds);
         Replace(() => RenderMultiSelect("Games", _games!.Select(g => (g.AppId, g.Name)), selected, () =>
         {
             node.AppIds = selected.ToList();
@@ -597,8 +622,8 @@ public sealed class LibraryTabsView : UserControl
         });
     }
 
-    private void RenderMultiSelect(string title, IEnumerable<(int Id, string Label)> items,
-        HashSet<int> selected, Action onDone)
+    private void RenderMultiSelect(string title, IEnumerable<(long Id, string Label)> items,
+        HashSet<long> selected, Action onDone)
     {
         var stack = NewStack(title);
         stack.Children.Add(PrimaryRow("Done", $"{selected.Count} selected", Icons.Play, onDone));
@@ -991,6 +1016,7 @@ public sealed class LibraryTabsView : UserControl
 
     private static CustomTabConfig Clone(CustomTabConfig t) => new()
     {
+        Id = t.Id,
         Name = t.Name,
         Enabled = t.Enabled,
         Position = t.Position,

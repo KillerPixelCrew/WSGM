@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 
@@ -66,11 +67,49 @@ public static class ConfigStore
         config.CardLibraries ??= [];
         config.CategoryTabs ??= [];
         config.CustomTabs ??= [];
+        config.CardLibraries = config.CardLibraries.Where(static card => card is not null).ToList();
+        foreach (var card in config.CardLibraries)
+        {
+            card.ContentId ??= "";
+            card.Name ??= "";
+            card.AppIds ??= [];
+            card.CollectionId ??= "";
+            card.LastLetter ??= "";
+        }
+        config.CategoryTabs = config.CategoryTabs.Where(static category => category is not null).ToList();
+        foreach (var category in config.CategoryTabs)
+        {
+            category.Name ??= "";
+            category.CollectionId ??= "";
+        }
+        config.CustomTabs = config.CustomTabs.Where(static tab => tab is not null).ToList();
+        foreach (var tab in config.CustomTabs)
+        {
+            tab.Id = string.IsNullOrWhiteSpace(tab.Id) ? Guid.NewGuid().ToString("N") : tab.Id;
+            tab.Name ??= "";
+            tab.CollectionId ??= "";
+            tab.FilterTree ??= new FilterNode { Kind = FilterKind.Merge };
+            NormalizeFilter(tab.FilterTree);
+        }
         config.AccentColor ??= "#FFFF9D3D";
         config.AccentColor = Truncate(config.AccentColor, MaxColorLength, "Accent color");
         config.Splash ??= new SplashConfig();
         NormalizeSplash(config.Splash);
         return config;
+    }
+
+    private static void NormalizeFilter(FilterNode node)
+    {
+        node.CollectionId ??= "";
+        node.Pattern ??= "";
+        node.ContentId ??= "";
+        node.Children = (node.Children ?? []).Where(static child => child is not null).ToList();
+        node.TagIds ??= [];
+        node.AppIds ??= [];
+        foreach (var child in node.Children)
+        {
+            NormalizeFilter(child);
+        }
     }
 
     // Bounds for every numeric splash field, mirrored 1:1 from the Appearance

@@ -47,7 +47,7 @@ public static class SteamPageBridge
     /// library window, or 0 when not on a game page / unreachable. Read from the page's
     /// library-asset image URLs (device-verified).</summary>
     /// <param name="cancellationToken">Cancels the exchange.</param>
-    public static async Task<int> GetCurrentAppIdAsync(CancellationToken cancellationToken = default)
+    public static async Task<long> GetCurrentAppIdAsync(CancellationToken cancellationToken = default)
     {
         var expression = "JSON.stringify({ok:true,appid:" + CurrentAppIdJs + "})";
         var result = await SteamCef.EvaluateOnVisibleWindowAsync(expression, Budget, cancellationToken)
@@ -60,7 +60,7 @@ public static class SteamPageBridge
         {
             using var document = JsonDocument.Parse(result.Value);
             var root = document.RootElement;
-            if (root.TryGetProperty("appid", out var appid) && appid.TryGetInt32(out var value))
+            if (root.TryGetProperty("appid", out var appid) && appid.TryGetInt64(out var value))
             {
                 if (value > 0)
                 {
@@ -83,7 +83,7 @@ public static class SteamPageBridge
     /// <param name="appIdToCard">Map of app id to the card name to show for it.</param>
     /// <param name="cancellationToken">Cancels the exchange.</param>
     public static async Task<bool> UpdateCardBadgesAsync(
-        IReadOnlyDictionary<int, string> appIdToCard, CancellationToken cancellationToken = default)
+        IReadOnlyDictionary<long, string> appIdToCard, CancellationToken cancellationToken = default)
     {
         var map = BuildMapLiteral(appIdToCard);
         var expression =
@@ -124,7 +124,7 @@ public static class SteamPageBridge
         return false;
     }
 
-    private static string BuildMapLiteral(IReadOnlyDictionary<int, string> appIdToCard)
+    private static string BuildMapLiteral(IReadOnlyDictionary<long, string> appIdToCard)
     {
         var sb = new StringBuilder("{");
         var first = true;
@@ -159,7 +159,7 @@ public static class SteamPageBridge
         "for(const i of imgs){const r=i.getBoundingClientRect();" +
         "if(r.width<600||r.width<=r.height)continue;" +
         "const m=(i.src||'').match(/assets\\/(\\d+)\\//);" +
-        "if(m&&r.width>bestW){bestW=r.width;best=Number(m[1]);}}return best;};" +
+        "if(m&&r.width>bestW){bestW=r.width;best=Number(m[1]);}}return best;}catch(e){return 0;}};" +
         "const remove=()=>{const b=document.getElementById(BID);if(b)b.remove();};" +
         "const render=()=>{try{const id=curId();const map=window.__wsgm.cardMap||{};" +
         "const name=id&&map[id];if(!name){remove();return;}" +

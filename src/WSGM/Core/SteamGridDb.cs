@@ -106,7 +106,7 @@ public static class SteamGridDb
     /// <param name="key">The bearer API key.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     public static Task<IReadOnlyList<SgdbAsset>> GetAssetsForSteamAppAsync(
-        ArtworkAsset asset, int steamAppId, string key, CancellationToken cancellationToken = default)
+        ArtworkAsset asset, long steamAppId, string key, CancellationToken cancellationToken = default)
         => GetAssetsAsync(asset, "steam", steamAppId.ToString(CultureInfo.InvariantCulture), key,
             cancellationToken);
 
@@ -133,7 +133,7 @@ public static class SteamGridDb
             ArtworkAsset.Icon => ("icons", null),
             _ => ("grids", null),
         };
-        var url = $"{ApiBase}/{segment}/{idKind}/{id}?types=static,animated";
+        var url = $"{ApiBase}/{segment}/{idKind}/{id}?types=static";
         if (dimensions is not null)
         {
             url += $"&dimensions={dimensions}";

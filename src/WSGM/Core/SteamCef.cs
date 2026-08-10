@@ -201,6 +201,8 @@ public static class SteamCef
         while (true)
         {
             builder.Clear();
+            var decoder = Encoding.UTF8.GetDecoder();
+            var chars = new char[Encoding.UTF8.GetMaxCharCount(buffer.Length)];
             WebSocketReceiveResult received;
             do
             {
@@ -209,7 +211,9 @@ public static class SteamCef
                 {
                     return null;
                 }
-                builder.Append(Encoding.UTF8.GetString(buffer, 0, received.Count));
+                var count = decoder.GetChars(
+                    buffer, 0, received.Count, chars, 0, received.EndOfMessage);
+                builder.Append(chars, 0, count);
             }
             while (!received.EndOfMessage);
 

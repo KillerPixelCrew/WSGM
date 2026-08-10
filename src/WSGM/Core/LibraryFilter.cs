@@ -152,7 +152,7 @@ public sealed class FilterNode
     public List<int> TagIds { get; set; } = [];
 
     /// <summary>App ids for <see cref="FilterKind.Whitelist"/> / <see cref="FilterKind.Blacklist"/>.</summary>
-    public List<int> AppIds { get; set; } = [];
+    public List<long> AppIds { get; set; } = [];
 
     /// <summary>Title pattern for <see cref="FilterKind.Regex"/>.</summary>
     public string Pattern { get; set; } = "";
@@ -225,7 +225,7 @@ public interface ISdCardResolver
 {
     /// <summary>App ids on the card(s) selected by <paramref name="scope"/> /
     /// <paramref name="contentId"/>. Empty when no such card is known.</summary>
-    IReadOnlyCollection<int> Resolve(SdCardScope scope, string contentId);
+    IReadOnlyCollection<long> Resolve(SdCardScope scope, string contentId);
 }
 
 /// <summary>Compiles a <see cref="FilterNode"/> tree into a JavaScript predicate over
@@ -462,7 +462,7 @@ public static class LibraryFilter
 
         public string Prologue => _prologue.ToString();
 
-        public string IntSet(IEnumerable<int> ids)
+        public string IntSet(IEnumerable<long> ids)
         {
             var name = "_s" + _n++;
             _prologue.Append("const ").Append(name).Append("=new Set([")

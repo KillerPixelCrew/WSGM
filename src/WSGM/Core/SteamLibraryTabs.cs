@@ -14,7 +14,7 @@ namespace WSGM.Core;
 /// <param name="Id">Stable unique tab id (e.g. <c>wsgm-card-…</c>).</param>
 /// <param name="Title">The tab's display title.</param>
 /// <param name="AppIds">The app ids the tab shows.</param>
-public sealed record InjectedTab(string Id, string Title, IReadOnlyList<int> AppIds);
+public sealed record InjectedTab(string Id, string Title, IReadOnlyList<long> AppIds);
 
 /// <summary>Adds real WSGM tabs to Steam's library tab strip — TabMaster's mechanism,
 /// re-implemented without Decky and driven from an injected <c>SharedJSContext</c>
@@ -142,6 +142,7 @@ public static class SteamLibraryTabs
           var add=[];
           for(var d of (W.tabs||[])){
             if(existing.has(d.id))continue;
+            existing.add(d.id);
             var coll=W.makeCollection(d.id,d.title,d.appids||[]);
             var content=tmpl.content;
             if(W._gridType&&React){content=React.createElement(W._gridType,Object.assign({},W._gridProps,{collection:coll}));}
@@ -163,6 +164,10 @@ public static class SteamLibraryTabs
                 wrapped.set(c,w);}return w;},
             set:function(v){cur=v;}});
           W.disableTabs=function(){try{Object.defineProperty(internals,'H',{configurable:true,writable:true,value:cur});}catch(e){}W.tabsInstalled=false;};
+          W.forceRerender=function(){
+            W.revision=(W.revision||0)+1;
+            window.dispatchEvent(new Event('resize'));
+          };
           W.tabsInstalled=true;
         }
         """;

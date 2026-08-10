@@ -64,6 +64,10 @@ public partial class OverlayWindow : Window
     /// <summary>Whether the SteamGridDB artwork picker sub-view is showing.</summary>
     internal bool InArtworkSubView { get; private set; }
 
+    /// <summary>Set while the peer keyboard owns activation so focus handoff does not
+    /// look like a fresh overlay summons and discard the active workflow.</summary>
+    internal bool KeyboardOwnsFocus { get; set; }
+
     /// <summary>Whether any in-place Tools sub-view owns the surface.</summary>
     private bool AnySubView => InFormatSubView || InLibraryTabsSubView || InArtworkSubView;
 
@@ -147,6 +151,10 @@ public partial class OverlayWindow : Window
         // torn down with it.
         Activated += (_, _) =>
         {
+            if (KeyboardOwnsFocus)
+            {
+                return;
+            }
             LeaveFormatSubView();
             LeaveLibraryTabsSubView();
             LeaveArtworkSubView();
@@ -588,6 +596,7 @@ public partial class OverlayWindow : Window
             return;
         }
         InArtworkSubView = false;
+        ArtworkHost.Close();
         ArtworkHost.IsVisible = false;
         PanelTools.IsVisible = Tabs.SelectedIndex == 1;
         if (PanelTools.IsVisible)
@@ -605,13 +614,16 @@ public partial class OverlayWindow : Window
         {
             return;
         }
-        _lastAutoTabSync = DateTime.UtcNow;
         _ = Task.Run(async () =>
         {
             try
             {
                 var summary = await LibraryTabs.SyncAllAsync();
                 Log.Info($"Library tabs auto-sync: {summary}");
+                if (!summary.Contains("isn't reachable", StringComparison.Ordinal))
+                {
+                    _lastAutoTabSync = DateTime.UtcNow;
+                }
             }
             catch (Exception ex)
             {
