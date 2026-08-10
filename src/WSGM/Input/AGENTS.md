@@ -11,3 +11,4 @@ recording for WSGM's own UI.
   keyboard behavior and gamepad focus remain stable.
 - Extend the established diagnostic logs (`Gamepad added:`, `Controller input:`, `Gamepad nav:`) for
   every device-dependent change; remote device logs are the controller test harness.
+- Peer-window edge callbacks must log the attempted direction before transferring focus.

@@ -5,19 +5,24 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
+using WSGM.Interop;
 
 namespace WSGM.Shell;
 
-/// <summary>Builds Steam library tabs by materializing them as WSGM-owned Steam
-/// collections over the CEF port (<see cref="SteamCollections"/>):
+/// <summary>Structured outcome for tab synchronization and retry policy.</summary>
+/// <param name="Summary">User-facing summary.</param>
+/// <param name="Success">Whether definitions and badges synchronized.</param>
+/// <param name="Reachable">Whether Steam's CEF target was reachable.</param>
+public readonly record struct LibraryTabSyncResult(string Summary, bool Success, bool Reachable);
+
+/// <summary>Builds Steam library tabs as injected in-memory definitions over CEF:
 /// <list type="bullet">
 /// <item>one tab per removable Steam library (MicroSD card / external drive),
 /// keyed by its <c>libraryfolder.vdf</c> content id and remembered while ejected;</item>
-/// <item>one tab per top store-tag genre (category), recomputed from the library.</item>
+/// <item>user-built filter tabs evaluated against Steam's app store.</item>
 /// </list>
-/// Steam renders each collection as a tab with no restart and no UI injection.
-/// Every collection is tracked by the id WSGM created, so a sync only ever updates
-/// or prunes WSGM's own collections — never a user's or Steam ROM Manager's.</summary>
+/// Steam renders fake in-memory collections through its own grid; no real collection
+/// is created or modified except one-time cleanup of IDs from older WSGM builds.</summary>
 public sealed class LibraryTabManager
 {
     // Static so every trigger (boot, overlay open, each builder change) coalesces even
@@ -30,21 +35,23 @@ public sealed class LibraryTabManager
     /// overlay open. Returns a short user-facing summary; coalesces concurrent calls.</summary>
     /// <param name="cancellationToken">Cancels the run.</param>
     public async Task<string> SyncAllAsync(CancellationToken cancellationToken = default)
+        => (await SyncAllDetailedAsync(cancellationToken).ConfigureAwait(false)).Summary;
+
+    /// <summary>Synchronizes tabs and returns machine-readable retry state.</summary>
+    public async Task<LibraryTabSyncResult> SyncAllDetailedAsync(
+        CancellationToken cancellationToken = default)
     {
-        if (!await Gate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
-        {
-            return "A library-tab sync is already running.";
-        }
+        await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             var discovered = await Task.Run(ScanLibraries, cancellationToken).ConfigureAwait(false);
             var config = await Task.Run(ConfigStore.Load, cancellationToken).ConfigureAwait(false);
             MergeDiscovery(config, discovered);
 
-            var (tabs, reachable) = await BuildTabsAsync(config, discovered, cancellationToken)
+            var (tabs, reachable, filterFailed) = await BuildTabsAsync(config, discovered, cancellationToken)
                 .ConfigureAwait(false);
 
-            var ok = reachable
+            var ok = reachable && !filterFailed
                 && await SteamLibraryTabs.SyncTabsAsync(tabs, cancellationToken).ConfigureAwait(false);
 
             // One-time migration off the old collection approach: delete any collections
@@ -79,21 +86,30 @@ public sealed class LibraryTabManager
                 return fresh;
             }, cancellationToken).ConfigureAwait(false);
 
+            await PushCardBadgesAsync(config, cancellationToken).ConfigureAwait(false);
             if (!reachable || !ok)
             {
-                return "Saved the tabs — Steam isn't reachable yet; they'll appear when it's open.";
+                if (filterFailed)
+                {
+                    return new LibraryTabSyncResult(
+                        "Saved the tabs, but one filter failed in Steam; existing tabs were preserved.",
+                        false, true);
+                }
+                return new LibraryTabSyncResult(
+                    "Saved the tabs — Steam isn't reachable yet; they'll appear when it's open.",
+                    false, reachable);
             }
 
-            await PushCardBadgesAsync(config, cancellationToken).ConfigureAwait(false);
             Log.Info($"Library tabs: {tabs.Count} injected.");
-            return tabs.Count == 0
+            var summary = tabs.Count == 0
                 ? "No library tabs yet — add a custom tab or insert a card library."
                 : $"Synced {tabs.Count} library tabs.";
+            return new LibraryTabSyncResult(summary, true, true);
         }
         catch (Exception ex)
         {
             Log.Error("Library tabs: sync failed.", ex);
-            return "Could not sync library tabs — see the log.";
+            return new LibraryTabSyncResult("Could not sync library tabs — see the log.", false, false);
         }
         finally
         {
@@ -138,26 +154,42 @@ public sealed class LibraryTabManager
     /// <summary>Builds the ordered injected-tab list: custom filter tabs (evaluated over
     /// the library), then per-card tabs. The bool is false when Steam was unreachable
     /// during filter evaluation.</summary>
-    private static async Task<(List<InjectedTab> Tabs, bool Reachable)> BuildTabsAsync(
+    private static async Task<(List<InjectedTab> Tabs, bool Reachable, bool FilterFailed)> BuildTabsAsync(
         AppConfig config, List<Discovered> discovered, CancellationToken cancellationToken)
     {
         var tabs = new List<InjectedTab>();
         var resolver = new CardResolver(config, discovered);
 
-        foreach (var tab in config.CustomTabs
+        var customTabs = config.CustomTabs
             .Where(t => t.Enabled && !string.IsNullOrWhiteSpace(t.Name))
-            .OrderBy(t => t.Position))
-        {
-            var categories = tab.Categories == 0
-                ? LibraryFilter.Categories.Games
-                : (LibraryFilter.Categories)tab.Categories;
-            var js = LibraryFilter.BuildEvaluation(
-                tab.FilterTree ?? new FilterNode { Kind = FilterKind.Merge }, categories, resolver);
-            var eval = await SteamCollections.EvaluateFilterAsync(js, cancellationToken)
-                .ConfigureAwait(false);
-            if (!eval.Reachable || !eval.Ok)
+            .OrderBy(t => t.Position)
+            .Where(tab =>
             {
-                return (tabs, false);
+                var valid = tab.FilterTree is not null && LibraryFilter.IsValid(tab.FilterTree);
+                if (!valid)
+                {
+                    Log.Warn($"Library tabs: skipped invalid custom tab '{tab.Name}'.");
+                }
+                return valid;
+            }).ToList();
+        var expressions = customTabs.Select(tab => LibraryFilter.BuildEvaluation(
+            tab.FilterTree!, tab.Categories == 0
+                ? LibraryFilter.Categories.Games
+                : (LibraryFilter.Categories)tab.Categories, resolver)).ToList();
+        var evaluations = await SteamCollections.EvaluateFiltersAsync(expressions, cancellationToken)
+            .ConfigureAwait(false);
+        for (var i = 0; i < customTabs.Count; i++)
+        {
+            var tab = customTabs[i];
+            var eval = evaluations[i];
+            if (!eval.Reachable)
+            {
+                return (tabs, false, false);
+            }
+            if (!eval.Ok)
+            {
+                Log.Warn($"Library tabs: Steam filter evaluation failed for '{tab.Name}'.");
+                return (tabs, true, true);
             }
             if (eval.AppIds.Count > 0)
             {
@@ -178,7 +210,7 @@ public sealed class LibraryTabManager
             }
         }
 
-        return (tabs, true);
+        return (tabs, true, false);
     }
 
     /// <summary>Deletes any Steam collections WSGM created under the previous
@@ -342,6 +374,10 @@ public sealed class LibraryTabManager
                 return "";
             }
             config.CardLibraries.Remove(card);
+            if (!config.ForgottenInsertedCardIds.Contains(contentId, StringComparer.Ordinal))
+            {
+                config.ForgottenInsertedCardIds.Add(contentId);
+            }
             return card.CollectionId;
         }, cancellationToken).ConfigureAwait(false);
         if (!string.IsNullOrEmpty(collectionId))
@@ -375,7 +411,11 @@ public sealed class LibraryTabManager
         => Task.Run(() =>
         {
             using var _ = ConfigStore.AcquireLock();
-            var config = ConfigStore.Load();
+            if (!ConfigStore.HasExclusiveLock)
+            {
+                throw new IOException("Could not acquire the configuration lock.");
+            }
+            var config = ConfigStore.LoadForMutation();
             var result = mutate(config);
             ConfigStore.Save(config);
             return result;
@@ -399,7 +439,7 @@ public sealed class LibraryTabManager
         {
             try
             {
-                if (!drive.IsReady || drive.DriveType != DriveType.Removable)
+                if (!drive.IsReady || !IsExternalVolume(drive))
                 {
                     continue;
                 }
@@ -429,6 +469,27 @@ public sealed class LibraryTabManager
         return found;
     }
 
+    private static bool IsExternalVolume(DriveInfo drive)
+    {
+        if (drive.DriveType is not (DriveType.Fixed or DriveType.Removable))
+        {
+            return false;
+        }
+        var letter = char.ToUpperInvariant(drive.Name[0]);
+        using var volume = NativeStorage.OpenVolumeForQuery(letter);
+        if (volume.IsInvalid
+            || !NativeStorage.TryGetDeviceNumber(volume, out var type, out var disk)
+            || type != NativeStorage.FileDeviceDisk || disk < 0
+            || RemovableDriveManager.ResolveSystemDisks().Contains(disk))
+        {
+            return false;
+        }
+        using var physical = NativeStorage.OpenDiskForRead(disk);
+        return !physical.IsInvalid
+            && NativeStorage.TryGetHotplugInfo(physical, out var media, out var hotplug)
+            && RemovableDriveManager.Classify(hotplug, media) is not null;
+    }
+
     /// <summary>Maps content id → the Steam-side library label from
     /// <c>config\libraryfolders.vdf</c> (each entry lists <c>label</c> then
     /// <c>contentid</c> in order, so the value lists align by entry). Lets a card
@@ -450,13 +511,12 @@ public sealed class LibraryTabManager
         try
         {
             var text = File.ReadAllText(configPath);
-            var labels = SteamLibraryVdf.ValuesOf(text, "label");
             var ids = SteamLibraryVdf.ValuesOf(text, "contentid");
-            for (var i = 0; i < ids.Count && i < labels.Count; i++)
+            foreach (var id in ids)
             {
-                if (!string.IsNullOrEmpty(ids[i]))
+                if (!string.IsNullOrEmpty(id))
                 {
-                    map[ids[i]] = labels[i];
+                    map[id] = SteamLibraryVdf.LabelForContentId(text, id) ?? "";
                 }
             }
         }
@@ -511,7 +571,7 @@ public sealed class LibraryTabManager
         {
             var stem = Path.GetFileNameWithoutExtension(file);
             var idText = stem["appmanifest_".Length..];
-            if (long.TryParse(idText, out var id) && id > 0)
+            if (long.TryParse(idText, out var id) && id > 0 && id != 228980)
             {
                 ids.Add(id);
             }
@@ -525,9 +585,16 @@ public sealed class LibraryTabManager
     private static void MergeDiscovery(AppConfig config, List<Discovered> discovered)
     {
         var db = config.CardLibraries;
+        var presentIds = discovered.Select(static card => card.ContentId)
+            .ToHashSet(StringComparer.Ordinal);
+        config.ForgottenInsertedCardIds.RemoveAll(id => !presentIds.Contains(id));
         var now = DateTime.UtcNow.Ticks;
         foreach (var card in discovered)
         {
+            if (config.ForgottenInsertedCardIds.Contains(card.ContentId, StringComparer.Ordinal))
+            {
+                continue;
+            }
             var existing = db.FirstOrDefault(
                 c => string.Equals(c.ContentId, card.ContentId, StringComparison.Ordinal));
             if (existing is null)

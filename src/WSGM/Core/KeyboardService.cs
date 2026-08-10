@@ -13,13 +13,14 @@ public static class KeyboardService
 {
     /// <summary>The registered opener: (prompt, initial text, onAccept) → whether it was
     /// handled. Set by the overlay controller.</summary>
-    public static Func<string, string, Action<string>, bool>? Handler { get; set; }
+    public static Func<string, string, int, Action<string>, bool>? Handler { get; set; }
 
     /// <summary>Requests the keyboard window for a single field. Returns whether a
     /// handler took it; a false return means no keyboard window is available.</summary>
     /// <param name="prompt">The label shown above the field.</param>
     /// <param name="initial">The starting text.</param>
     /// <param name="onAccept">Invoked with the final text when the user accepts.</param>
-    public static bool Request(string prompt, string initial, Action<string> onAccept)
-        => Handler is not null && Handler(prompt, initial ?? "", onAccept);
+    /// <param name="maxLength">Maximum accepted character count.</param>
+    public static bool Request(string prompt, string initial, int maxLength, Action<string> onAccept)
+        => Handler is not null && Handler(prompt, initial ?? "", maxLength, onAccept);
 }

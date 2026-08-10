@@ -25,6 +25,7 @@ namespace WSGM.Overlay;
 /// plumbing.</summary>
 public sealed class ArtworkView : UserControl
 {
+    private static readonly System.Threading.SemaphoreSlim ThumbnailGate = new(4, 4);
     private readonly Stack<Action> _stack = new();
     private Action? _current;
 
@@ -43,13 +44,16 @@ public sealed class ArtworkView : UserControl
     public event Action? CloseRequested;
 
     /// <summary>Loads config, detects the current game, and opens the picker.</summary>
-    public async void Open()
+    public void Open() => _ = RunSafelyAsync(OpenAsync(), "open");
+
+    private async Task OpenAsync()
     {
         var generation = ++_generation;
         _stack.Clear();
         _current = null;
         _sgdbGameId = 0;
-        var config = LibraryTabManager.LoadConfig();
+        var config = await Task.Run(LibraryTabManager.LoadConfig);
+        if (generation != _generation) { return; }
         _apiKey = SteamGridDb.ResolveKey(config);
         if (string.IsNullOrEmpty(_apiKey))
         {
@@ -134,10 +138,15 @@ public sealed class ArtworkView : UserControl
 
     // ---- Level: pick a game ----
 
-    private async void RenderGameList()
+    private void RenderGameList() => _ = RunSafelyAsync(RenderGameListAsync(), "game list");
+
+    private async Task RenderGameListAsync()
     {
+        var generation = _generation;
         RenderMessage("Change Artwork", "Loading your games…");
-        _games ??= await SafeGamesAsync();
+        var games = await SafeGamesAsync();
+        if (generation != _generation) { return; }
+        _games = games;
         var stack = NewStack("Change Artwork");
         stack.Children.Add(Caption("Choose a game (or open one in Steam and reopen this)."));
         foreach (var game in _games)
@@ -147,6 +156,7 @@ public sealed class ArtworkView : UserControl
             {
                 _appId = g.AppId;
                 _appName = g.Name;
+                _sgdbGameId = 0;
                 Navigate(RenderAssetTypes);
             }));
         }
@@ -191,7 +201,8 @@ public sealed class ArtworkView : UserControl
     private void RenderNameSearch()
     {
         // Prefer the separate keyboard window; fall back to an inline keyboard screen.
-        if (KeyboardService.Request("Search SteamGridDB by name", _appName, term => DoSgdbSearch(term)))
+        if (KeyboardService.Request("Search SteamGridDB by name", _appName, 100,
+                term => DoSgdbSearch(term)))
         {
             return;
         }
@@ -212,14 +223,18 @@ public sealed class ArtworkView : UserControl
         });
     }
 
-    private async void DoSgdbSearch(string term)
+    private void DoSgdbSearch(string term) => _ = RunSafelyAsync(DoSgdbSearchAsync(term), "search");
+
+    private async Task DoSgdbSearchAsync(string term)
     {
         if (string.IsNullOrWhiteSpace(term))
         {
             return;
         }
+        var generation = _generation;
         Navigate(() => RenderMessage("Search SteamGridDB", $"Searching for \"{term}\"…"));
         IReadOnlyList<SgdbGame> matches;
+        string? failure = null;
         try
         {
             matches = await SteamGridDb.SearchGamesAsync(term, _apiKey);
@@ -228,11 +243,17 @@ public sealed class ArtworkView : UserControl
         {
             Log.Warn($"Artwork: SGDB search failed: {ex.Message}");
             matches = Array.Empty<SgdbGame>();
+            failure = ex.Message;
         }
+        if (generation != _generation) { return; }
         Replace(() =>
         {
             var stack = NewStack("Pick a Match");
-            if (matches.Count == 0)
+            if (failure is not null)
+            {
+                stack.Children.Add(Caption(failure));
+            }
+            else if (matches.Count == 0)
             {
                 stack.Children.Add(Caption("No matches on SteamGridDB. Try a different name."));
             }
@@ -257,32 +278,47 @@ public sealed class ArtworkView : UserControl
 
     // ---- Level: browse SteamGridDB art ----
 
-    private async void OpenArtGrid(ArtworkAsset asset)
+    private void OpenArtGrid(ArtworkAsset asset) => _ = RunSafelyAsync(OpenArtGridAsync(asset), "art list");
+
+    private async Task OpenArtGridAsync(ArtworkAsset asset)
     {
+        var generation = _generation;
+        var sourceGameId = _sgdbGameId;
+        var targetAppId = _appId;
         Navigate(() => RenderMessage(AssetLabel(asset), "Loading artwork from SteamGridDB…"));
         IReadOnlyList<SgdbAsset> assets;
+        string? failure = null;
         try
         {
-            assets = _sgdbGameId > 0
-                ? await SteamGridDb.GetAssetsForGameAsync(asset, _sgdbGameId, _apiKey)
-                : await SteamGridDb.GetAssetsForSteamAppAsync(asset, _appId, _apiKey);
+            assets = sourceGameId > 0
+                ? await SteamGridDb.GetAssetsForGameAsync(asset, sourceGameId, _apiKey)
+                : await SteamGridDb.GetAssetsForSteamAppAsync(asset, targetAppId, _apiKey);
         }
         catch (Exception ex)
         {
             Log.Warn($"Artwork: SGDB fetch failed: {ex.Message}");
             assets = Array.Empty<SgdbAsset>();
+            failure = ex.Message;
         }
-        Replace(() => RenderArtGrid(asset, assets));
+        if (generation != _generation || targetAppId != _appId || sourceGameId != _sgdbGameId)
+        {
+            return;
+        }
+        Replace(() => RenderArtGrid(asset, assets, failure));
     }
 
-    private void RenderArtGrid(ArtworkAsset asset, IReadOnlyList<SgdbAsset> assets)
+    private void RenderArtGrid(ArtworkAsset asset, IReadOnlyList<SgdbAsset> assets, string? failure)
     {
         var stack = NewStack(AssetLabel(asset));
         stack.Children.Add(Caption($"{_appName} — pick one to apply, or reset."));
         stack.Children.Add(PrimaryRow("Reset to official", "Remove the custom art", Icons.Restart,
             () => Apply(asset, null)));
 
-        if (assets.Count == 0)
+        if (failure is not null)
+        {
+            stack.Children.Add(Caption(failure));
+        }
+        else if (assets.Count == 0)
         {
             stack.Children.Add(Caption("No artwork found for this game/slot on SteamGridDB."));
         }
@@ -290,7 +326,7 @@ public sealed class ArtworkView : UserControl
         {
             var (w, h) = ThumbSize(asset);
             var grid = new WrapPanel { Orientation = Orientation.Horizontal };
-            foreach (var art in assets.Take(30))
+            foreach (var art in assets.Where(a => ImageHeader.IsWithinLimits(a.Width, a.Height)).Take(30))
             {
                 grid.Children.Add(ThumbButton(art, w, h, () => Apply(asset, art)));
             }
@@ -314,35 +350,60 @@ public sealed class ArtworkView : UserControl
             Margin = new Avalonia.Thickness(3),
         };
         button.Click += (_, _) => onClick();
-        _ = LoadThumbAsync(image, string.IsNullOrEmpty(art.Thumb) ? art.Url : art.Thumb);
+        _ = LoadThumbAsync(image, string.IsNullOrEmpty(art.Thumb) ? art.Url : art.Thumb, _generation);
         return button;
     }
 
-    private static async Task LoadThumbAsync(Image image, string url)
+    private async Task LoadThumbAsync(Image image, string url, int generation)
     {
-        var bytes = await SteamGridDb.DownloadImageAsync(url);
-        if (bytes is null || bytes.Length == 0)
+        await ThumbnailGate.WaitAsync();
+        try
         {
-            return;
+            var bytes = await SteamGridDb.DownloadImageAsync(url);
+            if (generation != _generation || bytes is null || bytes.Length == 0)
+            {
+                return;
+            }
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                try
+                {
+                    using var stream = new MemoryStream(bytes);
+                    var bitmap = Bitmap.DecodeToWidth(stream, 300);
+                    if (generation == _generation)
+                    {
+                        (image.Source as IDisposable)?.Dispose();
+                        image.Source = bitmap;
+                    }
+                    else
+                    {
+                        bitmap.Dispose();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"Artwork: thumb decode failed: {ex.Message}");
+                }
+            });
         }
-        await Dispatcher.UIThread.InvokeAsync(() =>
+        catch (Exception ex)
         {
-            try
-            {
-                using var stream = new MemoryStream(bytes);
-                image.Source = new Bitmap(stream);
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Artwork: thumb decode failed: {ex.Message}");
-            }
-        });
+            Log.Warn($"Artwork: thumbnail load failed: {ex.Message}");
+        }
+        finally
+        {
+            ThumbnailGate.Release();
+        }
     }
 
     // ---- Apply / reset ----
 
-    private async void Apply(ArtworkAsset asset, SgdbAsset? art)
+    private void Apply(ArtworkAsset asset, SgdbAsset? art) => _ = RunSafelyAsync(ApplyAsync(asset, art), "apply");
+
+    private async Task ApplyAsync(ArtworkAsset asset, SgdbAsset? art)
     {
+        var generation = _generation;
+        var targetAppId = _appId;
         Navigate(() => RenderMessage(AssetLabel(asset),
             art is null ? "Resetting to official art…" : "Applying artwork…"));
 
@@ -351,7 +412,7 @@ public sealed class ArtworkView : UserControl
         {
             if (art is null)
             {
-                result = await SteamArtwork.ClearAsync(_appId, asset);
+                result = await SteamArtwork.ClearAsync(targetAppId, asset);
             }
             else
             {
@@ -362,10 +423,7 @@ public sealed class ArtworkView : UserControl
                 }
                 else
                 {
-                    var ext = art.Url.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase)
-                        || art.Url.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)
-                        ? "jpg" : "png";
-                    result = await SteamArtwork.ApplyAsync(_appId, asset, bytes, ext);
+                    result = await SteamArtwork.ApplyAsync(targetAppId, asset, bytes, art.Extension);
                 }
             }
         }
@@ -375,10 +433,14 @@ public sealed class ArtworkView : UserControl
             result = new ArtworkResult(false, "Something went wrong — see the log.");
         }
 
+        if (generation != _generation || targetAppId != _appId)
+        {
+            return;
+        }
         var done = NewStack(AssetLabel(asset));
         done.Children.Add(Caption(result.Detail));
         done.Children.Add(PrimaryRow(result.Ok ? "Change more" : "Try again", "Back to slots",
-            Icons.Play, () => { PopIfAny(); Replace(RenderAssetTypes); }));
+            Icons.Play, () => { _stack.Clear(); Replace(RenderAssetTypes); }));
         done.Children.Add(Row("Close", "Done", Icons.ExitFullscreen, () => CloseRequested?.Invoke()));
         SetContent(done);
     }
@@ -404,6 +466,12 @@ public sealed class ArtworkView : UserControl
             Log.Warn($"Artwork: games list failed: {ex.Message}");
             return Array.Empty<SteamCollections.AppInfo>();
         }
+    }
+
+    private static async Task RunSafelyAsync(Task task, string operation)
+    {
+        try { await task; }
+        catch (Exception ex) { Log.Error($"Artwork {operation} failed.", ex); }
     }
 
     private string NameFor(long appId)
@@ -480,8 +548,32 @@ public sealed class ArtworkView : UserControl
     // scroller would swallow that scroll-into-view.
     private void SetContent(StackPanel stack)
     {
+        if (Content is Control previous)
+        {
+            DisposeImages(previous);
+        }
         Content = stack;
         FocusFirst(stack);
+    }
+
+    private static void DisposeImages(Control root)
+    {
+        if (root is Image image)
+        {
+            (image.Source as IDisposable)?.Dispose();
+            image.Source = null;
+        }
+        if (root is Panel panel)
+        {
+            foreach (var child in panel.Children.OfType<Control>())
+            {
+                DisposeImages(child);
+            }
+        }
+        else if (root is ContentControl { Content: Control child })
+        {
+            DisposeImages(child);
+        }
     }
 
     private void FocusFirst(StackPanel stack) => Dispatcher.UIThread.Post(() =>

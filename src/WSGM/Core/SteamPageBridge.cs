@@ -11,11 +11,10 @@ namespace WSGM.Core;
 /// <summary>Reaches into Steam's own library UI over the CEF leg (<see cref="SteamCef"/>):
 /// <list type="bullet">
 /// <item><b>Current-game detection</b> — which game page the user is viewing, read from
-/// Steam's SPA route. Robust (a route contract, not the DOM); the substrate a future
-/// SteamGridDB art picker targets.</item>
+/// the largest visible wide library-asset image in the rendered DOM.</item>
 /// <item><b>In-page card badge</b> — a resident script installs a <c>MutationObserver</c>
 /// that renders an "On: &lt;card&gt;" badge on a game page when that game lives on a
-/// tracked card. The observer runs inside <c>SharedJSContext</c>, so it survives library
+/// tracked card. The observer runs inside the visible Steam page and survives its SPA
 /// navigations; WSGM re-asserts it on reconnect (idempotent via a
 /// <c>window.__wsgm</c> sentinel).</item>
 /// </list>
@@ -75,6 +74,13 @@ public static class SteamPageBridge
         }
         return 0;
     }
+
+    /// <summary>Disconnects the resident badge observer and removes its node from the
+    /// visible Steam page. Best-effort shutdown for desktop mode and process exit.</summary>
+    public static Task<CefEvalResult> DisableBadgeAsync(CancellationToken cancellationToken = default)
+        => SteamCef.EvaluateOnVisibleWindowAsync(
+            "(()=>{try{window.__wsgm&&window.__wsgm.disableBadge&&window.__wsgm.disableBadge();return JSON.stringify({ok:true});}catch(e){return JSON.stringify({ok:false,err:String(e)});}})()",
+            Budget, cancellationToken);
 
     /// <summary>Installs (idempotently) the resident badge observer and pushes the
     /// current app-id → card-name map. Call whenever the card set changes or after a
@@ -170,10 +176,11 @@ public static class SteamPageBridge
             + "background:rgba(20,25,32,.9);color:#e6edf3;font-size:14px;font-weight:600;"
             + "box-shadow:0 2px 10px rgba(0,0,0,.5);pointer-events:none;';"
             + "document.body.appendChild(b);}" +
-        "b.textContent='\\u25C9 On: '+name;}catch(e){}};" +
+        "const text='\\u25C9 On: '+name;if(b.textContent!==text)b.textContent=text;}catch(e){}};" +
         "window.__wsgm.renderBadge=render;" +
-        "try{const obs=new MutationObserver(()=>render());" +
+        "try{let queued=false;const obs=new MutationObserver(ms=>{if(ms.every(m=>m.target.closest&&m.target.closest('#'+BID)))return;" +
+        "if(!queued){queued=true;requestAnimationFrame(()=>{queued=false;render();});}});" +
         "obs.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['src']});" +
-        "window.__wsgm.badgeObserver=obs;}catch(e){}" +
+        "window.__wsgm.badgeObserver=obs;window.__wsgm.disableBadge=()=>{obs.disconnect();remove();window.__wsgm.badgeInstalled=false;};}catch(e){window.__wsgm.badgeInstalled=false;}" +
         "render();}";
 }

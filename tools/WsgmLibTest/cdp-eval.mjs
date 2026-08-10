@@ -69,7 +69,8 @@ function buildExpression(cmd, arg) {
       // so the path reaches AddInstallFolder intact (e.g. "Z:\\SteamLibrary").
       return `(async()=>{try{const r=await SteamClient.InstallFolder.AddInstallFolder(${JSON.stringify(arg)});return 'RESOLVED: '+JSON.stringify(r);}catch(e){return 'REJECTED: '+JSON.stringify(e);}})()`;
     case "remove":
-      return `(async()=>{try{const r=await SteamClient.InstallFolder.RemoveInstallFolder(${JSON.stringify(arg)});return 'RESOLVED: '+JSON.stringify(r);}catch(e){return 'REJECTED: '+JSON.stringify(e);}})()`;
+      if (!/^\d+$/.test(arg || "")) throw new Error("remove requires a numeric nFolderIndex");
+      return `(async()=>{try{const r=await SteamClient.InstallFolder.RemoveInstallFolder(${Number(arg)});return 'RESOLVED: '+JSON.stringify(r);}catch(e){return 'REJECTED: '+JSON.stringify(e);}})()`;
     case "list":
       return `(async()=>{const f=await SteamClient.InstallFolder.GetInstallFolders();return f.map(x=>x.nFolderIndex+':'+x.strFolderPath+' ('+(x.vecApps?x.vecApps.length:'?')+' apps)').join('\\n');})()`;
     default:

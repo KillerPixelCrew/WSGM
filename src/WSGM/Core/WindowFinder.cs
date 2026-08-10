@@ -232,10 +232,10 @@ public static class WindowFinder
         // An opted-in own window (the settings window) is treated as not-ours so it
         // still has to clear every other filter (visible, titled, not a tool window).
         var treatAsOwn = pid == state.OwnPid && !state.IncludedOwnWindows.Contains(hWnd);
+        // Explorer's Progman is visible, plain-styled, and titled "Program
+        // Manager", yet real Alt-Tab never offers it.
         if (!PassesSwitchableFilter(
                 NativeMethods.IsWindowVisible(hWnd),
-                // Explorer's Progman is visible, plain-styled, and titled "Program
-                // Manager", yet real Alt-Tab never offers it.
                 hWnd == state.ShellWindow,
                 NativeMethods.GetWindowLong(hWnd, NativeMethods.GwlExStyle),
                 treatAsOwn,

@@ -9,3 +9,5 @@ verification.
   or workspace change.
 - Build scripts must fail fast, stage generated artifacts rather than checking them in, and remain
   safe to run from the repository root.
+- Cross-compilation honors `CARGO_BUILD_TARGET` when resolving release artifacts, while normal
+  Windows builds continue to use `target\release`.

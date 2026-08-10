@@ -1,6 +1,5 @@
 using System;
 using System.Globalization;
-using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -50,7 +49,8 @@ public static class SteamArtwork
             return ApplyIcon(appId, imageBytes, ext);
         }
 
-        var b64 = Convert.ToBase64String(imageBytes);
+        var b64 = await Task.Run(() => Convert.ToBase64String(imageBytes), cancellationToken)
+            .ConfigureAwait(false);
         var extLiteral = SteamCef.JsString(ext is "jpg" or "jpeg" ? "jpg" : "png");
         var app = ToUnsigned(appId);
         var type = ((int)asset).ToString(CultureInfo.InvariantCulture);
@@ -91,35 +91,11 @@ public static class SteamArtwork
 
     private static ArtworkResult ApplyIcon(long appId, byte[] bytes, string ext)
     {
-        // Non-Steam shortcut ids carry the top bit; those need a shortcuts.vdf edit + a
-        // Steam restart, which v1 does not do.
-        if (appId > uint.MaxValue || (appId & 0x80000000) != 0)
-        {
-            return new ArtworkResult(false,
-                "Non-Steam shortcut icons aren't supported yet (they need a Steam restart).");
-        }
-        var steamExe = Steam.ExePath;
-        if (steamExe is null)
-        {
-            return new ArtworkResult(false, "Steam install not found.");
-        }
-        try
-        {
-            // Steam keeps the library icon at appcache\librarycache\<appid>_icon.jpg;
-            // overwriting it swaps the icon (a cache overwrite — may need a client
-            // library refresh to show immediately).
-            var dir = Path.Combine(Path.GetDirectoryName(steamExe)!, "appcache", "librarycache");
-            Directory.CreateDirectory(dir);
-            var path = Path.Combine(dir, $"{appId.ToString(CultureInfo.InvariantCulture)}_icon.jpg");
-            File.WriteAllBytes(path, bytes);
-            Log.Info($"Steam icon written for app {appId} ({ext}, {bytes.Length} bytes).");
-            return new ArtworkResult(true, "Icon set (may need a library refresh to show).");
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Icon write failed for app {appId}: {ex.Message}");
-            return new ArtworkResult(false, "Could not write the icon file.");
-        }
+        _ = appId;
+        _ = bytes;
+        _ = ext;
+        return new ArtworkResult(false,
+            "Steam icons use a versioned per-app cache and cannot be changed safely here yet.");
     }
 
     // appStore uses the unsigned 32-bit app id; a shortcut id stored in a signed int

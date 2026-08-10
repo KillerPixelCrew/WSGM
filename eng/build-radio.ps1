@@ -49,7 +49,11 @@ New-Item -ItemType Directory -Force -Path $staging | Out-Null
 
 # Cargo requires a snake_case crate name; the shipped file matches the naming of
 # WSGM.VolumeControl.dll beside it, which is what LibraryImport resolves.
-$release = Join-Path $library "target\release"
+$release = if ($env:CARGO_BUILD_TARGET) {
+    Join-Path $library "target\$($env:CARGO_BUILD_TARGET)\release"
+} else {
+    Join-Path $library "target\release"
+}
 $source = Join-Path $release "wsgm_radio.dll"
 if (-not (Test-Path $source)) { throw "Radio helper did not produce wsgm_radio.dll" }
 Copy-Item -LiteralPath $source -Destination (Join-Path $staging "WSGM.Radio.dll") -Force

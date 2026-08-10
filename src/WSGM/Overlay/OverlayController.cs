@@ -427,6 +427,14 @@ public sealed class OverlayController : IDisposable
         HideTouchEdges();
         if (_overlay is not null)
         {
+            if (_keyboardWindow is not null)
+            {
+                _keyboardNavigation?.Dispose();
+                _keyboardNavigation = null;
+                _keyboardWindow.Close();
+                _keyboardWindow = null;
+                _overlay.KeyboardOwnsFocus = false;
+            }
             if (_navigation is not null)
             {
                 _navigation.IsEnabled = true;
@@ -591,6 +599,7 @@ public sealed class OverlayController : IDisposable
         };
 
         _overlay.AttachFormatManager(FormatManager);
+        _overlay.SubViewClosed += CloseKeyboardNow;
 
         var overlay = _overlay;
         _navigation = new GamepadNavigation(_gamepad, _overlay, OnOverlayBack,
@@ -621,7 +630,8 @@ public sealed class OverlayController : IDisposable
     {
         if (_overlay is not null)
         {
-            if (!HitsWindow(_overlay, x, y))
+            if (!HitsWindow(_overlay, x, y)
+                && (_keyboardWindow is null || !HitsWindow(_keyboardWindow, x, y)))
             {
                 Log.Info("Touch outside quick access — dismissing.");
                 CloseOverlay();
@@ -707,6 +717,14 @@ public sealed class OverlayController : IDisposable
         nint inheritedRestore = 0;
         if (_overlay is not null)
         {
+            if (_keyboardWindow is not null)
+            {
+                _keyboardNavigation?.Dispose();
+                _keyboardNavigation = null;
+                _keyboardWindow.Close();
+                _keyboardWindow = null;
+                _overlay.KeyboardOwnsFocus = false;
+            }
             inheritedRestore = _restoreFocusTo;
             _suppressFocusRestore = true;
             if (_navigation is not null)
@@ -796,7 +814,7 @@ public sealed class OverlayController : IDisposable
     /// (<see cref="KeyboardService"/>). Gamepad focus moves to it; crossing back to the
     /// sidebar (D-pad right off its right edge) or accepting/cancelling returns focus.
     /// Runs on the UI thread. Returns true (the request is handled).</summary>
-    private bool OpenKeyboard(string prompt, string initial, Action<string> onAccept)
+    private bool OpenKeyboard(string prompt, string initial, int maxLength, Action<string> onAccept)
     {
         _keyboardWindow?.Close();
 
@@ -805,12 +823,12 @@ public sealed class OverlayController : IDisposable
         {
             return false;
         }
-        var window = new KeyboardWindow(prompt, initial, UiScale());
+        var window = new KeyboardWindow(prompt, initial, maxLength, UiScale());
         _keyboardWindow = window;
         overlay.KeyboardOwnsFocus = true;
         window.Accepted += text => onAccept(text);
+        window.Opened += (_, _) => PositionKeyboardBesideOverlay(window, overlay);
         window.Show();
-        PositionKeyboardBesideOverlay(window, overlay);
 
         _keyboardNavigation = new GamepadNavigation(_gamepad, window, () => window.Close(),
             isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
@@ -825,13 +843,14 @@ public sealed class OverlayController : IDisposable
             _keyboardNavigation?.Dispose();
             _keyboardNavigation = null;
             _keyboardWindow = null;
-            overlay.KeyboardOwnsFocus = false;
             if (_navigation is not null)
             {
                 _navigation.IsEnabled = true;
             }
             overlay.Activate();
             overlay.DefaultFocusTarget.Focus(Avalonia.Input.NavigationMethod.Directional);
+            // Keep the activation reset suppressed through the handoff itself.
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => overlay.KeyboardOwnsFocus = false);
         };
         window.Activate();
         window.FocusDefault();
@@ -846,7 +865,14 @@ public sealed class OverlayController : IDisposable
         var heightPx = (int)Math.Ceiling(Math.Max(window.Bounds.Height, 200) * scaling);
         var overlayHeightPx = (int)Math.Ceiling(overlay.Bounds.Height * scaling);
         var y = overlay.Position.Y + Math.Max(0, (overlayHeightPx - heightPx) / 2);
-        window.Position = new Avalonia.PixelPoint(overlay.Position.X - widthPx - 8, y);
+        var x = overlay.Position.X - widthPx - 8;
+        var screen = overlay.Screens.ScreenFromWindow(overlay);
+        if (screen is not null)
+        {
+            x = Math.Clamp(x, screen.WorkingArea.X, screen.WorkingArea.Right - widthPx);
+            y = Math.Clamp(y, screen.WorkingArea.Y, screen.WorkingArea.Bottom - heightPx);
+        }
+        window.Position = new Avalonia.PixelPoint(x, y);
     }
 
     // The sidebar rows are a single column, so any Left press is at the left edge: if
@@ -878,9 +904,16 @@ public sealed class OverlayController : IDisposable
         {
             _navigation.IsEnabled = false;
         }
-        _keyboardNavigation.IsEnabled = true;
-        _keyboardWindow.Activate();
-        _keyboardWindow.FocusDefault();
+        var keyboard = _keyboardWindow;
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            if (_keyboardNavigation is not null && _keyboardWindow == keyboard)
+            {
+                _keyboardNavigation.IsEnabled = true;
+                keyboard.Activate();
+                keyboard.FocusDefault();
+            }
+        });
     }
 
     private void CrossToSidebar()
@@ -899,6 +932,18 @@ public sealed class OverlayController : IDisposable
         }
         _overlay.Activate();
         _overlay.DefaultFocusTarget.Focus(Avalonia.Input.NavigationMethod.Directional);
+    }
+
+    private void CloseKeyboardNow()
+    {
+        _keyboardNavigation?.Dispose();
+        _keyboardNavigation = null;
+        _keyboardWindow?.Close();
+        _keyboardWindow = null;
+        if (_overlay is not null)
+        {
+            _overlay.KeyboardOwnsFocus = false;
+        }
     }
 
     /// <summary>Closes the radio panel through the same deferred path as the
@@ -1415,6 +1460,9 @@ public sealed class OverlayController : IDisposable
             return;
         }
         _disposed = true;
+        CloseKeyboardNow();
+        _ = SteamPageBridge.DisableBadgeAsync();
+        _ = SteamLibraryTabs.DisableAsync();
         AttachTrayHost(null);
         _modes.SteamStartFailed -= WarnOrReopen;
         SteamInputBlocker.RecoveryWarningRaised -= OnSteamInputRecoveryWarning;

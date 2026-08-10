@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.Json;
@@ -36,7 +37,15 @@ public enum ArtworkAsset
 /// <param name="Thumb">Thumbnail URL (for the picker grid).</param>
 /// <param name="Width">Pixel width.</param>
 /// <param name="Height">Pixel height.</param>
-public sealed record SgdbAsset(int Id, string Url, string Thumb, int Width, int Height);
+/// <param name="Extension">Verified static image format, <c>png</c> or <c>jpg</c>.</param>
+public sealed record SgdbAsset(int Id, string Url, string Thumb, int Width, int Height, string Extension);
+
+/// <summary>A SteamGridDB request failed for a reason the UI should surface.</summary>
+public sealed class SteamGridDbException : Exception
+{
+    /// <summary>Creates a request failure with a user-facing message.</summary>
+    public SteamGridDbException(string message) : base(message) { }
+}
 
 /// <summary>A game match from a SteamGridDB title search.</summary>
 /// <param name="Id">SteamGridDB game id.</param>
@@ -157,9 +166,10 @@ public static class SteamGridDb
             var w = item.TryGetProperty("width", out var wi) && wi.TryGetInt32(out var wv) ? wv : 0;
             var h = item.TryGetProperty("height", out var he) && he.TryGetInt32(out var hv) ? hv : 0;
             var assetId = item.TryGetProperty("id", out var ai) && ai.TryGetInt32(out var av) ? av : 0;
-            if (full.Length > 0)
+            var extension = ImageExtension(full);
+            if (full.Length > 0 && extension is not null)
             {
-                list.Add(new SgdbAsset(assetId, full, thumb, w, h));
+                list.Add(new SgdbAsset(assetId, full, thumb, w, h, extension));
             }
         }
         return list;
@@ -174,12 +184,45 @@ public static class SteamGridDb
     {
         try
         {
-            return await Http.GetByteArrayAsync(url, cancellationToken).ConfigureAwait(false);
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
+            {
+                throw new SteamGridDbException("Artwork URL was not a secure HTTPS address.");
+            }
+            using var response = await Http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+            const int maxBytes = 16 * 1024 * 1024;
+            if (response.Content.Headers.ContentLength is > maxBytes)
+            {
+                throw new SteamGridDbException("Artwork is larger than the 16 MB safety limit.");
+            }
+            await using var input = await response.Content.ReadAsStreamAsync(cancellationToken)
+                .ConfigureAwait(false);
+            using var output = new MemoryStream();
+            var buffer = new byte[81920];
+            while (true)
+            {
+                var read = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+                if (read == 0)
+                {
+                    break;
+                }
+                if (output.Length + read > maxBytes)
+                {
+                    throw new SteamGridDbException("Artwork is larger than the 16 MB safety limit.");
+                }
+                output.Write(buffer, 0, read);
+            }
+            return output.ToArray();
+        }
+        catch (SteamGridDbException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             Log.Warn($"SteamGridDB image download failed ({url}): {ex.Message}");
-            return null;
+            throw new SteamGridDbException("Could not download the artwork image.");
         }
     }
 
@@ -195,17 +238,42 @@ public static class SteamGridDb
             if (!response.IsSuccessStatusCode)
             {
                 Log.Warn($"SteamGridDB {(int)response.StatusCode} for {url}.");
-                return null;
+                throw new SteamGridDbException(response.StatusCode switch
+                {
+                    System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden
+                        => "SteamGridDB rejected the API key.",
+                    System.Net.HttpStatusCode.TooManyRequests
+                        => "SteamGridDB rate limit reached. Try again later.",
+                    _ => $"SteamGridDB returned HTTP {(int)response.StatusCode}.",
+                });
             }
             var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             using var document = JsonDocument.Parse(json);
             // Clone so the element survives disposal of the document.
             return document.RootElement.Clone();
         }
+        catch (SteamGridDbException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             Log.Warn($"SteamGridDB request failed ({url}): {ex.Message}");
+            throw new SteamGridDbException("Could not contact SteamGridDB.");
+        }
+    }
+
+    private static string? ImageExtension(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
+        {
             return null;
         }
+        return Path.GetExtension(uri.AbsolutePath).ToLowerInvariant() switch
+        {
+            ".jpg" or ".jpeg" => "jpg",
+            ".png" => "png",
+            _ => null,
+        };
     }
 }

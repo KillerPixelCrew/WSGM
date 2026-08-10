@@ -288,11 +288,10 @@ buttons); `OverlayController` stays the UI owner (lease lifecycle, overlay windo
    marker's `contentid`, removes the matching registered/live library first, and
    only then erases the disk; never identify the old library by its reused drive
    letter or path.
-   The same CEF bridge drives `SteamCollections` and `LibraryTabManager`: Quick Access library tabs
-   are WSGM-owned Steam collections, created and updated through Steam's `collectionStore` rather
-   than injected UI or internal memory. Persist the collection IDs WSGM created and only ever prune
-   those IDs — never alter a user's or another tool's collections. CEF unreachability must save the
-   desired configuration but fail open with a retryable warning; it must not delete existing tabs.
+   `SteamCollections` remains only as the read/filter bridge and one-time cleanup for collection IDs
+   created by pre-injection builds. New tabs never create collections. CEF unreachability must save
+   the desired configuration but fail open with a retryable warning; it must not replace the last
+   successfully injected definitions.
 9. **Custom filter tabs are INJECTED into Steam's tab strip — not collections (device-verified).**
    Collections render under the "Collections" tab, never as top-strip tabs; that was the wrong model
    and is fully removed. `Core\SteamLibraryTabs.cs` injects a resident script into `SharedJSContext`
@@ -312,7 +311,7 @@ buttons); `OverlayController` stays the UI owner (lease lifecycle, overlay windo
    update — the dispatcher slot name and the `Library_FilteredByHeader` marker — are the accepted
    fragility (kill switch `window.__wsgm.disableTabs()`; a Steam restart also recovers). The builder
    UI is `Overlay\LibraryTabsView.cs` (self-drawing sub-view like `PanelFormat`; extend `AnySubView`).
-   Prototype any change against live Steam via `tools/WsgmLibTest` (`run-file.mjs tabs-poc.js`) BEFORE
+   Prototype any change against live Steam via `tools/WsgmLibTest` (`run-file.mjs tabs-prod.js`) BEFORE
    editing the C#.
 10. **Steam-page bridge (the VISIBLE window, not SharedJSContext).** `Core\SteamPageBridge.cs` reads
    the current game and injects the "On: <card>" badge into the **visible** Big-Picture/library window

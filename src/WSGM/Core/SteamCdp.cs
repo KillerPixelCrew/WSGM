@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -95,6 +96,14 @@ public static class SteamCdp
         {
             return new SteamLibraryRemoveResult(SteamLibraryRemoveStatus.NotPresent, null);
         }
+        var matchingPaths = Shell.SteamLibraryVdf.ValuesOf(libraryFoldersVdf, "path")
+            .Count(path => string.Equals(path.Replace("\\\\", "\\").TrimEnd('\\', '/'),
+                libraryPath.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase));
+        if (matchingPaths != 1)
+        {
+            return new SteamLibraryRemoveResult(SteamLibraryRemoveStatus.Rejected,
+                "ContentIdPathAmbiguous");
+        }
         var result = await SteamCef.EvaluateAsync(
             BuildRemoveExpression(libraryPath), TimeSpan.FromSeconds(10), cancellationToken)
             .ConfigureAwait(false);
@@ -157,6 +166,8 @@ public static class SteamCdp
                 && reason.ValueKind == JsonValueKind.String
                 ? reason.GetString()
                 : null;
+            message ??= root.TryGetProperty("result", out var resultCode)
+                ? $"EResult {resultCode.GetRawText()}" : null;
 
             if (string.Equals(message, "DriveAlreadyHasLibrary", StringComparison.Ordinal))
             {
@@ -192,6 +203,8 @@ public static class SteamCdp
             var message = root.TryGetProperty("message", out var reason)
                 && reason.ValueKind == JsonValueKind.String
                 ? reason.GetString() : null;
+            message ??= root.TryGetProperty("result", out var resultCode)
+                ? $"EResult {resultCode.GetRawText()}" : null;
             Log.Warn($"Steam rejected the library removal: {message ?? "unknown reason"}.");
             return new SteamLibraryRemoveResult(SteamLibraryRemoveStatus.Rejected, message);
         }

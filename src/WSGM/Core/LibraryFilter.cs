@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace WSGM.Core;
 
@@ -268,7 +269,7 @@ public static class LibraryFilter
     {
         FilterKind.Collection => !string.IsNullOrEmpty(node.CollectionId),
         FilterKind.Tag => node.TagIds.Count > 0,
-        FilterKind.Regex => !string.IsNullOrWhiteSpace(node.Pattern),
+        FilterKind.Regex => IsSafeRegex(node.Pattern),
         FilterKind.Whitelist or FilterKind.Blacklist => node.AppIds.Count > 0,
         FilterKind.ReleaseDate or FilterKind.LastPlayed => node.DaysAgo > 0 || node.Year > 0,
         FilterKind.SdCard => node.CardScope != SdCardScope.Specific
@@ -277,6 +278,25 @@ public static class LibraryFilter
         // Installed/Platform/thresholds are always well-formed (a threshold of 0 is legal).
         _ => true,
     };
+
+    private static bool IsSafeRegex(string pattern)
+    {
+        if (string.IsNullOrWhiteSpace(pattern) || pattern.Length > 64
+            || pattern.Contains("(?", StringComparison.Ordinal)
+            || Regex.IsMatch(pattern, @"\\[1-9]"))
+        {
+            return false;
+        }
+        try
+        {
+            var regex = new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+                TimeSpan.FromMilliseconds(25));
+            _ = regex.IsMatch(new string('a', 512) + "!");
+            return true;
+        }
+        catch (ArgumentException) { return false; }
+        catch (RegexMatchTimeoutException) { return false; }
+    }
 
     /// <summary>Builds the complete evaluation expression: prologue lookups, the
     /// compiled predicate, the category candidate gather, and a JSON result. The
@@ -295,7 +315,7 @@ public static class LibraryFilter
         var sb = new StringBuilder();
         sb.Append("(()=>{try{");
         sb.Append("const cs=collectionStore,as=appStore;");
-        sb.Append("const _colCache={};");
+        sb.Append("const _colCache=Object.create(null);");
         sb.Append("const inCol=(id,appid)=>{let s=_colCache[id];if(!s){const c=cs.GetCollection(id);"
             + "s=_colCache[id]=new Set(((c&&(c.allApps||c.visibleApps))||[]).map(x=>x.appid));}"
             + "return s.has(appid);};");
@@ -309,7 +329,6 @@ public static class LibraryFilter
         sb.Append("if(cats&1)addC('type-games');");
         sb.Append("if(cats&2)addC('type-software');");
         sb.Append("if(cats&8192)addC('type-music');");
-        sb.Append("if(!cand.length)addC('type-games');");
         sb.Append("const out=[];for(const a of cand){try{if(pred(a))out.push(a.appid);}catch(e){}}");
         sb.Append("return JSON.stringify({ok:true,appids:out});}");
         sb.Append("catch(e){return JSON.stringify({ok:false,err:String((e&&e.message)||e)});}})()");
@@ -438,7 +457,7 @@ public static class LibraryFilter
         var y = node.Year > 0 ? node.Year : 1970;
         var m = node.Month is >= 1 and <= 12 ? node.Month : 1;
         var d = node.Day is >= 1 and <= 31 ? node.Day : 1;
-        return "(new Date(" + y.ToString(CultureInfo.InvariantCulture) + ","
+        return "(Date.UTC(" + y.ToString(CultureInfo.InvariantCulture) + ","
             + (m - 1).ToString(CultureInfo.InvariantCulture) + ","
             + d.ToString(CultureInfo.InvariantCulture) + ").getTime()/1000)";
     }

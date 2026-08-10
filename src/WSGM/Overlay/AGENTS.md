@@ -7,6 +7,10 @@ Steam Input lease and focus handover.
   before opening a surface and release it only after the last surface closes.
 - Preserve the 150 ms deferred close and touch-synthesized mouse filtering; removing either causes
   ghost clicks on controls behind the overlay.
+- Peer keyboard focus is part of the active sub-view: include its bounds in tap hit-testing, keep
+  only one navigation active, and invalidate asynchronous picker loads when navigation changes.
+- Artwork operations snapshot both the target app and navigation generation across awaits; bound
+  thumbnail concurrency, decode thumbnails scaled, and dispose replaced bitmap trees immediately.
 - Dismissal may restore focus only under the existing game-mode and suppression gates. Next-app
   cycling deliberately suppresses restoration.
 - During the taskbar/overlay handover, do not route LB/RB to both navigations and do not rebuild

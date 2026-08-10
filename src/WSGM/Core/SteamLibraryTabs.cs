@@ -44,9 +44,11 @@ public static class SteamLibraryTabs
         IReadOnlyList<InjectedTab> tabs, CancellationToken cancellationToken = default)
     {
         var expression =
-            "(()=>{try{" + ResidentSetup +
+            "(async()=>{try{" + ResidentSetup +
             "window.__wsgm.tabs=" + BuildDefs(tabs) + ";" +
+            "window.__wsgm.lastTabError=null;" +
             "if(window.__wsgm.forceRerender)window.__wsgm.forceRerender();" +
+            "await new Promise(r=>setTimeout(r,100));if(window.__wsgm.lastTabError)throw new Error(window.__wsgm.lastTabError);" +
             "return JSON.stringify({ok:true,installed:!!window.__wsgm.tabsInstalled," +
             "count:(window.__wsgm.tabs||[]).length});}" +
             "catch(e){return JSON.stringify({ok:false,err:String((e&&e.stack)||e)});}})()";
@@ -80,6 +82,13 @@ public static class SteamLibraryTabs
         return false;
     }
 
+    /// <summary>Removes WSGM's dispatcher hook and tab definitions for the current
+    /// Steam session. Best-effort; a Steam restart remains the outer recovery path.</summary>
+    public static Task<CefEvalResult> DisableAsync(CancellationToken cancellationToken = default)
+        => SteamCef.EvaluateAsync(
+            "(async()=>{try{const W=window.__wsgm;if(W){W.tabs=[];W.forceRerender&&W.forceRerender();await new Promise(r=>setTimeout(r,100));W.suspendTabs&&W.suspendTabs();}return JSON.stringify({ok:true});}catch(e){return JSON.stringify({ok:false,err:String(e)});}})()",
+            Budget, cancellationToken);
+
     private static string BuildDefs(IReadOnlyList<InjectedTab> tabs)
     {
         var sb = new StringBuilder("[");
@@ -106,11 +115,12 @@ public static class SteamLibraryTabs
     // live against Steam's Big Picture library.
     private const string ResidentSetup = """
         var W=window.__wsgm=window.__wsgm||{};
+        if(W.tabsDisabled)throw new Error('WSGM library tabs are disabled for this Steam session');
         if(!W._react){
           if(!window.webpackChunksteamui)throw new Error('webpack not ready');
           var req;window.webpackChunksteamui.push([[Symbol('wsgm')],{},function(r){req=r;}]);
           if(!req)throw new Error('no require');
-          for(var id of Object.keys(req.m)){var e;try{e=req(id);}catch(x){continue;}
+          for(var id of Object.keys(req.c||{})){var e;try{e=req.c[id]&&req.c[id].exports;}catch(x){continue;}
             if(e&&e.createElement&&e.useMemo&&e.version){W._react=e;break;}}
           if(!W._react)throw new Error('React not found');
         }
@@ -134,10 +144,11 @@ public static class SteamLibraryTabs
           var isNested=Array.isArray(v)&&Array.isArray(v[0]);
           var tabs=isNested?v[0]:v;
           if(!Array.isArray(tabs))return v;
+          tabs=tabs.filter(function(t){return !(t&&typeof t.id==='string'&&t.id.startsWith('wsgm-'));});
           var tmpl=tabs.find(function(t){return t&&t.id==='AllGames';});
           if(!tmpl)return v;
-          if(!W._gridType){var g=W.findInTree(tmpl.content,function(el){return el&&el.type&&el.type.toString&&el.type.toString().includes('Library_FilteredByHeader');});
-            if(g){W._gridType=g.type;W._gridProps=g.props;}}
+          var g=W.findInTree(tmpl.content,function(el){return el&&el.type&&el.type.toString&&el.type.toString().includes('Library_FilteredByHeader');});
+          if(g){W._gridType=g.type;W._gridProps=g.props;}
           var existing=new Set(tabs.map(function(t){return t&&t.id;}));
           var add=[];
           for(var d of (W.tabs||[])){
@@ -145,25 +156,29 @@ public static class SteamLibraryTabs
             existing.add(d.id);
             var coll=W.makeCollection(d.id,d.title,d.appids||[]);
             var content=tmpl.content;
-            if(W._gridType&&React){content=React.createElement(W._gridType,Object.assign({},W._gridProps,{collection:coll}));}
+            if(!W._gridType||!React)throw new Error('Steam library grid component not found');
+            content=React.createElement(W._gridType,Object.assign({},W._gridProps,{collection:coll}));
             (function(def,content){add.push({title:def.title,id:def.id,content:content,footer:tmpl.footer,
               renderTabAddon:function(){return React?React.createElement('span',null,String((def.appids||[]).length)):null;}});})(d,content);
           }
           if(!add.length)return v;
           var out=tabs.concat(add);
           return isNested?[out,v[1]]:out;
-        }catch(e){return v;}};
+        }catch(e){W.lastTabError=String((e&&e.stack)||e);return v;}};
         if(!W.tabsInstalled){
           var internals=React.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
           if(!internals||!('H' in internals))throw new Error('React dispatcher slot not found');
-          var wrapped=new WeakMap();var cur=internals.H;
+          var wrapped=new WeakMap(),unwrapped=new WeakMap();var cur=internals.H;
           Object.defineProperty(internals,'H',{configurable:true,
             get:function(){var c=cur;if(!c||typeof c!=='object'||typeof c.useMemo!=='function')return c;
               var w=wrapped.get(c);if(!w){var realUseMemo=c.useMemo;w=Object.create(c);
-                w.useMemo=function(fn,deps){return realUseMemo.call(c,function(){return W.patchTabs(fn());},deps);};
-                wrapped.set(c,w);}return w;},
-            set:function(v){cur=v;}});
-          W.disableTabs=function(){try{Object.defineProperty(internals,'H',{configurable:true,writable:true,value:cur});}catch(e){}W.tabsInstalled=false;};
+                w.useMemo=function(fn,deps){var d=Array.isArray(deps)?deps.concat(W.revision||0):deps;
+                  return realUseMemo.call(c,function(){return W.patchTabs(fn());},d);};
+                wrapped.set(c,w);unwrapped.set(w,c);}return w;},
+            set:function(v){cur=unwrapped.get(v)||v;}});
+          W.suspendTabs=function(){try{Object.defineProperty(internals,'H',{configurable:true,writable:true,value:cur});}catch(e){}
+            W.tabs=[];W.tabsInstalled=false;};
+          W.disableTabs=function(){W.suspendTabs();W.tabsDisabled=true;};
           W.forceRerender=function(){
             W.revision=(W.revision||0)+1;
             window.dispatchEvent(new Event('resize'));
