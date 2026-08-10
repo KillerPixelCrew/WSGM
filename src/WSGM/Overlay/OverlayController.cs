@@ -596,6 +596,15 @@ public sealed class OverlayController : IDisposable
             }
             return;
         }
+        if (_ejectPanel is not null)
+        {
+            if (!HitsWindow(_ejectPanel, x, y))
+            {
+                Log.Info("Touch outside eject panel — dismissing.");
+                CloseEjectPanel();
+            }
+            return;
+        }
         if (_taskbar is not null && !HitsWindow(_taskbar, x, y))
         {
             Log.Info("Touch outside taskbar — dismissing.");
@@ -658,7 +667,8 @@ public sealed class OverlayController : IDisposable
         {
             if (_taskbarNavigation is not null)
             {
-                _taskbarNavigation.IsEnabled = _radioPanel is null && _audioPanel is null;
+                _taskbarNavigation.IsEnabled =
+                    _radioPanel is null && _audioPanel is null && _ejectPanel is null;
             }
             if (_taskbarClosePending)
             {
@@ -702,6 +712,7 @@ public sealed class OverlayController : IDisposable
         _taskbar.Dismissed += CloseTaskbar;
         _taskbar.RadioPanelRequested += ShowRadioPanel;
         _taskbar.AudioPanelRequested += ShowAudioPanel;
+        _taskbar.EjectPanelRequested += ShowEjectPanel;
         _taskbar.Closed += (_, _) => OnTaskbarClosed();
         _taskbarNavigation = new GamepadNavigation(_gamepad, _taskbar, CloseTaskbar,
             isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
@@ -751,6 +762,10 @@ public sealed class OverlayController : IDisposable
         if (_audioPanel is not null)
         {
             _audioPanel.Close();
+        }
+        if (_ejectPanel is not null)
+        {
+            _ejectPanel.Close();
         }
         if (_radioPanel is not null)
         {
@@ -803,7 +818,7 @@ public sealed class OverlayController : IDisposable
             // Hand focus back to the bar, which is still open underneath.
             if (_taskbarNavigation is not null)
             {
-                _taskbarNavigation.IsEnabled = _audioPanel is null;
+                _taskbarNavigation.IsEnabled = _audioPanel is null && _ejectPanel is null;
             }
             _taskbar?.Activate();
         };
@@ -843,6 +858,10 @@ public sealed class OverlayController : IDisposable
         if (_radioPanel is not null)
         {
             _radioPanel.Close();
+        }
+        if (_ejectPanel is not null)
+        {
+            _ejectPanel.Close();
         }
         if (_audioPanel is not null)
         {
@@ -889,7 +908,93 @@ public sealed class OverlayController : IDisposable
             Log.Info("Audio panel closed.");
             if (_taskbarNavigation is not null)
             {
-                _taskbarNavigation.IsEnabled = _radioPanel is null;
+                _taskbarNavigation.IsEnabled = _radioPanel is null && _ejectPanel is null;
+            }
+            _taskbar?.Activate();
+        };
+        panel.Show();
+        panel.DockAboveTaskbar(_taskbar?.Position.Y ?? 0);
+        panel.Activate();
+    }
+
+    private EjectWindow? _ejectPanel;
+    private GamepadNavigation? _ejectNavigation;
+    private bool _ejectClosePending;
+    private IDisposable? _pendingEjectClose;
+
+    /// <summary>Closes the Safe Eject panel after the touch-promotion grace
+    /// window (invariant 3).</summary>
+    private void CloseEjectPanel()
+    {
+        if (_ejectPanel is null || _ejectClosePending)
+        {
+            return;
+        }
+        _ejectClosePending = true;
+        _pendingEjectClose = RunOnUiThreadAfter(TimeSpan.FromMilliseconds(150), () =>
+        {
+            _ejectClosePending = false;
+            _pendingEjectClose = null;
+            _ejectPanel?.Close();
+        });
+    }
+
+    /// <summary>Opens the Safe Eject panel above the taskbar.</summary>
+    private void ShowEjectPanel()
+    {
+        if (_radioPanel is not null)
+        {
+            _radioPanel.Close();
+        }
+        if (_audioPanel is not null)
+        {
+            _audioPanel.Close();
+        }
+        if (_ejectPanel is not null)
+        {
+            if (_ejectClosePending)
+            {
+                _pendingEjectClose?.Dispose();
+                _pendingEjectClose = null;
+                _ejectClosePending = false;
+            }
+            if (_taskbarNavigation is not null)
+            {
+                _taskbarNavigation.IsEnabled = false;
+            }
+            if (_ejectNavigation is not null)
+            {
+                _ejectNavigation.IsEnabled = true;
+            }
+            _ejectPanel.Activate();
+            return;
+        }
+        if (_systemStatus is null)
+        {
+            return;
+        }
+
+        Log.Info("Eject panel opened.");
+        var panel = new EjectWindow(_systemStatus.Drives, UiScale());
+        _ejectPanel = panel;
+        if (_taskbarNavigation is not null)
+        {
+            _taskbarNavigation.IsEnabled = false;
+        }
+        _ejectNavigation = new GamepadNavigation(_gamepad, panel, () => panel.Close(),
+            isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo);
+        panel.Closed += (_, _) =>
+        {
+            _ejectNavigation?.Dispose();
+            _ejectNavigation = null;
+            _ejectPanel = null;
+            _ejectClosePending = false;
+            _pendingEjectClose?.Dispose();
+            _pendingEjectClose = null;
+            Log.Info("Eject panel closed.");
+            if (_taskbarNavigation is not null)
+            {
+                _taskbarNavigation.IsEnabled = _radioPanel is null && _audioPanel is null;
             }
             _taskbar?.Activate();
         };
@@ -1022,6 +1127,11 @@ public sealed class OverlayController : IDisposable
         {
             Log.Info("Taskbar closed with the audio panel open — closing the panel.");
             _audioPanel.Close();
+        }
+        if (_ejectPanel is not null)
+        {
+            Log.Info("Taskbar closed with the eject panel open — closing the panel.");
+            _ejectPanel.Close();
         }
         _taskbarClosePending = false;
         _pendingTaskbarClose = null;

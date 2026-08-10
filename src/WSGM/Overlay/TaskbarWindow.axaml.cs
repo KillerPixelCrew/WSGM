@@ -40,6 +40,9 @@ public partial class TaskbarWindow : Window
     /// <summary>Raised when the audio tile is pressed.</summary>
     public event Action? AudioPanelRequested;
 
+    /// <summary>Raised when the eject tile is pressed.</summary>
+    public event Action? EjectPanelRequested;
+
     /// <summary>The control gamepad navigation should land on when the bar opens:
     /// the first application tile — explicitly, because the window's visual-tree
     /// order now puts the home button first (falls back to the first visible
@@ -154,6 +157,9 @@ public partial class TaskbarWindow : Window
 
     private void OnAudioTileClicked(object? sender, RoutedEventArgs e)
         => AudioPanelRequested?.Invoke();
+
+    private void OnEjectTileClicked(object? sender, RoutedEventArgs e)
+        => EjectPanelRequested?.Invoke();
 
     /// <summary>Scrolls a newly focused tile into its strip's viewport (app tiles
     /// and tray icons share this handler). Bubbles from the tile buttons; the

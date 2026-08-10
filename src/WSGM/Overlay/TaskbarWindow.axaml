@@ -210,6 +210,22 @@
                             Orientation="Horizontal"
                             Spacing="4"
                             VerticalAlignment="Center">
+                <!-- Only present while something ejectable exists — same rule as
+                     Explorer's Safely Remove Hardware tray icon. -->
+                <Button x:Name="EjectButton"
+                        Classes="status-tile"
+                        ToolTip.Tip="Safely remove hardware"
+                        IsVisible="{Binding Drives.HasDrives}"
+                        Click="OnEjectTileClicked">
+                    <!-- Width only, no Height: the glyph is wider than tall and a
+                         square box would park it top-left (see the battery note). -->
+                    <Path Classes="status-icon"
+                          Data="{x:Static c:Icons.Eject}"
+                          Width="18"
+                          Stretch="Uniform"
+                          VerticalAlignment="Center"
+                          HorizontalAlignment="Center" />
+                </Button>
                 <Button x:Name="AudioButton"
                         Classes="status-tile"
                         ToolTip.Tip="{Binding Audio.VolumeText}"

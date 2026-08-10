@@ -77,6 +77,10 @@ public static class Icons
                 + "M 3.9,11.9 A 11.5,11.5 0 0 1 20.1,11.9 "
                 + "M 11.3,20.1 A 0.7,0.7 0 1 0 12.7,20.1 A 0.7,0.7 0 1 0 11.3,20.1");
 
+    /// <summary>Eject symbol: triangle over a base bar (safe removal).</summary>
+    public static StreamGeometry Eject { get; } =
+        StreamGeometry.Parse("M 12,5.5 L 18.5,13 L 5.5,13 Z M 5.5,17 L 18.5,17");
+
     /// <summary>Horizontal battery: body, terminal nub and three charge bars.</summary>
     public static StreamGeometry Battery { get; } =
         StreamGeometry.Parse(

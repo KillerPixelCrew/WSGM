@@ -78,6 +78,10 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
     /// audio tile and audio panel. Owned and disposed with this object.</summary>
     public AudioManager Audio { get; } = new();
 
+    /// <summary>Gets the removable-storage manager backing the taskbar's eject
+    /// tile and the Safe Eject panel. Owned and disposed with this object.</summary>
+    public RemovableDriveManager Drives { get; } = new();
+
     /// <summary>Performs an immediate refresh and starts the 1 s update timer.
     /// UI-thread callers only (the timer is a DispatcherTimer). Idempotent.</summary>
     public void Start()
@@ -89,6 +93,7 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
         Refresh();
         Radios.Start();
         Audio.Start();
+        Drives.Start();
         Log.Info($"System status started (battery: {(HasBattery ? BatteryText : "none")}).");
         // Parameterless ctor + explicit Start: the 3-arg ctor auto-starts.
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -101,6 +106,7 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
     {
         Radios.Dispose();
         Audio.Dispose();
+        Drives.Dispose();
         if (_timer is null)
         {
             return;
