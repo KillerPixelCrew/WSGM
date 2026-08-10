@@ -37,6 +37,11 @@ public sealed class FormatTargetEntry : INotifyPropertyChanged
     /// formatting.</summary>
     internal int BusType { get; set; }
 
+    /// <summary>The card's current drive letter, reassigned verbatim after the
+    /// format so a card reader never changes letter. '\0' when the card has no
+    /// letter yet (raw / ext4 Deck card).</summary>
+    internal char PreferredLetter { get; set; }
+
     private string _name = "";
     /// <summary>Gets the device's vendor/product identity, or a placeholder.</summary>
     public string Name

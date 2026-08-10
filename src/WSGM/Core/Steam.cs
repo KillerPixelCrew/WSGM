@@ -157,6 +157,10 @@ public static class Steam
     {
         if (!IsRunning && ExePath is { } exe)
         {
+            // Enable Steam's CEF debug port before it starts so WSGM can add
+            // libraries to the live client later without a restart. Only takes
+            // effect on a fresh Steam start, which this cold path is.
+            SteamCdp.EnsureRemoteDebuggingEnabled();
             return AppLauncher.Start(exe, OpenBigPictureUrl, elevated: false);
         }
         return AppLauncher.StartProtocol(OpenBigPictureUrl);

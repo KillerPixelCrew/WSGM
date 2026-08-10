@@ -50,14 +50,21 @@ public static class SteamLibraryVdf
     /// <param name="path">The plain path, e.g. <c>E:\SteamLibrary</c>.</param>
     public static string EscapePath(string path) => path.Replace("\\", "\\\\");
 
+    /// <summary>Escapes a VDF string value (backslash then double-quote), for the
+    /// user-chosen library label.</summary>
+    /// <param name="value">The raw value.</param>
+    public static string EscapeValue(string value) =>
+        value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+
     /// <summary>Builds the card marker — <c>&lt;X&gt;:\SteamLibrary\libraryfolder.vdf</c>.</summary>
     /// <param name="contentId">The generated library id.</param>
     /// <param name="steamExePath">The plain steam.exe path (escaped here).</param>
-    public static string BuildMarker(string contentId, string steamExePath) =>
+    /// <param name="label">The user-chosen library label, or empty for none.</param>
+    public static string BuildMarker(string contentId, string steamExePath, string label = "") =>
         "\"libraryfolder\"\n"
         + "{\n"
         + $"\t\"contentid\"\t\t\"{contentId}\"\n"
-        + "\t\"label\"\t\t\"\"\n"
+        + $"\t\"label\"\t\t\"{EscapeValue(label)}\"\n"
         + $"\t\"launcher\"\t\t\"{EscapePath(steamExePath)}\"\n"
         + "}\n";
 
@@ -68,12 +75,13 @@ public static class SteamLibraryVdf
     /// <param name="libraryPath">The plain library path (escaped here).</param>
     /// <param name="contentId">The library id, matching the card marker.</param>
     /// <param name="totalSize">The volume size in bytes.</param>
+    /// <param name="label">The user-chosen library label, or empty for none.</param>
     public static string BuildConfigEntry(
-        int index, string libraryPath, string contentId, long totalSize) =>
+        int index, string libraryPath, string contentId, long totalSize, string label = "") =>
         $"\t\"{index}\"\n"
         + "\t{\n"
         + $"\t\t\"path\"\t\t\"{EscapePath(libraryPath)}\"\n"
-        + "\t\t\"label\"\t\t\"\"\n"
+        + $"\t\t\"label\"\t\t\"{EscapeValue(label)}\"\n"
         + $"\t\t\"contentid\"\t\t\"{contentId}\"\n"
         + $"\t\t\"totalsize\"\t\t\"{totalSize.ToString(CultureInfo.InvariantCulture)}\"\n"
         + "\t\t\"update_clean_bytes_tally\"\t\t\"0\"\n"
@@ -112,8 +120,11 @@ public static class SteamLibraryVdf
         return results;
     }
 
-    /// <summary>Whether the config already registers a library at this path
-    /// (compared unescaped, case-insensitively).</summary>
+    /// <summary>Whether the config already lists a library at this path (unescaped,
+    /// case-insensitive). Informational only — NOT used to dedup a write: a card
+    /// reader keeps one drive letter across swaps, so the path is legitimately
+    /// reused by every card, and Steam mounts a registered path by reading
+    /// whatever marker the currently-inserted card carries.</summary>
     /// <param name="vdf">The config file text.</param>
     /// <param name="libraryPath">The plain library path.</param>
     public static bool IsRegistered(string vdf, string libraryPath)
@@ -122,6 +133,25 @@ public static class SteamLibraryVdf
         {
             if (string.Equals(value.Replace("\\\\", "\\"), libraryPath,
                     StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>Whether the config already contains an entry with this content id —
+    /// the library's stable identity, which is what dedup keys on. Path is the
+    /// wrong key: a reformatted card reuses the reader's drive letter but is a
+    /// NEW library (fresh content id), and Steam permits several libraries at one
+    /// path, so a reused path must not suppress the new card's entry.</summary>
+    /// <param name="vdf">The config file text.</param>
+    /// <param name="contentId">The library content id.</param>
+    public static bool IsContentIdRegistered(string vdf, string contentId)
+    {
+        foreach (var value in ValuesOf(vdf, "contentid"))
+        {
+            if (string.Equals(value, contentId, StringComparison.Ordinal))
             {
                 return true;
             }
@@ -159,19 +189,22 @@ public static class SteamLibraryVdf
     /// <c>config\libraryfolders.vdf</c>, preserving every existing byte — the
     /// block is inserted immediately before the file's final closing brace.
     /// Returns false (with <paramref name="updated"/> = null) when the file does
-    /// not look like a libraryfolders file or the path is already registered.</summary>
+    /// not look like a libraryfolders file or an entry with this content id is
+    /// already present. Dedup is by content id, NOT path: a reused drive letter
+    /// (card reader) is expected and Steam allows several libraries at one path.</summary>
     /// <param name="vdf">The current file text (LF line endings).</param>
     /// <param name="libraryPath">The plain library path, e.g. <c>E:\SteamLibrary</c>.</param>
     /// <param name="contentId">The library id (must match the card marker).</param>
     /// <param name="totalSize">The volume size in bytes.</param>
     /// <param name="updated">The new file text on success.</param>
+    /// <param name="label">The user-chosen library label, or empty for none.</param>
     public static bool TrySplice(
         string vdf, string libraryPath, string contentId, long totalSize,
-        out string? updated)
+        out string? updated, string label = "")
     {
         updated = null;
         if (!vdf.StartsWith("\"libraryfolders\"\n{\n", StringComparison.Ordinal)
-            || IsRegistered(vdf, libraryPath))
+            || IsContentIdRegistered(vdf, contentId))
         {
             return false;
         }
@@ -182,7 +215,7 @@ public static class SteamLibraryVdf
         {
             return false;
         }
-        var entry = BuildConfigEntry(NextIndex(vdf), libraryPath, contentId, totalSize);
+        var entry = BuildConfigEntry(NextIndex(vdf), libraryPath, contentId, totalSize, label);
         updated = vdf[..close] + entry + vdf[close..];
         return true;
     }

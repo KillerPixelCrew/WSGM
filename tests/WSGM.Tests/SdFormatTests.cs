@@ -8,22 +8,46 @@ public sealed class SdFormatTests
     // ---- diskpart script ----
 
     [Fact]
-    public void DiskpartScriptTargetsTheDiskWithGameLibraryTuning()
+    public void DiskpartScriptPreservesTheCardsDriveLetter()
     {
-        var script = SdFormatManager.BuildDiskpartScript(3);
+        var script = SdFormatManager.BuildDiskpartScript(3, 'E');
 
         Assert.Equal(
             "select disk 3\r\n"
             + "clean\r\n"
             + "create partition primary\r\n"
-            + "format fs=ntfs quick unit=128k label=Games\r\n"
-            + "assign\r\n",
+            + "format fs=ntfs quick unit=128k label=\"Games\"\r\n"
+            + "assign letter=E\r\n",
             script);
     }
 
     [Fact]
+    public void DiskpartScriptQuotesTheGivenLabel()
+        => Assert.Contains(
+            "label=\"My Games\"\r\n",
+            SdFormatManager.BuildDiskpartScript(1, 'E', "My Games"));
+
+    [Theory]
+    [InlineData(null, "Games")]
+    [InlineData("   ", "Games")]
+    [InlineData("My Card", "My Card")]
+    [InlineData("Games/2\"; exit", "Games2 exit")]
+    [InlineData("0123456789012345678901234567890123456789", "01234567890123456789012345678901")]
+    public void LabelsAreSanitizedForDiskpartAndSteam(string? input, string expected)
+        => Assert.Equal(expected, SdFormatManager.SanitizeLabel(input));
+
+    [Fact]
+    public void ALetterlessCardGetsABareAssign()
+    {
+        var script = SdFormatManager.BuildDiskpartScript(3, '\0');
+
+        Assert.EndsWith("assign\r\n", script);
+        Assert.DoesNotContain("assign letter=", script);
+    }
+
+    [Fact]
     public void DiskpartScriptNeverIssuesCleanAll()
-        => Assert.DoesNotContain("clean all", SdFormatManager.BuildDiskpartScript(0));
+        => Assert.DoesNotContain("clean all", SdFormatManager.BuildDiskpartScript(0, 'E'));
 
     // ---- bus labelling ----
 
@@ -152,20 +176,35 @@ public sealed class SdFormatTests
     }
 
     [Fact]
-    public void SpliceRefusesWhenThePathIsAlreadyRegistered()
+    public void SpliceRefusesWhenTheContentIdIsAlreadyRegistered()
     {
         var ok = SteamLibraryVdf.TrySplice(
-            TwoEntryConfig, @"D:\SteamLibrary", "999", 1L, out var updated);
+            TwoEntryConfig, @"E:\SteamLibrary", "222", 1L, out var updated);
 
         Assert.False(ok);
         Assert.Null(updated);
     }
 
     [Fact]
-    public void RegisteredPathCheckIsCaseInsensitive()
+    public void SpliceAllowsANewCardAtAnAlreadyRegisteredPath()
     {
-        Assert.True(SteamLibraryVdf.IsRegistered(TwoEntryConfig, @"d:\steamlibrary"));
-        Assert.False(SteamLibraryVdf.IsRegistered(TwoEntryConfig, @"E:\SteamLibrary"));
+        // A card reader keeps its letter across swaps: the same path with a fresh
+        // content id is a new card and MUST be added.
+        var ok = SteamLibraryVdf.TrySplice(
+            TwoEntryConfig, @"D:\SteamLibrary", "777", 1L, out var updated);
+
+        Assert.True(ok);
+        Assert.NotNull(updated);
+        Assert.Contains("\"contentid\"\t\t\"777\"", updated);
+        // The prior D:\SteamLibrary entry (content id 222) is preserved.
+        Assert.Contains("\"contentid\"\t\t\"222\"", updated);
+    }
+
+    [Fact]
+    public void ContentIdRegistrationCheckIsExact()
+    {
+        Assert.True(SteamLibraryVdf.IsContentIdRegistered(TwoEntryConfig, "222"));
+        Assert.False(SteamLibraryVdf.IsContentIdRegistered(TwoEntryConfig, "999"));
     }
 
     [Fact]

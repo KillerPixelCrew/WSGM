@@ -64,6 +64,9 @@ public partial class OverlayWindow : Window
     {
         _format = format;
         PanelFormat.DataContext = format;
+        // The on-screen keyboard is the only text entry in game mode; point it at
+        // the name box so a controller/thumb can name the card.
+        FormatKeyboard.Target = FormatNameInput;
     }
 
     /// <summary>The control gamepad navigation should land on when the panel opens
@@ -464,6 +467,8 @@ public partial class OverlayWindow : Window
         _pendingTarget = entry;
         FormatConfirmTarget.Text = $"Erase {entry.Name}?";
         FormatConfirmDetail.Text = entry.Detail;
+        FormatNameInput.Text = Shell.SdFormatManager.DefaultLabel;
+        FormatKeyboard.Reset();
         ShowFormatState(pick: false, confirm: true, progress: false);
         FocusFirstControl(FormatConfirmView);
     }
@@ -475,8 +480,9 @@ public partial class OverlayWindow : Window
             return;
         }
         var target = _pendingTarget;
+        var name = FormatNameInput.Text;
         ShowFormatState(pick: false, confirm: false, progress: true);
-        await _format.FormatAsync(target);
+        await _format.FormatAsync(target, name);
     }
 
     private void OnFormatCancel(object? sender, RoutedEventArgs e) => LeaveFormatSubView();

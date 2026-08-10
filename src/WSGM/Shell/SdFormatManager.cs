@@ -39,8 +39,29 @@ public sealed class SdFormatManager : INotifyPropertyChanged
     /// been closed mid-format.</summary>
     public event Action<string, bool>? Finished;
 
-    /// <summary>The volume label every formatted card gets.</summary>
-    internal const string VolumeLabel = "Games";
+    /// <summary>The volume/library label used when the user names nothing.</summary>
+    internal const string DefaultLabel = "Games";
+
+    /// <summary>Sanitizes a user-typed name into a value safe as both an NTFS
+    /// volume label and a Steam library label: trims, keeps ASCII letters, digits,
+    /// space, dash and underscore (so the diskpart script stays plain ASCII and no
+    /// quote can break out of the label token), caps at 32 characters, and falls
+    /// back to <see cref="DefaultLabel"/> when nothing usable remains.</summary>
+    /// <param name="name">The raw name, or null.</param>
+    internal static string SanitizeLabel(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return DefaultLabel;
+        }
+        var kept = new string(name.Trim()
+            .Where(c => c is (>= 'A' and <= 'Z') or (>= 'a' and <= 'z') or (>= '0' and <= '9')
+                or ' ' or '-' or '_')
+            .Take(32)
+            .ToArray())
+            .Trim();
+        return kept.Length == 0 ? DefaultLabel : kept;
+    }
 
     private int _refreshing;
 
@@ -313,11 +334,14 @@ public sealed class SdFormatManager : INotifyPropertyChanged
     /// A letterless card (raw / ext4 Deck card) gets a bare `assign`.</summary>
     /// <param name="diskNumber">The physical disk number.</param>
     /// <param name="preferredLetter">The letter to reassign, or '\0' for none.</param>
-    internal static string BuildDiskpartScript(int diskNumber, char preferredLetter = '\0') =>
+    /// <param name="label">The volume label (already sanitized); quoted so a name
+    /// with spaces stays one token.</param>
+    internal static string BuildDiskpartScript(
+        int diskNumber, char preferredLetter = '\0', string label = DefaultLabel) =>
         $"select disk {diskNumber.ToString(CultureInfo.InvariantCulture)}\r\n"
         + "clean\r\n"
         + "create partition primary\r\n"
-        + $"format fs=ntfs quick unit=128k label={VolumeLabel}\r\n"
+        + $"format fs=ntfs quick unit=128k label=\"{label}\"\r\n"
         + (preferredLetter is >= 'A' and <= 'Z'
             ? $"assign letter={preferredLetter}\r\n"
             : "assign\r\n");
@@ -326,12 +350,14 @@ public sealed class SdFormatManager : INotifyPropertyChanged
     /// Serialized; progress lands in <see cref="StatusText"/>; the terminal
     /// message also fires <see cref="Finished"/>.</summary>
     /// <param name="entry">The target to format.</param>
-    public async Task FormatAsync(FormatTargetEntry entry)
+    /// <param name="name">The user-chosen volume/library name, or null for the default.</param>
+    public async Task FormatAsync(FormatTargetEntry entry, string? name = null)
     {
         if (Busy)
         {
             return;
         }
+        var label = SanitizeLabel(name);
         await _formatGate.WaitAsync();
         try
         {
@@ -357,7 +383,7 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             }
 
             var keepLetter = entry.PreferredLetter;
-            var (exitCode, output) = await RunDiskpart(entry.DiskNumber, keepLetter);
+            var (exitCode, output) = await RunDiskpart(entry.DiskNumber, keepLetter, label);
             if (exitCode != 0)
             {
                 Log.Warn($"Format: diskpart failed (exit {exitCode}). Output:\n{output}");
@@ -391,8 +417,15 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             Log.Info($"Format: disk {entry.DiskNumber} mounted as {letter}: "
                 + $"(letter preserved={keepLetter is >= 'A' and <= 'Z'}).");
 
+            // TRIM the fresh (near-empty) volume so the flash controller learns
+            // almost the whole card is free — proven to restore SD write speed.
+            // Best-effort: a reader that does not pass TRIM just logs and moves on.
+            StatusText = "Optimizing the card...";
+            await RetrimVolume(letter.Value);
+
             StatusText = "Creating Steam library...";
-            var summary = await Task.Run(() => CreateSteamLibrary(letter.Value, entry.SizeBytes));
+            var summary = await Task.Run(
+                () => CreateSteamLibrary(letter.Value, entry.SizeBytes, label));
             Finish(summary, true);
         }
         catch (Exception ex)
@@ -442,9 +475,9 @@ public sealed class SdFormatManager : INotifyPropertyChanged
     /// it — never %TEMP%, same rule as the de-elevation task XML), runs
     /// diskpart, deletes the script.</summary>
     private static async Task<(int ExitCode, string Output)> RunDiskpart(
-        int diskNumber, char preferredLetter)
+        int diskNumber, char preferredLetter, string label)
     {
-        var script = BuildDiskpartScript(diskNumber, preferredLetter);
+        var script = BuildDiskpartScript(diskNumber, preferredLetter, label);
         Log.Info($"Format: diskpart script:\n{script.TrimEnd()}");
         var scriptPath = Path.Combine(Log.Directory, "format-disk.dp.txt");
         await File.WriteAllTextAsync(scriptPath, script);
@@ -462,6 +495,39 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             catch (IOException)
             {
             }
+        }
+    }
+
+    /// <summary>Issues TRIM (retrim) for the volume's free space via
+    /// <c>Optimize-Volume -ReTrim</c> so the flash controller marks the freshly
+    /// wiped blocks erasable — the proven SD write-speed win. Optimize-Volume is
+    /// used over <c>defrag /L</c> because it retrims REMOVABLE media too (plain
+    /// defrag skips it). Best-effort: a reader that does not pass TRIM just makes
+    /// the cmdlet fail, which is logged and the format continues. Runs elevated
+    /// (the format flow already is).</summary>
+    /// <param name="letter">The just-mounted drive letter.</param>
+    private static async Task RetrimVolume(char letter)
+    {
+        try
+        {
+            var (exitCode, output) = await ConsoleTool.RunCapturedAsync(
+                "powershell.exe",
+                "-NoProfile -NonInteractive -Command \"Optimize-Volume -DriveLetter "
+                    + letter + " -ReTrim -ErrorAction Stop\"",
+                timeoutMs: 300_000);
+            if (exitCode == 0)
+            {
+                Log.Info($"Format: retrimmed {letter}: (TRIM issued for free space).");
+            }
+            else
+            {
+                Log.Info($"Format: retrim of {letter}: not applied (exit {exitCode}); "
+                    + $"the reader may not pass TRIM. Output:\n{output.Trim()}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Format: retrim of {letter}: failed: {ex.Message}");
         }
     }
 
@@ -504,7 +570,7 @@ public sealed class SdFormatManager : INotifyPropertyChanged
     /// arrival fired when the volume was still empty, so a running Steam has
     /// already looked and found nothing. Returns the user-facing summary.
     /// Worker thread.</summary>
-    private static string CreateSteamLibrary(char letter, long sizeBytes)
+    private static string CreateSteamLibrary(char letter, long sizeBytes, string label)
     {
         var libraryPath = $@"{letter}:\SteamLibrary";
         Directory.CreateDirectory(Path.Combine(libraryPath, "steamapps"));
@@ -527,10 +593,10 @@ public sealed class SdFormatManager : INotifyPropertyChanged
 
         // Steam drops a copy of its current client dll into every secondary
         // library root; version skew is tolerated, so this is create-time only.
-        WriteMarkerAndClientDll(libraryPath, contentId, steamExe);
+        WriteMarkerAndClientDll(libraryPath, contentId, steamExe, label);
 
         var registration = RegisterLibrary(configPath, configText, libraryPath, contentId,
-            sizeBytes);
+            sizeBytes, label);
 
         // Now that the library exists, make drive watchers look at the volume
         // again (best effort; harmless when nobody listens).
@@ -541,31 +607,42 @@ public sealed class SdFormatManager : INotifyPropertyChanged
     }
 
     /// <summary>Registers the library with Steam. When Steam is RUNNING this
-    /// adds it to the live client through the injected payload
-    /// (CApplicationManager::AddLibraryFolder) — Steam adopts, persists, mounts
-    /// and scans it with no restart, which a file edit cannot do against a live
-    /// client (Steam holds libraries in memory and rewrites the file on exit).
-    /// When Steam is CLOSED, the entry is spliced into config\libraryfolders.vdf
-    /// so Steam reads it on next start; dedup there is by CONTENT ID (a card
-    /// reader reuses its drive letter, so the path repeats per card). Returns the
-    /// summary sentence.</summary>
+    /// drives Steam's own front-end API over its CEF debug port
+    /// (<see cref="SteamCdp"/>) — Steam adopts, persists, mounts and scans it with
+    /// no restart, which a file edit cannot do against a live client (Steam holds
+    /// libraries in memory and rewrites the file on exit). When Steam is CLOSED
+    /// (or its debug port is unreachable), the entry is spliced into
+    /// config\libraryfolders.vdf so Steam reads it on next start; dedup there is by
+    /// CONTENT ID (a card reader reuses its drive letter, so the path repeats per
+    /// card). Returns the summary sentence.</summary>
     private static string RegisterLibrary(
         string? configPath, string? configText, string libraryPath, string contentId,
-        long sizeBytes)
+        long sizeBytes, string label)
     {
-        // Live client: add through the payload — the only thing that actually
-        // makes a running Steam show the library without a restart.
+        // Live client: drive Steam's own front-end API over its CEF debug port so
+        // Steam adds, persists, mounts and scans the library with no restart — the
+        // only thing that makes a running Steam show a library live. Falls through
+        // to the config write only when the debug channel cannot be reached.
         if (Steam.IsRunning)
         {
-            if (SteamInputBlocker.AddSteamLibrary(libraryPath))
+            var live = SteamCdp.AddLibrary(libraryPath, label);
+            switch (live.Status)
             {
-                return "Added to Steam.";
+                case SteamLibraryAddStatus.Added:
+                    return "Added to Steam.";
+                case SteamLibraryAddStatus.AlreadyPresent:
+                    return "This library is already in Steam.";
+                case SteamLibraryAddStatus.Rejected:
+                    Log.Warn($"Format: Steam refused the library add ({live.Detail}).");
+                    return $"Steam did not accept it: {live.Detail}.";
+                default:
+                    Log.Warn("Format: Steam debug port unavailable — writing config for next start.");
+                    break;
             }
-            Log.Warn("Format: live library add failed — leaving it for a Steam restart.");
-            return "Created. Restart Steam to see it.";
         }
 
-        // Steam closed: safe to write the config; it is read on next start.
+        // Steam closed (or its debug port was unreachable): write the config; it is
+        // read on next start.
         if (configPath is null || configText is null)
         {
             Log.Warn("Format: Steam config not found — skipping registration.");
@@ -577,7 +654,7 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             return "This library is already in Steam.";
         }
         if (!SteamLibraryVdf.TrySplice(configText, libraryPath, contentId, sizeBytes,
-                out var updated))
+                out var updated, label))
         {
             Log.Warn("Format: libraryfolders.vdf has an unexpected shape — not editing it.");
             return "Add it in Steam under Settings > Storage.";
@@ -681,7 +758,7 @@ public sealed class SdFormatManager : INotifyPropertyChanged
                 }
             }
             contentId = SteamLibraryVdf.GenerateContentId(taken);
-            WriteMarkerAndClientDll(libraryPath, contentId, steamExe);
+            WriteMarkerAndClientDll(libraryPath, contentId, steamExe, label: "");
         }
 
         long totalSize = 0;
@@ -698,20 +775,22 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             // Network shares have no DriveInfo; Steam fills totalsize itself.
         }
 
+        // The Add-Library flow has no name field; an empty label leaves an existing
+        // library's own label untouched and gives a fresh folder Steam's default.
         var registration = RegisterLibrary(configPath, configText, libraryPath, contentId,
-            totalSize);
+            totalSize, label: "");
         return ($"{libraryPath} is set up as a Steam library. {registration}", true);
     }
 
     /// <summary>Writes the marker VDF (Steam's exact dialect: UTF-8 no BOM,
     /// LF-only) and copies Steam's client dll beside it.</summary>
     private static void WriteMarkerAndClientDll(
-        string libraryPath, string contentId, string? steamExe)
+        string libraryPath, string contentId, string? steamExe, string label)
     {
         var utf8NoBom = new System.Text.UTF8Encoding(false);
         File.WriteAllText(
             Path.Combine(libraryPath, "libraryfolder.vdf"),
-            SteamLibraryVdf.BuildMarker(contentId, steamExe ?? ""),
+            SteamLibraryVdf.BuildMarker(contentId, steamExe ?? "", label),
             utf8NoBom);
         Log.Info($"Format: library marker written ({libraryPath}, contentid {contentId}).");
         if (steamExe is not null)
