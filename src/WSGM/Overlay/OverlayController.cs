@@ -151,6 +151,52 @@ public sealed class OverlayController : IDisposable
         }
     }
 
+    private Shell.SdFormatManager? _formatManager;
+
+    /// <summary>The shared removable-storage format manager backing the Tools
+    /// tab's Format SD Card / Add Steam Library flow. Created on first use and
+    /// kept for the controller's lifetime so a format survives the overlay
+    /// closing; a completion reached while the overlay is closed surfaces
+    /// through the warning bar on the next open.</summary>
+    private Shell.SdFormatManager FormatManager
+    {
+        get
+        {
+            if (_formatManager is null)
+            {
+                _formatManager = new Shell.SdFormatManager();
+                _formatManager.Finished += OnFormatFinished;
+            }
+            return _formatManager;
+        }
+    }
+
+    private void OnFormatFinished(string message, bool success)
+    {
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            // While the overlay is open the sub-view already shows the outcome.
+            // If it was closed mid-format (the run outlives the window), reopen
+            // it to surface the result through the warning bar.
+            if (_overlay is null && !_disposed)
+            {
+                SetWarning(message);
+                ShowOverlay();
+            }
+        });
+    }
+
+    /// <summary>The overlay's Back/B action: cancel an open Tools sub-view first
+    /// (a format keeps running), otherwise close the overlay.</summary>
+    private void OnOverlayBack()
+    {
+        if (_overlay?.TryCancelSubView() == true)
+        {
+            return;
+        }
+        CloseOverlay();
+    }
+
     /// <summary>Applies a freshly loaded config (settings saved in another process).</summary>
     public void ApplyConfig(AppConfig config)
     {
@@ -542,8 +588,10 @@ public sealed class OverlayController : IDisposable
             }
         };
 
+        _overlay.AttachFormatManager(FormatManager);
+
         var overlay = _overlay;
-        _navigation = new GamepadNavigation(_gamepad, _overlay, CloseOverlay,
+        _navigation = new GamepadNavigation(_gamepad, _overlay, OnOverlayBack,
             isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
             preferredFocus: () => overlay.DefaultFocusTarget,
             tabPrevious: () => _overlay?.SelectPreviousTab(),

@@ -10,6 +10,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Core;
+using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
@@ -47,6 +48,24 @@ public partial class OverlayWindow : Window
 
     private bool _confirmCloseLauncher;
 
+    private Shell.SdFormatManager? _format;
+    private FormatTargetEntry? _pendingTarget;
+
+    /// <summary>Whether the in-place Format/Add-library sub-view is showing. While
+    /// it is, LB/RB tab switching is suppressed and B cancels the sub-view rather
+    /// than closing the overlay.</summary>
+    internal bool InFormatSubView { get; private set; }
+
+    /// <summary>Gives the overlay the shared removable-storage format manager so
+    /// its Tools sub-view can drive it. Called by the controller right after
+    /// construction (the manager outlives the window).</summary>
+    /// <param name="format">The controller-owned format manager.</param>
+    internal void AttachFormatManager(Shell.SdFormatManager format)
+    {
+        _format = format;
+        PanelFormat.DataContext = format;
+    }
+
     /// <summary>The control gamepad navigation should land on when the panel opens
     /// or when focus tracking is lost: the ACTIVE tab's first row — HomeAppButton
     /// is invisible on the Tools/Power tabs and focusing it would fall through to
@@ -55,6 +74,19 @@ public partial class OverlayWindow : Window
     {
         get
         {
+            // The Format/Add-library sub-view lives inside the Tools tab; focus
+            // lands there while it is open, not on the tab's ordinary rows.
+            if (InFormatSubView)
+            {
+                foreach (var visual in PanelFormat.GetVisualDescendants())
+                {
+                    if (visual is Button { Focusable: true, IsEffectivelyEnabled: true } b
+                        && b.IsEffectivelyVisible)
+                    {
+                        return b;
+                    }
+                }
+            }
             var panel = Tabs.SelectedIndex switch
             {
                 1 => (Control)PanelTools,
@@ -94,8 +126,13 @@ public partial class OverlayWindow : Window
         Tabs.SelectionChanged += OnTabSelectionChanged;
         // The panel opens on Session every time. Activated covers both the fresh
         // open (a no-op — the index is already 0) and a re-summon of a still-open
-        // panel (hotkey/swipe while browsing another tab).
-        Activated += (_, _) => Tabs.SelectedIndex = 0;
+        // panel (hotkey/swipe while browsing another tab). Any open sub-view is
+        // torn down with it.
+        Activated += (_, _) =>
+        {
+            LeaveFormatSubView();
+            Tabs.SelectedIndex = 0;
+        };
 
         KeyDown += OnKeyDown;
         Opened += OnOpened;
@@ -142,11 +179,39 @@ public partial class OverlayWindow : Window
         HomeAppButton.Focus(NavigationMethod.Directional);
     }
 
-    /// <summary>Selects the previous tab (LB), wrapping from the first to the last.</summary>
-    internal void SelectPreviousTab() => Tabs.SelectPrevious();
+    /// <summary>Selects the previous tab (LB), wrapping from the first to the
+    /// last. Suppressed while the Format sub-view owns the surface — a bumper
+    /// press must not switch tabs out from under it.</summary>
+    internal void SelectPreviousTab()
+    {
+        if (!InFormatSubView)
+        {
+            Tabs.SelectPrevious();
+        }
+    }
 
-    /// <summary>Selects the next tab (RB), wrapping from the last to the first.</summary>
-    internal void SelectNextTab() => Tabs.SelectNext();
+    /// <summary>Selects the next tab (RB). Suppressed in the Format sub-view.</summary>
+    internal void SelectNextTab()
+    {
+        if (!InFormatSubView)
+        {
+            Tabs.SelectNext();
+        }
+    }
+
+    /// <summary>The controller's Back/B action consults this first: when the
+    /// Format sub-view is open, Back returns to the Tools list instead of
+    /// closing the whole overlay. A format already running keeps running — only
+    /// the view resets. Returns true when it handled the press.</summary>
+    internal bool TryCancelSubView()
+    {
+        if (!InFormatSubView)
+        {
+            return false;
+        }
+        LeaveFormatSubView();
+        return true;
+    }
 
     /// <summary>One selection path for touch, mouse and the LB/RB shoulder buttons:
     /// the TabStrip owns the index, this toggles the three always-alive panels'
@@ -155,6 +220,12 @@ public partial class OverlayWindow : Window
     /// window's first focusable, the close button).</summary>
     private void OnTabSelectionChanged(object? sender, TabStripSelectionChangedEventArgs e)
     {
+        // Switching tabs (touch or click can still do it) leaves any open
+        // sub-view; the format run, if one is going, continues in the manager.
+        if (InFormatSubView)
+        {
+            LeaveFormatSubView();
+        }
         PanelSession.IsVisible = e.NewIndex == 0;
         PanelTools.IsVisible = e.NewIndex == 1;
         PanelPower.IsVisible = e.NewIndex == 2;
@@ -365,6 +436,114 @@ public partial class OverlayWindow : Window
         }
         ResetConfirms();
         CloseLauncherRequested?.Invoke();
+    }
+
+    // ---- Format SD Card / Add Steam Library sub-view ----
+
+    private void OnFormatSdCard(object? sender, RoutedEventArgs e)
+    {
+        if (_format is null)
+        {
+            return;
+        }
+        FormatHeading.Text = "Format SD Card";
+        ShowFormatState(pick: true, confirm: false, progress: false);
+        EnterFormatSubView();
+        _format.Refresh();
+    }
+
+    private void OnFormatRefresh(object? sender, RoutedEventArgs e) => _format?.Refresh();
+
+    private void OnFormatTargetChosen(object? sender, RoutedEventArgs e)
+    {
+        if (_format is null || _format.Busy
+            || (sender as Control)?.DataContext is not FormatTargetEntry entry)
+        {
+            return;
+        }
+        _pendingTarget = entry;
+        FormatConfirmTarget.Text = $"Erase {entry.Name}?";
+        FormatConfirmDetail.Text = entry.Detail;
+        ShowFormatState(pick: false, confirm: true, progress: false);
+        FocusFirstControl(FormatConfirmView);
+    }
+
+    private async void OnFormatConfirmed(object? sender, RoutedEventArgs e)
+    {
+        if (_format is null || _pendingTarget is null)
+        {
+            return;
+        }
+        var target = _pendingTarget;
+        ShowFormatState(pick: false, confirm: false, progress: true);
+        await _format.FormatAsync(target);
+    }
+
+    private void OnFormatCancel(object? sender, RoutedEventArgs e) => LeaveFormatSubView();
+
+    private async void OnAddLibrary(object? sender, RoutedEventArgs e)
+    {
+        if (_format is null)
+        {
+            return;
+        }
+        // A native folder picker: for network shares / second internal drives on
+        // DIY Steam machines, where the user has a pointer. Not gamepad-driven —
+        // the format flow is the controller-only path.
+        var folders = await StorageProvider.OpenFolderPickerAsync(
+            new Avalonia.Platform.Storage.FolderPickerOpenOptions
+            {
+                Title = "Choose a folder for the Steam library",
+                AllowMultiple = false,
+            });
+        if (folders.Count == 0)
+        {
+            return;
+        }
+        var path = folders[0].Path.IsAbsoluteUri && folders[0].Path.IsFile
+            ? folders[0].Path.LocalPath
+            : null;
+        if (string.IsNullOrEmpty(path))
+        {
+            Log.Warn("Add library: picked folder has no local path (a network location "
+                + "without a mapped drive?).");
+            return;
+        }
+        FormatHeading.Text = "Add Steam Library";
+        ShowFormatState(pick: false, confirm: false, progress: true);
+        EnterFormatSubView();
+        await _format.AddLibraryAsync(path);
+    }
+
+    private void EnterFormatSubView()
+    {
+        InFormatSubView = true;
+        PanelTools.IsVisible = false;
+        PanelFormat.IsVisible = true;
+        FocusFirstControl(PanelFormat);
+    }
+
+    private void LeaveFormatSubView()
+    {
+        if (!InFormatSubView)
+        {
+            return;
+        }
+        InFormatSubView = false;
+        _pendingTarget = null;
+        PanelFormat.IsVisible = false;
+        PanelTools.IsVisible = Tabs.SelectedIndex == 1;
+        if (PanelTools.IsVisible)
+        {
+            FocusFirstControl(PanelTools);
+        }
+    }
+
+    private void ShowFormatState(bool pick, bool confirm, bool progress)
+    {
+        FormatPickView.IsVisible = pick;
+        FormatConfirmView.IsVisible = confirm;
+        FormatProgressView.IsVisible = progress;
     }
 
     private void OnSleep(object? sender, RoutedEventArgs e)

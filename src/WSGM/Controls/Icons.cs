@@ -77,6 +77,19 @@ public static class Icons
                 + "M 3.9,11.9 A 11.5,11.5 0 0 1 20.1,11.9 "
                 + "M 11.3,20.1 A 0.7,0.7 0 1 0 12.7,20.1 A 0.7,0.7 0 1 0 11.3,20.1");
 
+    /// <summary>SD/memory card: rounded body with a clipped top-right corner and
+    /// three contact pins.</summary>
+    public static StreamGeometry SdCard { get; } =
+        StreamGeometry.Parse(
+            "M 6,3 L 15,3 L 19,7 L 19,21 L 6,21 Z "
+                + "M 9,3 L 9,6 M 11.5,3 L 11.5,6 M 14,3 L 14,6");
+
+    /// <summary>Plus in a rounded square (add a library folder).</summary>
+    public static StreamGeometry FolderPlus { get; } =
+        StreamGeometry.Parse(
+            "M 3,6 L 9,6 L 11,8.5 L 21,8.5 L 21,19 L 3,19 Z "
+                + "M 12,11.5 L 12,16 M 9.75,13.75 L 14.25,13.75");
+
     /// <summary>Eject symbol: triangle over a base bar (safe removal).</summary>
     public static StreamGeometry Eject { get; } =
         StreamGeometry.Parse("M 12,5.5 L 18.5,13 L 5.5,13 Z M 5.5,17 L 18.5,17");

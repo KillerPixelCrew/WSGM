@@ -2,6 +2,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ov="using:WSGM.Overlay"
         xmlns:c="using:WSGM.Controls"
+        xmlns:sh="using:WSGM.Shell"
+        xmlns:li="using:LoadingIndicators.Avalonia"
         xmlns:fa="using:FluentAvalonia.UI.Controls"
         x:Class="WSGM.Overlay.OverlayWindow"
         x:DataType="ov:OverlayViewModel"
@@ -87,6 +89,90 @@
                                       IconGeometry="{x:Static c:Icons.BlockedCircle}"
                                       Title="Copy Steam Input block command"
                                       Description="For games that read the controller themselves" />
+                        <c:CardButton Click="OnFormatSdCard"
+                                      IconGeometry="{x:Static c:Icons.SdCard}"
+                                      Title="Format SD Card"
+                                      Description="Erase a card as a Steam game library" />
+                        <c:CardButton Click="OnAddLibrary"
+                                      IconGeometry="{x:Static c:Icons.FolderPlus}"
+                                      Title="Add Steam Library"
+                                      Description="Register a folder, drive, or network share" />
+                    </StackPanel>
+
+                    <!-- Format flow lives in-place (a Popup/Flyout would be
+                         unreachable by the controller — GamepadNavigation is
+                         scoped to this window). Three states toggle by
+                         visibility: pick a drive, confirm the erase, watch it
+                         run. The whole sub-view is hidden from the tab strip. -->
+                    <StackPanel x:Name="PanelFormat" x:DataType="sh:SdFormatManager" Spacing="6" IsVisible="False">
+                        <TextBlock x:Name="FormatHeading"
+                                   Text="Format SD Card"
+                                   FontSize="15"
+                                   FontWeight="SemiBold" />
+
+                        <!-- State 1: target list -->
+                        <StackPanel x:Name="FormatPickView" Spacing="4">
+                            <TextBlock Text="Choose a drive to erase and set up as a Steam library. Everything on it will be lost."
+                                       Classes="caption"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="No removable drives found."
+                                       Classes="caption"
+                                       IsVisible="{Binding !HasTargets}" />
+                            <ItemsControl ItemsSource="{Binding Targets}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="sh:FormatTargetEntry">
+                                        <c:CardButton Click="OnFormatTargetChosen"
+                                                      IconGeometry="{x:Static c:Icons.SdCard}"
+                                                      Title="{Binding Name}"
+                                                      Description="{Binding Detail}"
+                                                      IsEnabled="{Binding $parent[ItemsControl].((sh:SdFormatManager)DataContext).NotBusy, FallbackValue=True}" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <Button Content="Refresh" Click="OnFormatRefresh" HorizontalAlignment="Left" />
+                        </StackPanel>
+
+                        <!-- State 2: confirm -->
+                        <StackPanel x:Name="FormatConfirmView" Spacing="8" IsVisible="False">
+                            <Border Background="{StaticResource HcCardBrush}"
+                                    BorderBrush="{StaticResource HcDangerBrush}"
+                                    BorderThickness="2"
+                                    CornerRadius="6"
+                                    Padding="12">
+                                <StackPanel Spacing="6">
+                                    <TextBlock x:Name="FormatConfirmTarget" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="FormatConfirmDetail" Classes="caption" TextWrapping="Wrap" />
+                                    <TextBlock Text="Everything on this drive will be permanently erased."
+                                               Foreground="{StaticResource HcDangerBrush}"
+                                               TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button x:Name="FormatConfirmButton"
+                                        Classes="danger"
+                                        Content="Erase and format"
+                                        Click="OnFormatConfirmed" />
+                                <Button Content="Cancel" Click="OnFormatCancel" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- State 3: progress / done -->
+                        <StackPanel x:Name="FormatProgressView" Spacing="10" IsVisible="False">
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <li:LoadingIndicator Mode="Ring"
+                                                     Width="22" Height="22"
+                                                     IsVisible="{Binding Busy}"
+                                                     VerticalAlignment="Center" />
+                                <TextBlock Text="{Binding StatusText}"
+                                           TextWrapping="Wrap"
+                                           VerticalAlignment="Center" />
+                            </StackPanel>
+                            <Button x:Name="FormatDoneButton"
+                                    Content="Done"
+                                    Click="OnFormatCancel"
+                                    IsVisible="{Binding NotBusy}"
+                                    HorizontalAlignment="Left" />
+                        </StackPanel>
                     </StackPanel>
 
                     <StackPanel x:Name="PanelPower" Spacing="4" IsVisible="False">

@@ -344,8 +344,9 @@ public sealed class RemovableDriveManager : INotifyPropertyChanged, IDisposable
     /// <summary>The disks the eject list must never contain: whatever Windows
     /// itself and WSGM run from. Belt and braces — an internal disk already
     /// fails the hotplug classification, but a USB-attached boot drive would
-    /// not.</summary>
-    private static HashSet<int> ResolveSystemDisks()
+    /// not. Shared with the Format flow's target list, which must never offer
+    /// these either.</summary>
+    internal static HashSet<int> ResolveSystemDisks()
     {
         var disks = new HashSet<int>();
         foreach (var root in new[]
