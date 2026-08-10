@@ -145,14 +145,15 @@ public static class SteamLibraryTabs
             existing.add(d.id);
             var coll=W.makeCollection(d.id,d.title,d.appids||[]);
             var content=tmpl.content;
-            if(W._gridType&&React){content=React.createElement(W._gridType,Object.assign({},W._gridProps,{collection:coll}));}
+            if(!W._gridType||!React)throw new Error('Steam library grid component not found');
+            content=React.createElement(W._gridType,Object.assign({},W._gridProps,{collection:coll}));
             (function(def,content){add.push({title:def.title,id:def.id,content:content,footer:tmpl.footer,
               renderTabAddon:function(){return React?React.createElement('span',null,String((def.appids||[]).length)):null;}});})(d,content);
           }
           if(!add.length)return v;
           var out=tabs.concat(add);
           return isNested?[out,v[1]]:out;
-        }catch(e){return v;}};
+        }catch(e){W.lastTabError=String((e&&e.stack)||e);return v;}};
         if(!W.tabsInstalled){
           var internals=React.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
           if(!internals||!('H' in internals))throw new Error('React dispatcher slot not found');
@@ -160,7 +161,8 @@ public static class SteamLibraryTabs
           Object.defineProperty(internals,'H',{configurable:true,
             get:function(){var c=cur;if(!c||typeof c!=='object'||typeof c.useMemo!=='function')return c;
               var w=wrapped.get(c);if(!w){var realUseMemo=c.useMemo;w=Object.create(c);
-                w.useMemo=function(fn,deps){return realUseMemo.call(c,function(){return W.patchTabs(fn());},deps);};
+                w.useMemo=function(fn,deps){var d=Array.isArray(deps)?deps.concat(W.revision||0):deps;
+                  return realUseMemo.call(c,function(){return W.patchTabs(fn());},d);};
                 wrapped.set(c,w);}return w;},
             set:function(v){cur=v;}});
           W.disableTabs=function(){try{Object.defineProperty(internals,'H',{configurable:true,writable:true,value:cur});}catch(e){}W.tabsInstalled=false;};

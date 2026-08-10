@@ -170,10 +170,11 @@ public static class SteamPageBridge
             + "background:rgba(20,25,32,.9);color:#e6edf3;font-size:14px;font-weight:600;"
             + "box-shadow:0 2px 10px rgba(0,0,0,.5);pointer-events:none;';"
             + "document.body.appendChild(b);}" +
-        "b.textContent='\\u25C9 On: '+name;}catch(e){}};" +
+        "const text='\\u25C9 On: '+name;if(b.textContent!==text)b.textContent=text;}catch(e){}};" +
         "window.__wsgm.renderBadge=render;" +
-        "try{const obs=new MutationObserver(()=>render());" +
+        "try{let queued=false;const obs=new MutationObserver(ms=>{if(ms.every(m=>m.target.closest&&m.target.closest('#'+BID)))return;" +
+        "if(!queued){queued=true;requestAnimationFrame(()=>{queued=false;render();});}});" +
         "obs.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['src']});" +
-        "window.__wsgm.badgeObserver=obs;}catch(e){}" +
+        "window.__wsgm.badgeObserver=obs;window.__wsgm.disableBadge=()=>{obs.disconnect();remove();window.__wsgm.badgeInstalled=false;};}catch(e){window.__wsgm.badgeInstalled=false;}" +
         "render();}";
 }

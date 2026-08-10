@@ -51,6 +51,23 @@ public static class ConfigStore
         return new AppConfig();
     }
 
+    /// <summary>Loads configuration for a read-modify-write transaction. Unlike
+    /// <see cref="Load"/>, an existing unreadable file is never converted to defaults:
+    /// the exception aborts the mutation so registry recovery snapshots cannot be erased.</summary>
+    /// <returns>The normalized configuration, or defaults only when no file exists.</returns>
+    internal static AppConfig LoadForMutation()
+    {
+        using var guard = ConfigMutex.Acquire();
+        if (!File.Exists(ConfigPath))
+        {
+            return new AppConfig();
+        }
+        var json = File.ReadAllText(ConfigPath);
+        var config = JsonSerializer.Deserialize(json, ConfigJsonContext.Default.AppConfig)
+            ?? throw new InvalidDataException("Configuration JSON contained no object.");
+        return Normalize(config);
+    }
+
     /// <summary>An explicit JSON null ("StartupApps": null) deserializes over the
     /// property initializer; replace nulls with fresh defaults so a hand-edited
     /// config can never NRE the shell later (which would kill it before the panic
@@ -67,6 +84,7 @@ public static class ConfigStore
         config.CardLibraries ??= [];
         config.CategoryTabs ??= [];
         config.CustomTabs ??= [];
+        config.SteamGridDbApiKey ??= "";
         config.CardLibraries = config.CardLibraries.Where(static card => card is not null).ToList();
         foreach (var card in config.CardLibraries)
         {

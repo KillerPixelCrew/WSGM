@@ -427,6 +427,14 @@ public sealed class OverlayController : IDisposable
         HideTouchEdges();
         if (_overlay is not null)
         {
+            if (_keyboardWindow is not null)
+            {
+                _keyboardNavigation?.Dispose();
+                _keyboardNavigation = null;
+                _keyboardWindow.Close();
+                _keyboardWindow = null;
+                _overlay.KeyboardOwnsFocus = false;
+            }
             if (_navigation is not null)
             {
                 _navigation.IsEnabled = true;
@@ -621,7 +629,8 @@ public sealed class OverlayController : IDisposable
     {
         if (_overlay is not null)
         {
-            if (!HitsWindow(_overlay, x, y))
+            if (!HitsWindow(_overlay, x, y)
+                && (_keyboardWindow is null || !HitsWindow(_keyboardWindow, x, y)))
             {
                 Log.Info("Touch outside quick access — dismissing.");
                 CloseOverlay();
@@ -707,6 +716,14 @@ public sealed class OverlayController : IDisposable
         nint inheritedRestore = 0;
         if (_overlay is not null)
         {
+            if (_keyboardWindow is not null)
+            {
+                _keyboardNavigation?.Dispose();
+                _keyboardNavigation = null;
+                _keyboardWindow.Close();
+                _keyboardWindow = null;
+                _overlay.KeyboardOwnsFocus = false;
+            }
             inheritedRestore = _restoreFocusTo;
             _suppressFocusRestore = true;
             if (_navigation is not null)
@@ -809,8 +826,8 @@ public sealed class OverlayController : IDisposable
         _keyboardWindow = window;
         overlay.KeyboardOwnsFocus = true;
         window.Accepted += text => onAccept(text);
+        window.Opened += (_, _) => PositionKeyboardBesideOverlay(window, overlay);
         window.Show();
-        PositionKeyboardBesideOverlay(window, overlay);
 
         _keyboardNavigation = new GamepadNavigation(_gamepad, window, () => window.Close(),
             isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
@@ -825,13 +842,14 @@ public sealed class OverlayController : IDisposable
             _keyboardNavigation?.Dispose();
             _keyboardNavigation = null;
             _keyboardWindow = null;
-            overlay.KeyboardOwnsFocus = false;
             if (_navigation is not null)
             {
                 _navigation.IsEnabled = true;
             }
             overlay.Activate();
             overlay.DefaultFocusTarget.Focus(Avalonia.Input.NavigationMethod.Directional);
+            // Keep the activation reset suppressed through the handoff itself.
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => overlay.KeyboardOwnsFocus = false);
         };
         window.Activate();
         window.FocusDefault();

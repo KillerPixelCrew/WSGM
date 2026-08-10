@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace WSGM.Core;
 
@@ -268,7 +269,7 @@ public static class LibraryFilter
     {
         FilterKind.Collection => !string.IsNullOrEmpty(node.CollectionId),
         FilterKind.Tag => node.TagIds.Count > 0,
-        FilterKind.Regex => !string.IsNullOrWhiteSpace(node.Pattern),
+        FilterKind.Regex => IsSafeRegex(node.Pattern),
         FilterKind.Whitelist or FilterKind.Blacklist => node.AppIds.Count > 0,
         FilterKind.ReleaseDate or FilterKind.LastPlayed => node.DaysAgo > 0 || node.Year > 0,
         FilterKind.SdCard => node.CardScope != SdCardScope.Specific
@@ -277,6 +278,25 @@ public static class LibraryFilter
         // Installed/Platform/thresholds are always well-formed (a threshold of 0 is legal).
         _ => true,
     };
+
+    private static bool IsSafeRegex(string pattern)
+    {
+        if (string.IsNullOrWhiteSpace(pattern) || pattern.Length > 64
+            || pattern.Contains("(?", StringComparison.Ordinal)
+            || Regex.IsMatch(pattern, @"\\[1-9]"))
+        {
+            return false;
+        }
+        try
+        {
+            var regex = new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+                TimeSpan.FromMilliseconds(25));
+            _ = regex.IsMatch(new string('a', 512) + "!");
+            return true;
+        }
+        catch (ArgumentException) { return false; }
+        catch (RegexMatchTimeoutException) { return false; }
+    }
 
     /// <summary>Builds the complete evaluation expression: prologue lookups, the
     /// compiled predicate, the category candidate gather, and a JSON result. The

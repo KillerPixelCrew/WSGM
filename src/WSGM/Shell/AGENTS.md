@@ -12,3 +12,5 @@ startup applications, tray host, removable storage, radio, audio, and system sta
   allowance for unelevated applications.
 - Radio, audio, and storage managers reconcile state in place. Preserve user focus and surface
   device-facing failures through logs and retryable UI states.
+- Card-reader paths are reusable identities: discover physical removable/hot-pluggable devices and
+  key registration, removal, and retirement by `contentId`, never by drive letter alone.

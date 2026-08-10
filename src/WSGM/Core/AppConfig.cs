@@ -416,8 +416,8 @@ public sealed class AppConfig
     /// <summary>User-built custom filter tabs (the TabMaster analog).</summary>
     public List<CustomTabConfig> CustomTabs { get; set; } = [];
 
-    /// <summary>Optional SteamGridDB API key. Empty = use the bundled default key
-    /// (shared quota); set your own free key from steamgriddb.com to avoid it.</summary>
+    /// <summary>Optional SteamGridDB API key. No key is bundled; set a free personal
+    /// key from steamgriddb.com to enable artwork search.</summary>
     public string SteamGridDbApiKey { get; set; } = "";
 
     /// <summary>Programs to start before Steam, in launch order.</summary>

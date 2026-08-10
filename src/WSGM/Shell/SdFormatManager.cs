@@ -386,6 +386,7 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             // card, first remove its existing Steam library by the marker's stable
             // content id; otherwise the live client keeps the old app list as
             // ghost entries after diskpart has erased the manifests.
+            var retiredContentId = ReadExistingContentId(entry);
             var removalFailure = await Task.Run(() => RemoveExistingLibrary(entry));
             if (removalFailure is not null)
             {
@@ -437,6 +438,15 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             StatusText = "Creating Steam library...";
             var summary = await Task.Run(
                 () => CreateSteamLibrary(letter.Value, entry.SizeBytes, label));
+            if (!string.IsNullOrEmpty(retiredContentId))
+            {
+                await LibraryTabManager.MutateConfigAsync<object?>(config =>
+                {
+                    config.CardLibraries.RemoveAll(c => string.Equals(
+                        c.ContentId, retiredContentId, StringComparison.Ordinal));
+                    return null;
+                });
+            }
             Finish(summary, true);
         }
         catch (Exception ex)
@@ -507,7 +517,8 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             if (values.Count == 0 || string.IsNullOrWhiteSpace(values[0]))
             {
                 Log.Warn($"Format: existing marker at {marker} has no content id.");
-                return null;
+                return "The existing Steam library marker has no content identity. "
+                    + "Formatting was stopped to avoid leaving ghost games in Steam.";
             }
             contentId = values[0];
         }
@@ -523,6 +534,11 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             ? null : Path.Combine(Path.GetDirectoryName(steamExe)!, "config", "libraryfolders.vdf");
         var configText = configPath is not null && File.Exists(configPath)
             ? File.ReadAllText(configPath) : null;
+        if (steamExe is null)
+        {
+            Log.Info("Format: Steam is not installed; no registration needs removal.");
+            return null;
+        }
         if (configPath is null || configText is null)
         {
             Log.Warn($"Format: cannot resolve existing library content id {contentId}; config missing.");
@@ -532,6 +548,23 @@ public sealed class SdFormatManager : INotifyPropertyChanged
 
         if (Steam.IsRunning)
         {
+            var registeredPath = SteamLibraryVdf.PathForContentId(configText, contentId);
+            var cardPath = Path.GetFullPath(Path.GetDirectoryName(marker)!);
+            if (registeredPath is null
+                || !string.Equals(Path.GetFullPath(registeredPath), cardPath,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return "The card marker does not match the Steam library on this drive. "
+                    + "Formatting was stopped to protect your other libraries.";
+            }
+            var pathMatches = SteamLibraryVdf.ValuesOf(configText, "path")
+                .Count(path => string.Equals(Path.GetFullPath(path), cardPath,
+                    StringComparison.OrdinalIgnoreCase));
+            if (pathMatches > 1)
+            {
+                return "Several card libraries share this reader path. Close Steam and try again "
+                    + "so WSGM can remove only this card's content identity.";
+            }
             var result = SteamCdp.RemoveLibraryByContentIdAsync(contentId, configText)
                 .GetAwaiter().GetResult();
             if (result.Status is SteamLibraryRemoveStatus.Removed or SteamLibraryRemoveStatus.NotPresent)
@@ -556,6 +589,29 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         File.WriteAllText(configPath, updated, new System.Text.UTF8Encoding(false));
         Log.Info($"Format: removed closed-Steam library registration for content id {contentId}.");
         return null;
+    }
+
+    private static string? ReadExistingContentId(FormatTargetEntry entry)
+    {
+        if (entry.PreferredLetter is < 'A' or > 'Z')
+        {
+            return null;
+        }
+        var marker = $@"{entry.PreferredLetter}:\SteamLibrary\libraryfolder.vdf";
+        if (!File.Exists(marker))
+        {
+            return null;
+        }
+        try
+        {
+            return SteamLibraryVdf.ValuesOf(File.ReadAllText(marker), "contentid")
+                .FirstOrDefault(id => !string.IsNullOrWhiteSpace(id));
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Format: could not capture old card identity: {ex.Message}");
+            return null;
+        }
     }
 
     /// <summary>Writes the script beside the log (an elevated diskpart consumes

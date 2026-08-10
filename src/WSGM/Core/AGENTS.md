@@ -8,6 +8,8 @@ utilities.
   reflection and `LibraryImport` with blittable signatures for native calls.
 - `ConfigStore` owns the cross-process lock and atomic merge/save flow. Do not bypass it or write the
   real `%LOCALAPPDATA%\WSGM` configuration from tests.
+- Read-modify-write operations must use the strict mutation load: an existing unreadable config is
+  an aborted mutation, never permission to replace recovery snapshots with defaults.
 - `ExplorerControl.ExitExplorerAndWait` is device-settled: use Explorer's exit command and fail open;
   never replace it with `Process.Kill` or Restart Manager shutdown.
 - Steam interactions use protocol URLs or the CEF front-end bridge. Never call Steam internals from

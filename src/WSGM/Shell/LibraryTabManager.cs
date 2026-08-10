@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
+using WSGM.Interop;
 
 namespace WSGM.Shell;
 
@@ -375,7 +376,7 @@ public sealed class LibraryTabManager
         => Task.Run(() =>
         {
             using var _ = ConfigStore.AcquireLock();
-            var config = ConfigStore.Load();
+            var config = ConfigStore.LoadForMutation();
             var result = mutate(config);
             ConfigStore.Save(config);
             return result;
@@ -399,7 +400,7 @@ public sealed class LibraryTabManager
         {
             try
             {
-                if (!drive.IsReady || drive.DriveType != DriveType.Removable)
+                if (!drive.IsReady || !IsExternalVolume(drive))
                 {
                     continue;
                 }
@@ -427,6 +428,27 @@ public sealed class LibraryTabManager
             }
         }
         return found;
+    }
+
+    private static bool IsExternalVolume(DriveInfo drive)
+    {
+        if (drive.DriveType is not (DriveType.Fixed or DriveType.Removable))
+        {
+            return false;
+        }
+        var letter = char.ToUpperInvariant(drive.Name[0]);
+        using var volume = NativeStorage.OpenVolumeForQuery(letter);
+        if (volume.IsInvalid
+            || !NativeStorage.TryGetDeviceNumber(volume, out var type, out var disk)
+            || type != NativeStorage.FileDeviceDisk || disk < 0
+            || RemovableDriveManager.ResolveSystemDisks().Contains(disk))
+        {
+            return false;
+        }
+        using var physical = NativeStorage.OpenDiskForRead(disk);
+        return !physical.IsInvalid
+            && NativeStorage.TryGetHotplugInfo(physical, out var media, out var hotplug)
+            && RemovableDriveManager.Classify(hotplug, media) is not null;
     }
 
     /// <summary>Maps content id → the Steam-side library label from

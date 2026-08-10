@@ -34,6 +34,7 @@ public sealed class LibraryTabsView : UserControl
     private IReadOnlyList<SteamCollections.AppInfo>? _games;
     private IReadOnlyList<SteamCollections.TagInfo>? _tags;
     private IReadOnlyList<SteamCollectionInfo>? _collections;
+    private int _navigationGeneration;
 
     /// <summary>Raised when the user backs out of the top level (the overlay then
     /// returns to the Tools list).</summary>
@@ -58,6 +59,7 @@ public sealed class LibraryTabsView : UserControl
     /// Returns true when it consumed the press.</summary>
     public bool Back()
     {
+        _navigationGeneration++;
         if (_stack.Count == 0)
         {
             CloseRequested?.Invoke();
@@ -70,6 +72,7 @@ public sealed class LibraryTabsView : UserControl
 
     private void Navigate(Action render)
     {
+        _navigationGeneration++;
         if (_current is not null)
         {
             _stack.Push(_current);
@@ -103,7 +106,7 @@ public sealed class LibraryTabsView : UserControl
         stack.Children.Add(PrimaryRow("New Tab", "Build a tab from filters", Icons.FolderPlus,
             () => OpenTabEditor(null)));
         stack.Children.Add(Row("Card Manager", "Rename, hide, and view SD-card libraries",
-            Icons.SdCard, RenderCardList));
+            Icons.SdCard, () => Navigate(RenderCardList)));
 
         if (_config.CustomTabs.Count > 0)
         {
@@ -141,7 +144,6 @@ public sealed class LibraryTabsView : UserControl
             Icons.CopyDoc, () => EditText("Tab name", _editing.Name, 40, v =>
             {
                 _editing.Name = v.Trim();
-                Back();
             })));
 
         stack.Children.Add(CycleRow("Match", _editing.FilterTree!.Mode == FilterMode.And
@@ -409,7 +411,6 @@ public sealed class LibraryTabsView : UserControl
                     EditText("Title pattern", node.Pattern, 64, v =>
                     {
                         node.Pattern = v;
-                        Back();
                     })));
                 break;
 
@@ -576,7 +577,13 @@ public sealed class LibraryTabsView : UserControl
     private async void OpenTagPicker(FilterNode node)
     {
         Navigate(() => RenderLoading("Tags"));
-        _tags ??= await SteamCollections.GetLibraryTagsAsync();
+        var generation = _navigationGeneration;
+        var loaded = await SteamCollections.GetLibraryTagsAsync();
+        if (generation != _navigationGeneration)
+        {
+            return;
+        }
+        _tags = loaded;
         var selected = new HashSet<long>(node.TagIds.Select(static id => (long)id));
         Replace(() => RenderMultiSelect("Tags", _tags!.Select(t => ((long)t.TagId, $"{t.Name} ({t.Count})")),
             selected, () =>
@@ -589,7 +596,13 @@ public sealed class LibraryTabsView : UserControl
     private async void OpenGamePicker(FilterNode node)
     {
         Navigate(() => RenderLoading("Games"));
-        _games ??= await SteamCollections.GetGamesAsync();
+        var generation = _navigationGeneration;
+        var loaded = await SteamCollections.GetGamesAsync();
+        if (generation != _navigationGeneration)
+        {
+            return;
+        }
+        _games = loaded;
         var selected = new HashSet<long>(node.AppIds);
         Replace(() => RenderMultiSelect("Games", _games!.Select(g => (g.AppId, g.Name)), selected, () =>
         {
@@ -601,7 +614,13 @@ public sealed class LibraryTabsView : UserControl
     private async void OpenCollectionPicker(FilterNode node)
     {
         Navigate(() => RenderLoading("Collections"));
-        _collections ??= await SteamCollections.ListAsync();
+        var generation = _navigationGeneration;
+        var loaded = await SteamCollections.ListAsync();
+        if (generation != _navigationGeneration)
+        {
+            return;
+        }
+        _collections = loaded;
         Replace(() =>
         {
             var stack = NewStack("Collection");
@@ -627,7 +646,7 @@ public sealed class LibraryTabsView : UserControl
     {
         var stack = NewStack(title);
         stack.Children.Add(PrimaryRow("Done", $"{selected.Count} selected", Icons.Play, onDone));
-        foreach (var (id, label) in items.Take(400))
+        foreach (var (id, label) in items)
         {
             var itemId = id;
             var check = selected.Contains(itemId) ? "✓ " : "";
@@ -649,11 +668,16 @@ public sealed class LibraryTabsView : UserControl
 
     private async void RenderCardList()
     {
+        var generation = _navigationGeneration;
         SetContent(NewStack("Card Manager").Also(s => s.Children.Add(Caption("Scanning cards…"))));
         IReadOnlyList<LibraryTabManager.CardView> cards;
         try
         {
             cards = await _manager.ListCardsAsync();
+            if (generation != _navigationGeneration)
+            {
+                return;
+            }
             _config = LibraryTabManager.LoadConfig();
         }
         catch (Exception ex)
@@ -692,7 +716,6 @@ public sealed class LibraryTabsView : UserControl
                     // Drop the text-entry level and the card editor, landing on a fresh
                     // card list (with the tab list still underneath).
                     PopIfAny();
-                    PopIfAny();
                     Replace(RenderCardList);
                     _ = SyncQuietly();
                 })));
@@ -729,7 +752,13 @@ public sealed class LibraryTabsView : UserControl
     private async void OpenGameList(LibraryTabManager.CardView card)
     {
         Navigate(() => RenderLoading(card.Name));
-        _games ??= await SteamCollections.GetGamesAsync();
+        var generation = _navigationGeneration;
+        var loaded = await SteamCollections.GetGamesAsync();
+        if (generation != _navigationGeneration)
+        {
+            return;
+        }
+        _games = loaded;
         var names = _games!.ToDictionary(g => g.AppId, g => g.Name);
         Replace(() =>
         {
@@ -765,10 +794,10 @@ public sealed class LibraryTabsView : UserControl
             var box = new TextBox { Text = current, MaxLength = maxLen, Margin = new Avalonia.Thickness(0, 0, 0, 6) };
             stack.Children.Add(box);
             var keyboard = new OnScreenKeyboard { Target = box };
-            keyboard.Accepted += (_, _) => { onAccept(box.Text ?? ""); };
+            keyboard.Accepted += (_, _) => { Back(); onAccept(box.Text ?? ""); };
             stack.Children.Add(keyboard);
             stack.Children.Add(PrimaryRow("Accept", "Save this text", Icons.Play,
-                () => onAccept(box.Text ?? "")));
+                () => { Back(); onAccept(box.Text ?? ""); }));
             stack.Children.Add(Row("Cancel", "Discard", Icons.ExitFullscreen, () => Back()));
             SetContent(stack);
         });
