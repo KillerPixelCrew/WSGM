@@ -190,13 +190,14 @@ function CloseHandleK(hObject: THandle): BOOL;
   external 'CloseHandle@kernel32.dll stdcall';
 
 // WSGM is almost certainly running during an update (it IS the shell), and it
-// may be ELEVATED — this unelevated setup/uninstaller cannot taskkill it.
-// Instead WSGM listens on a named MANUAL-RESET event (one SetEvent releases
-// every waiting instance, elevated or not) and exits itself gracefully (which
-// also asks Steam to exit and releases the injected Steam Input payload).
-// taskkill remains as fallback for
-// unelevated leftovers. Returns True when the event existed, i.e. at least one
-// WSGM instance was running.
+// may be ELEVATED. This setup is itself elevated (PrivilegesRequired=admin), so
+// its token carries BUILTIN\Administrators and this user's SID — both of which
+// the event's DACL grants EVENT_MODIFY_STATE. WSGM listens on a named
+// MANUAL-RESET event (one SetEvent releases every waiting instance, elevated or
+// not) and exits itself gracefully (which also asks Steam to exit and releases
+// the injected Steam Input payload). taskkill remains as fallback for any
+// leftovers. Returns True when the event existed, i.e. at least one WSGM
+// instance was running.
 function StopRunningInstances(): Boolean;
 var
   R, I: Integer;

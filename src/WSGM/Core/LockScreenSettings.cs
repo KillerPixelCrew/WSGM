@@ -372,7 +372,7 @@ public static class LockScreenSettings
 
     /// <summary>Exit-code-checked: a failed powercfg must never count as applied
     /// (the "applied to N scheme(s)" log line is the only remote diagnosis signal).</summary>
-    private static bool RunPowerCfg(string arguments) => ConsoleTool.Run("powercfg.exe", arguments);
+    private static bool RunPowerCfg(string arguments) => ConsoleTool.Run(ConsoleTool.System32("powercfg.exe"), arguments);
 
     /// <summary>Requests the change from the non-elevated UI (one elevation prompt).</summary>
     public static bool RequestChange(bool disableSignInOnWake) =>

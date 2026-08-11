@@ -198,12 +198,17 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         try
         {
             var log = System.IO.Path.Combine(Log.Directory, "wsgm.log");
+            // Absolute system path: a relative name would resolve via the process
+            // working directory, which is the user-writable install dir.
+            var windir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+            var explorer = System.IO.Path.Combine(windir, "explorer.exe");
             // Select the file when it exists so the user lands right on it;
             // otherwise just open the folder.
             var psi = System.IO.File.Exists(log)
-                ? new System.Diagnostics.ProcessStartInfo("explorer.exe", $"/select,\"{log}\"")
+                ? new System.Diagnostics.ProcessStartInfo(explorer, $"/select,\"{log}\"")
                 : new System.Diagnostics.ProcessStartInfo(Log.Directory);
             psi.UseShellExecute = true;
+            psi.WorkingDirectory = windir;
             System.Diagnostics.Process.Start(psi);
         }
         catch (Exception ex)

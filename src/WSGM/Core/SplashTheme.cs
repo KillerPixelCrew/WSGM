@@ -597,6 +597,16 @@ internal static class SplashTheme
             {
                 return;
             }
+            // A reparse point where our staging root should be is an attack surface:
+            // a same-user process can repoint %TEMP%\WSGM.splash-import at any
+            // directory before an elevated sweep, which would then enumerate and
+            // recursively delete the junction target's children. The root is always a
+            // plain directory WSGM created — never follow a junction through it.
+            if (IsReparsePoint(stagingRoot))
+            {
+                Log.Warn($"Splash staging root '{stagingRoot}' is a reparse point; skipping cleanup.");
+                return;
+            }
             var keepFullPath = NormalizeDirectoryPath(keep);
             foreach (var directory in Directory.EnumerateDirectories(stagingRoot))
             {
@@ -650,6 +660,22 @@ internal static class SplashTheme
             // An unresolvable path matches nothing — the safe answer for `keep` is to
             // let the ownership and age rules decide on their own.
             return null;
+        }
+    }
+
+    /// <summary>True when the path is a reparse point (junction/symlink), so the
+    /// cleanup sweep never follows a repointed staging root. An unreadable attribute
+    /// set counts as a reparse point: the safe answer for a best-effort sweep is to
+    /// skip rather than risk following a link.</summary>
+    private static bool IsReparsePoint(string path)
+    {
+        try
+        {
+            return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
+        }
+        catch
+        {
+            return true;
         }
     }
 

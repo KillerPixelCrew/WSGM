@@ -362,7 +362,13 @@ public sealed class OverlayController : IDisposable
     {
         RunOnUiThreadAfter(TimeSpan.FromMilliseconds(300), () =>
         {
-            var hwnd = WindowFinder.FindWindow("Taskmgr", windowClass: null);
+            // Only the real System32 Task Manager qualifies — never promote a
+            // same-named exe running from elsewhere to the foreground.
+            var expected = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.System), "Taskmgr.exe");
+            var pids = WindowFinder.FindProcessIds("Taskmgr");
+            pids.RemoveWhere(pid => !WindowFinder.ProcessImagePathEquals(pid, expected));
+            var hwnd = WindowFinder.FindWindow(pids, windowClass: null);
             if (hwnd != 0)
             {
                 WindowFinder.BringToForeground(hwnd);

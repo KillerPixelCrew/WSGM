@@ -436,6 +436,10 @@ public sealed class ArtworkView : UserControl
         return button;
     }
 
+    // Mirrors SteamGridDb.DownloadImageAsync's 16 MB safety limit for formats whose
+    // headers ImageHeader cannot read (webp previews must keep working).
+    private const long CurrentArtMaxBytes = 16 * 1024 * 1024;
+
     // Shows the slot's current custom-art file (if any) in the given placeholder.
     // Disk-only; failures just leave the preview hidden.
     private async Task LoadCurrentArtAsync(Image image, long appId, ArtworkAsset asset, int generation)
@@ -447,6 +451,25 @@ public sealed class ArtworkView : UserControl
                 var path = SteamArtwork.FindCustomArtFile(appId, asset);
                 if (path is null)
                 {
+                    return null;
+                }
+                // Grid files are written by Steam and third-party art tools, so they are
+                // untrusted: refuse hostile declared dimensions for the formats ImageHeader
+                // parses (PNG/JPEG/BMP), and byte-cap the ones it cannot (webp) so a tiny
+                // file cannot commit an unbounded decode allocation.
+                if (ImageHeader.TryReadSize(path, out var artWidth, out var artHeight))
+                {
+                    if (!ImageHeader.IsWithinLimits(artWidth, artHeight))
+                    {
+                        Log.Warn($"Artwork: current-art preview skipped, image declares "
+                            + $"{artWidth}x{artHeight} px: {path}");
+                        return null;
+                    }
+                }
+                else if (new FileInfo(path).Length > CurrentArtMaxBytes)
+                {
+                    Log.Warn($"Artwork: current-art preview skipped, file exceeds "
+                        + $"{CurrentArtMaxBytes / (1024 * 1024)} MB cap: {path}");
                     return null;
                 }
                 using var stream = File.OpenRead(path);

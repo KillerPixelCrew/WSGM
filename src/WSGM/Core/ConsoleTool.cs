@@ -22,6 +22,7 @@ internal static class ConsoleTool
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
+                WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System),
             });
             if (p is null)
             {
@@ -65,6 +66,7 @@ internal static class ConsoleTool
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
+                WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System),
             });
             if (p is null)
             {
@@ -106,6 +108,12 @@ internal static class ConsoleTool
             return (-1, "");
         }
     }
+
+    /// <summary>Absolute System32 path for a Windows console tool. A relative exe
+    /// name is resolved from the application directory first, which for a per-user
+    /// install is user-writable — an elevated caller must never search it.</summary>
+    public static string System32(string exeName) =>
+        System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), exeName);
 
     internal static string FirstToken(string arguments)
     {

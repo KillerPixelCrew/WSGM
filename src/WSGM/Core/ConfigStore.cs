@@ -159,6 +159,9 @@ public static class ConfigStore
             .Where(static id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal).ToList();
         config.CategoryTabs ??= [];
         config.CustomTabs ??= [];
+        config.LibraryTabOrder ??= [];
+        config.HiddenNativeTabs ??= [];
+        config.KnownNativeTabs ??= [];
         config.SteamGridDbApiKey ??= "";
         config.SgdbLinks ??= [];
         config.CardLibraries = config.CardLibraries.Where(static card => card is not null).ToList();
@@ -184,6 +187,17 @@ public static class ConfigStore
             tab.CollectionId ??= "";
             tab.FilterTree ??= new FilterNode { Kind = FilterKind.Merge };
             NormalizeFilter(tab.FilterTree);
+        }
+        config.LibraryTabOrder = config.LibraryTabOrder
+            .Where(static key => key is not null).ToList();
+        config.HiddenNativeTabs = config.HiddenNativeTabs
+            .Where(static id => id is not null).ToList();
+        config.KnownNativeTabs = config.KnownNativeTabs
+            .Where(static tab => tab is not null).ToList();
+        foreach (var native in config.KnownNativeTabs)
+        {
+            native.Id ??= "";
+            native.Title ??= "";
         }
         config.AccentColor ??= "#FFFF9D3D";
         config.AccentColor = Truncate(config.AccentColor, MaxColorLength, "Accent color");
@@ -366,8 +380,18 @@ public static class ConfigStore
     {
         try
         {
-            var bad = Path.Combine(Log.Directory, "config.bad.json");
-            File.Copy(ConfigPath, bad, overwrite: true);
+            // This runs in the elevated one-shots too (UacSettings/LockScreenSettings
+            // call Load), and %LOCALAPPDATA%\WSGM is writable by the unelevated user:
+            // a pre-planted reparse point at a PREDICTABLE destination would redirect
+            // an overwriting elevated copy (CopyFileEx follows destination links). An
+            // unpredictable name cannot be pre-planted, and CreateNew refuses to write
+            // through anything that already occupies it — no overwrite, no follow.
+            var bad = Path.Combine(Log.Directory, $"config.bad.{Guid.NewGuid():N}.json");
+            using (var source = new FileStream(ConfigPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            using (var dest = new FileStream(bad, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                source.CopyTo(dest);
+            }
             Log.Error($"Corrupt config preserved at {bad} — registry snapshots may be recoverable from it.");
         }
         catch

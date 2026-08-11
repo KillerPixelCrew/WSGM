@@ -314,7 +314,8 @@ internal static unsafe partial class NativeStorage
         {
             return false;
         }
-        var instanceId = new string(buffer);
+        // size is the byte count cfgmgr32 wrote back (buffer holds 512 chars).
+        var instanceId = ReadBoundedString(buffer, (int)(Math.Min(size, 1024u) / 2));
         return instanceId.Length > 0
             && CM_Locate_DevNodeW(out devInst, instanceId, 0) == CrSuccess;
     }
@@ -353,7 +354,19 @@ internal static unsafe partial class NativeStorage
         {
             return "";
         }
-        return Marshal.PtrToStringUni((nint)buffer) ?? "";
+        // REG_SZ data is not guaranteed NUL-terminated; decode at most the
+        // returned byte count (buffer holds 1024 bytes = 512 chars).
+        return ReadBoundedString((char*)buffer, (int)(Math.Min(length, 1024u) / 2));
+    }
+
+    /// <summary>Decodes a UTF-16 buffer up to its first NUL, never reading past
+    /// <paramref name="capacity"/> chars — cfgmgr32/registry strings are not
+    /// guaranteed NUL-terminated when they exactly fill the buffer.</summary>
+    private static string ReadBoundedString(char* buffer, int capacity)
+    {
+        var span = new ReadOnlySpan<char>(buffer, capacity);
+        var end = span.IndexOf('\0');
+        return new string(end >= 0 ? span[..end] : span);
     }
 
     /// <summary>Reads the devnode's CM_DEVCAP_* capability bits, 0 on failure.</summary>
@@ -616,7 +629,7 @@ internal static unsafe partial class NativeStorage
         var buffer = stackalloc char[MaxPath];
         var result = CM_Request_Device_EjectW(devInst, out var rawVeto, buffer, MaxPath, 0);
         vetoType = (PnpVetoType)rawVeto;
-        vetoName = Marshal.PtrToStringUni((nint)buffer) ?? "";
+        vetoName = ReadBoundedString(buffer, MaxPath);
         return result;
     }
 

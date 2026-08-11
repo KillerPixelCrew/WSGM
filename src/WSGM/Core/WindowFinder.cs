@@ -90,16 +90,48 @@ public static class WindowFinder
     /// <param name="windowClass">An optional exact Win32 window-class filter.</param>
     /// <returns>The native window handle, or zero when no qualifying window exists.</returns>
     public static unsafe nint FindWindow(string processNames, string? windowClass)
+        => FindWindow(FindProcessIds(processNames), windowClass);
+
+    /// <summary>Finds the first qualifying top-level window owned by one of the given processes.</summary>
+    /// <param name="processIds">The process ids that may own the window.</param>
+    /// <param name="windowClass">An optional exact Win32 window-class filter.</param>
+    /// <returns>The native window handle, or zero when no qualifying window exists.</returns>
+    public static unsafe nint FindWindow(HashSet<uint> processIds, string? windowClass)
     {
-        var pids = FindProcessIds(processNames);
-        if (pids.Count == 0)
+        if (processIds.Count == 0)
         {
             return 0;
         }
 
-        var state = new SearchState { ProcessIds = pids, WindowClass = string.IsNullOrWhiteSpace(windowClass) ? null : windowClass };
+        var state = new SearchState { ProcessIds = processIds, WindowClass = string.IsNullOrWhiteSpace(windowClass) ? null : windowClass };
         RunEnumWindows(&EnumWindowsProc, state);
         return state.Found;
+    }
+
+    /// <summary>Best-effort check that a process's image path equals the expected full
+    /// path. Unreadable processes count as matching (fail-open) so the caller's focus
+    /// poll cannot go blind when the image path cannot be queried.</summary>
+    /// <param name="pid">The process to inspect.</param>
+    /// <param name="expectedFullPath">The full image path required.</param>
+    /// <returns>Whether the image path matches (or could not be read).</returns>
+    public static bool ProcessImagePathEquals(uint pid, string expectedFullPath)
+    {
+        var process = NativeMethods.OpenProcess(NativeMethods.ProcessQueryLimitedInformation, false, pid);
+        if (process == 0)
+        {
+            return true;
+        }
+        try
+        {
+            var buffer = new char[1024];
+            var length = (uint)buffer.Length;
+            return !NativeMethods.QueryFullProcessImageNameW(process, 0, buffer, ref length)
+                || string.Equals(new string(buffer, 0, (int)length), expectedFullPath, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            NativeMethods.CloseHandle(process);
+        }
     }
 
     [UnmanagedCallersOnly]

@@ -85,10 +85,14 @@ internal static class ScheduledTaskLauncher
     {
         try
         {
-            var startInfo = new ProcessStartInfo("schtasks.exe")
+            // Absolute System32 path: an elevated launch must never resolve a
+            // same-user schtasks.exe planted on PATH or the working directory.
+            var schtasks = Path.Combine(Environment.SystemDirectory, "schtasks.exe");
+            var startInfo = new ProcessStartInfo(schtasks)
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
+                WorkingDirectory = Environment.SystemDirectory,
             };
             foreach (var argument in arguments)
             {

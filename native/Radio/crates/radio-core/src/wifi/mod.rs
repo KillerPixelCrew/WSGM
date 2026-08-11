@@ -923,8 +923,15 @@ fn free_profile_name(client: &Client, guid: &GUID, ssid: &str, target: &[u8]) ->
 /// "<SSID> 2", so a name comparison reports that network as unsaved and sends
 /// the user back to re-type a password Windows already has.
 fn profile_ssids(client: &Client, guid: &GUID) -> Vec<(String, Vec<u8>)> {
+    try_profile_ssids(client, guid).unwrap_or_default()
+}
+
+/// Fallible form of [`profile_ssids`], for the caller where a failed enumeration
+/// must surface: Forget treating "could not list profiles" as "nothing saved"
+/// would report success while the profile keeps auto-joining.
+fn try_profile_ssids(client: &Client, guid: &GUID) -> Result<Vec<(String, Vec<u8>)>> {
     let mut found = Vec::new();
-    for name in profile_names(client, guid).unwrap_or_default() {
+    for name in profile_names(client, guid)? {
         let ssid = profile_xml(client, guid, &name)
             .and_then(|xml| profile::ssid_of_profile(&xml))
             // An unreadable document falls back to the name, which is what the
@@ -932,7 +939,7 @@ fn profile_ssids(client: &Client, guid: &GUID) -> Vec<(String, Vec<u8>)> {
             .unwrap_or_else(|| name.as_bytes().to_vec());
         found.push((name, ssid));
     }
-    found
+    Ok(found)
 }
 
 /// Reads one saved profile's XML document.
@@ -996,7 +1003,7 @@ fn forget_on(client: &Client, guid: &GUID, ssid: &str) -> Result<()> {
         facts.raw_ssid.clone()
     };
     let mut names: Vec<String> = Vec::new();
-    for (name, saved) in profile_ssids(client, &guid) {
+    for (name, saved) in try_profile_ssids(client, &guid)? {
         if saved == target && !names.contains(&name) {
             names.push(name);
         }

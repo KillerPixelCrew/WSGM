@@ -96,5 +96,5 @@ internal static class UnelevatedLauncher
             """;
     }
 
-    private static bool RunSchtasks(string arguments) => ConsoleTool.Run("schtasks.exe", arguments);
+    private static bool RunSchtasks(string arguments) => ConsoleTool.Run(ConsoleTool.System32("schtasks.exe"), arguments);
 }

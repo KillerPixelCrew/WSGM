@@ -156,7 +156,7 @@ public static class Installer
         Log.Info("Uninstalling — scheduling directory removal.");
         try
         {
-            Process.Start(new ProcessStartInfo("cmd.exe",
+            Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"),
                 $"/c timeout /t 3 /nobreak >nul & rmdir /s /q \"{Log.Directory}\"")
             {
                 UseShellExecute = false,
@@ -284,7 +284,9 @@ public static class Installer
             $"$s.WorkingDirectory = '{dir}'; " +
             "$s.Description = 'WSGM settings'; " +
             "$s.Save()";
-        if (!ConsoleTool.Run("powershell.exe", $"-NoProfile -NonInteractive -Command \"{script}\""))
+        var powershell = Path.Combine(
+            Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
+        if (!ConsoleTool.Run(powershell, $"-NoProfile -NonInteractive -Command \"{script}\""))
         {
             Log.Warn("Could not create Start Menu shortcut.");
         }

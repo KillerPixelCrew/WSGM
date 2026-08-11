@@ -292,11 +292,18 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
                 return;
             }
 
+            // The RAWHID prefix (dwSizeHid, dwCount) must fit before it is read,
+            // and the report area is bounds-checked in 64-bit so inconsistent
+            // dwSizeHid*dwCount cannot wrap the 32-bit multiply past the buffer.
+            if (size < headerSize + 8)
+            {
+                return;
+            }
             var hid = buffer + sizeof(NativeMethods.RawInputHeader);
             var reportSize = *(uint*)hid;
             var reportCount = *(uint*)(hid + 4);
             var reports = hid + 8;
-            if (reportSize == 0 || (nint)(reports + reportSize * reportCount) > (nint)(buffer + size))
+            if (reportSize == 0 || (ulong)reportSize * reportCount > size - headerSize - 8)
             {
                 return;
             }

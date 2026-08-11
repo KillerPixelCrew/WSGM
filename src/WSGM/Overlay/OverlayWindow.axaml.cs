@@ -743,6 +743,10 @@ public partial class OverlayWindow : Window
         }
         InFormatSubView = false;
         _pendingTarget = null;
+        // Close the format-name peer keyboard on the way out, matching the other
+        // Leave*SubView methods; without this the keyboard can outlive its sub-view
+        // and keep writing back to the now-hidden name field.
+        SubViewClosed?.Invoke();
         PanelFormat.IsVisible = false;
         PanelTools.IsVisible = Tabs.SelectedIndex == 1;
         if (PanelTools.IsVisible)

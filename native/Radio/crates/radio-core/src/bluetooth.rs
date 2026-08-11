@@ -682,21 +682,27 @@ pub fn respond(token: u32, accept: bool, pin: &str) -> Result<()> {
     };
     let pin = pin.to_owned();
     on_mta(move || {
-        if accept {
+        let accepted = if accept {
             let outcome = if pin.is_empty() {
                 request.args.Accept()
             } else {
                 request.args.AcceptWithPin(&HSTRING::from(pin.as_str()))
             };
-            outcome.map_err(|e| winrt("DevicePairingRequestedEventArgs.Accept", e))?;
-        }
-        // Completing the deferral without accepting is how a rejection is
-        // expressed; there is no explicit Reject.
-        request
+            outcome.map_err(|e| winrt("DevicePairingRequestedEventArgs.Accept", e))
+        } else {
+            Ok(())
+        };
+        // Complete the deferral even when Accept failed: the request is already
+        // out of the pending map, so an incomplete deferral would strand the
+        // ceremony until PAIRING_TIMEOUT with no way to answer the token again.
+        // Completing without a successful Accept is how a rejection is expressed;
+        // there is no explicit Reject.
+        let completed = request
             .deferral
             .Complete()
-            .map_err(|e| winrt("Deferral.Complete", e))?;
-        Ok(())
+            .map_err(|e| winrt("Deferral.Complete", e));
+        accepted?;
+        completed
     })?
 }
 
