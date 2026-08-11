@@ -240,6 +240,21 @@ internal static class Program
         {
             startInfo.Environment[pair.Key] = pair.Value;
         }
+
+        // De-elevation is the whole point, so run the target at THIS (medium)
+        // integrity even when it carries a RUNASADMIN AppCompat flag or a
+        // highestAvailable/requireAdministrator manifest. Without this a medium
+        // CreateProcess fails ERROR_ELEVATION_REQUIRED (740, device-observed) —
+        // UseShellExecute=false cannot elevate. RunAsInvoker tells the AppCompat
+        // engine to drop the elevation requirement and run as the caller. Set it
+        // both on this process and in the child's environment so the shim sees it
+        // whichever it reads; prepend so any existing layer is preserved.
+        startInfo.Environment.TryGetValue("__COMPAT_LAYER", out var existingLayer);
+        var compatLayer = string.IsNullOrEmpty(existingLayer)
+            ? "RunAsInvoker"
+            : $"RunAsInvoker {existingLayer}";
+        startInfo.Environment["__COMPAT_LAYER"] = compatLayer;
+        Environment.SetEnvironmentVariable("__COMPAT_LAYER", compatLayer);
         return Process.Start(startInfo);
     }
 
