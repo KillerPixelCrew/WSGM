@@ -1,12 +1,33 @@
 # AGENTS.md
 
 Source of truth for every coding agent working in this repository (Claude Code, Codex, others).
-This file and CLAUDE.md are deliberately untracked: they carry local-machine notes, so nothing
-in the repo, the README, or the wiki may reference them.
+This file is tracked so review tooling and contributors' agents can read it; CLAUDE.md stays
+untracked and nothing in the repo, the README, or the wiki may reference it.
 
 **Keep this file current at every implementation step.** When code, architecture, build tooling,
 dependencies, device findings, or operating constraints change, update the relevant project-specific
 guidance here in the same change before proceeding.
+
+## Contributor instructions (PRs)
+
+**PRs that ignore the conventions and architecture in this file will be refused.** If you are an
+agent preparing a contribution, treat everything below as binding, not advisory:
+
+- **Follow the documented architecture.** Respect the module ownership boundaries (`Core\`,
+  `Shell\`, `Overlay\`, `Input\`, `Settings\`, `Interop\` — put code in the narrowest applicable
+  module), the NativeAOT constraints (no COM interop, `LibraryImport` with blittable signatures,
+  source-generated JSON, no reflection-dependent packages), and the established idioms of the file
+  you are editing.
+- **Do not "fix" device-verified mechanisms.** Sections marked device-verified or live-verified
+  (the Steam CEF integration, injected JS, boot/takeover sequencing, input handling) encode
+  behavior that only reveals its constraints on real hardware or against a live Steam client.
+  Changing them without re-verification — even when the change looks like an obvious cleanup or
+  hardening — is grounds for refusal on its own.
+- **Match the code conventions**: existing naming, comment density, XML docs on public production
+  APIs, and the formatting gates (`./eng/verify.ps1` must pass — it runs Prettier over the whole
+  repo including `.github\` and Markdown, plus C# lint/format, build, and tests).
+- **Fill out the PR template honestly**, including what hardware the change was tested on;
+  "compiles" is not "works" in this codebase.
 
 ## What this is
 
