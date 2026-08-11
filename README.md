@@ -89,6 +89,13 @@ so all of it works at once.
 - **CSSLoader Desktop** — works, with caution: themes restyle the same Steam UI that WSGM's
   library-tab engine patches, so a theme that touches the library's tab strip can break the injected
   tabs.
+- **Custom (non-Steam) shortcuts need a different setup for the copied commands** — the Steam Input
+  Lease and de-elevation commands from the Tools tab are meant to go in a game's **Launch Options**
+  (`"…\helper.exe" %command%`), which works for normal Steam titles. For a **non-Steam shortcut**,
+  Steam quietly ignores an exe-replacement launch option and runs the original target anyway (it even
+  mangles the command line — the wrapper never actually starts). Instead, put the helper's full path
+  in the shortcut's **Target** field and the real program's path in **Launch Arguments**. Steam then
+  launches the helper normally and hands it the real program to run.
 
 ## How it works
 
