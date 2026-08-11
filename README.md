@@ -13,7 +13,13 @@ press away at any time.
 
 ## Demo
 
-![WSGM in action: boot splash, Steam Big Picture, the quick access panel and the game-mode taskbar](docs/demo.webp)
+The quick access sidebar, and switching between game mode and the desktop:
+
+![WSGM's quick access sidebar in Big Picture, and a round trip to the Windows desktop and back](docs/demo-sidebar.webp)
+
+The game-mode taskbar:
+
+![The customizable game-mode taskbar over Steam Big Picture](docs/demo-taskbar.webp)
 
 ## ⚠ Recovery — read this FIRST
 
