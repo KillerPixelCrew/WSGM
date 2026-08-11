@@ -1,6 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>WinExe</OutputType>
+    <!-- Console subsystem (shows a CLI window), NOT WinExe: a windowless GUI
+         wrapper is treated by Steam as a game and gets Steam Input hooked into it,
+         which kills it before it runs. The working steam-input-lease wrapper is a
+         console app for the same reason. -->
+    <OutputType>Exe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
