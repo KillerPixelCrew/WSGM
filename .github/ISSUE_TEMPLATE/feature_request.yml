@@ -7,7 +7,9 @@ body:
     id: problem
     attributes:
       label: What problem would this solve?
-      description: Describe the situation where you miss this feature — what are you trying to do, and where does it currently fall short?
+      description:
+        Describe the situation where you miss this feature — what are you trying to do, and where
+        does it currently fall short?
       placeholder: When I'm in game mode I can't ... without switching to the desktop.
     validations:
       required: true
@@ -15,20 +17,25 @@ body:
     id: solution
     attributes:
       label: What should it look like?
-      description: How would the feature ideally work? Where would it live (overlay, taskbar, Settings, inside Steam's UI)?
+      description:
+        How would the feature ideally work? Where would it live (overlay, taskbar, Settings, inside
+        Steam's UI)?
     validations:
       required: true
   - type: textarea
     id: alternatives
     attributes:
       label: Workarounds you use today
-      description: How do you deal with this right now? Other tools, desktop mode detours, or "I just don't".
+      description:
+        How do you deal with this right now? Other tools, desktop mode detours, or "I just don't".
     validations:
       required: false
   - type: textarea
     id: context
     attributes:
       label: Anything else?
-      description: Sketches, screenshots of comparable features elsewhere (SteamOS, Decky plugins, ...), or extra context.
+      description:
+        Sketches, screenshots of comparable features elsewhere (SteamOS, Decky plugins, ...), or
+        extra context.
     validations:
       required: false

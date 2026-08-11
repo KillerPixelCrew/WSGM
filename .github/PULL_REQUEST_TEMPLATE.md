@@ -12,7 +12,8 @@
 
 - [ ] Built locally with `build.ps1`
 - [ ] Tested in **game mode on real hardware** (which device? e.g. MSI Claw, ROG Ally, desktop)
-- [ ] Desktop-only testing (`--settings` / `--overlay-test`) — say so, that's fine for UI-only changes
+- [ ] Desktop-only testing (`--settings` / `--overlay-test`) — say so, that's fine for UI-only
+      changes
 
 ## Touches Steam's CEF / injected scripts?
 

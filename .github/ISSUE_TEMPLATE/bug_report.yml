@@ -13,14 +13,18 @@ body:
     attributes:
       label: What happened?
       description: What went wrong, and what did you expect instead?
-      placeholder: The library tabs disappeared after Steam restarted. I expected them to come back on their own.
+      placeholder:
+        The library tabs disappeared after Steam restarted. I expected them to come back on their
+        own.
     validations:
       required: true
   - type: textarea
     id: steps
     attributes:
       label: Steps to reproduce
-      description: How can the problem be triggered? If it only happened once, describe what you were doing at the time.
+      description:
+        How can the problem be triggered? If it only happened once, describe what you were doing at
+        the time.
       placeholder: |
         1. Boot into game mode
         2. Open the overlay → Tools → Library Tabs
@@ -76,6 +80,8 @@ body:
     id: context
     attributes:
       label: Anything else?
-      description: Screenshots, other tools running (CSS Loader, Handheld Companion, ...), or anything unusual about your setup.
+      description:
+        Screenshots, other tools running (CSS Loader, Handheld Companion, ...), or anything unusual
+        about your setup.
     validations:
       required: false
