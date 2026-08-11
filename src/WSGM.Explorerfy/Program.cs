@@ -16,6 +16,13 @@ internal static class Program
     {
         try
         {
+            // First line, unconditional: proves the wrapper ran and records the
+            // context that decides log/pipe reachability (integrity) and exactly
+            // what Steam passed. Written via the fallback-capable logger.
+            ExplorerfyLog.Info(
+                $"Invoked: elevated={Elevation.IsCurrentProcessElevated()?.ToString() ?? "unknown"}; " +
+                $"logDir={ExplorerfyLog.PrimaryPath}; commandLine={Environment.CommandLine}");
+
             if (args.Length == 0)
             {
                 ExplorerfyLog.Error(
