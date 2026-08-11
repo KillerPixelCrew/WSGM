@@ -33,11 +33,18 @@ if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
 
 # Steam inherits WSGM's elevation. This small wrapper is pasted into a game's
 # launch options and hands the real command to a medium-integrity scheduled-task
-# child. Publish it beside WSGM so both portable and installed layouts use the
-# same stable command path.
-dotnet publish "$root\src\WSGM.Deelevate\WSGM.Deelevate.csproj" -c Release -r win-x64 `
-    -o "$root\publish" "/p:Version=$version"
-if ($LASTEXITCODE -ne 0) { throw "WSGM.Deelevate publish failed" }
+# child. It is a NATIVE Rust exe, NOT NativeAOT .NET: a managed wrapper dies
+# before main() when Steam launches it (device-observed). Built from source like
+# the radio helper; the snake_case bin is renamed on copy beside WSGM.
+cargo build --manifest-path "$root\native\Deelevate\Cargo.toml" --release
+if ($LASTEXITCODE -ne 0) { throw "WSGM.Deelevate (Rust) build failed" }
+$deelevateRelease = if ($env:CARGO_BUILD_TARGET) {
+    "$root\native\Deelevate\target\$($env:CARGO_BUILD_TARGET)\release"
+} else {
+    "$root\native\Deelevate\target\release"
+}
+Copy-Item -LiteralPath "$deelevateRelease\wsgm-deelevate.exe" `
+    -Destination "$root\publish\WSGM.Deelevate.exe" -Force
 
 # The SYSTEM logon service that launches WSGM's boot cover at sign-in. Published
 # beside the rest; the installer ships it to Program Files (never user-writable).

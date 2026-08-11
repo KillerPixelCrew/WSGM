@@ -1,6 +1,5 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/WSGM.Deelevate/WSGM.Deelevate.csproj" />
     <Project Path="src/WSGM.LogonService/WSGM.LogonService.csproj" />
     <Project Path="src/WSGM/WSGM.csproj" />
   </Folder>

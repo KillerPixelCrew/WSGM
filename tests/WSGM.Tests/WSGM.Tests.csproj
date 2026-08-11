@@ -22,7 +22,6 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../../src/WSGM.Deelevate/WSGM.Deelevate.csproj" />
     <ProjectReference Include="../../src/WSGM/WSGM.csproj" />
   </ItemGroup>
   <ItemGroup>
