@@ -176,7 +176,14 @@
                             <StackPanel Spacing="4">
                                 <TextBlock Text="Name (volume and Steam library)" Classes="caption" />
                                 <TextBox x:Name="FormatNameInput" MaxLength="32" PlaceholderText="Games" />
-                                <c:OnScreenKeyboard x:Name="FormatKeyboard" />
+                                <!-- Controller text entry goes through the peer keyboard
+                                     window beside the sidebar (the panel is too narrow for
+                                     an inline keyboard); the box stays for physical
+                                     keyboards. -->
+                                <c:CardButton Click="OnFormatTypeName"
+                                              IconGeometry="{x:Static c:Icons.CopyDoc}"
+                                              Title="Type name with controller"
+                                              Description="Opens the on-screen keyboard" />
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Button x:Name="FormatConfirmButton"

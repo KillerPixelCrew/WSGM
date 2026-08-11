@@ -242,4 +242,3 @@ tested on real handheld hardware before release.
 ## License
 
 MIT. Controller button glyphs from CC0 prompt packs (see `src/WSGM/Assets/Glyphs/CREDITS.md`).
-

@@ -86,10 +86,14 @@ public partial class OverlayWindow : Window
     {
         _format = format;
         PanelFormat.DataContext = format;
-        // The on-screen keyboard is the only text entry in game mode; point it at
-        // the name box so a controller/thumb can name the card.
-        FormatKeyboard.Target = FormatNameInput;
     }
+
+    // Controller text entry for the library name goes through the peer keyboard
+    // window (KeyboardService), like every other game-mode text field; the inline
+    // TextBox stays usable with a physical keyboard.
+    private void OnFormatTypeName(object? sender, RoutedEventArgs e)
+        => Core.KeyboardService.Request("Name (volume and Steam library)",
+            FormatNameInput.Text ?? "", 32, v => FormatNameInput.Text = v);
 
     /// <summary>The control gamepad navigation should land on when the panel opens
     /// or when focus tracking is lost: the ACTIVE tab's first row — HomeAppButton
@@ -538,7 +542,6 @@ public partial class OverlayWindow : Window
         FormatConfirmTarget.Text = $"Erase {entry.Name}?";
         FormatConfirmDetail.Text = entry.Detail;
         FormatNameInput.Text = Shell.SdFormatManager.DefaultLabel;
-        FormatKeyboard.Reset();
         ShowFormatState(pick: false, confirm: true, progress: false);
         FocusFirstControl(FormatConfirmView);
     }
