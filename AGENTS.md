@@ -273,7 +273,19 @@ buttons); `OverlayController` stays the UI owner (lease lifecycle, overlay windo
    reject elevation. Its copied launch option is `"...\WSGM.Deelevate.exe" %command%`; the elevated
    wrapper must remain alive for the target lifetime, preserve Steam's arguments/environment/CWD,
    and stop the target tree if Steam terminates the wrapper. Do not replace it with a fire-and-forget
-   scheduled task or an Explorer-token shortcut.
+   scheduled task or an Explorer-token shortcut. **Four device-verified invariants make it actually
+   work when Steam is elevated (each was a separate real failure, 2026-08-12):** (a) it MUST be a
+   **console** subsystem exe (`<OutputType>Exe</OutputType>`, shows a CLI window) — a windowless
+   `WinExe` is treated by Steam as a game and gets Steam Input hooked into it, dying before it logs;
+   (b) the elevated parent's IPC pipe MUST grant the **User SID** explicitly (`NamedPipeServerStreamAcl`
+   + `WindowsIdentity.User`), NOT `PipeOptions.CurrentUserOnly` — an elevated server's CurrentUserOnly
+   grants the token OWNER = `BUILTIN\Administrators`, deny-only in the child's filtered token, so the
+   medium child's connect fails "Access is denied"; (c) the medium child launches the game with
+   `__COMPAT_LAYER=RunAsInvoker` in its environment, or a target with a RUNASADMIN flag / admin manifest
+   fails a medium `CreateProcess` with `ERROR_ELEVATION_REQUIRED` (740); (d) for a **non-Steam (custom)
+   shortcut** Steam ignores an exe-replacement `%command%` launch option and runs the original target
+   anyway — the wrapper goes in the shortcut's **Target**, the real program in **Launch Arguments**.
+   Never reintroduce `CurrentUserOnly` on an elevated↔medium pipe, and never make the wrapper WinExe.
 6. **Overlay dismissal refocuses only under strict gates** (intentional since b7234f8): on close,
    the overlay calls back the window that was foreground when it opened (`_restoreFocusTo`, captured
    in ShowOverlay) — exclusive-fullscreen games sit minimized after the panel took focus. The
