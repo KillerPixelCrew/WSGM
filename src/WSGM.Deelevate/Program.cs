@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO.Pipes;
+using System.Security.AccessControl;
 using System.Security.Principal;
 
 namespace WSGM.Deelevate;
@@ -43,12 +44,27 @@ internal static class Program
     private static async Task<int> RunElevatedParentAsync(LaunchPayload payload)
     {
         var pipeName = $"WSGM.Deelevate.{Environment.ProcessId}.{Guid.NewGuid():N}";
-        using var pipe = new NamedPipeServerStream(
+        // NOT CurrentUserOnly: this parent is elevated, and CurrentUserOnly grants
+        // the pipe to the token's OWNER — for an elevated admin that is
+        // BUILTIN\Administrators, a deny-only SID in the medium child's filtered
+        // token, so the child's connect fails "Access to the path is denied"
+        // (device-observed). Grant the real USER SID explicitly; it is enabled in
+        // both the elevated parent's and the medium child's token.
+        var pipeSecurity = new PipeSecurity();
+        using (var identity = WindowsIdentity.GetCurrent())
+        {
+            pipeSecurity.AddAccessRule(new PipeAccessRule(
+                identity.User!, PipeAccessRights.FullControl, AccessControlType.Allow));
+        }
+        using var pipe = NamedPipeServerStreamAcl.Create(
             pipeName,
             PipeDirection.InOut,
             1,
             PipeTransmissionMode.Byte,
-            PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+            PipeOptions.Asynchronous,
+            inBufferSize: 0,
+            outBufferSize: 0,
+            pipeSecurity);
 
         var executablePath = Environment.ProcessPath;
         if (string.IsNullOrEmpty(executablePath))
