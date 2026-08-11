@@ -1479,6 +1479,7 @@ public sealed class OverlayController : IDisposable
         CloseKeyboardNow();
         _ = SteamPageBridge.DisableBadgeAsync();
         _ = SteamLibraryTabs.DisableAsync();
+        _ = SteamNetworkIndicator.DisableAsync();
         AttachTrayHost(null);
         _modes.SteamStartFailed -= WarnOrReopen;
         SteamInputBlocker.RecoveryWarningRaised -= OnSteamInputRecoveryWarning;

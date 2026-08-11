@@ -94,6 +94,9 @@
           return t && t.id === "AllGames";
         });
         if (!tmpl) return v;
+        W.nativeTabs = tabs.map(function (t) {
+          return { id: String(t && t.id), title: t && typeof t.title === "string" ? t.title : "" };
+        });
         if (!W._gridType) {
           var g = W.findInTree(tmpl.content, function (el) {
             return (
@@ -138,8 +141,27 @@
             });
           })(d, content);
         }
-        if (!add.length) return v;
-        var out = tabs.concat(add);
+        // Order + hide are applied purely by rewriting the array: W.tabOrder lists tab
+        // keys (native ids + wsgm ids) in strip order, W.hiddenTabs native ids to omit.
+        var order = W.tabOrder || [];
+        var hidden = new Set(W.hiddenTabs || []);
+        if (!add.length && !order.length && !hidden.size) return v;
+        var all = tabs.concat(add);
+        var pool = new Map();
+        for (var p of all) pool.set(p.id, p);
+        var out = [];
+        var used = new Set();
+        for (var oid of order) {
+          var ot = pool.get(oid);
+          if (!ot) continue;
+          used.add(oid);
+          if (!hidden.has(oid)) out.push(ot);
+        }
+        for (var rest of all) {
+          if (used.has(rest.id) || hidden.has(rest.id)) continue;
+          out.push(rest);
+        }
+        if (!out.length) out = tabs;
         return isNested ? [out, v[1]] : out;
       } catch (e) {
         return v;
@@ -188,6 +210,9 @@
       { id: "wsgm-e", title: "E: Library", appids: [22600, 31280, 70600] },
       { id: "wsgm-d", title: "D: Library", appids: [293760, 1623730, 3602290] },
     ];
+    // Order/hide smoke values — uncomment to exercise the rewrite:
+    // window.__wsgm.tabOrder = ["wsgm-d", "AllGames", "Installed"];
+    // window.__wsgm.hiddenTabs = ["Collections"];
     if (window.__wsgm.forceRerender) window.__wsgm.forceRerender();
     return JSON.stringify({
       ok: true,

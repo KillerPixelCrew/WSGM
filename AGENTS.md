@@ -297,17 +297,28 @@ buttons); `OverlayController` stays the UI owner (lease lifecycle, overlay windo
    and is fully removed. `Core\SteamLibraryTabs.cs` injects a resident script into `SharedJSContext`
    that replicates TabMaster without Decky: push a chunk to **`window.webpackChunksteamui`** to
    capture `__webpack_require__`, iterate `req.m` to `findModule` React (module with
-   `createElement`+`useMemo`+`version`), then **hijack the current dispatcher slot**
+   `createElement`+`useMemo`+`version`) **loading each candidate via `req(id)` — the captured
+   require's `req.c` cache is EMPTY (live-verified), so a cache-only exports scan can never find
+   React; a review once made that "safer" swap and broke all tab injection until the next device
+   test** — then **hijack the current dispatcher slot**
    `React.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE.H` so every `useMemo` result
    is passed through `patchTabs`, which rewrites the library tab array (found by a tab with
    `id==='AllGames'`) to append WSGM tabs. Each tab is a **fake in-memory collection** (a plain object
    of app overviews) rendered by Steam's own grid (found by the `Library_FilteredByHeader` source
    marker) — no real Steam collection is ever created. WSGM only supplies
-   `window.__wsgm.tabs = [{id,title,appids}]`; app-ids come from `Core\LibraryFilter.cs` (a persisted
+   `window.__wsgm.tabs = [{id,title,appids}]`, plus `tabOrder` (full strip order as tab keys —
+   native ids like `AllGames` mixed with `wsgm-…` ids; unlisted tabs keep natural order after the
+   listed ones) and `hiddenTabs` (native ids to omit — hiding IS omission from the returned array,
+   exactly TabMaster's model, and the tab reappears untouched when unhidden). `patchTabs` also
+   records `W.nativeTabs` (id+title of Steam's own tabs) which the sync persists into
+   `AppConfig.KnownNativeTabs` so the order UI shows real localized titles; app-ids come from
+   `Core\LibraryFilter.cs` (a persisted
    `FilterNode` tree → **pure JS predicate** over `appStore`, unit-tested in `LibraryFilterTests` —
    keep it Steam-free; SD-card membership is baked in from WSGM's own card model). Card tabs and genre
    tabs use the same injection. It is **reactive**: `LibraryTabManager.SyncAllAsync` re-injects after
-   every builder change (no manual "sync" button). The two things that shift on a major Steam UI
+   every builder change (no manual "sync" button); interactive reordering uses the cheap
+   `SteamLibraryTabs.PushOrderAsync` (order + hidden set only, no filter re-evaluation), debounced
+   from the Tab Order UI. The two things that shift on a major Steam UI
    update — the dispatcher slot name and the `Library_FilteredByHeader` marker — are the accepted
    fragility (kill switch `window.__wsgm.disableTabs()`; a Steam restart also recovers). The builder
    UI is `Overlay\LibraryTabsView.cs` (self-drawing sub-view like `PanelFormat`; extend `AnySubView`).
@@ -327,6 +338,16 @@ buttons); `OverlayController` stays the UI owner (lease lifecycle, overlay windo
    `SteamClient.Apps.Clear/SetCustomArtworkForApp(appid, base64, ext, assetType)` (grid=0/hero=1/
    logo=2/wide=3/icon=4; clear→~500ms→set; icons alone need FS writes) — data on SharedJSContext, DOM
    on the visible window, always.
+   **Header Wi-Fi indicator (`Core\SteamNetworkIndicator.cs`, live-verified):** Big Picture's header
+   Wi-Fi icon is empty on Windows because Steam's backend sends device reports with an empty
+   `wireless.aps` list, so `SystemNetworkStore` (SharedJSContext) never sees a connected access
+   point. WSGM injects a synthetic AP (real SSID + signal from `NativeRadio.WifiStatus`, polled by
+   `Shell\NetworkIndicatorService.cs`) through the store's own `SetDeviceInfo` ingestion (plain
+   protobuf-toObject shape; estate 5=Connected, estrength 0-4 = filled arcs). Residency: do NOT wrap
+   `OnNetworkDevicesChanged` — the backend holds the bound callback registered at init and a property
+   wrap never fires (verified); instead the synthetic AP instance gets a no-op `MarkAsNotPresent`,
+   which pins it across the backend's periodic reports. Removal = delete the map entry +
+   `SteamClient.System.Network.ForceRefresh()`; disabled on desktop transitions like tabs/badge.
    **CSSLoader-Desktop coexistence (device- + source-verified):** Steam's CEF allows concurrent CDP
    clients, and CSSLoader only appends/removes `<style>` in `document.head`. Namespace everything under
    `window.__wsgm`, give injected nodes a unique `wsgm-badge` class (never `css-loader-style`, which

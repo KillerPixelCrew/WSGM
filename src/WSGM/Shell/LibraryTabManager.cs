@@ -57,8 +57,12 @@ public sealed class LibraryTabManager
             var (tabs, reachable, filterFailed) = await BuildTabsAsync(config, discovered, cancellationToken)
                 .ConfigureAwait(false);
 
-            var ok = reachable && !filterFailed
-                && await SteamLibraryTabs.SyncTabsAsync(tabs, cancellationToken).ConfigureAwait(false);
+            var sync = reachable && !filterFailed
+                ? await SteamLibraryTabs.SyncTabsAsync(
+                    tabs, config.LibraryTabOrder, config.HiddenNativeTabs, cancellationToken)
+                    .ConfigureAwait(false)
+                : new TabSyncResult(false, []);
+            var ok = sync.Ok;
 
             // One-time migration off the old collection approach: delete any collections
             // WSGM created before and clear their stored ids.
@@ -79,6 +83,22 @@ public sealed class LibraryTabManager
             config = await MutateConfigAsync(fresh =>
             {
                 MergeDiscovery(fresh, discovered);
+                // Union, not replace: dynamic native tabs (Soundtracks, Favorites)
+                // drop out of Steam's array while empty, and must keep their entry
+                // so the order UI can still place and unhide them.
+                foreach (var native in sync.NativeTabs)
+                {
+                    var known = fresh.KnownNativeTabs.FirstOrDefault(
+                        k => string.Equals(k.Id, native.Id, StringComparison.Ordinal));
+                    if (known is null)
+                    {
+                        fresh.KnownNativeTabs.Add(native);
+                    }
+                    else if (!string.IsNullOrEmpty(native.Title))
+                    {
+                        known.Title = native.Title;
+                    }
+                }
                 foreach (var card in fresh.CardLibraries.Where(c => clearedCards.Contains(c.ContentId)))
                 {
                     card.CollectionId = "";
@@ -646,6 +666,100 @@ public sealed class LibraryTabManager
     /// <summary>Loads the current custom tabs and cards for the builder UI (no scan;
     /// pair with <see cref="ListCardsAsync"/> for live inserted state).</summary>
     public static AppConfig LoadConfig() => ConfigStore.Load();
+
+    /// <summary>One row of the tab-order UI: a tab key (a native Steam id or an
+    /// injected <c>wsgm-…</c> id), its display title, and its visibility. Only native
+    /// tabs can be hidden here — WSGM tabs are hidden by disabling them.</summary>
+    /// <param name="Key">Native id (<c>AllGames</c>) or injected id (<c>wsgm-…</c>).</param>
+    /// <param name="Title">Display title for the UI.</param>
+    /// <param name="IsNative">Whether this is one of Steam's own tabs.</param>
+    /// <param name="Hidden">Whether a native tab is currently hidden.</param>
+    public sealed record TabOrderEntry(string Key, string Title, bool IsNative, bool Hidden);
+
+    // Windows Big Picture's native tabs in Steam's default order — the pre-capture
+    // fallback so the order UI works before the first sync has observed the strip.
+    // Captured KnownNativeTabs entries override these titles and extend the list.
+    private static readonly (string Id, string Title)[] DefaultNativeTabs =
+    [
+        ("AllGames", "All Games"),
+        ("Installed", "Installed"),
+        ("Favorites", "Favorites"),
+        ("Collections", "Collections"),
+        ("DesktopApps", "Non-Steam"),
+        ("Soundtracks", "Soundtracks"),
+    ];
+
+    /// <summary>Builds the full tab-strip list the way Steam will render it: keys from
+    /// <see cref="AppConfig.LibraryTabOrder"/> first, then unlisted tabs in natural
+    /// order (native tabs, custom tabs by position, card tabs). Hidden native tabs
+    /// stay in the list — marked hidden — so they can be moved and unhidden.</summary>
+    /// <param name="config">The loaded configuration.</param>
+    public static List<TabOrderEntry> BuildTabOrder(AppConfig config)
+    {
+        var hidden = new HashSet<string>(config.HiddenNativeTabs, StringComparer.Ordinal);
+        var titles = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (id, title) in DefaultNativeTabs)
+        {
+            titles[id] = title;
+        }
+        foreach (var native in config.KnownNativeTabs.Where(n => !string.IsNullOrEmpty(n.Title)))
+        {
+            titles[native.Id] = native.Title;
+        }
+
+        var pool = new List<TabOrderEntry>();
+        var pooled = new HashSet<string>(StringComparer.Ordinal);
+        void AddNative(string id)
+        {
+            if (!string.IsNullOrEmpty(id) && pooled.Add(id))
+            {
+                pool.Add(new TabOrderEntry(
+                    id, titles.TryGetValue(id, out var title) ? title : id, true,
+                    hidden.Contains(id)));
+            }
+        }
+        foreach (var (id, _) in DefaultNativeTabs)
+        {
+            AddNative(id);
+        }
+        foreach (var native in config.KnownNativeTabs)
+        {
+            AddNative(native.Id);
+        }
+        foreach (var id in config.HiddenNativeTabs)
+        {
+            AddNative(id);
+        }
+        foreach (var tab in config.CustomTabs
+            .Where(t => t.Enabled && !string.IsNullOrWhiteSpace(t.Name))
+            .OrderBy(t => t.Position))
+        {
+            if (pooled.Add($"wsgm-custom-{tab.Id}"))
+            {
+                pool.Add(new TabOrderEntry($"wsgm-custom-{tab.Id}", tab.Name, false, false));
+            }
+        }
+        foreach (var card in config.CardLibraries.Where(c => c is { Enabled: true, Hidden: false }))
+        {
+            if (pooled.Add($"wsgm-card-{card.ContentId}"))
+            {
+                pool.Add(new TabOrderEntry($"wsgm-card-{card.ContentId}", card.Name, false, false));
+            }
+        }
+
+        var byKey = pool.ToDictionary(e => e.Key, StringComparer.Ordinal);
+        var result = new List<TabOrderEntry>();
+        var used = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var key in config.LibraryTabOrder)
+        {
+            if (byKey.TryGetValue(key, out var entry) && used.Add(key))
+            {
+                result.Add(entry);
+            }
+        }
+        result.AddRange(pool.Where(entry => used.Add(entry.Key)));
+        return result;
+    }
 
     /// <summary>A removable Steam library found on a mounted drive.
     /// <paramref name="SteamLabel"/> is the label Steam itself shows for it (config

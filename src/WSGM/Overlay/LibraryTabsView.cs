@@ -2,9 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Layout;
+using Avalonia.Threading;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Shell;
@@ -67,6 +70,8 @@ public sealed class LibraryTabsView : OverlaySubView
 
         stack.Children.Add(PrimaryRow("New Tab", "Build a tab from filters", Icons.FolderPlus,
             () => OpenTabEditor(null)));
+        stack.Children.Add(Row("Tab Order & Steam Tabs", "Reorder the strip, hide Steam's own tabs",
+            Icons.Reorder, OpenTabOrder));
 
         if (_config.CustomTabs.Count > 0)
         {
@@ -81,6 +86,156 @@ public sealed class LibraryTabsView : OverlaySubView
         }
 
         SetContent(stack);
+    }
+
+    // ---- Level: tab order & native tabs ----
+
+    private List<LibraryTabManager.TabOrderEntry> _orderEntries = [];
+    private CancellationTokenSource? _orderPushDebounce;
+    private Task _orderPersistChain = Task.CompletedTask;
+
+    private void OpenTabOrder()
+    {
+        _orderEntries = LibraryTabManager.BuildTabOrder(_config);
+        Navigate(RenderTabOrder);
+    }
+
+    private void RenderTabOrder()
+    {
+        var stack = NewStack("Tab Order");
+        stack.Children.Add(Caption("Top to bottom here is left to right in Steam. Steam's own "
+            + "tabs can be hidden; WSGM tabs disappear when disabled in their editors."));
+        foreach (var entry in _orderEntries)
+        {
+            var e = entry;
+            var kind = e.IsNative ? "Steam tab"
+                : e.Key.StartsWith("wsgm-card-", StringComparison.Ordinal) ? "Card tab" : "Custom tab";
+            stack.Children.Add(Row(e.Title, e.Hidden ? kind + " · hidden" : kind, Icons.Reorder,
+                () => Navigate(() => RenderTabOrderActions(e.Key))));
+        }
+        SetContent(stack);
+    }
+
+    private void RenderTabOrderActions(string key, string? focusTitle = null)
+    {
+        var index = _orderEntries.FindIndex(e => string.Equals(e.Key, key, StringComparison.Ordinal));
+        if (index < 0)
+        {
+            Back();
+            return;
+        }
+        var entry = _orderEntries[index];
+        var stack = NewStack(entry.Title);
+        stack.Children.Add(Caption($"Position {index + 1} of {_orderEntries.Count}"
+            + (entry.Hidden ? " · hidden" : "")));
+        stack.Children.Add(Row("Move up", "Earlier in the strip", Icons.ArrowUp,
+            index > 0 ? () => MoveOrderEntry(key, -1) : null));
+        stack.Children.Add(Row("Move down", "Later in the strip", Icons.ArrowDown,
+            index + 1 < _orderEntries.Count ? () => MoveOrderEntry(key, +1) : null));
+        if (entry.IsNative)
+        {
+            stack.Children.Add(entry.Hidden
+                ? PrimaryRow("Show tab", "Put this Steam tab back in the strip", Icons.Play,
+                    () => SetNativeHidden(key, false))
+                : DangerRow("Hide tab", "Remove this Steam tab from the strip", Icons.Close,
+                    () => SetNativeHidden(key, true)));
+        }
+        stack.Children.Add(Row("Done", "Back to the list", Icons.ExitFullscreen, () => Back()));
+        SetContent(stack);
+        if (focusTitle is not null)
+        {
+            // Posted after SetContent's own first-row focus post, so it wins — repeated
+            // move presses keep the finger on the same action instead of jumping to the
+            // top row every re-render.
+            Dispatcher.UIThread.Post(() =>
+            {
+                foreach (var child in stack.Children)
+                {
+                    if (child is CardButton { IsEffectivelyEnabled: true } button
+                        && button.Title == focusTitle)
+                    {
+                        button.Focus(NavigationMethod.Directional);
+                        return;
+                    }
+                }
+            });
+        }
+    }
+
+    private void MoveOrderEntry(string key, int delta)
+    {
+        var index = _orderEntries.FindIndex(e => string.Equals(e.Key, key, StringComparison.Ordinal));
+        var target = index + delta;
+        if (index < 0 || target < 0 || target >= _orderEntries.Count)
+        {
+            return;
+        }
+        (_orderEntries[index], _orderEntries[target]) = (_orderEntries[target], _orderEntries[index]);
+        PersistTabOrder();
+        Replace(() => RenderTabOrderActions(key, delta < 0 ? "Move up" : "Move down"));
+    }
+
+    private void SetNativeHidden(string key, bool hidden)
+    {
+        var index = _orderEntries.FindIndex(e => string.Equals(e.Key, key, StringComparison.Ordinal));
+        if (index < 0)
+        {
+            return;
+        }
+        _orderEntries[index] = _orderEntries[index] with { Hidden = hidden };
+        PersistTabOrder();
+        Replace(() => RenderTabOrderActions(key, hidden ? "Show tab" : "Hide tab"));
+    }
+
+    private void PersistTabOrder()
+    {
+        var order = _orderEntries.Select(e => e.Key).ToList();
+        var hidden = _orderEntries.Where(e => e is { IsNative: true, Hidden: true })
+            .Select(e => e.Key).ToList();
+        _config.LibraryTabOrder = order;
+        _config.HiddenNativeTabs = hidden;
+        // Chained, not fired independently: rapid moves must commit in press order or a
+        // slow earlier write could clobber a newer one.
+        _orderPersistChain = _orderPersistChain
+            .ContinueWith(_ => PersistTabOrderAsync(order, hidden), TaskScheduler.Default)
+            .Unwrap();
+        _ = RunSafelyAsync(_orderPersistChain, "order save");
+    }
+
+    private async Task PersistTabOrderAsync(List<string> order, List<string> hidden)
+    {
+        await LibraryTabManager.MutateConfigAsync<object?>(cfg =>
+        {
+            cfg.LibraryTabOrder = order;
+            cfg.HiddenNativeTabs = hidden;
+            return null;
+        });
+        ScheduleOrderPush(order, hidden);
+    }
+
+    // Debounced live push into the running Steam: cheap (no filter re-evaluation), so
+    // the strip follows while the user is still tapping move. Falls back to a full
+    // sync when the resident script is not installed in this Steam session yet.
+    private void ScheduleOrderPush(List<string> order, List<string> hidden)
+    {
+        _orderPushDebounce?.Cancel();
+        var cts = _orderPushDebounce = new CancellationTokenSource();
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(600, cts.Token);
+                if (!await SteamLibraryTabs.PushOrderAsync(order, hidden, cts.Token))
+                {
+                    await SyncQuietly();
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                Log.Warn($"Library tab order push failed: {ex.Message}");
+            }
+        });
     }
 
     // ---- Level: tab editor ----

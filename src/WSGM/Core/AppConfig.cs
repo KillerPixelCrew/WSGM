@@ -412,6 +412,18 @@ public sealed class CustomTabConfig
     public string CollectionId { get; set; } = "";
 }
 
+/// <summary>One of Steam's own library tabs as last observed in the tab strip,
+/// remembered so the tab-order UI can list native tabs with their real (localized)
+/// titles even while Steam is closed.</summary>
+public sealed class NativeTabConfig
+{
+    /// <summary>Steam's stable tab id (e.g. <c>AllGames</c>, <c>Collections</c>).</summary>
+    public string Id { get; set; } = "";
+
+    /// <summary>The tab's display title as Steam rendered it.</summary>
+    public string Title { get; set; } = "";
+}
+
 /// <summary>Persisted user settings and exact Windows-state snapshots for WSGM.</summary>
 public sealed class AppConfig
 {
@@ -436,6 +448,20 @@ public sealed class AppConfig
 
     /// <summary>User-built custom filter tabs (the TabMaster analog).</summary>
     public List<CustomTabConfig> CustomTabs { get; set; } = [];
+
+    /// <summary>The library tab strip's display order as tab keys — Steam's native ids
+    /// (<c>AllGames</c>, <c>Collections</c>, …) and injected WSGM ids
+    /// (<c>wsgm-custom-…</c>, <c>wsgm-card-…</c>) mixed freely. Tabs not listed keep
+    /// their natural order after the listed ones; empty means Steam's default order
+    /// with WSGM tabs appended.</summary>
+    public List<string> LibraryTabOrder { get; set; } = [];
+
+    /// <summary>Native Steam tab ids the user removed from the library tab strip.</summary>
+    public List<string> HiddenNativeTabs { get; set; } = [];
+
+    /// <summary>Native tabs as last observed in Steam's strip (id + localized title),
+    /// captured on every tab sync so the tab-order UI reflects the running Steam.</summary>
+    public List<NativeTabConfig> KnownNativeTabs { get; set; } = [];
 
     /// <summary>Optional SteamGridDB API key. No key is bundled; set a free personal
     /// key from steamgriddb.com to enable artwork search.</summary>
@@ -592,6 +618,7 @@ public sealed class AppConfig
 [JsonSerializable(typeof(CardLibraryConfig))]
 [JsonSerializable(typeof(CategoryTabConfig))]
 [JsonSerializable(typeof(CustomTabConfig))]
+[JsonSerializable(typeof(NativeTabConfig))]
 [JsonSerializable(typeof(FilterNode))]
 [JsonSourceGenerationOptions(WriteIndented = true, UseStringEnumConverter = true)]
 public partial class ConfigJsonContext : JsonSerializerContext

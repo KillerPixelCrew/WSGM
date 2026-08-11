@@ -22,6 +22,7 @@ public sealed class ShellSession
     private TrayHost? _trayHost;
     private VolumeButtonService? _volumeButtons;
     private CardAcfWatcher? _cardAcfWatcher;
+    private NetworkIndicatorService? _networkIndicator;
     private BootSplash? _splash;
     // Replaced (not just cancelled) on every game-mode entry: a single cancelled
     // source would permanently kill boot syncing after the first desktop trip.
@@ -65,8 +66,11 @@ public sealed class ShellSession
             // to keep them fresh, so it stands down with them.
             _cardAcfWatcher?.Dispose();
             _cardAcfWatcher = null;
+            _networkIndicator?.Dispose();
+            _networkIndicator = null;
             _ = SteamPageBridge.DisableBadgeAsync();
             _ = SteamLibraryTabs.DisableAsync();
+            _ = SteamNetworkIndicator.DisableAsync();
             _volumeButtons?.SetGameModeActive(false);
             _overlay?.AttachTrayHost(null);
             _trayHost?.Dispose();
@@ -82,6 +86,11 @@ public sealed class ShellSession
             }
             _volumeButtons?.SetGameModeActive(true);
             _cardAcfWatcher ??= CardAcfWatcher.StartNew();
+            if (!_overlayTestOnly)
+            {
+                _networkIndicator ??= NetworkIndicatorService.StartNew();
+                _networkIndicator.Poke();
+            }
             // Returning from desktop mode disabled tabs/badge and cancelled the boot
             // sync; re-inject without requiring an overlay open.
             KickTabBootSync();
@@ -94,6 +103,9 @@ public sealed class ShellSession
             if (_inGameMode)
             {
                 KickTabBootSync();
+                // The fresh CEF session also wiped the resident network-indicator
+                // script — push again as soon as the poll loop next ticks.
+                _networkIndicator?.Poke();
             }
         };
 
@@ -474,5 +486,12 @@ public sealed class ShellSession
         // Inject the WSGM library tabs once Steam's UI has loaded, so they appear at
         // boot without the user opening the overlay. Fire-and-forget; self-limiting.
         _ = new LibraryTabManager().SyncOnBootAsync(_tabBootSyncCancellation.Token);
+
+        // The initial boot enters game mode without a GameModeEntered event — start
+        // the Wi-Fi indicator feed here; its own retries wait out Steam's UI.
+        if (!_overlayTestOnly)
+        {
+            _networkIndicator ??= NetworkIndicatorService.StartNew();
+        }
     }
 }

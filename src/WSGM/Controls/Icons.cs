@@ -39,6 +39,19 @@ public static class Icons
             "M 4,4 L 10,4 L 10,10 L 4,10 Z M 14,4 L 20,4 L 20,10 L 14,10 Z "
                 + "M 4,14 L 10,14 L 10,20 L 4,20 Z M 14,14 L 20,14 L 20,20 L 14,20 Z");
 
+    /// <summary>Up and down arrows side by side (reorder a list).</summary>
+    public static StreamGeometry Reorder { get; } =
+        StreamGeometry.Parse(
+            "M 8,20 L 8,4 M 4.5,7.5 L 8,4 L 11.5,7.5 M 16,4 L 16,20 M 12.5,16.5 L 16,20 L 19.5,16.5");
+
+    /// <summary>Straight arrow pointing up (move a list entry up).</summary>
+    public static StreamGeometry ArrowUp { get; } =
+        StreamGeometry.Parse("M 12,20 L 12,4 M 5.5,10.5 L 12,4 L 18.5,10.5");
+
+    /// <summary>Straight arrow pointing down (move a list entry down).</summary>
+    public static StreamGeometry ArrowDown { get; } =
+        StreamGeometry.Parse("M 12,4 L 12,20 M 5.5,13.5 L 12,20 L 18.5,13.5");
+
     /// <summary>Two stacked documents (copy-to-clipboard commands).</summary>
     public static StreamGeometry CopyDoc { get; } =
         StreamGeometry.Parse("M 5,8 L 15,8 L 15,21 L 5,21 Z M 9,8 L 9,4 L 19,4 L 19,17 L 15,17");
