@@ -32,10 +32,13 @@ Windows shell the whole time.
 - **A working Wi-Fi icon** — Big Picture's header shows your real network and signal strength on
   Windows (Steam never feeds it there; WSGM does).
 - **Steam Input everywhere** — Steam runs elevated so Steam Input keeps working over elevated
-  windows and games; the **Steam Input Lease** hands the controller to WSGM's panels only while
-  they're open, and Steam gets it back the moment they close.
+  windows and games.
+- **Steam Input Lease** — the first tool to take the controller out of the running Steam client's
+  hands **dynamically**: Steam is asked to let go of the pad and gets it back the moment it's needed
+  again — no restart, no drivers, no config changes, no Steam file touched; Steam just sees a brief
+  unplug. It's what lets WSGM's own panels read the controller while they're open.
 - **Free the controller for emulators & SDL3 apps** — Steam's desktop layout normally swallows the
-  pad from every other program. The lease tool blocks Steam Input for a single title via its launch
+  pad from every other program. The lease blocks Steam Input for a single title via its launch
   options, so emulators and SDL3 applications read the real controller directly — and Steam takes it
   back the moment the game exits. A companion helper de-elevates titles that refuse to run elevated;
   both commands are copied ready-made from the Tools tab.
