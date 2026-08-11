@@ -41,10 +41,19 @@ if ($LASTEXITCODE -ne 0) { throw "WSGM.Deelevate publish failed" }
 
 # Some games/mod tools need Windows Explorer running. This wrapper is pasted into
 # a game's launch options and asks the running WSGM shell to drop to desktop mode
-# (Explorer up) for the game's lifetime. Published beside WSGM like the others.
-dotnet publish "$root\src\WSGM.Explorerfy\WSGM.Explorerfy.csproj" -c Release -r win-x64 `
-    -o "$root\publish" "/p:Version=$version"
-if ($LASTEXITCODE -ne 0) { throw "WSGM.Explorerfy publish failed" }
+# (Explorer up) for the game's lifetime. It is a NATIVE Rust exe, NOT NativeAOT
+# .NET: a managed wrapper dies before main() when Steam launches it (Steam-launch
+# only, device-observed), while a native exe launches like any game exe. Built
+# from source like the radio helper; the snake_case bin is renamed on copy.
+cargo build --manifest-path "$root\native\Explorerfy\Cargo.toml" --release
+if ($LASTEXITCODE -ne 0) { throw "WSGM.Explorerfy (Rust) build failed" }
+$explorerfyRelease = if ($env:CARGO_BUILD_TARGET) {
+    "$root\native\Explorerfy\target\$($env:CARGO_BUILD_TARGET)\release"
+} else {
+    "$root\native\Explorerfy\target\release"
+}
+Copy-Item -LiteralPath "$explorerfyRelease\wsgm-explorerfy.exe" `
+    -Destination "$root\publish\WSGM.Explorerfy.exe" -Force
 
 # The SYSTEM logon service that launches WSGM's boot cover at sign-in. Published
 # beside the rest; the installer ships it to Program Files (never user-writable).

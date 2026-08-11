@@ -1,0 +1,21 @@
+[package]
+name = "wsgm-explorerfy"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.94"
+
+# Steam's launch-option wrapper for games that need Windows Explorer running.
+# Deliberately a NATIVE exe with no managed runtime: a NativeAOT .NET wrapper dies
+# before `main` when Steam launches it (device-observed; a native game exe and a
+# CoreCLR app both launch fine, only the NativeAOT one does not), and a native exe
+# can also log from its very first instruction with nothing to fail during startup.
+[[bin]]
+name = "wsgm-explorerfy"
+path = "src/main.rs"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
