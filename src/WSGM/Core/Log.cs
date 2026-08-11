@@ -10,6 +10,15 @@ public static class Log
 {
     private static readonly object Gate = new();
     private static string? _path;
+    private static string _name = "wsgm";
+
+    // A single shell process runs for the whole game-mode session and never
+    // re-runs Init, so startup-only rotation let the live file grow without bound
+    // (observed ~100 MB). Cap it and re-check on write, throttled to avoid a stat
+    // per line. One previous file is kept, so on-disk logs stay under ~2x the cap.
+    private const long MaxLogBytes = 5 * 1024 * 1024;
+    private const long RotationCheckInterval = 256 * 1024;
+    private static long _bytesSinceRotationCheck;
 
     /// <summary>Gets the per-user directory used for logs, configuration, and installed files.</summary>
     public static string Directory =>
@@ -23,6 +32,7 @@ public static class Log
         {
             var directory = Directory;
             System.IO.Directory.CreateDirectory(directory);
+            _name = name;
             _path = Path.Combine(directory, $"{name}.log");
         }
         catch
@@ -33,24 +43,7 @@ public static class Log
             return;
         }
 
-        try
-        {
-            // Rotate at 2 MB, keep one previous file.
-            var fi = new FileInfo(_path);
-            if (fi.Exists && fi.Length > 2 * 1024 * 1024)
-            {
-                var old = Path.Combine(Path.GetDirectoryName(_path)!, $"{name}.old.log");
-                File.Delete(old);
-                File.Move(_path, old);
-            }
-        }
-        catch (Exception ex)
-        {
-            // A held-open log file (viewer, AV, second WSGM process) must not
-            // disable logging for the whole session — plain appends still work.
-            Warn($"Log rotation failed, continuing without rotating: {ex.Message}");
-        }
-
+        RotateIfLarge();
         Info($"---- WSGM {typeof(Log).Assembly.GetName().Version} started, args: [{Environment.CommandLine}]");
     }
 
@@ -71,6 +64,34 @@ public static class Log
     /// <param name="ex">The exception to record.</param>
     public static void Error(string message, Exception ex) => Write("error", $"{message}: {ex}");
 
+    /// <summary>Moves the live log aside when it passes <see cref="MaxLogBytes"/>,
+    /// keeping one previous file. Best-effort: a held-open file or a race with
+    /// another WSGM process just leaves rotation for the next attempt, so appends
+    /// keep working either way. Callers serialize this through <see cref="Gate"/>,
+    /// or run it before logging starts (Init).</summary>
+    private static void RotateIfLarge()
+    {
+        var path = _path;
+        if (path is null)
+        {
+            return;
+        }
+        try
+        {
+            var fi = new FileInfo(path);
+            if (fi.Exists && fi.Length > MaxLogBytes)
+            {
+                var old = Path.Combine(Path.GetDirectoryName(path)!, $"{_name}.old.log");
+                File.Delete(old);
+                File.Move(path, old);
+            }
+        }
+        catch
+        {
+            // Never throw from logging; rotation retries on the next interval.
+        }
+    }
+
     private static void Write(string level, string message)
     {
         if (_path is null)
@@ -82,6 +103,14 @@ public static class Log
         {
             // Timestamp inside the lock so appended lines stay in chronological order.
             var line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [{level}] {message}{Environment.NewLine}";
+            // A long-lived process never re-runs Init, so rotate here too — checked
+            // only every RotationCheckInterval bytes to keep this off the per-line path.
+            _bytesSinceRotationCheck += line.Length;
+            if (_bytesSinceRotationCheck >= RotationCheckInterval)
+            {
+                _bytesSinceRotationCheck = 0;
+                RotateIfLarge();
+            }
             // Shell and settings are separate processes sharing this file; a
             // concurrent append raises a sharing-violation IOException — retry
             // briefly instead of silently dropping the line.
