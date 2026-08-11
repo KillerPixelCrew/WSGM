@@ -201,6 +201,7 @@ public sealed class OverlayController : IDisposable
     public void ApplyConfig(AppConfig config)
     {
         _config = config;
+        SteamCef.SetMasterEnabled(config.Cef.Enabled);
         // Accent re-apply must run on the UI thread; the debounced config watcher
         // may deliver this call from a worker thread.
         Avalonia.Threading.Dispatcher.UIThread.Post(() => Themes.AccentPalette.Apply(Avalonia.Application.Current!, Themes.AccentPalette.Parse(config.AccentColor)));
@@ -478,6 +479,11 @@ public sealed class OverlayController : IDisposable
             HomeAppName = "Steam",
             GlyphStyle = _config.GlyphStyle,
             WarningText = _pendingWarning,
+            // Hide each CEF feature's sidebar button when that feature is off.
+            ShowLibraryTabs = _config.Cef.Enabled && _config.Cef.LibraryTabs,
+            ShowCardManager = _config.Cef.Enabled && _config.Cef.CardManager,
+            ShowArtwork = _config.Cef.Enabled && _config.Cef.Artwork,
+            ShowSdCard = _config.Cef.Enabled && _config.Cef.SdFormat,
         };
 
         _overlayViewModel = vm;

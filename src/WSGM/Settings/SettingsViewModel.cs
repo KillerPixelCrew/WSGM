@@ -124,6 +124,12 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         BootSplashEnabled = _config.BootSplashEnabled;
         GameModeBootEnabled = _config.GameModeBootEnabled;
         SteamInputLeaseEnabled = _config.SteamInputLeaseEnabled;
+        CefEnabled = _config.Cef.Enabled;
+        CefLibraryTabs = _config.Cef.LibraryTabs;
+        CefCardManager = _config.Cef.CardManager;
+        CefSdFormat = _config.Cef.SdFormat;
+        CefArtwork = _config.Cef.Artwork;
+        CefWifiIndicator = _config.Cef.WifiIndicator;
         _hotkey = _config.Hotkey;
         _chord = _config.GamepadChord;
         GestureBottom = _config.Gestures.BottomEdge;
@@ -281,6 +287,33 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// <summary>Gets or sets whether WSGM leases the controller away from Steam
     /// Input while its focused surfaces are open. Off = Steam is never touched.</summary>
     public bool SteamInputLeaseEnabled { get => _steamInputLeaseEnabled; set { _steamInputLeaseEnabled = value; Raise(nameof(SteamInputLeaseEnabled)); } }
+
+    private bool _cefEnabled = true;
+    private bool _cefLibraryTabs = true;
+    private bool _cefCardManager = true;
+    private bool _cefSdFormat = true;
+    private bool _cefArtwork = true;
+    private bool _cefWifiIndicator = true;
+
+    /// <summary>Gets or sets the master Steam CEF integration switch. Off closes the
+    /// debug port, injects nothing, and hides the sub-toggles below and the overlay
+    /// feature buttons.</summary>
+    public bool CefEnabled { get => _cefEnabled; set { _cefEnabled = value; Raise(nameof(CefEnabled)); } }
+
+    /// <summary>Gets or sets the injected library filter tabs, tab order, and native-tab hiding.</summary>
+    public bool CefLibraryTabs { get => _cefLibraryTabs; set { _cefLibraryTabs = value; Raise(nameof(CefLibraryTabs)); } }
+
+    /// <summary>Gets or sets the SD-card library manager (card tabs, badges, live labels).</summary>
+    public bool CefCardManager { get => _cefCardManager; set { _cefCardManager = value; Raise(nameof(CefCardManager)); } }
+
+    /// <summary>Gets or sets Format SD Card + live library registration.</summary>
+    public bool CefSdFormat { get => _cefSdFormat; set { _cefSdFormat = value; Raise(nameof(CefSdFormat)); } }
+
+    /// <summary>Gets or sets the shortcut-artwork changer.</summary>
+    public bool CefArtwork { get => _cefArtwork; set { _cefArtwork = value; Raise(nameof(CefArtwork)); } }
+
+    /// <summary>Gets or sets the Big Picture Wi-Fi indicator.</summary>
+    public bool CefWifiIndicator { get => _cefWifiIndicator; set { _cefWifiIndicator = value; Raise(nameof(CefWifiIndicator)); } }
 
     /// <summary>Gets whether the LEGACY shell registration is still active for this
     /// account (pre-service installs). Shows the migration Restore card.</summary>
@@ -866,6 +899,12 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.BootSplashEnabled = BootSplashEnabled;
         config.GameModeBootEnabled = GameModeBootEnabled;
         config.SteamInputLeaseEnabled = SteamInputLeaseEnabled;
+        config.Cef.Enabled = CefEnabled;
+        config.Cef.LibraryTabs = CefLibraryTabs;
+        config.Cef.CardManager = CefCardManager;
+        config.Cef.SdFormat = CefSdFormat;
+        config.Cef.Artwork = CefArtwork;
+        config.Cef.WifiIndicator = CefWifiIndicator;
         config.Hotkey = _hotkey;
         config.GamepadChord = _chord;
         config.Gestures.BottomEdge = GestureBottom;

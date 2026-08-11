@@ -90,24 +90,30 @@
                                       Title="Task Manager"
                                       Description="Processes and performance" />
 
-                        <TextBlock Text="STEAM LIBRARY" Classes="eyebrow" Margin="2,6,2,2" />
+                        <TextBlock Text="STEAM LIBRARY" Classes="eyebrow" Margin="2,6,2,2"
+                                   IsVisible="{Binding ShowSteamLibrarySection}" />
                         <c:CardButton Click="OnLibraryTabs"
+                                      IsVisible="{Binding ShowLibraryTabs}"
                                       IconGeometry="{x:Static c:Icons.SteamLike}"
                                       Title="Library Tabs"
                                       Description="Custom filter tabs and genres" />
                         <c:CardButton Click="OnCardManager"
+                                      IsVisible="{Binding ShowCardManager}"
                                       IconGeometry="{x:Static c:Icons.SdCard}"
                                       Title="Card Manager"
                                       Description="Rename, hide, and view SD-card libraries" />
                         <c:CardButton Click="OnChangeArtwork"
+                                      IsVisible="{Binding ShowArtwork}"
                                       IconGeometry="{x:Static c:Icons.Palette}"
                                       Title="Change Artwork"
                                       Description="Swap game art from SteamGridDB" />
                         <c:CardButton Click="OnAddLibrary"
+                                      IsVisible="{Binding ShowSdCard}"
                                       IconGeometry="{x:Static c:Icons.FolderPlus}"
                                       Title="Add Steam Library"
                                       Description="Register a folder, drive, or network share" />
                         <c:CardButton Click="OnFormatSdCard"
+                                      IsVisible="{Binding ShowSdCard}"
                                       IconGeometry="{x:Static c:Icons.SdCard}"
                                       Title="Format SD Card"
                                       Description="Erase a card as a Steam game library" />

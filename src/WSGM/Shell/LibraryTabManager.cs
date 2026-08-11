@@ -57,7 +57,11 @@ public sealed class LibraryTabManager
             var (tabs, reachable, filterFailed) = await BuildTabsAsync(config, discovered, cancellationToken)
                 .ConfigureAwait(false);
 
-            var sync = reachable && !filterFailed
+            // CEF library-tabs feature gate (master + sub-toggle): when off, the tab
+            // strip is never pushed. Discovery, badges, and config merge below still
+            // run so the SD-card manager and its badges remain independent.
+            var tabsEnabled = config.Cef.Enabled && config.Cef.LibraryTabs;
+            var sync = reachable && !filterFailed && tabsEnabled
                 ? await SteamLibraryTabs.SyncTabsAsync(
                     tabs, config.LibraryTabOrder, config.HiddenNativeTabs, cancellationToken)
                     .ConfigureAwait(false)
@@ -307,6 +311,12 @@ public sealed class LibraryTabManager
     private static async Task<bool> PushCardBadgesAsync(
         AppConfig config, CancellationToken cancellationToken)
     {
+        // CEF SD-card-manager feature gate (master + sub-toggle): the "On: <card>"
+        // badges are part of that feature, so skip pushing them when it is off.
+        if (!(config.Cef.Enabled && config.Cef.CardManager))
+        {
+            return false;
+        }
         try
         {
             var map = new Dictionary<long, string>();

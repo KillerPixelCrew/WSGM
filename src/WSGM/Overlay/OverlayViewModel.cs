@@ -71,5 +71,27 @@ public sealed class OverlayViewModel : INotifyPropertyChanged
     /// <summary>Gets the destructive-action label, including confirmation state.</summary>
     public string CloseLauncherText => ConfirmingCloseLauncher ? "Really?" : $"Close {HomeAppName}";
 
+    /// <summary>Whether the CEF library-tabs builder button is shown
+    /// (<c>Cef.Enabled &amp;&amp; Cef.LibraryTabs</c>). Set per show; a hidden button
+    /// removes the only entry point to that CEF feature.</summary>
+    public bool ShowLibraryTabs { get; init; } = true;
+
+    /// <summary>Whether the CEF SD-card library-manager button is shown
+    /// (<c>Cef.Enabled &amp;&amp; Cef.CardManager</c>).</summary>
+    public bool ShowCardManager { get; init; } = true;
+
+    /// <summary>Whether the CEF shortcut-artwork button is shown
+    /// (<c>Cef.Enabled &amp;&amp; Cef.Artwork</c>).</summary>
+    public bool ShowArtwork { get; init; } = true;
+
+    /// <summary>Whether the CEF Format-SD-card and Add-library buttons are shown
+    /// (<c>Cef.Enabled &amp;&amp; Cef.SdFormat</c>).</summary>
+    public bool ShowSdCard { get; init; } = true;
+
+    /// <summary>Whether the "STEAM LIBRARY" tools section has any visible button, so
+    /// its header is hidden rather than left orphaned when every CEF feature is off.</summary>
+    public bool ShowSteamLibrarySection =>
+        ShowLibraryTabs || ShowCardManager || ShowArtwork || ShowSdCard;
+
     private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

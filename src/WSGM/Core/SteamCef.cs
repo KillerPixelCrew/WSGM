@@ -43,11 +43,30 @@ public static class SteamCef
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(5) };
 
+    // Master CEF switch (AppConfig.Cef.Enabled), mirrored here because this class is
+    // static and stateless while every injection path funnels through it. Defaults
+    // true so any code path that runs before the shell applies config behaves
+    // exactly as before. Set live from the config-apply paths (ShellSession /
+    // OverlayController) since a runtime reload replaces the config wholesale.
+    private static volatile bool _masterEnabled = true;
+
+    /// <summary>Mirrors <c>AppConfig.Cef.Enabled</c>. When false, WSGM neither writes
+    /// the CEF debug flag nor attempts any injection — every <see cref="EvaluateAsync"/>
+    /// call returns unreachable. Read live per call, never captured.</summary>
+    public static void SetMasterEnabled(bool enabled) => _masterEnabled = enabled;
+
     /// <summary>Writes the CEF remote-debugging flag into the Steam directory when
     /// it is missing so Steam opens its localhost devtools port on next start.
     /// Idempotent and best-effort; returns whether the flag is present afterwards.</summary>
     public static bool EnsureRemoteDebuggingEnabled()
     {
+        // Master switch off: never write the debug flag. An existing flag (from the
+        // user or a prior run) is deliberately left in place — AGENTS invariant 8
+        // forbids deleting the shared file; we simply stop opting Steam into it.
+        if (!_masterEnabled)
+        {
+            return false;
+        }
         try
         {
             var steamExe = Steam.ExePath;
@@ -104,6 +123,12 @@ public static class SteamCef
     private static async Task<CefEvalResult> EvaluateOnAsync(
         WhichTarget which, string expression, TimeSpan timeout, CancellationToken cancellationToken)
     {
+        // Fail closed: the single choke point every injection flows through, so one
+        // check here disables all CEF activity when the master switch is off.
+        if (!_masterEnabled)
+        {
+            return CefEvalResult.Unreachable("Steam CEF integration disabled in settings.");
+        }
         try
         {
             await Task.Run(EnsureRemoteDebuggingEnabled, cancellationToken).ConfigureAwait(false);

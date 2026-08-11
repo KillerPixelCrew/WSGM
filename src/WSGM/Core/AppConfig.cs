@@ -513,6 +513,10 @@ public sealed class AppConfig
     /// nothing is ever injected into Steam.</summary>
     public bool SteamInputLeaseEnabled { get; set; } = true;
 
+    /// <summary>Steam CEF integration master switch and per-feature sub-toggles
+    /// (see <see cref="CefConfig"/>).</summary>
+    public CefConfig Cef { get; set; } = new();
+
     /// <summary>Keyboard shortcut configuration for opening the overlay.</summary>
     public HotkeyConfig Hotkey { get; set; } = new();
 
@@ -611,8 +615,40 @@ public sealed class AppConfig
     public bool? ConvertibleSlateModeModifiedByWsgm { get; set; }
 }
 
+/// <summary>Master switch and per-feature sub-toggles for WSGM's Steam CEF
+/// (Chromium Embedded Framework) integration — everything WSGM injects into Steam
+/// over its debug port. <see cref="Enabled"/> off means WSGM never writes or uses
+/// the CEF debug flag at all (no injection, and the sub-features are hidden from
+/// the overlay); the sub-toggles gate individual injected features while CEF is on.
+/// Every flag defaults on, so an existing install behaves exactly as before.</summary>
+public sealed class CefConfig
+{
+    /// <summary>Master CEF switch. Off = the debug-port flag is never written, no
+    /// injection is attempted, and every CEF feature below is hidden.</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>Injected library filter tabs plus the tab-strip order and native-tab
+    /// hiding — one subsystem (<c>SteamLibraryTabs</c>).</summary>
+    public bool LibraryTabs { get; set; } = true;
+
+    /// <summary>The SD-card library manager: per-card injected library tabs, the
+    /// "On: &lt;card&gt;" game-page badges, and live library relabeling.</summary>
+    public bool CardManager { get; set; } = true;
+
+    /// <summary>Format SD Card and register its library into the running Steam. The
+    /// whole feature (native disk format included) is hidden when off.</summary>
+    public bool SdFormat { get; set; } = true;
+
+    /// <summary>Shortcut artwork changer (SteamGridDB) applied via Steam's client API.</summary>
+    public bool Artwork { get; set; } = true;
+
+    /// <summary>Big Picture header Wi-Fi indicator (feeds Steam's <c>SystemNetworkStore</c>).</summary>
+    public bool WifiIndicator { get; set; } = true;
+}
+
 /// <summary>Source-generated JSON metadata for the persisted <see cref="AppConfig"/> contract.</summary>
 [JsonSerializable(typeof(AppConfig))]
+[JsonSerializable(typeof(CefConfig))]
 [JsonSerializable(typeof(SplashConfig))]
 [JsonSerializable(typeof(SgdbLinkConfig))]
 [JsonSerializable(typeof(CardLibraryConfig))]

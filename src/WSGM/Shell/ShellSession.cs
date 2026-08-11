@@ -43,6 +43,7 @@ public sealed class ShellSession
     public ShellSession(AppConfig config, bool overlayTestOnly = false, bool serviceBoot = false)
     {
         _config = config;
+        SteamCef.SetMasterEnabled(config.Cef.Enabled);
         _overlayTestOnly = overlayTestOnly;
         _serviceBoot = serviceBoot;
     }
@@ -86,7 +87,7 @@ public sealed class ShellSession
             }
             _volumeButtons?.SetGameModeActive(true);
             _cardAcfWatcher ??= CardAcfWatcher.StartNew();
-            if (!_overlayTestOnly)
+            if (!_overlayTestOnly && _config.Cef.Enabled && _config.Cef.WifiIndicator)
             {
                 _networkIndicator ??= NetworkIndicatorService.StartNew();
                 _networkIndicator.Poke();
@@ -403,6 +404,7 @@ public sealed class ShellSession
                 => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                 {
                     var config = ConfigStore.Load();
+                    SteamCef.SetMasterEnabled(config.Cef.Enabled);
                     _overlay?.ApplyConfig(config);
                     _startupWatcher?.Apply(config.StartupApps);
                 });
@@ -489,7 +491,7 @@ public sealed class ShellSession
 
         // The initial boot enters game mode without a GameModeEntered event — start
         // the Wi-Fi indicator feed here; its own retries wait out Steam's UI.
-        if (!_overlayTestOnly)
+        if (!_overlayTestOnly && _config.Cef.Enabled && _config.Cef.WifiIndicator)
         {
             _networkIndicator ??= NetworkIndicatorService.StartNew();
         }

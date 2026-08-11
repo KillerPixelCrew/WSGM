@@ -147,6 +147,7 @@ public static class ConfigStore
     internal static AppConfig Normalize(AppConfig config)
     {
         config.StartupApps ??= [];
+        config.Cef ??= new CefConfig();
         config.Hotkey ??= new HotkeyConfig();
         config.GamepadChord ??= new GamepadChordConfig();
         config.Gestures ??= new GestureConfig();
