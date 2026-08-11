@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -102,6 +103,73 @@ public static class SteamArtwork
     // reads back negative, so normalize to the unsigned value the client expects.
     private static string ToUnsigned(long appId)
         => (appId < 0 ? (uint)appId : appId).ToString(CultureInfo.InvariantCulture);
+
+    // Steam persists SetCustomArtworkForApp into userdata\<account>\config\grid using
+    // the unsigned app id plus a per-slot suffix. Filenames per slot:
+    //   Grid (portrait)  <id>p.<ext>      Hero  <id>_hero.<ext>
+    //   Logo             <id>_logo.<ext>  Wide  <id>.<ext>   Icon  <id>_icon.<ext>
+    private static readonly string[] GridExtensions = ["png", "jpg", "jpeg", "webp"];
+
+    /// <summary>The on-disk file of the CURRENT custom artwork for a slot, or null when
+    /// the slot uses Steam's official art (no custom file). Scans every account's grid
+    /// folder and prefers the most recently written match. Local file I/O only.</summary>
+    /// <param name="appId">The Steam app id (signed shortcut ids accepted).</param>
+    /// <param name="asset">Which slot.</param>
+    public static string? FindCustomArtFile(long appId, ArtworkAsset asset)
+    {
+        try
+        {
+            var steamExe = Steam.ExePath;
+            if (steamExe is null)
+            {
+                return null;
+            }
+            var userdata = Path.Combine(Path.GetDirectoryName(steamExe)!, "userdata");
+            if (!Directory.Exists(userdata))
+            {
+                return null;
+            }
+            var id = ToUnsigned(appId);
+            var stem = asset switch
+            {
+                ArtworkAsset.Grid => id + "p",
+                ArtworkAsset.Hero => id + "_hero",
+                ArtworkAsset.Logo => id + "_logo",
+                ArtworkAsset.Icon => id + "_icon",
+                _ => id,
+            };
+            string? newest = null;
+            var newestTime = DateTime.MinValue;
+            foreach (var account in Directory.EnumerateDirectories(userdata))
+            {
+                var grid = Path.Combine(account, "config", "grid");
+                if (!Directory.Exists(grid))
+                {
+                    continue;
+                }
+                foreach (var ext in GridExtensions)
+                {
+                    var candidate = Path.Combine(grid, stem + "." + ext);
+                    if (!File.Exists(candidate))
+                    {
+                        continue;
+                    }
+                    var time = File.GetLastWriteTimeUtc(candidate);
+                    if (time > newestTime)
+                    {
+                        newestTime = time;
+                        newest = candidate;
+                    }
+                }
+            }
+            return newest;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Artwork: custom-art lookup failed: {ex.Message}");
+            return null;
+        }
+    }
 
     private static ArtworkResult Interpret(CefEvalResult result, string okMessage)
     {

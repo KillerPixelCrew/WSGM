@@ -108,8 +108,35 @@ public sealed class LibraryFilterTests
             Condition = ThresholdCondition.Above,
         });
         Assert.Contains("rt_last_time_played", js);
-        Assert.Contains("Date.UTC(2025,6,3)", js);
+        Assert.Contains("(Date.UTC(2025,6,3)/1000)", js);
+        // Date.UTC yields a Number, not a Date: .getTime() on it throws TypeError in V8
+        // and the per-app catch turns that into an empty tab with no warning.
+        Assert.DoesNotContain(".getTime()", js);
     }
+
+    [Theory]
+    [InlineData("([0-9]+)+x")]      // needs digits — an all-'a' probe returns instantly
+    [InlineData(@"(\s+\S+)+$")]     // needs whitespace
+    [InlineData("(ab+)+c")]
+    [InlineData("(a?)*b")]
+    public void NestedQuantifiersAreRejectedWhateverAlphabetTheyNeed(string pattern)
+        => Assert.False(LibraryFilter.IsValid(new FilterNode
+        {
+            Kind = FilterKind.Regex,
+            Pattern = pattern,
+        }));
+
+    [Theory]
+    [InlineData("Portal")]
+    [InlineData("^Half-Life")]
+    [InlineData("(Legacy|Remastered)$")]
+    [InlineData("[0-9]+")]
+    public void OrdinaryPatternsStillPassTheSafetyGate(string pattern)
+        => Assert.True(LibraryFilter.IsValid(new FilterNode
+        {
+            Kind = FilterKind.Regex,
+            Pattern = pattern,
+        }));
 
     [Fact]
     public void CatastrophicRegexIsRejectedBeforeSteamEvaluation()

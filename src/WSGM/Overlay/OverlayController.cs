@@ -827,7 +827,12 @@ public sealed class OverlayController : IDisposable
         _keyboardWindow = window;
         overlay.KeyboardOwnsFocus = true;
         window.Accepted += text => onAccept(text);
+        // The window's own Opened handler (subscribed first) applies the UI-scale
+        // LayoutTransform, which only changes Bounds on the NEXT layout pass — so the
+        // positioning below must force that pass, and re-run when SizeToContent grows
+        // the window afterwards, or the keyboard is placed for its unscaled size.
         window.Opened += (_, _) => PositionKeyboardBesideOverlay(window, overlay);
+        window.SizeChanged += (_, _) => PositionKeyboardBesideOverlay(window, overlay);
         window.Show();
 
         _keyboardNavigation = new GamepadNavigation(_gamepad, window, () => window.Close(),
@@ -860,6 +865,9 @@ public sealed class OverlayController : IDisposable
     private static void PositionKeyboardBesideOverlay(KeyboardWindow window, OverlayWindow overlay)
     {
         // Left of the sidebar (which is docked to the right edge), vertically centred.
+        // Settle any pending layout first: the UI-scale LayoutTransform applied on open
+        // invalidates measure, and Bounds only reflects it after a layout pass.
+        window.UpdateLayout();
         var scaling = window.DesktopScaling;
         var widthPx = (int)Math.Ceiling(Math.Max(window.Bounds.Width, 300) * scaling);
         var heightPx = (int)Math.Ceiling(Math.Max(window.Bounds.Height, 200) * scaling);
@@ -869,8 +877,16 @@ public sealed class OverlayController : IDisposable
         var screen = overlay.Screens.ScreenFromWindow(overlay);
         if (screen is not null)
         {
-            x = Math.Clamp(x, screen.WorkingArea.X, screen.WorkingArea.Right - widthPx);
-            y = Math.Clamp(y, screen.WorkingArea.Y, screen.WorkingArea.Bottom - heightPx);
+            // Right-align against the sidebar when clamping: if the keyboard is wider
+            // than the free space, losing pixels on the LEFT keeps the edge the gamepad
+            // crosses (keyboard right ↔ sidebar left) usable. Math.Clamp would throw
+            // when the window exceeds the work area, so clamp by hand.
+            var minX = screen.WorkingArea.X;
+            var maxX = Math.Max(minX, overlay.Position.X - widthPx - 8);
+            x = Math.Min(Math.Max(x, minX), maxX);
+            var minY = screen.WorkingArea.Y;
+            var maxY = Math.Max(minY, screen.WorkingArea.Bottom - heightPx);
+            y = Math.Min(Math.Max(y, minY), maxY);
         }
         window.Position = new Avalonia.PixelPoint(x, y);
     }

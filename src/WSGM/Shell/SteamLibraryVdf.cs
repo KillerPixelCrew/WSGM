@@ -227,6 +227,111 @@ public static class SteamLibraryVdf
         return string.Equals(currentId, contentId, StringComparison.Ordinal) ? label : null;
     }
 
+    /// <summary>Rewrites the <c>label</c> of the library block whose content id
+    /// matches, preserving every other byte. Works on both file shapes: the
+    /// numbered blocks of <c>config\libraryfolders.vdf</c> and the single-block
+    /// card marker <c>libraryfolder.vdf</c>. A block without a label line gets one
+    /// inserted after its contentid line. Used only while Steam is closed; a
+    /// running client is renamed through its CEF API instead.</summary>
+    /// <param name="vdf">The current file text.</param>
+    /// <param name="contentId">The stable library identity to rename.</param>
+    /// <param name="label">The new raw label (escaped here).</param>
+    /// <param name="updated">The text with the new label on success.</param>
+    /// <returns>True when a matching block was updated.</returns>
+    public static bool TrySetLabel(string vdf, string contentId, string label, out string? updated)
+    {
+        updated = null;
+        var starts = new List<int>();
+        var lineStart = 0;
+        while (lineStart < vdf.Length)
+        {
+            var lineEnd = vdf.IndexOf('\n', lineStart);
+            if (lineEnd < 0)
+            {
+                lineEnd = vdf.Length;
+            }
+            if (IsTopLevelEntry(vdf[lineStart..lineEnd].TrimEnd('\r')))
+            {
+                starts.Add(lineStart);
+            }
+            lineStart = lineEnd + 1;
+        }
+
+        int blockStart = -1, blockEnd = -1;
+        if (starts.Count == 0)
+        {
+            // Marker file: the whole file is one "libraryfolder" block.
+            if (!IsContentIdRegistered(vdf, contentId))
+            {
+                return false;
+            }
+            blockStart = 0;
+            blockEnd = vdf.Length;
+        }
+        else
+        {
+            var rootClose = vdf.LastIndexOf('}');
+            for (var i = 0; i < starts.Count; i++)
+            {
+                var end = i + 1 < starts.Count ? starts[i + 1] : rootClose;
+                if (end > starts[i] && IsContentIdRegistered(vdf[starts[i]..end], contentId))
+                {
+                    blockStart = starts[i];
+                    blockEnd = end;
+                    break;
+                }
+            }
+            if (blockStart < 0)
+            {
+                return false;
+            }
+        }
+
+        int labelStart = -1, labelEnd = -1, idStart = -1, idEnd = -1;
+        var position = blockStart;
+        while (position < blockEnd)
+        {
+            var end = vdf.IndexOf('\n', position);
+            if (end < 0 || end > blockEnd)
+            {
+                end = blockEnd;
+            }
+            var line = vdf[position..end].TrimEnd('\r');
+            if (TryReadValue(line, "label", out _))
+            {
+                labelStart = position;
+                labelEnd = end;
+            }
+            else if (TryReadValue(line, "contentid", out _))
+            {
+                idStart = position;
+                idEnd = end;
+            }
+            position = end + 1;
+        }
+
+        var escaped = EscapeValue(label);
+        if (labelStart >= 0)
+        {
+            var raw = vdf[labelStart..labelEnd];
+            var line = raw.TrimEnd('\r');
+            var leading = line[..(line.Length - line.TrimStart('\t', ' ').Length)];
+            var replacement = leading + "\"label\"\t\t\"" + escaped + "\""
+                + (raw.EndsWith('\r') ? "\r" : "");
+            updated = vdf.Remove(labelStart, labelEnd - labelStart)
+                .Insert(labelStart, replacement);
+            return true;
+        }
+        if (idStart >= 0)
+        {
+            var idLine = vdf[idStart..idEnd].TrimEnd('\r');
+            var leading = idLine[..(idLine.Length - idLine.TrimStart('\t', ' ').Length)];
+            updated = vdf.Insert(idEnd, "\n" + leading + "\"label\"\t\t\"" + escaped + "\"");
+            return true;
+        }
+        return false;
+    }
+
     /// <summary>Removes exactly one top-level library registration selected by
     /// content id, preserving all other configuration bytes. Used only while
     /// Steam is closed; a running client is changed through its CEF API instead.</summary>

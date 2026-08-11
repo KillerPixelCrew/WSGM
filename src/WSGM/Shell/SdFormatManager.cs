@@ -362,6 +362,11 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             return;
         }
         var label = SanitizeLabel(name);
+        // Declared out here so the catch can compensate: once the Steam registration is
+        // removed, ANY later failure must try to put it back, not just a non-zero
+        // diskpart exit. The restore no-ops when the card's marker is gone (the erase
+        // did happen), so it is safe on every path.
+        string? retiredContentId = null;
         await _formatGate.WaitAsync();
         try
         {
@@ -386,11 +391,15 @@ public sealed class SdFormatManager : INotifyPropertyChanged
                 return;
             }
 
+            // Diskpart locks the volume; the ACF watcher's directory handle on the
+            // card would make that lock fail. Stand it down (it resumes on its own).
+            CardAcfWatcher.SuspendAll();
+
             // A card reader reuses its drive letter. If this is a WSGM-formatted
             // card, first remove its existing Steam library by the marker's stable
             // content id; otherwise the live client keeps the old app list as
             // ghost entries after diskpart has erased the manifests.
-            var retiredContentId = ReadExistingContentId(entry);
+            retiredContentId = ReadExistingContentId(entry);
             var removalFailure = await Task.Run(() => RemoveExistingLibrary(entry));
             if (removalFailure is not null)
             {
@@ -457,6 +466,14 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         catch (Exception ex)
         {
             Log.Error("Format: run failed.", ex);
+            try
+            {
+                await Task.Run(() => RestoreRemovedLibraryIfCardSurvived(entry, retiredContentId));
+            }
+            catch (Exception restoreEx)
+            {
+                Log.Error("Format: could not restore the removed library.", restoreEx);
+            }
             Finish("Formatting failed unexpectedly — see the log.", false);
         }
         finally
@@ -550,17 +567,32 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             return null;
         }
 
+        // Identity gate — runs for BOTH the live and the closed-Steam path. Removal is
+        // keyed on the content id (a reused reader letter means several cards legitimately
+        // share one path), but the registration that id points at must still live on the
+        // card being erased: a card carrying a copied marker would otherwise de-register
+        // an internal library. Never resolve this by moving a card to another letter —
+        // the reader's letter is fixed, because emulator configs store absolute paths.
+        var registeredPath = SteamLibraryVdf.PathForContentId(configText, contentId);
+        if (registeredPath is null)
+        {
+            Log.Info($"Format: content id {contentId} is not registered with Steam; "
+                + "nothing to remove.");
+            return null;
+        }
+        var cardPath = FullPathOrNull(Path.GetDirectoryName(marker));
+        var registeredFullPath = FullPathOrNull(registeredPath);
+        if (cardPath is null || registeredFullPath is null
+            || !string.Equals(registeredFullPath, cardPath, StringComparison.OrdinalIgnoreCase))
+        {
+            Log.Warn($"Format: content id {contentId} is registered at "
+                + $"{registeredPath}, not at the card path {Path.GetDirectoryName(marker)}.");
+            return "The card marker does not match the Steam library on this drive. "
+                + "Formatting was stopped to protect your other libraries.";
+        }
+
         if (Steam.IsRunning)
         {
-            var registeredPath = SteamLibraryVdf.PathForContentId(configText, contentId);
-            var cardPath = Path.GetFullPath(Path.GetDirectoryName(marker)!);
-            if (registeredPath is null
-                || !string.Equals(Path.GetFullPath(registeredPath), cardPath,
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                return "The card marker does not match the Steam library on this drive. "
-                    + "Formatting was stopped to protect your other libraries.";
-            }
             var pathMatches = SteamLibraryVdf.ValuesOf(configText, "path")
                 .Count(path => string.Equals(Path.GetFullPath(path), cardPath,
                     StringComparison.OrdinalIgnoreCase));
@@ -583,6 +615,8 @@ public sealed class SdFormatManager : INotifyPropertyChanged
                 + "Close Steam completely and try again.";
         }
 
+        // Reached only after the identity gate above proved this content id is registered
+        // at the card's own path, so removing by content id cannot touch another library.
         if (!SteamLibraryVdf.TryRemoveContentId(configText, contentId, out var updated)
             || updated is null)
         {
@@ -598,6 +632,26 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         WriteAtomically(configPath, updated);
         Log.Info($"Format: removed closed-Steam library registration for content id {contentId}.");
         return null;
+    }
+
+    /// <summary>Normalizes a path for comparison, treating a malformed or empty one as
+    /// unknown so the caller refuses rather than proceeding on a bad match.</summary>
+    /// <param name="path">The path to normalize.</param>
+    private static string? FullPathOrNull(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+        try
+        {
+            return Path.GetFullPath(path);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Format: could not normalize path '{path}': {ex.Message}");
+            return null;
+        }
     }
 
     private static string? ReadExistingContentId(FormatTargetEntry entry)
@@ -1039,7 +1093,9 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         Finished?.Invoke(message, success);
     }
 
-    private static void WriteAtomically(string path, string content)
+    // Internal: LibraryTabManager's card rename reuses the same atomic replace for
+    // its closed-Steam vdf label edits.
+    internal static void WriteAtomically(string path, string content)
     {
         var temporary = path + $".wsgm-{Guid.NewGuid():N}.tmp";
         try

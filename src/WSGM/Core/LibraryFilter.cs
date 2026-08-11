@@ -283,7 +283,8 @@ public static class LibraryFilter
     {
         if (string.IsNullOrWhiteSpace(pattern) || pattern.Length > 64
             || pattern.Contains("(?", StringComparison.Ordinal)
-            || Regex.IsMatch(pattern, @"\\[1-9]"))
+            || Regex.IsMatch(pattern, @"\\[1-9]")
+            || HasNestedQuantifier(pattern))
         {
             return false;
         }
@@ -291,11 +292,148 @@ public static class LibraryFilter
         {
             var regex = new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
                 TimeSpan.FromMilliseconds(25));
-            _ = regex.IsMatch(new string('a', 512) + "!");
+            // Probe several alphabets, not just 'a': a pattern whose catastrophic case
+            // needs digits or spaces (([0-9]+)+x, (\s+\S+)+$) matches nothing in an
+            // all-'a' subject, returns instantly, and would otherwise pass the gate and
+            // then hang V8 on a real title. The last probe is built from the pattern's
+            // own literal characters, which is what actually drives its backtracking.
+            foreach (var probe in BacktrackProbes(pattern))
+            {
+                _ = regex.IsMatch(probe);
+            }
             return true;
         }
         catch (ArgumentException) { return false; }
         catch (RegexMatchTimeoutException) { return false; }
+    }
+
+    private static readonly string[] ProbeAlphabets =
+        ["a", "0", " ", "ab01", ".-_", "Aa0 .-"];
+
+    private static IEnumerable<string> BacktrackProbes(string pattern)
+    {
+        foreach (var alphabet in ProbeAlphabets)
+        {
+            yield return Repeat(alphabet, 512) + "!";
+        }
+        var derived = LiteralAlphabet(pattern);
+        if (derived.Length > 0)
+        {
+            yield return Repeat(derived, 512) + "!";
+        }
+    }
+
+    private static string Repeat(string alphabet, int length)
+    {
+        var builder = new StringBuilder(length + alphabet.Length);
+        while (builder.Length < length)
+        {
+            builder.Append(alphabet);
+        }
+        return builder.ToString(0, length);
+    }
+
+    /// <summary>The literal characters the pattern itself mentions, which are the ones
+    /// most likely to drive its worst case.</summary>
+    /// <param name="pattern">The user-authored pattern.</param>
+    private static string LiteralAlphabet(string pattern)
+    {
+        var characters = new List<char>();
+        for (var i = 0; i < pattern.Length; i++)
+        {
+            var c = pattern[i];
+            if (c == '\\')
+            {
+                i++;
+                if (i < pattern.Length && char.IsLetterOrDigit(pattern[i]))
+                {
+                    characters.Add(pattern[i]);
+                }
+                continue;
+            }
+            if (!"()[]{}|*+?.^$-".Contains(c, StringComparison.Ordinal))
+            {
+                characters.Add(c);
+            }
+        }
+        return new string([.. characters.Distinct().Take(16)]);
+    }
+
+    /// <summary>True when a quantifier is applied to a group whose body is itself
+    /// quantified — the (a+)+ shape whose backtracking is exponential. Rejected
+    /// outright because no timing probe can be trusted to catch every instance.</summary>
+    /// <param name="pattern">The user-authored pattern.</param>
+    private static bool HasNestedQuantifier(string pattern)
+    {
+        var starts = new Stack<int>();
+        for (var i = 0; i < pattern.Length; i++)
+        {
+            var c = pattern[i];
+            if (c == '\\')
+            {
+                i++;
+            }
+            else if (c == '[')
+            {
+                i = SkipCharacterClass(pattern, i);
+            }
+            else if (c == '(')
+            {
+                starts.Push(i);
+            }
+            else if (c == ')' && starts.Count > 0)
+            {
+                var start = starts.Pop();
+                var next = i + 1 < pattern.Length ? pattern[i + 1] : '\0';
+                if (next is '*' or '+' or '{' or '?'
+                    && ContainsQuantifier(pattern.AsSpan(start + 1, i - start - 1)))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static int SkipCharacterClass(string pattern, int open)
+    {
+        for (var i = open + 1; i < pattern.Length; i++)
+        {
+            if (pattern[i] == '\\')
+            {
+                i++;
+            }
+            else if (pattern[i] == ']')
+            {
+                return i;
+            }
+        }
+        return pattern.Length - 1;
+    }
+
+    private static bool ContainsQuantifier(ReadOnlySpan<char> body)
+    {
+        for (var i = 0; i < body.Length; i++)
+        {
+            var c = body[i];
+            if (c == '\\')
+            {
+                i++;
+            }
+            else if (c == '[')
+            {
+                while (i < body.Length && body[i] != ']')
+                {
+                    if (body[i] == '\\') { i++; }
+                    i++;
+                }
+            }
+            else if (c is '*' or '+' or '{' or '?')
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>Builds the complete evaluation expression: prologue lookups, the
@@ -457,9 +595,11 @@ public static class LibraryFilter
         var y = node.Year > 0 ? node.Year : 1970;
         var m = node.Month is >= 1 and <= 12 ? node.Month : 1;
         var d = node.Day is >= 1 and <= 31 ? node.Day : 1;
+        // Date.UTC returns epoch milliseconds as a Number — it is NOT a Date, so calling
+        // .getTime() on it throws TypeError and silently empties every absolute-date tab.
         return "(Date.UTC(" + y.ToString(CultureInfo.InvariantCulture) + ","
             + (m - 1).ToString(CultureInfo.InvariantCulture) + ","
-            + d.ToString(CultureInfo.InvariantCulture) + ").getTime()/1000)";
+            + d.ToString(CultureInfo.InvariantCulture) + ")/1000)";
     }
 
     private static string Js(string value) => SteamCef.JsString(value);

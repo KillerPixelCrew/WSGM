@@ -1,12 +1,14 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using WSGM.Interop;
 
 namespace WSGM.Core;
 
@@ -136,7 +138,7 @@ public static class SteamCef
 
     private static async Task<string?> GetSocketAsync(WhichTarget which, CancellationToken token)
     {
-        if (!await IsSteamPortOwnerAsync(token).ConfigureAwait(false))
+        if (!IsSteamPortOwner())
         {
             Log.Warn($"Steam CEF refused port {DebugPort}: listener is not a Steam process.");
             return null;
@@ -175,29 +177,39 @@ public static class SteamCef
         return null;
     }
 
-    private static async Task<bool> IsSteamPortOwnerAsync(CancellationToken token)
+    // Reads the TCP listener table directly instead of parsing netstat: netstat's
+    // STATE column is localized, so matching the literal "LISTENING" fails closed on
+    // every non-English Windows and takes the whole Steam integration down with it.
+    // A loopback listener is preferred over a wildcard one so a 127.0.0.1 squatter
+    // cannot hide behind Steam's own [::]/0.0.0.0 row.
+    private static bool IsSteamPortOwner()
     {
-        var (exitCode, output) = await ConsoleTool.RunCapturedAsync(
-            "netstat.exe", "-ano -p tcp", timeoutMs: 5000).ConfigureAwait(false);
-        if (exitCode != 0) { return false; }
-        foreach (var line in output.Split('\n'))
+        var candidates = NativeTcp.ListListeners()
+            .Where(l => l.Port == DebugPort)
+            .OrderBy(l => l.LocalAddress == NativeTcp.Loopback ? 0 : 1)
+            .ToList();
+        if (candidates.Count == 0)
         {
-            var columns = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-            if (columns.Length < 5 || !columns[1].EndsWith($":{DebugPort}", StringComparison.Ordinal)
-                || !string.Equals(columns[3], "LISTENING", StringComparison.OrdinalIgnoreCase)
-                || !int.TryParse(columns[4], out var pid))
-            {
-                continue;
-            }
+            Log.Info($"Steam CEF: nothing is listening on port {DebugPort}.");
+            return false;
+        }
+        foreach (var listener in candidates)
+        {
             try
             {
-                using var process = Process.GetProcessById(pid);
-                return process.ProcessName is "steamwebhelper" or "steam";
+                using var process = Process.GetProcessById(listener.ProcessId);
+                if (process.ProcessName is "steamwebhelper" or "steam")
+                {
+                    return true;
+                }
+                Log.Warn($"Steam CEF: port {DebugPort} is owned by "
+                    + $"{process.ProcessName} (pid {listener.ProcessId}), not Steam.");
             }
             catch (Exception ex)
             {
+                // The owner exited between the table read and the lookup; keep
+                // scanning rather than treating one stale row as a verdict.
                 Log.Warn($"Steam CEF listener ownership check failed: {ex.Message}");
-                return false;
             }
         }
         return false;

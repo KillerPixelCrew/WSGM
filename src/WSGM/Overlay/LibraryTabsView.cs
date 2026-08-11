@@ -4,43 +4,32 @@ using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
-using Avalonia.Input;
 using Avalonia.Layout;
-using Avalonia.Media;
-using Avalonia.Threading;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
-/// <summary>The gamepad-driven custom-tab builder + SD-card manager, hosted as a Tools
-/// sub-view of the overlay (the <c>PanelFormat</c> idiom). Self-drawing (like
-/// <see cref="OnScreenKeyboard"/>): each navigation level rebuilds <see cref="ContentControl.Content"/>,
-/// and every interactive element is a <see cref="Button"/> so D-pad navigation and A/B
-/// work with no extra focus plumbing. All Steam contact goes through
-/// <see cref="SteamCollections"/> / <see cref="LibraryTabManager"/>; membership is
-/// materialized as WSGM-owned collections, never touching user/SRM ones.</summary>
-public sealed class LibraryTabsView : UserControl
+/// <summary>The gamepad-driven custom-tab builder, hosted as a Tools sub-view of the
+/// overlay (the <c>PanelFormat</c> idiom; scaffolding in <see cref="OverlaySubView"/>).
+/// All Steam contact goes through <see cref="SteamCollections"/> /
+/// <see cref="LibraryTabManager"/>; membership is materialized as WSGM-owned
+/// collections, never touching user/SRM ones. Card libraries are managed by the
+/// separate <see cref="CardManagerView"/>.</summary>
+public sealed class LibraryTabsView : OverlaySubView
 {
     private LibraryTabManager _manager = new();
     private AppConfig _config = new();
-
-    // Navigation: a stack of render thunks. Push goes deeper; Back pops.
-    private readonly Stack<Action> _stack = new();
-    private Action? _current;
 
     // Lazily-loaded, cached Steam data for the pickers.
     private IReadOnlyList<SteamCollections.AppInfo>? _games;
     private IReadOnlyList<SteamCollections.TagInfo>? _tags;
     private IReadOnlyList<SteamCollectionInfo>? _collections;
-    private int _navigationGeneration;
-    private string? _notice;
     private HashSet<string> _openedTabIds = new(StringComparer.Ordinal);
 
-    /// <summary>Raised when the user backs out of the top level (the overlay then
-    /// returns to the Tools list).</summary>
-    public event Action? CloseRequested;
+    /// <inheritdoc />
+    protected override string LogScope => "Library tabs";
 
     /// <summary>Loads config and renders the root tab list. Called by the overlay when
     /// the sub-view opens.</summary>
@@ -68,46 +57,6 @@ public sealed class LibraryTabsView : UserControl
         Navigate(RenderTabList);
     }
 
-    /// <summary>Handles a Back/B press: pops one level, or requests close at the top.
-    /// Returns true when it consumed the press.</summary>
-    public bool Back()
-    {
-        _navigationGeneration++;
-        if (_stack.Count == 0)
-        {
-            CloseRequested?.Invoke();
-            return true;
-        }
-        _current = _stack.Pop();
-        _current();
-        return true;
-    }
-
-    private void Navigate(Action render)
-    {
-        _navigationGeneration++;
-        if (_current is not null)
-        {
-            _stack.Push(_current);
-        }
-        _current = render;
-        render();
-    }
-
-    private void Replace(Action render)
-    {
-        _current = render;
-        render();
-    }
-
-    private void PopIfAny()
-    {
-        if (_stack.Count > 0)
-        {
-            _stack.Pop();
-        }
-    }
-
     // ---- Level: tab list ----
 
     private void RenderTabList()
@@ -118,8 +67,6 @@ public sealed class LibraryTabsView : UserControl
 
         stack.Children.Add(PrimaryRow("New Tab", "Build a tab from filters", Icons.FolderPlus,
             () => OpenTabEditor(null)));
-        stack.Children.Add(Row("Card Manager", "Rename, hide, and view SD-card libraries",
-            Icons.SdCard, () => Navigate(RenderCardList)));
 
         if (_config.CustomTabs.Count > 0)
         {
@@ -720,243 +667,7 @@ public sealed class LibraryTabsView : UserControl
         SetContent(stack);
     }
 
-    // ---- Level: card manager ----
-
-    private void RenderCardList() => _ = RunSafelyAsync(RenderCardListAsync(), "card list");
-
-    private async Task RenderCardListAsync()
-    {
-        var generation = _navigationGeneration;
-        SetContent(NewStack("Card Manager").Also(s => s.Children.Add(Caption("Scanning cards…"))));
-        IReadOnlyList<LibraryTabManager.CardView> cards;
-        try
-        {
-            cards = await _manager.ListCardsAsync();
-            if (generation != _navigationGeneration)
-            {
-                return;
-            }
-            _config = LibraryTabManager.LoadConfig();
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Card list failed: {ex.Message}");
-            cards = Array.Empty<LibraryTabManager.CardView>();
-        }
-        var stack = NewStack("Card Manager");
-        if (cards.Count == 0)
-        {
-            stack.Children.Add(Caption("No SD-card libraries tracked yet. Format or add one first."));
-        }
-        foreach (var card in cards)
-        {
-            var c = card;
-            var marker = c.Inserted ? "★ inserted" : "⦸ ejected";
-            var state = $"{c.GameCount} games · {marker}" + (c.Enabled ? "" : " · tab off")
-                + (c.Hidden ? " · hidden" : "");
-            stack.Children.Add(Row(c.Name, state, Icons.SdCard, () => RenderCardEditor(c)));
-        }
-        stack.Children.Add(SectionLabel(""));
-        stack.Children.Add(Row("Back", "Return to tabs", Icons.ExitFullscreen, () => Back()));
-        SetContent(stack);
-    }
-
-    private void RenderCardEditor(LibraryTabManager.CardView card)
-    {
-        Navigate(() =>
-        {
-            var stack = NewStack(card.Name);
-            stack.Children.Add(Caption(card.Inserted ? "Currently inserted." : "Not inserted (remembered)."));
-            stack.Children.Add(Row("Rename", card.Name, Icons.CopyDoc, () =>
-                EditText("Card name", card.Name, 40, v => _ = RunCardMutationAsync(
-                    () => _manager.RenameCardAsync(card.ContentId, v), () =>
-                {
-                    // Drop the text-entry level and the card editor, landing on a fresh
-                    // card list (with the tab list still underneath).
-                    PopIfAny();
-                    Replace(RenderCardList);
-                    _ = SyncQuietly();
-                }))));
-            stack.Children.Add(CycleRow("Steam tab", card.Enabled ? "On" : "Off", () =>
-                _ = RunCardMutationAsync(
-                    () => _manager.SetCardEnabledAsync(card.ContentId, !card.Enabled), () =>
-            {
-                PopIfAny();
-                Replace(RenderCardList);
-                _ = SyncQuietly();
-            })));
-            stack.Children.Add(CycleRow("Hidden", card.Hidden ? "Yes" : "No", () =>
-                _ = RunCardMutationAsync(
-                    () => _manager.SetCardHiddenAsync(card.ContentId, !card.Hidden), () =>
-            {
-                PopIfAny();
-                Replace(RenderCardList);
-                _ = SyncQuietly();
-            })));
-            stack.Children.Add(Row("View games", $"{card.GameCount} installed", Icons.Grid4,
-                () => OpenGameList(card)));
-            stack.Children.Add(SectionLabel(""));
-            stack.Children.Add(DangerRow("Forget card", "Remove its tab and tracking", Icons.Close,
-                () => _ = RunCardMutationAsync(
-                    () => _manager.ForgetCardAsync(card.ContentId), () =>
-                {
-                    PopIfAny();
-                    Replace(RenderCardList);
-                    _ = SyncQuietly();
-                })));
-            stack.Children.Add(Row("Back", "Return to cards", Icons.ExitFullscreen, () => Back()));
-            SetContent(stack);
-        });
-    }
-
-    private static async Task RunSafelyAsync(Task task, string operation)
-    {
-        try { await task; }
-        catch (Exception ex) { Log.Error($"Library tabs {operation} failed.", ex); }
-    }
-
-    private async Task RunCardMutationAsync(Func<Task> mutation, Action completed)
-    {
-        try
-        {
-            await mutation();
-            completed();
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Card manager change failed: {ex.Message}");
-            _config = LibraryTabManager.LoadConfig();
-            Toast("Could not save the card change. Try again.");
-        }
-    }
-
-    private void OpenGameList(LibraryTabManager.CardView card) => _ = RunSafelyAsync(OpenGameListAsync(card), "card games");
-
-    private async Task OpenGameListAsync(LibraryTabManager.CardView card)
-    {
-        Navigate(() => RenderLoading(card.Name));
-        var generation = _navigationGeneration;
-        var loaded = await SteamCollections.GetGamesAsync();
-        if (generation != _navigationGeneration)
-        {
-            return;
-        }
-        _games = loaded;
-        var names = _games!.ToDictionary(g => g.AppId, g => g.Name);
-        Replace(() =>
-        {
-            var stack = NewStack($"{card.Name} — Games");
-            if (card.AppIds.Count == 0)
-            {
-                stack.Children.Add(Caption("No games recorded on this card."));
-            }
-            foreach (var id in card.AppIds)
-            {
-                stack.Children.Add(Row(names.TryGetValue(id, out var nm) ? nm
-                    : id.ToString(CultureInfo.InvariantCulture), "", null, null));
-            }
-            stack.Children.Add(SectionLabel(""));
-            stack.Children.Add(Row("Back", "Return", Icons.ExitFullscreen, () => Back()));
-            SetContent(stack);
-        });
-    }
-
-    // ---- Text entry (name / regex / rename) ----
-
-    private void EditText(string title, string current, int maxLen, Action<string> onAccept)
-    {
-        // Prefer the separate keyboard window beside the sidebar (game mode); fall back
-        // to an inline keyboard screen if none is available.
-        if (KeyboardService.Request(title, current, maxLen, v => onAccept(v ?? "")))
-        {
-            return;
-        }
-        Navigate(() =>
-        {
-            var stack = NewStack(title);
-            var box = new TextBox { Text = current, MaxLength = maxLen, Margin = new Avalonia.Thickness(0, 0, 0, 6) };
-            stack.Children.Add(box);
-            var keyboard = new OnScreenKeyboard { Target = box };
-            keyboard.Accepted += (_, _) => { Back(); onAccept(box.Text ?? ""); };
-            stack.Children.Add(keyboard);
-            stack.Children.Add(PrimaryRow("Accept", "Save this text", Icons.Play,
-                () => { Back(); onAccept(box.Text ?? ""); }));
-            stack.Children.Add(Row("Cancel", "Discard", Icons.ExitFullscreen, () => Back()));
-            SetContent(stack);
-        });
-    }
-
-    // ---- Shared builders ----
-
-    private StackPanel NewStack(string heading)
-    {
-        var stack = new StackPanel { Spacing = 4 };
-        if (!string.IsNullOrEmpty(heading))
-        {
-            stack.Children.Add(new TextBlock
-            {
-                Text = heading,
-                FontSize = 15,
-                FontWeight = FontWeight.SemiBold,
-                Margin = new Avalonia.Thickness(0, 0, 0, 4),
-            });
-        }
-        if (!string.IsNullOrEmpty(_notice))
-        {
-            stack.Children.Add(Caption(_notice));
-            _notice = null;
-        }
-        return stack;
-    }
-
-    private void RenderLoading(string title)
-    {
-        var stack = NewStack(title);
-        stack.Children.Add(Caption("Loading from Steam…"));
-        SetContent(stack);
-    }
-
-    private CardButton Row(string title, string desc, Geometry? icon, Action? onClick)
-    {
-        var button = new CardButton { Title = title, Description = desc, IconGeometry = icon };
-        if (onClick is not null)
-        {
-            button.Click += (_, _) => onClick();
-        }
-        return button;
-    }
-
-    private CardButton PrimaryRow(string title, string desc, Geometry? icon, Action onClick)
-    {
-        var button = Row(title, desc, icon, onClick);
-        button.Classes.Add("primary");
-        return button;
-    }
-
-    private CardButton DangerRow(string title, string desc, Geometry? icon, Action onClick)
-    {
-        var button = Row(title, desc, icon, onClick);
-        button.Classes.Add("danger");
-        return button;
-    }
-
-    private CardButton CycleRow(string label, string value, Action onClick)
-        => Row(label, value, Icons.Restart, onClick).Also(b => b.TrailingText = "↔");
-
-    private TextBlock Caption(string text) => new()
-    {
-        Text = text,
-        Classes = { "caption" },
-        TextWrapping = TextWrapping.Wrap,
-        Margin = new Avalonia.Thickness(2, 0, 2, 4),
-    };
-
-    private TextBlock SectionLabel(string text) => new()
-    {
-        Text = text,
-        Classes = { "eyebrow" },
-        Margin = new Avalonia.Thickness(2, 6, 2, 2),
-    };
+    // ---- Tab-side builders ----
 
     private void AddStepper(StackPanel stack, string label, double value, double min, double max,
         double step, Action<double> onChange)
@@ -979,44 +690,6 @@ public sealed class LibraryTabsView : UserControl
         row.Children.Add(minus);
         row.Children.Add(plus);
         stack.Children.Add(row);
-    }
-
-    // No inner ScrollViewer: the overlay's ContentScroller owns scrolling and its
-    // GotFocus→BringIntoView keeps the focused control (incl. keyboard keys) on screen.
-    private void SetContent(StackPanel stack)
-    {
-        Content = stack;
-        FocusFirst(stack);
-    }
-
-    private void FocusFirst(StackPanel stack) => Dispatcher.UIThread.Post(() =>
-    {
-        foreach (var child in stack.Children)
-        {
-            if (child is Button { IsEffectivelyEnabled: true } b)
-            {
-                b.Focus(NavigationMethod.Directional);
-                return;
-            }
-            if (child is Grid grid)
-            {
-                foreach (var gc in grid.Children)
-                {
-                    if (gc is Button gb)
-                    {
-                        gb.Focus(NavigationMethod.Directional);
-                        return;
-                    }
-                }
-            }
-        }
-    });
-
-    private void Toast(string message)
-    {
-        Log.Info($"Library tabs: {message}");
-        _notice = message;
-        _current?.Invoke();
     }
 
     // ---- Value helpers ----

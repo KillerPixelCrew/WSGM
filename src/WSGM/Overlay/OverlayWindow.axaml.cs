@@ -60,9 +60,12 @@ public partial class OverlayWindow : Window
     /// than closing the overlay.</summary>
     internal bool InFormatSubView { get; private set; }
 
-    /// <summary>Whether the Library Tabs builder/card-manager sub-view is showing.
+    /// <summary>Whether the Library Tabs builder sub-view is showing.
     /// Same LB/RB-suppress + B-cancels rules as the format sub-view.</summary>
     internal bool InLibraryTabsSubView { get; private set; }
+
+    /// <summary>Whether the SD-card manager sub-view is showing.</summary>
+    internal bool InCardManagerSubView { get; private set; }
 
     /// <summary>Whether the SteamGridDB artwork picker sub-view is showing.</summary>
     internal bool InArtworkSubView { get; private set; }
@@ -72,7 +75,8 @@ public partial class OverlayWindow : Window
     internal bool KeyboardOwnsFocus { get; set; }
 
     /// <summary>Whether any in-place Tools sub-view owns the surface.</summary>
-    private bool AnySubView => InFormatSubView || InLibraryTabsSubView || InArtworkSubView;
+    private bool AnySubView
+        => InFormatSubView || InLibraryTabsSubView || InCardManagerSubView || InArtworkSubView;
 
     /// <summary>Gives the overlay the shared removable-storage format manager so
     /// its Tools sub-view can drive it. Called by the controller right after
@@ -100,6 +104,7 @@ public partial class OverlayWindow : Window
             if (AnySubView)
             {
                 var host = InLibraryTabsSubView ? (Control)LibraryTabsHost
+                    : InCardManagerSubView ? CardManagerHost
                     : InArtworkSubView ? ArtworkHost
                     : PanelFormat;
                 foreach (var visual in host.GetVisualDescendants())
@@ -129,6 +134,11 @@ public partial class OverlayWindow : Window
         }
     }
 
+    // The tab the user last selected, restored on the next open. Static because the
+    // overlay window is recreated per open; deliberately not persisted to config —
+    // a tab switch must not cost a disk write.
+    private static int _lastSelectedTab;
+
     private readonly double _uiScale;
 
     /// <summary>Creates the overlay window bound to the supplied state.</summary>
@@ -148,10 +158,10 @@ public partial class OverlayWindow : Window
             new("Power", Icons.Power, 2),
         };
         Tabs.SelectionChanged += OnTabSelectionChanged;
-        // The panel opens on Session every time. Activated covers both the fresh
-        // open (a no-op — the index is already 0) and a re-summon of a still-open
-        // panel (hotkey/swipe while browsing another tab). Any open sub-view is
-        // torn down with it.
+        // The panel reopens on the tab the user last had selected (static: the
+        // window is recreated per open). Activated covers both the fresh open and a
+        // re-summon of a still-open panel (hotkey/swipe while browsing another tab).
+        // Any open sub-view is torn down with it.
         Activated += (_, _) =>
         {
             if (KeyboardOwnsFocus)
@@ -160,11 +170,13 @@ public partial class OverlayWindow : Window
             }
             LeaveFormatSubView();
             LeaveLibraryTabsSubView();
+            LeaveCardManagerSubView();
             LeaveArtworkSubView();
-            Tabs.SelectedIndex = 0;
+            Tabs.SelectedIndex = _lastSelectedTab;
         };
 
         LibraryTabsHost.CloseRequested += LeaveLibraryTabsSubView;
+        CardManagerHost.CloseRequested += LeaveCardManagerSubView;
         ArtworkHost.CloseRequested += LeaveArtworkSubView;
 
         KeyDown += OnKeyDown;
@@ -245,6 +257,10 @@ public partial class OverlayWindow : Window
             // raises CloseRequested, which leaves the sub-view.
             return LibraryTabsHost.Back();
         }
+        if (InCardManagerSubView)
+        {
+            return CardManagerHost.Back();
+        }
         if (InArtworkSubView)
         {
             return ArtworkHost.Back();
@@ -274,10 +290,15 @@ public partial class OverlayWindow : Window
         {
             LeaveLibraryTabsSubView();
         }
+        if (InCardManagerSubView)
+        {
+            LeaveCardManagerSubView();
+        }
         if (InArtworkSubView)
         {
             LeaveArtworkSubView();
         }
+        _lastSelectedTab = e.NewIndex;
         PanelSession.IsVisible = e.NewIndex == 0;
         PanelTools.IsVisible = e.NewIndex == 1;
         PanelPower.IsVisible = e.NewIndex == 2;
@@ -546,12 +567,43 @@ public partial class OverlayWindow : Window
     private static long _lastAutoTabSyncTicks;
     private static readonly TimeSpan AutoTabSyncInterval = TimeSpan.FromMinutes(10);
 
-    /// <summary>Opens the Library Tabs builder / SD-card manager sub-view (the
-    /// gamepad-driven custom-tab UI). Its own "Sync now" materializes the tabs.</summary>
+    /// <summary>Opens the Library Tabs builder sub-view (the gamepad-driven
+    /// custom-tab UI). Its own "Sync now" materializes the tabs.</summary>
     private void OnLibraryTabs(object? sender, RoutedEventArgs e)
     {
         LibraryTabsHost.Open(LibraryTabs);
         EnterLibraryTabsSubView();
+    }
+
+    /// <summary>Opens the SD-card library manager sub-view.</summary>
+    private void OnCardManager(object? sender, RoutedEventArgs e)
+    {
+        CardManagerHost.Open(LibraryTabs);
+        EnterCardManagerSubView();
+    }
+
+    private void EnterCardManagerSubView()
+    {
+        InCardManagerSubView = true;
+        PanelTools.IsVisible = false;
+        CardManagerHost.IsVisible = true;
+        FocusFirstControl(CardManagerHost);
+    }
+
+    private void LeaveCardManagerSubView()
+    {
+        if (!InCardManagerSubView)
+        {
+            return;
+        }
+        InCardManagerSubView = false;
+        SubViewClosed?.Invoke();
+        CardManagerHost.IsVisible = false;
+        PanelTools.IsVisible = Tabs.SelectedIndex == 1;
+        if (PanelTools.IsVisible)
+        {
+            FocusFirstControl(PanelTools);
+        }
     }
 
     private void EnterLibraryTabsSubView()

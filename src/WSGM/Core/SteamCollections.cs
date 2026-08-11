@@ -263,15 +263,19 @@ public static class SteamCollections
         }
     }
 
-    /// <summary>One app's id and display name (for whitelist/blacklist pickers and
-    /// card "view games" name resolution).</summary>
-    /// <param name="AppId">The Steam app id.</param>
+    /// <summary>One app's id and display name (for whitelist/blacklist pickers,
+    /// card "view games" name resolution, and the artwork changer's target list).</summary>
+    /// <param name="AppId">The Steam app id (a shortcut's generated id for shortcuts).</param>
     /// <param name="Name">The display name.</param>
-    public sealed record AppInfo(long AppId, string Name);
+    /// <param name="Shortcut">True for a non-Steam shortcut, whose id has no Steam
+    /// store page (SteamGridDB lookups must go by name instead).</param>
+    public sealed record AppInfo(long AppId, string Name, bool Shortcut = false);
 
-    /// <summary>Lists the user's games (id + name), sorted by name — the source for
-    /// the whitelist/blacklist app pickers and for resolving a card's installed ids
-    /// to names.</summary>
+    /// <summary>Lists the user's games AND non-Steam shortcuts (id + name), sorted by
+    /// name — the source for the whitelist/blacklist app pickers, for resolving a
+    /// card's installed ids to names, and for the artwork changer. Shortcuts come from
+    /// the all-apps collection (the type-games collection excludes them) and are
+    /// flagged, since their generated ids mean nothing outside this machine.</summary>
     /// <param name="cancellationToken">Cancels the exchange.</param>
     public static async Task<IReadOnlyList<AppInfo>> GetGamesAsync(
         CancellationToken cancellationToken = default)
@@ -279,8 +283,16 @@ public static class SteamCollections
         const string expression =
             "(()=>{try{const cs=collectionStore;" +
             "const g=cs.GetCollection('type-games');" +
-            "const apps=(g&&(g.allApps||g.visibleApps))||[];" +
-            "const out=apps.map(a=>({id:a.appid,name:a.display_name||String(a.appid)}));" +
+            "const games=(g&&(g.allApps||g.visibleApps))||[];" +
+            "const ids=new Set(games.map(a=>a.appid));" +
+            "const ac=cs.allAppsCollection;" +
+            "const all=(ac&&(ac.allApps||ac.visibleApps))||games;" +
+            "const out=[];const seen=new Set();" +
+            "for(const a of all){" +
+            "const sc=typeof a.BIsShortcut==='function'?!!a.BIsShortcut():a.appid>=2147483648;" +
+            "if(!ids.has(a.appid)&&!sc)continue;" +
+            "if(seen.has(a.appid))continue;seen.add(a.appid);" +
+            "out.push({id:a.appid,name:a.display_name||String(a.appid),sc:sc});}" +
             "return JSON.stringify({ok:true,apps:out});}" +
             "catch(e){return JSON.stringify({ok:false,err:String((e&&e.message)||e)});}})()";
 
@@ -304,7 +316,12 @@ public static class SteamCollections
             {
                 if (app.GetProperty("id").TryGetInt64(out var id))
                 {
-                    list.Add(new AppInfo(id, app.GetProperty("name").GetString() ?? id.ToString(CultureInfo.InvariantCulture)));
+                    var shortcut = app.TryGetProperty("sc", out var sc)
+                        && sc.ValueKind == JsonValueKind.True;
+                    list.Add(new AppInfo(
+                        id,
+                        app.GetProperty("name").GetString() ?? id.ToString(CultureInfo.InvariantCulture),
+                        shortcut));
                 }
             }
             list.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));

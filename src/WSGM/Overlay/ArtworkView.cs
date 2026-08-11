@@ -40,6 +40,13 @@ public sealed class ArtworkView : UserControl
     private int _sgdbGameId;
     private int _generation;
 
+    // One-shot message shown at the top of the next overview render (apply outcome).
+    private string? _notice;
+
+    // Remembered shortcut → SGDB game associations, snapshotted from config on open
+    // and updated on every match pick, so a shortcut is clarified once, not per visit.
+    private readonly Dictionary<long, (int Id, string Name)> _sgdbLinks = new();
+
     /// <summary>Raised when the user backs out of the top level.</summary>
     public event Action? CloseRequested;
 
@@ -55,6 +62,11 @@ public sealed class ArtworkView : UserControl
         var config = await Task.Run(LibraryTabManager.LoadConfig);
         if (generation != _generation) { return; }
         _apiKey = SteamGridDb.ResolveKey(config);
+        _sgdbLinks.Clear();
+        foreach (var link in config.SgdbLinks.Where(l => l.SgdbGameId > 0))
+        {
+            _sgdbLinks[link.AppId] = (link.SgdbGameId, link.Name);
+        }
         if (string.IsNullOrEmpty(_apiKey))
         {
             Navigate(RenderNoKey);
@@ -84,6 +96,23 @@ public sealed class ArtworkView : UserControl
                 return;
             }
             _appName = NameFor(_appId);
+            if (IsShortcutApp(_appId))
+            {
+                // Clarify the SteamGridDB source game UP FRONT: a shortcut's id has
+                // no Steam page, and springing a text box on the user after they
+                // pick an art type reads as a broken flow. A remembered match skips
+                // the question entirely; otherwise auto-search by the shortcut's
+                // name and let them pick — typing only on explicit request.
+                if (_sgdbLinks.TryGetValue(_appId, out var link))
+                {
+                    _sgdbGameId = link.Id;
+                    _appName = link.Name;
+                    Replace(RenderAssetTypes);
+                    return;
+                }
+                DoSgdbSearch(_appName);
+                return;
+            }
             Replace(RenderAssetTypes);
         }
         else
@@ -152,12 +181,28 @@ public sealed class ArtworkView : UserControl
         foreach (var game in _games)
         {
             var g = game;
-            stack.Children.Add(Row(g.Name, "", Icons.SteamLike, () =>
+            stack.Children.Add(Row(g.Name, g.Shortcut ? "Non-Steam shortcut" : "", Icons.SteamLike, () =>
             {
                 _appId = g.AppId;
                 _appName = g.Name;
                 _sgdbGameId = 0;
-                Navigate(RenderAssetTypes);
+                if (g.Shortcut)
+                {
+                    // Same up-front clarification as the auto-detected case, with the
+                    // same remembered-match short-circuit.
+                    if (_sgdbLinks.TryGetValue(g.AppId, out var link))
+                    {
+                        _sgdbGameId = link.Id;
+                        _appName = link.Name;
+                        Navigate(RenderAssetTypes);
+                        return;
+                    }
+                    DoSgdbSearch(g.Name);
+                }
+                else
+                {
+                    Navigate(RenderAssetTypes);
+                }
             }));
         }
         stack.Children.Add(SectionLabel(""));
@@ -179,13 +224,33 @@ public sealed class ArtworkView : UserControl
     private void RenderAssetTypes()
     {
         var stack = NewStack("Change Artwork");
+        if (_notice is not null)
+        {
+            stack.Children.Add(Caption(_notice));
+            _notice = null;
+        }
         stack.Children.Add(Caption(_sgdbGameId > 0
             ? $"Applying to: {_appName}  ·  art from your search"
-            : $"Game: {_appName}"));
+            : IsShortcutApp(_appId)
+                ? $"Shortcut: {_appName} — picking any art type first searches "
+                    + "SteamGridDB by name (a shortcut's id has no Steam page)."
+                : $"Game: {_appName}"));
         foreach (var (asset, label, desc) in Assets)
         {
             var a = asset;
             stack.Children.Add(Row(label, desc, Icons.Palette, () => OpenArtGrid(a)));
+            // Current CUSTOM art for the slot, shown under its row (nothing when the
+            // slot uses Steam's official art). Probed and decoded off-thread.
+            var preview = new Image
+            {
+                Stretch = Stretch.Uniform,
+                MaxHeight = 64,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Margin = new Avalonia.Thickness(10, 0, 0, 4),
+                IsVisible = false,
+            };
+            stack.Children.Add(preview);
+            _ = LoadCurrentArtAsync(preview, _appId, a, _generation);
         }
         stack.Children.Add(SectionLabel(""));
         stack.Children.Add(Row("Wrong game? Search by name", "For ROMs, shortcuts, or misdetections",
@@ -264,6 +329,7 @@ public sealed class ArtworkView : UserControl
                 {
                     _sgdbGameId = g.Id;
                     _appName = g.Name;
+                    RememberSgdbLink(g.Id, g.Name);
                     // Drop the search + pick levels; land back on the asset types.
                     PopIfAny();
                     PopIfAny();
@@ -271,14 +337,30 @@ public sealed class ArtworkView : UserControl
                 }));
             }
             stack.Children.Add(SectionLabel(""));
-            stack.Children.Add(Row("Back", "Search again", Icons.ExitFullscreen, () => Back()));
+            // Typing is an explicit choice, never a surprise: the text entry only
+            // opens from this row (or when nothing matched and the user wants it).
+            stack.Children.Add(Row("Type a different name", "Search SteamGridDB manually",
+                Icons.CopyDoc, RenderNameSearch));
+            stack.Children.Add(Row("Back", "Return", Icons.ExitFullscreen, () => Back()));
             SetContent(stack);
         });
     }
 
     // ---- Level: browse SteamGridDB art ----
 
-    private void OpenArtGrid(ArtworkAsset asset) => _ = RunSafelyAsync(OpenArtGridAsync(asset), "art list");
+    // Safety net (clarification normally happens on entry): a shortcut's generated
+    // app id means nothing to SteamGridDB, so a lookup by it can only 404 — run the
+    // auto-search instead; picking a match sets _sgdbGameId and lands back on the
+    // asset types, after which grids load normally. Never a surprise text box.
+    private void OpenArtGrid(ArtworkAsset asset)
+    {
+        if (_sgdbGameId == 0 && IsShortcutApp(_appId))
+        {
+            DoSgdbSearch(_appName);
+            return;
+        }
+        _ = RunSafelyAsync(OpenArtGridAsync(asset), "art list");
+    }
 
     private async Task OpenArtGridAsync(ArtworkAsset asset)
     {
@@ -352,6 +434,41 @@ public sealed class ArtworkView : UserControl
         button.Click += (_, _) => onClick();
         _ = LoadThumbAsync(image, string.IsNullOrEmpty(art.Thumb) ? art.Url : art.Thumb, _generation);
         return button;
+    }
+
+    // Shows the slot's current custom-art file (if any) in the given placeholder.
+    // Disk-only; failures just leave the preview hidden.
+    private async Task LoadCurrentArtAsync(Image image, long appId, ArtworkAsset asset, int generation)
+    {
+        try
+        {
+            var bitmap = await Task.Run(() =>
+            {
+                var path = SteamArtwork.FindCustomArtFile(appId, asset);
+                if (path is null)
+                {
+                    return null;
+                }
+                using var stream = File.OpenRead(path);
+                return Bitmap.DecodeToWidth(stream, 200);
+            });
+            if (bitmap is null)
+            {
+                return;
+            }
+            if (generation != _generation)
+            {
+                bitmap.Dispose();
+                return;
+            }
+            (image.Source as IDisposable)?.Dispose();
+            image.Source = bitmap;
+            image.IsVisible = true;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Artwork: current-art preview failed: {ex.Message}");
+        }
     }
 
     private async Task LoadThumbAsync(Image image, string url, int generation)
@@ -437,12 +554,11 @@ public sealed class ArtworkView : UserControl
         {
             return;
         }
-        var done = NewStack(AssetLabel(asset));
-        done.Children.Add(Caption(result.Detail));
-        done.Children.Add(PrimaryRow(result.Ok ? "Change more" : "Try again", "Back to slots",
-            Icons.Play, () => { _stack.Clear(); Replace(RenderAssetTypes); }));
-        done.Children.Add(Row("Close", "Done", Icons.ExitFullscreen, () => CloseRequested?.Invoke()));
-        SetContent(done);
+        // No continue screen: land straight back on the changer's overview with the
+        // outcome as a one-line notice, ready for the next change or Back to leave.
+        _notice = result.Detail;
+        _stack.Clear();
+        Replace(RenderAssetTypes);
     }
 
     // ---- Shared builders (mirrors LibraryTabsView) ----
@@ -476,6 +592,36 @@ public sealed class ArtworkView : UserControl
 
     private string NameFor(long appId)
         => _games?.FirstOrDefault(g => g.AppId == appId)?.Name ?? $"App {appId}";
+
+    // Prefer Steam's own flag (live-verified BIsShortcut in the games list); the
+    // numeric check covers an id missing from the list — shortcut ids carry the
+    // high bit (>= 2^31), real store appids never do.
+    private bool IsShortcutApp(long appId)
+        => _games?.FirstOrDefault(g => g.AppId == appId)?.Shortcut ?? appId >= 0x80000000L;
+
+    // Persist the association only for shortcuts: a normal game's id already IS its
+    // SGDB lookup key, and pinning a manual-search override for it could silently
+    // outlive a one-off misdetection workaround.
+    private void RememberSgdbLink(int sgdbGameId, string name)
+    {
+        if (!IsShortcutApp(_appId))
+        {
+            return;
+        }
+        _sgdbLinks[_appId] = (sgdbGameId, name);
+        var appId = _appId;
+        _ = LibraryTabManager.MutateConfigAsync<object?>(config =>
+        {
+            config.SgdbLinks.RemoveAll(l => l.AppId == appId);
+            config.SgdbLinks.Add(new SgdbLinkConfig
+            {
+                AppId = appId,
+                SgdbGameId = sgdbGameId,
+                Name = name,
+            });
+            return null;
+        });
+    }
 
     private static string AssetLabel(ArtworkAsset asset)
         => Assets.FirstOrDefault(a => a.Asset == asset).Label ?? asset.ToString();

@@ -316,6 +316,21 @@ public sealed class SplashConfig
     public SplashElementPlacement LogoPlacement { get; set; } = new() { Mode = SplashPlacementMode.WithText };
 }
 
+/// <summary>One remembered SteamGridDB match: which SGDB game supplies artwork for a
+/// local target app (typically a non-Steam shortcut, whose generated id has no SGDB
+/// page). Re-picking a match in the artwork changer overwrites the entry.</summary>
+public sealed class SgdbLinkConfig
+{
+    /// <summary>The local target app id (a shortcut's generated id).</summary>
+    public long AppId { get; set; }
+
+    /// <summary>The SteamGridDB game id supplying the art.</summary>
+    public int SgdbGameId { get; set; }
+
+    /// <summary>The SGDB game's display name (shown as the art source).</summary>
+    public string Name { get; set; } = "";
+}
+
 /// <summary>One Steam library on a removable drive (a MicroSD card or external
 /// drive), tracked so WSGM can render it as a Steam collection ("library tab").
 /// Keyed by the card's <c>libraryfolder.vdf</c> content id, which is stable across
@@ -348,6 +363,12 @@ public sealed class CardLibraryConfig
 
     /// <summary>The drive letter the card last mounted as (diagnostic only).</summary>
     public string LastLetter { get; set; } = "";
+
+    /// <summary>The Steam-side library label as last seen in sync with
+    /// <see cref="Name"/>. Names follow Steam only while Name equals this value;
+    /// a WSGM-side rename leaves it stale until Steam's config catches up, which
+    /// is what stops a lagging libraryfolders.vdf from reverting the rename.</summary>
+    public string LastSteamLabel { get; set; } = "";
 }
 
 /// <summary>One auto-generated category ("genre") library tab: a WSGM-owned Steam
@@ -419,6 +440,11 @@ public sealed class AppConfig
     /// <summary>Optional SteamGridDB API key. No key is bundled; set a free personal
     /// key from steamgriddb.com to enable artwork search.</summary>
     public string SteamGridDbApiKey { get; set; } = "";
+
+    /// <summary>Remembered SteamGridDB game matches for targets whose Steam app id
+    /// cannot be looked up there (non-Steam shortcuts) — so the artwork changer does
+    /// not re-ask which game a shortcut is on every visit.</summary>
+    public List<SgdbLinkConfig> SgdbLinks { get; set; } = [];
 
     /// <summary>Programs to start before Steam, in launch order.</summary>
     public List<StartupAppConfig> StartupApps { get; set; } = [];
@@ -562,6 +588,7 @@ public sealed class AppConfig
 /// <summary>Source-generated JSON metadata for the persisted <see cref="AppConfig"/> contract.</summary>
 [JsonSerializable(typeof(AppConfig))]
 [JsonSerializable(typeof(SplashConfig))]
+[JsonSerializable(typeof(SgdbLinkConfig))]
 [JsonSerializable(typeof(CardLibraryConfig))]
 [JsonSerializable(typeof(CategoryTabConfig))]
 [JsonSerializable(typeof(CustomTabConfig))]

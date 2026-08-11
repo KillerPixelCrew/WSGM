@@ -21,8 +21,12 @@ public sealed class ShellSession
     private OverlayController? _overlay;
     private TrayHost? _trayHost;
     private VolumeButtonService? _volumeButtons;
+    private CardAcfWatcher? _cardAcfWatcher;
     private BootSplash? _splash;
-    private readonly CancellationTokenSource _tabBootSyncCancellation = new();
+    // Replaced (not just cancelled) on every game-mode entry: a single cancelled
+    // source would permanently kill boot syncing after the first desktop trip.
+    private CancellationTokenSource _tabBootSyncCancellation = new();
+    private bool _inGameMode = true;
     // Field-rooted deliberately: an unreferenced enabled FileSystemWatcher is
     // GC-collectible (it holds only a WeakReference to itself in its pending
     // ReadDirectoryChangesW state) and silently stops raising events.
@@ -55,7 +59,12 @@ public sealed class ShellSession
         // TaskbarCreated broadcast.
         _modes.DesktopModeStarting += () =>
         {
+            _inGameMode = false;
             _tabBootSyncCancellation.Cancel();
+            // Tabs and the badge are game-mode surfaces; the ACF watcher only exists
+            // to keep them fresh, so it stands down with them.
+            _cardAcfWatcher?.Dispose();
+            _cardAcfWatcher = null;
             _ = SteamPageBridge.DisableBadgeAsync();
             _ = SteamLibraryTabs.DisableAsync();
             _volumeButtons?.SetGameModeActive(false);
@@ -65,12 +74,27 @@ public sealed class ShellSession
         };
         _modes.GameModeEntered += () =>
         {
+            _inGameMode = true;
             _trayHost = TrayHost.Create();
             if (_trayHost is not null)
             {
                 _overlay?.AttachTrayHost(_trayHost);
             }
             _volumeButtons?.SetGameModeActive(true);
+            _cardAcfWatcher ??= CardAcfWatcher.StartNew();
+            // Returning from desktop mode disabled tabs/badge and cancelled the boot
+            // sync; re-inject without requiring an overlay open.
+            KickTabBootSync();
+        };
+        // A fresh Steam start while WSGM keeps running (client update, crash restart)
+        // wipes the injected tabs and the resident badge with the old CEF session —
+        // re-inject once the new UI is up.
+        _monitor.SteamStarted += () =>
+        {
+            if (_inGameMode)
+            {
+                KickTabBootSync();
+            }
         };
 
         if (_overlayTestOnly)
@@ -341,6 +365,17 @@ public sealed class ShellSession
             // Enumeration hiccups must not block the launch sequence.
         }
         return false;
+    }
+
+    /// <summary>Cancels any in-flight boot sync and starts a fresh one (waits for
+    /// Steam's UI, then injects tabs and pushes the badge map). Safe to call on
+    /// every trigger — SyncAllAsync's gate coalesces overlapping runs.</summary>
+    private void KickTabBootSync()
+    {
+        _tabBootSyncCancellation.Cancel();
+        _tabBootSyncCancellation.Dispose();
+        _tabBootSyncCancellation = new CancellationTokenSource();
+        _ = new LibraryTabManager().SyncOnBootAsync(_tabBootSyncCancellation.Token);
     }
 
     private void WatchConfig()

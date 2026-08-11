@@ -26,31 +26,80 @@ public static class SteamPageBridge
 {
     private static readonly TimeSpan Budget = TimeSpan.FromSeconds(8);
 
-    // The current game is read from the visible window's library-asset image URLs
-    // (steamloopback.host/assets/<appid>/library_hero|logo|…) — a stable Steam asset
-    // convention, device-verified, and locale/DOM-hash independent. SharedJSContext is
-    // headless (empty DOM) so this MUST run on the visible window.
-    // The current game = the appid of the LARGEST WIDE visible library-asset image (the
-    // hero banner). Robust across art naming: some games serve `assets/<id>/library_hero`,
-    // others a hashed `assets/<id>/<hash>` — the appid is always in the path, and only a
-    // detail page has a big landscape hero (grid capsules are portrait, width<=height, so
-    // they're skipped and the badge clears when you leave a game). Device-verified.
+    // Current-game detection, two signals in priority order, both live-verified:
+    //
+    // 1) The FOCUSED element's React fiber. Big Picture's gamepad UI keeps DOM focus
+    //    on the selected control (the "focus outline"), and walking the fiber's
+    //    parents finds the props of the component that owns it — a carousel cover or
+    //    a game page carries its app there (props.appid or props.app.appid).
+    //    Live-verified with an imageless custom shortcut focused on a theme home
+    //    screen: returned its generated appid at 10 hops while the page had zero
+    //    library-asset images. Image-independent, so it also CLEARS correctly when
+    //    a non-game element is focused (its ancestors carry no appid).
+    //
+    // 2) Fallback: the LARGEST WIDE library-asset image (assets/<appid>/…) that
+    //    straddles the horizontal viewport center and is effectively visible
+    //    (checkVisibility, feature-detected — a stale faded-out hero must not win;
+    //    live-verified rejecting an opacity-0 leftover). Covers mouse/touch use
+    //    where DOM focus may sit on the body.
     private const string CurrentAppIdJs =
-        "(()=>{try{const imgs=document.querySelectorAll('img');let best=0,bestW=0;" +
+        "(()=>{try{" +
+        "try{const el=document.activeElement;" +
+        "if(el){const fk=Object.keys(el).find(k=>k.startsWith('__reactFiber$'));" +
+        "let f=fk?el[fk]:null,hops=0;" +
+        "while(f&&hops<40){const p=f.memoizedProps;" +
+        "if(p&&typeof p==='object'){" +
+        "if(typeof p.appid==='number')return p.appid;" +
+        "const a=p.app||p.overview||p.appOverview;" +
+        "if(a&&typeof a.appid==='number')return a.appid;}" +
+        "f=f.return;hops++;}}}catch(e){}" +
+        "const cx=window.innerWidth/2,ch=window.innerHeight;" +
+        "const imgs=document.querySelectorAll('img');let best=0,bestW=0;" +
         "for(const i of imgs){const r=i.getBoundingClientRect();" +
         "if(r.width<600||r.width<=r.height)continue;" +
+        "if(r.bottom<=0||r.top>=ch||cx<r.left||cx>r.right)continue;" +
+        "if(i.checkVisibility&&!i.checkVisibility({checkOpacity:true,checkVisibilityCSS:true}))continue;" +
         "const m=(i.src||'').match(/assets\\/(\\d+)\\//);" +
         "if(m&&r.width>bestW){bestW=r.width;best=Number(m[1]);}}return best;}catch(e){return 0;}})()";
 
-    /// <summary>The app id of the game page the user is currently viewing in the visible
-    /// library window, or 0 when not on a game page / unreachable. Read from the page's
-    /// library-asset image URLs (device-verified).</summary>
+    // Fallback when the page shows no artwork at all (a custom shortcut with no
+    // images): Steam's SPA router keeps SharedJSContext's location on the current
+    // route, and a viewed game page is /routes/library/app/<appid>. Live-verified
+    // on this machine with a shortcut open in Big Picture (route carried the
+    // shortcut's generated id while the page had zero library-asset images).
+    private const string RouteAppIdJs =
+        "(()=>{try{const m=window.location.pathname.match(/\\/library\\/app\\/(\\d+)/);" +
+        "return m?Number(m[1]):0;}catch(e){return 0;}})()";
+
+    /// <summary>The app id of the game page the user is currently viewing, or 0 when
+    /// not on a game page / unreachable. Primary signal: the visible window's
+    /// library-asset image URLs (device-verified). Fallback for pages with no images
+    /// (custom shortcuts): the library route in SharedJSContext (live-verified).</summary>
     /// <param name="cancellationToken">Cancels the exchange.</param>
     public static async Task<long> GetCurrentAppIdAsync(CancellationToken cancellationToken = default)
     {
         var expression = "JSON.stringify({ok:true,appid:" + CurrentAppIdJs + "})";
         var result = await SteamCef.EvaluateOnVisibleWindowAsync(expression, Budget, cancellationToken)
             .ConfigureAwait(false);
+        var fromImages = ParseAppId(result);
+        if (fromImages > 0)
+        {
+            Log.Info($"Steam current app {fromImages} (hero image).");
+            return fromImages;
+        }
+        var routeResult = await SteamCef.EvaluateAsync(
+            "JSON.stringify({ok:true,appid:" + RouteAppIdJs + "})", Budget, cancellationToken)
+            .ConfigureAwait(false);
+        var fromRoute = ParseAppId(routeResult);
+        if (fromRoute > 0)
+        {
+            Log.Info($"Steam current app {fromRoute} (library route).");
+        }
+        return fromRoute;
+    }
+
+    private static long ParseAppId(CefEvalResult result)
+    {
         if (!result.Reachable || result.Value is null)
         {
             return 0;
@@ -58,13 +107,9 @@ public static class SteamPageBridge
         try
         {
             using var document = JsonDocument.Parse(result.Value);
-            var root = document.RootElement;
-            if (root.TryGetProperty("appid", out var appid) && appid.TryGetInt64(out var value))
+            if (document.RootElement.TryGetProperty("appid", out var appid)
+                && appid.TryGetInt64(out var value))
             {
-                if (value > 0)
-                {
-                    Log.Info($"Steam current app {value}.");
-                }
                 return value;
             }
         }
@@ -147,25 +192,33 @@ public static class SteamPageBridge
         return sb.Append('}').ToString();
     }
 
+    // Bumped whenever the resident script's behavior changes: a live Steam session
+    // keeps whatever observer was installed into it, so without a version gate an
+    // upgraded WSGM would keep talking to the OLD detection logic until Steam
+    // restarts. On mismatch the old observer is disconnected and replaced.
+    private const int BadgeScriptVersion = 3;
+
     // The resident badge script, installed into the VISIBLE library window. Idempotent
-    // (sentinel-guarded), namespaced under window.__wsgm, and non-destructive to
-    // CSSLoader: the badge wears the unique class "wsgm-badge" (never "css-loader-style",
+    // per version (sentinel-guarded), namespaced under window.__wsgm, and non-destructive
+    // to CSSLoader: the badge wears the unique class "wsgm-badge" (never "css-loader-style",
     // which CSSLoader bulk-removes), lives on document.body (never document.head, where
     // CSSLoader's styles + probe are), and the observer removes only its own node.
     //
     // Current game: read from the page's library-asset image URLs
     // (assets/<appid>/library_hero|logo) — device-verified, locale/DOM-hash independent.
     // A fixed-position pill (proven visible on device) shows "On: <card>" when the viewed
-    // game is on a tracked card; the observer re-renders as the user navigates between
-    // game pages (the hero image src changes).
-    private const string InstallBadgeScript =
-        "if(!window.__wsgm.badgeInstalled){window.__wsgm.badgeInstalled=true;" +
+    // game is on a tracked card. Re-render triggers: mutations (childList + src — page
+    // navigations swap the hero), plus a 2 s interval as the safety net, because a
+    // cover-flow focus change may only shuffle classes/transforms and fire NEITHER
+    // watched mutation — the live-reported stale-badge case on an imageless shortcut.
+    private static readonly string InstallBadgeScript =
+        "if(window.__wsgm.badgeVer!==" + BadgeScriptVersion + "){" +
+        "if(window.__wsgm.disableBadge){try{window.__wsgm.disableBadge();}catch(e){}}" +
+        "window.__wsgm.badgeVer=" + BadgeScriptVersion + ";window.__wsgm.badgeInstalled=true;" +
         "const BID='wsgm-card-badge';" +
-        "const curId=()=>{try{const imgs=document.querySelectorAll('img');let best=0,bestW=0;" +
-        "for(const i of imgs){const r=i.getBoundingClientRect();" +
-        "if(r.width<600||r.width<=r.height)continue;" +
-        "const m=(i.src||'').match(/assets\\/(\\d+)\\//);" +
-        "if(m&&r.width>bestW){bestW=r.width;best=Number(m[1]);}}return best;}catch(e){return 0;}};" +
+        // Same detection as GetCurrentAppIdAsync — one source string, so the
+        // center/visibility rules can never drift between the two consumers.
+        "const curId=()=>" + CurrentAppIdJs + ";" +
         "const remove=()=>{const b=document.getElementById(BID);if(b)b.remove();};" +
         "const render=()=>{try{const id=curId();const map=window.__wsgm.cardMap||{};" +
         "const name=id&&map[id];if(!name){remove();return;}" +
@@ -181,6 +234,10 @@ public static class SteamPageBridge
         "try{let queued=false;const obs=new MutationObserver(ms=>{if(ms.every(m=>m.target.closest&&m.target.closest('#'+BID)))return;" +
         "if(!queued){queued=true;requestAnimationFrame(()=>{queued=false;render();});}});" +
         "obs.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['src']});" +
-        "window.__wsgm.badgeObserver=obs;window.__wsgm.disableBadge=()=>{obs.disconnect();remove();window.__wsgm.badgeInstalled=false;};}catch(e){window.__wsgm.badgeInstalled=false;}" +
+        "const iv=setInterval(()=>{if(!document.hidden)render();},2000);" +
+        "window.__wsgm.badgeObserver=obs;" +
+        "window.__wsgm.disableBadge=()=>{obs.disconnect();clearInterval(iv);remove();" +
+        "window.__wsgm.badgeInstalled=false;window.__wsgm.badgeVer=0;};}" +
+        "catch(e){window.__wsgm.badgeInstalled=false;window.__wsgm.badgeVer=0;}" +
         "render();}";
 }

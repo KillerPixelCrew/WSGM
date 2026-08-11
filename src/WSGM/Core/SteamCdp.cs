@@ -43,6 +43,25 @@ public enum SteamLibraryRemoveStatus
 public readonly record struct SteamLibraryRemoveResult(
     SteamLibraryRemoveStatus Status, string? Detail);
 
+/// <summary>Result of relabeling a live Steam library selected by its content id.</summary>
+public enum SteamLibraryLabelStatus
+{
+    /// <summary>Steam applied the label and will persist it.</summary>
+    Applied,
+    /// <summary>The content id is not registered or its folder is not live.</summary>
+    NotPresent,
+    /// <summary>Steam actively refused; <c>Detail</c> is its reason.</summary>
+    Rejected,
+    /// <summary>The debug channel could not be reached, so nothing changed.</summary>
+    Unavailable,
+}
+
+/// <summary>Outcome of relabeling a live library.</summary>
+/// <param name="Status">What Steam did.</param>
+/// <param name="Detail">Steam's reason code, when it gave one.</param>
+public readonly record struct SteamLibraryLabelResult(
+    SteamLibraryLabelStatus Status, string? Detail);
+
 /// <summary>Adds a Steam library to the RUNNING client by driving Steam's own
 /// front-end API over its CEF remote-debugging port (see <see cref="SteamCef"/>):
 /// a <c>Runtime.evaluate</c> calls <c>SteamClient.InstallFolder.AddInstallFolder</c>,
@@ -114,6 +133,42 @@ public static class SteamCdp
         return InterpretRemove(result.Value);
     }
 
+    /// <summary>Relabels the live Steam library whose registration carries
+    /// <paramref name="contentId"/> (same identity discipline as removal: the id
+    /// selects its registered path, and an ambiguous path — several registrations
+    /// at one reused reader letter — refuses rather than guessing). Uses the same
+    /// <c>SetFolderLabel</c> call the add flow already applies after a live add.</summary>
+    /// <param name="contentId">The stable identity read from the card marker.</param>
+    /// <param name="libraryFoldersVdf">Steam's current libraryfolders configuration.</param>
+    /// <param name="label">The new label.</param>
+    /// <param name="cancellationToken">Cancels the exchange.</param>
+    public static async Task<SteamLibraryLabelResult> SetLibraryLabelByContentIdAsync(
+        string contentId, string libraryFoldersVdf, string label,
+        CancellationToken cancellationToken = default)
+    {
+        var libraryPath = Shell.SteamLibraryVdf.PathForContentId(libraryFoldersVdf, contentId);
+        if (libraryPath is null)
+        {
+            return new SteamLibraryLabelResult(SteamLibraryLabelStatus.NotPresent, null);
+        }
+        var matchingPaths = Shell.SteamLibraryVdf.ValuesOf(libraryFoldersVdf, "path")
+            .Count(path => string.Equals(path.Replace("\\\\", "\\").TrimEnd('\\', '/'),
+                libraryPath.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase));
+        if (matchingPaths != 1)
+        {
+            return new SteamLibraryLabelResult(SteamLibraryLabelStatus.Rejected,
+                "ContentIdPathAmbiguous");
+        }
+        var result = await SteamCef.EvaluateAsync(
+            BuildLabelExpression(libraryPath, label), TimeSpan.FromSeconds(10), cancellationToken)
+            .ConfigureAwait(false);
+        if (!result.Reachable)
+        {
+            return new SteamLibraryLabelResult(SteamLibraryLabelStatus.Unavailable, result.Error);
+        }
+        return InterpretLabel(result.Value);
+    }
+
     /// <summary>Builds the JS that adds the folder, labels it when a label is
     /// given, and reports the outcome as a JSON string. Both the path and label are
     /// JSON-encoded into JS string literals — a raw path would lose its backslashes
@@ -129,6 +184,18 @@ public static class SteamCdp
             "try{await SteamClient.InstallFolder.SetFolderLabel(i,l);}catch(e){}}" +
             "return JSON.stringify({ok:true,index:i});}" +
             "catch(e){return JSON.stringify({ok:false,result:(e&&e.result),message:(e&&e.message)});}})()";
+    }
+
+    private static string BuildLabelExpression(string libraryPath, string label)
+    {
+        var pathLiteral = SteamCef.JsString(libraryPath);
+        var labelLiteral = SteamCef.JsString(label);
+        return "(async()=>{try{const path=" + pathLiteral + ";const norm=p=>p.replace(/[\\\\/]+$/,'').toLowerCase();"
+            + "const folders=await SteamClient.InstallFolder.GetInstallFolders();"
+            + "const folder=folders.find(x=>norm(x.strFolderPath)===norm(path));"
+            + "if(!folder)return JSON.stringify({ok:true,absent:true});"
+            + "await SteamClient.InstallFolder.SetFolderLabel(folder.nFolderIndex," + labelLiteral + ");"
+            + "return JSON.stringify({ok:true});}catch(e){return JSON.stringify({ok:false,result:(e&&e.result),message:(e&&e.message)});}})()";
     }
 
     private static string BuildRemoveExpression(string libraryPath)
@@ -179,6 +246,38 @@ public static class SteamCdp
         catch (Exception ex)
         {
             return new SteamLibraryAddResult(SteamLibraryAddStatus.Unavailable, ex.Message);
+        }
+    }
+
+    private static SteamLibraryLabelResult InterpretLabel(string? jsonValue)
+    {
+        if (jsonValue is null)
+        {
+            return new SteamLibraryLabelResult(
+                SteamLibraryLabelStatus.Unavailable, "No response from Steam.");
+        }
+        try
+        {
+            using var document = JsonDocument.Parse(jsonValue);
+            var root = document.RootElement;
+            if (root.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True)
+            {
+                var status = root.TryGetProperty("absent", out var absent)
+                    && absent.ValueKind == JsonValueKind.True
+                    ? SteamLibraryLabelStatus.NotPresent : SteamLibraryLabelStatus.Applied;
+                return new SteamLibraryLabelResult(status, null);
+            }
+            var message = root.TryGetProperty("message", out var reason)
+                && reason.ValueKind == JsonValueKind.String
+                ? reason.GetString() : null;
+            message ??= root.TryGetProperty("result", out var resultCode)
+                ? $"EResult {resultCode.GetRawText()}" : null;
+            Log.Warn($"Steam rejected the library relabel: {message ?? "unknown reason"}.");
+            return new SteamLibraryLabelResult(SteamLibraryLabelStatus.Rejected, message);
+        }
+        catch (Exception ex)
+        {
+            return new SteamLibraryLabelResult(SteamLibraryLabelStatus.Unavailable, ex.Message);
         }
     }
 

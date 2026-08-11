@@ -15,6 +15,13 @@ public sealed class SteamMonitor : IDisposable
     /// <summary>Raised when Steam transitions from alive to absent while monitoring is active.</summary>
     public event Action? SteamExited;
 
+    /// <summary>Raised when Steam transitions from absent back to alive (a fresh client
+    /// start while WSGM keeps running — e.g. after an update restarts Steam). Not raised
+    /// for a Steam that was already alive when monitoring began.</summary>
+    public event Action? SteamStarted;
+
+    private bool _seenDead;
+
     /// <summary>Gets whether Steam was alive during the most recent poll.</summary>
     public bool IsAlive { get; private set; }
 
@@ -49,6 +56,22 @@ public sealed class SteamMonitor : IDisposable
             {
                 Log.Info("Steam exited.");
                 SteamExited?.Invoke();
+            }
+        }
+
+        // Dead → alive: a fresh client start. Gated on having SEEN it dead so a
+        // Steam already alive when monitoring began raises nothing.
+        if (!IsAlive)
+        {
+            _seenDead = true;
+        }
+        else if (_seenDead)
+        {
+            _seenDead = false;
+            if (!Paused)
+            {
+                Log.Info("Steam started.");
+                SteamStarted?.Invoke();
             }
         }
     }

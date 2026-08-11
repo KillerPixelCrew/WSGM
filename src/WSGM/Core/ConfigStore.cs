@@ -160,6 +160,7 @@ public static class ConfigStore
         config.CategoryTabs ??= [];
         config.CustomTabs ??= [];
         config.SteamGridDbApiKey ??= "";
+        config.SgdbLinks ??= [];
         config.CardLibraries = config.CardLibraries.Where(static card => card is not null).ToList();
         foreach (var card in config.CardLibraries)
         {
