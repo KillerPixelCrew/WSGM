@@ -297,7 +297,23 @@ buttons); `OverlayController` stays the UI owner (lease lifecycle, overlay windo
    persists, mounts and scans on its own thread with no restart. The port only opens when Steam
    starts with the `<SteamDir>\.cef-enable-remote-debugging` flag present, so
    `SteamCef.EnsureRemoteDebuggingEnabled()` writes it before `Steam.LaunchBigPicture` cold-starts
-   Steam (game mode always has the port). **JSON-encode the path into the JS** (`JsonEncodedText`) —
+   Steam (game mode always has the port).
+   **Security posture of the CEF port (accepted, reviewed — do not "fix" without reading this).**
+   The port is unauthenticated (Steam's CEF has no auth — a platform limitation, not ours) but
+   **loopback-only** (`127.0.0.1`), and driving Steam's front-end is the only way to build the
+   live-add / library-tab / artwork features; every comparable tool (CSSLoader-Desktop, Millennium,
+   Decky-on-Windows) uses the same flag and port. WSGM's own hardening against a **local squatter**:
+   `SteamCef.IsSteamPortOwner()` refuses port 8080 unless the listening PID is `steamwebhelper`/`steam`
+   (native TCP table, loopback listener preferred over a wildcard one), and the returned
+   `webSocketDebuggerUrl` is rejected unless it is `ws`/`wss` + host `127.0.0.1`/`localhost` + port
+   8080 — so a spoofed `/json/list` cannot redirect the CDP client (this is the answer to the Codex
+   "unauthenticated DevTools" finding, which reviewed the pre-hardening commit `59fb357`; the checks
+   landed in `4925494`). The residual is a loopback port any same-user process can drive — inherent,
+   `medium`, not raised further. **Do NOT remove the `.cef-enable-remote-debugging` flag on uninstall
+   (or anywhere):** it is shared Steam-wide state that CSSLoader-Desktop/Millennium also set and
+   depend on, WSGM only writes it if absent and cannot know who created it, so deleting it would
+   silently break a coexisting tool. This deletion was tried and deliberately reverted.
+   **JSON-encode the path into the JS** (`JsonEncodedText`) —
    a raw path drops its backslashes and Steam rejects it as `NotWritableFolder`. Steam enforces one
    library per drive (`DriveAlreadyHasLibrary` = already present, not an error). Do NOT resurrect the
    in-process `CApplicationManager::AddLibraryFolder` call (removed from `steam_input_gate`): calling

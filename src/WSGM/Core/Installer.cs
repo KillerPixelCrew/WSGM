@@ -139,6 +139,13 @@ public static class Installer
 
         ShellRegistration.Uninstall();
 
+        // Deliberately DO NOT remove Steam's .cef-enable-remote-debugging flag here:
+        // it is shared Steam-wide state that CSSLoader-Desktop, Millennium and other
+        // CEF tools also set and depend on. WSGM only ever wrote it if absent and
+        // cannot tell whether it or another tool created it, so deleting it on
+        // uninstall would silently break a coexisting tool. The flag enables a
+        // loopback-only port; leaving it is the lesser evil.
+
         // Roll back machine/user settings BEFORE the config directory (and the
         // snapshots inside config.json) are scheduled for deletion.
         RestoreMachineSettings();
