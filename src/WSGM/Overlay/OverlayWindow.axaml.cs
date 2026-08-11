@@ -452,6 +452,38 @@ public partial class OverlayWindow : Window
         }
     }
 
+    private async void OnCopyExplorerfyCommand(object? sender, RoutedEventArgs e)
+    {
+        var helperPath = ExplorerfyCommand.HelperPathForCurrentDeployment();
+        if (!System.IO.File.Exists(helperPath))
+        {
+            ExplorerfyCommandTitle.Title = "Explorer-companion helper missing";
+            Log.Warn($"Cannot copy Explorer-companion command; helper not found: {helperPath}");
+            return;
+        }
+
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard is null)
+        {
+            ExplorerfyCommandTitle.Title = "Clipboard unavailable";
+            Log.Warn("Cannot copy Explorer-companion command; no clipboard is available.");
+            return;
+        }
+
+        try
+        {
+            await clipboard.SetTextAsync(ExplorerfyCommand.SteamLaunchOptions(helperPath));
+            ExplorerfyCommandTitle.Title = "Copied to clipboard";
+            Log.Info("Copied Steam Explorer-companion launch-option command to clipboard.");
+            await DismissAfterCopyFeedback();
+        }
+        catch (Exception ex)
+        {
+            ExplorerfyCommandTitle.Title = "Clipboard copy failed";
+            Log.Error("Could not copy Explorer-companion command", ex);
+        }
+    }
+
     // A copied command means the user is heading to Steam to paste it: show the
     // "Copied" confirmation briefly, then dismiss the panel (which restores Steam
     // to the foreground). Same rule as the actions that open a window.

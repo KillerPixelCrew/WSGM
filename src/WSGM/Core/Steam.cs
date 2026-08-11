@@ -211,5 +211,6 @@ public static class Steam
         }
 
         DeelevationCommand.StopRunningHelpers("update");
+        ExplorerfyCommand.StopRunningHelpers("update");
     }
 }

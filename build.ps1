@@ -39,6 +39,13 @@ dotnet publish "$root\src\WSGM.Deelevate\WSGM.Deelevate.csproj" -c Release -r wi
     -o "$root\publish" "/p:Version=$version"
 if ($LASTEXITCODE -ne 0) { throw "WSGM.Deelevate publish failed" }
 
+# Some games/mod tools need Windows Explorer running. This wrapper is pasted into
+# a game's launch options and asks the running WSGM shell to drop to desktop mode
+# (Explorer up) for the game's lifetime. Published beside WSGM like the others.
+dotnet publish "$root\src\WSGM.Explorerfy\WSGM.Explorerfy.csproj" -c Release -r win-x64 `
+    -o "$root\publish" "/p:Version=$version"
+if ($LASTEXITCODE -ne 0) { throw "WSGM.Explorerfy publish failed" }
+
 # The SYSTEM logon service that launches WSGM's boot cover at sign-in. Published
 # beside the rest; the installer ships it to Program Files (never user-writable).
 dotnet publish "$root\src\WSGM.LogonService\WSGM.LogonService.csproj" -c Release -r win-x64 `
@@ -74,6 +81,7 @@ finally {
 if (-not (Test-Path $nativeOutput)) { throw "VolumeControl native helper was not produced" }
 if (-not (Test-Path "$root\publish\WSGM.Radio.dll")) { throw "Radio helper was not published" }
 if (-not (Test-Path "$root\publish\WSGM.Deelevate.exe")) { throw "De-elevation helper was not produced" }
+if (-not (Test-Path "$root\publish\WSGM.Explorerfy.exe")) { throw "Explorer-companion helper was not produced" }
 if (-not (Test-Path "$root\publish\WSGM.LogonService.exe")) { throw "Logon service was not produced" }
 
 $iscc = @(

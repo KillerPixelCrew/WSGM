@@ -274,6 +274,13 @@ buttons); `OverlayController` stays the UI owner (lease lifecycle, overlay windo
    wrapper must remain alive for the target lifetime, preserve Steam's arguments/environment/CWD,
    and stop the target tree if Steam terminates the wrapper. Do not replace it with a fire-and-forget
    scheduled task or an Explorer-token shortcut.
+   `WSGM.Explorerfy.exe` (`"...\WSGM.Explorerfy.exe" %command%`) is the sibling wrapper for games/mod
+   tools that need Windows Explorer running. It must NOT spawn `explorer.exe` itself — an inherited-
+   elevation Explorer breaks UWP, and its taskbar would fight the game-mode tray host. Instead it opens
+   a `WSGM.Explorerfy` named pipe (`CurrentUserOnly`) to the running shell; `ExplorerfyHost` drives the
+   normal `SessionModes.EnterDesktopMode`/`EnterGameMode` transition (tray-host teardown, de-elevation,
+   DPI) for the game's lifetime. The pipe connection IS the lease — a wrapper killed by Steam breaks it
+   and releases back to game mode. The wrapper stays alive for the target lifetime like Deelevate.
 6. **Overlay dismissal refocuses only under strict gates** (intentional since b7234f8): on close,
    the overlay calls back the window that was foreground when it opened (`_restoreFocusTo`, captured
    in ShowOverlay) — exclusive-fullscreen games sit minimized after the panel took focus. The
@@ -547,6 +554,7 @@ on Avalonia windows or controls.
 | `Themes`, `Controls` | tokens, reusable presentation, AOT-safe commands | Avalonia | device/session/Steam policy |
 | `WSGM.LogonService` | SYSTEM launch/watchdog boundary | shared boot manifest, Win32 | Avalonia or user-profile writes |
 | `WSGM.Deelevate` | medium-integrity child-process lifetime | scheduled-task launcher | shell/session UI |
+| `WSGM.Explorerfy` | Explorer-companion wrapper lifetime; pipe lease to the shell | game launch + named-pipe client | Explorer start/stop (delegated to the shell's SessionModes) |
 | `native\*` | OS APIs unavailable to NativeAOT WSGM | Rust/C++ and C ABI | managed business logic |
 
 ## Application lifetime and state flow

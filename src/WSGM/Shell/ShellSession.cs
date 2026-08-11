@@ -23,6 +23,7 @@ public sealed class ShellSession
     private VolumeButtonService? _volumeButtons;
     private CardAcfWatcher? _cardAcfWatcher;
     private NetworkIndicatorService? _networkIndicator;
+    private ExplorerfyHost? _explorerfyHost;
     private BootSplash? _splash;
     // Replaced (not just cancelled) on every game-mode entry: a single cancelled
     // source would permanently kill boot syncing after the first desktop trip.
@@ -54,6 +55,14 @@ public sealed class ShellSession
         _monitor = new SteamMonitor();
         _modes = new SessionModes(_config, _monitor);
         _overlay = new OverlayController(_config, _monitor, _modes);
+
+        // Games launched through the WSGM.Explorerfy wrapper ask the shell to bring
+        // Explorer up (desktop mode) for their lifetime; the host drives the same
+        // desktop/game transition the overlay buttons use.
+        if (!_overlayTestOnly)
+        {
+            _explorerfyHost = ExplorerfyHost.StartNew(_modes);
+        }
 
         // The tray host must never coexist with explorer's taskbar (Z-order war
         // over FindWindow — see TrayHost): gone before explorer starts, back
