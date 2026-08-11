@@ -1,0 +1,80 @@
+name: Bug Report
+description: Something in WSGM is broken or behaving wrong.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! The log file is the single most useful
+        thing you can attach — most issues can only be diagnosed from it.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What went wrong, and what did you expect instead?
+      placeholder: The library tabs disappeared after Steam restarted. I expected them to come back on their own.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: How can the problem be triggered? If it only happened once, describe what you were doing at the time.
+      placeholder: |
+        1. Boot into game mode
+        2. Open the overlay → Tools → Library Tabs
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: wsgm-version
+    attributes:
+      label: WSGM version
+      description: Shown in Settings, or the installer file name you used.
+      placeholder: "1.3.0"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      description: The machine WSGM runs on.
+      placeholder: MSI Claw / ROG Ally / Legion Go / desktop PC ...
+    validations:
+      required: true
+  - type: input
+    id: windows-version
+    attributes:
+      label: Windows version
+      description: Run `winver` — e.g. "Windows 11 Pro 24H2".
+      placeholder: Windows 11 Pro 24H2
+    validations:
+      required: true
+  - type: dropdown
+    id: steam-channel
+    attributes:
+      label: Steam client
+      options:
+        - Stable
+        - Beta
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log file
+      description: |
+        Attach `wsgm.log` from `%LOCALAPPDATA%\WSGM` (paste that path into Explorer's address bar).
+        Drag the file into this field. If the bug involves game mode, reproduce it first so the log contains it.
+      placeholder: Drag & drop wsgm.log here.
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else?
+      description: Screenshots, other tools running (CSS Loader, Handheld Companion, ...), or anything unusual about your setup.
+    validations:
+      required: false
