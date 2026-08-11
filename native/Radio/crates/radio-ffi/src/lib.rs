@@ -943,15 +943,6 @@ pub extern "system" fn wsgm_wifi_watch_stop() -> i32 {
     })
 }
 
-/// Shows the Windows touch keyboard.
-///
-/// Goes through the shell's `ITipInvocation`, because starting `TabTip.exe`
-/// does nothing on Windows 11 when it is already running.
-#[unsafe(no_mangle)]
-pub extern "system" fn wsgm_touch_keyboard_show() -> i32 {
-    guard(radio_core::keyboard::show)
-}
-
 /// Answers a pairing request. `pin` is used only for the provide-pin ceremony.
 ///
 /// # Safety

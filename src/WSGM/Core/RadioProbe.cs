@@ -41,7 +41,6 @@ public static class RadioProbe
         ProbeConsent("radios");
         ProbeWifi();
         ProbeBluetooth();
-        ProbeTouchKeyboard();
 
         Log.Info("---- radio probe done ----");
         return 0;
@@ -237,14 +236,6 @@ public static class RadioProbe
             : $"Radio probe: pairing test TIMED OUT (question reached the UI: {answered}).");
         manager.StopScanning();
         manager.Dispose();
-    }
-
-    private static void ProbeTouchKeyboard()
-    {
-        // Text entry is what a password and a PIN both need, and whether TabTip
-        // renders over a game-mode surface with no shell is unproven. Starting
-        // it here is harmless and the log line is the evidence.
-        TouchKeyboard.Show();
     }
 
     private static string DescribePower(int state) => state switch

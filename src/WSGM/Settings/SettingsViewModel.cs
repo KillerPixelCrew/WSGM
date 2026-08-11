@@ -90,7 +90,6 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         });
         UninstallCommand = new RelayCommand(Uninstall);
         OpenLogLocationCommand = new RelayCommand(OpenLogLocation);
-        TouchKeyboardCommand = new RelayCommand(OpenTouchKeyboard);
         RemoveAppCommand = new RelayCommand<StartupAppRow>(row =>
         {
             if (row is not null)
@@ -169,9 +168,6 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// <summary>Gets the command that reveals wsgm.log in Explorer.</summary>
     public RelayCommand OpenLogLocationCommand { get; }
 
-    /// <summary>Gets the command that opens the Windows touch keyboard host.</summary>
-    public RelayCommand TouchKeyboardCommand { get; }
-
     /// <summary>Gets the command that removes one startup-program row.</summary>
     public RelayCommand<StartupAppRow> RemoveAppCommand { get; }
 
@@ -223,8 +219,6 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             StatusText = $"Could not open the log location: {ex.Message}";
         }
     }
-
-    private static void OpenTouchKeyboard() => TouchKeyboard.Show();
 
     // --- Startup app suggestions ---
     /// <summary>Common handheld companions found on this PC, offered as one-click adds

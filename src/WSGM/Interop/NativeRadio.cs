@@ -147,12 +147,6 @@ internal static unsafe partial class NativeRadio
     [LibraryImport(Library, EntryPoint = "wsgm_wifi_watch_stop")]
     internal static partial int StopWifiWatch();
 
-    /// <summary>Shows the Windows touch keyboard through the shell's
-    /// ITipInvocation. Starting TabTip.exe does nothing on Windows 11 when it is
-    /// already running, which is why this goes through the helper.</summary>
-    [LibraryImport(Library, EntryPoint = "wsgm_touch_keyboard_show")]
-    internal static partial int ShowTouchKeyboard();
-
     [LibraryImport(Library, EntryPoint = "wsgm_radio_last_error")]
     private static partial uint GetLastErrorText(char* buffer, uint capacity);
 

@@ -40,13 +40,12 @@
                     </Grid>
                 </Border>
                 <Border Classes="setting-row">
-                    <Grid ColumnDefinitions="*,150,Auto" ColumnSpacing="8">
+                    <Grid ColumnDefinitions="*,150" ColumnSpacing="8">
                         <StackPanel VerticalAlignment="Center" Spacing="1">
                             <TextBlock Text="Controller button glyphs" Classes="setting-title" />
                             <TextBlock Text="Choose the labels shown in quick access and the settings footer." Classes="caption" />
                         </StackPanel>
                         <ComboBox Grid.Column="1" ItemsSource="{Binding GlyphStyles}" SelectedIndex="{Binding GlyphStyleIndex}" VerticalAlignment="Center" />
-                        <Button Grid.Column="2" Content="Touch keyboard" Command="{Binding TouchKeyboardCommand}" VerticalAlignment="Center" />
                     </Grid>
                 </Border>
             </StackPanel>
