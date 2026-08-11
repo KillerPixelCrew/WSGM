@@ -125,10 +125,6 @@
                                       IconGeometry="{x:Static c:Icons.CopyDoc}"
                                       Title="Copy de-elevation command"
                                       Description="Paste into a game's Steam launch options" />
-                        <c:CardButton x:Name="ExplorerfyCommandTitle" Click="OnCopyExplorerfyCommand"
-                                      IconGeometry="{x:Static c:Icons.CopyDoc}"
-                                      Title="Copy Explorer-companion command"
-                                      Description="For games that need Windows Explorer running" />
                         <c:CardButton x:Name="SteamInputBlockCommandTitle" Click="OnCopySteamInputBlockCommand"
                                       IconGeometry="{x:Static c:Icons.BlockedCircle}"
                                       Title="Copy Steam Input block command"

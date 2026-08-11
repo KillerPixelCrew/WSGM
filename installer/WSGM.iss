@@ -60,7 +60,6 @@ german.SteamMissing=Steam wurde auf diesem PC nicht gefunden.%n%nWSGM funktionie
 [Files]
 Source: "{#PublishDir}\WSGM.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PublishDir}\WSGM.Deelevate.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#PublishDir}\WSGM.Explorerfy.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; SYSTEM service binary: Program Files only (admin-writable), never {app}. It
 ; launches the per-user WSGM.exe via the boot manifest — as that user, which is
 ; why the user-writable app path is not an escalation.
@@ -235,10 +234,9 @@ var
 begin
   Sleep(5000);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM steam.exe /T /F', '', SW_HIDE, ewWaitUntilTerminated, R);
-  // Releases the new wrapper executables too. /T also stops their helpers and
-  // launched targets; setup already shuts Steam down before this point.
+  // Releases the new wrapper executable too. /T also stops its helper and
+  // launched target; setup already shuts Steam down before this point.
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM WSGM.Deelevate.exe /T /F', '', SW_HIDE, ewWaitUntilTerminated, R);
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM WSGM.Explorerfy.exe /T /F', '', SW_HIDE, ewWaitUntilTerminated, R);
 end;
 
 procedure StopDeelevationHelpers();
@@ -246,7 +244,6 @@ var
   R: Integer;
 begin
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM WSGM.Deelevate.exe /T /F', '', SW_HIDE, ewWaitUntilTerminated, R);
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM WSGM.Explorerfy.exe /T /F', '', SW_HIDE, ewWaitUntilTerminated, R);
 end;
 
 // Stop the logon service BEFORE stopping WSGM. Ordering is load-bearing: with

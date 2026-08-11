@@ -23,10 +23,6 @@ public static class Installer
     public static string InstalledDeelevationExePath =>
         Path.Combine(InstallDir, DeelevationCommand.HelperFileName);
 
-    /// <summary>Gets the installed Explorer-companion wrapper path.</summary>
-    public static string InstalledExplorerfyExePath =>
-        Path.Combine(InstallDir, ExplorerfyCommand.HelperFileName);
-
     private static string ShortcutPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs", "WSGM.lnk");
 
@@ -74,10 +70,7 @@ public static class Installer
                 var isDeelevationHelper = ext.Equals(".exe", StringComparison.OrdinalIgnoreCase) &&
                     Path.GetFileName(file).Equals(
                         DeelevationCommand.HelperFileName, StringComparison.OrdinalIgnoreCase);
-                var isExplorerfyHelper = ext.Equals(".exe", StringComparison.OrdinalIgnoreCase) &&
-                    Path.GetFileName(file).Equals(
-                        ExplorerfyCommand.HelperFileName, StringComparison.OrdinalIgnoreCase);
-                if (!isDll && !isOwnExe && !isDeelevationHelper && !isExplorerfyHelper)
+                if (!isDll && !isOwnExe && !isDeelevationHelper)
                 {
                     continue;
                 }
@@ -143,7 +136,6 @@ public static class Installer
         // lease from this process before uninstalling its native gate files.
         SteamInputBlocker.ReleaseBestEffort("uninstall-app");
         DeelevationCommand.StopRunningHelpers("uninstall");
-        ExplorerfyCommand.StopRunningHelpers("uninstall");
 
         ShellRegistration.Uninstall();
 
