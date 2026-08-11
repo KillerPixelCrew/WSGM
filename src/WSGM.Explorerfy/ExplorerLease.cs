@@ -1,4 +1,5 @@
 using System.IO.Pipes;
+using System.Security.Principal;
 
 namespace WSGM.Explorerfy;
 
@@ -21,9 +22,14 @@ internal sealed class ExplorerLease : IAsyncDisposable
         NamedPipeClientStream? pipe = null;
         try
         {
+            // NOT CurrentUserOnly on the client: the WSGM shell is elevated, so the
+            // pipe it creates is owned by BUILTIN\Administrators, and the client-side
+            // CurrentUserOnly owner-equality check throws UnauthorizedAccessException
+            // (device-observed). The server keeps CurrentUserOnly for its DACL; the
+            // client matches WSGM.Deelevate's proven cross-integrity form.
             pipe = new NamedPipeClientStream(
                 ".", pipeName, PipeDirection.InOut,
-                PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+                PipeOptions.Asynchronous, TokenImpersonationLevel.None);
             using var cts = new CancellationTokenSource(timeout);
             await pipe.ConnectAsync(cts.Token);
 
