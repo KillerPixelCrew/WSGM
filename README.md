@@ -79,6 +79,14 @@ focus, or in games that require elevation. Under FSE, an elevated Steam addition
 from virtual controllers (Handheld Companion and friends). WSGM gives you boot-to-Steam without FSE,
 so all of it works at once.
 
+## Compatibility
+
+- **Handheld Companion** — works, and is heavily used on WSGM's own development devices. Tested
+  against all of its controller types.
+- **CSSLoader Desktop** — works, with caution: themes restyle the same Steam UI that WSGM's
+  library-tab engine patches, so a theme that touches the library's tab strip can break the injected
+  tabs.
+
 ## How it works
 
 The full technical deep-dive — the logon service, the Explorer takeover, the Steam Input Lease, the
