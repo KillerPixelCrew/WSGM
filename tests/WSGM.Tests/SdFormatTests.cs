@@ -127,6 +127,66 @@ public sealed class SdFormatTests
         Assert.DoesNotContain("\r", marker);
     }
 
+    // ---- label rewrite (card rename while Steam is closed) ----
+
+    [Fact]
+    public void SetLabelRewritesTheMarkersLabelLineOnly()
+    {
+        var marker = SteamLibraryVdf.BuildMarker(
+            "5167503016717445825", @"C:\Program Files (x86)\Steam\steam.exe", "Old");
+
+        Assert.True(SteamLibraryVdf.TrySetLabel(marker, "5167503016717445825", "Red Card", out var updated));
+        Assert.Equal(marker.Replace("\t\"label\"\t\t\"Old\"", "\t\"label\"\t\t\"Red Card\""), updated);
+        Assert.DoesNotContain("\r", updated);
+    }
+
+    [Fact]
+    public void SetLabelTargetsOnlyTheMatchingConfigBlock()
+    {
+        var config =
+            "\"libraryfolders\"\n"
+            + "{\n"
+            + "\t\"0\"\n"
+            + "\t{\n"
+            + "\t\t\"path\"\t\t\"E:\\\\SteamLibrary\"\n"
+            + "\t\t\"label\"\t\t\"CardA\"\n"
+            + "\t\t\"contentid\"\t\t\"111\"\n"
+            + "\t}\n"
+            + "\t\"1\"\n"
+            + "\t{\n"
+            + "\t\t\"path\"\t\t\"E:\\\\SteamLibrary\"\n"
+            + "\t\t\"label\"\t\t\"CardB\"\n"
+            + "\t\t\"contentid\"\t\t\"222\"\n"
+            + "\t}\n"
+            + "}\n";
+
+        Assert.True(SteamLibraryVdf.TrySetLabel(config, "222", "Blue", out var updated));
+        Assert.Contains("\t\t\"label\"\t\t\"CardA\"", updated);
+        Assert.Contains("\t\t\"label\"\t\t\"Blue\"", updated);
+        Assert.DoesNotContain("CardB", updated);
+    }
+
+    [Fact]
+    public void SetLabelInsertsALabelLineWhenTheBlockHasNone()
+    {
+        Assert.True(SteamLibraryVdf.TrySetLabel(TwoEntryConfig, "222", "Named", out var updated));
+        Assert.Contains(
+            "\t\t\"contentid\"\t\t\"222\"\n\t\t\"label\"\t\t\"Named\"\n", updated);
+        // The other block stays byte-identical (no label appears in it).
+        Assert.Contains("\t\t\"contentid\"\t\t\"111\"\n\t\t\"apps\"\n", updated);
+    }
+
+    [Fact]
+    public void SetLabelEscapesQuotesAndRefusesUnknownIds()
+    {
+        var marker = SteamLibraryVdf.BuildMarker("111", @"C:\Steam\steam.exe");
+        Assert.True(SteamLibraryVdf.TrySetLabel(marker, "111", "My \"Fast\" Card", out var updated));
+        Assert.Contains("\"label\"\t\t\"My \\\"Fast\\\" Card\"", updated);
+
+        Assert.False(SteamLibraryVdf.TrySetLabel(marker, "999", "X", out var none));
+        Assert.Null(none);
+    }
+
     // ---- config splice ----
 
     private const string TwoEntryConfig =
@@ -205,6 +265,47 @@ public sealed class SdFormatTests
     {
         Assert.True(SteamLibraryVdf.IsContentIdRegistered(TwoEntryConfig, "222"));
         Assert.False(SteamLibraryVdf.IsContentIdRegistered(TwoEntryConfig, "999"));
+    }
+
+    [Fact]
+    public void RegisteredPathIsResolvedByContentIdNotTheReusedDriveLetter()
+    {
+        Assert.Equal(@"D:\SteamLibrary", SteamLibraryVdf.PathForContentId(TwoEntryConfig, "222"));
+        Assert.Null(SteamLibraryVdf.PathForContentId(TwoEntryConfig, "999"));
+    }
+
+    [Fact]
+    public void RemovingByContentIdKeepsTheOtherRegistrationByteForByte()
+    {
+        var removed = SteamLibraryVdf.TryRemoveContentId(TwoEntryConfig, "222", out var updated);
+
+        Assert.True(removed);
+        Assert.NotNull(updated);
+        Assert.Contains("\"contentid\"\t\t\"111\"", updated);
+        Assert.DoesNotContain("\"contentid\"\t\t\"222\"", updated);
+        Assert.EndsWith("}\n", updated);
+    }
+
+    [Fact]
+    public void RemovingFirstContentIdRenumbersRemainingEntries()
+    {
+        var removed = SteamLibraryVdf.TryRemoveContentId(TwoEntryConfig, "111", out var updated);
+
+        Assert.True(removed);
+        Assert.NotNull(updated);
+        Assert.Contains("\t\"0\"\n", updated);
+        Assert.DoesNotContain("\t\"1\"\n", updated);
+        Assert.Contains("\"contentid\"\t\t\"222\"", updated);
+    }
+
+    [Fact]
+    public void LabelLookupStaysPairedWithItsContentId()
+    {
+        var labeled = TwoEntryConfig
+            .Replace("\t\t\"contentid\"\t\t\"111\"", "\t\t\"label\"\t\t\"Primary\"\n\t\t\"contentid\"\t\t\"111\"")
+            .Replace("\t\t\"contentid\"\t\t\"222\"", "\t\t\"label\"\t\t\"Card\"\n\t\t\"contentid\"\t\t\"222\"");
+        Assert.Equal("Primary", SteamLibraryVdf.LabelForContentId(labeled, "111"));
+        Assert.Equal("Card", SteamLibraryVdf.LabelForContentId(labeled, "222"));
     }
 
     [Fact]

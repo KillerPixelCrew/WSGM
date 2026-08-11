@@ -159,6 +159,279 @@ public static class SteamLibraryVdf
         return false;
     }
 
+    /// <summary>Finds the registered library path for a stable content id. This
+    /// deliberately selects the registration by content id, not by path: a card
+    /// reader can assign the same letter to many different cards.</summary>
+    /// <param name="vdf">The current libraryfolders configuration text.</param>
+    /// <param name="contentId">The library identity from its card marker.</param>
+    /// <returns>The unescaped registered path, or null when the id is absent.</returns>
+    public static string? PathForContentId(string vdf, string contentId)
+    {
+        string? path = null;
+        string? currentId = null;
+        foreach (var rawLine in vdf.Split('\n'))
+        {
+            var line = rawLine.TrimEnd('\r');
+            if (IsTopLevelEntry(line))
+            {
+                if (string.Equals(currentId, contentId, StringComparison.Ordinal))
+                {
+                    return path;
+                }
+                path = null;
+                currentId = null;
+                continue;
+            }
+            if (TryReadValue(line, "path", out var candidatePath))
+            {
+                path = candidatePath.Replace("\\\\", "\\");
+            }
+            else if (TryReadValue(line, "contentid", out var candidateId))
+            {
+                currentId = candidateId;
+            }
+        }
+        return string.Equals(currentId, contentId, StringComparison.Ordinal) ? path : null;
+    }
+
+    /// <summary>Finds the label belonging to a specific content-id registration.</summary>
+    /// <param name="vdf">The current libraryfolders configuration text.</param>
+    /// <param name="contentId">The stable library identity.</param>
+    /// <returns>The matching label, or null when the identity is absent.</returns>
+    public static string? LabelForContentId(string vdf, string contentId)
+    {
+        string? label = null;
+        string? currentId = null;
+        foreach (var rawLine in vdf.Split('\n'))
+        {
+            var line = rawLine.TrimEnd('\r');
+            if (IsTopLevelEntry(line))
+            {
+                if (string.Equals(currentId, contentId, StringComparison.Ordinal))
+                {
+                    return label;
+                }
+                label = null;
+                currentId = null;
+                continue;
+            }
+            if (TryReadValue(line, "label", out var candidateLabel))
+            {
+                label = candidateLabel;
+            }
+            else if (TryReadValue(line, "contentid", out var candidateId))
+            {
+                currentId = candidateId;
+            }
+        }
+        return string.Equals(currentId, contentId, StringComparison.Ordinal) ? label : null;
+    }
+
+    /// <summary>Rewrites the <c>label</c> of the library block whose content id
+    /// matches, preserving every other byte. Works on both file shapes: the
+    /// numbered blocks of <c>config\libraryfolders.vdf</c> and the single-block
+    /// card marker <c>libraryfolder.vdf</c>. A block without a label line gets one
+    /// inserted after its contentid line. Used only while Steam is closed; a
+    /// running client is renamed through its CEF API instead.</summary>
+    /// <param name="vdf">The current file text.</param>
+    /// <param name="contentId">The stable library identity to rename.</param>
+    /// <param name="label">The new raw label (escaped here).</param>
+    /// <param name="updated">The text with the new label on success.</param>
+    /// <returns>True when a matching block was updated.</returns>
+    public static bool TrySetLabel(string vdf, string contentId, string label, out string? updated)
+    {
+        updated = null;
+        var starts = new List<int>();
+        var lineStart = 0;
+        while (lineStart < vdf.Length)
+        {
+            var lineEnd = vdf.IndexOf('\n', lineStart);
+            if (lineEnd < 0)
+            {
+                lineEnd = vdf.Length;
+            }
+            if (IsTopLevelEntry(vdf[lineStart..lineEnd].TrimEnd('\r')))
+            {
+                starts.Add(lineStart);
+            }
+            lineStart = lineEnd + 1;
+        }
+
+        int blockStart = -1, blockEnd = -1;
+        if (starts.Count == 0)
+        {
+            // Marker file: the whole file is one "libraryfolder" block.
+            if (!IsContentIdRegistered(vdf, contentId))
+            {
+                return false;
+            }
+            blockStart = 0;
+            blockEnd = vdf.Length;
+        }
+        else
+        {
+            var rootClose = vdf.LastIndexOf('}');
+            for (var i = 0; i < starts.Count; i++)
+            {
+                var end = i + 1 < starts.Count ? starts[i + 1] : rootClose;
+                if (end > starts[i] && IsContentIdRegistered(vdf[starts[i]..end], contentId))
+                {
+                    blockStart = starts[i];
+                    blockEnd = end;
+                    break;
+                }
+            }
+            if (blockStart < 0)
+            {
+                return false;
+            }
+        }
+
+        int labelStart = -1, labelEnd = -1, idStart = -1, idEnd = -1;
+        var position = blockStart;
+        while (position < blockEnd)
+        {
+            var end = vdf.IndexOf('\n', position);
+            if (end < 0 || end > blockEnd)
+            {
+                end = blockEnd;
+            }
+            var line = vdf[position..end].TrimEnd('\r');
+            if (TryReadValue(line, "label", out _))
+            {
+                labelStart = position;
+                labelEnd = end;
+            }
+            else if (TryReadValue(line, "contentid", out _))
+            {
+                idStart = position;
+                idEnd = end;
+            }
+            position = end + 1;
+        }
+
+        var escaped = EscapeValue(label);
+        if (labelStart >= 0)
+        {
+            var raw = vdf[labelStart..labelEnd];
+            var line = raw.TrimEnd('\r');
+            var leading = line[..(line.Length - line.TrimStart('\t', ' ').Length)];
+            var replacement = leading + "\"label\"\t\t\"" + escaped + "\""
+                + (raw.EndsWith('\r') ? "\r" : "");
+            updated = vdf.Remove(labelStart, labelEnd - labelStart)
+                .Insert(labelStart, replacement);
+            return true;
+        }
+        if (idStart >= 0)
+        {
+            var idLine = vdf[idStart..idEnd].TrimEnd('\r');
+            var leading = idLine[..(idLine.Length - idLine.TrimStart('\t', ' ').Length)];
+            updated = vdf.Insert(idEnd, "\n" + leading + "\"label\"\t\t\"" + escaped + "\"");
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>Removes exactly one top-level library registration selected by
+    /// content id, preserving all other configuration bytes. Used only while
+    /// Steam is closed; a running client is changed through its CEF API instead.</summary>
+    /// <param name="vdf">The current libraryfolders configuration text.</param>
+    /// <param name="contentId">The stable library identity to remove.</param>
+    /// <param name="updated">The text without the matching entry on success.</param>
+    /// <returns>True when a matching registration was removed.</returns>
+    public static bool TryRemoveContentId(string vdf, string contentId, out string? updated)
+    {
+        updated = null;
+        if (!vdf.TrimStart('\uFEFF', ' ', '\r', '\n', '\t')
+                .StartsWith("\"libraryfolders\"", StringComparison.Ordinal)
+            || vdf.LastIndexOf('}') < 0)
+        {
+            return false;
+        }
+        var starts = new List<int>();
+        var lineStart = 0;
+        while (lineStart < vdf.Length)
+        {
+            var lineEnd = vdf.IndexOf('\n', lineStart);
+            if (lineEnd < 0)
+            {
+                lineEnd = vdf.Length;
+            }
+            var line = vdf[lineStart..lineEnd].TrimEnd('\r');
+            if (IsTopLevelEntry(line))
+            {
+                starts.Add(lineStart);
+            }
+            lineStart = lineEnd + 1;
+        }
+        var rootClose = vdf.LastIndexOf('}');
+        for (var i = 0; i < starts.Count; i++)
+        {
+            var end = i + 1 < starts.Count ? starts[i + 1] : rootClose;
+            if (end <= starts[i]
+                || !IsContentIdRegistered(vdf[starts[i]..end], contentId))
+            {
+                continue;
+            }
+            updated = RenumberEntries(vdf.Remove(starts[i], end - starts[i]));
+            return true;
+        }
+        return false;
+    }
+
+    private static string RenumberEntries(string vdf)
+    {
+        var lines = vdf.Split('\n');
+        var index = 0;
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var raw = lines[i];
+            var line = raw.TrimEnd('\r');
+            if (!IsTopLevelEntry(line))
+            {
+                continue;
+            }
+            var suffix = raw.EndsWith('\r') ? "\r" : "";
+            lines[i] = $"\t\"{index++}\"{suffix}";
+        }
+        return string.Join("\n", lines);
+    }
+
+    private static bool IsTopLevelEntry(string line)
+    {
+        if (line.Length < 4 || line[0] != '\t' || line[1] != '"'
+            || line.StartsWith("\t\t", StringComparison.Ordinal))
+        {
+            return false;
+        }
+        var end = line.IndexOf('"', 2);
+        return end > 2 && int.TryParse(line[2..end], NumberStyles.None,
+            CultureInfo.InvariantCulture, out _);
+    }
+
+    private static bool TryReadValue(string line, string key, out string value)
+    {
+        value = "";
+        var trimmed = line.TrimStart('\t', ' ');
+        var marker = $"\"{key}\"";
+        if (!trimmed.StartsWith(marker, StringComparison.Ordinal))
+        {
+            return false;
+        }
+        var rest = trimmed[marker.Length..].TrimStart('\t', ' ');
+        if (rest.Length < 2 || rest[0] != '"')
+        {
+            return false;
+        }
+        var end = rest.IndexOf('"', 1);
+        if (end <= 0)
+        {
+            return false;
+        }
+        value = rest[1..end];
+        return true;
+    }
+
     /// <summary>The next free top-level entry index: highest existing numbered
     /// block + 1. Line-based scan for <c>\t"N"</c> at nesting depth one.</summary>
     /// <param name="vdf">The config file text.</param>

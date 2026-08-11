@@ -427,6 +427,14 @@ public sealed class OverlayController : IDisposable
         HideTouchEdges();
         if (_overlay is not null)
         {
+            if (_keyboardWindow is not null)
+            {
+                _keyboardNavigation?.Dispose();
+                _keyboardNavigation = null;
+                _keyboardWindow.Close();
+                _keyboardWindow = null;
+                _overlay.KeyboardOwnsFocus = false;
+            }
             if (_navigation is not null)
             {
                 _navigation.IsEnabled = true;
@@ -549,6 +557,8 @@ public sealed class OverlayController : IDisposable
             _reopenOverlayForWarning = false;
             _navigation?.Dispose();
             _navigation = null;
+            KeyboardService.Handler = null;
+            _keyboardWindow?.Close();
             // Keep polling if the controller chord or the open taskbar still needs it.
             if (!(_config.GamepadChord.Enabled && _config.GamepadChord.Buttons != 0) && _taskbar is null)
             {
@@ -589,13 +599,18 @@ public sealed class OverlayController : IDisposable
         };
 
         _overlay.AttachFormatManager(FormatManager);
+        _overlay.SubViewClosed += CloseKeyboardNow;
 
         var overlay = _overlay;
         _navigation = new GamepadNavigation(_gamepad, _overlay, OnOverlayBack,
             isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
             preferredFocus: () => overlay.DefaultFocusTarget,
             tabPrevious: () => _overlay?.SelectPreviousTab(),
-            tabNext: () => _overlay?.SelectNextTab());
+            tabNext: () => _overlay?.SelectNextTab(),
+            onEdge: OnOverlayEdge);
+        // The slim sidebar can't hold a keyboard; text entry pops the keyboard window
+        // beside it. Registered while the overlay owns navigation.
+        KeyboardService.Handler = OpenKeyboard;
         _gamepad.Start();
         _overlay.Show();
         // Game-Bar-style: the game stops receiving input while the panel is up.
@@ -615,7 +630,8 @@ public sealed class OverlayController : IDisposable
     {
         if (_overlay is not null)
         {
-            if (!HitsWindow(_overlay, x, y))
+            if (!HitsWindow(_overlay, x, y)
+                && (_keyboardWindow is null || !HitsWindow(_keyboardWindow, x, y)))
             {
                 Log.Info("Touch outside quick access — dismissing.");
                 CloseOverlay();
@@ -701,6 +717,14 @@ public sealed class OverlayController : IDisposable
         nint inheritedRestore = 0;
         if (_overlay is not null)
         {
+            if (_keyboardWindow is not null)
+            {
+                _keyboardNavigation?.Dispose();
+                _keyboardNavigation = null;
+                _keyboardWindow.Close();
+                _keyboardWindow = null;
+                _overlay.KeyboardOwnsFocus = false;
+            }
             inheritedRestore = _restoreFocusTo;
             _suppressFocusRestore = true;
             if (_navigation is not null)
@@ -782,6 +806,161 @@ public sealed class OverlayController : IDisposable
     private GamepadNavigation? _radioNavigation;
     private bool _radioClosePending;
     private IDisposable? _pendingRadioClose;
+
+    private KeyboardWindow? _keyboardWindow;
+    private GamepadNavigation? _keyboardNavigation;
+
+    /// <summary>Opens the keyboard window beside the sidebar for one text field
+    /// (<see cref="KeyboardService"/>). Gamepad focus moves to it; crossing back to the
+    /// sidebar (D-pad right off its right edge) or accepting/cancelling returns focus.
+    /// Runs on the UI thread. Returns true (the request is handled).</summary>
+    private bool OpenKeyboard(string prompt, string initial, int maxLength, Action<string> onAccept)
+    {
+        _keyboardWindow?.Close();
+
+        var overlay = _overlay;
+        if (overlay is null)
+        {
+            return false;
+        }
+        var window = new KeyboardWindow(prompt, initial, maxLength, UiScale());
+        _keyboardWindow = window;
+        overlay.KeyboardOwnsFocus = true;
+        window.Accepted += text => onAccept(text);
+        // The window's own Opened handler (subscribed first) applies the UI-scale
+        // LayoutTransform, which only changes Bounds on the NEXT layout pass — so the
+        // positioning below must force that pass, and re-run when SizeToContent grows
+        // the window afterwards, or the keyboard is placed for its unscaled size.
+        window.Opened += (_, _) => PositionKeyboardBesideOverlay(window, overlay);
+        window.SizeChanged += (_, _) => PositionKeyboardBesideOverlay(window, overlay);
+        window.Show();
+
+        _keyboardNavigation = new GamepadNavigation(_gamepad, window, () => window.Close(),
+            isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
+            onEdge: OnKeyboardEdge);
+        // Focus is in the keyboard now; the sidebar's nav stands down until we cross back.
+        if (_navigation is not null)
+        {
+            _navigation.IsEnabled = false;
+        }
+        window.Closed += (_, _) =>
+        {
+            _keyboardNavigation?.Dispose();
+            _keyboardNavigation = null;
+            _keyboardWindow = null;
+            if (_navigation is not null)
+            {
+                _navigation.IsEnabled = true;
+            }
+            overlay.Activate();
+            overlay.DefaultFocusTarget.Focus(Avalonia.Input.NavigationMethod.Directional);
+            // Keep the activation reset suppressed through the handoff itself.
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => overlay.KeyboardOwnsFocus = false);
+        };
+        window.Activate();
+        window.FocusDefault();
+        return true;
+    }
+
+    private static void PositionKeyboardBesideOverlay(KeyboardWindow window, OverlayWindow overlay)
+    {
+        // Left of the sidebar (which is docked to the right edge), vertically centred.
+        // Settle any pending layout first: the UI-scale LayoutTransform applied on open
+        // invalidates measure, and Bounds only reflects it after a layout pass.
+        window.UpdateLayout();
+        var scaling = window.DesktopScaling;
+        var widthPx = (int)Math.Ceiling(Math.Max(window.Bounds.Width, 300) * scaling);
+        var heightPx = (int)Math.Ceiling(Math.Max(window.Bounds.Height, 200) * scaling);
+        var overlayHeightPx = (int)Math.Ceiling(overlay.Bounds.Height * scaling);
+        var y = overlay.Position.Y + Math.Max(0, (overlayHeightPx - heightPx) / 2);
+        var x = overlay.Position.X - widthPx - 8;
+        var screen = overlay.Screens.ScreenFromWindow(overlay);
+        if (screen is not null)
+        {
+            // Right-align against the sidebar when clamping: if the keyboard is wider
+            // than the free space, losing pixels on the LEFT keeps the edge the gamepad
+            // crosses (keyboard right ↔ sidebar left) usable. Math.Clamp would throw
+            // when the window exceeds the work area, so clamp by hand.
+            var minX = screen.WorkingArea.X;
+            var maxX = Math.Max(minX, overlay.Position.X - widthPx - 8);
+            x = Math.Min(Math.Max(x, minX), maxX);
+            var minY = screen.WorkingArea.Y;
+            var maxY = Math.Max(minY, screen.WorkingArea.Bottom - heightPx);
+            y = Math.Min(Math.Max(y, minY), maxY);
+        }
+        window.Position = new Avalonia.PixelPoint(x, y);
+    }
+
+    // The sidebar rows are a single column, so any Left press is at the left edge: if
+    // the keyboard window is open beside it, hand focus over.
+    private void OnOverlayEdge(Avalonia.Input.NavigationDirection direction)
+    {
+        if (direction == Avalonia.Input.NavigationDirection.Left && _keyboardWindow is not null)
+        {
+            CrossToKeyboard();
+        }
+    }
+
+    // Crossing off the keyboard's right edge returns to the sidebar.
+    private void OnKeyboardEdge(Avalonia.Input.NavigationDirection direction)
+    {
+        if (direction == Avalonia.Input.NavigationDirection.Right)
+        {
+            CrossToSidebar();
+        }
+    }
+
+    private void CrossToKeyboard()
+    {
+        if (_keyboardWindow is null || _keyboardNavigation is null)
+        {
+            return;
+        }
+        if (_navigation is not null)
+        {
+            _navigation.IsEnabled = false;
+        }
+        var keyboard = _keyboardWindow;
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            if (_keyboardNavigation is not null && _keyboardWindow == keyboard)
+            {
+                _keyboardNavigation.IsEnabled = true;
+                keyboard.Activate();
+                keyboard.FocusDefault();
+            }
+        });
+    }
+
+    private void CrossToSidebar()
+    {
+        if (_overlay is null)
+        {
+            return;
+        }
+        if (_keyboardNavigation is not null)
+        {
+            _keyboardNavigation.IsEnabled = false;
+        }
+        if (_navigation is not null)
+        {
+            _navigation.IsEnabled = true;
+        }
+        _overlay.Activate();
+        _overlay.DefaultFocusTarget.Focus(Avalonia.Input.NavigationMethod.Directional);
+    }
+
+    private void CloseKeyboardNow()
+    {
+        _keyboardNavigation?.Dispose();
+        _keyboardNavigation = null;
+        _keyboardWindow?.Close();
+        _keyboardWindow = null;
+        if (_overlay is not null)
+        {
+            _overlay.KeyboardOwnsFocus = false;
+        }
+    }
 
     /// <summary>Closes the radio panel through the same deferred path as the
     /// other two surfaces: the 150 ms grace lets the window's WndProc hook eat
@@ -1297,6 +1476,9 @@ public sealed class OverlayController : IDisposable
             return;
         }
         _disposed = true;
+        CloseKeyboardNow();
+        _ = SteamPageBridge.DisableBadgeAsync();
+        _ = SteamLibraryTabs.DisableAsync();
         AttachTrayHost(null);
         _modes.SteamStartFailed -= WarnOrReopen;
         SteamInputBlocker.RecoveryWarningRaised -= OnSteamInputRecoveryWarning;

@@ -458,6 +458,10 @@ public sealed class RemovableDriveManager : INotifyPropertyChanged, IDisposable
             entry.Busy = true;
             entry.ResultText = "";
             StatusText = $"Ejecting {entry.Name}...";
+            // The ACF watcher holds directory handles on card volumes; a locked
+            // volume with any other open handle vetoes the eject, so WSGM would
+            // veto itself. Stand the watcher down first (it resumes on its own).
+            CardAcfWatcher.SuspendAll();
             var devInst = entry.DevInst;
             var letter = entry.VolumeLetter;
             var name = entry.Name;

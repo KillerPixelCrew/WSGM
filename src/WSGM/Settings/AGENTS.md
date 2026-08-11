@@ -9,3 +9,5 @@ scroll position and short-lived editing state survive tab changes.
   directories. Never invoke parameterless `SettingsViewModel` or real `ConfigStore.Load/Save`.
 - Maintain the layout floor: Settings minimum 1024×640; a page that needs scrolling earns another tab.
 - Shortcut recording owns its hook only while recording and must dispose it on every close/cancel path.
+- Any required text credential must have a controller-accessible `OnScreenKeyboard` path; gamepad
+  navigation intentionally skips ordinary `TextBox` controls.

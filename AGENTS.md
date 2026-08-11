@@ -102,6 +102,15 @@ process below; they must never be triggered by unattended tests.
 
 ## Dev environment reality
 
+- **Get hands dirty before theorizing (hard lesson, user-mandated).** When a live Steam is reachable
+  over the CEF port, PROTOTYPE AGAINST IT immediately — don't write long feasibility essays or hedge
+  about fragility from the armchair. The injected library-tabs work looked "too fragile / needs the
+  React module registry we don't have," until a few live `Runtime.evaluate` probes proved the
+  registry (`webpackChunksteamui`), React, and a working tab injection in minutes. Reality is cheaper
+  to query than to reason about: run the probe, inject the script, watch the screen. Estimate cost by
+  doing, not by imagining. (`tools/WsgmLibTest/` — `cdp-eval.mjs raw`, `run-file.mjs <file>` — is the
+  live probe harness; Steam BPM on the dev box is a CEF test rig even though WSGM itself never runs
+  there.)
 - **No controller hardware locally.** Real testing happens on a user's MSI Claw via pasted logs from
   `%LOCALAPPDATA%\WSGM\wsgm.log`. Every input/focus feature must log enough to be diagnosed remotely
   (`Gamepad added:`, `Controller input:`, `Gamepad nav:`, `Steam Input lease acquired/released`,
@@ -274,33 +283,54 @@ buttons); `OverlayController` stays the UI owner (lease lifecycle, overlay windo
    it from the injected thread clears+rebuilds the library array without Steam's lock and **destroys
    the library list** (device-verified: dropped D:/E:, persisted the loss to config). When Steam is
    closed (or the port is unreachable) `SdFormatManager` falls back to the
-   `config\libraryfolders.vdf` splice, read on Steam's next start.
-   The same CEF bridge drives `SteamCollections` and `LibraryTabManager`: Quick Access library tabs
-   are WSGM-owned Steam collections, created and updated through Steam's `collectionStore` rather
-   than injected UI or internal memory. Persist the collection IDs WSGM created and only ever prune
-   those IDs — never alter a user's or another tool's collections. CEF unreachability must save the
-   desired configuration but fail open with a retryable warning; it must not delete existing tabs.
-9. **Custom filter tabs + the Steam-page bridge.** `Core\LibraryFilter.cs` compiles a persisted
-   `FilterNode` tree (13 core kinds + merge groups + invert) to a **pure JS predicate** run over
-   `appStore` in `SharedJSContext`; the matching app-ids become a WSGM-owned collection via the same
-   id-tracked `SteamCollections.SyncAsync` (never clobbers user/SRM collections). The compiler is
-   pure and unit-tested (`LibraryFilterTests`) — keep it Steam-free. SD-card filter membership comes
-   from **WSGM's own card model** (contentid→appids), baked into the JS as a literal set, because
-   Steam does not know our card mapping. The gamepad builder UI is `Overlay\LibraryTabsView.cs`, a
-   self-drawing multi-level sub-view hosted like `PanelFormat` (extend `AnySubView` handling, don't
-   fork it). `Core\SteamPageBridge.cs` reads the **current game page** from the SPA route
-   `/library/app/:appid` (robust) and installs a **resident** MutationObserver that injects an
-   "On: <card>" badge; the badge anchor rides Steam's hashed app-details class (resolved in-context
-   via the webpack module registry) and is **expected to need occasional re-pointing** across Steam
-   UI updates — the card→game data is also surfaced in WSGM's own overlay so it survives a broken
-   anchor. **CSSLoader-Desktop coexistence (device- + source-verified):** Steam's CEF allows
-   concurrent CDP clients, and CSSLoader only appends/removes `<style>` in `document.head` (no
-   collections, no library/artwork calls, no `window.*` global, no observer). Keep every resident
-   script namespaced under `window.__wsgm`, give injected nodes a unique `wsgm-badge` class (never
-   `css-loader-style`, which CSSLoader bulk-removes), never touch `document.head`, and never disable
-   the debugging flag or change the port. This same bridge is the substrate for a future
-   SteamGridDB-style artwork feature (artwork apply is the robust API
-   `SteamClient.Apps.SetCustomArtworkForApp(appid, base64, 'png', assetType)`; icons alone need FS writes).
+   `config\libraryfolders.vdf` splice, read on Steam's next start. Before a
+   WSGM-format of a card that already has a library marker, WSGM reads that
+   marker's `contentid`, removes the matching registered/live library first, and
+   only then erases the disk; never identify the old library by its reused drive
+   letter or path.
+   `SteamCollections` remains only as the read/filter bridge and one-time cleanup for collection IDs
+   created by pre-injection builds. New tabs never create collections. CEF unreachability must save
+   the desired configuration but fail open with a retryable warning; it must not replace the last
+   successfully injected definitions.
+9. **Custom filter tabs are INJECTED into Steam's tab strip — not collections (device-verified).**
+   Collections render under the "Collections" tab, never as top-strip tabs; that was the wrong model
+   and is fully removed. `Core\SteamLibraryTabs.cs` injects a resident script into `SharedJSContext`
+   that replicates TabMaster without Decky: push a chunk to **`window.webpackChunksteamui`** to
+   capture `__webpack_require__`, iterate `req.m` to `findModule` React (module with
+   `createElement`+`useMemo`+`version`), then **hijack the current dispatcher slot**
+   `React.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE.H` so every `useMemo` result
+   is passed through `patchTabs`, which rewrites the library tab array (found by a tab with
+   `id==='AllGames'`) to append WSGM tabs. Each tab is a **fake in-memory collection** (a plain object
+   of app overviews) rendered by Steam's own grid (found by the `Library_FilteredByHeader` source
+   marker) — no real Steam collection is ever created. WSGM only supplies
+   `window.__wsgm.tabs = [{id,title,appids}]`; app-ids come from `Core\LibraryFilter.cs` (a persisted
+   `FilterNode` tree → **pure JS predicate** over `appStore`, unit-tested in `LibraryFilterTests` —
+   keep it Steam-free; SD-card membership is baked in from WSGM's own card model). Card tabs and genre
+   tabs use the same injection. It is **reactive**: `LibraryTabManager.SyncAllAsync` re-injects after
+   every builder change (no manual "sync" button). The two things that shift on a major Steam UI
+   update — the dispatcher slot name and the `Library_FilteredByHeader` marker — are the accepted
+   fragility (kill switch `window.__wsgm.disableTabs()`; a Steam restart also recovers). The builder
+   UI is `Overlay\LibraryTabsView.cs` (self-drawing sub-view like `PanelFormat`; extend `AnySubView`).
+   Prototype any change against live Steam via `tools/WsgmLibTest` (`run-file.mjs tabs-prod.js`) BEFORE
+   editing the C#.
+10. **Steam-page bridge (the VISIBLE window, not SharedJSContext).** `Core\SteamPageBridge.cs` reads
+   the current game and injects the "On: <card>" badge into the **visible** Big-Picture/library window
+   (`SteamCef.EvaluateOnVisibleWindowAsync`) — SharedJSContext is HEADLESS (empty DOM, no images), it
+   only holds the stores/React. The visible window is selected by shape, not localized title (a `page`
+   whose url has `createflags` and lacks `openerid`/`browserviewpopup`). Current game = the appid of
+   the **largest WIDE visible** `assets/<appid>/...` image (the hero banner) — device-verified robust
+   across art naming (some games serve `library_hero`, others a hashed `assets/<id>/<hash>`; both put
+   the appid in the path). Match by `width>=600 && width>height` so the portrait grid capsules are
+   skipped and the badge CLEARS when leaving a game. NEVER match the `library_hero` filename alone —
+   many games don't use it. The badge is a resident `MutationObserver` + fixed-position pill.
+   Artwork apply (SteamGridDB feature) is the robust `SharedJSContext` API
+   `SteamClient.Apps.Clear/SetCustomArtworkForApp(appid, base64, ext, assetType)` (grid=0/hero=1/
+   logo=2/wide=3/icon=4; clear→~500ms→set; icons alone need FS writes) — data on SharedJSContext, DOM
+   on the visible window, always.
+   **CSSLoader-Desktop coexistence (device- + source-verified):** Steam's CEF allows concurrent CDP
+   clients, and CSSLoader only appends/removes `<style>` in `document.head`. Namespace everything under
+   `window.__wsgm`, give injected nodes a unique `wsgm-badge` class (never `css-loader-style`, which
+   CSSLoader bulk-removes), never touch `document.head`, and never disable the debug flag or port.
 
 **UI layer (rebuilt in 0.9.0 — read before touching any XAML).** All styling lives in `Themes\`
 (`Palette.axaml` = the token set, `Typography.axaml`, `Shared.axaml`, plus `ControlThemes`/

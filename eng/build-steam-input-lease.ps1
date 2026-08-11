@@ -45,7 +45,11 @@ New-Item -ItemType Directory -Force -Path $staging | Out-Null
 # The gate is injected into steam.exe, the FFI library is what the managed
 # binding loads, and the CLI is the wrapper users paste into Steam launch
 # options. All three must ship together: the CLI resolves the gate beside itself.
-$release = Join-Path $library "target\release"
+$release = if ($env:CARGO_BUILD_TARGET) {
+    Join-Path $library "target\$($env:CARGO_BUILD_TARGET)\release"
+} else {
+    Join-Path $library "target\release"
+}
 foreach ($name in @("steam_input_gate.dll", "steam_input_lease_ffi.dll", "steam-input-lease.exe")) {
     $source = Join-Path $release $name
     if (-not (Test-Path $source)) { throw "Steam Input Lease did not produce $name" }

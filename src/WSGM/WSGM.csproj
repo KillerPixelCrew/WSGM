@@ -35,6 +35,7 @@
          surface owns a lease. Keep both x64 native libraries beside the AOT
          executable; the managed binding resolves them by their file names. -->
     <None Include="Native\SteamInputLease\*.dll"
+          Condition="'$(SkipNativeArtifacts)' != 'true'"
           Link="%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" />
@@ -43,14 +44,17 @@
          helper's does for integrity. It needs steam_input_gate.dll beside it,
          which the rule above already places here. -->
     <None Include="Native\SteamInputLease\steam-input-lease.exe"
+          Condition="'$(SkipNativeArtifacts)' != 'true'"
           Link="%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" />
     <None Include="Native\SteamInputLease\*.txt"
+          Condition="'$(SkipNativeArtifacts)' != 'true'"
           Link="%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" />
     <None Include="Native\SteamInputLease\*.md"
+          Condition="'$(SkipNativeArtifacts)' != 'true'"
           Link="%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" />

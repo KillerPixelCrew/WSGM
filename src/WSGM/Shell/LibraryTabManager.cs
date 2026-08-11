@@ -1,0 +1,869 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using WSGM.Core;
+using WSGM.Interop;
+
+namespace WSGM.Shell;
+
+/// <summary>Structured outcome for tab synchronization and retry policy.</summary>
+/// <param name="Summary">User-facing summary.</param>
+/// <param name="Success">Whether definitions and badges synchronized.</param>
+/// <param name="Reachable">Whether Steam's CEF target was reachable.</param>
+/// <param name="BadgesPushed">Whether the in-page badge observer + map reached the
+/// VISIBLE window. Distinct from Success: at boot SharedJSContext (tabs) is ready
+/// before the visible Big Picture window exists, so tabs can sync while the badge
+/// push has no target yet — a caller that ignores this leaves the badge missing
+/// until the next sync.</param>
+public readonly record struct LibraryTabSyncResult(
+    string Summary, bool Success, bool Reachable, bool BadgesPushed = false);
+
+/// <summary>Builds Steam library tabs as injected in-memory definitions over CEF:
+/// <list type="bullet">
+/// <item>one tab per removable Steam library (MicroSD card / external drive),
+/// keyed by its <c>libraryfolder.vdf</c> content id and remembered while ejected;</item>
+/// <item>user-built filter tabs evaluated against Steam's app store.</item>
+/// </list>
+/// Steam renders fake in-memory collections through its own grid; no real collection
+/// is created or modified except one-time cleanup of IDs from older WSGM builds.</summary>
+public sealed class LibraryTabManager
+{
+    // Static so every trigger (boot, overlay open, each builder change) coalesces even
+    // across separate manager instances — concurrent syncs would race the config.
+    private static readonly SemaphoreSlim Gate = new(1, 1);
+
+    /// <summary>Recomputes every WSGM library tab and injects them into Steam's tab
+    /// strip (see <see cref="SteamLibraryTabs"/>): custom filter tabs, then per-card
+    /// tabs, then genre tabs. Reactive — called after any change in the builder and on
+    /// overlay open. Returns a short user-facing summary; coalesces concurrent calls.</summary>
+    /// <param name="cancellationToken">Cancels the run.</param>
+    public async Task<string> SyncAllAsync(CancellationToken cancellationToken = default)
+        => (await SyncAllDetailedAsync(cancellationToken).ConfigureAwait(false)).Summary;
+
+    /// <summary>Synchronizes tabs and returns machine-readable retry state.</summary>
+    public async Task<LibraryTabSyncResult> SyncAllDetailedAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var discovered = await Task.Run(ScanLibraries, cancellationToken).ConfigureAwait(false);
+            var config = await Task.Run(ConfigStore.Load, cancellationToken).ConfigureAwait(false);
+            MergeDiscovery(config, discovered);
+
+            var (tabs, reachable, filterFailed) = await BuildTabsAsync(config, discovered, cancellationToken)
+                .ConfigureAwait(false);
+
+            var ok = reachable && !filterFailed
+                && await SteamLibraryTabs.SyncTabsAsync(tabs, cancellationToken).ConfigureAwait(false);
+
+            // One-time migration off the old collection approach: delete any collections
+            // WSGM created before and clear their stored ids.
+            if (ok)
+            {
+                await CleanupLegacyCollectionsAsync(config, cancellationToken).ConfigureAwait(false);
+            }
+
+            // CEF work above may take seconds. Merge only this sync's discovery and
+            // successful legacy-id clears into a freshly loaded config under the
+            // cross-process read-modify-write lock; never save the stale snapshot.
+            var clearedCards = config.CardLibraries.Where(c => string.IsNullOrEmpty(c.CollectionId))
+                .Select(c => c.ContentId).ToHashSet(StringComparer.Ordinal);
+            var clearedTabs = config.CustomTabs.Where(t => string.IsNullOrEmpty(t.CollectionId))
+                .Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
+            var remainingCategories = config.CategoryTabs.Select(c => c.CollectionId)
+                .ToHashSet(StringComparer.Ordinal);
+            config = await MutateConfigAsync(fresh =>
+            {
+                MergeDiscovery(fresh, discovered);
+                foreach (var card in fresh.CardLibraries.Where(c => clearedCards.Contains(c.ContentId)))
+                {
+                    card.CollectionId = "";
+                }
+                foreach (var tab in fresh.CustomTabs.Where(t => clearedTabs.Contains(t.Id)))
+                {
+                    tab.CollectionId = "";
+                }
+                fresh.CategoryTabs.RemoveAll(
+                    category => !remainingCategories.Contains(category.CollectionId));
+                return fresh;
+            }, cancellationToken).ConfigureAwait(false);
+
+            var badgesPushed = await PushCardBadgesAsync(config, cancellationToken)
+                .ConfigureAwait(false);
+            if (!reachable || !ok)
+            {
+                if (filterFailed)
+                {
+                    return new LibraryTabSyncResult(
+                        "Saved the tabs, but one filter failed in Steam; existing tabs were preserved.",
+                        false, true, badgesPushed);
+                }
+                return new LibraryTabSyncResult(
+                    "Saved the tabs — Steam isn't reachable yet; they'll appear when it's open.",
+                    false, reachable, badgesPushed);
+            }
+
+            Log.Info($"Library tabs: {tabs.Count} injected.");
+            var summary = tabs.Count == 0
+                ? "No library tabs yet — add a custom tab or insert a card library."
+                : $"Synced {tabs.Count} library tabs.";
+            return new LibraryTabSyncResult(summary, true, true, badgesPushed);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Library tabs: sync failed.", ex);
+            return new LibraryTabSyncResult("Could not sync library tabs — see the log.", false, false);
+        }
+        finally
+        {
+            Gate.Release();
+        }
+    }
+
+    /// <summary>Waits (with backoff) for Steam's library UI to finish loading after a
+    /// cold boot, then syncs once — so tabs appear without the user opening the overlay.
+    /// Best-effort and self-limiting; falls back to the on-open sync if Steam never
+    /// becomes reachable.</summary>
+    /// <param name="cancellationToken">Cancels the wait.</param>
+    public async Task SyncOnBootAsync(CancellationToken cancellationToken = default)
+    {
+        for (var attempt = 0; attempt < 30 && !cancellationToken.IsCancellationRequested; attempt++)
+        {
+            try
+            {
+                // First probe after 3 s: on a mode return or an already-running Steam
+                // the UI is ready immediately and the badge should not wait 8 s; on a
+                // cold boot the early probe just misses quietly and the loop retries.
+                await Task.Delay(attempt == 0 ? 3000 : 5000, cancellationToken).ConfigureAwait(false);
+                var probe = await SteamCef.EvaluateAsync(
+                    "JSON.stringify(!!window.webpackChunksteamui&&!!window.collectionStore)",
+                    TimeSpan.FromSeconds(4), cancellationToken).ConfigureAwait(false);
+                if (probe.Reachable && probe.Value == "true")
+                {
+                    var result = await SyncAllDetailedAsync(cancellationToken).ConfigureAwait(false);
+                    Log.Info($"Library tabs (boot): {result.Summary}");
+                    if (result.BadgesPushed)
+                    {
+                        return;
+                    }
+                    // Tabs live in SharedJSContext, which is up well before the
+                    // visible Big Picture window — so the badge push can miss while
+                    // the tab sync succeeds. Retry ONLY the badge (cheap: config
+                    // load + one evaluation) until the window exists; the full
+                    // filter evaluation must not re-run every 5 s.
+                    for (; attempt < 30 && !cancellationToken.IsCancellationRequested; attempt++)
+                    {
+                        await Task.Delay(5000, cancellationToken).ConfigureAwait(false);
+                        var config = await Task.Run(ConfigStore.Load, cancellationToken)
+                            .ConfigureAwait(false);
+                        if (await PushCardBadgesAsync(config, cancellationToken).ConfigureAwait(false))
+                        {
+                            Log.Info("Library tabs (boot): card badge installed.");
+                            return;
+                        }
+                    }
+                    Log.Info("Library tabs (boot): badge target not reachable in time — "
+                        + "it will install on the next sync.");
+                    return;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Library tabs (boot) probe failed: {ex.Message}");
+            }
+        }
+        Log.Info("Library tabs (boot): Steam UI not reachable in time — will sync on overlay open.");
+    }
+
+    /// <summary>Builds the ordered injected-tab list: custom filter tabs (evaluated over
+    /// the library), then per-card tabs. The bool is false when Steam was unreachable
+    /// during filter evaluation.</summary>
+    private static async Task<(List<InjectedTab> Tabs, bool Reachable, bool FilterFailed)> BuildTabsAsync(
+        AppConfig config, List<Discovered> discovered, CancellationToken cancellationToken)
+    {
+        var tabs = new List<InjectedTab>();
+        var resolver = new CardResolver(config, discovered);
+
+        var customTabs = config.CustomTabs
+            .Where(t => t.Enabled && !string.IsNullOrWhiteSpace(t.Name))
+            .OrderBy(t => t.Position)
+            .Where(tab =>
+            {
+                var valid = tab.FilterTree is not null && LibraryFilter.IsValid(tab.FilterTree);
+                if (!valid)
+                {
+                    Log.Warn($"Library tabs: skipped invalid custom tab '{tab.Name}'.");
+                }
+                return valid;
+            }).ToList();
+        var expressions = customTabs.Select(tab => LibraryFilter.BuildEvaluation(
+            tab.FilterTree!, tab.Categories == 0
+                ? LibraryFilter.Categories.Games
+                : (LibraryFilter.Categories)tab.Categories, resolver)).ToList();
+        var evaluations = await SteamCollections.EvaluateFiltersAsync(expressions, cancellationToken)
+            .ConfigureAwait(false);
+        for (var i = 0; i < customTabs.Count; i++)
+        {
+            var tab = customTabs[i];
+            var eval = evaluations[i];
+            if (!eval.Reachable)
+            {
+                return (tabs, false, false);
+            }
+            if (!eval.Ok)
+            {
+                Log.Warn($"Library tabs: Steam filter evaluation failed for '{tab.Name}'.");
+                return (tabs, true, true);
+            }
+            if (eval.AppIds.Count > 0)
+            {
+                tabs.Add(new InjectedTab($"wsgm-custom-{tab.Id}", tab.Name, eval.AppIds));
+            }
+        }
+
+        // Only the cards the user has enabled — never auto-generated genre tabs. A user
+        // who wants a genre tab makes a custom tab with a Tag filter (same engine).
+        var present = new HashSet<string>(
+            discovered.Select(d => d.ContentId), StringComparer.Ordinal);
+        foreach (var card in config.CardLibraries.Where(c => c is { Enabled: true, Hidden: false }))
+        {
+            var keep = present.Contains(card.ContentId) || config.KeepEjectedCardTabs;
+            if (keep && card.AppIds.Count > 0)
+            {
+                tabs.Add(new InjectedTab($"wsgm-card-{card.ContentId}", card.Name, card.AppIds));
+            }
+        }
+
+        return (tabs, true, false);
+    }
+
+    /// <summary>Deletes any Steam collections WSGM created under the previous
+    /// collection-based approach and clears their stored ids, so switching to injected
+    /// tabs leaves no orphaned collections behind.</summary>
+    private static async Task CleanupLegacyCollectionsAsync(
+        AppConfig config, CancellationToken cancellationToken)
+    {
+        async Task Drop(string id, Action clear)
+        {
+            if (!string.IsNullOrEmpty(id)
+                && await SteamCollections.DeleteByIdAsync(id, cancellationToken).ConfigureAwait(false))
+            {
+                clear();
+            }
+        }
+        foreach (var card in config.CardLibraries)
+        {
+            await Drop(card.CollectionId, () => card.CollectionId = "").ConfigureAwait(false);
+        }
+        foreach (var tab in config.CustomTabs)
+        {
+            await Drop(tab.CollectionId, () => tab.CollectionId = "").ConfigureAwait(false);
+        }
+        foreach (var cat in config.CategoryTabs.ToList())
+        {
+            var removed = string.IsNullOrEmpty(cat.CollectionId)
+                || await SteamCollections.DeleteByIdAsync(cat.CollectionId, cancellationToken)
+                    .ConfigureAwait(false);
+            if (removed)
+            {
+                config.CategoryTabs.Remove(cat);
+            }
+        }
+    }
+
+    /// <summary>Pushes the per-game card badge map (app id → card name) into Steam's
+    /// library page and (re)installs the resident badge observer. Best-effort — a badge
+    /// failure never affects tab syncing.</summary>
+    // Returns whether the observer + map actually reached the visible window —
+    // callers on boot paths retry on false instead of assuming the badge exists.
+    private static async Task<bool> PushCardBadgesAsync(
+        AppConfig config, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var map = new Dictionary<long, string>();
+            foreach (var card in config.CardLibraries.Where(c => c is { Enabled: true, Hidden: false }))
+            {
+                foreach (var id in card.AppIds)
+                {
+                    map[id] = card.Name;
+                }
+            }
+            return await SteamPageBridge.UpdateCardBadgesAsync(map, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Card badge push failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>Resolves <see cref="FilterKind.SdCard"/> membership from WSGM's card
+    /// model: "inserted" = union of currently-present cards, "any" = union of all
+    /// tracked cards, "specific" = one card's remembered app ids.</summary>
+    private sealed class CardResolver(AppConfig config, List<Discovered> discovered) : ISdCardResolver
+    {
+        private readonly HashSet<string> _present = new(
+            discovered.Select(d => d.ContentId), StringComparer.Ordinal);
+
+        public IReadOnlyCollection<long> Resolve(SdCardScope scope, string contentId)
+        {
+            IEnumerable<CardLibraryConfig> cards = scope switch
+            {
+                SdCardScope.Inserted => config.CardLibraries.Where(c => _present.Contains(c.ContentId)),
+                SdCardScope.Any => config.CardLibraries,
+                _ => config.CardLibraries.Where(
+                    c => string.Equals(c.ContentId, contentId, StringComparison.Ordinal)),
+            };
+            var ids = new HashSet<long>();
+            foreach (var card in cards)
+            {
+                foreach (var id in card.AppIds)
+                {
+                    ids.Add(id);
+                }
+            }
+            return ids;
+        }
+    }
+
+    // ---- Card-manager API (drives the overlay card sub-view) ----
+
+    /// <summary>A card as shown in the manager: identity, name, tab/hidden state, game
+    /// count, and whether it is currently inserted.</summary>
+    /// <param name="ContentId">Stable card identity (its library content id).</param>
+    /// <param name="Name">Display name.</param>
+    /// <param name="Enabled">Whether a Steam tab is maintained.</param>
+    /// <param name="Hidden">Whether it is hidden from tab creation.</param>
+    /// <param name="GameCount">Remembered installed app count.</param>
+    /// <param name="Inserted">Whether the card is currently mounted.</param>
+    /// <param name="AppIds">Remembered installed app ids.</param>
+    public sealed record CardView(
+        string ContentId, string Name, bool Enabled, bool Hidden, int GameCount, bool Inserted,
+        IReadOnlyList<long> AppIds);
+
+    /// <summary>Scans drives, refreshes the card DB, and returns the current cards with
+    /// live inserted state — the card manager's data source.</summary>
+    /// <param name="cancellationToken">Cancels the scan.</param>
+    public async Task<IReadOnlyList<CardView>> ListCardsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var discovered = await Task.Run(ScanLibraries, cancellationToken).ConfigureAwait(false);
+        var present = new HashSet<string>(
+            discovered.Select(d => d.ContentId), StringComparer.Ordinal);
+        return await MutateConfigAsync(config =>
+        {
+            MergeDiscovery(config, discovered);
+            return config.CardLibraries
+                .Select(c => new CardView(
+                    c.ContentId, c.Name, c.Enabled, c.Hidden, c.AppIds.Count,
+                    present.Contains(c.ContentId), [.. c.AppIds]))
+                .ToList();
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Renames a tracked card everywhere it has a name: the WSGM tab, the
+    /// Steam library label (live via CEF when Steam runs, else a byte-preserving
+    /// vdf edit), and the Windows volume label when the card is inserted. Identity
+    /// is always the content id — never the reader's (shared) drive letter.</summary>
+    /// <param name="contentId">The card's content id.</param>
+    /// <param name="name">The new name.</param>
+    /// <param name="cancellationToken">Cancels the writes.</param>
+    /// <returns>Null when every side applied; otherwise a short user-facing note
+    /// describing what did not.</returns>
+    public async Task<string?> RenameCardAsync(string contentId, string name,
+        CancellationToken cancellationToken = default)
+    {
+        var trimmed = name.Trim();
+        if (trimmed.Length == 0)
+        {
+            return "The name cannot be empty.";
+        }
+        await UpdateCardAsync(contentId, c => c.Name = trimmed, cancellationToken)
+            .ConfigureAwait(false);
+
+        var notes = new List<string>();
+        var letter = await Task.Run(() => FindMountedLetter(contentId), cancellationToken)
+            .ConfigureAwait(false);
+
+        var steamNote = await PushLabelToSteamAsync(contentId, trimmed, letter, cancellationToken)
+            .ConfigureAwait(false);
+        if (steamNote is not null)
+        {
+            notes.Add(steamNote);
+        }
+
+        if (letter is char mounted)
+        {
+            var volumeNote = await Task.Run(
+                () => TrySetVolumeLabel(mounted, trimmed), cancellationToken).ConfigureAwait(false);
+            if (volumeNote is not null)
+            {
+                notes.Add(volumeNote);
+            }
+        }
+        return notes.Count == 0 ? null : string.Join(" ", notes);
+    }
+
+    /// <summary>The drive letter the card with this content id is currently mounted
+    /// on, verified by reading the marker — never assumed from a remembered letter,
+    /// because the reader letter is shared by every card ever inserted.</summary>
+    private static char? FindMountedLetter(string contentId)
+    {
+        foreach (var drive in DriveInfo.GetDrives())
+        {
+            try
+            {
+                if (!drive.IsReady || !IsExternalVolume(drive))
+                {
+                    continue;
+                }
+                var marker = Path.Combine(drive.Name, "SteamLibrary", "libraryfolder.vdf");
+                if (!File.Exists(marker))
+                {
+                    continue;
+                }
+                var id = SteamLibraryVdf.ValuesOf(File.ReadAllText(marker), "contentid")
+                    .FirstOrDefault();
+                if (string.Equals(id, contentId, StringComparison.Ordinal))
+                {
+                    return char.ToUpperInvariant(drive.Name[0]);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Card rename: could not probe {drive.Name}: {ex.Message}");
+            }
+        }
+        return null;
+    }
+
+    // Pushes the new label to Steam. Live client: SetFolderLabel over CEF (Steam
+    // persists it itself; LastSteamLabel stays stale until Steam flushes its config,
+    // and MergeDiscovery records the new agreement then). Closed client: edit the
+    // config and marker vdf files directly and record the agreement immediately.
+    private static async Task<string?> PushLabelToSteamAsync(
+        string contentId, string label, char? letter, CancellationToken cancellationToken)
+    {
+        const string steamBehind = "Steam still shows the old name.";
+        var steamExe = Steam.ExePath;
+        if (steamExe is null)
+        {
+            return null;
+        }
+        var configPath = Path.Combine(
+            Path.GetDirectoryName(steamExe)!, "config", "libraryfolders.vdf");
+
+        if (Steam.IsRunning)
+        {
+            string configText;
+            try
+            {
+                configText = File.Exists(configPath) ? File.ReadAllText(configPath) : "";
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Card rename: could not read Steam config: {ex.Message}");
+                return steamBehind;
+            }
+            var result = await Core.SteamCdp.SetLibraryLabelByContentIdAsync(
+                contentId, configText, label, cancellationToken).ConfigureAwait(false);
+            if (result.Status is Core.SteamLibraryLabelStatus.Applied
+                or Core.SteamLibraryLabelStatus.NotPresent)
+            {
+                return null;
+            }
+            Log.Warn($"Card rename: live relabel {result.Status} "
+                + $"({result.Detail ?? "no detail"}).");
+            return steamBehind;
+        }
+
+        var edited = await Task.Run(() =>
+        {
+            try
+            {
+                if (File.Exists(configPath)
+                    && SteamLibraryVdf.TrySetLabel(
+                        File.ReadAllText(configPath), contentId, label, out var updatedConfig)
+                    && updatedConfig is not null)
+                {
+                    if (Steam.IsRunning)
+                    {
+                        // Started between the check and the write; its exit rewrite
+                        // would clobber ours (and ours could corrupt its view).
+                        return false;
+                    }
+                    SdFormatManager.WriteAtomically(configPath, updatedConfig);
+                }
+                if (letter is char mounted)
+                {
+                    var marker = Path.Combine($"{mounted}:\\", "SteamLibrary", "libraryfolder.vdf");
+                    if (File.Exists(marker)
+                        && SteamLibraryVdf.TrySetLabel(
+                            File.ReadAllText(marker), contentId, label, out var updatedMarker)
+                        && updatedMarker is not null)
+                    {
+                        SdFormatManager.WriteAtomically(marker, updatedMarker);
+                    }
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Card rename: vdf label edit failed: {ex.Message}");
+                return false;
+            }
+        }, cancellationToken).ConfigureAwait(false);
+        if (!edited)
+        {
+            return steamBehind;
+        }
+        // The files now agree with Name; record the pair so discovery keeps
+        // following future Steam-side renames.
+        await UpdateCardAsync(contentId, c => c.LastSteamLabel = label, cancellationToken)
+            .ConfigureAwait(false);
+        return null;
+    }
+
+    // Windows volume labels are capped by filesystem: 32 chars on NTFS, 11 on
+    // FAT32/exFAT — truncate rather than fail, and strip FAT-hostile characters.
+    private static string? TrySetVolumeLabel(char letter, string name)
+    {
+        try
+        {
+            var drive = new DriveInfo($"{letter}:\\");
+            var isNtfs = string.Equals(drive.DriveFormat, "NTFS", StringComparison.OrdinalIgnoreCase);
+            var invalid = "*?/\\|,;:+=<>[]\".".ToCharArray();
+            var cleaned = new string([.. name.Where(c => Array.IndexOf(invalid, c) < 0)]).Trim();
+            if (cleaned.Length == 0)
+            {
+                return null;
+            }
+            var capped = cleaned.Length > (isNtfs ? 32 : 11)
+                ? cleaned[..(isNtfs ? 32 : 11)] : cleaned;
+            if (!string.Equals(drive.VolumeLabel, capped, StringComparison.Ordinal))
+            {
+                drive.VolumeLabel = capped;
+                Log.Info($"Card rename: volume {letter}: labeled '{capped}'.");
+            }
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Card rename: could not set volume label on {letter}:: {ex.Message}");
+            return "The Windows volume label could not be changed.";
+        }
+    }
+
+    /// <summary>Enables or disables a card's Steam tab.</summary>
+    /// <param name="contentId">The card's content id.</param>
+    /// <param name="enabled">Whether to maintain a tab.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    public Task SetCardEnabledAsync(string contentId, bool enabled,
+        CancellationToken cancellationToken = default)
+        => UpdateCardAsync(contentId, c => c.Enabled = enabled, cancellationToken);
+
+    /// <summary>Hides or unhides a card in the manager.</summary>
+    /// <param name="contentId">The card's content id.</param>
+    /// <param name="hidden">Whether to hide it.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    public Task SetCardHiddenAsync(string contentId, bool hidden,
+        CancellationToken cancellationToken = default)
+        => UpdateCardAsync(contentId, c => c.Hidden = hidden, cancellationToken);
+
+    /// <summary>Forgets a card: removes its tab (if any) and its DB entry. If the card
+    /// is reinserted later it is rediscovered fresh.</summary>
+    /// <param name="contentId">The card's content id.</param>
+    /// <param name="cancellationToken">Cancels the operation.</param>
+    public async Task ForgetCardAsync(string contentId,
+        CancellationToken cancellationToken = default)
+    {
+        var collectionId = await MutateConfigAsync(config =>
+        {
+            var card = config.CardLibraries.FirstOrDefault(
+                c => string.Equals(c.ContentId, contentId, StringComparison.Ordinal));
+            if (card is null)
+            {
+                return "";
+            }
+            config.CardLibraries.Remove(card);
+            if (!config.ForgottenInsertedCardIds.Contains(contentId, StringComparer.Ordinal))
+            {
+                config.ForgottenInsertedCardIds.Add(contentId);
+            }
+            return card.CollectionId;
+        }, cancellationToken).ConfigureAwait(false);
+        if (!string.IsNullOrEmpty(collectionId))
+        {
+            await SteamCollections.DeleteByIdAsync(collectionId, cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private static Task UpdateCardAsync(string contentId, Action<CardLibraryConfig> apply,
+        CancellationToken cancellationToken)
+        => MutateConfigAsync<object?>(config =>
+        {
+            var card = config.CardLibraries.FirstOrDefault(
+                c => string.Equals(c.ContentId, contentId, StringComparison.Ordinal));
+            if (card is not null)
+            {
+                apply(card);
+            }
+            return null;
+        }, cancellationToken);
+
+    /// <summary>Loads the config, applies <paramref name="mutate"/>, and saves — the
+    /// whole read-modify-write held under the cross-process config lock so a concurrent
+    /// WSGM process (Settings window) can neither interleave nor lose fields.</summary>
+    /// <typeparam name="T">The value the mutation returns to the caller.</typeparam>
+    /// <param name="mutate">Applies changes and returns a snapshot value.</param>
+    /// <param name="cancellationToken">Cancels the off-thread work.</param>
+    internal static Task<T> MutateConfigAsync<T>(Func<AppConfig, T> mutate,
+        CancellationToken cancellationToken = default)
+        => Task.Run(() =>
+        {
+            using var _ = ConfigStore.AcquireLock();
+            if (!ConfigStore.HasExclusiveLock)
+            {
+                throw new IOException("Could not acquire the configuration lock.");
+            }
+            var config = ConfigStore.LoadForMutation();
+            var result = mutate(config);
+            ConfigStore.Save(config);
+            return result;
+        }, cancellationToken);
+
+    /// <summary>Loads the current custom tabs and cards for the builder UI (no scan;
+    /// pair with <see cref="ListCardsAsync"/> for live inserted state).</summary>
+    public static AppConfig LoadConfig() => ConfigStore.Load();
+
+    /// <summary>A removable Steam library found on a mounted drive.
+    /// <paramref name="SteamLabel"/> is the label Steam itself shows for it (config
+    /// label, else marker label) — the value a Steam-side rename changes.</summary>
+    private sealed record Discovered(
+        string ContentId, string Name, List<long> AppIds, char Letter, string SteamLabel);
+
+    /// <summary>Scans every ready drive for a <c>&lt;X&gt;:\SteamLibrary</c> marker and
+    /// reads its identity, label and installed app ids. The primary Steam install
+    /// has no such subfolder marker, so it is naturally excluded.</summary>
+    private static List<Discovered> ScanLibraries()
+    {
+        var configLabels = ReadConfigLabels();
+        var found = new List<Discovered>();
+        foreach (var drive in DriveInfo.GetDrives())
+        {
+            try
+            {
+                if (!drive.IsReady || !IsExternalVolume(drive))
+                {
+                    continue;
+                }
+                var root = Path.Combine(drive.Name, "SteamLibrary");
+                var marker = Path.Combine(root, "libraryfolder.vdf");
+                if (!File.Exists(marker))
+                {
+                    continue;
+                }
+                var text = File.ReadAllText(marker);
+                var contentId = SteamLibraryVdf.ValuesOf(text, "contentid").FirstOrDefault();
+                if (string.IsNullOrEmpty(contentId))
+                {
+                    continue;
+                }
+                var letter = char.ToUpperInvariant(drive.Name[0]);
+                var label = SteamLibraryVdf.ValuesOf(text, "label").FirstOrDefault() ?? "";
+                var name = ResolveName(label, contentId, configLabels, drive, letter);
+                var appIds = ReadAcfAppIds(Path.Combine(root, "steamapps"));
+                var steamLabel = configLabels.TryGetValue(contentId, out var configLabel)
+                    && !string.IsNullOrWhiteSpace(configLabel)
+                    ? configLabel.Trim() : label.Trim();
+                found.Add(new Discovered(contentId, name, appIds, letter, steamLabel));
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Library tabs: could not read {drive.Name}: {ex.Message}");
+            }
+        }
+        return found;
+    }
+
+    private static bool IsExternalVolume(DriveInfo drive)
+    {
+        if (drive.DriveType is not (DriveType.Fixed or DriveType.Removable))
+        {
+            return false;
+        }
+        var letter = char.ToUpperInvariant(drive.Name[0]);
+        using var volume = NativeStorage.OpenVolumeForQuery(letter);
+        if (volume.IsInvalid
+            || !NativeStorage.TryGetDeviceNumber(volume, out var type, out var disk)
+            || type != NativeStorage.FileDeviceDisk || disk < 0
+            || RemovableDriveManager.ResolveSystemDisks().Contains(disk))
+        {
+            return false;
+        }
+        // Query access only: GENERIC_READ on \\.\PhysicalDriveN requires elevation and WSGM
+        // is asInvoker, so a read handle would be invalid for every disk in a desktop-launched
+        // process and no card would ever be discovered. IOCTL_STORAGE_GET_HOTPLUG_INFO needs
+        // no access rights, which is why the drive snapshot path opens the same way.
+        using var physical = NativeStorage.OpenDiskForQuery(disk);
+        return !physical.IsInvalid
+            && NativeStorage.TryGetHotplugInfo(physical, out var media, out var hotplug)
+            && RemovableDriveManager.Classify(hotplug, media) is not null;
+    }
+
+    /// <summary>Maps content id → the Steam-side library label from
+    /// <c>config\libraryfolders.vdf</c> (each entry lists <c>label</c> then
+    /// <c>contentid</c> in order, so the value lists align by entry). Lets a card
+    /// whose on-disk marker has no label still get its real Steam name.</summary>
+    private static Dictionary<string, string> ReadConfigLabels()
+    {
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        var steamExe = Steam.ExePath;
+        if (steamExe is null)
+        {
+            return map;
+        }
+        var configPath = Path.Combine(
+            Path.GetDirectoryName(steamExe)!, "config", "libraryfolders.vdf");
+        if (!File.Exists(configPath))
+        {
+            return map;
+        }
+        try
+        {
+            var text = File.ReadAllText(configPath);
+            var ids = SteamLibraryVdf.ValuesOf(text, "contentid");
+            foreach (var id in ids)
+            {
+                if (!string.IsNullOrEmpty(id))
+                {
+                    map[id] = SteamLibraryVdf.LabelForContentId(text, id) ?? "";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Library tabs: could not read config labels: {ex.Message}");
+        }
+        return map;
+    }
+
+    /// <summary>Picks a tab name: the library's own marker label, else its
+    /// Steam-side label from config, else the volume label, else a drive-letter
+    /// fallback.</summary>
+    private static string ResolveName(
+        string markerLabel, string contentId, Dictionary<string, string> configLabels,
+        DriveInfo drive, char letter)
+    {
+        if (!string.IsNullOrWhiteSpace(markerLabel))
+        {
+            return markerLabel.Trim();
+        }
+        if (configLabels.TryGetValue(contentId, out var steamLabel)
+            && !string.IsNullOrWhiteSpace(steamLabel))
+        {
+            return steamLabel.Trim();
+        }
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(drive.VolumeLabel)
+                && !string.Equals(drive.VolumeLabel, "Games", StringComparison.OrdinalIgnoreCase))
+            {
+                return drive.VolumeLabel.Trim();
+            }
+        }
+        catch (IOException)
+        {
+            // No volume label available.
+        }
+        return $"Library ({letter}:)";
+    }
+
+    /// <summary>Reads app ids from <c>appmanifest_&lt;appid&gt;.acf</c> file names — the
+    /// id is in the name, so no VDF parsing is needed for membership.</summary>
+    private static List<long> ReadAcfAppIds(string steamAppsDir)
+    {
+        var ids = new List<long>();
+        if (!Directory.Exists(steamAppsDir))
+        {
+            return ids;
+        }
+        foreach (var file in Directory.EnumerateFiles(steamAppsDir, "appmanifest_*.acf"))
+        {
+            var stem = Path.GetFileNameWithoutExtension(file);
+            var idText = stem["appmanifest_".Length..];
+            if (long.TryParse(idText, out var id) && id > 0 && id != 228980)
+            {
+                ids.Add(id);
+            }
+        }
+        return ids;
+    }
+
+    /// <summary>Upserts the scan into the persisted card DB: a new card is added
+    /// (enabled), a known one has its name, app ids, last-seen and letter refreshed.
+    /// Cards not currently discovered are left untouched (remembered while ejected).</summary>
+    private static void MergeDiscovery(AppConfig config, List<Discovered> discovered)
+    {
+        var db = config.CardLibraries;
+        var presentIds = discovered.Select(static card => card.ContentId)
+            .ToHashSet(StringComparer.Ordinal);
+        config.ForgottenInsertedCardIds.RemoveAll(id => !presentIds.Contains(id));
+        var now = DateTime.UtcNow.Ticks;
+        foreach (var card in discovered)
+        {
+            if (config.ForgottenInsertedCardIds.Contains(card.ContentId, StringComparer.Ordinal))
+            {
+                continue;
+            }
+            var existing = db.FirstOrDefault(
+                c => string.Equals(c.ContentId, card.ContentId, StringComparison.Ordinal));
+            if (existing is null)
+            {
+                existing = new CardLibraryConfig { ContentId = card.ContentId, Enabled = true };
+                db.Add(existing);
+            }
+            if (string.IsNullOrWhiteSpace(existing.Name))
+            {
+                existing.Name = card.Name;
+            }
+            // Two-way name sync with Steam, keyed by LastSteamLabel (the label last
+            // seen in agreement with Name):
+            //   - in sync (Name == LastSteamLabel) and Steam's label changed → the
+            //     user renamed it in Steam; follow it here.
+            //   - Steam's label caught up with a WSGM-side rename → record the new
+            //     agreement. Until then a lagging libraryfolders.vdf (Steam flushes
+            //     on exit) must NOT revert the WSGM rename, which is why an
+            //     out-of-sync pair adopts nothing.
+            if (!string.IsNullOrWhiteSpace(card.SteamLabel))
+            {
+                if (string.Equals(existing.Name, existing.LastSteamLabel, StringComparison.Ordinal)
+                    && !string.Equals(card.SteamLabel, existing.LastSteamLabel, StringComparison.Ordinal))
+                {
+                    Log.Info($"Card {card.ContentId}: following Steam rename "
+                        + $"'{existing.Name}' -> '{card.SteamLabel}'.");
+                    existing.Name = card.SteamLabel;
+                    existing.LastSteamLabel = card.SteamLabel;
+                }
+                else if (string.Equals(card.SteamLabel, existing.Name, StringComparison.Ordinal))
+                {
+                    existing.LastSteamLabel = card.SteamLabel;
+                }
+            }
+            existing.AppIds = card.AppIds;
+            existing.LastSeenTicks = now;
+            existing.LastLetter = card.Letter.ToString();
+        }
+    }
+}

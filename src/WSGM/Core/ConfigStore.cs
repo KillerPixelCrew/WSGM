@@ -1,6 +1,8 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 
 namespace WSGM.Core;
@@ -32,7 +34,7 @@ public static class ConfigStore
             if (File.Exists(ConfigPath))
             {
                 var json = File.ReadAllText(ConfigPath);
-                var config = JsonSerializer.Deserialize(json, ConfigJsonContext.Default.AppConfig);
+                var config = DeserializeConfig(json);
                 if (config is not null)
                 {
                     return Normalize(config);
@@ -50,6 +52,94 @@ public static class ConfigStore
         return new AppConfig();
     }
 
+    /// <summary>Loads configuration for a read-modify-write transaction. Unlike
+    /// <see cref="Load"/>, an existing unreadable file is never converted to defaults:
+    /// the exception aborts the mutation so registry recovery snapshots cannot be erased.</summary>
+    /// <returns>The normalized configuration, or defaults only when no file exists.</returns>
+    internal static AppConfig LoadForMutation()
+    {
+        using var guard = ConfigMutex.Acquire();
+        if (!File.Exists(ConfigPath))
+        {
+            return new AppConfig();
+        }
+        var json = File.ReadAllText(ConfigPath);
+        var config = DeserializeConfig(json)
+            ?? throw new InvalidDataException("Configuration JSON contained no object.");
+        return Normalize(config);
+    }
+
+    private static AppConfig? DeserializeConfig(string json)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize(json, ConfigJsonContext.Default.AppConfig);
+        }
+        catch (JsonException)
+        {
+            var root = JsonNode.Parse(json)?.AsObject()
+                ?? throw new JsonException("Configuration root was not an object.");
+            RepairEnum(root, "GlyphStyle", GlyphStyle.Xbox);
+            if (root["Gestures"] is JsonObject gestures)
+            {
+                RepairEnum(gestures, "BottomEdgeAction", EdgeAction.Taskbar);
+            }
+            if (root["Splash"] is JsonObject splash)
+            {
+                RepairEnum(splash, "SpinnerStyle", SplashSpinnerStyle.Ring);
+                RepairEnum(splash, "SweepEdge", SweepEdge.Bottom);
+                RepairPlacement(splash["TextPlacement"] as JsonObject);
+                RepairPlacement(splash["SpinnerPlacement"] as JsonObject);
+                RepairPlacement(splash["LogoPlacement"] as JsonObject);
+            }
+            if (root["CustomTabs"] is JsonArray tabs)
+            {
+                foreach (var tab in tabs.OfType<JsonObject>())
+                {
+                    RepairFilterJson(tab["FilterTree"] as JsonObject);
+                }
+            }
+            return JsonSerializer.Deserialize(root.ToJsonString(), ConfigJsonContext.Default.AppConfig);
+        }
+    }
+
+    private static void RepairPlacement(JsonObject? placement)
+    {
+        if (placement is null) { return; }
+        RepairEnum(placement, "Mode", SplashPlacementMode.Anchor);
+        RepairEnum(placement, "Anchor", SplashPlacementAnchor.Center);
+    }
+
+    private static void RepairFilterJson(JsonObject? filter)
+    {
+        if (filter is null) { return; }
+        RepairEnum(filter, "Kind", FilterKind.Installed);
+        RepairEnum(filter, "Mode", FilterMode.And);
+        RepairEnum(filter, "Condition", ThresholdCondition.Above);
+        RepairEnum(filter, "Platform", PlatformKind.Steam);
+        RepairEnum(filter, "ScoreType", ReviewScoreType.SteamPercent);
+        RepairEnum(filter, "Units", TimeUnit.Hours);
+        RepairEnum(filter, "CardScope", SdCardScope.Inserted);
+        if (filter["Children"] is JsonArray children)
+        {
+            foreach (var child in children.OfType<JsonObject>())
+            {
+                RepairFilterJson(child);
+            }
+        }
+    }
+
+    private static void RepairEnum<T>(JsonObject value, string property, T fallback)
+        where T : struct, Enum
+    {
+        if (value[property] is JsonValue node
+            && node.TryGetValue<string>(out var text)
+            && !Enum.TryParse<T>(text, ignoreCase: true, out _))
+        {
+            value[property] = fallback.ToString();
+        }
+    }
+
     /// <summary>An explicit JSON null ("StartupApps": null) deserializes over the
     /// property initializer; replace nulls with fresh defaults so a hand-edited
     /// config can never NRE the shell later (which would kill it before the panic
@@ -63,11 +153,64 @@ public static class ConfigStore
         config.SavedDisplayScales ??= [];
         config.SavedDisplayScaleEntries ??= [];
         config.PreviousConsoleLockSchemeValues ??= [];
+        config.CardLibraries ??= [];
+        config.ForgottenInsertedCardIds ??= [];
+        config.ForgottenInsertedCardIds = config.ForgottenInsertedCardIds
+            .Where(static id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal).ToList();
+        config.CategoryTabs ??= [];
+        config.CustomTabs ??= [];
+        config.SteamGridDbApiKey ??= "";
+        config.SgdbLinks ??= [];
+        config.CardLibraries = config.CardLibraries.Where(static card => card is not null).ToList();
+        foreach (var card in config.CardLibraries)
+        {
+            card.ContentId ??= "";
+            card.Name ??= "";
+            card.AppIds ??= [];
+            card.CollectionId ??= "";
+            card.LastLetter ??= "";
+        }
+        config.CategoryTabs = config.CategoryTabs.Where(static category => category is not null).ToList();
+        foreach (var category in config.CategoryTabs)
+        {
+            category.Name ??= "";
+            category.CollectionId ??= "";
+        }
+        config.CustomTabs = config.CustomTabs.Where(static tab => tab is not null).ToList();
+        foreach (var tab in config.CustomTabs)
+        {
+            tab.Id = string.IsNullOrWhiteSpace(tab.Id) ? Guid.NewGuid().ToString("N") : tab.Id;
+            tab.Name ??= "";
+            tab.CollectionId ??= "";
+            tab.FilterTree ??= new FilterNode { Kind = FilterKind.Merge };
+            NormalizeFilter(tab.FilterTree);
+        }
         config.AccentColor ??= "#FFFF9D3D";
         config.AccentColor = Truncate(config.AccentColor, MaxColorLength, "Accent color");
         config.Splash ??= new SplashConfig();
         NormalizeSplash(config.Splash);
         return config;
+    }
+
+    private static void NormalizeFilter(FilterNode node)
+    {
+        if (!Enum.IsDefined(node.Kind)) { node.Kind = FilterKind.Installed; }
+        if (!Enum.IsDefined(node.Mode)) { node.Mode = FilterMode.And; }
+        if (!Enum.IsDefined(node.Condition)) { node.Condition = ThresholdCondition.Above; }
+        if (!Enum.IsDefined(node.Platform)) { node.Platform = PlatformKind.Steam; }
+        if (!Enum.IsDefined(node.ScoreType)) { node.ScoreType = ReviewScoreType.SteamPercent; }
+        if (!Enum.IsDefined(node.Units)) { node.Units = TimeUnit.Hours; }
+        if (!Enum.IsDefined(node.CardScope)) { node.CardScope = SdCardScope.Inserted; }
+        node.CollectionId ??= "";
+        node.Pattern ??= "";
+        node.ContentId ??= "";
+        node.Children = (node.Children ?? []).Where(static child => child is not null).ToList();
+        node.TagIds ??= [];
+        node.AppIds ??= [];
+        foreach (var child in node.Children)
+        {
+            NormalizeFilter(child);
+        }
     }
 
     // Bounds for every numeric splash field, mirrored 1:1 from the Appearance
@@ -277,6 +420,10 @@ public static class ConfigStore
     /// can be asserted without going near the per-user config file.</summary>
     internal static int LockDepth => ConfigMutex.CurrentDepth;
 
+    /// <summary>Whether the calling thread owns the named mutex rather than using
+    /// the recovery-only degraded path.</summary>
+    internal static bool HasExclusiveLock => ConfigMutex.HasExclusiveOwnership;
+
     /// <summary>Cross-process guard around Load/Save. Failure to create or acquire
     /// the mutex degrades to lock-less operation with a warning — never a deadlock.
     /// Re-entrant per thread through a depth counter: only the outermost scope talks
@@ -297,6 +444,8 @@ public static class ConfigStore
         // from ANOTHER thread is a real, competing acquisition and is treated as one.
         [ThreadStatic]
         private static int _depth;
+        [ThreadStatic]
+        private static bool _hasExclusiveOwnership;
 
         private readonly Mutex? _mutex;
         private readonly bool _owned;
@@ -318,6 +467,7 @@ public static class ConfigStore
 
         /// <summary>How deeply the calling thread holds the lock (0 = not at all).</summary>
         internal static int CurrentDepth => _depth;
+        internal static bool HasExclusiveOwnership => _hasExclusiveOwnership;
 
         public static ConfigMutex Acquire()
         {
@@ -356,6 +506,7 @@ public static class ConfigStore
             // Counted even when the acquisition degraded, so the nested steps of one
             // sequence inherit that decision instead of each paying the timeout again.
             _depth = 1;
+            _hasExclusiveOwnership = owned;
             return new ConfigMutex(mutex, owned, nested: false, level: 1);
         }
 
@@ -384,6 +535,10 @@ public static class ConfigStore
             if (_depth >= _level)
             {
                 _depth = _level - 1;
+                if (_depth == 0)
+                {
+                    _hasExclusiveOwnership = false;
+                }
             }
 
             if (_nested)
