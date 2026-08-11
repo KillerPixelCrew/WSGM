@@ -132,18 +132,15 @@ fn all_interfaces(client: &Client) -> Result<Vec<(GUID, InterfaceState)>> {
     let status = unsafe { WlanEnumInterfaces(client.0, None, &mut list) };
     win32("WlanEnumInterfaces", status)?;
     let _owned = WlanBuffer(list);
-    if list.is_null() {
+    // SAFETY: on success the API returned a valid allocation; `as_ref` turns
+    // the null case into `None` instead of a dereference.
+    let Some(list) = (unsafe { list.as_ref() }) else {
         return Err(Error::NotFound("WLAN interface"));
-    }
-    // SAFETY: the list is a valid allocation and dwNumberOfItems describes how
-    // many records follow the header, despite the [T; 1] in the declaration.
-    let (count, items) = unsafe {
-        let count = (*list).dwNumberOfItems as usize;
-        (
-            count,
-            std::slice::from_raw_parts((*list).InterfaceInfo.as_ptr(), count),
-        )
     };
+    let count = list.dwNumberOfItems as usize;
+    // SAFETY: dwNumberOfItems describes how many records follow the header,
+    // despite the [T; 1] in the declaration.
+    let items = unsafe { std::slice::from_raw_parts(list.InterfaceInfo.as_ptr(), count) };
     if count == 0 {
         return Err(Error::NotFound("WLAN interface"));
     }
@@ -159,18 +156,15 @@ fn first_interface(client: &Client) -> Result<(GUID, InterfaceState)> {
     let status = unsafe { WlanEnumInterfaces(client.0, None, &mut list) };
     win32("WlanEnumInterfaces", status)?;
     let _owned = WlanBuffer(list);
-    if list.is_null() {
+    // SAFETY: on success the API returned a valid allocation; `as_ref` turns
+    // the null case into `None` instead of a dereference.
+    let Some(list) = (unsafe { list.as_ref() }) else {
         return Err(Error::NotFound("WLAN interface"));
-    }
-    // SAFETY: the list is a valid allocation and dwNumberOfItems describes how
-    // many records follow the header, despite the [T; 1] in the declaration.
-    let (count, items) = unsafe {
-        let count = (*list).dwNumberOfItems as usize;
-        (
-            count,
-            std::slice::from_raw_parts((*list).InterfaceInfo.as_ptr(), count),
-        )
     };
+    let count = list.dwNumberOfItems as usize;
+    // SAFETY: dwNumberOfItems describes how many records follow the header,
+    // despite the [T; 1] in the declaration.
+    let items = unsafe { std::slice::from_raw_parts(list.InterfaceInfo.as_ptr(), count) };
     if count == 0 {
         return Err(Error::NotFound("WLAN interface"));
     }
@@ -213,13 +207,14 @@ fn profile_names(client: &Client, guid: &GUID) -> Result<Vec<String>> {
     let status = unsafe { WlanGetProfileList(client.0, guid, None, &mut list) };
     win32("WlanGetProfileList", status)?;
     let _owned = WlanBuffer(list);
-    if list.is_null() {
+    // SAFETY: on success the API returned a valid allocation; `as_ref` turns
+    // the null case into `None` instead of a dereference.
+    let Some(list) = (unsafe { list.as_ref() }) else {
         return Ok(Vec::new());
-    }
+    };
     // SAFETY: dwNumberOfItems describes the real length behind the [T; 1].
     let entries = unsafe {
-        let count = (*list).dwNumberOfItems as usize;
-        std::slice::from_raw_parts((*list).ProfileInfo.as_ptr(), count)
+        std::slice::from_raw_parts(list.ProfileInfo.as_ptr(), list.dwNumberOfItems as usize)
     };
     Ok(entries
         .iter()
@@ -263,12 +258,13 @@ fn scan_facts(client: &Client, guid: &GUID, ssid: &str) -> ScanFacts {
     let mut facts = ScanFacts::default();
     let mut list: *mut WLAN_AVAILABLE_NETWORK_LIST = null_mut();
     let status = unsafe { WlanGetAvailableNetworkList(client.0, guid, 0, None, &mut list) };
-    if status == 0 && !list.is_null() {
-        let _owned = WlanBuffer(list);
+    let _owned = WlanBuffer(list);
+    // SAFETY: on success the API returned a valid allocation; `as_ref` turns
+    // the null case into `None` instead of a dereference.
+    if status == 0 && let Some(list) = unsafe { list.as_ref() } {
         // SAFETY: dwNumberOfItems describes the real length behind the [T; 1].
         let entries = unsafe {
-            let count = (*list).dwNumberOfItems as usize;
-            std::slice::from_raw_parts((*list).Network.as_ptr(), count)
+            std::slice::from_raw_parts(list.Network.as_ptr(), list.dwNumberOfItems as usize)
         };
         for entry in entries {
             let length = (entry.dot11Ssid.uSSIDLength as usize).min(entry.dot11Ssid.ucSSID.len());
@@ -334,13 +330,14 @@ fn current_connection(client: &Client, guid: &GUID) -> Option<(String, u32)> {
             None,
         )
     };
-    if status != 0 || data.is_null() {
+    if status != 0 {
         return None;
     }
     let _owned = WlanBuffer(data);
     // SAFETY: a successful current_connection query returns exactly one
-    // WLAN_CONNECTION_ATTRIBUTES.
-    let attributes = unsafe { &*(data as *const WLAN_CONNECTION_ATTRIBUTES) };
+    // WLAN_CONNECTION_ATTRIBUTES; `as_ref` turns the null case into `None`
+    // instead of a dereference.
+    let attributes = unsafe { (data as *const WLAN_CONNECTION_ATTRIBUTES).as_ref() }?;
     if InterfaceState::from_raw(attributes.isState) != InterfaceState::Connected {
         return None;
     }
@@ -420,13 +417,14 @@ fn networks_on(client: &Client, guid: &GUID, networks: &mut Vec<Network>) -> Res
     let status = unsafe { WlanGetAvailableNetworkList(client.0, guid, 0, None, &mut list) };
     win32("WlanGetAvailableNetworkList", status)?;
     let _owned = WlanBuffer(list);
-    if list.is_null() {
+    // SAFETY: on success the API returned a valid allocation; `as_ref` turns
+    // the null case into `None` instead of a dereference.
+    let Some(list) = (unsafe { list.as_ref() }) else {
         return Ok(());
-    }
+    };
     // SAFETY: as in first_interface — dwNumberOfItems describes the real length.
     let entries = unsafe {
-        let count = (*list).dwNumberOfItems as usize;
-        std::slice::from_raw_parts((*list).Network.as_ptr(), count)
+        std::slice::from_raw_parts(list.Network.as_ptr(), list.dwNumberOfItems as usize)
     };
 
     // Both read from the service rather than being inferred from the scan list:

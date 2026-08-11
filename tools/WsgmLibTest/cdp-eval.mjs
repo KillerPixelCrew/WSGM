@@ -60,14 +60,24 @@ function evalInContext(wsUrl, expression) {
   });
 }
 
+// JSON.stringify produces a correct JS string literal with escaped backslashes,
+// so the path reaches AddInstallFolder intact (e.g. "Z:\\SteamLibrary") — except
+// for three characters that are legal in a JSON string but change meaning when
+// the literal is spliced into source code: "<" (can close a script context) and
+// the U+2028/U+2029 line separators. Escape those too.
+function jsStringLiteral(value) {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003C")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
+
 function buildExpression(cmd, arg) {
   switch (cmd) {
     case "raw":
       return arg;
     case "add":
-      // JSON.stringify produces a correct JS string literal with escaped backslashes,
-      // so the path reaches AddInstallFolder intact (e.g. "Z:\\SteamLibrary").
-      return `(async()=>{try{const r=await SteamClient.InstallFolder.AddInstallFolder(${JSON.stringify(arg)});return 'RESOLVED: '+JSON.stringify(r);}catch(e){return 'REJECTED: '+JSON.stringify(e);}})()`;
+      return `(async()=>{try{const r=await SteamClient.InstallFolder.AddInstallFolder(${jsStringLiteral(arg)});return 'RESOLVED: '+JSON.stringify(r);}catch(e){return 'REJECTED: '+JSON.stringify(e);}})()`;
     case "remove":
       if (!/^\d+$/.test(arg || "")) throw new Error("remove requires a numeric nFolderIndex");
       return `(async()=>{try{const r=await SteamClient.InstallFolder.RemoveInstallFolder(${Number(arg)});return 'RESOLVED: '+JSON.stringify(r);}catch(e){return 'REJECTED: '+JSON.stringify(e);}})()`;
