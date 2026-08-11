@@ -488,6 +488,19 @@ log lines.
   otherwise); WSGM's own overlay/edge swipes over elevated windows ride the same chain. The flip
   side: an **elevated explorer breaks UWP** (touch keyboard, store apps) — that's what invariant 5
   protects.
+- **Accepted security posture (do not "fix" by contorting the design):** the whole class of
+  same-user medium→high findings is accepted by design. WSGM is a per-user shell that deliberately
+  self-elevates and runs user-configured inputs — the boot manifest (`boot.json`), live `config.json`
+  reload / auto-relaunch, `SelfElevation` launching configured home/startup apps, the HKCU-sourced
+  Steam path, the co-located helper DLL (`WSGM.VolumeControl.dll`) and the install→run handoff all
+  live in `%LOCALAPPDATA%`, which same-user medium-IL code already owns. UAC is not a Microsoft
+  security boundary, so a same-user attacker who can pre-plant those inputs is out of scope. Do NOT
+  relocate the install, add per-action UAC prompts, code-sign-gate DLL loads, or otherwise trade the
+  design/UX to close these — a reviewer re-raising them should be answered "accepted by design," not
+  patched. What IS worth doing (and already done) is *transparent* hardening that costs nothing:
+  absolute `System32` paths for launched system tools (`ConsoleTool.System32`), reparse-point/
+  no-follow/no-overwrite checks before elevated file ops in user-writable dirs, DACL-scoping named
+  kernel objects to the current user, and bounds/decode-size checks on parsed untrusted input.
 - **Never manage Windows device posture or automatic touch-keyboard policy:** game/desktop mode must
   not capture or write `ConvertibleSlateMode` or `TouchKeyboardTapInvoke`. Windows owns both. The
   legacy config fields and `LegacyPostureCleanup.Restore` exist only to undo values changed by older
