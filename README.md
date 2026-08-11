@@ -130,4 +130,7 @@ tested on real handheld hardware before release.
 
 ## License
 
-MIT.
+MIT with one addition ([full text](LICENSE)): **device manufacturers (OEMs/ODMs), system
+integrators, and resellers need prior written permission to preinstall or bundle WSGM on devices
+they sell** — in whole, in part, modified, forked, or as code inside their own preinstalled
+software. Permission requests: git@kpc.bz. For everyone else, nothing changes from ordinary MIT.
