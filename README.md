@@ -236,3 +236,12 @@ tested on real handheld hardware before release.
 ## License
 
 MIT. Controller button glyphs from CC0 prompt packs (see `src/WSGM/Assets/Glyphs/CREDITS.md`).
+
+
+
+https://github.com/user-attachments/assets/4e422b98-cf27-4f17-aa46-b8c956ce7275
+
+
+
+https://github.com/user-attachments/assets/c90e6354-5d05-46c5-9866-d5f8a647cbcb
+
