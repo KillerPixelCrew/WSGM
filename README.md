@@ -33,8 +33,12 @@ Windows shell the whole time.
   Windows (Steam never feeds it there; WSGM does).
 - **Steam Input everywhere** — Steam runs elevated so Steam Input keeps working over elevated
   windows and games; the **Steam Input Lease** hands the controller to WSGM's panels only while
-  they're open, and per-game helpers block Steam Input or de-elevate a single title via launch
-  options copied from the Tools tab.
+  they're open, and Steam gets it back the moment they close.
+- **Free the controller for emulators & SDL3 apps** — Steam's desktop layout normally swallows the
+  pad from every other program. The lease tool blocks Steam Input for a single title via its launch
+  options, so emulators and SDL3 applications read the real controller directly — and Steam takes it
+  back the moment the game exits. A companion helper de-elevates titles that refuse to run elevated;
+  both commands are copied ready-made from the Tools tab.
 - **Make it yours** — a fully configurable boot splash (text, spinner, logo, background, shareable
   presets) and an accent colour every surface follows.
 - **Fails open** — if anything goes wrong, WSGM keeps or restores the desktop rather than leaving a
