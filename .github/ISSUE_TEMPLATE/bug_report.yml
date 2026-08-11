@@ -66,8 +66,9 @@ body:
     attributes:
       label: Log file
       description: |
-        Attach `wsgm.log` from `%LOCALAPPDATA%\WSGM` (paste that path into Explorer's address bar).
-        Drag the file into this field. If the bug involves game mode, reproduce it first so the log contains it.
+        Attach `wsgm.log`: open WSGM Settings → System → "Open log location" — it highlights the file
+        in Explorer (it lives in `%LOCALAPPDATA%\WSGM`). Drag the file into this field.
+        If the bug involves game mode, reproduce it first so the log contains it.
       placeholder: Drag & drop wsgm.log here.
     validations:
       required: false
