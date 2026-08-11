@@ -15,11 +15,11 @@ press away at any time.
 
 The quick access sidebar, and switching between game mode and the desktop:
 
-![WSGM's quick access sidebar in Big Picture, and a round trip to the Windows desktop and back](docs/demo-sidebar.webp)
+https://github.com/user-attachments/assets/4e422b98-cf27-4f17-aa46-b8c956ce7275
 
 The game-mode taskbar:
 
-![The customizable game-mode taskbar over Steam Big Picture](docs/demo-taskbar.webp)
+https://github.com/user-attachments/assets/c90e6354-5d05-46c5-9866-d5f8a647cbcb
 
 ## ⚠ Recovery — read this FIRST
 
@@ -242,12 +242,4 @@ tested on real handheld hardware before release.
 ## License
 
 MIT. Controller button glyphs from CC0 prompt packs (see `src/WSGM/Assets/Glyphs/CREDITS.md`).
-
-
-
-https://github.com/user-attachments/assets/4e422b98-cf27-4f17-aa46-b8c956ce7275
-
-
-
-https://github.com/user-attachments/assets/c90e6354-5d05-46c5-9866-d5f8a647cbcb
 
