@@ -155,6 +155,76 @@ public sealed class PowerRequestListTests
     public void EmptyBufferIsMalformed()
         => Assert.Null(PowerRequestList.DecodeWithBuild(ReadOnlySpan<byte>.Empty, Win11Build));
 
+    /// <summary>Adds a simple-string COUNTED_REASON_CONTEXT_RELATIVE to the synthetic
+    /// buffer: ReasonOffset at DIAGNOSTIC_BUFFER+32, then flags and a string offset
+    /// relative to the context itself.</summary>
+    private static byte[] SynthWithReason(string reason, uint flags = 1)
+    {
+        var b = Synth();
+        const int db = 64 + 32;
+        const int context = db + 128;
+        BitConverter.GetBytes((ulong)(context - db)).CopyTo(b, db + 32);
+        BitConverter.GetBytes(flags).CopyTo(b, context);
+        BitConverter.GetBytes(32UL).CopyTo(b, context + 8);
+        var text = context + 32;
+        foreach (var unit in reason)
+        {
+            BitConverter.GetBytes((ushort)unit).CopyTo(b, text);
+            text += 2;
+        }
+        return b;
+    }
+
+    // The reason string is the one decoded field whose failure does NOT reject the
+    // entry, so an offset regression here would silently produce a plausible wrong
+    // string instead of the "unknown" state everything else falls back to.
+    [Fact]
+    public void DecodesASimpleStringReason()
+    {
+        var entries = PowerRequestList.DecodeWithBuild(SynthWithReason("Steam download"), Win11Build);
+
+        Assert.NotNull(entries);
+        Assert.Equal("Steam download", entries![0].Reason);
+    }
+
+    [Fact]
+    public void AReasonContextWithoutTheSimpleStringFlagIsIgnored()
+    {
+        var entries = PowerRequestList.DecodeWithBuild(
+            SynthWithReason("Steam download", flags: 0), Win11Build);
+
+        Assert.NotNull(entries);
+        Assert.Null(entries![0].Reason);
+    }
+
+    [Fact]
+    public void AnUnterminatedReasonStringLeavesTheEntryDecodableWithoutAReason()
+    {
+        var b = SynthWithReason("Steam download");
+        for (var i = 64 + 32 + 128 + 32; i < b.Length; i++)
+        {
+            b[i] = 0x41;
+        }
+
+        var entries = PowerRequestList.DecodeWithBuild(b, Win11Build);
+
+        Assert.NotNull(entries);
+        Assert.Null(entries![0].Reason);
+        Assert.True(entries[0].HoldsDisplay);
+    }
+
+    [Fact]
+    public void AReasonOffsetPastTheBufferIsIgnoredRatherThanRead()
+    {
+        var b = SynthWithReason("Steam download");
+        BitConverter.GetBytes(100_000UL).CopyTo(b, 64 + 32 + 32);
+
+        var entries = PowerRequestList.DecodeWithBuild(b, Win11Build);
+
+        Assert.NotNull(entries);
+        Assert.Null(entries![0].Reason);
+    }
+
     // ---- WakeLockStatus: state + holder summary ----
 
     private static PowerRequestEntry Entry(
