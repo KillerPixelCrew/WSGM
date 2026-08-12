@@ -29,6 +29,9 @@ public sealed class ShellSession
     // source would permanently kill boot syncing after the first desktop trip.
     private CancellationTokenSource _tabBootSyncCancellation = new();
     private bool _inGameMode = true;
+    // Last applied master CEF state, so a reload can tell an on->off transition
+    // (which must retract first) from a repeat of the same value.
+    private bool _cefMasterEnabled;
     // Field-rooted deliberately: an unreferenced enabled FileSystemWatcher is
     // GC-collectible (it holds only a WeakReference to itself in its pending
     // ReadDirectoryChangesW state) and silently stops raising events.
@@ -44,6 +47,7 @@ public sealed class ShellSession
     public ShellSession(AppConfig config, bool overlayTestOnly = false, bool serviceBoot = false)
     {
         _config = config;
+        _cefMasterEnabled = config.Cef.Enabled;
         SteamCef.SetMasterEnabled(config.Cef.Enabled);
         _overlayTestOnly = overlayTestOnly;
         _serviceBoot = serviceBoot;
@@ -396,6 +400,45 @@ public sealed class ShellSession
         _ = new LibraryTabManager().SyncOnBootAsync(_tabBootSyncCancellation.Token);
     }
 
+    /// <summary>Mirrors the master CEF switch, retracting anything WSGM already
+    /// injected on the way down. Ordering is load-bearing: the switch fails every
+    /// evaluation closed, including WSGM's own retractions, so flipping it first
+    /// would strand the injected tabs, badges and Wi-Fi AP in Steam until the client
+    /// restarted — with the desktop-trip cleanup dead for the same reason.</summary>
+    /// <param name="enabled">The reloaded <c>Cef.Enabled</c> value.</param>
+    private void ApplyCefMasterSwitch(bool enabled)
+    {
+        if (_cefMasterEnabled == enabled)
+        {
+            return;
+        }
+        _cefMasterEnabled = enabled;
+        if (enabled)
+        {
+            SteamCef.SetMasterEnabled(true);
+            KickTabBootSync();
+            return;
+        }
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await SteamPageBridge.DisableBadgeAsync().ConfigureAwait(false);
+                await SteamLibraryTabs.DisableAsync().ConfigureAwait(false);
+                await SteamNetworkIndicator.DisableAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Retracting injected Steam UI failed: {ex.Message}");
+            }
+            finally
+            {
+                SteamCef.SetMasterEnabled(false);
+                Log.Info("Steam CEF integration disabled — injected UI retracted.");
+            }
+        });
+    }
+
     private void WatchConfig()
     {
         try
@@ -409,7 +452,7 @@ public sealed class ShellSession
                 => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                 {
                     var config = ConfigStore.Load();
-                    SteamCef.SetMasterEnabled(config.Cef.Enabled);
+                    ApplyCefMasterSwitch(config.Cef.Enabled);
                     _overlay?.ApplyConfig(config);
                     _startupWatcher?.Apply(config.StartupApps);
                     _keepAwake?.ApplyConfig(config.Cef.Enabled && config.Cef.DownloadKeepAwake);

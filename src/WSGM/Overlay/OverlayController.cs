@@ -231,7 +231,8 @@ public sealed class OverlayController : IDisposable
     public void ApplyConfig(AppConfig config)
     {
         _config = config;
-        SteamCef.SetMasterEnabled(config.Cef.Enabled);
+        // The master CEF switch is owned by ShellSession, which retracts injected UI
+        // before closing it — setting it here as well would cut that retraction off.
         // Accent re-apply must run on the UI thread; the debounced config watcher
         // may deliver this call from a worker thread.
         Avalonia.Threading.Dispatcher.UIThread.Post(() => Themes.AccentPalette.Apply(Avalonia.Application.Current!, Themes.AccentPalette.Parse(config.AccentColor)));
