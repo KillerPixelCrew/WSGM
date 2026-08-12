@@ -319,8 +319,17 @@ buttons); `OverlayController` stays the UI owner (lease lifecycle, overlay windo
    scheduled task or an Explorer-token shortcut. **The lease is the OUTER behaviour**: its gate
    injects into an elevated `steam.exe`, which a medium-integrity process cannot do, so it is
    acquired by the elevated parent *before* the de-elevation hand-off and released after the medium
-   child reports the target's exit. `--input-lease` alone instead uses the native job-object wrapper
-   (whole process tree). Lease failures fail **open** — log, tell the user, launch anyway.
+   child reports the target's exit. **Both paths wait on a job object, not on the process they
+   started** (`--input-lease` alone in the native wrapper, which starts the target suspended and
+   assigns before resume; the de-elevated child in `WSGM.Launch\JobObject.cs`, which assigns right
+   after `Process.Start`): a game behind a launcher exits its root process seconds in, and waiting
+   on that alone released the lease mid-session and told Steam the game had stopped. The job is also
+   what makes the stop-on-parent-exit path reach orphaned descendants. Lease failures fail **open** —
+   log, tell the user, launch anyway — and so does an impossible de-elevation (UAC switched off
+   leaves no limited token to hand out; the child tags that failure and the parent launches the game
+   as-is). An error out of `run_wrapped` means only that the target NEVER STARTED, because that is
+   what the caller does about it; a release handshake that fails after the game exited returns the
+   exit code instead, or the wrapper would start a finished game a second time.
    **Four device-verified invariants make it actually work when Steam is elevated (each was a
    separate real failure, 2026-08-12):** (a) it MUST be a
    **console** subsystem exe (`<OutputType>Exe</OutputType>`, shows a CLI window) — a windowless
@@ -465,9 +474,18 @@ buttons); `OverlayController` stays the UI owner (lease lifecycle, overlay windo
    `unregister()` on both paths (it is a subscription, not a getter, and it re-fires after a write);
    `GetLaunchOptionsForApp` is the launch-*menu* list, not the options string. Writes persist to
    `shortcuts.vdf`/`localconfig.vdf` immediately — **no Steam restart, and never hand-write those
-   files**. `StartDir` is deliberately never written (the game's folder stays the CWD). Because
+   files**. `StartDir` is deliberately never written (the game's folder stays the CWD). A real
+   title's **existing launch options are composed, never replaced** (`%command%` expands to the
+   game's own command, so options the wrapper value overwrote would silently stop applying): plain
+   options move after the placeholder, a user value that positions `%command%` itself keeps its
+   prefix and suffix, and re-applying reads them back out with
+   `LaunchWrapperCommand.OriginalLaunchOptions`. `%command%` is **real titles only** — a non-Steam
+   shortcut ignores it (see 5d). Because
    configuring a shortcut destroys its original Target, the pre-change values are snapshotted into
-   `AppConfig.LaunchWrappers` BEFORE the write, and re-applying an already-wrapped game keeps the
+   `AppConfig.LaunchWrappers` BEFORE the write — via `SteamLaunchConfig.OriginalsFrom`, which
+   UNWRAPS an already-wrapped game (the command may have been pasted by hand, or the config reset)
+   so the snapshot never records WSGM's own wrapper as the "original" and Remove cannot restore the
+   wrapper itself — and re-applying an already-wrapped game keeps the
    first snapshot rather than recording WSGM's own values.
 
 **UI layer (rebuilt in 0.9.0 — read before touching any XAML).** All styling lives in `Themes\`
@@ -509,6 +527,15 @@ delete a first window's unsaved import. `SplashAssets` is a **two-phase transact
 promoted only after `ConfigStore.Save` succeeds, a failed promotion reports a failed save and keeps
 the previous path, and the picked path stays in the view model so a retry works.
 
+**Turning a CEF feature off must RETRACT, not just stop pushing.** The injected tabs, badges and
+synthetic Wi-Fi AP are resident in Steam's CEF session and survive until Steam restarts. The master
+switch fails every evaluation closed — including WSGM's own `Disable*` calls — so `ShellSession`
+owns it and awaits the three retractions BEFORE closing the choke point (`ApplyCefMasterSwitch`);
+a sub-toggle going off retracts through the same kill switches inside the sync
+(`LibraryTabManager`), and the Wi-Fi indicator's start gate is a live field, not the boot-time
+`_config`, so its toggle applies without a re-logon. The overlay's per-feature button visibility is
+recomputed on config reload as well, so a disabled feature loses its entry point immediately.
+
 **Keep-awake wake lock** (`Core\WakeLock.cs`, `Core\SteamDownloads.cs`, `Core\KeepAwakeDecider.cs`,
 `Shell\KeepAwakeService.cs` — device-verified on the MSI Claw 2026-08-12, including the download
 hold across screen-off, the manual cycle, the indicator dot, and the idle-timeout rows): a Windows
@@ -528,7 +555,10 @@ subscribe/unsubscribe; fires immediately with a snapshot, live-verified; active 
 NOT decky's Linux-documented `Updating`). Release is debounced (`KeepAwakeDecider`, 2 consecutive
 inactive polls) so queue gaps don't flap the hold; unreachable polls count as inactive so a dead
 Steam can't pin the device awake. `CefConfig.DownloadKeepAwake` (default on, Settings row
-under Steam CEF Integration, gated by the CEF master switch) gates only the automatic side. The
+on the Integration tab, gated by the CEF master switch AND off in `--overlay-test`, whose safe-mode
+contract excludes autonomous Steam traffic) gates only the automatic side. Hold transitions and the
+config apply share one gate — a disable landing mid-poll must not lose to the stale sample, or the
+hold sticks for the session. The
 manual side is a **three-state cycle** (Off → Standby lock → Standby+Display lock → Off), holding a
 separate DisplayRequired request for the third state — acquired-before-released so a step never has
 a lock gap. Preserve the `Keep awake: … hold acquired/released / manual mode …` log lines — they are
