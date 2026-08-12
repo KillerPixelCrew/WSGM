@@ -165,6 +165,15 @@ public static class ConfigStore
         config.KnownNativeTabs ??= [];
         config.SteamGridDbApiKey ??= "";
         config.SgdbLinks ??= [];
+        config.LaunchWrappers ??= [];
+        config.LaunchWrappers = config.LaunchWrappers.Where(static w => w is not null).ToList();
+        foreach (var wrapper in config.LaunchWrappers)
+        {
+            wrapper.OriginalTarget ??= "";
+            wrapper.OriginalLaunchOptions ??= "";
+            wrapper.OriginalStartDir ??= "";
+            wrapper.Name ??= "";
+        }
         config.CardLibraries = config.CardLibraries.Where(static card => card is not null).ToList();
         foreach (var card in config.CardLibraries)
         {

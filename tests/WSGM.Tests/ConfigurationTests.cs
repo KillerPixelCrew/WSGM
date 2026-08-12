@@ -21,6 +21,11 @@ public sealed class ConfigurationTests
             ForgottenInsertedCardIds = null!,
             CategoryTabs = null!,
             CustomTabs = null!,
+            LaunchWrappers = null!,
+            SgdbLinks = null!,
+            LibraryTabOrder = null!,
+            HiddenNativeTabs = null!,
+            KnownNativeTabs = null!,
             SteamGridDbApiKey = null!,
             AccentColor = null!,
             Splash = null!,
@@ -39,6 +44,11 @@ public sealed class ConfigurationTests
         Assert.NotNull(normalized.ForgottenInsertedCardIds);
         Assert.NotNull(normalized.CategoryTabs);
         Assert.NotNull(normalized.CustomTabs);
+        Assert.NotNull(normalized.LaunchWrappers);
+        Assert.NotNull(normalized.SgdbLinks);
+        Assert.NotNull(normalized.LibraryTabOrder);
+        Assert.NotNull(normalized.HiddenNativeTabs);
+        Assert.NotNull(normalized.KnownNativeTabs);
         Assert.Equal("", normalized.SteamGridDbApiKey);
         Assert.Equal("#FFFF9D3D", normalized.AccentColor);
         Assert.NotNull(normalized.Splash);
@@ -729,5 +739,34 @@ public sealed class ConfigurationTests
         Assert.NotNull(restored);
         Assert.False(restored.GameModeBootEnabled);
         Assert.Equal(250, restored.ExplorerLogonSettleMs);
+    }
+
+    [Fact]
+    public void NormalizeDropsNullLaunchWrapperEntriesAndRepairsTheirStrings()
+    {
+        var config = new AppConfig
+        {
+            LaunchWrappers =
+            [
+                null!,
+                new LaunchWrapperConfig
+                {
+                    AppId = 7,
+                    OriginalTarget = null!,
+                    OriginalLaunchOptions = null!,
+                    OriginalStartDir = null!,
+                    Name = null!,
+                },
+            ],
+        };
+
+        var normalized = ConfigStore.Normalize(config);
+
+        var wrapper = Assert.Single(normalized.LaunchWrappers);
+        Assert.Equal(7, wrapper.AppId);
+        Assert.Equal("", wrapper.OriginalTarget);
+        Assert.Equal("", wrapper.OriginalLaunchOptions);
+        Assert.Equal("", wrapper.OriginalStartDir);
+        Assert.Equal("", wrapper.Name);
     }
 }
