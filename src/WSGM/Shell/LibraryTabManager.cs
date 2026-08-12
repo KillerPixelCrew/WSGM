@@ -652,6 +652,40 @@ public sealed class LibraryTabManager
             return null;
         }, cancellationToken);
 
+    /// <summary>Finds what a game's launch configuration looked like before WSGM
+    /// pointed it at the launch wrapper.</summary>
+    /// <param name="appId">The Steam app id, or a shortcut's generated id.</param>
+    /// <param name="cancellationToken">Cancels the off-thread work.</param>
+    /// <returns>The snapshot, or <see langword="null"/> if the game has none.</returns>
+    internal static Task<LaunchWrapperConfig?> FindLaunchWrapperAsync(
+        long appId, CancellationToken cancellationToken = default)
+        => MutateConfigAsync(
+            config => config.LaunchWrappers.FirstOrDefault(w => w.AppId == appId),
+            cancellationToken);
+
+    /// <summary>Records (or updates) a game's pre-wrapper launch configuration.</summary>
+    /// <param name="snapshot">What to remember; replaces any entry for the same game.</param>
+    /// <param name="cancellationToken">Cancels the off-thread work.</param>
+    internal static Task RememberLaunchWrapperAsync(
+        LaunchWrapperConfig snapshot, CancellationToken cancellationToken = default)
+        => MutateConfigAsync<object?>(config =>
+        {
+            config.LaunchWrappers.RemoveAll(w => w.AppId == snapshot.AppId);
+            config.LaunchWrappers.Add(snapshot);
+            return null;
+        }, cancellationToken);
+
+    /// <summary>Drops a game's snapshot once its launch configuration is restored.</summary>
+    /// <param name="appId">The Steam app id, or a shortcut's generated id.</param>
+    /// <param name="cancellationToken">Cancels the off-thread work.</param>
+    internal static Task ForgetLaunchWrapperAsync(
+        long appId, CancellationToken cancellationToken = default)
+        => MutateConfigAsync<object?>(config =>
+        {
+            config.LaunchWrappers.RemoveAll(w => w.AppId == appId);
+            return null;
+        }, cancellationToken);
+
     /// <summary>Loads the config, applies <paramref name="mutate"/>, and saves — the
     /// whole read-modify-write held under the cross-process config lock so a concurrent
     /// WSGM process (Settings window) can neither interleave nor lose fields.</summary>

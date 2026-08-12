@@ -484,6 +484,9 @@ public sealed class OverlayController : IDisposable
             ShowCardManager = _config.Cef.Enabled && _config.Cef.CardManager,
             ShowArtwork = _config.Cef.Enabled && _config.Cef.Artwork,
             ShowSdCard = _config.Cef.Enabled && _config.Cef.SdFormat,
+            // With CEF off the launch-wrapper buttons fall back to copying the
+            // command, so they stay useful rather than disappearing.
+            ConfigureLaunchOptionsLive = _config.Cef.Enabled,
         };
 
         _overlayViewModel = vm;

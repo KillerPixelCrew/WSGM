@@ -31,13 +31,13 @@ Remove-Item -Recurse -Force "$root\publish" -ErrorAction SilentlyContinue
 dotnet publish "$root\src\WSGM\WSGM.csproj" -c Release -r win-x64 -o "$root\publish"
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
 
-# Steam inherits WSGM's elevation. This small wrapper is pasted into a game's
-# launch options and hands the real command to a medium-integrity scheduled-task
-# child. Publish it beside WSGM so both portable and installed layouts use the
-# same stable command path.
-dotnet publish "$root\src\WSGM.Deelevate\WSGM.Deelevate.csproj" -c Release -r win-x64 `
+# The user-facing Steam launch wrapper. Steam inherits WSGM's elevation, so this
+# hands the real command to a medium-integrity scheduled-task child and/or holds a
+# Steam Input block lease for the game's lifetime. Publish it beside WSGM so both
+# portable and installed layouts use the same stable command path.
+dotnet publish "$root\src\WSGM.Launch\WSGM.Launch.csproj" -c Release -r win-x64 `
     -o "$root\publish" "/p:Version=$version"
-if ($LASTEXITCODE -ne 0) { throw "WSGM.Deelevate publish failed" }
+if ($LASTEXITCODE -ne 0) { throw "WSGM.Launch publish failed" }
 
 # The SYSTEM logon service that launches WSGM's boot cover at sign-in. Published
 # beside the rest; the installer ships it to Program Files (never user-writable).
@@ -73,7 +73,7 @@ finally {
 }
 if (-not (Test-Path $nativeOutput)) { throw "VolumeControl native helper was not produced" }
 if (-not (Test-Path "$root\publish\WSGM.Radio.dll")) { throw "Radio helper was not published" }
-if (-not (Test-Path "$root\publish\WSGM.Deelevate.exe")) { throw "De-elevation helper was not produced" }
+if (-not (Test-Path "$root\publish\WSGM.Launch.exe")) { throw "Launch wrapper was not produced" }
 if (-not (Test-Path "$root\publish\WSGM.LogonService.exe")) { throw "Logon service was not produced" }
 
 $iscc = @(

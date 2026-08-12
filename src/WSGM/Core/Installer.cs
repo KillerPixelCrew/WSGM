@@ -19,9 +19,9 @@ public static class Installer
     /// <summary>Gets the installed WSGM executable path.</summary>
     public static string InstalledExePath => Path.Combine(InstallDir, "WSGM.exe");
 
-    /// <summary>Gets the installed Steam de-elevation wrapper path.</summary>
-    public static string InstalledDeelevationExePath =>
-        Path.Combine(InstallDir, DeelevationCommand.HelperFileName);
+    /// <summary>Gets the installed Steam launch wrapper path.</summary>
+    public static string InstalledLaunchWrapperExePath =>
+        Path.Combine(InstallDir, LaunchWrapperCommand.HelperFileName);
 
     private static string ShortcutPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs", "WSGM.lnk");
@@ -67,10 +67,10 @@ public static class Installer
                 var isDll = ext.Equals(".dll", StringComparison.OrdinalIgnoreCase);
                 var isOwnExe = ext.Equals(".exe", StringComparison.OrdinalIgnoreCase) &&
                     Path.GetFileName(file).Equals(sourceExeName, StringComparison.OrdinalIgnoreCase);
-                var isDeelevationHelper = ext.Equals(".exe", StringComparison.OrdinalIgnoreCase) &&
+                var isLaunchWrapper = ext.Equals(".exe", StringComparison.OrdinalIgnoreCase) &&
                     Path.GetFileName(file).Equals(
-                        DeelevationCommand.HelperFileName, StringComparison.OrdinalIgnoreCase);
-                if (!isDll && !isOwnExe && !isDeelevationHelper)
+                        LaunchWrapperCommand.HelperFileName, StringComparison.OrdinalIgnoreCase);
+                if (!isDll && !isOwnExe && !isLaunchWrapper)
                 {
                     continue;
                 }
@@ -135,7 +135,7 @@ public static class Installer
         // The pipe-backed lease falls away when a process ends. Release an active
         // lease from this process before uninstalling its native gate files.
         SteamInputBlocker.ReleaseBestEffort("uninstall-app");
-        DeelevationCommand.StopRunningHelpers("uninstall");
+        LaunchWrapperCommand.StopRunningHelpers("uninstall");
 
         ShellRegistration.Uninstall();
 

@@ -210,6 +210,6 @@ public static class Steam
             }
         }
 
-        DeelevationCommand.StopRunningHelpers("update");
+        LaunchWrapperCommand.StopRunningHelpers("update");
     }
 }

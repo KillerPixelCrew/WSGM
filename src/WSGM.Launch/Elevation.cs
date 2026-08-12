@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace WSGM.Deelevate;
+namespace WSGM.Launch;
 
 internal static partial class Elevation
 {

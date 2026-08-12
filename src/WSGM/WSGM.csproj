@@ -39,15 +39,10 @@
           Link="%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" />
-    <!-- The lease CLI is the user-facing wrapper: its copied Steam launch
-         option blocks Steam Input for one game, the same way the de-elevation
-         helper's does for integrity. It needs steam_input_gate.dll beside it,
-         which the rule above already places here. -->
-    <None Include="Native\SteamInputLease\steam-input-lease.exe"
-          Condition="'$(SkipNativeArtifacts)' != 'true'"
-          Link="%(Filename)%(Extension)"
-          CopyToOutputDirectory="PreserveNewest"
-          CopyToPublishDirectory="PreserveNewest" />
+    <!-- steam-input-lease.exe is deliberately NOT shipped: WSGM.Launch.exe is the
+         single user-facing wrapper and links the same binding mirror, so it holds
+         the lease itself (and carries the CLI's status/rescan diagnostics).
+         The Rust CLI stays a development tool inside native\SteamInput. -->
     <None Include="Native\SteamInputLease\*.txt"
           Condition="'$(SkipNativeArtifacts)' != 'true'"
           Link="%(Filename)%(Extension)"

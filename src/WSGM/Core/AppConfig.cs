@@ -331,6 +331,40 @@ public sealed class SgdbLinkConfig
     public string Name { get; set; } = "";
 }
 
+/// <summary>What one game's launch configuration looked like before WSGM pointed it
+/// at <c>WSGM.Launch.exe</c>. Removing the wrapper writes these values back.</summary>
+/// <remarks>
+/// Load-bearing for non-Steam shortcuts: configuring one overwrites its Target with
+/// the wrapper path, so without this snapshot the real program's path would survive
+/// only inside the arguments string WSGM itself generated. Steam apps only need
+/// <see cref="OriginalLaunchOptions"/>, which is usually empty.
+/// </remarks>
+public sealed class LaunchWrapperConfig
+{
+    /// <summary>The configured app id (a shortcut's generated id, or a Steam app id).</summary>
+    public long AppId { get; set; }
+
+    /// <summary>Whether this entry is a non-Steam shortcut rather than a Steam title.</summary>
+    public bool IsShortcut { get; set; }
+
+    /// <summary>Which wrapper behaviours were applied.</summary>
+    public LaunchWrapperMode Mode { get; set; }
+
+    /// <summary>The shortcut's Target before WSGM replaced it (shortcuts only).</summary>
+    public string OriginalTarget { get; set; } = "";
+
+    /// <summary>The launch options / launch arguments before WSGM replaced them.</summary>
+    public string OriginalLaunchOptions { get; set; } = "";
+
+    /// <summary>The shortcut's start directory at configuration time, recorded for
+    /// diagnostics; WSGM deliberately never changes it.</summary>
+    public string OriginalStartDir { get; set; } = "";
+
+    /// <summary>Display name at configuration time, so the overlay can name an entry
+    /// whose game Steam can no longer resolve.</summary>
+    public string Name { get; set; } = "";
+}
+
 /// <summary>One Steam library on a removable drive (a MicroSD card or external
 /// drive), tracked so WSGM can render it as a Steam collection ("library tab").
 /// Keyed by the card's <c>libraryfolder.vdf</c> content id, which is stable across
@@ -471,6 +505,10 @@ public sealed class AppConfig
     /// cannot be looked up there (non-Steam shortcuts) — so the artwork changer does
     /// not re-ask which game a shortcut is on every visit.</summary>
     public List<SgdbLinkConfig> SgdbLinks { get; set; } = [];
+
+    /// <summary>Games WSGM has pointed at the launch wrapper, with the launch
+    /// configuration each had beforehand so removing the wrapper can restore it.</summary>
+    public List<LaunchWrapperConfig> LaunchWrappers { get; set; } = [];
 
     /// <summary>Programs to start before Steam, in launch order.</summary>
     public List<StartupAppConfig> StartupApps { get; set; } = [];
@@ -651,6 +689,7 @@ public sealed class CefConfig
 [JsonSerializable(typeof(CefConfig))]
 [JsonSerializable(typeof(SplashConfig))]
 [JsonSerializable(typeof(SgdbLinkConfig))]
+[JsonSerializable(typeof(LaunchWrapperConfig))]
 [JsonSerializable(typeof(CardLibraryConfig))]
 [JsonSerializable(typeof(CategoryTabConfig))]
 [JsonSerializable(typeof(CustomTabConfig))]

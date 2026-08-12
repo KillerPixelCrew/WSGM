@@ -38,10 +38,12 @@ Windows shell the whole time.
   again — no restart, no drivers, no config changes, no Steam file touched; Steam just sees a brief
   unplug. It's what lets WSGM's own panels read the controller while they're open.
 - **Free the controller for emulators & SDL3 apps** — Steam's desktop layout normally swallows the
-  pad from every other program. The lease blocks Steam Input for a single title via its launch
-  options, so emulators and SDL3 applications read the real controller directly — and Steam takes it
-  back the moment the game exits. A companion helper de-elevates titles that refuse to run elevated;
-  both commands are copied ready-made from the Tools tab.
+  pad from every other program. The lease blocks Steam Input for a single title, so emulators and
+  SDL3 applications read the real controller directly — and Steam takes it back the moment the game
+  exits. The same wrapper de-elevates titles that refuse to run elevated, and can do both at once.
+- **Per-game launch fixes, applied for you** — open the panel on a game and pick the fix; WSGM
+  writes it straight into the running Steam client. No pasting, no restart, and it gets the awkward
+  non-Steam-shortcut setup right by itself. One button puts everything back.
 - **Make it yours** — a fully configurable boot splash (text, spinner, logo, background, shareable
   presets) and an accent colour every surface follows.
 - **Fails open** — if anything goes wrong, WSGM keeps or restores the desktop rather than leaving a
@@ -89,13 +91,14 @@ so all of it works at once.
 - **CSSLoader Desktop** — works, with caution: themes restyle the same Steam UI that WSGM's
   library-tab engine patches, so a theme that touches the library's tab strip can break the injected
   tabs.
-- **Custom (non-Steam) shortcuts need a different setup for the copied commands** — the Steam Input
-  Lease and de-elevation commands from the Tools tab are meant to go in a game's **Launch Options**
-  (`"…\helper.exe" %command%`), which works for normal Steam titles. For a **non-Steam shortcut**,
-  Steam quietly ignores an exe-replacement launch option and runs the original target anyway (it
-  even mangles the command line — the wrapper never actually starts). Instead, put the helper's full
-  path in the shortcut's **Target** field and the real program's path in **Launch Arguments**. Steam
-  then launches the helper normally and hands it the real program to run.
+- **Custom (non-Steam) shortcuts are set up differently** — WSGM handles this for you, but it is
+  worth knowing why the two look different in Steam. A normal Steam title takes the wrapper in its
+  **Launch Options** (`"…\WSGM.Launch.exe" --deelevate -- %command%`). A **non-Steam shortcut**
+  cannot: Steam quietly ignores an exe-replacement launch option there and runs the original target
+  anyway (it even mangles the command line — the wrapper never starts). So for a shortcut the
+  wrapper goes in the **Target** field and the real program moves into **Launch Arguments**. With
+  the Steam integration turned off, the Tools tab copies the command and you apply it by hand — in
+  that case the shortcut layout above is on you.
 
 ## How it works
 

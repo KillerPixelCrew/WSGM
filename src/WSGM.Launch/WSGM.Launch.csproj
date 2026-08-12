@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Console subsystem (shows a CLI window), NOT WinExe: a windowless GUI
+         wrapper is treated by Steam as a game and gets Steam Input hooked into it,
+         which kills it before it runs. The Steam Input lease wrapper this replaced
+         was a console app for the same reason. -->
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <!-- Explicit usings, matching WSGM.csproj: the SteamInterop binding mirror
+         linked below carries its own explicit usings by contract, and implicit
+         usings would flag every one of them as redundant. -->
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\WSGM\Assets\wsgm.ico</ApplicationIcon>
+    <AssemblyName>WSGM.Launch</AssemblyName>
+    <RootNamespace>WSGM.Launch</RootNamespace>
+    <PublishAot>true</PublishAot>
+    <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+
+  <!-- The Steam Input lease binding mirror is shared with WSGM rather than
+       duplicated: this wrapper acquires the same process-global lease the shell
+       does. steam_input_lease_ffi.dll and steam_input_gate.dll already ship
+       beside this executable (staged by WSGM.csproj into the same install dir). -->
+  <ItemGroup>
+    <Compile Include="..\WSGM\SteamInterop\*.cs" LinkBase="SteamInterop" />
+  </ItemGroup>
+</Project>

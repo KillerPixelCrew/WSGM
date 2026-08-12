@@ -78,7 +78,7 @@
 
                     <!-- Grouped into sections (eyebrow labels, matching the sub-views'
                          SectionLabel styling) so the list reads as System / Steam
-                         Library / Launch Commands instead of one flat pile. -->
+                         Library / Per-game Launch Fixes instead of one flat pile. -->
                     <StackPanel x:Name="PanelTools" Spacing="4" IsVisible="False">
                         <TextBlock Text="SYSTEM" Classes="eyebrow" Margin="2,0,2,2" />
                         <c:CardButton Click="OnSettings"
@@ -118,17 +118,23 @@
                                       Title="Format SD Card"
                                       Description="Erase a card as a Steam game library" />
 
-                        <TextBlock Text="LAUNCH COMMANDS" Classes="eyebrow" Margin="2,6,2,2" />
-                        <!-- The x:Name lives on the button: the copy handlers
-                             rewrite its Title with the copy result. -->
-                        <c:CardButton x:Name="DeelevationCommandTitle" Click="OnCopyDeelevationCommand"
-                                      IconGeometry="{x:Static c:Icons.CopyDoc}"
-                                      Title="Copy de-elevation command"
-                                      Description="Paste into a game's Steam launch options" />
-                        <c:CardButton x:Name="SteamInputBlockCommandTitle" Click="OnCopySteamInputBlockCommand"
-                                      IconGeometry="{x:Static c:Icons.BlockedCircle}"
-                                      Title="Copy Steam Input block command"
-                                      Description="For games that read the controller themselves" />
+                        <TextBlock Text="PER-GAME LAUNCH FIXES" Classes="eyebrow" Margin="2,6,2,2" />
+                        <!-- The x:Name lives on the button: the handlers rewrite its
+                             Title with the result. Titles and descriptions are set
+                             once in the constructor (they differ for the CEF and
+                             clipboard paths) and must NOT be bound, or a binding
+                             re-evaluation would wipe the result text. -->
+                        <c:CardButton x:Name="DeelevateFixButton" Click="OnApplyDeelevation"
+                                      IconGeometry="{x:Static c:Icons.ArrowDown}" />
+                        <c:CardButton x:Name="InputLeaseFixButton" Click="OnApplySteamInputBlock"
+                                      IconGeometry="{x:Static c:Icons.BlockedCircle}" />
+                        <c:CardButton x:Name="BothFixesButton" Click="OnApplyBothWrappers"
+                                      IconGeometry="{x:Static c:Icons.Rocket}" />
+                        <c:CardButton x:Name="RemoveFixesButton" Click="OnRemoveLaunchWrappers"
+                                      IsVisible="{Binding ShowRemoveLaunchWrapper}"
+                                      IconGeometry="{x:Static c:Icons.Close}"
+                                      Title="Remove launch fixes"
+                                      Description="Restore the game's original launch settings" />
                     </StackPanel>
 
                     <!-- Format flow lives in-place (a Popup/Flyout would be
@@ -229,6 +235,10 @@
 
                     <!-- SteamGridDB artwork picker sub-view (self-drawing gamepad UI). -->
                     <ov:ArtworkView x:Name="ArtworkHost" IsVisible="False" />
+
+                    <!-- Game picker for the launch fixes, shown only when the panel
+                         could not tell which game the user is looking at. -->
+                    <ov:LaunchWrapperView x:Name="LaunchWrapperHost" IsVisible="False" />
 
                     <StackPanel x:Name="PanelPower" Spacing="4" IsVisible="False">
                         <c:CardButton Click="OnSleep"

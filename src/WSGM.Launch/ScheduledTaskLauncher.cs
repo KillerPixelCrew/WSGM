@@ -1,19 +1,21 @@
+using System;
 using System.Diagnostics;
+using System.IO;
 using System.Security;
 using System.Security.Principal;
 using System.Text;
 
-namespace WSGM.Deelevate;
+namespace WSGM.Launch;
 
 internal static class ScheduledTaskLauncher
 {
     internal static string? Start(string executablePath, string pipeName)
     {
         var suffix = $"{Environment.ProcessId}-{Guid.NewGuid():N}";
-        var taskName = $"WSGM_Deelevate_{suffix}";
+        var taskName = $"WSGM_Launch_{suffix}";
         var directory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WSGM");
-        var xmlPath = Path.Combine(directory, $"deelevate-task-{suffix}.xml");
+        var xmlPath = Path.Combine(directory, $"launch-task-{suffix}.xml");
 
         try
         {
@@ -26,12 +28,12 @@ internal static class ScheduledTaskLauncher
                 return null;
             }
 
-            DeelevateLog.Info($"Started medium-integrity helper task {taskName}.");
+            LaunchLog.Info($"Started medium-integrity helper task {taskName}.");
             return taskName;
         }
         catch (Exception ex)
         {
-            DeelevateLog.Error($"Could not start medium-integrity helper task: {ex.Message}");
+            LaunchLog.Error($"Could not start medium-integrity helper task: {ex.Message}");
             Delete(taskName);
             return null;
         }
@@ -104,7 +106,7 @@ internal static class ScheduledTaskLauncher
             {
                 if (logFailure)
                 {
-                    DeelevateLog.Error($"schtasks {arguments[0]} failed or timed out.");
+                    LaunchLog.Error($"schtasks {arguments[0]} failed or timed out.");
                 }
                 return false;
             }
@@ -114,7 +116,7 @@ internal static class ScheduledTaskLauncher
         {
             if (logFailure)
             {
-                DeelevateLog.Error($"schtasks {arguments[0]} failed: {ex.Message}");
+                LaunchLog.Error($"schtasks {arguments[0]} failed: {ex.Message}");
             }
             return false;
         }

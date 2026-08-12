@@ -93,5 +93,14 @@ public sealed class OverlayViewModel : INotifyPropertyChanged
     public bool ShowSteamLibrarySection =>
         ShowLibraryTabs || ShowCardManager || ShowArtwork || ShowSdCard;
 
+    /// <summary>Whether the launch-wrapper buttons configure the selected game in the
+    /// running Steam client (<c>Cef.Enabled</c>) instead of copying a command to the
+    /// clipboard for the user to paste by hand.</summary>
+    public bool ConfigureLaunchOptionsLive { get; init; } = true;
+
+    /// <summary>Whether the "remove wrappers" row is shown — only meaningful when WSGM
+    /// can write the launch configuration itself.</summary>
+    public bool ShowRemoveLaunchWrapper => ConfigureLaunchOptionsLive;
+
     private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

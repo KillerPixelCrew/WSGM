@@ -1,14 +1,17 @@
+using System;
+using System.IO;
 using System.Text;
+using System.Threading;
 
-namespace WSGM.Deelevate;
+namespace WSGM.Launch;
 
-internal static class DeelevateLog
+internal static class LaunchLog
 {
     private static readonly object Gate = new();
     private static readonly string Path = System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "WSGM",
-        "deelevate.log");
+        "launch.log");
 
     internal static void Info(string message) => Write("info ", message);
 

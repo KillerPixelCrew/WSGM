@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
@@ -70,13 +72,21 @@ public partial class OverlayWindow : Window
     /// <summary>Whether the SteamGridDB artwork picker sub-view is showing.</summary>
     internal bool InArtworkSubView { get; private set; }
 
+    /// <summary>Whether the launch-fix game picker sub-view is showing.</summary>
+    internal bool InLaunchWrapperSubView { get; private set; }
+
+    /// <summary>The launch fix waiting on the user to pick a game, and the button
+    /// whose title reports the outcome.</summary>
+    private (LaunchWrapperMode Mode, CardButton Button)? _pendingLaunchFix;
+
     /// <summary>Set while the peer keyboard owns activation so focus handoff does not
     /// look like a fresh overlay summons and discard the active workflow.</summary>
     internal bool KeyboardOwnsFocus { get; set; }
 
     /// <summary>Whether any in-place Tools sub-view owns the surface.</summary>
     private bool AnySubView
-        => InFormatSubView || InLibraryTabsSubView || InCardManagerSubView || InArtworkSubView;
+        => InFormatSubView || InLibraryTabsSubView || InCardManagerSubView || InArtworkSubView
+           || InLaunchWrapperSubView;
 
     /// <summary>Gives the overlay the shared removable-storage format manager so
     /// its Tools sub-view can drive it. Called by the controller right after
@@ -110,6 +120,7 @@ public partial class OverlayWindow : Window
                 var host = InLibraryTabsSubView ? (Control)LibraryTabsHost
                     : InCardManagerSubView ? CardManagerHost
                     : InArtworkSubView ? ArtworkHost
+                    : InLaunchWrapperSubView ? LaunchWrapperHost
                     : PanelFormat;
                 foreach (var visual in host.GetVisualDescendants())
                 {
@@ -176,12 +187,16 @@ public partial class OverlayWindow : Window
             LeaveLibraryTabsSubView();
             LeaveCardManagerSubView();
             LeaveArtworkSubView();
+            LeaveLaunchWrapperSubView();
             Tabs.SelectedIndex = _lastSelectedTab;
         };
 
         LibraryTabsHost.CloseRequested += LeaveLibraryTabsSubView;
         CardManagerHost.CloseRequested += LeaveCardManagerSubView;
         ArtworkHost.CloseRequested += LeaveArtworkSubView;
+        LaunchWrapperHost.CloseRequested += LeaveLaunchWrapperSubView;
+        LaunchWrapperHost.Picked += OnLaunchFixGamePicked;
+        InitializeLaunchFixLabels(viewModel);
 
         KeyDown += OnKeyDown;
         Opened += OnOpened;
@@ -268,6 +283,10 @@ public partial class OverlayWindow : Window
         if (InArtworkSubView)
         {
             return ArtworkHost.Back();
+        }
+        if (InLaunchWrapperSubView)
+        {
+            return LaunchWrapperHost.Back();
         }
         if (!InFormatSubView)
         {
@@ -420,35 +439,78 @@ public partial class OverlayWindow : Window
     private void OnTaskManager(object? sender, RoutedEventArgs e) => TaskManagerRequested?.Invoke();
     private void OnClose(object? sender, RoutedEventArgs e) => Dismissed?.Invoke();
 
-    private async void OnCopyDeelevationCommand(object? sender, RoutedEventArgs e)
+    // ---- Per-game launch fixes ----
+
+    // Set once, from the view model, because the same buttons do two different
+    // things: with CEF on they configure the game in the running Steam client, with
+    // CEF off they fall back to copying the command for the user to paste.
+    private void InitializeLaunchFixLabels(OverlayViewModel viewModel)
     {
-        var helperPath = DeelevationCommand.HelperPathForCurrentDeployment();
-        if (!System.IO.File.Exists(helperPath))
+        var live = viewModel.ConfigureLaunchOptionsLive;
+        DeelevateFixButton.Title = live ? "Fix: run without admin" : "Copy de-elevation command";
+        DeelevateFixButton.Description = live
+            ? "For games that refuse to start under elevated Steam"
+            : "Paste into a game's Steam launch options";
+        InputLeaseFixButton.Title = live ? "Fix: give the game the controller" : "Copy Steam Input block command";
+        InputLeaseFixButton.Description = "For games that read the controller themselves";
+        BothFixesButton.Title = live ? "Fix: both of the above" : "Copy combined command";
+        BothFixesButton.Description = "No admin, and the game owns the controller";
+        RemoveFixesButton.Title = "Remove launch fixes";
+        RemoveFixesButton.Description = "Restore the game's original launch settings";
+    }
+
+    private void OnApplyDeelevation(object? sender, RoutedEventArgs e)
+        => StartLaunchFix(LaunchWrapperMode.Deelevate, DeelevateFixButton);
+
+    private void OnApplySteamInputBlock(object? sender, RoutedEventArgs e)
+        => StartLaunchFix(LaunchWrapperMode.InputLease, InputLeaseFixButton);
+
+    private void OnApplyBothWrappers(object? sender, RoutedEventArgs e)
+        => StartLaunchFix(LaunchWrapperMode.Both, BothFixesButton);
+
+    private void OnRemoveLaunchWrappers(object? sender, RoutedEventArgs e)
+        => StartLaunchFix(LaunchWrapperMode.None, RemoveFixesButton);
+
+    private void StartLaunchFix(LaunchWrapperMode mode, CardButton button)
+    {
+        var helperPath = LaunchWrapperCommand.HelperPathForCurrentDeployment();
+        if (mode != LaunchWrapperMode.None && !System.IO.File.Exists(helperPath))
         {
-            DeelevationCommandTitle.Title = "De-elevation helper missing";
-            Log.Warn($"Cannot copy Steam de-elevation command; helper not found: {helperPath}");
+            button.Title = "Launch wrapper missing";
+            Log.Warn($"Cannot configure a launch fix; wrapper not found: {helperPath}");
             return;
         }
 
+        if (DataContext is not OverlayViewModel { ConfigureLaunchOptionsLive: true })
+        {
+            _ = CopyLaunchCommandAsync(mode, button, helperPath);
+            return;
+        }
+        _ = ApplyLaunchFixAsync(mode, button);
+    }
+
+    private async System.Threading.Tasks.Task CopyLaunchCommandAsync(
+        LaunchWrapperMode mode, CardButton button, string helperPath)
+    {
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
         if (clipboard is null)
         {
-            DeelevationCommandTitle.Title = "Clipboard unavailable";
-            Log.Warn("Cannot copy Steam de-elevation command; no clipboard is available.");
+            button.Title = "Clipboard unavailable";
+            Log.Warn("Cannot copy a launch command; no clipboard is available.");
             return;
         }
 
         try
         {
-            await clipboard.SetTextAsync(DeelevationCommand.SteamLaunchOptions(helperPath));
-            DeelevationCommandTitle.Title = "Copied to clipboard";
-            Log.Info("Copied Steam de-elevation launch-option command to clipboard.");
+            await clipboard.SetTextAsync(LaunchWrapperCommand.SteamLaunchOptions(helperPath, mode));
+            button.Title = "Copied to clipboard";
+            Log.Info($"Copied the {mode} launch-option command to clipboard.");
             await DismissAfterCopyFeedback();
         }
         catch (Exception ex)
         {
-            DeelevationCommandTitle.Title = "Clipboard copy failed";
-            Log.Error("Could not copy Steam de-elevation command", ex);
+            button.Title = "Clipboard copy failed";
+            Log.Error("Could not copy the launch command", ex);
         }
     }
 
@@ -464,35 +526,156 @@ public partial class OverlayWindow : Window
         Dismissed?.Invoke();
     }
 
-    private async void OnCopySteamInputBlockCommand(object? sender, RoutedEventArgs e)
+    private async System.Threading.Tasks.Task ApplyLaunchFixAsync(
+        LaunchWrapperMode mode, CardButton button)
     {
-        var helperPath = SteamInputLeaseCommand.HelperPathForCurrentDeployment();
-        if (!System.IO.File.Exists(helperPath))
+        button.Title = "Asking Steam…";
+        var appId = await SteamPageBridge.GetCurrentAppIdAsync();
+        if (appId <= 0)
         {
-            SteamInputBlockCommandTitle.Title = "Steam Input wrapper missing";
-            Log.Warn($"Cannot copy Steam Input block command; wrapper not found: {helperPath}");
+            // Nothing on screen identifies a game (the library root, or a Steam that
+            // did not answer): ask which one instead of guessing.
+            _pendingLaunchFix = (mode, button);
+            LaunchWrapperHost.Open(mode == LaunchWrapperMode.None
+                ? "Remove launch fixes"
+                : "Apply launch fix");
+            EnterLaunchWrapperSubView();
             return;
         }
 
-        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
-        if (clipboard is null)
-        {
-            SteamInputBlockCommandTitle.Title = "Clipboard unavailable";
-            Log.Warn("Cannot copy Steam Input block command; no clipboard is available.");
-            return;
-        }
+        var games = await SafeGameLookupAsync();
+        var match = games.FirstOrDefault(g => g.AppId == appId);
+        await ApplyLaunchFixToAsync(
+            mode, button, appId, match?.Name ?? appId.ToString(CultureInfo.InvariantCulture),
+            match?.Shortcut ?? appId >= 0x80000000L);
+    }
 
+    private async System.Threading.Tasks.Task ApplyLaunchFixToAsync(
+        LaunchWrapperMode mode, CardButton button, long appId, string name, bool isShortcut)
+    {
         try
         {
-            await clipboard.SetTextAsync(SteamInputLeaseCommand.SteamLaunchOptions(helperPath));
-            SteamInputBlockCommandTitle.Title = "Copied to clipboard";
-            Log.Info("Copied Steam Input block launch-option command to clipboard.");
-            await DismissAfterCopyFeedback();
+            var current = await SteamLaunchConfig.ReadAsync(appId);
+            if (current is not { } details)
+            {
+                button.Title = "Steam didn't answer";
+                return;
+            }
+
+            LaunchConfigResult result;
+            if (mode == LaunchWrapperMode.None)
+            {
+                var snapshot = await LibraryTabManager.FindLaunchWrapperAsync(appId);
+                if (snapshot is null)
+                {
+                    button.Title = $"No fix applied to {name}";
+                    return;
+                }
+                result = await SteamLaunchConfig.RestoreAsync(snapshot);
+                if (result.Ok)
+                {
+                    await LibraryTabManager.ForgetLaunchWrapperAsync(appId);
+                }
+            }
+            else
+            {
+                var existing = await LibraryTabManager.FindLaunchWrapperAsync(appId);
+                // Snapshot BEFORE the write: configuring a shortcut overwrites its
+                // Target, so this becomes the only record of the real program. When
+                // the game is already wrapped (the user is switching modes) the
+                // values on screen are WSGM's own — keep the first snapshot instead.
+                var wrapped = SteamLaunchConfig.ModeFor(isShortcut, details) != LaunchWrapperMode.None;
+                var snapshot = wrapped && existing is not null
+                    ? existing
+                    : new LaunchWrapperConfig
+                    {
+                        AppId = appId,
+                        IsShortcut = isShortcut,
+                        OriginalTarget = details.ShortcutTarget,
+                        OriginalLaunchOptions = isShortcut
+                            ? details.ShortcutArguments
+                            : details.LaunchOptions,
+                        OriginalStartDir = details.ShortcutStartDir,
+                    };
+                snapshot.Mode = mode;
+                snapshot.Name = name;
+                await LibraryTabManager.RememberLaunchWrapperAsync(snapshot);
+
+                result = await SteamLaunchConfig.ApplyAsync(appId, isShortcut, mode, details);
+                if (!result.Ok && existing is null)
+                {
+                    // Nothing was changed in Steam, so leave no snapshot behind
+                    // claiming otherwise — unless one was already there.
+                    await LibraryTabManager.ForgetLaunchWrapperAsync(appId);
+                }
+            }
+
+            button.Title = result.Ok
+                ? mode == LaunchWrapperMode.None ? $"Removed from {name}" : $"Applied to {name}"
+                : result.Detail;
+            if (result.Ok)
+            {
+                Log.Info($"Launch fix {mode} written for {name} ({appId}).");
+                await DismissAfterCopyFeedback();
+            }
         }
         catch (Exception ex)
         {
-            SteamInputBlockCommandTitle.Title = "Clipboard copy failed";
-            Log.Error("Could not copy Steam Input block command", ex);
+            button.Title = "Couldn't reach Steam";
+            Log.Error($"Could not configure the launch fix for {appId}", ex);
+        }
+    }
+
+    private static async System.Threading.Tasks.Task<IReadOnlyList<SteamCollections.AppInfo>>
+        SafeGameLookupAsync()
+    {
+        try { return await SteamCollections.GetGamesAsync(); }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not list games while configuring a launch fix: {ex.Message}");
+            return [];
+        }
+    }
+
+    private void OnLaunchFixGamePicked(SteamCollections.AppInfo game)
+    {
+        if (_pendingLaunchFix is not { } pending)
+        {
+            LeaveLaunchWrapperSubView();
+            return;
+        }
+        LeaveLaunchWrapperSubView();
+        _ = ApplyLaunchFixToAsync(pending.Mode, pending.Button, game.AppId, game.Name, game.Shortcut);
+    }
+
+    private void EnterLaunchWrapperSubView()
+    {
+        InLaunchWrapperSubView = true;
+        PanelTools.IsVisible = false;
+        LaunchWrapperHost.IsVisible = true;
+        FocusFirstControl(LaunchWrapperHost);
+    }
+
+    private void LeaveLaunchWrapperSubView()
+    {
+        if (!InLaunchWrapperSubView)
+        {
+            return;
+        }
+        InLaunchWrapperSubView = false;
+        _pendingLaunchFix = null;
+        // Clears the "Asking Steam…" title left on whichever button opened the
+        // picker. A pick re-writes it moments later with the real outcome.
+        if (DataContext is OverlayViewModel viewModel)
+        {
+            InitializeLaunchFixLabels(viewModel);
+        }
+        SubViewClosed?.Invoke();
+        LaunchWrapperHost.IsVisible = false;
+        PanelTools.IsVisible = Tabs.SelectedIndex == 1;
+        if (PanelTools.IsVisible)
+        {
+            FocusFirstControl(PanelTools);
         }
     }
 

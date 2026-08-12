@@ -61,8 +61,9 @@ breaking its API is fine — change all layers together (Rust → `include\steam
 
 **It is built from source on every build.** `eng\build-steam-input-lease.ps1` compiles the workspace
 and stages `steam_input_gate.dll`, `steam_input_lease_ffi.dll`, `steam-input-lease.exe`, and the two
-license files into `src\WSGM\Native\SteamInputLease\`, which `WSGM.csproj` copies beside the AOT
-executable and the installer ships. `build.ps1` calls it first; `eng\verify.ps1` calls it with
+license files into `src\WSGM\Native\SteamInputLease\`. `WSGM.csproj` copies the two DLLs and the
+license files beside the AOT executable and the installer ships those; `steam-input-lease.exe` is
+deliberately **not** shipped (see below). `build.ps1` calls it first; `eng\verify.ps1` calls it with
 `-Validate`, which adds the library's own gates (`cargo clippy -- -D warnings`, `cargo test`). CI
 therefore needs a Rust toolchain — it adds the clippy component and caches `target\`.
 
@@ -70,14 +71,15 @@ That staging directory is **generated and gitignored**; `native\SteamInput` is t
 Never hand-copy binaries into it. A Rust toolchain is now required to build WSGM at all.
 
 `src\WSGM\SteamInterop\*.cs` are copies of `bindings\SteamInterop.Net\*.cs` **plus explicit
-`using` directives** (WSGM does not enable `ImplicitUsings`) — diff, don't blind-copy. The Rust code
+`using` directives** (neither WSGM nor `WSGM.Launch`, which links the same files, enables
+`ImplicitUsings`) — diff, don't blind-copy. The Rust code
 is deliberately not `cargo fmt` clean and has no fmt gate; do not reformat untouched code. Both
 `native\SteamInput\` and the staging directory are in `.prettierignore` (the latter because
 regenerating it would otherwise fail the next format check).
 
-`steam-input-lease.exe` is also user-facing: Quick Access copies
-`"...\steam-input-lease.exe" -- %command%` as a Steam launch option (the `--` is mandatory), the
-Steam-Input twin of the de-elevation command.
+`steam-input-lease.exe` is a **development/diagnostic tool only** and is not installed. The
+user-facing wrapper is `WSGM.Launch.exe`, which links the same binding mirror, takes the lease itself
+via `--input-lease`, and carries the CLI's `--status`/`--rescan` diagnostics (invariant 5).
 
 ## The radio helper library (`native\Radio`)
 
@@ -214,7 +216,10 @@ Session / Tools / Power — LB/RB cycling with wrap (via `GamepadNavigation`'s o
 the warning `InfoBar` staying panel-level above the tabs. `DefaultFocusTarget` resolves to the ACTIVE
 tab's first row (HomeAppButton is invisible on the other tabs). Note the taskbar's navigation
 deliberately passes NO tab callbacks: during the 150 ms surface handover both navigations are alive,
-so routing LB/RB there would double-advance the panel's tabs.
+so routing LB/RB there would double-advance the panel's tabs. The Tools tab hosts five in-place
+sub-views (`PanelFormat`, `LibraryTabsView`, `CardManagerView`, `ArtworkView`, `LaunchWrapperView`);
+adding one means extending `AnySubView`, `DefaultFocusTarget`, `TryCancelSubView`, the `Activated`
+teardown, and an `Enter*`/`Leave*` pair — never a Popup/Flyout, which `GamepadNavigation` cannot reach.
 
 **Input stack** (`Input\`): `SdlGamepads` is the process-wide SDL3 owner (single event pump — two
 `GamepadService` instances exist when Settings is open; per-instance pumps would steal hotplug
@@ -269,12 +274,20 @@ buttons); `OverlayController` stays the UI owner (lease lifecycle, overlay windo
    integrity before opening `ms-settings:`. The shell is normally elevated, and relying on
    `ShellExecute` directly only works while unelevated Explorer happens to broker the request;
    never start Explorer just to open Bluetooth or Wi-Fi Settings.
-   `WSGM.Deelevate.exe` is the user-facing extension of the same mechanism for Steam games that
-   reject elevation. Its copied launch option is `"...\WSGM.Deelevate.exe" %command%`; the elevated
+   `WSGM.Launch.exe` is the user-facing extension of the same mechanism for Steam games that
+   reject elevation. It is the **single** launch wrapper: it replaced `WSGM.Deelevate.exe` and
+   `steam-input-lease.exe`, which the installer now deletes on update, so anyone who had pasted one
+   of the old commands must re-apply the fix (call this out in the release notes). Behaviours are selected by flag: `"...\WSGM.Launch.exe" [--deelevate] [--input-lease]
+   -- %command%`, at least one required, the target command always after `--`. The elevated
    wrapper must remain alive for the target lifetime, preserve Steam's arguments/environment/CWD,
    and stop the target tree if Steam terminates the wrapper. Do not replace it with a fire-and-forget
-   scheduled task or an Explorer-token shortcut. **Four device-verified invariants make it actually
-   work when Steam is elevated (each was a separate real failure, 2026-08-12):** (a) it MUST be a
+   scheduled task or an Explorer-token shortcut. **The lease is the OUTER behaviour**: its gate
+   injects into an elevated `steam.exe`, which a medium-integrity process cannot do, so it is
+   acquired by the elevated parent *before* the de-elevation hand-off and released after the medium
+   child reports the target's exit. `--input-lease` alone instead uses the native job-object wrapper
+   (whole process tree). Lease failures fail **open** — log, tell the user, launch anyway.
+   **Four device-verified invariants make it actually work when Steam is elevated (each was a
+   separate real failure, 2026-08-12):** (a) it MUST be a
    **console** subsystem exe (`<OutputType>Exe</OutputType>`, shows a CLI window) — a windowless
    `WinExe` is treated by Steam as a game and gets Steam Input hooked into it, dying before it logs;
    (b) the elevated parent's IPC pipe MUST grant the **User SID** explicitly (`NamedPipeServerStreamAcl`
@@ -286,6 +299,8 @@ buttons); `OverlayController` stays the UI owner (lease lifecycle, overlay windo
    shortcut** Steam ignores an exe-replacement `%command%` launch option and runs the original target
    anyway — the wrapper goes in the shortcut's **Target**, the real program in **Launch Arguments**.
    Never reintroduce `CurrentUserOnly` on an elevated↔medium pipe, and never make the wrapper WinExe.
+   `Core\SteamLaunchConfig.cs` writes (d) into the running client so the user never has to; see
+   invariant 11.
 6. **Overlay dismissal refocuses only under strict gates** (intentional since b7234f8): on close,
    the overlay calls back the window that was foreground when it opened (`_restoreFocusTo`, captured
    in ShowOverlay) — exclusive-fullscreen games sit minimized after the panel took focus. The
@@ -401,6 +416,24 @@ buttons); `OverlayController` stays the UI owner (lease lifecycle, overlay windo
    clients, and CSSLoader only appends/removes `<style>` in `document.head`. Namespace everything under
    `window.__wsgm`, give injected nodes a unique `wsgm-badge` class (never `css-loader-style`, which
    CSSLoader bulk-removes), never touch `document.head`, and never disable the debug flag or port.
+11. **Writing a game's launch configuration (`Core\SteamLaunchConfig.cs`, live-probed 2026-08-12).**
+   The Tools tab's per-game launch fixes configure the RUNNING Steam client over SharedJSContext
+   instead of copying a command for the user to paste; with `Cef.Enabled` off they fall back to the
+   clipboard. Two APIs, because Steam treats the two kinds of entry differently: a real title takes
+   `SteamClient.Apps.SetAppLaunchOptions(appid, str)`; a non-Steam shortcut takes
+   `SetShortcutExe` + `SetShortcutLaunchOptions` (invariant 5d — a shortcut ignores an
+   exe-replacement launch option). **Steam stores every one of these values VERBATIM** — it neither
+   adds nor strips quotes and does not touch backslashes — and its own shortcut `Exe` is stored
+   *quoted* with single backslashes (`"C:\Games\…\game.exe"`), so WSGM supplies the quotes itself.
+   Never use decky's `JSON.stringify(path)` form: it doubles backslashes and is only correct on
+   Linux. Reads go through `RegisterForAppDetails` wrapped in a promise with a timeout and
+   `unregister()` on both paths (it is a subscription, not a getter, and it re-fires after a write);
+   `GetLaunchOptionsForApp` is the launch-*menu* list, not the options string. Writes persist to
+   `shortcuts.vdf`/`localconfig.vdf` immediately — **no Steam restart, and never hand-write those
+   files**. `StartDir` is deliberately never written (the game's folder stays the CWD). Because
+   configuring a shortcut destroys its original Target, the pre-change values are snapshotted into
+   `AppConfig.LaunchWrappers` BEFORE the write, and re-applying an already-wrapped game keeps the
+   first snapshot rather than recording WSGM's own values.
 
 **UI layer (rebuilt in 0.9.0 — read before touching any XAML).** All styling lives in `Themes\`
 (`Palette.axaml` = the token set, `Typography.axaml`, `Shared.axaml`, plus `ControlThemes`/
@@ -558,7 +591,7 @@ on Avalonia windows or controls.
 | `Interop` | narrow Win32/native ABI boundary | BCL/native DLLs | application decisions or UI state |
 | `Themes`, `Controls` | tokens, reusable presentation, AOT-safe commands | Avalonia | device/session/Steam policy |
 | `WSGM.LogonService` | SYSTEM launch/watchdog boundary | shared boot manifest, Win32 | Avalonia or user-profile writes |
-| `WSGM.Deelevate` | medium-integrity child-process lifetime | scheduled-task launcher | shell/session UI |
+| `WSGM.Launch` | per-game wrapper: medium-integrity child lifetime, Steam Input lease | scheduled-task launcher, `SteamInterop` mirror | shell/session UI, launch-option writing |
 | `native\*` | OS APIs unavailable to NativeAOT WSGM | Rust/C++ and C ABI | managed business logic |
 
 ## Application lifetime and state flow

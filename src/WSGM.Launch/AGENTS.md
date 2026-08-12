@@ -1,0 +1,30 @@
+# WSGM.Launch
+
+The single user-facing Steam launch wrapper. It replaces `WSGM.Deelevate.exe` and
+`steam-input-lease.exe`: one executable, selected by flags, so a game can have de-elevation, a Steam
+Input block, or both. WSGM writes its command into a game's launch options over the CEF bridge
+(`Core\SteamLaunchConfig.cs`); the clipboard copy is the fallback when CEF is off.
+
+```
+"…\WSGM.Launch.exe" [--deelevate] [--input-lease] -- %command%
+```
+
+- **Console subsystem, always** (`<OutputType>Exe</OutputType>`). A windowless `WinExe` is treated by
+  Steam as a game, gets Steam Input hooked into it and dies before it can log. The CLI window is the
+  price of working at all — never hide it by switching subsystem.
+- At least one behaviour flag is required; the target command always follows `--`, and its arguments
+  are preserved as individual Windows arguments (Steam expands `%command%` into several).
+- Preserve Steam's command, arguments, environment, and working directory exactly.
+- The elevated wrapper must remain alive for the target lifetime and stop the target tree if Steam
+  terminates the wrapper. Do not replace it with a fire-and-forget scheduled task or Explorer shortcut.
+- The scheduled-task XML is UTF-16, uses `InteractiveToken`, and must never use `/NoUACCheck`.
+- The de-elevation pipe grants the **User SID** explicitly. Never `PipeOptions.CurrentUserOnly` — on an
+  elevated server that grants the token owner (`BUILTIN\Administrators`), which is deny-only in the
+  medium child's filtered token.
+- `--input-lease` alone uses the native job-object wrapper (whole process tree). Combined with
+  `--deelevate` the lease is acquired by the **elevated parent before** the hand-off, because the gate
+  injects into an elevated `steam.exe` and a medium process cannot.
+- Lease failures fail **open**: log, tell the user, launch the game anyway. A held controller is a
+  degraded experience; a game that will not start is a broken one.
+- `SteamInterop\*.cs` is linked from `src\WSGM`, not copied. Treat it as the mirror it is and change it
+  in `native\SteamInput\bindings` first.

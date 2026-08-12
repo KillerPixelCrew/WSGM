@@ -59,12 +59,11 @@ german.SteamMissing=Steam wurde auf diesem PC nicht gefunden.%n%nWSGM funktionie
 
 [Files]
 Source: "{#PublishDir}\WSGM.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#PublishDir}\WSGM.Deelevate.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#PublishDir}\WSGM.Launch.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; SYSTEM service binary: Program Files only (admin-writable), never {app}. It
 ; launches the per-user WSGM.exe via the boot manifest — as that user, which is
 ; why the user-writable app path is not an escalation.
 Source: "{#PublishDir}\WSGM.LogonService.exe"; DestDir: "{autopf}\WSGM"; Flags: ignoreversion
-Source: "{#PublishDir}\steam-input-lease.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; Read-only radio diagnostic. Reports what the docs cannot settle for a given
 ; machine: whether radio control works with no shell running, and whether the
 ; Wi-Fi scan is blocked by the location-consent gate.
@@ -115,6 +114,11 @@ Type: filesandordirs; Name: "{commonappdata}\WSGM"
 [InstallDelete]
 ; Remove the per-user staging helper left by service-based preview builds.
 Type: files; Name: "{app}\WSGM.LogonService.exe"
+; The two wrappers WSGM.Launch.exe replaces. Deleting them is deliberate: a stale
+; helper would keep an old pasted launch option working, so the two would drift
+; apart silently. Gone, the option fails visibly and the release note explains it.
+Type: files; Name: "{app}\WSGM.Deelevate.exe"
+Type: files; Name: "{app}\steam-input-lease.exe"
 
 [Code]
 var
@@ -224,6 +228,17 @@ begin
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM WSGM.exe /F', '', SW_HIDE, ewWaitUntilTerminated, R);
 end;
 
+procedure StopLaunchWrappers();
+var
+  R: Integer;
+begin
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM WSGM.Launch.exe /T /F', '', SW_HIDE, ewWaitUntilTerminated, R);
+  // Pre-1.4 wrappers: an update must release these before [InstallDelete] can
+  // remove them, or the stale exe survives and keeps old launch options alive.
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM WSGM.Deelevate.exe /T /F', '', SW_HIDE, ewWaitUntilTerminated, R);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM steam-input-lease.exe /T /F', '', SW_HIDE, ewWaitUntilTerminated, R);
+end;
+
 // Steam Input Lease injects its gate into steam.exe. The graceful WSGM update
 // event above sends steam://exit from WSGM's (possibly elevated) token; give
 // Steam a bounded chance to comply, then clean up leftovers. This is update-only:
@@ -236,14 +251,7 @@ begin
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM steam.exe /T /F', '', SW_HIDE, ewWaitUntilTerminated, R);
   // Releases the new wrapper executable too. /T also stops its helper and
   // launched target; setup already shuts Steam down before this point.
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM WSGM.Deelevate.exe /T /F', '', SW_HIDE, ewWaitUntilTerminated, R);
-end;
-
-procedure StopDeelevationHelpers();
-var
-  R: Integer;
-begin
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM WSGM.Deelevate.exe /T /F', '', SW_HIDE, ewWaitUntilTerminated, R);
+  StopLaunchWrappers();
 end;
 
 // Stop the logon service BEFORE stopping WSGM. Ordering is load-bearing: with
@@ -286,6 +294,6 @@ function InitializeUninstall(): Boolean;
 begin
   StopLogonService();
   StopRunningInstances();
-  StopDeelevationHelpers();
+  StopLaunchWrappers();
   Result := True;
 end;

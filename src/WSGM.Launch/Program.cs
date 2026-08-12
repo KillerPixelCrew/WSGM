@@ -1,9 +1,13 @@
+using System;
 using System.Diagnostics;
+using System.IO;
 using System.IO.Pipes;
 using System.Security.AccessControl;
 using System.Security.Principal;
+using System.Threading;
+using System.Threading.Tasks;
 
-namespace WSGM.Deelevate;
+namespace WSGM.Launch;
 
 internal static class Program
 {
@@ -20,30 +24,124 @@ internal static class Program
                 return await RunMediumChildAsync(args[1]);
             }
 
-            if (args.Length == 0)
+            if (!CommandLine.TryParse(args, out var options, out var error))
             {
-                DeelevateLog.Error("No target command was supplied. Expected: WSGM.Deelevate.exe <program> [arguments].");
+                LaunchLog.Error(error!);
+                Console.Error.WriteLine(error);
+                Console.Error.WriteLine();
+                Console.Error.WriteLine(CommandLine.UsageText);
                 return 64;
             }
 
-            var elevated = Elevation.IsCurrentProcessElevated();
-            DeelevateLog.Info($"Steam wrapper invoked (elevated={elevated?.ToString() ?? "unknown"}, " +
-                              $"target={Path.GetFileName(args[0])}, argumentCount={args.Length - 1}).");
-            var payload = LaunchPayload.Capture(args);
-            return elevated == false
-                ? await LaunchAndWaitAsync(payload)
-                : await RunElevatedParentAsync(payload);
+            if (options.Help)
+            {
+                Console.WriteLine(CommandLine.UsageText);
+                return 0;
+            }
+            if (options.Status)
+            {
+                return RunStatus(options);
+            }
+            if (options.Rescan)
+            {
+                return RunRescan(options);
+            }
+
+            return await RunWrapperAsync(options);
         }
         catch (Exception ex)
         {
-            DeelevateLog.Error($"Unhandled wrapper failure: {ex}");
+            LaunchLog.Error($"Unhandled wrapper failure: {ex}");
+            return 1;
+        }
+    }
+
+    private static async Task<int> RunWrapperAsync(LaunchOptions options)
+    {
+        var elevated = Elevation.IsCurrentProcessElevated();
+        LaunchLog.Info($"Steam wrapper invoked (elevated={elevated?.ToString() ?? "unknown"}, " +
+                       $"deelevate={options.Deelevate}, inputLease={options.InputLease}, " +
+                       $"target={Path.GetFileName(options.Command[0])}, " +
+                       $"argumentCount={options.Command.Length - 1}).");
+
+        // Without de-elevation the native wrapper is strictly better: it starts the
+        // target suspended, assigns it to a job object and waits for the whole
+        // process tree, so a launcher that spawns the real game and exits still
+        // holds the lease. The de-elevation path cannot use it — it would create
+        // the process from this elevated parent, which is the thing we are avoiding.
+        if (options.InputLease && !options.Deelevate)
+        {
+            return RunLeaseWrapped(options);
+        }
+
+        using var lease = options.InputLease ? SteamInputLeaseHost.TryAcquire(options) : null;
+        var payload = LaunchPayload.Capture(options.Command);
+        return elevated == false
+            ? await LaunchAndWaitAsync(payload)
+            : await RunElevatedParentAsync(payload);
+    }
+
+    private static int RunLeaseWrapped(LaunchOptions options)
+    {
+        try
+        {
+            using var client = SteamInputLeaseHost.CreateClient(options);
+            Console.WriteLine("Acquiring Steam Input block lease...");
+            var exitCode = client.RunWrapped(options.Command);
+            Console.WriteLine("Game process tree exited; Steam Input unblocked.");
+            LaunchLog.Info($"Steam Input lease wrapper finished with exit code {exitCode}.");
+            return unchecked((int)exitCode);
+        }
+        catch (Exception ex)
+        {
+            // Fail open: a controller Steam refuses to let go of is a degraded
+            // experience, but a game that never starts is a broken one.
+            LaunchLog.Error($"Steam Input lease wrapper failed: {ex.Message}. Launching without it.");
+            Console.Error.WriteLine($"Steam Input block unavailable: {ex.Message}");
+            var payload = LaunchPayload.Capture(options.Command);
+            return LaunchAndWaitAsync(payload).GetAwaiter().GetResult();
+        }
+    }
+
+    private static int RunStatus(LaunchOptions options)
+    {
+        try
+        {
+            using var client = SteamInputLeaseHost.CreateClient(options);
+            var status = client.GetStatus();
+            Console.WriteLine(
+                $"Payload active; leases={status.LeaseCount}, tracked HID handles={status.HidHandleCount}, " +
+                $"handles revoked by last transition={status.LastRevokedHandleCount}.");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex.Message);
+            return 1;
+        }
+    }
+
+    private static int RunRescan(LaunchOptions options)
+    {
+        try
+        {
+            using var client = SteamInputLeaseHost.CreateClient(options);
+            var result = client.Rescan();
+            Console.WriteLine(
+                $"Requested Steam controller discovery (scan counter {result.ScanCountBefore} -> " +
+                $"{result.ScanCountAfter}).");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex.Message);
             return 1;
         }
     }
 
     private static async Task<int> RunElevatedParentAsync(LaunchPayload payload)
     {
-        var pipeName = $"WSGM.Deelevate.{Environment.ProcessId}.{Guid.NewGuid():N}";
+        var pipeName = $"WSGM.Launch.{Environment.ProcessId}.{Guid.NewGuid():N}";
         // NOT CurrentUserOnly: this parent is elevated, and CurrentUserOnly grants
         // the pipe to the token's OWNER — for an elevated admin that is
         // BUILTIN\Administrators, a deny-only SID in the medium child's filtered
@@ -69,7 +167,7 @@ internal static class Program
         var executablePath = Environment.ProcessPath;
         if (string.IsNullOrEmpty(executablePath))
         {
-            DeelevateLog.Error("Cannot determine the de-elevation helper path.");
+            LaunchLog.Error("Cannot determine the de-elevation helper path.");
             return 1;
         }
 
@@ -95,31 +193,31 @@ internal static class Program
             if (started == 0)
             {
                 var error = await PipeProtocol.ReadStringAsync(pipe, 64 * 1024, handshake.Token);
-                DeelevateLog.Error($"Medium-integrity launch failed: {error}");
+                LaunchLog.Error($"Medium-integrity launch failed: {error}");
                 return 1;
             }
             if (started != 1)
             {
-                DeelevateLog.Error($"Medium-integrity helper returned invalid status {started}.");
+                LaunchLog.Error($"Medium-integrity helper returned invalid status {started}.");
                 return 1;
             }
 
             var processId = await PipeProtocol.ReadInt32Async(pipe, handshake.Token);
-            DeelevateLog.Info($"Medium-integrity target started (pid {processId}); waiting for exit.");
+            LaunchLog.Info($"Medium-integrity target started (pid {processId}); waiting for exit.");
             // No timeout after launch: Steam expects its launch-option wrapper to
             // remain alive for the entire game/emulator lifetime.
             var exitCode = await PipeProtocol.ReadInt32Async(pipe, CancellationToken.None);
-            DeelevateLog.Info($"Medium-integrity target pid {processId} exited with {exitCode}.");
+            LaunchLog.Info($"Medium-integrity target pid {processId} exited with {exitCode}.");
             return exitCode;
         }
         catch (OperationCanceledException)
         {
-            DeelevateLog.Error("Timed out waiting for the medium-integrity helper.");
+            LaunchLog.Error("Timed out waiting for the medium-integrity helper.");
             return 1;
         }
         catch (Exception ex)
         {
-            DeelevateLog.Error($"Medium-integrity helper communication failed: {ex.Message}");
+            LaunchLog.Error($"Medium-integrity helper communication failed: {ex.Message}");
             return 1;
         }
         finally
@@ -140,7 +238,7 @@ internal static class Program
             if (Elevation.IsCurrentProcessElevated() != false)
             {
                 const string error = "Task Scheduler did not provide a medium-integrity token; UAC may be disabled.";
-                DeelevateLog.Error(error);
+                LaunchLog.Error(error);
                 await WriteLaunchFailureAsync(pipe, error, handshake.Token);
                 return 1;
             }
@@ -158,7 +256,7 @@ internal static class Program
             await PipeProtocol.WriteInt32Async(pipe, process.Id, handshake.Token);
             await pipe.FlushAsync(handshake.Token);
             launchResponseSent = true;
-            DeelevateLog.Info($"Launched {Path.GetFileName(payload.Arguments[0])} at medium integrity " +
+            LaunchLog.Info($"Launched {Path.GetFileName(payload.Arguments[0])} at medium integrity " +
                               $"(pid {process.Id}); preserving Steam wrapper lifetime.");
 
             using var disconnectCancellation = new CancellationTokenSource();
@@ -167,7 +265,7 @@ internal static class Program
             var completed = await Task.WhenAny(processExited, parentDisconnected);
             if (completed == parentDisconnected)
             {
-                DeelevateLog.Info($"Steam wrapper exited before target pid {process.Id}; stopping its process tree.");
+                LaunchLog.Info($"Steam wrapper exited before target pid {process.Id}; stopping its process tree.");
                 try { process.Kill(entireProcessTree: true); } catch { }
                 await process.WaitForExitAsync();
                 return 1;
@@ -181,7 +279,7 @@ internal static class Program
         }
         catch (Exception ex)
         {
-            DeelevateLog.Error($"Medium-integrity child failed: {ex.Message}");
+            LaunchLog.Error($"Medium-integrity child failed: {ex.Message}");
             if (!launchResponseSent && pipe.IsConnected)
             {
                 try { await WriteLaunchFailureAsync(pipe, ex.Message, CancellationToken.None); } catch { }
@@ -197,7 +295,7 @@ internal static class Program
         {
             return 1;
         }
-        DeelevateLog.Info($"Wrapper already has medium integrity; target started directly (pid {process.Id}).");
+        LaunchLog.Info($"Wrapper already has medium integrity; target started directly (pid {process.Id}).");
         await process.WaitForExitAsync();
         return process.ExitCode;
     }

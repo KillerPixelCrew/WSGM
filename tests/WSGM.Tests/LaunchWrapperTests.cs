@@ -1,0 +1,224 @@
+using WSGM.Core;
+using WSGM.Launch;
+
+namespace WSGM.Tests;
+
+public sealed class LaunchWrapperTests
+{
+    private const string Helper = "C:\\Users\\Player One\\WSGM.Launch.exe";
+
+    [Theory]
+    [InlineData(LaunchWrapperMode.Deelevate, "--deelevate")]
+    [InlineData(LaunchWrapperMode.InputLease, "--input-lease")]
+    [InlineData(LaunchWrapperMode.Both, "--deelevate --input-lease")]
+    public void SteamLaunchOptionsWrapTheHelperAndPreserveTheOriginalCommandPlaceholder(
+        LaunchWrapperMode mode, string expectedFlags)
+        => Assert.Equal(
+            $"\"{Helper}\" {expectedFlags} -- %command%",
+            LaunchWrapperCommand.SteamLaunchOptions(Helper, mode));
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void SteamLaunchOptionsRejectAMissingHelperPath(string helperPath)
+        => Assert.Throws<ArgumentException>(
+            () => LaunchWrapperCommand.SteamLaunchOptions(helperPath, LaunchWrapperMode.Deelevate));
+
+    [Fact]
+    public void SteamLaunchOptionsRejectAModeWithNoBehaviour()
+        => Assert.Throws<ArgumentException>(
+            () => LaunchWrapperCommand.SteamLaunchOptions(Helper, LaunchWrapperMode.None));
+
+    // Steam stores a shortcut's Target verbatim and its own shortcuts carry the
+    // quoted form, so the quotes are part of the value WSGM has to write.
+    [Fact]
+    public void ShortcutTargetIsQuotedForPathsContainingSpaces()
+        => Assert.Equal($"\"{Helper}\"", LaunchWrapperCommand.ShortcutTarget(Helper));
+
+    [Fact]
+    public void ShortcutArgumentsKeepSteamsAlreadyQuotedTargetUnchanged()
+        => Assert.Equal(
+            "--deelevate -- \"C:\\Games\\The Movies\\MoviesSE.exe\"",
+            LaunchWrapperCommand.ShortcutArguments(
+                LaunchWrapperMode.Deelevate, "\"C:\\Games\\The Movies\\MoviesSE.exe\"", null));
+
+    [Fact]
+    public void ShortcutArgumentsQuoteABareTarget()
+        => Assert.Equal(
+            "--input-lease -- \"C:\\Games\\The Movies\\MoviesSE.exe\"",
+            LaunchWrapperCommand.ShortcutArguments(
+                LaunchWrapperMode.InputLease, "C:\\Games\\The Movies\\MoviesSE.exe", ""));
+
+    [Fact]
+    public void ShortcutArgumentsPreserveTheShortcutsOwnArguments()
+        => Assert.Equal(
+            "--deelevate --input-lease -- \"C:\\Games\\game.exe\" -windowed -skipintro",
+            LaunchWrapperCommand.ShortcutArguments(
+                LaunchWrapperMode.Both, "\"C:\\Games\\game.exe\"", " -windowed -skipintro "));
+
+    [Fact]
+    public void ShortcutArgumentsRejectAMissingOriginalTarget()
+        => Assert.Throws<ArgumentException>(
+            () => LaunchWrapperCommand.ShortcutArguments(LaunchWrapperMode.Both, "  ", null));
+
+    [Theory]
+    [InlineData(LaunchWrapperMode.Deelevate)]
+    [InlineData(LaunchWrapperMode.InputLease)]
+    [InlineData(LaunchWrapperMode.Both)]
+    public void ModeForReadsBackWhatSteamLaunchOptionsWrote(LaunchWrapperMode mode)
+        => Assert.Equal(
+            mode, LaunchWrapperCommand.ModeFor(LaunchWrapperCommand.SteamLaunchOptions(Helper, mode)));
+
+    // A user's own launch options must never be mistaken for WSGM's, even when
+    // they happen to contain the same words.
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("-novid -high")]
+    [InlineData("\"C:\\Other\\tool.exe\" --deelevate --input-lease -- %command%")]
+    public void ModeForReportsNoneWithoutTheWrapper(string? value)
+        => Assert.Equal(LaunchWrapperMode.None, LaunchWrapperCommand.ModeFor(value));
+
+    [Fact]
+    public void TargetsHelperDetectsAShortcutWsgmAlreadyOwns()
+    {
+        Assert.True(LaunchWrapperCommand.TargetsHelper($"\"{Helper}\""));
+        Assert.False(LaunchWrapperCommand.TargetsHelper("\"C:\\Games\\game.exe\""));
+        Assert.False(LaunchWrapperCommand.TargetsHelper(null));
+    }
+
+    // Removing the wrapper from a shortcut has to recover the program it really
+    // runs, which by then lives only inside the arguments WSGM generated.
+    [Theory]
+    [InlineData(
+        "--deelevate -- \"C:\\Games\\The Movies\\MoviesSE.exe\"",
+        "\"C:\\Games\\The Movies\\MoviesSE.exe\"", "")]
+    [InlineData(
+        "--deelevate --input-lease -- \"C:\\Games\\game.exe\" -windowed -skipintro",
+        "\"C:\\Games\\game.exe\"", "-windowed -skipintro")]
+    [InlineData("--input-lease -- C:\\Games\\bare.exe", "C:\\Games\\bare.exe", "")]
+    [InlineData("--input-lease -- C:\\bare.exe -x", "C:\\bare.exe", "-x")]
+    public void OriginalFromWrappedArgumentsRecoversTheRealProgram(
+        string arguments, string expectedTarget, string expectedArguments)
+    {
+        var (target, rest) = SteamLaunchConfig.OriginalFromWrappedArguments(arguments);
+        Assert.Equal(expectedTarget, target);
+        Assert.Equal(expectedArguments, rest);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("--deelevate")]
+    [InlineData("--deelevate -- ")]
+    public void OriginalFromWrappedArgumentsReportsNothingWhenThereIsNoWrappedCommand(string? arguments)
+    {
+        var (target, rest) = SteamLaunchConfig.OriginalFromWrappedArguments(arguments);
+        Assert.Equal("", target);
+        Assert.Equal("", rest);
+    }
+
+    // What ShortcutArguments writes must be exactly what the remover reads back.
+    [Fact]
+    public void ShortcutArgumentsAndOriginalRecoveryRoundTrip()
+    {
+        const string original = "\"C:\\Games\\The Movies\\MoviesSE.exe\"";
+        const string extra = "-windowed";
+        var written = LaunchWrapperCommand.ShortcutArguments(LaunchWrapperMode.Both, original, extra);
+
+        var (target, rest) = SteamLaunchConfig.OriginalFromWrappedArguments(written);
+
+        Assert.Equal(original, target);
+        Assert.Equal(extra, rest);
+    }
+
+    [Fact]
+    public async Task LaunchPayloadRoundTripsArgumentsEnvironmentAndWorkingDirectory()
+    {
+        var expected = new LaunchPayload(
+            "C:\\Games\\Emulator",
+            ["C:\\Games\\Emulator\\Ryujinx.exe", "--fullscreen", "value with spaces", "雪"],
+            [KeyValuePair.Create("SteamAppId", "1234"), KeyValuePair.Create("EMPTY", "")]);
+        await using var stream = new MemoryStream();
+
+        await expected.WriteAsync(stream, CancellationToken.None);
+        stream.Position = 0;
+        var actual = await LaunchPayload.ReadAsync(stream, CancellationToken.None);
+
+        Assert.Equal(expected.WorkingDirectory, actual.WorkingDirectory);
+        Assert.Equal(expected.Arguments, actual.Arguments);
+        Assert.Equal(expected.EnvironmentVariables, actual.EnvironmentVariables);
+    }
+
+    [Fact]
+    public void ScheduledTaskUsesInteractiveTokenWithoutAnElevatedRunLevel()
+    {
+        var xml = ScheduledTaskLauncher.BuildTaskXml(
+            "C:\\A&B\\WSGM.Launch.exe", "pipe<name>");
+
+        Assert.Contains("<LogonType>InteractiveToken</LogonType>", xml);
+        Assert.DoesNotContain("<RunLevel>", xml);
+        Assert.Contains("<Command>C:\\A&amp;B\\WSGM.Launch.exe</Command>", xml);
+        Assert.Contains("<Arguments>--medium-child pipe&lt;name&gt;</Arguments>", xml);
+    }
+
+    [Theory]
+    [InlineData(new[] { "--deelevate", "--", "C:\\game.exe", "-x" }, true, false)]
+    [InlineData(new[] { "--input-lease", "--", "C:\\game.exe" }, false, true)]
+    [InlineData(new[] { "--deelevate", "--input-lease", "--", "C:\\game.exe" }, true, true)]
+    public void CommandLineSplitsBehaviourFlagsFromTheWrappedCommand(
+        string[] arguments, bool deelevate, bool inputLease)
+    {
+        Assert.True(CommandLine.TryParse(arguments, out var options, out var error));
+        Assert.Null(error);
+        Assert.Equal(deelevate, options.Deelevate);
+        Assert.Equal(inputLease, options.InputLease);
+        Assert.Equal(arguments[Array.IndexOf(arguments, "--") + 1], options.Command[0]);
+    }
+
+    // Steam expands %command% into several arguments; re-quoting them here would
+    // corrupt any path containing a space.
+    [Fact]
+    public void CommandLinePreservesWrappedArgumentsIndividually()
+    {
+        Assert.True(CommandLine.TryParse(
+            ["--deelevate", "--", "C:\\Program Files\\game.exe", "-map", "de dust"],
+            out var options,
+            out _));
+        Assert.Equal(["C:\\Program Files\\game.exe", "-map", "de dust"], options.Command);
+    }
+
+    // Flags after -- belong to the game, not the wrapper.
+    [Fact]
+    public void CommandLineDoesNotReadWrapperFlagsOutOfTheWrappedCommand()
+    {
+        Assert.True(CommandLine.TryParse(
+            ["--deelevate", "--", "C:\\game.exe", "--input-lease"], out var options, out _));
+        Assert.False(options.InputLease);
+        Assert.Equal(["C:\\game.exe", "--input-lease"], options.Command);
+    }
+
+    // Cast to object: a lone string[] would otherwise be spread as the params array
+    // instead of being passed as the single argument.
+    [Theory]
+    [InlineData((object)new[] { "--deelevate" })]
+    [InlineData((object)new[] { "--deelevate", "--" })]
+    [InlineData((object)new[] { "--", "C:\\game.exe" })]
+    [InlineData((object)new[] { "--bogus", "--", "C:\\game.exe" })]
+    [InlineData((object)new[] { "--target-name" })]
+    public void CommandLineRejectsIncompleteInvocations(string[] arguments)
+    {
+        Assert.False(CommandLine.TryParse(arguments, out _, out var error));
+        Assert.False(string.IsNullOrWhiteSpace(error));
+    }
+
+    [Fact]
+    public void CommandLineAllowsDiagnosticsWithoutACommand()
+    {
+        Assert.True(CommandLine.TryParse(["--status"], out var status, out _));
+        Assert.True(status.Status);
+        Assert.True(CommandLine.TryParse(["--rescan"], out var rescan, out _));
+        Assert.True(rescan.Rescan);
+    }
+}
