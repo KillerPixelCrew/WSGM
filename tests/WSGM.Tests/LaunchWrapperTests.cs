@@ -117,6 +117,15 @@ public sealed class LaunchWrapperTests
         Assert.Equal("D:\\Games", originals.StartDir);
     }
 
+    // The elevated parent recognizes this exact marker in the child's failure
+    // message to fail open when de-elevation is impossible (UAC switched off).
+    [Fact]
+    public void TheDisabledUacFailureMessageCarriesTheMarkerTheParentMatches()
+        => Assert.Contains(
+            WSGM.Launch.Program.NoMediumTokenMarker,
+            WSGM.Launch.Program.DisabledUacFailureMessage,
+            StringComparison.Ordinal);
+
     [Fact]
     public void OriginalsFromLeaveAnUnwrappedGameUntouched()
     {

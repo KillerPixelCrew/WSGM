@@ -14,6 +14,16 @@ internal static class Program
     private const string ChildArgument = "--medium-child";
     private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(20);
 
+    // Carried in the medium child's failure message so the elevated parent can tell
+    // "de-elevation is impossible on this machine" (UAC off) from a transient error
+    // and fail open instead of leaving the game unlaunchable.
+    internal const string NoMediumTokenMarker = "UAC appears to be disabled";
+
+    /// <summary>The failure the medium child reports when Task Scheduler could not
+    /// give it a limited token, which is what UAC being switched off looks like.</summary>
+    internal const string DisabledUacFailureMessage = NoMediumTokenMarker
+        + "; Task Scheduler did not provide a medium-integrity token.";
+
     private static async Task<int> Main(string[] args)
     {
         try
@@ -197,6 +207,17 @@ internal static class Program
             {
                 var error = await PipeProtocol.ReadStringAsync(pipe, 64 * 1024, handshake.Token);
                 LaunchLog.Error($"Medium-integrity launch failed: {error}");
+                // Fail open, on the same rule the lease follows: a game that never
+                // starts is a broken one. With UAC switched off entirely there is no
+                // limited token for the scheduled task to hand out, so de-elevation
+                // is impossible on this machine and the game would simply never run.
+                // Launch it the way it would have run without the wrapper.
+                if (error.Contains(NoMediumTokenMarker, StringComparison.Ordinal))
+                {
+                    Console.Error.WriteLine(
+                        "De-elevation is unavailable because UAC is disabled; starting the game as-is.");
+                    return await LaunchAndWaitAsync(payload);
+                }
                 return 1;
             }
             if (started != 1)
@@ -240,9 +261,11 @@ internal static class Program
             await pipe.ConnectAsync(handshake.Token);
             if (Elevation.IsCurrentProcessElevated() != false)
             {
-                const string error = "Task Scheduler did not provide a medium-integrity token; UAC may be disabled.";
-                LaunchLog.Error(error);
-                await WriteLaunchFailureAsync(pipe, error, handshake.Token);
+                // Marker text, matched by the parent to fail open: with UAC disabled
+                // every token is a full one, so no amount of retrying produces a
+                // medium-integrity child on this machine.
+                LaunchLog.Error(DisabledUacFailureMessage);
+                await WriteLaunchFailureAsync(pipe, DisabledUacFailureMessage, handshake.Token);
                 return 1;
             }
 
