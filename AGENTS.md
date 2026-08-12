@@ -481,7 +481,7 @@ adorner is destroyed/rebuilt on every focus move and lost on activation blips). 
 `Controls\`: `TabStrip` (the LB/RB bumper tab bar used by BOTH the quick-access panel and Settings),
 `CardButton`, `Icons` (stroke-style `StreamGeometry`; render them stroked with `Fill={x:Null}` —
 filling collapses interior detail). `Core\RelayCommand.cs` is the hand-rolled AOT-safe ICommand.
-Settings is `Settings\SettingsWindow` + five always-alive `Settings\Pages\*` UserControls toggled by
+Settings is `Settings\SettingsWindow` + six always-alive `Settings\Pages\*` UserControls toggled by
 `IsVisible` (scroll positions survive switching), with recorder lifetime in
 `Settings\ShortcutRecorders.cs`. **Layout floor: 1280x800 (Steam Deck), Settings min 1024x640** —
 a page must fit without scrolling or it earns another tab.

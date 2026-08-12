@@ -81,6 +81,7 @@
         <Grid Grid.Row="1" Background="{StaticResource HcHeaderBrush}">
             <pages:SystemPage x:Name="PageSystem" IsVisible="True" />
             <pages:SteamPage x:Name="PageSteam" IsVisible="False" />
+            <pages:IntegrationPage x:Name="PageIntegration" IsVisible="False" />
             <pages:StartupPage x:Name="PageStartup" IsVisible="False" />
             <pages:QuickAccessPage x:Name="PageQuickAccess" IsVisible="False" />
             <pages:AppearancePage x:Name="PageAppearance" IsVisible="False" />

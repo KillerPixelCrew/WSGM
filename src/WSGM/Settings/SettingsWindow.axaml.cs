@@ -12,7 +12,7 @@ using WSGM.Shell;
 namespace WSGM.Settings;
 
 /// <summary>The interactive settings window for shell and game-mode configuration:
-/// a bumper <see cref="TabStrip"/> over five always-alive pages (toggled by
+/// a bumper <see cref="TabStrip"/> over six always-alive pages (toggled by
 /// visibility so their state survives switching) and a bottom status strip.</summary>
 public partial class SettingsWindow : Window
 {
@@ -68,9 +68,10 @@ public partial class SettingsWindow : Window
         {
             new("System", Icons.Monitor, 0),
             new("Steam", Icons.SteamLike, 1),
-            new("Startup", Icons.Rocket, 2),
-            new("Quick access", Icons.Panel, 3),
-            new("Appearance", Icons.Palette, 4),
+            new("Integration", Icons.Wrench, 2),
+            new("Startup", Icons.Rocket, 3),
+            new("Quick access", Icons.Panel, 4),
+            new("Appearance", Icons.Palette, 5),
         };
         Tabs.SelectionChanged += OnTabSelectionChanged;
 
@@ -155,9 +156,10 @@ public partial class SettingsWindow : Window
     {
         PageSystem.IsVisible = e.NewIndex == 0;
         PageSteam.IsVisible = e.NewIndex == 1;
-        PageStartup.IsVisible = e.NewIndex == 2;
-        PageQuickAccess.IsVisible = e.NewIndex == 3;
-        PageAppearance.IsVisible = e.NewIndex == 4;
+        PageIntegration.IsVisible = e.NewIndex == 2;
+        PageStartup.IsVisible = e.NewIndex == 3;
+        PageQuickAccess.IsVisible = e.NewIndex == 4;
+        PageAppearance.IsVisible = e.NewIndex == 5;
 
         // Land controller focus inside the newly shown page — without this the
         // next D-pad press falls back to the window's first focusable, which is
@@ -166,8 +168,9 @@ public partial class SettingsWindow : Window
         {
             0 => (Control)PageSystem,
             1 => PageSteam,
-            2 => PageStartup,
-            3 => PageQuickAccess,
+            2 => PageIntegration,
+            3 => PageStartup,
+            4 => PageQuickAccess,
             _ => PageAppearance,
         };
         FocusFirstControl(page);

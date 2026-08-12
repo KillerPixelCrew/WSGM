@@ -5,7 +5,9 @@
              x:Class="WSGM.Settings.Pages.SteamPage"
              x:DataType="s:SettingsViewModel">
     <!-- The old "Home" page. Element order preserved (controller tab order):
-         Big Picture info → Steam status → auto-relaunch → UAC → lock-on-wake. -->
+         Big Picture info → Steam status → auto-relaunch → UAC → lock-on-wake.
+         The CEF integration toggles live on their own Integration tab: with them
+         here the right column no longer fit the 1024x640 layout floor. -->
     <Border Padding="16,10,16,10">
         <Grid ColumnDefinitions="*,24,*">
             <StackPanel Grid.Column="0">
@@ -61,73 +63,6 @@
             </StackPanel>
 
             <StackPanel Grid.Column="2">
-                <Border Classes="section-header">
-                    <TextBlock Text="STEAM INTEGRATION (CEF)" />
-                </Border>
-                <Border Classes="setting-row alt">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Steam CEF integration" Classes="setting-title" />
-                            <TextBlock Text="Master switch for everything WSGM injects into Steam over its debug port. Off leaves the debug port closed and hides every feature below." Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefEnabled}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row" IsVisible="{Binding CefEnabled}">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Library &amp; tabs" Classes="setting-title" />
-                            <TextBlock Text="Custom filter tabs, tab order, and hiding native Steam tabs." Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefLibraryTabs}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row alt" IsVisible="{Binding CefEnabled}">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="SD-card library manager" Classes="setting-title" />
-                            <TextBlock Text="Per-card library tabs, the &quot;On: card&quot; game-page badges, and live library labels." Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefCardManager}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row" IsVisible="{Binding CefEnabled}">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Format SD Card + add library" Classes="setting-title" />
-                            <TextBlock Text="Format a card as a Steam library and register it into the running Steam." Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefSdFormat}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row alt" IsVisible="{Binding CefEnabled}">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Shortcut artwork" Classes="setting-title" />
-                            <TextBlock Text="Swap game art from SteamGridDB via the overlay." Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefArtwork}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row" IsVisible="{Binding CefEnabled}">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Big Picture Wi-Fi indicator" Classes="setting-title" />
-                            <TextBlock Text="Make Big Picture's header Wi-Fi icon reflect the real connection." Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefWifiIndicator}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-                <Border Classes="setting-row alt" IsVisible="{Binding CefEnabled}">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Keep awake during downloads" Classes="setting-title" />
-                            <TextBlock Text="Hold a wake lock while Steam downloads, so standby cannot interrupt them." Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefDownloadKeepAwake}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-
                 <Border Classes="section-header">
                     <TextBlock Text="WINDOWS POLICIES" />
                 </Border>
