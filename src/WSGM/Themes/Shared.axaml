@@ -97,4 +97,41 @@
         <Setter Property="OffContent" Value="Off" />
         <Setter Property="MinWidth" Value="72" />
     </Style>
+
+    <!-- Expandable list rows shared by the radio and eject panels. These lived as
+         identical copies in both windows, which is how the header lost its focus
+         visual in one place and not the other; they belong here so a fix cannot
+         apply to only one panel again. -->
+    <Style Selector="Border.radio-row">
+        <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="BorderThickness" Value="2" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+    </Style>
+    <Style Selector="Border.radio-row.selected">
+        <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+    </Style>
+    <!-- The row header carries the unified focus visual itself: a constant 2 px
+         border that flips to the accent on :focus. The row's own accent border only
+         marks the EXPANDED row, so without this a controller cursor moving down the
+         list would be invisible — on the surfaces that join a network and eject a
+         drive. Padding drops by the border width so the rendered row size is
+         unchanged. -->
+    <Style Selector="Button.radio-row-header">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="2" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Padding" Value="8,6" />
+        <Setter Property="FocusAdorner" Value="{x:Null}" />
+    </Style>
+    <Style Selector="Button.radio-row-header:focus">
+        <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+    </Style>
+    <Style Selector="StackPanel.radio-row-actions">
+        <Setter Property="Orientation" Value="Horizontal" />
+        <Setter Property="Spacing" Value="8" />
+        <Setter Property="Margin" Value="10,0,10,10" />
+    </Style>
 </Styles>

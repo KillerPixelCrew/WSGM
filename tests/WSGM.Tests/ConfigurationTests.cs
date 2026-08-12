@@ -54,6 +54,30 @@ public sealed class ConfigurationTests
         Assert.NotNull(normalized.Splash);
     }
 
+    /// A null ELEMENT ("StartupApps": [null]) survives the list-level null repair. It
+    /// used to NRE in SelfElevation BEFORE the crash-loop breaker records a start, so
+    /// the shell died at every sign-in with nothing left to disarm the boot.
+    [Fact]
+    public void NormalizeDropsNullElementsFromEveryListAndRepairsTheirStrings()
+    {
+        var config = new AppConfig
+        {
+            StartupApps = [null!, new StartupAppConfig { Path = null!, Args = null! }],
+            SavedDisplayScaleEntries = [null!, new DisplayScaleEntry { DeviceName = null! }],
+            PreviousConsoleLockSchemeValues = [null!, new PowerSchemeConsoleLock { SchemeGuid = null! }],
+            SgdbLinks = [null!, new SgdbLinkConfig { Name = null! }],
+        };
+
+        var normalized = ConfigStore.Normalize(config);
+
+        var app = Assert.Single(normalized.StartupApps);
+        Assert.Equal("", app.Path);
+        Assert.Equal("", app.Args);
+        Assert.Equal("", Assert.Single(normalized.SavedDisplayScaleEntries).DeviceName);
+        Assert.Equal("", Assert.Single(normalized.PreviousConsoleLockSchemeValues).SchemeGuid);
+        Assert.Equal("", Assert.Single(normalized.SgdbLinks).Name);
+    }
+
     [Fact]
     public void NormalizeRepairsExplicitNullsInsideAnExistingSplashSection()
     {
@@ -374,9 +398,13 @@ public sealed class ConfigurationTests
     [Fact]
     public void TheConfigLockIsReentrantOnTheSameThreadSoNestedLoadAndSaveStillBalance()
     {
-        // SettingsViewModel.SaveMerged holds this scope across Load → Save → Commit
+        // SettingsViewModel.SaveMerged holds this scope across Mutate → Commit
         // while ConfigStore.Load/Save re-acquire the same named mutex inside it.
         using var outer = ConfigStore.AcquireLock();
+        // Acquire() degrades to a lock-less scope when the named mutex is already held
+        // by another process; every exclusivity assertion below would then pass without
+        // testing anything, so fail loudly instead.
+        Assert.True(ConfigStore.HasExclusiveLock, "the config mutex was held elsewhere");
 
         var nested = System.Diagnostics.Stopwatch.StartNew();
         using (ConfigStore.AcquireLock())
@@ -471,6 +499,7 @@ public sealed class ConfigurationTests
         // cleanly, and one a later stale scope could pop off an unrelated acquisition.
         Assert.Equal(0, ConfigStore.LockDepth);
         var outer = ConfigStore.AcquireLock();
+        Assert.True(ConfigStore.HasExclusiveLock, "the config mutex was held elsewhere");
         var stale = ConfigStore.AcquireLock();
         Assert.Equal(2, ConfigStore.LockDepth);
 
@@ -480,6 +509,7 @@ public sealed class ConfigurationTests
         // A fresh, real acquisition on this thread — which the stale scope's late
         // Dispose must leave completely alone.
         var reacquired = ConfigStore.AcquireLock();
+        Assert.True(ConfigStore.HasExclusiveLock, "the config mutex was held elsewhere");
         Assert.Equal(1, ConfigStore.LockDepth);
         stale.Dispose();
         Assert.Equal(1, ConfigStore.LockDepth);
@@ -520,6 +550,7 @@ public sealed class ConfigurationTests
         // The outermost scope owns the kernel mutex; a double dispose of it must leave
         // the depth at zero so the next acquisition on this thread is a real one.
         var outer = ConfigStore.AcquireLock();
+        Assert.True(ConfigStore.HasExclusiveLock, "the config mutex was held elsewhere");
         using (ConfigStore.AcquireLock()) { }
         outer.Dispose();
         outer.Dispose();

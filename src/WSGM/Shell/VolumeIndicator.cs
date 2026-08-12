@@ -1,5 +1,6 @@
 using System;
 using Avalonia.Threading;
+using WSGM.Core;
 
 namespace WSGM.Shell;
 
@@ -12,6 +13,7 @@ internal sealed class VolumeIndicator : IDisposable
 
     private readonly Func<double> _uiScale;
     private VolumeIndicatorWindow? _window;
+    private double _windowScale;
     private DispatcherTimer? _dismissTimer;
     private bool _disposed;
 
@@ -29,7 +31,22 @@ internal sealed class VolumeIndicator : IDisposable
             return;
         }
 
-        _window ??= new VolumeIndicatorWindow(_uiScale());
+        // The window bakes the scale in at construction and is only closed at shell
+        // shutdown, so a scale that changed since (live config reload, or a mode
+        // round trip re-applying the posture) has to recreate it — otherwise the OSD
+        // keeps rendering at the factor that was current the first time it appeared.
+        var scale = _uiScale();
+        if (_window is not null && Math.Abs(scale - _windowScale) > 0.001)
+        {
+            Log.Info($"Volume OSD recreated for UI scale {_windowScale:0.##} -> {scale:0.##}.");
+            _window.Close();
+            _window = null;
+        }
+        if (_window is null)
+        {
+            _window = new VolumeIndicatorWindow(scale);
+            _windowScale = scale;
+        }
         _window.Update(percentage, muted);
         if (!_window.IsVisible)
         {

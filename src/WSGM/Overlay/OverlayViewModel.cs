@@ -65,6 +65,12 @@ public sealed class OverlayViewModel : INotifyPropertyChanged
     /// <summary>Gets the action label that switches between desktop and game mode.</summary>
     public string DesktopButtonText => ExplorerRunning ? "Back to Game Mode" : "Return to Desktop";
 
+    /// <summary>Gets whether the desktop/game-mode row is offered at all. False for a
+    /// preview surface (Settings' "Test panel", <c>--overlay-test</c>), which has no
+    /// ShellSession, tray host or watchdog behind it — performing a real transition
+    /// there would exit Explorer and leave the user with no shell to recover to.</summary>
+    public bool ModeSwitchAvailable { get; init; } = true;
+
     /// <summary>Gets the action label that starts or focuses the home application.</summary>
     public string HomeAppButtonText => HomeAppAlive ? $"Focus {HomeAppName}" : $"Start {HomeAppName}";
 

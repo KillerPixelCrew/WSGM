@@ -108,9 +108,12 @@ public static class UpdateExitWatcher
                     Log.Info("Exit requested by installer (update).");
                     onExitRequested();
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Watcher must never take the shell down.
+                    // Watcher must never take the shell down — but a failed
+                    // shutdown request is why the installer falls back to
+                    // taskkill, so it has to be visible in the log.
+                    Log.Warn($"Update-exit watcher: shutdown request failed: {ex.Message}");
                 }
             })
             {

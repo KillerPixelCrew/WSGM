@@ -1,6 +1,7 @@
 # WSGM release build: NativeAOT publish + Inno Setup installer.
 # Output: publish\WSGM-Setup-<version>.exe (the one-file installer — the only
 # shipped artifact; the logon service requires a real install)
+Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 
@@ -27,7 +28,9 @@ Write-Host "== Building radio helper (Rust) ==" -ForegroundColor Cyan
 Write-Host "== Publishing WSGM $version (NativeAOT) ==" -ForegroundColor Cyan
 # Clean first: dotnet publish overlays onto the previous output, so a DLL removed by
 # a dependency bump (or an old setup exe) would otherwise leak into the release.
-Remove-Item -Recurse -Force "$root\publish" -ErrorAction SilentlyContinue
+# Test-Path covers the only tolerable failure (no previous output); a clean that
+# fails for any other reason must stop the build, not leak a stale tree.
+if (Test-Path "$root\publish") { Remove-Item -Recurse -Force "$root\publish" }
 dotnet publish "$root\src\WSGM\WSGM.csproj" -c Release -r win-x64 -o "$root\publish"
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
 

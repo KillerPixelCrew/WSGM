@@ -422,13 +422,16 @@ internal static class SplashTheme
     }
 
     /// <summary>Copies the referenced image into the archive under its deterministic
-    /// entry name and returns that name; a blank or missing source keeps the
-    /// original path string and bundles nothing.</summary>
+    /// entry name and returns that name; a blank or missing source bundles nothing
+    /// and returns "". Returning the source path instead would leak the author's
+    /// absolute local path into a file meant to be shared, for an image the archive
+    /// does not even contain; the importer treats an absent entry as "no image"
+    /// either way.</summary>
     private static string BundleImage(ZipArchive archive, string sourcePath, string entryBaseName)
     {
         if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))
         {
-            return sourcePath ?? "";
+            return "";
         }
         var entryName = entryBaseName + Path.GetExtension(sourcePath).ToLowerInvariant();
         var entry = archive.CreateEntry(entryName);

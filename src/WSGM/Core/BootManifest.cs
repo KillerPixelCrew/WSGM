@@ -78,12 +78,19 @@ public static class BootManifestStore
     {
         try
         {
-            var info = new FileInfo(path);
-            if (!info.Exists || info.Length > MaxBytes)
+            // One handle for both the bound and the read: a separate FileInfo probe
+            // could be raced away by the (user-writable) file growing in between.
+            using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            if (stream.Length > MaxBytes)
             {
                 return null;
             }
-            return TryParse(File.ReadAllText(path));
+            using var reader = new StreamReader(stream);
+            return TryParse(reader.ReadToEnd());
         }
         catch
         {

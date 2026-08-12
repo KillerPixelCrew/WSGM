@@ -16,9 +16,12 @@
                 </Border>
                 <Border Classes="setting-row alt">
                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                        <!-- Width only: the glyph is wide and short, and a square box
+                             would park it against the box's top edge (Avalonia aligns a
+                             stretched geometry top-left). -->
                         <Path Data="{x:Static c:Icons.SteamLike}"
                               Stroke="{StaticResource HcTextPrimaryBrush}" StrokeThickness="1.8"
-                              Width="20" Height="20" Stretch="Uniform" VerticalAlignment="Center" />
+                              Width="20" Stretch="Uniform" VerticalAlignment="Center" />
                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
                             <TextBlock Text="Steam Big Picture" Classes="setting-title" />
                             <TextBlock Text="WSGM starts Steam Big Picture at logon and returns to it when you leave the desktop. Steam is found automatically." Classes="caption" />

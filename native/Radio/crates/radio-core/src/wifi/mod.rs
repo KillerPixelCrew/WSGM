@@ -609,7 +609,7 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
     } else {
         facts.raw_ssid.clone()
     };
-    let new_profile_name = free_profile_name(&client, &guid, ssid, &target);
+    let (new_profile_name, name_existed) = free_profile_name(&client, &guid, ssid, &target);
 
     // A profile is authored ONLY when the caller supplied a passphrase. Writing
     // one for a network that already has a saved profile would overwrite it —
@@ -698,6 +698,17 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
         }
     }
 
+    // What a failed attempt may take away again. Authoring under a name that
+    // already held a profile for this very network is an OVERWRITE — the
+    // stored password went with it — so deleting that name would destroy
+    // credentials this call never created. Only a name written from nothing is
+    // this call's to remove.
+    let removable = if name_existed {
+        None
+    } else {
+        authored.clone()
+    };
+
     // Connect by the profile's real name. Using the SSID here is what left a
     // network stuck on "saved": the profile was called "<SSID> 2" and nothing
     // matched. After authoring a profile ourselves the name IS the SSID,
@@ -724,7 +735,7 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
         // Rejected outright (adapter gone, radio switched off between the two
         // calls): the profile this call authored was never tried, so leaving it
         // saved would suppress the password prompt on every later attempt.
-        roll_back_authored(&client, &guid, authored.as_deref());
+        roll_back_authored(&client, &guid, removable.as_deref());
         return Err(error);
     }
 
@@ -738,7 +749,7 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
             // Verified not connected, so a profile authored by THIS call is
             // unproven: leaving it makes the network read as saved, which stops
             // the panel ever asking for the password again.
-            roll_back_authored(&client, &guid, authored.as_deref());
+            roll_back_authored(&client, &guid, removable.as_deref());
         }
         return polled;
     };
@@ -753,7 +764,7 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
                 reason::verdict(outcome.reason),
                 reason::Verdict::WrongPassword | reason::Verdict::BadProfile
             ) {
-                roll_back_authored(&client, &guid, authored.as_deref());
+                roll_back_authored(&client, &guid, removable.as_deref());
             }
             Err(notify::connection_error(outcome))
         }
@@ -763,7 +774,7 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
         // lost in transit cannot destroy a working profile.
         None => {
             if current_connection(&client, &guid).is_none_or(|(joined, _)| joined != ssid) {
-                roll_back_authored(&client, &guid, authored.as_deref());
+                roll_back_authored(&client, &guid, removable.as_deref());
             }
             Err(Error::TimedOut("the connection attempt"))
         }
@@ -772,7 +783,8 @@ pub fn connect(ssid: &str, passphrase: Option<&str>) -> Result<()> {
 
 /// Removes a profile this call authored, after the attempt it was written for
 /// failed. A pre-existing profile is never touched: the user's stored
-/// credentials are not ours to delete.
+/// credentials are not ours to delete — which is why the caller hands in only a
+/// name that did not exist before this call, not every name it wrote.
 fn roll_back_authored(client: &Client, guid: &GUID, authored: Option<&str>) {
     if let Some(name) = authored {
         delete_profile(client, guid, name);
@@ -880,7 +892,8 @@ pub fn disconnect() -> Result<()> {
     last
 }
 
-/// A profile name that is free to author under for `target`.
+/// A profile name that is free to author under for `target`, and whether a
+/// profile of that name ALREADY exists.
 ///
 /// The SSID itself when nothing holds that name, or when the profile holding it
 /// already joins this very network (overwriting our own is the intent). When it
@@ -888,7 +901,11 @@ pub fn disconnect() -> Result<()> {
 /// numbered name is taken instead — overwriting would destroy that network's
 /// stored credentials, and the rollback on a failed attempt would then delete
 /// the replacement without restoring the original.
-fn free_profile_name(client: &Client, guid: &GUID, ssid: &str, target: &[u8]) -> String {
+///
+/// The second value is what keeps that same rollback from deleting a profile
+/// the user already had for THIS network: the name may be reused, but the
+/// credentials behind it were not ours to remove.
+fn free_profile_name(client: &Client, guid: &GUID, ssid: &str, target: &[u8]) -> (String, bool) {
     let existing = profile_ssids(client, guid);
     let owner = |name: &str| {
         existing
@@ -897,21 +914,21 @@ fn free_profile_name(client: &Client, guid: &GUID, ssid: &str, target: &[u8]) ->
             .map(|(_, saved)| saved.clone())
     };
     match owner(ssid) {
-        None => ssid.to_owned(),
-        Some(saved) if saved == target => ssid.to_owned(),
+        None => (ssid.to_owned(), false),
+        Some(saved) if saved == target => (ssid.to_owned(), true),
         Some(_) => {
             // Same shape Windows uses for its own duplicates.
             for suffix in 2..=64 {
                 let candidate = format!("{ssid} {suffix}");
                 match owner(&candidate) {
-                    None => return candidate,
-                    Some(saved) if saved == target => return candidate,
+                    None => return (candidate, false),
+                    Some(saved) if saved == target => return (candidate, true),
                     Some(_) => {}
                 }
             }
             // Beyond any plausible number of collisions; the overwrite that
             // follows is the lesser evil against failing the join outright.
-            ssid.to_owned()
+            (ssid.to_owned(), true)
         }
     }
 }

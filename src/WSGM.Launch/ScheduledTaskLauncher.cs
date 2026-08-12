@@ -39,7 +39,16 @@ internal static class ScheduledTaskLauncher
         }
         finally
         {
-            try { File.Delete(xmlPath); } catch { }
+            try
+            {
+                File.Delete(xmlPath);
+            }
+            catch (Exception ex)
+            {
+                // Harmless for this launch, but the leftover accumulates in the
+                // profile, so it has to be visible in launch.log.
+                LaunchLog.Error($"Could not delete the helper task XML {xmlPath}: {ex.Message}");
+            }
         }
     }
 
@@ -54,7 +63,8 @@ internal static class ScheduledTaskLauncher
 
     internal static string BuildTaskXml(string executablePath, string pipeName)
     {
-        var user = WindowsIdentity.GetCurrent().Name;
+        using var identity = WindowsIdentity.GetCurrent();
+        var user = identity.Name;
         var command = SecurityElement.Escape(executablePath);
         var arguments = SecurityElement.Escape($"--medium-child {pipeName}");
         return $"""

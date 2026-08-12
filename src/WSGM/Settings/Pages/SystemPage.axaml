@@ -14,7 +14,7 @@
                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
                     <Path Data="{x:Static c:Icons.Monitor}"
                           Stroke="{StaticResource HcTextPrimaryBrush}" StrokeThickness="1.8"
-                          Width="22" Height="22" Stretch="Uniform" VerticalAlignment="Center" />
+                          Width="22" Stretch="Uniform" VerticalAlignment="Center" />
                     <StackPanel Grid.Column="1" Spacing="2">
                         <TextBlock Text="Windows shell" Classes="setting-title" />
                         <TextBlock Text="{Binding ShellStatusText}" Classes="caption" />

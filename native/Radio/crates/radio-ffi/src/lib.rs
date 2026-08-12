@@ -446,8 +446,18 @@ pub unsafe extern "system" fn wsgm_wifi_connect(
             Err(error) => {
                 // Surface the raw reason code: it is what tells the caller
                 // whether to re-prompt for a password or report a dead network.
+                //
+                // Only a code that really IS a WLAN reason code, though.
+                // `Error::Win32` also carries plain statuses (WlanOpenHandle,
+                // WlanConnect), and the caller renders anything non-zero here as
+                // reason text — which would replace the far more specific error
+                // message with "Wi-Fi reason code N". Leaving it at zero is what
+                // makes the caller fall back to that message.
                 if !out_reason.is_null() {
-                    unsafe { *out_reason = error.win32_code() };
+                    let code = error.win32_code();
+                    let carries_reason =
+                        wifi::reason::verdict(code) != wifi::reason::Verdict::Unknown;
+                    unsafe { *out_reason = if carries_reason { code } else { 0 } };
                 }
                 Err(error)
             }
@@ -804,7 +814,7 @@ pub unsafe extern "system" fn wsgm_bt_watch_start(
     })
 }
 
-/// One device container that has Bluetooth audio endpoints.
+/// One device container that has audio endpoints.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct WsgmBtAudioContainer {
@@ -815,8 +825,12 @@ pub struct WsgmBtAudioContainer {
     pub active: i32,
 }
 
-/// Lists the device containers that expose Bluetooth audio endpoints — the
-/// devices a Connect/Disconnect action exists for. Release with
+/// Lists EVERY device container that exposes audio endpoints, not only the
+/// Bluetooth ones: the enumeration has no transport filter, so HDMI outputs,
+/// USB DACs and onboard speakers are in the list too. Intersect it with the
+/// container of a known Bluetooth device to decide which rows get a
+/// Connect/Disconnect action; [`wsgm_bt_audio_set`] sends a Bluetooth-only
+/// kernel-streaming property and fails on anything else. Release with
 /// [`wsgm_bt_audio_free`]. Fast: local endpoint enumeration, no radio traffic.
 ///
 /// # Safety

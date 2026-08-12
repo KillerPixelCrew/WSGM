@@ -90,6 +90,7 @@ public static class Log
         }
         Mutex? mutex = null;
         var owned = false;
+        var lockUnavailable = false;
         try
         {
             try
@@ -106,6 +107,16 @@ public static class Log
             {
                 // No cross-process lock available — fall through and rotate anyway,
                 // which is no worse than the behavior this replaced.
+                lockUnavailable = true;
+            }
+
+            // A TIMEOUT is the opposite case: another process holds the lock and is
+            // rotating right now, so proceeding would race its Move with this
+            // Delete and destroy the archive the mutex exists to protect. Rotation
+            // is best-effort — leave it for the next RotationCheckInterval.
+            if (!owned && !lockUnavailable)
+            {
+                return;
             }
 
             var fi = new FileInfo(path);

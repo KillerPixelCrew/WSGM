@@ -80,34 +80,55 @@ internal static partial class NativeTcp
         return listeners;
     }
 
-    /// <summary>Enumerates IPv4 TCP listeners with their owning process ids.
-    /// Returns an empty list when the table cannot be read.</summary>
-    internal static List<Listener> ListListeners()
+    /// <summary>How often the size+read pair is retried when a concurrent socket
+    /// change invalidates the size measured by the first call.</summary>
+    private const int ReadAttempts = 3;
+
+    /// <summary>Enumerates IPv4 TCP listeners with their owning process ids. An empty
+    /// list means the table was read and holds no listeners; <c>null</c> means the
+    /// table could not be read at all, which callers must not report as "nothing is
+    /// listening".</summary>
+    internal static List<Listener>? ListListeners()
     {
-        uint size = 0;
-        var status = GetExtendedTcpTable(
-            IntPtr.Zero, ref size, false, AfInet, TcpTableOwnerPidListener, 0);
-        if (status != ErrorInsufficientBuffer || size == 0)
+        // Classic two-call pattern: a socket opened or closed between the sizing call
+        // and the data call makes the second one fail with ERROR_INSUFFICIENT_BUFFER
+        // and hand back the new requirement, so retry the pair a bounded number of
+        // times before declaring the table unreadable.
+        for (var attempt = 0; attempt < ReadAttempts; attempt++)
         {
-            return [];
-        }
-        var buffer = Marshal.AllocHGlobal((int)size);
-        try
-        {
-            status = GetExtendedTcpTable(
-                buffer, ref size, false, AfInet, TcpTableOwnerPidListener, 0);
-            if (status != 0)
+            uint size = 0;
+            var status = GetExtendedTcpTable(
+                IntPtr.Zero, ref size, false, AfInet, TcpTableOwnerPidListener, 0);
+            if (status == 0)
             {
                 return [];
             }
-            unsafe
+            if (status != ErrorInsufficientBuffer || size == 0)
             {
-                return DecodeTable(new ReadOnlySpan<byte>((void*)buffer, (int)size));
+                return null;
+            }
+            var buffer = Marshal.AllocHGlobal((int)size);
+            try
+            {
+                status = GetExtendedTcpTable(
+                    buffer, ref size, false, AfInet, TcpTableOwnerPidListener, 0);
+                if (status == 0)
+                {
+                    unsafe
+                    {
+                        return DecodeTable(new ReadOnlySpan<byte>((void*)buffer, (int)size));
+                    }
+                }
+                if (status != ErrorInsufficientBuffer)
+                {
+                    return null;
+                }
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
             }
         }
-        finally
-        {
-            Marshal.FreeHGlobal(buffer);
-        }
+        return null;
     }
 }

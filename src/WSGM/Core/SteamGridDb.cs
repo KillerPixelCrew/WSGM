@@ -64,7 +64,18 @@ public static class SteamGridDb
     /// <summary>Where a user gets a free SteamGridDB API key (shown in Settings).</summary>
     public const string KeyPageUrl = "https://www.steamgriddb.com/profile/preferences/api";
 
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
+    // MaxResponseContentBufferSize bounds the BUFFERED reads — the JSON endpoints, whose
+    // bodies are a few hundred KB at most — so a hostile or malfunctioning response
+    // cannot buffer without limit into a string on a memory-constrained handheld. It
+    // does not apply to the image download, which streams with ResponseHeadersRead and
+    // enforces its own 16 MB counted cap.
+    private const int MaxJsonResponseBytes = 4 * 1024 * 1024;
+
+    private static readonly HttpClient Http = new()
+    {
+        Timeout = TimeSpan.FromSeconds(20),
+        MaxResponseContentBufferSize = MaxJsonResponseBytes,
+    };
 
     /// <summary>The user's configured API key (trimmed), or empty. There is no bundled
     /// key — SteamGridDB rejects the decky public key — so the user must set their own
@@ -176,7 +187,10 @@ public static class SteamGridDb
     }
 
     /// <summary>Downloads raw image bytes from a URL (SteamGridDB CDN or Steam's own
-    /// store CDN). Returns null on failure.</summary>
+    /// store CDN), capped at 16 MB. There is no null failure result: every failure —
+    /// a non-HTTPS URL, an HTTP error, an oversized body, a transport fault — throws
+    /// <see cref="SteamGridDbException"/> carrying a user-facing message, so callers
+    /// must wrap the call. The nullable return type is defensive only.</summary>
     /// <param name="url">The image URL.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     public static async Task<byte[]?> DownloadImageAsync(

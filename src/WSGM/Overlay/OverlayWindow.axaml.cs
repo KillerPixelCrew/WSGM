@@ -60,6 +60,11 @@ public partial class OverlayWindow : Window
 
     private bool _confirmCloseLauncher;
 
+    /// <summary>Set once this window instance is gone. Post-action feedback delays
+    /// outlive the window they started on, and a dismissal raised from a dead window
+    /// would close whatever panel is on screen by then.</summary>
+    private bool _closed;
+
     private Shell.SdFormatManager? _format;
     private FormatTargetEntry? _pendingTarget;
 
@@ -206,7 +211,7 @@ public partial class OverlayWindow : Window
 
         KeyDown += OnKeyDown;
         Opened += OnOpened;
-        Closed += (_, _) => { StopSlide(); ResetConfirms(); };
+        Closed += (_, _) => { _closed = true; StopSlide(); ResetConfirms(); };
 
         // The overlay takes focus Game-Bar-style: the game stops receiving input
         // while the panel is open. Viable because the Steam Input lease keeps the pad
@@ -326,6 +331,10 @@ public partial class OverlayWindow : Window
         if (InArtworkSubView)
         {
             LeaveArtworkSubView();
+        }
+        if (InLaunchWrapperSubView)
+        {
+            LeaveLaunchWrapperSubView();
         }
         _lastSelectedTab = e.NewIndex;
         PanelSession.IsVisible = e.NewIndex == 0;
@@ -539,6 +548,14 @@ public partial class OverlayWindow : Window
     private async System.Threading.Tasks.Task DismissAfterCopyFeedback()
     {
         await FeedbackDelay();
+        if (_closed)
+        {
+            // The panel was dismissed and re-opened while the confirmation showed:
+            // the controller wires Dismissed per window instance, so this stale
+            // window would close the live panel out from under the user.
+            Log.Info("Launch-fix feedback dismissal skipped — its panel is already closed.");
+            return;
+        }
         Dismissed?.Invoke();
     }
 

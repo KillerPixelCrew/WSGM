@@ -62,8 +62,9 @@ public static class ImageHeader
     /// SOI to the first SOFn frame header (0xFFC0-0xFFCF except DHT 0xC4,
     /// JPG 0xC8 and DAC 0xCC, which are not frame headers); height comes BEFORE
     /// width in a SOFn. Fill bytes (runs of 0xFF) are skipped, standalone
-    /// markers (TEM 0x01, RSTn 0xD0-0xD7, SOI, EOI) carry no length field, and
-    /// the walk stops at SOS (0xDA) where entropy-coded data begins.</item>
+    /// markers (TEM 0x01, RSTn 0xD0-0xD7, SOI 0xD8) carry no length field, and
+    /// the walk stops at SOS (0xDA) where entropy-coded data begins or at
+    /// EOI (0xD9) where the image ends.</item>
     /// <item>BMP — 'BM', then the DIB header size at offset 14 selects the
     /// layout: BITMAPINFOHEADER and later (>= 40) use signed 32-bit width/height
     /// where a NEGATIVE height means a top-down bitmap, so the absolute value is
@@ -186,7 +187,13 @@ public static class ImageHeader
                 }
             } while (marker == 0xFF);
 
-            if (marker == 0x01 || (marker >= 0xD0 && marker <= 0xD9))
+            if (marker == 0xD9)
+            {
+                // End of image: the file ended without a frame header. Continuing
+                // here would scan a crafted file byte by byte to EOF.
+                return false;
+            }
+            if (marker == 0x01 || (marker >= 0xD0 && marker <= 0xD8))
             {
                 // Standalone markers: no length field follows.
                 continue;

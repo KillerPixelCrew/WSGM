@@ -77,10 +77,10 @@ internal sealed class SteamInputLeaseHost : IDisposable
             }
             catch (Exception ex)
             {
-                // Disposal below still closes the crash-safe pipe, which is what
+                // The native release consumes the lease and closes the crash-safe
+                // pipe on its failure path too, and closing that pipe is what
                 // actually lifts blocking; only the recovery handshake is lost.
                 LaunchLog.Error($"Steam Input lease release handshake failed: {ex.Message}");
-                lease.Dispose();
             }
         }
         _client.Dispose();

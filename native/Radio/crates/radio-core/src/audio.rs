@@ -46,7 +46,14 @@ const PKEY_DEVICE_CONTAINER_ID: PROPERTYKEY = PROPERTYKEY {
     pid: 2,
 };
 
-/// One container that has Bluetooth-reachable audio endpoints.
+/// One device container that has audio endpoints.
+///
+/// EVERY audio container on the machine, not only the Bluetooth ones: the
+/// enumeration has no transport filter, so HDMI outputs, USB DACs and onboard
+/// speakers appear here too. Intersecting this list with the containers of the
+/// known Bluetooth devices is the caller's job, and it is what decides which
+/// rows get a Connect action — [`set_audio_connection`] sends a Bluetooth-only
+/// kernel-streaming property and fails on anything else.
 #[derive(Debug, Clone)]
 pub struct AudioContainer {
     /// The container id, canonically formatted (see [`format_guid`]).

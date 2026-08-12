@@ -18,6 +18,17 @@ public sealed class ModeSelectionTests
         Assert.Equal(RunMode.Settings, mode);
     }
 
+    [Fact]
+    public void OverlayTestFlagSelectsTheSafeOverlaySmokeTestMode()
+    {
+        // The only local surface that exercises the overlay without a takeover; every
+        // other test in this file passes --overlay-test as a LOSER of the precedence
+        // rules, so deleting its branch would go unnoticed without this one.
+        var mode = Program.DecideMode(["--OVERLAY-TEST"], false, true);
+
+        Assert.Equal(RunMode.OverlayTest, mode);
+    }
+
     [Theory]
     [InlineData(true, false, RunMode.Shell)]
     [InlineData(true, true, RunMode.Settings)]

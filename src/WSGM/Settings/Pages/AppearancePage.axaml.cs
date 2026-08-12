@@ -46,6 +46,7 @@ public partial class AppearancePage : UserControl
 
     private readonly List<(Button Button, Color Color, ShapePath Check)> _swatches = [];
     private SettingsViewModel? _viewModel;
+    private Flyout? _splashColorFlyout;
     private Bitmap? _logoThumbBitmap;
     private Bitmap? _backgroundThumbBitmap;
     private bool _syncingAccent;
@@ -211,14 +212,19 @@ public partial class AppearancePage : UserControl
         ShowSplashColorFlyout(sender, static vm => vm.SplashSpinnerColorHex, static (vm, hex) => vm.SplashSpinnerColorHex = hex);
 
     /// <summary>Opens a color-picker flyout on a splash swatch button — the
-    /// controller path to these colors, because gamepad navigation deliberately
-    /// skips the paired hex TextBoxes. The picker starts on the row's current
-    /// color and writes every change back through <paramref name="setHex"/>, so
-    /// the swatch and TextBox update live; alpha is disabled to match the
-    /// "#RRGGBB" splash color format. The flyout hosts the full picker panel
-    /// (<see cref="ColorView"/>, the accent <see cref="ColorPicker"/>'s base
-    /// class) directly — a nested ColorPicker would put a second drop-down
-    /// button inside the flyout.</summary>
+    /// TOUCH/mouse path to these colors. It is deliberately NOT a controller
+    /// path: flyout content lives in its own popup root and GamepadNavigation is
+    /// scoped to the owning window, so a pad can neither reach the picker nor
+    /// dismiss it (hence
+    /// <see cref="TryCloseColorFlyout"/>, which the window's Back action calls
+    /// first). Gamepad navigation also skips the paired hex TextBoxes, so on a
+    /// pad-only device these four colors are currently editable by touch only.
+    /// The picker starts on the row's current color and writes every change back
+    /// through <paramref name="setHex"/>, so the swatch and TextBox update live;
+    /// alpha is disabled to match the "#RRGGBB" splash color format. The flyout
+    /// hosts the full picker panel (<see cref="ColorView"/>, the accent
+    /// <see cref="ColorPicker"/>'s base class) directly — a nested ColorPicker
+    /// would put a second drop-down button inside the flyout.</summary>
     private void ShowSplashColorFlyout(
         object? sender, Func<SettingsViewModel, string> getHex, Action<SettingsViewModel, string> setHex)
     {
@@ -233,7 +239,28 @@ public partial class AppearancePage : UserControl
         }
         picker.ColorChanged += (_, args) =>
             setHex(viewModel, $"#{args.NewColor.R:X2}{args.NewColor.G:X2}{args.NewColor.B:X2}");
-        new Flyout { Content = picker }.ShowAt(anchor);
+        var flyout = new Flyout { Content = picker };
+        _splashColorFlyout = flyout;
+        flyout.ShowAt(anchor);
+    }
+
+    /// <summary>Closes an open splash color flyout. The settings window's
+    /// controller Back action calls this before closing itself: B is the natural
+    /// "dismiss this popup" press, but the flyout is outside gamepad navigation's
+    /// window scope, so without this the press would close Settings and discard
+    /// every unsaved edit. A light-dismissed flyout is already closed (IsOpen is
+    /// false), which lets B fall through to closing the window.</summary>
+    /// <returns><see langword="true"/> when a flyout was open and was closed.</returns>
+    internal bool TryCloseColorFlyout()
+    {
+        if (_splashColorFlyout is not { IsOpen: true } flyout)
+        {
+            _splashColorFlyout = null;
+            return false;
+        }
+        flyout.Hide();
+        _splashColorFlyout = null;
+        return true;
     }
 
     // --- Splash presets ---
@@ -421,7 +448,13 @@ public partial class AppearancePage : UserControl
         {
             return;
         }
-        _viewModel.StatusText = SplashTheme.Export(_viewModel.BuildSplashConfig(), path)
+        // The archive write copies the splash images, which are megabytes on a
+        // real theme: off the UI thread so Settings keeps repainting and keeps
+        // answering touch and the pad while it runs.
+        var splash = _viewModel.BuildSplashConfig();
+        _viewModel.StatusText = "Exporting splash theme…";
+        var exported = await RunArchiveWork(sender, () => SplashTheme.Export(splash, path));
+        _viewModel.StatusText = exported
             ? $"Splash theme exported to {path}"
             : "Splash theme export failed — see wsgm.log for details.";
     }
@@ -449,7 +482,11 @@ public partial class AppearancePage : UserControl
         // Imported images land in a per-import staging directory; Save's staged
         // SplashAssets transaction commits them into the stable splash assets —
         // the live copies stay untouched until the user actually saves.
-        var imported = SplashTheme.Import(path);
+        // Off the UI thread for the same reason as the export: the decompression
+        // caps allow 64 MB per image / 160 MB per theme, and a frozen window in
+        // game mode is also a controller that looks dead (it holds the lease).
+        _viewModel.StatusText = "Importing splash theme…";
+        var imported = await RunArchiveWork(sender, () => SplashTheme.Import(path));
         if (imported is null)
         {
             _viewModel.StatusText = "Couldn't import: not a readable splash theme (see wsgm.log).";
@@ -457,5 +494,33 @@ public partial class AppearancePage : UserControl
         }
         _viewModel.LoadSplash(imported);
         _viewModel.StatusText = "Splash theme imported — Save changes to keep it.";
+    }
+
+    /// <summary>Runs one blocking splash-theme archive operation off the UI thread
+    /// with the button that started it disabled, so the page stays responsive and
+    /// a second run cannot be started on top of the first. The result is returned
+    /// on the UI thread (the await captures the dispatcher context).</summary>
+    /// <typeparam name="T">The operation's result type.</typeparam>
+    /// <param name="sender">The clicked button, re-enabled when the work ends.</param>
+    /// <param name="work">The blocking archive operation.</param>
+    /// <returns>Whatever the operation returned.</returns>
+    private static async Task<T> RunArchiveWork<T>(object? sender, Func<T> work)
+    {
+        var button = sender as Button;
+        if (button is not null)
+        {
+            button.IsEnabled = false;
+        }
+        try
+        {
+            return await Task.Run(work);
+        }
+        finally
+        {
+            if (button is not null)
+            {
+                button.IsEnabled = true;
+            }
+        }
     }
 }

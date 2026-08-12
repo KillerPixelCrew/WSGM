@@ -19,6 +19,11 @@ internal static class SessionLauncher
     internal static readonly TimeSpan CatchUpWindow = TimeSpan.FromSeconds(60);
 
     private const int LaunchRetries = 5;
+
+    /// <summary>WAIT_OBJECT_0 — anything else out of the watchdog's wait means the
+    /// process state could not be observed.</summary>
+    private const uint WaitObject0 = 0;
+
     private static readonly TimeSpan LaunchRetryDelay = TimeSpan.FromSeconds(1);
 
     private sealed class SessionState
@@ -30,6 +35,7 @@ internal static class SessionLauncher
 
     private static readonly object Gate = new();
     private static readonly Dictionary<uint, SessionState> Sessions = new();
+    private static readonly HashSet<uint> InFlight = new();
 
     /// <summary>Handles a logon (live SESSIONCHANGE event: <paramref name="logonAge"/>
     /// null; startup catch-up: the measured age). Runs on a worker thread.</summary>
@@ -38,9 +44,32 @@ internal static class SessionLauncher
         bool alreadyLaunched;
         lock (Gate)
         {
-            alreadyLaunched = Sessions.ContainsKey(sessionId);
+            // Claim the slot under the SAME lock as the check. A live
+            // WTS_SESSION_LOGON and the startup catch-up sweep can process one
+            // session concurrently; claiming only after the launch let both
+            // observe "not launched yet", start two WSGM --boot processes and
+            // leak the loser's user token plus its process handle.
+            alreadyLaunched = Sessions.ContainsKey(sessionId) || !InFlight.Add(sessionId);
         }
 
+        try
+        {
+            HandleLogon(sessionId, logonAge, alreadyLaunched);
+        }
+        finally
+        {
+            if (!alreadyLaunched)
+            {
+                lock (Gate)
+                {
+                    InFlight.Remove(sessionId);
+                }
+            }
+        }
+    }
+
+    private static void HandleLogon(uint sessionId, TimeSpan? logonAge, bool alreadyLaunched)
+    {
         if (!NativeMethods.WTSQueryUserToken(sessionId, out var userToken))
         {
             ServiceLog.Warn($"Session {sessionId}: WTSQueryUserToken failed (error {Marshal.GetLastWin32Error()}).");
@@ -114,24 +143,17 @@ internal static class SessionLauncher
         }
     }
 
-    /// <summary>Clears one session's state on logoff.</summary>
+    /// <summary>Clears one session's state on logoff. The handles belong to the
+    /// watchdog thread, which may still be waiting on them — it closes them when
+    /// the launched process exits.</summary>
     internal static void OnSessionLogoff(uint sessionId)
     {
-        SessionState? state;
         lock (Gate)
         {
-            if (Sessions.Remove(sessionId, out state))
+            if (Sessions.Remove(sessionId))
             {
                 ServiceLog.Info($"Session {sessionId} logoff — clearing state.");
             }
-        }
-        if (state is not null)
-        {
-            if (state.ProcessHandle != 0)
-            {
-                NativeMethods.CloseHandle(state.ProcessHandle);
-            }
-            NativeMethods.CloseHandle(state.UserToken);
         }
     }
 
@@ -174,13 +196,28 @@ internal static class SessionLauncher
     {
         try
         {
-            NativeMethods.WaitForSingleObject(state.ProcessHandle, NativeMethods.Infinite);
-            NativeMethods.GetExitCodeProcess(state.ProcessHandle, out var exitCode);
+            var waitResult = NativeMethods.WaitForSingleObject(state.ProcessHandle, NativeMethods.Infinite);
+            if (waitResult != WaitObject0)
+            {
+                ServiceLog.Warn($"Session {sessionId}: waiting on WSGM (pid {state.ProcessId}) returned " +
+                                $"0x{waitResult:X8} (error {Marshal.GetLastWin32Error()}).");
+            }
+            var exitKnown = NativeMethods.GetExitCodeProcess(state.ProcessHandle, out var exitCode);
+            if (!exitKnown)
+            {
+                ServiceLog.Warn($"Session {sessionId}: GetExitCodeProcess for pid {state.ProcessId} failed " +
+                                $"(error {Marshal.GetLastWin32Error()}).");
+            }
+            // An unknown exit status must fail TOWARDS the fallback: this is the
+            // path that keeps a user from sitting in front of a desktop-less
+            // session, so "we could not tell" counts as a dirty exit.
+            var dirtyExit = !exitKnown || waitResult != WaitObject0 || exitCode != 0;
             var sessionActive = IsSessionActive(sessionId);
             var explorerRunning = IsExplorerInSession(sessionId);
-            ServiceLog.Info($"WSGM (pid {state.ProcessId}, session {sessionId}) exited code {exitCode} — " +
+            ServiceLog.Info($"WSGM (pid {state.ProcessId}, session {sessionId}) exited code " +
+                            $"{(exitKnown ? exitCode.ToString() : "unknown")} — " +
                             $"session active={sessionActive}, explorer running={explorerRunning}.");
-            if (sessionActive && exitCode != 0 && !explorerRunning)
+            if (sessionActive && dirtyExit && !explorerRunning)
             {
                 // One explorer fallback per logon, always with the UNLINKED user
                 // token — explorer must run unelevated (elevated explorer breaks
@@ -202,6 +239,25 @@ internal static class SessionLauncher
         catch (Exception ex)
         {
             ServiceLog.Error($"Watchdog for session {sessionId} failed: {ex.Message}");
+        }
+        finally
+        {
+            // The watchdog OWNS both handles for its whole lifetime — logoff only
+            // drops the dictionary entry. Closing them from there would pull them
+            // out from under the wait/query above, and a recycled handle value
+            // could then be handed to CreateProcessAsUser as a foreign token.
+            var processHandle = state.ProcessHandle;
+            var userToken = state.UserToken;
+            state.ProcessHandle = 0;
+            state.UserToken = 0;
+            if (processHandle != 0)
+            {
+                NativeMethods.CloseHandle(processHandle);
+            }
+            if (userToken != 0)
+            {
+                NativeMethods.CloseHandle(userToken);
+            }
         }
     }
 

@@ -102,28 +102,9 @@
     </LayoutTransformControl>
 
     <Window.Styles>
-        <Style Selector="Border.radio-row">
-            <Setter Property="Background" Value="{DynamicResource HcCardBrush}" />
-            <Setter Property="CornerRadius" Value="6" />
-            <Setter Property="BorderThickness" Value="2" />
-            <Setter Property="BorderBrush" Value="Transparent" />
-        </Style>
-        <Style Selector="Border.radio-row.selected">
-            <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
-        </Style>
-        <Style Selector="Button.radio-row-header">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="HorizontalAlignment" Value="Stretch" />
-            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-            <Setter Property="Padding" Value="10,8" />
-            <Setter Property="FocusAdorner" Value="{x:Null}" />
-        </Style>
-        <Style Selector="StackPanel.radio-row-actions">
-            <Setter Property="Orientation" Value="Horizontal" />
-            <Setter Property="Spacing" Value="8" />
-            <Setter Property="Margin" Value="10,0,10,10" />
-        </Style>
+        <!-- The radio-row / radio-row-header / radio-row-actions family lives in
+             Themes\Shared.axaml so this panel and the radio panel cannot drift
+             apart. Only the drive glyph below is local to this window. -->
         <!-- Stroke-rendered like the taskbar's status icons: the Icons
              geometries are stroke-style, filling them collapses detail. -->
         <Style Selector="Path.row-icon">

@@ -134,14 +134,13 @@ public static partial class DisplayScale
 
         if (freshCapture && captured.Count > 0)
         {
-            config.SavedDisplayScaleEntries = captured;
             try
             {
-                ConfigStore.Save(config);
+                PersistScaleEntries(captured, clearLegacyList: false);
+                config.SavedDisplayScaleEntries = captured;
             }
             catch (Exception ex)
             {
-                config.SavedDisplayScaleEntries = [];
                 Log.Warn($"Display scale: could not persist saved values — leaving scaling unchanged: {ex.Message}");
                 return;
             }
@@ -231,8 +230,27 @@ public static partial class DisplayScale
             }
         }
         config.SavedDisplayScaleEntries = remaining;
-        try { ConfigStore.Save(config); } catch (Exception ex) { Log.Warn($"Display scale: could not persist restore: {ex.Message}"); }
+        try { PersistScaleEntries(remaining, clearLegacyList: true); } catch (Exception ex) { Log.Warn($"Display scale: could not persist restore: {ex.Message}"); }
     }
+
+    /// <summary>Persists ONLY the display-scale snapshot, through the config store's
+    /// read-modify-write path. Callers hand in a LONG-LIVED <see cref="AppConfig"/> —
+    /// the shell session's, on every game/desktop transition — and saving that whole
+    /// object would overwrite every field another process persisted since it was
+    /// loaded (see ConfigStore's contract), so a mode switch could silently revert
+    /// settings the user had just saved. Callers mirror the same values onto their own
+    /// instance so it stays in step with what went to disk.</summary>
+    /// <param name="entries">The scale entries to persist (empty clears the snapshot).</param>
+    /// <param name="clearLegacyList">Whether the migrated index-paired list is cleared too.</param>
+    private static void PersistScaleEntries(List<DisplayScaleEntry> entries, bool clearLegacyList)
+        => ConfigStore.Mutate(fresh =>
+        {
+            fresh.SavedDisplayScaleEntries = entries;
+            if (clearLegacyList)
+            {
+                fresh.SavedDisplayScales = [];
+            }
+        });
 
     /// <summary>The display-scale percent WSGM's own UI should render at. Game
     /// mode forces every display to 100%, which makes DIP-sized WSGM surfaces

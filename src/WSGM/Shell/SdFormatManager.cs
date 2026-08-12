@@ -365,8 +365,11 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         // Declared out here so the catch can compensate: once the Steam registration is
         // removed, ANY later failure must try to put it back, not just a non-zero
         // diskpart exit. The restore no-ops when the card's marker is gone (the erase
-        // did happen), so it is safe on every path.
-        string? retiredContentId = null;
+        // did happen), so it is safe on every path. Only a registration that was
+        // ACTUALLY removed lands here — restoring one the user had deleted themselves
+        // would ADD a library the format never took away.
+        string? removedContentId = null;
+        var removedLabel = "";
         await _formatGate.WaitAsync();
         try
         {
@@ -399,25 +402,53 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             // card, first remove its existing Steam library by the marker's stable
             // content id; otherwise the live client keeps the old app list as
             // ghost entries after diskpart has erased the manifests.
-            retiredContentId = ReadExistingContentId(entry);
-            var removalFailure = await Task.Run(() => RemoveExistingLibrary(entry));
-            if (removalFailure is not null)
+            var retiredContentId = ReadExistingContentId(entry);
+            var removal = await Task.Run(() => RemoveExistingLibrary(entry));
+            if (removal.Failure is not null)
             {
-                Finish(removalFailure, false);
+                Finish(removal.Failure, false);
                 return;
             }
+            removedContentId = removal.RemovedContentId;
+            removedLabel = removal.RemovedLabel;
+
+            // Stand the ACF watcher down again: the removal above can spend its whole
+            // CEF budget, and the first suspension window would then lapse while
+            // diskpart is still starting — WSGM would re-open a directory handle on the
+            // very volume it is about to erase and veto its own format.
+            CardAcfWatcher.SuspendAll();
 
             var keepLetter = entry.PreferredLetter;
             var (exitCode, output) = await RunDiskpart(entry.DiskNumber, keepLetter, label);
             if (exitCode != 0)
             {
-                await Task.Run(() => RestoreRemovedLibraryIfCardSurvived(entry, retiredContentId));
+                await Task.Run(() => RestoreRemovedLibraryIfCardSurvived(
+                    entry, removedContentId, removedLabel));
                 Log.Warn($"Format: diskpart failed (exit {exitCode}). Output:\n{output}");
                 Finish("Formatting failed — Windows could not rebuild the drive. "
                     + "Reinsert the card and try again.", false);
                 return;
             }
             Log.Info($"Format: diskpart succeeded for disk {entry.DiskNumber}.");
+
+            // The erase destroyed the old library, so there is nothing left to
+            // compensate: a later failure must not splice its identity back in beside
+            // the fresh marker CreateSteamLibrary is about to write.
+            removedContentId = null;
+            removedLabel = "";
+
+            // The old card provably no longer exists from here on, so retire it now:
+            // a later failure (unmounted volume, lost drive letter) must not leave it
+            // in the card database forever with an identity nothing can rediscover.
+            if (!string.IsNullOrEmpty(retiredContentId))
+            {
+                await LibraryTabManager.MutateConfigAsync<object?>(config =>
+                {
+                    config.CardLibraries.RemoveAll(c => string.Equals(
+                        c.ContentId, retiredContentId, StringComparison.Ordinal));
+                    return null;
+                });
+            }
 
             StatusText = "Waiting for the new drive...";
             var letter = await Task.Run(() => WaitForLetter(entry.DiskNumber));
@@ -452,15 +483,6 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             StatusText = "Creating Steam library...";
             var summary = await Task.Run(
                 () => CreateSteamLibrary(letter.Value, entry.SizeBytes, label));
-            if (!string.IsNullOrEmpty(retiredContentId))
-            {
-                await LibraryTabManager.MutateConfigAsync<object?>(config =>
-                {
-                    config.CardLibraries.RemoveAll(c => string.Equals(
-                        c.ContentId, retiredContentId, StringComparison.Ordinal));
-                    return null;
-                });
-            }
             Finish(summary, true);
         }
         catch (Exception ex)
@@ -468,7 +490,8 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             Log.Error("Format: run failed.", ex);
             try
             {
-                await Task.Run(() => RestoreRemovedLibraryIfCardSurvived(entry, retiredContentId));
+                await Task.Run(() => RestoreRemovedLibraryIfCardSurvived(
+                    entry, removedContentId, removedLabel));
             }
             catch (Exception restoreEx)
             {
@@ -514,23 +537,39 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         return null;
     }
 
+    /// <summary>What the pre-format removal did: the user-facing refusal when the
+    /// old library cannot safely be removed, and — only when a registration was
+    /// ACTUALLY taken out of Steam — its identity and label, so the failure
+    /// compensation restores exactly what it removed and never invents a
+    /// registration the user had deleted themselves.</summary>
+    /// <param name="Failure">The refusal message, or null when the run may proceed.</param>
+    /// <param name="RemovedContentId">The removed registration's content id, or null.</param>
+    /// <param name="RemovedLabel">The removed registration's label, empty when it had none.</param>
+    private readonly record struct LibraryRemoval(
+        string? Failure, string? RemovedContentId, string RemovedLabel)
+    {
+        internal static LibraryRemoval Nothing => new(null, null, "");
+
+        internal static LibraryRemoval Refused(string message) => new(message, null, "");
+    }
+
     /// <summary>Removes the existing WSGM library on a card before it is erased.
     /// The card marker's content id selects the registration, so a fixed reader
     /// drive letter cannot remove the library belonging to another card. A live
     /// Steam is changed only through CEF; when Steam is closed its next-start
     /// configuration is cleaned directly.</summary>
     /// <param name="entry">The re-verified card selected for formatting.</param>
-    /// <returns>A user-facing refusal when the old library cannot safely be removed.</returns>
-    private static string? RemoveExistingLibrary(FormatTargetEntry entry)
+    /// <returns>The refusal and what was actually removed.</returns>
+    private static LibraryRemoval RemoveExistingLibrary(FormatTargetEntry entry)
     {
         if (entry.PreferredLetter is < 'A' or > 'Z')
         {
-            return null;
+            return LibraryRemoval.Nothing;
         }
         var marker = FindExistingMarker(entry);
         if (marker is null)
         {
-            return null;
+            return LibraryRemoval.Nothing;
         }
         string contentId;
         try
@@ -539,16 +578,18 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             if (values.Count == 0 || string.IsNullOrWhiteSpace(values[0]))
             {
                 Log.Warn($"Format: existing marker at {marker} has no content id.");
-                return "The existing Steam library marker has no content identity. "
-                    + "Formatting was stopped to avoid leaving ghost games in Steam.";
+                return LibraryRemoval.Refused(
+                    "The existing Steam library marker has no content identity. "
+                    + "Formatting was stopped to avoid leaving ghost games in Steam.");
             }
             contentId = values[0];
         }
         catch (Exception ex)
         {
             Log.Warn($"Format: could not read existing marker {marker}: {ex.Message}");
-            return "Could not verify the existing Steam library on this card. "
-                + "Close Steam and try again.";
+            return LibraryRemoval.Refused(
+                "Could not verify the existing Steam library on this card. "
+                + "Close Steam and try again.");
         }
 
         var steamExe = Steam.ExePath;
@@ -559,12 +600,12 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         if (steamExe is null)
         {
             Log.Info("Format: Steam is not installed; no registration needs removal.");
-            return null;
+            return LibraryRemoval.Nothing;
         }
         if (configPath is null || configText is null)
         {
             Log.Info($"Format: Steam has no libraryfolders config; {contentId} is not registered.");
-            return null;
+            return LibraryRemoval.Nothing;
         }
 
         // Identity gate — runs for BOTH the live and the closed-Steam path. Removal is
@@ -578,7 +619,7 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         {
             Log.Info($"Format: content id {contentId} is not registered with Steam; "
                 + "nothing to remove.");
-            return null;
+            return LibraryRemoval.Nothing;
         }
         var cardPath = FullPathOrNull(Path.GetDirectoryName(marker));
         var registeredFullPath = FullPathOrNull(registeredPath);
@@ -587,9 +628,14 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         {
             Log.Warn($"Format: content id {contentId} is registered at "
                 + $"{registeredPath}, not at the card path {Path.GetDirectoryName(marker)}.");
-            return "The card marker does not match the Steam library on this drive. "
-                + "Formatting was stopped to protect your other libraries.";
+            return LibraryRemoval.Refused(
+                "The card marker does not match the Steam library on this drive. "
+                + "Formatting was stopped to protect your other libraries.");
         }
+
+        // Captured before the removal so a failed format can put the registration back
+        // with the name the user gave it, not as an unnamed library.
+        var registeredLabel = SteamLibraryVdf.LabelForContentId(configText, contentId) ?? "";
 
         if (Steam.IsRunning)
         {
@@ -598,8 +644,9 @@ public sealed class SdFormatManager : INotifyPropertyChanged
                     StringComparison.OrdinalIgnoreCase));
             if (pathMatches > 1)
             {
-                return "Several card libraries share this reader path. Close Steam and try again "
-                    + "so WSGM can remove only this card's content identity.";
+                return LibraryRemoval.Refused(
+                    "Several card libraries share this reader path. Close Steam and try again "
+                    + "so WSGM can remove only this card's content identity.");
             }
             var result = SteamCdp.RemoveLibraryByContentIdAsync(contentId, configText)
                 .GetAwaiter().GetResult();
@@ -607,12 +654,13 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             {
                 Log.Info($"Format: removed existing live Steam library (content id {contentId}, "
                     + $"status {result.Status}).");
-                return null;
+                return new LibraryRemoval(null, contentId, registeredLabel);
             }
             Log.Warn($"Format: could not remove existing live library {contentId} "
                 + $"({result.Status}: {result.Detail ?? "no detail"}).");
-            return "Steam could not remove this card's existing library. "
-                + "Close Steam completely and try again.";
+            return LibraryRemoval.Refused(
+                "Steam could not remove this card's existing library. "
+                + "Close Steam completely and try again.");
         }
 
         // Reached only after the identity gate above proved this content id is registered
@@ -621,17 +669,18 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             || updated is null)
         {
             Log.Info($"Format: no closed-Steam registration found for content id {contentId}.");
-            return null;
+            return LibraryRemoval.Nothing;
         }
         if (Steam.IsRunning)
         {
-            return "Steam started while the card library was being prepared for removal. "
-                + "Close Steam and try formatting again.";
+            return LibraryRemoval.Refused(
+                "Steam started while the card library was being prepared for removal. "
+                + "Close Steam and try formatting again.");
         }
         BackupOnce(configPath);
         WriteAtomically(configPath, updated);
         Log.Info($"Format: removed closed-Steam library registration for content id {contentId}.");
-        return null;
+        return new LibraryRemoval(null, contentId, registeredLabel);
     }
 
     /// <summary>Normalizes a path for comparison, treating a malformed or empty one as
@@ -677,11 +726,52 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         }
     }
 
+    /// <summary>The drive letters currently mounted on one physical disk, ascending.
+    /// Read fresh instead of from the row's enumeration snapshot, and covering EVERY
+    /// volume of a multi-partition disk: `clean` erases all of them, so a Steam
+    /// library on any one of them has to be found before the erase — not only the
+    /// one on the pinned letter. Worker thread.</summary>
+    /// <param name="diskNumber">The physical disk number.</param>
+    private static List<char> LettersOnDisk(int diskNumber)
+    {
+        var letters = new List<char>();
+        foreach (var drive in DriveInfo.GetDrives())
+        {
+            try
+            {
+                if (drive.DriveType is not (DriveType.Fixed or DriveType.Removable))
+                {
+                    continue;
+                }
+                var letter = char.ToUpperInvariant(drive.Name[0]);
+                using var volume = NativeStorage.OpenVolumeForQuery(letter);
+                if (!volume.IsInvalid
+                    && NativeStorage.TryGetDeviceNumber(volume, out var type, out var disk)
+                    && type == NativeStorage.FileDeviceDisk && disk == diskNumber)
+                {
+                    letters.Add(letter);
+                }
+            }
+            catch (IOException)
+            {
+            }
+        }
+        letters.Sort();
+        return letters;
+    }
+
     private static string? FindExistingMarker(FormatTargetEntry entry)
     {
         if (entry.PreferredLetter is < 'A' or > 'Z') { return null; }
-        var root = $@"{entry.PreferredLetter}:\";
-        var candidates = new List<string> { Path.Combine(root, "SteamLibrary", "libraryfolder.vdf") };
+        var letters = LettersOnDisk(entry.DiskNumber);
+        if (letters.Count == 0)
+        {
+            letters.Add(entry.PreferredLetter);
+        }
+        var roots = letters.Select(letter => $@"{letter}:\").ToList();
+        var candidates = roots
+            .Select(root => Path.Combine(root, "SteamLibrary", "libraryfolder.vdf"))
+            .ToList();
         var steamExe = Steam.ExePath;
         if (steamExe is not null)
         {
@@ -690,19 +780,33 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             {
                 foreach (var path in SteamLibraryVdf.ValuesOf(File.ReadAllText(config), "path"))
                 {
-                    var decoded = path.Replace("\\\\", "\\");
-                    if (string.Equals(Path.GetPathRoot(decoded), root, StringComparison.OrdinalIgnoreCase))
+                    if (roots.Any(root => string.Equals(Path.GetPathRoot(path), root,
+                            StringComparison.OrdinalIgnoreCase)))
                     {
-                        candidates.Add(Path.Combine(decoded, "libraryfolder.vdf"));
+                        candidates.Add(Path.Combine(path, "libraryfolder.vdf"));
                     }
                 }
             }
         }
-        return candidates.Distinct(StringComparer.OrdinalIgnoreCase).FirstOrDefault(File.Exists);
+        var marker = candidates.Distinct(StringComparer.OrdinalIgnoreCase).FirstOrDefault(File.Exists);
+        if (marker is not null
+            && !string.Equals(Path.GetPathRoot(marker), $@"{entry.PreferredLetter}:\",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            Log.Info($"Format: existing library marker found at {marker} — another volume of "
+                + $"disk {entry.DiskNumber}, which the erase destroys as well.");
+        }
+        return marker;
     }
 
+    /// <summary>Puts a removed library registration back after a failed format, with
+    /// the label it carried — the card is still there (its marker survived), so it
+    /// must come back exactly as it was and not as an unnamed library.</summary>
+    /// <param name="entry">The card the format ran against.</param>
+    /// <param name="contentId">The identity that was actually removed, or null.</param>
+    /// <param name="label">The removed registration's label, empty for none.</param>
     private static void RestoreRemovedLibraryIfCardSurvived(
-        FormatTargetEntry entry, string? contentId)
+        FormatTargetEntry entry, string? contentId, string label)
     {
         if (string.IsNullOrEmpty(contentId)) { return; }
         var marker = FindExistingMarker(entry);
@@ -710,7 +814,7 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         var libraryPath = Path.GetDirectoryName(marker)!;
         if (Steam.IsRunning)
         {
-            var liveRestore = SteamCdp.AddLibrary(libraryPath);
+            var liveRestore = SteamCdp.AddLibrary(libraryPath, label);
             Log.Info($"Format: compensation after diskpart failure returned {liveRestore.Status}.");
             return;
         }
@@ -724,7 +828,7 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         var current = File.ReadAllText(configPath);
         if (!SteamLibraryVdf.IsContentIdRegistered(current, contentId)
             && SteamLibraryVdf.TrySplice(current, libraryPath, contentId, entry.SizeBytes,
-                out var restored, label: "") && restored is not null)
+                out var restored, label) && restored is not null)
         {
             WriteAtomically(configPath, restored);
             Log.Info($"Format: restored library registration {contentId} after diskpart failure.");
@@ -750,14 +854,18 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         }
         try
         {
+            // Absolute System32 paths: this flow is elevated, and a bare exe name is
+            // searched in the application directory (per-user install, user-writable)
+            // before System32.
             var (aclExit, aclOutput) = await ConsoleTool.RunCapturedAsync(
-                "icacls.exe", $"\"{scriptPath}\" /setintegritylevel H", timeoutMs: 10_000);
+                ConsoleTool.System32("icacls.exe"),
+                $"\"{scriptPath}\" /setintegritylevel H", timeoutMs: 10_000);
             if (aclExit != 0)
             {
                 throw new IOException($"Could not protect diskpart script ({aclExit}): {aclOutput}");
             }
             return await ConsoleTool.RunCapturedAsync(
-                "diskpart.exe", $"/s \"{scriptPath}\"", timeoutMs: 600_000);
+                ConsoleTool.System32("diskpart.exe"), $"/s \"{scriptPath}\"", timeoutMs: 600_000);
         }
         finally
         {
@@ -783,8 +891,12 @@ public sealed class SdFormatManager : INotifyPropertyChanged
     {
         try
         {
+            // Absolute path for the same reason the diskpart run uses one: an elevated
+            // caller must never search the user-writable application directory.
+            var powershell = Path.Combine(
+                Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
             var (exitCode, output) = await ConsoleTool.RunCapturedAsync(
-                "powershell.exe",
+                powershell,
                 "-NoProfile -NonInteractive -Command \"Optimize-Volume -DriveLetter "
                     + letter + " -ReTrim -ErrorAction Stop\"",
                 timeoutMs: 300_000);

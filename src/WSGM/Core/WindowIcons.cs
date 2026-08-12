@@ -24,6 +24,9 @@ namespace WSGM.Core;
 public sealed class WindowIconCache : IDisposable
 {
     private readonly Dictionary<nint, Bitmap?> _byWindow = [];
+    private readonly HashSet<nint> _inFlight = [];
+    private readonly object _sync = new();
+    private int _generation;
     private readonly int _pixelSize;
 
     /// <summary>Creates a cache that rasterizes icons at one physical pixel size.</summary>
@@ -33,39 +36,82 @@ public sealed class WindowIconCache : IDisposable
         _pixelSize = Math.Max(8, pixelSize);
     }
 
-    /// <summary>Returns the window's icon as an Avalonia bitmap, or null when no
-    /// icon could be resolved. Results (including failures) are cached per window
-    /// handle until <see cref="Clear"/>.</summary>
+    /// <summary>Returns an already-resolved icon without doing any work. Callers on the
+    /// UI thread use this and hand a miss to <see cref="ResolveInBackground"/>.</summary>
+    /// <param name="hwnd">The window whose icon to look up.</param>
+    /// <param name="bitmap">The cached icon, or null when the window has none.</param>
+    /// <returns><see langword="true"/> when this window has already been resolved.</returns>
+    public bool TryGetCached(nint hwnd, out Bitmap? bitmap)
+    {
+        lock (_sync)
+        {
+            return _byWindow.TryGetValue(hwnd, out bitmap);
+        }
+    }
+
+    /// <summary>Resolves a window's icon off the calling thread and reports the result.
+    /// <para>Resolution is expensive and must never run on the UI thread: it sends up to
+    /// four cross-process <c>WM_GETICON</c> probes that each wait out a 200 ms timeout
+    /// against a busy or hung app, then falls back to opening the owning process and
+    /// reading its executable — on an SD-card library that adds disk latency. Doing it
+    /// inline froze the bar for hundreds of milliseconds at the moment it was swiped up.</para>
+    /// <para>At most one resolve per window is in flight, and a resolve that finishes
+    /// after <see cref="Clear"/> disposes its bitmap instead of repopulating a cache the
+    /// caller has already torn down. <paramref name="onResolved"/> runs on a thread-pool
+    /// thread — marshal to the UI thread before touching view state.</para></summary>
     /// <param name="hwnd">The window whose icon to resolve.</param>
     /// <param name="processId">The owning process, for the executable-icon fallback.</param>
-    public Bitmap? Get(nint hwnd, uint processId)
+    /// <param name="onResolved">Receives the window handle and its icon (null when none).</param>
+    public void ResolveInBackground(nint hwnd, uint processId, Action<nint, Bitmap?> onResolved)
     {
-        if (_byWindow.TryGetValue(hwnd, out var cached))
+        int generation;
+        lock (_sync)
         {
-            return cached;
+            if (_byWindow.ContainsKey(hwnd) || !_inFlight.Add(hwnd))
+            {
+                return;
+            }
+            generation = _generation;
         }
-        Bitmap? bitmap = null;
-        try
+        _ = System.Threading.Tasks.Task.Run(() =>
         {
-            bitmap = Resolve(hwnd, processId);
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Icon resolution failed for window 0x{hwnd:X}: {ex.Message}");
-        }
-        _byWindow[hwnd] = bitmap;
-        return bitmap;
+            Bitmap? bitmap = null;
+            try
+            {
+                bitmap = Resolve(hwnd, processId);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Icon resolution failed for window 0x{hwnd:X}: {ex.Message}");
+            }
+            lock (_sync)
+            {
+                _inFlight.Remove(hwnd);
+                if (generation != _generation)
+                {
+                    bitmap?.Dispose();
+                    return;
+                }
+                _byWindow[hwnd] = bitmap;
+            }
+            onResolved(hwnd, bitmap);
+        });
     }
 
     /// <summary>Drops every cached bitmap (called when the taskbar closes so the
-    /// invisible shell doesn't hold pixel data).</summary>
+    /// invisible shell doesn't hold pixel data). Resolves still in flight are
+    /// invalidated rather than allowed to repopulate the cache.</summary>
     public void Clear()
     {
-        foreach (var bitmap in _byWindow.Values)
+        lock (_sync)
         {
-            bitmap?.Dispose();
+            _generation++;
+            foreach (var bitmap in _byWindow.Values)
+            {
+                bitmap?.Dispose();
+            }
+            _byWindow.Clear();
         }
-        _byWindow.Clear();
     }
 
     /// <summary>Clears the cache.</summary>
@@ -80,13 +126,20 @@ public sealed class WindowIconCache : IDisposable
             var copy = NativeMethods.CopyIcon(foreign);
             if (copy != 0)
             {
+                Bitmap? rendered;
                 try
                 {
-                    return Render(copy);
+                    rendered = Render(copy);
                 }
                 finally
                 {
                     NativeMethods.DestroyIcon(copy);
+                }
+                // A handle that won't rasterize must not end the chain — the exe's
+                // icon resource below is the advertised last resort.
+                if (rendered is not null)
+                {
+                    return rendered;
                 }
             }
         }

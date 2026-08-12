@@ -31,14 +31,15 @@ public readonly record struct LibraryTabSyncResult(
 /// is created or modified except one-time cleanup of IDs from older WSGM builds.</summary>
 public sealed class LibraryTabManager
 {
-    // Static so every trigger (boot, overlay open, each builder change) coalesces even
+    // Static so every trigger (boot, overlay open, each builder change) serializes even
     // across separate manager instances — concurrent syncs would race the config.
     private static readonly SemaphoreSlim Gate = new(1, 1);
 
     /// <summary>Recomputes every WSGM library tab and injects them into Steam's tab
     /// strip (see <see cref="SteamLibraryTabs"/>): custom filter tabs, then per-card
     /// tabs, then genre tabs. Reactive — called after any change in the builder and on
-    /// overlay open. Returns a short user-facing summary; coalesces concurrent calls.</summary>
+    /// overlay open. Returns a short user-facing summary; concurrent calls are
+    /// serialized, not coalesced — every queued caller runs a full sync.</summary>
     /// <param name="cancellationToken">Cancels the run.</param>
     public async Task<string> SyncAllAsync(CancellationToken cancellationToken = default)
         => (await SyncAllDetailedAsync(cancellationToken).ConfigureAwait(false)).Summary;
@@ -62,7 +63,7 @@ public sealed class LibraryTabManager
             // run so the SD-card manager and its badges remain independent.
             var tabsEnabled = config.Cef.Enabled && config.Cef.LibraryTabs;
             TabSyncResult sync;
-            if (reachable && !filterFailed && tabsEnabled)
+            if (reachable != false && !filterFailed && tabsEnabled)
             {
                 sync = await SteamLibraryTabs.SyncTabsAsync(
                     tabs, config.LibraryTabOrder, config.HiddenNativeTabs, cancellationToken)
@@ -71,16 +72,22 @@ public sealed class LibraryTabManager
             else
             {
                 sync = new TabSyncResult(false, []);
-                if (reachable && !tabsEnabled)
+                if (reachable != false && !tabsEnabled)
                 {
                     // Turning the sub-toggle off has to retract, not merely stop
                     // pushing: the resident script keeps rendering the tabs that were
                     // already injected, so without this the setting appears to do
                     // nothing until a desktop trip or a Steam restart clears them.
-                    await SteamLibraryTabs.DisableAsync(cancellationToken).ConfigureAwait(false);
+                    var retraction = await SteamLibraryTabs.DisableAsync(cancellationToken)
+                        .ConfigureAwait(false);
+                    reachable ??= retraction.Reachable;
                 }
             }
             var ok = sync.Ok;
+            // BuildTabsAsync leaves reachability unknown when it evaluated no filter
+            // (a card-tabs-only or empty configuration never talks to Steam), so the
+            // reported value comes from whatever actually reached the CEF target.
+            var reachedSteam = reachable ?? ok;
 
             // One-time migration off the old collection approach: delete any collections
             // WSGM created before and clear their stored ids.
@@ -130,9 +137,18 @@ public sealed class LibraryTabManager
                 return fresh;
             }, cancellationToken).ConfigureAwait(false);
 
-            var badgesPushed = await PushCardBadgesAsync(config, cancellationToken)
+            var badgePush = await PushCardBadgesAsync(config, cancellationToken)
                 .ConfigureAwait(false);
-            if (!reachable || !ok)
+            var badgesPushed = badgePush == BadgePush.Pushed;
+            if (!tabsEnabled)
+            {
+                // The tab strip is switched off, so there is nothing left to push and
+                // nothing pending: report success, or every caller keeps re-running a
+                // full sync (the overlay only arms its auto-sync throttle on success).
+                return new LibraryTabSyncResult(
+                    "Library tabs are turned off.", true, reachedSteam, badgesPushed);
+            }
+            if (!reachedSteam || !ok)
             {
                 if (filterFailed)
                 {
@@ -142,7 +158,7 @@ public sealed class LibraryTabManager
                 }
                 return new LibraryTabSyncResult(
                     "Saved the tabs — Steam isn't reachable yet; they'll appear when it's open.",
-                    false, reachable, badgesPushed);
+                    false, reachedSteam, badgesPushed);
             }
 
             Log.Info($"Library tabs: {tabs.Count} injected.");
@@ -150,6 +166,13 @@ public sealed class LibraryTabManager
                 ? "No library tabs yet — add a custom tab or insert a card library."
                 : $"Synced {tabs.Count} library tabs.";
             return new LibraryTabSyncResult(summary, true, true, badgesPushed);
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected: a desktop transition cancels the shared token mid-evaluation.
+            // Not a failure, and it must not put a stack trace into the device log.
+            Log.Info("Library tabs: sync cancelled.");
+            return new LibraryTabSyncResult("Library tab sync cancelled.", false, false);
         }
         catch (Exception ex)
         {
@@ -162,8 +185,9 @@ public sealed class LibraryTabManager
         }
     }
 
-    /// <summary>Waits (with backoff) for Steam's library UI to finish loading after a
-    /// cold boot, then syncs once — so tabs appear without the user opening the overlay.
+    /// <summary>Polls (first probe after 3 s, then every 5 s) for Steam's library UI to
+    /// finish loading after a cold boot, then syncs once — so tabs appear without the
+    /// user opening the overlay.
     /// Best-effort and self-limiting; falls back to the on-open sync if Steam never
     /// becomes reachable.</summary>
     /// <param name="cancellationToken">Cancels the wait.</param>
@@ -198,9 +222,18 @@ public sealed class LibraryTabManager
                         await Task.Delay(5000, cancellationToken).ConfigureAwait(false);
                         var config = await Task.Run(ConfigStore.Load, cancellationToken)
                             .ConfigureAwait(false);
-                        if (await PushCardBadgesAsync(config, cancellationToken).ConfigureAwait(false))
+                        var push = await PushCardBadgesAsync(config, cancellationToken)
+                            .ConfigureAwait(false);
+                        if (push == BadgePush.Pushed)
                         {
                             Log.Info("Library tabs (boot): card badge installed.");
+                            return;
+                        }
+                        if (push == BadgePush.Disabled)
+                        {
+                            // Nothing to wait for — the badges are switched off, so
+                            // retrying would only reload the config and re-retract.
+                            Log.Info("Library tabs (boot): card badges are turned off.");
                             return;
                         }
                     }
@@ -222,9 +255,10 @@ public sealed class LibraryTabManager
     }
 
     /// <summary>Builds the ordered injected-tab list: custom filter tabs (evaluated over
-    /// the library), then per-card tabs. The bool is false when Steam was unreachable
-    /// during filter evaluation.</summary>
-    private static async Task<(List<InjectedTab> Tabs, bool Reachable, bool FilterFailed)> BuildTabsAsync(
+    /// the library), then per-card tabs. Reachable is false when Steam was unreachable
+    /// during filter evaluation and null when no filter was evaluated at all — nothing
+    /// probed Steam then, so the caller must not read it as "reachable".</summary>
+    private static async Task<(List<InjectedTab> Tabs, bool? Reachable, bool FilterFailed)> BuildTabsAsync(
         AppConfig config, List<Discovered> discovered, CancellationToken cancellationToken)
     {
         var tabs = new List<InjectedTab>();
@@ -280,7 +314,10 @@ public sealed class LibraryTabManager
             }
         }
 
-        return (tabs, true, false);
+        // Only a filter evaluation talks to Steam here; with none, reachability is
+        // unknown rather than proven.
+        bool? reachable = customTabs.Count > 0 ? true : null;
+        return (tabs, reachable, false);
     }
 
     /// <summary>Deletes any Steam collections WSGM created under the previous
@@ -317,12 +354,21 @@ public sealed class LibraryTabManager
         }
     }
 
+    /// <summary>Outcome of a card-badge push: reached the visible window, missed it
+    /// (boot paths retry), or the feature is switched off (nothing to retry).</summary>
+    private enum BadgePush
+    {
+        NoTarget,
+        Pushed,
+        Disabled,
+    }
+
     /// <summary>Pushes the per-game card badge map (app id → card name) into Steam's
     /// library page and (re)installs the resident badge observer. Best-effort — a badge
     /// failure never affects tab syncing.</summary>
-    // Returns whether the observer + map actually reached the visible window —
-    // callers on boot paths retry on false instead of assuming the badge exists.
-    private static async Task<bool> PushCardBadgesAsync(
+    // Reports whether the observer + map actually reached the visible window —
+    // callers on boot paths retry on NoTarget instead of assuming the badge exists.
+    private static async Task<BadgePush> PushCardBadgesAsync(
         AppConfig config, CancellationToken cancellationToken)
     {
         // CEF SD-card-manager feature gate (master + sub-toggle): the "On: <card>"
@@ -335,7 +381,7 @@ public sealed class LibraryTabManager
             {
                 await SteamPageBridge.DisableBadgeAsync(cancellationToken).ConfigureAwait(false);
             }
-            return false;
+            return BadgePush.Disabled;
         }
         try
         {
@@ -347,13 +393,14 @@ public sealed class LibraryTabManager
                     map[id] = card.Name;
                 }
             }
-            return await SteamPageBridge.UpdateCardBadgesAsync(map, cancellationToken)
+            var pushed = await SteamPageBridge.UpdateCardBadgesAsync(map, cancellationToken)
                 .ConfigureAwait(false);
+            return pushed ? BadgePush.Pushed : BadgePush.NoTarget;
         }
         catch (Exception ex)
         {
             Log.Warn($"Card badge push failed: {ex.Message}");
-            return false;
+            return BadgePush.NoTarget;
         }
     }
 
@@ -469,11 +516,12 @@ public sealed class LibraryTabManager
     /// because the reader letter is shared by every card ever inserted.</summary>
     private static char? FindMountedLetter(string contentId)
     {
+        var systemDisks = RemovableDriveManager.ResolveSystemDisks();
         foreach (var drive in DriveInfo.GetDrives())
         {
             try
             {
-                if (!drive.IsReady || !IsExternalVolume(drive))
+                if (!drive.IsReady || !IsExternalVolume(drive, systemDisks))
                 {
                     continue;
                 }
@@ -837,12 +885,15 @@ public sealed class LibraryTabManager
     private static List<Discovered> ScanLibraries()
     {
         var configLabels = ReadConfigLabels();
+        // Resolved once per scan: each call opens two volume handles and issues two
+        // IOCTLs, and the answer cannot change while a single scan runs.
+        var systemDisks = RemovableDriveManager.ResolveSystemDisks();
         var found = new List<Discovered>();
         foreach (var drive in DriveInfo.GetDrives())
         {
             try
             {
-                if (!drive.IsReady || !IsExternalVolume(drive))
+                if (!drive.IsReady || !IsExternalVolume(drive, systemDisks))
                 {
                     continue;
                 }
@@ -875,7 +926,7 @@ public sealed class LibraryTabManager
         return found;
     }
 
-    private static bool IsExternalVolume(DriveInfo drive)
+    private static bool IsExternalVolume(DriveInfo drive, HashSet<int> systemDisks)
     {
         if (drive.DriveType is not (DriveType.Fixed or DriveType.Removable))
         {
@@ -886,7 +937,7 @@ public sealed class LibraryTabManager
         if (volume.IsInvalid
             || !NativeStorage.TryGetDeviceNumber(volume, out var type, out var disk)
             || type != NativeStorage.FileDeviceDisk || disk < 0
-            || RemovableDriveManager.ResolveSystemDisks().Contains(disk))
+            || systemDisks.Contains(disk))
         {
             return false;
         }

@@ -452,10 +452,14 @@ public sealed class RemovableDriveManager : INotifyPropertyChanged, IDisposable
         {
             return;
         }
+        // Claim the row BEFORE queueing behind another row's eject: ActionEnabled is
+        // the only thing that stops a second press, and while the gate is held for a
+        // different device the row would still look idle — the duplicate run then
+        // lands on an already-removed device and overwrites the success message.
+        entry.Busy = true;
         await _ejectGate.WaitAsync();
         try
         {
-            entry.Busy = true;
             entry.ResultText = "";
             StatusText = $"Ejecting {entry.Name}...";
             // The ACF watcher holds directory handles on card volumes; a locked

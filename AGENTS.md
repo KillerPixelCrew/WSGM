@@ -215,7 +215,7 @@ LogonUI still owns the screen, and WTS_SESSION_DESKTOP_READY is never delivered 
 this gate Steam audio leaks behind the Welcome screen) → `ExplorerReadiness` — `GetShellWindow()` +
 explorer's `Shell_TrayWnd`, then `ExplorerLogonSettleMs` settle (default 5000 ms), 60 s hard cap,
 and **invariant-7 acceleration** (BP window appears under the opaque cover → take over immediately)
-→ `ExplorerControl.ExitExplorerAndWait(5 s)` → posture → TrayHost → startup apps (skipping ones
+→ `ExplorerControl.ExitExplorerAndWait(30 s)` → posture → TrayHost → startup apps (skipping ones
 explorer's autostart already launched) → Steam, strictly AFTER explorer is gone.
 
 **How Explorer is ended — device-settled, do not change the mechanism:** `ExitExplorerAndWait`
@@ -224,12 +224,16 @@ explorer's pid-verified `Shell_TrayWnd`. That intentional shutdown is the ONLY w
 AutoRestartShell does not respawn the shell. PID-snapshot semantics: any explorer pid not in the
 initial snapshot is a Winlogon replacement → cancel and **fail open** (preserve desktop mode, warn
 `Couldn't exit Windows Explorer safely`); a replacement is NEVER killed (fighting AutoRestartShell
-loops). Lingering snapshotted pids are terminated only after explorer destroyed its taskbar (a
-shell extension can hold the process open — device-observed) **and only after a `LingerGrace` (2 s)
+loops) — instead the orderly exit is retried ONCE against the respawned shell, which is a freshly
+started explorer that honors it within seconds, and both attempts share ONE deadline (a fresh full
+budget for the retry let a caller asking for 15 s sit in the transition for more than twice that).
+Lingering snapshotted pids are terminated only after explorer destroyed its taskbar (a
+shell extension can hold the process open — device-observed) **and only after a `LingerGrace` (8 s)
 window in which the remnant is given the chance to leave on its own** — killing it mid-shutdown is
 itself what Winlogon respawns (device-observed 2026-08-08 as "game mode needs two tries"; a clean
-run had the remnant exit ~830 ms after the taskbar went). Success requires 500 ms of stable
-absence. Two mechanisms are device-DISPROVEN (2026-08-07): plain `Process.Kill` (Winlogon
+run had the remnant exit ~830 ms after the taskbar went). That grace is never shortened to fit the
+remaining budget: a remnant that did not get the full window is left alone and the exit fails open.
+Success requires 500 ms of stable absence. Two mechanisms are device-DISPROVEN (2026-08-07): plain `Process.Kill` (Winlogon
 respawns) and Restart Manager `RmShutdown` (wedged a freshly logged-on explorer ~30 s, error 351,
 then respawn). The full working-era implementation is preserved in the Codex transcript
 `~\.codex\sessions\2026\08\06\rollout-2026-08-06T23-57-41-*.jsonl` (L567/L1167).
@@ -258,7 +262,7 @@ teardown, and an `Enter*`/`Leave*` pair — never a Popup/Flyout, which `Gamepad
 `GamepadService` instances exist when Settings is open; per-instance pumps would steal hotplug
 events). UI-thread 16 ms `DispatcherTimer` poll → edge-triggered `ButtonPressed` (+ direction
 auto-repeat) and full-state `StateChanged` (chords) → `GamepadNavigation` (focus movement through
-tab order, synthesized Enter to activate, arrow-key mirror with 100 ms dedupe, skips TextBoxes so
+tab order, synthesized Enter to activate, arrow-key mirror with 250 ms dedupe, skips TextBoxes so
 the touch keyboard doesn't pop) and `GamepadChordWatcher`. `Overlay\TouchSwipeMonitor` observes the
 raw HID digitizer (`RIDEV_INPUTSINK`, observation only) for four configurable edge swipes _and_
 tap-outside-overlay dismissal. Bottom/right retain WSGM's taskbar/quick-access actions; left/top
@@ -290,6 +294,20 @@ buttons); `OverlayController` stays the UI owner (lease lifecycle, overlay windo
    requests Steam controller rediscovery. Keep the native `steam_input_gate.dll` and
    `steam_input_lease_ffi.dll` beside WSGM.exe, and preserve the `Steam Input lease
    acquired/released` logs for device diagnosis.
+   **Live-verified end to end (2026-08-12, dev box, `steam-input-lease.exe`, real Steam Controller
+   connected):** acquire took the pad from Steam (`tracked HID handles` 1 → 0, `handles revoked by
+   last transition` = 1), Steam had rediscovered it within 700 ms of release (0 → 1), and an
+   explicit `--rescan` moved Steam's scan counter 14 → 16. **Measured cost:** cold inject + acquire
+   + release **492 ms** (one-off; the injection dominates), warm acquire + release **41-42 ms** with
+   and without a pad, and a single pipe reply (`--status`) **12-16 ms across ten consecutive calls**.
+   A review finding claimed every pipe reply re-resolves the recovery layout inline, so an acquire
+   can block on a full cross-process address-space sweep — that does NOT reproduce: the layout is
+   resolved once on the gate's warm-up and cached, and a sweep would cost hundreds of ms per reply,
+   not 14. Do not "fix" it; the proposed fix (answering `payload_capabilities()` only from
+   already-resolved state) would additionally make the FIRST acquire report no internal recovery,
+   sending `SteamInputBlocker.cs`'s acquire-time gate into a host-side sweep under `Sync` —
+   strictly worse. The dev box's Steam is a usable rig for this: the gate stays mapped (pinned by
+   design) until Steam restarts.
 2. **Never intercept mouse or keyboard globally** — raw-input _observation_ only (TouchSwipeMonitor
    pattern). The low-level keyboard hook in `KeyRecorder` exists only during explicit shortcut
    recording.
@@ -329,7 +347,12 @@ buttons); `OverlayController` stays the UI owner (lease lifecycle, overlay windo
    leaves no limited token to hand out; the child tags that failure and the parent launches the game
    as-is). An error out of `run_wrapped` means only that the target NEVER STARTED, because that is
    what the caller does about it; a release handshake that fails after the game exited returns the
-   exit code instead, or the wrapper would start a finished game a second time.
+   exit code instead, or the wrapper would start a finished game a second time. It is still
+   **reported**, through `WrappedRun.release` (ABI 3 added the `release` output to
+   `sil_client_run_wrapped`, which previously discarded it): blocking is lifted either way, but a
+   failed handshake means Steam was never asked to rediscover controllers, so `WSGM.Launch` writes
+   `Steam Input lease released, but Steam controller recovery did not run …` to `launch.log` —
+   the only surface that failure was ever diagnosable from.
    **Four device-verified invariants make it actually work when Steam is elevated (each was a
    separate real failure, 2026-08-12):** (a) it MUST be a
    **console** subsystem exe (`<OutputType>Exe</OutputType>`, shows a CLI window) — a windowless
@@ -362,6 +385,16 @@ buttons); `OverlayController` stays the UI owner (lease lifecycle, overlay windo
    Additionally, a `steam://open/bigpicture` re-activation while the intro plays kills the video
    (the removed splash→BP "focus handoff") — after the splash closes, do not touch Steam; it takes
    the foreground itself. A no-activate splash was tried and did not affect the symptom.
+   **The detection path is boot-critical and must never throw** (regressed 2026-08-12, caught on the
+   device across two reboots): the splash's 250 ms poll calls
+   `WindowFinder.FindWindow` → `FindProcessIds`, which reads `Process.SessionId` per candidate. That
+   read sits behind a deliberately BLANKET `catch` — an audit "fix" narrowed it to
+   `InvalidOperationException`/`Win32Exception`, so any other type propagated out of the poll, BP was
+   never detected, the splash never faded, and its opaque cover sat over a live BP window: black
+   intro video, every boot. Do not narrow it, and do not add an unthrottled `Log` call inside it
+   either — at 4 Hz across Steam's several helper processes that alone fills the capped log.
+   The general rule: on any poll that feeds splash dismissal or takeover progress, a swallowed
+   exception is the lesser failure. Prefer a throttled one-shot warning over a narrower catch.
 8. **Adding a library to a RUNNING Steam goes through Steam's own front-end, never its internals.**
    `Core\SteamCef.cs` drives Steam's CEF remote-debugging port (localhost:8080) → WebSocket
    `Runtime.evaluate` → `SteamClient.InstallFolder.AddInstallFolder("<path>")`, so Steam adds,
@@ -442,6 +475,13 @@ buttons); `OverlayController` stays the UI owner (lease lifecycle, overlay windo
    the appid in the path). Match by `width>=600 && width>height` so the portrait grid capsules are
    skipped and the badge CLEARS when leaving a game. NEVER match the `library_hero` filename alone —
    many games don't use it. The badge is a resident `MutationObserver` + fixed-position pill.
+   `CurrentAppIdJs` resolves to **`{id,src}`**, not a bare number: it is ONE source string shared by
+   the C# reader and the resident badge (so the center/visibility rules cannot drift between them),
+   and `src` names the signal that matched — `focus` (the focused element's React fiber, tried first)
+   or `hero image`. The badge's `curId()` unwraps `.id`. `Log` prints the signal, so a detection that
+   silently shifts from one signal to the other is visible in a pasted `wsgm.log` instead of hiding
+   behind a generic label. Bump `BadgeScriptVersion` whenever the resident script text changes, and
+   re-probe both branches against a live Steam (`tools/WsgmLibTest`) before shipping a change here.
    Artwork apply (SteamGridDB feature) is the robust `SharedJSContext` API
    `SteamClient.Apps.Clear/SetCustomArtworkForApp(appid, base64, ext, assetType)` (grid=0/hero=1/
    logo=2/wide=3/icon=4; clear→~500ms→set; icons alone need FS writes) — data on SharedJSContext, DOM

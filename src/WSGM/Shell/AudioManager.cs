@@ -590,46 +590,68 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
 
         _ = Task.Run(() =>
         {
-            while (true)
+            try
             {
-                int requested;
+                while (true)
+                {
+                    int requested;
+                    lock (_volumeGate)
+                    {
+                        if (_pendingVolume is not int pending || _disposed)
+                        {
+                            _volumeWorkerRunning = false;
+                            return;
+                        }
+                        requested = pending;
+                        _pendingVolume = null;
+                    }
+
+                    try
+                    {
+                        var result = NativeVolumeControl.SetVolume(requested, out var muted);
+                        if (result >= 0)
+                        {
+                            Log.Info($"Taskbar volume set to {requested}% (muted={muted != 0}).");
+                            VolumeFeedback.Play();
+                            Dispatcher.UIThread.Post(() =>
+                            {
+                                if (!_disposed)
+                                {
+                                    ApplyVolume(requested, muted != 0);
+                                    _stickyError = false;
+                                    ErrorText = "";
+                                }
+                            });
+                        }
+                        else
+                        {
+                            PostFailure($"Set volume failed (HRESULT 0x{result:X8}).", sticky: true);
+                        }
+                    }
+                    catch (Exception ex)
+                        when (ex is DllNotFoundException or EntryPointNotFoundException)
+                    {
+                        PostFailure($"Volume control is unavailable: {ex.Message}", sticky: true);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Anything else out of the native write is reported and
+                        // the worker carries on. Letting it unwind the loop would
+                        // strand _volumeWorkerRunning at true, and every later
+                        // slider move would then be dropped in silence.
+                        PostFailure($"Volume write failed: {ex.Message}", sticky: true);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // The flag is the only thing that lets a later write start a
+                // worker at all, so it must be cleared on the abnormal exit too.
                 lock (_volumeGate)
                 {
-                    if (_pendingVolume is not int pending || _disposed)
-                    {
-                        _volumeWorkerRunning = false;
-                        return;
-                    }
-                    requested = pending;
-                    _pendingVolume = null;
+                    _volumeWorkerRunning = false;
                 }
-
-                try
-                {
-                    var result = NativeVolumeControl.SetVolume(requested, out var muted);
-                    if (result >= 0)
-                    {
-                        Log.Info($"Taskbar volume set to {requested}% (muted={muted != 0}).");
-                        VolumeFeedback.Play();
-                        Dispatcher.UIThread.Post(() =>
-                        {
-                            if (!_disposed)
-                            {
-                                ApplyVolume(requested, muted != 0);
-                                _stickyError = false;
-                                ErrorText = "";
-                            }
-                        });
-                    }
-                    else
-                    {
-                        PostFailure($"Set volume failed (HRESULT 0x{result:X8}).", sticky: true);
-                    }
-                }
-                catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException)
-                {
-                    PostFailure($"Volume control is unavailable: {ex.Message}", sticky: true);
-                }
+                Log.Warn($"Volume write worker stopped: {ex.Message}");
             }
         });
     }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
@@ -261,6 +262,22 @@ public partial class RadioWindow : Window
         _applyingSwitch = false;
     }
 
+    // The radio manager's user-action calls reach WSGM.Radio.dll directly, so a
+    // missing or mismatched helper throws out of these async void handlers — i.e.
+    // unhandled, killing the shell process. A radio action must never do that:
+    // log it and leave the panel usable.
+    private static async Task RunRadioActionAsync(Task action, string operation)
+    {
+        try
+        {
+            await action;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Radio panel {operation} failed: {ex.Message}");
+        }
+    }
+
     private async void OnRadioSwitchToggled(object? sender, RoutedEventArgs e)
     {
         if (_applyingSwitch)
@@ -268,7 +285,8 @@ public partial class RadioWindow : Window
             return;
         }
         var on = RadioSwitch.IsChecked == true;
-        await _radios.SetRadioAsync(OnBluetoothTab, on);
+        await RunRadioActionAsync(_radios.SetRadioAsync(OnBluetoothTab, on),
+            $"{(OnBluetoothTab ? "Bluetooth" : "Wi-Fi")} power {(on ? "on" : "off")}");
     }
 
     /// <summary>Selecting a network reveals its actions. It never connects or
@@ -294,7 +312,7 @@ public partial class RadioWindow : Window
         }
         if (entry.Connected)
         {
-            await _radios.DisconnectAsync();
+            await RunRadioActionAsync(_radios.DisconnectAsync(), "Wi-Fi disconnect");
             return;
         }
         if (entry.Security == WifiSecurity.Enterprise)
@@ -310,14 +328,16 @@ public partial class RadioWindow : Window
             ShowPrompt(PromptMode.WifiPassword, $"Connect to {entry.Ssid}", "Enter the network password.");
             return;
         }
-        await _radios.ConnectAsync(entry.Ssid, null);
+        await RunRadioActionAsync(_radios.ConnectAsync(entry.Ssid, null),
+            $"Wi-Fi connect to {entry.Ssid}");
     }
 
     private async void OnNetworkForget(object? sender, RoutedEventArgs e)
     {
         if ((sender as Control)?.DataContext is WifiNetworkEntry entry)
         {
-            await _radios.ForgetAsync(entry.Ssid);
+            await RunRadioActionAsync(_radios.ForgetAsync(entry.Ssid),
+                $"Wi-Fi forget {entry.Ssid}");
         }
     }
 
@@ -349,7 +369,9 @@ public partial class RadioWindow : Window
         }
         if (entry.AudioConnectable)
         {
-            await _radios.SetAudioConnectionAsync(entry, connect: !entry.AudioActive);
+            await RunRadioActionAsync(
+                _radios.SetAudioConnectionAsync(entry, connect: !entry.AudioActive),
+                $"Bluetooth audio {(entry.AudioActive ? "disconnect" : "connect")} for {entry.Name}");
         }
     }
 
@@ -357,7 +379,7 @@ public partial class RadioWindow : Window
     {
         if ((sender as Control)?.DataContext is BluetoothDeviceEntry { Busy: false } entry)
         {
-            await _radios.UnpairAsync(entry);
+            await RunRadioActionAsync(_radios.UnpairAsync(entry), $"Bluetooth unpair {entry.Name}");
         }
     }
 
@@ -460,7 +482,8 @@ public partial class RadioWindow : Window
         switch (mode)
         {
             case PromptMode.WifiPassword:
-                await _radios.ConnectAsync(ssid, text);
+                await RunRadioActionAsync(_radios.ConnectAsync(ssid, text),
+                    $"Wi-Fi connect to {ssid}");
                 break;
             case PromptMode.PairingPin:
                 _radios.RespondToPairing(token, accept: true, text);
@@ -481,20 +504,6 @@ public partial class RadioWindow : Window
         if (mode is PromptMode.PairingPin or PromptMode.PairingConfirm)
         {
             _radios.RespondToPairing(token, accept: false, null);
-        }
-    }
-
-
-    /// <summary>Collapses every row, so reopening a tab starts clean.</summary>
-    private void CollapseRows()
-    {
-        foreach (var network in _radios.Networks)
-        {
-            network.Expanded = false;
-        }
-        foreach (var device in _radios.BluetoothDevices)
-        {
-            device.Expanded = false;
         }
     }
 

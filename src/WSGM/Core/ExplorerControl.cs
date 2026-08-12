@@ -21,7 +21,21 @@ public static class ExplorerControl
     }
 
     /// <summary>Starts Explorer for the current session when it is not already running.</summary>
-    public static void StartExplorer()
+    public static void StartExplorer() => StartExplorerCore(waitForElevationRepair: false);
+
+    /// <summary>Starts Explorer and, when this process is elevated, BLOCKS until the
+    /// de-elevation check has run and repaired Explorer if needed.
+    /// <para>For terminal recovery paths only — the crash-loop disarm and
+    /// <c>--restore-shell</c> both hand the user a desktop and then exit the process,
+    /// so the fire-and-forget verification <see cref="StartExplorer"/> queues would be
+    /// torn down before it ever ran, leaving an ELEVATED Explorer behind (which breaks
+    /// UWP: touch keyboard, Store apps — invariant 5). Costs the verification delay,
+    /// which is why the normal transition path keeps using
+    /// <see cref="StartExplorer"/>. <c>Panic()</c> deliberately does NOT use this: that
+    /// process is already dying.</para></summary>
+    public static void StartExplorerAndVerify() => StartExplorerCore(waitForElevationRepair: true);
+
+    private static void StartExplorerCore(bool waitForElevationRepair)
     {
         try
         {
@@ -36,7 +50,18 @@ public static class ExplorerControl
                 // scheduled task — but whether that survives a custom shell
                 // registration is undocumented. Verify, and repair once if not:
                 // an elevated explorer breaks UWP (touch keyboard, store apps).
-                System.Threading.Tasks.Task.Run(VerifyAndRepairElevation);
+                if (waitForElevationRepair)
+                {
+                    // Blocking on purpose, and via Task.Run so the wait can never
+                    // deadlock against a captured context: the callers are terminal
+                    // recovery paths that exit the process immediately afterwards, so
+                    // an un-awaited verification would be torn down before it ran.
+                    System.Threading.Tasks.Task.Run(VerifyAndRepairElevation).GetAwaiter().GetResult();
+                }
+                else
+                {
+                    System.Threading.Tasks.Task.Run(VerifyAndRepairElevation);
+                }
             }
         }
         catch (Exception ex)
@@ -53,21 +78,44 @@ public static class ExplorerControl
             await System.Threading.Tasks.Task.Delay(5000);
 
             var elevated = false;
+            var undetermined = false;
             var seen = false;
             foreach (var p in ExplorerInSession())
             {
                 try
                 {
                     seen = true;
-                    elevated |= ElevationCheck.IsProcessElevated((uint)p.Id) == true;
+                    // Three states, not two: IsProcessElevated returns null when
+                    // Windows would not answer, and folding that into "unelevated"
+                    // reports a repair that never happened.
+                    var state = ElevationCheck.IsProcessElevated((uint)p.Id);
+                    if (state == true)
+                    {
+                        elevated = true;
+                    }
+                    else if (state is null)
+                    {
+                        undetermined = true;
+                    }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    undetermined = true;
+                    Log.Warn($"Explorer elevation query failed: {ex.Message}");
+                }
                 finally { p.Dispose(); }
             }
 
             if (!seen)
             {
                 Log.Warn("Explorer verification: no explorer process found 5 s after start.");
+                return;
+            }
+            if (!elevated && undetermined)
+            {
+                // Restarting a shell we cannot even classify is worse than living
+                // with the possibility: leave it alone, but say so in the log.
+                Log.Warn("Explorer elevation could not be determined — leaving it alone.");
                 return;
             }
             if (!elevated)
@@ -156,10 +204,12 @@ public static class ExplorerControl
             // A Winlogon respawn is the one failure that is reliably
             // recoverable: the replacement is a freshly started explorer that
             // honors the next orderly exit within seconds (device-observed —
-            // every manual retry after a respawn succeeded). One bounded retry
-            // and only ever politely: a replacement is still never killed, and
-            // a second respawn ends the attempt for good (fighting
-            // AutoRestartShell loops).
+            // every manual retry after a respawn succeeded). One bounded retry,
+            // and a second respawn ends the attempt for good (fighting
+            // AutoRestartShell loops). A replacement is never killed during the
+            // attempt that produced it; on the retry it becomes the shell being
+            // asked to exit, so only a remnant that acknowledged that exit and
+            // then outlived the grace is terminated.
             if (!_respawnCancelled)
             {
                 return false;
@@ -297,7 +347,10 @@ public static class ExplorerControl
         // alive a moment. Let it leave on its own first: killing it mid-shutdown is
         // what Winlogon respawns (the "two tries" symptom). Only terminate a remnant
         // still present after the grace period. A replacement is never killed.
-        var graceDeadline = DateTime.UtcNow + LingerGrace;
+        var graceStart = DateTime.UtcNow;
+        var graceDeadline = graceStart + LingerGrace;
+        // The caller's budget can expire first — then the grace was NOT served
+        // and the remnant must not be killed (see below).
         if (graceDeadline > deadline)
         {
             graceDeadline = deadline;
@@ -332,9 +385,22 @@ public static class ExplorerControl
         }
         if (afterTaskbar.Count > 0)
         {
-            Log.Warn($"Explorer taskbar exited but original process(es) {string.Join(", ", afterTaskbar)} " +
-                     $"lingered past {LingerGrace.TotalMilliseconds:F0} ms; terminating them.");
-            TerminateOriginalExplorerProcesses(initialProcessIds);
+            var lingered = DateTime.UtcNow - graceStart;
+            if (lingered < LingerGrace)
+            {
+                // The budget ran out before the full grace was served. Killing a
+                // remnant that never got its grace is exactly what Winlogon
+                // respawns, so fail open and let the stability check report it.
+                Log.Warn($"Explorer taskbar exited but original process(es) {string.Join(", ", afterTaskbar)} " +
+                         $"were still present after {lingered.TotalMilliseconds:F0} ms and the budget ran out " +
+                         $"before the {LingerGrace.TotalMilliseconds:F0} ms grace; not terminating them.");
+            }
+            else
+            {
+                Log.Warn($"Explorer taskbar exited but original process(es) {string.Join(", ", afterTaskbar)} " +
+                         $"lingered past {lingered.TotalMilliseconds:F0} ms; terminating them.");
+                TerminateOriginalExplorerProcesses(initialProcessIds);
+            }
         }
         return WaitForStableExplorerAbsence(initialProcessIds, deadline);
     }
@@ -376,13 +442,12 @@ public static class ExplorerControl
 
     private static void TerminateOriginalExplorerProcesses(IEnumerable<int> originalProcessIds)
     {
-        var sessionId = Process.GetCurrentProcess().SessionId;
         foreach (var processId in originalProcessIds)
         {
             try
             {
                 using var process = Process.GetProcessById(processId);
-                if (process.SessionId != sessionId ||
+                if (process.SessionId != CurrentSessionId ||
                     !process.ProcessName.Equals("explorer", StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
@@ -451,29 +516,11 @@ public static class ExplorerControl
         try
         {
             using var process = Process.GetProcessById(checked((int)processId));
-            return process.SessionId == Process.GetCurrentProcess().SessionId;
+            return process.SessionId == CurrentSessionId;
         }
         catch
         {
             return false;
-        }
-    }
-
-    /// <summary>Terminates Explorer processes in the current session to return to game mode.</summary>
-    public static void KillExplorer()
-    {
-        foreach (var p in ExplorerInSession())
-        {
-            try
-            {
-                Log.Info($"Killing explorer.exe (pid {p.Id})");
-                p.Kill();
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Could not kill explorer pid {p.Id}: {ex.Message}");
-            }
-            finally { p.Dispose(); }
         }
     }
 
@@ -527,18 +574,28 @@ public static class ExplorerControl
     private static string ExplorerPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
 
+    // A process cannot change sessions, and this is asked for on every 10 Hz
+    // takeover poll and on every overlay/edge-swipe IsRunningInSession() call —
+    // query it once instead of leaking an undisposed Process each time.
+    private static readonly int CurrentSessionId = ReadCurrentSessionId();
+
+    private static int ReadCurrentSessionId()
+    {
+        using var self = Process.GetCurrentProcess();
+        return self.SessionId;
+    }
+
     /// <summary>Explorer processes of the CURRENT session only (other RDP/FUS
     /// sessions run their own). Caller disposes every returned process.</summary>
     private static List<Process> ExplorerInSession()
     {
         var result = new List<Process>();
-        var session = Process.GetCurrentProcess().SessionId;
         foreach (var p in Process.GetProcessesByName("explorer"))
         {
             var keep = false;
             try
             {
-                keep = p.SessionId == session;
+                keep = p.SessionId == CurrentSessionId;
             }
             catch { /* process may have exited */ }
             if (keep)

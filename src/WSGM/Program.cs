@@ -4,13 +4,15 @@ using System.Linq;
 using System.Threading;
 using Avalonia;
 using WSGM.Core;
+using WSGM.Shell;
 
 namespace WSGM;
 
 /// <summary>The intentionally narrow operating modes accepted by the executable.</summary>
 public enum RunMode
 {
-    /// <summary>Runs the registered Windows shell session.</summary>
+    /// <summary>Runs the game-mode shell session (service boot or --shell). Explorer
+    /// stays the registered Windows shell; this session ends it and takes the screen.</summary>
     Shell,
 
     /// <summary>Runs the settings or welcome UI without changing shell state.</summary>
@@ -47,15 +49,18 @@ public static class Program
             ShellRegistration.Uninstall();
             // The user is escaping game mode: also disarm the service boot so the
             // next sign-in is a plain desktop (re-enable in Settings). Best effort —
-            // this path must survive a broken profile.
-            try
-            {
-                var config = ConfigStore.Load();
-                BootManifestWriter.WriteDisabled(config);
-                ConfigStore.Save(config);
-            }
-            catch { }
-            ExplorerControl.StartExplorer();
+            // this path must survive a broken profile, and logging is not up yet.
+            // boot.json is projected from a defensive load so the disarm still lands
+            // when config.json cannot be read; clearing the flag INSIDE config.json is
+            // a read-modify-write and goes through the strict mutation path, which
+            // aborts rather than replacing the registry recovery snapshots with
+            // defaults.
+            try { BootManifestWriter.WriteDisabled(ConfigStore.Load()); } catch { }
+            try { ConfigStore.Mutate(static c => c.GameModeBootEnabled = false); } catch { }
+            // Verify-and-wait: this path returns out of Main straight afterwards, so a
+            // queued de-elevation check would be torn down before it ran and the user
+            // would be left with an ELEVATED explorer (breaks UWP — invariant 5).
+            ExplorerControl.StartExplorerAndVerify();
             // A lease is pipe-backed, so a crashed shell releases it when Windows
             // closes its handles. A live shell can still be releasing normally.
             SteamInputBlocker.ReleaseBestEffort("restore-shell");
@@ -140,14 +145,30 @@ public static class Program
 
         if (args.Contains("--setup", StringComparer.OrdinalIgnoreCase))
         {
-            var config = ConfigStore.Load();
+            // The gaming-home guard captures a registry snapshot INTO this config and
+            // saves it, so it is loaded strictly: an unreadable config.json aborts the
+            // capture instead of recording the already-modified value as the pre-WSGM
+            // one and persisting defaults over every other recovery snapshot. Setup
+            // itself must still complete, so the failure only logs.
+            AppConfig? config = null;
+            try
+            {
+                config = ConfigStore.LoadForMutation();
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Setup: config.json is unreadable — skipping the gaming-home guard and the boot manifest", ex);
+            }
             Installer.InstallApp();
             // Migration off shell replacement: restore the snapshotted previous
             // shell on upgraded devices (self-guarding no-op everywhere else) —
             // WSGM boots via the logon service over an explorer shell now.
             ShellRegistration.Uninstall();
-            ShellRegistration.ApplyGamingHomeGuard(config);
-            BootManifestWriter.WriteCurrent(config);
+            if (config is not null)
+            {
+                ShellRegistration.ApplyGamingHomeGuard(config);
+                BootManifestWriter.WriteCurrent(config);
+            }
             return 0;
         }
 
@@ -196,16 +217,31 @@ public static class Program
                 // config.json cannot be saved, so the next sign-in stays a desktop.
                 try
                 {
-                    var config = ConfigStore.Load();
-                    BootManifestWriter.WriteDisabled(config);
-                    try { ConfigStore.Save(config); } catch { }
+                    BootManifestWriter.WriteDisabled(ConfigStore.Load());
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    Log.Warn($"Crash-loop disarm: boot manifest write failed: {ex.Message}");
+                }
+                try
+                {
+                    // Read-modify-write, so the strict mutation load: an unreadable
+                    // config.json aborts here instead of overwriting the registry
+                    // recovery snapshots with defaults. boot.json above already
+                    // disarmed the next sign-in either way.
+                    ConfigStore.Mutate(static c => c.GameModeBootEnabled = false);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"Crash-loop disarm: could not clear the game-mode boot flag: {ex.Message}");
+                }
                 // Migration-era safety: also drop a legacy shell registration.
                 ShellRegistration.Uninstall();
                 if (!ExplorerControl.IsRunningInSession())
                 {
-                    ExplorerControl.StartExplorer();
+                    // Same reason as --restore-shell: the disarm exits immediately after
+                    // this, so the elevation repair has to complete before we return.
+                    ExplorerControl.StartExplorerAndVerify();
                 }
                 // Lease release first (invariant: fires on EVERY recovery path,
                 // ahead of cosmetic restores) — same ordering as --restore-shell.
@@ -390,7 +426,10 @@ public static class Program
 }
 
 /// <summary>Disarms WSGM if the shell process keeps dying at logon: 3 or more
-/// shell-mode starts within 2 minutes restore the previous shell automatically.</summary>
+/// shell-mode starts within 2 minutes disarm the service boot automatically
+/// (boot.json disabled plus the config flag cleared), so the next sign-in is a plain
+/// Explorer desktop. Dropping a legacy shell registration is a migration remnant of
+/// the same disarm, not its primary action.</summary>
 internal static class CrashLoopBreaker
 {
     private static string MarkerPath => Path.Combine(Log.Directory, "shell-starts.txt");

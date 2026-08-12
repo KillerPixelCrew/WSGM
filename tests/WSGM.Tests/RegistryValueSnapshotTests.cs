@@ -83,6 +83,17 @@ public sealed class RegistryValueSnapshotTests
             var path = Key.Name["HKEY_CURRENT_USER\\".Length..];
             Key.Dispose();
             Registry.CurrentUser.DeleteSubKeyTree(path, throwOnMissingSubKey: false);
+            try
+            {
+                // CreateSubKey made the parent implicitly; leaving it behind is machine
+                // residue from a suite that must leave none. DeleteSubKey throws while a
+                // concurrent scope still has a child there — that is the correct no-op.
+                Registry.CurrentUser.DeleteSubKey("Software\\WSGM.Tests", throwOnMissingSubKey: false);
+            }
+            catch
+            {
+                // Another live scope still owns a child key; it removes the parent instead.
+            }
         }
     }
 }

@@ -11,7 +11,10 @@ namespace WSGM.Shell;
 /// overlay (hotkey + edge swipes + home-exit), stays resident for the session.</summary>
 public sealed class ShellSession
 {
-    private readonly AppConfig _config;
+    // Replaced wholesale on every reload (see Reload) so this stays the same
+    // instance the overlay, SessionModes and DisplayScale's saved-scale snapshot
+    // live on — the volume OSD's UI-scale callback reads it long after boot.
+    private AppConfig _config;
     private readonly bool _overlayTestOnly;
     private readonly bool _serviceBoot;
     private bool _tookOverFromExplorer;
@@ -28,12 +31,20 @@ public sealed class ShellSession
     // Replaced (not just cancelled) on every game-mode entry: a single cancelled
     // source would permanently kill boot syncing after the first desktop trip.
     private CancellationTokenSource _tabBootSyncCancellation = new();
+    // True for the direct game-mode boot; the desktop-resume paths clear it, and
+    // DesktopModeStarting/GameModeEntered keep it current afterwards.
     private bool _inGameMode = true;
     // Last applied master CEF state, so a reload can tell an on->off transition
-    // (which must retract first) from a repeat of the same value.
-    private bool _cefMasterEnabled;
-    // Live Wi-Fi-indicator gate. NOT read from _config: that field is the boot-time
-    // snapshot and is never replaced, so gating on it made the toggle need a re-logon.
+    // (which must retract first) from a repeat of the same value. Volatile: the
+    // retraction task reads it to decide whether closing the choke point is still
+    // wanted, while the UI thread writes it.
+    private volatile bool _cefMasterEnabled;
+    // One gate for the whole master-switch workflow: a retraction is three CEF
+    // round-trips long, and overlapping applies must not interleave their
+    // retract-then-close ordering.
+    private readonly System.Threading.SemaphoreSlim _cefMasterGate = new(1, 1);
+    // Live Wi-Fi-indicator gate: the applied state, so a reload can tell an
+    // on->off transition from a repeat of the same value.
     private bool _wifiIndicatorEnabled;
     // Field-rooted deliberately: an unreferenced enabled FileSystemWatcher is
     // GC-collectible (it holds only a WeakReference to itself in its pending
@@ -69,7 +80,9 @@ public sealed class ShellSession
         // that never opted in), which the safe local modes must not do. The manual
         // toggle still works there — it only takes a local power request.
         _keepAwake = KeepAwakeService.StartNew(_monitor, AutoKeepAwakeEnabled(_config));
-        _overlay = new OverlayController(_config, _monitor, _modes, _keepAwake);
+        // --overlay-test shares the Settings preview's exposure: it has no boot takeover
+        // and no watchdog behind it, so the mode row must not offer a real transition.
+        _overlay = new OverlayController(_config, _monitor, _modes, _keepAwake, previewOnly: _overlayTestOnly);
 
         // The tray host must never coexist with explorer's taskbar (Z-order war
         // over FindWindow — see TrayHost): gone before explorer starts, back
@@ -166,6 +179,10 @@ public sealed class ShellSession
             // startup apps, no Steam, no game posture/scale — with the overlay armed
             // so the panel is available; EnterGameMode brings everything back.
             Log.Info("Shell started with a live desktop — resuming in desktop mode (overlay armed).");
+            // No DesktopModeStarting fires for a session that never entered game
+            // mode, so clear the flag here: the game-mode-only CEF injections must
+            // not start next to a live explorer (and nothing would retract them).
+            _inGameMode = false;
             _monitor.Paused = true;
             _startupWatcher = new StartupAppWatcher(_config.StartupApps);
             WatchConfig();
@@ -242,9 +259,10 @@ public sealed class ShellSession
 
         Task.Run(async () =>
         {
+            var tookOver = false;
             try
             {
-                await RunBootTakeoverAsync();
+                tookOver = await RunBootTakeoverAsync();
             }
             catch (Exception ex)
             {
@@ -252,14 +270,34 @@ public sealed class ShellSession
             }
             finally
             {
+                // The flag guards the TAKEOVER only. Holding it across the launch
+                // sequence too (StartupDelay + per-app stagger + SteamDelay) made
+                // the splash's Switch-to-desktop hit TryBeginTransition and be
+                // dropped with nothing but a Log.Warn; released here, that request
+                // runs and LaunchAppsAsync's monitor-paused guard skips Big Picture
+                // exactly as its comment already claims.
                 _modes!.EndTransition();
+            }
+            if (tookOver)
+            {
+                try
+                {
+                    await LaunchAppsAsync();
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("Shell session launch sequence failed", ex);
+                }
             }
             await Task.Delay(TimeSpan.FromSeconds(90));
             MemoryTrim.TrimBestEffort("boot settled");
         });
     }
 
-    private async Task RunBootTakeoverAsync()
+    /// <summary>Runs the takeover phase only (input-desktop barrier, explorer
+    /// readiness, orderly exit, posture, tray host). Returns false when it failed
+    /// open with explorer preserved — the caller then skips the launch sequence.</summary>
+    private async Task<bool> RunBootTakeoverAsync()
     {
         // Input-desktop barrier (era-proven): WTS_SESSION_LOGON fires while the
         // Welcome screen still owns the input desktop — proceeding then starts
@@ -299,7 +337,12 @@ public sealed class ShellSession
                 taskbarSeenMs = watch.ElapsedMilliseconds;
             }
 
-            var action = ExplorerReadiness.Decide(shellWindow, taskbar, bigPicture,
+            // The invariant-7 acceleration exists solely so an OPAQUE cover never
+            // sits over a live BP window. With the splash disabled there is no
+            // cover, so report no BP and let explorer finish its logon prep — that
+            // one-per-session init is what keeps touch features alive in game mode.
+            var coveredBigPicture = bigPicture && _splash is not null;
+            var action = ExplorerReadiness.Decide(shellWindow, taskbar, coveredBigPicture,
                 watch.Elapsed, settle?.Elapsed, settleDuration, ExplorerReadiness.MaxWait);
             if (action == ExplorerReadinessAction.BeginSettle)
             {
@@ -339,12 +382,15 @@ public sealed class ShellSession
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
                 _splash?.Dismiss("takeover failed open");
+                // Same reason as the live-desktop resume: this session never
+                // entered game mode, so the injections must stay stood down.
+                _inGameMode = false;
                 if (_monitor is not null)
                 {
                     _monitor.Paused = true;
                 }
             });
-            return;
+            return false;
         }
 
         await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
@@ -361,7 +407,7 @@ public sealed class ShellSession
             _volumeButtons?.SetGameModeActive(true);
         });
 
-        await LaunchAppsAsync();
+        return true;
     }
 
     /// <summary>Name-based liveness check for the double-launch guard. Deliberately
@@ -398,7 +444,8 @@ public sealed class ShellSession
 
     /// <summary>Cancels any in-flight boot sync and starts a fresh one (waits for
     /// Steam's UI, then injects tabs and pushes the badge map). Safe to call on
-    /// every trigger — SyncAllAsync's gate coalesces overlapping runs.</summary>
+    /// every trigger — SyncAllAsync's gate serializes overlapping runs (each queued
+    /// caller still runs a full sync; they are not collapsed into one).</summary>
     private void KickTabBootSync()
     {
         _tabBootSyncCancellation.Cancel();
@@ -411,7 +458,11 @@ public sealed class ShellSession
     /// injected on the way down. Ordering is load-bearing: the switch fails every
     /// evaluation closed, including WSGM's own retractions, so flipping it first
     /// would strand the injected tabs, badges and Wi-Fi AP in Steam until the client
-    /// restarted — with the desktop-trip cleanup dead for the same reason.</summary>
+    /// restarted — with the desktop-trip cleanup dead for the same reason. Both
+    /// directions run through <c>_cefMasterGate</c> and re-read the field (the
+    /// wanted state) once they own it, so a flip landing inside a retraction's
+    /// three round-trips cannot leave the choke point closed while the field —
+    /// and the equality guard that would have repaired it — say enabled.</summary>
     /// <param name="enabled">The reloaded <c>Cef.Enabled</c> value.</param>
     private void ApplyCefMasterSwitch(bool enabled)
     {
@@ -422,12 +473,37 @@ public sealed class ShellSession
         _cefMasterEnabled = enabled;
         if (enabled)
         {
-            SteamCef.SetMasterEnabled(true);
-            KickTabBootSync();
+            _ = Task.Run(async () =>
+            {
+                await _cefMasterGate.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    if (!_cefMasterEnabled)
+                    {
+                        // Turned off again before this apply owned the gate — that
+                        // apply's retraction owns the choke point now.
+                        return;
+                    }
+                    SteamCef.SetMasterEnabled(true);
+                }
+                finally
+                {
+                    _cefMasterGate.Release();
+                }
+                // Field-mutating and fire-and-forget from the UI thread, like every
+                // other caller.
+                Avalonia.Threading.Dispatcher.UIThread.Post(KickTabBootSync);
+            });
             return;
         }
+        // A boot sync still in its retry loop would otherwise re-inject the tabs
+        // between the awaited DisableAsync and the choke point closing behind it,
+        // stranding them until Steam restarts (the desktop trip cancels for the
+        // same reason).
+        _tabBootSyncCancellation.Cancel();
         _ = Task.Run(async () =>
         {
+            await _cefMasterGate.WaitAsync().ConfigureAwait(false);
             try
             {
                 await SteamPageBridge.DisableBadgeAsync().ConfigureAwait(false);
@@ -440,8 +516,21 @@ public sealed class ShellSession
             }
             finally
             {
-                SteamCef.SetMasterEnabled(false);
-                Log.Info("Steam CEF integration disabled — injected UI retracted.");
+                // Only close the choke point while OFF is still the wanted state:
+                // a re-enable that landed during these three round-trips already
+                // reopened it, and the equality guard above means no later reload
+                // would ever repair an overwrite here.
+                if (!_cefMasterEnabled)
+                {
+                    SteamCef.SetMasterEnabled(false);
+                    Log.Info("Steam CEF integration disabled — injected UI retracted.");
+                }
+                else
+                {
+                    Log.Info("Steam CEF integration was re-enabled during the retraction — " +
+                             "leaving the choke point to the enable apply.");
+                }
+                _cefMasterGate.Release();
             }
         });
     }
@@ -496,15 +585,26 @@ public sealed class ShellSession
                 EnableRaisingEvents = true,
                 NotifyFilter = System.IO.NotifyFilters.LastWrite | System.IO.NotifyFilters.FileName,
             };
-            void Reload(object? _)
-                => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            // The LOAD stays off the UI thread: it takes the cross-process config
+            // mutex (2 s timeout) that a settings save holds across the write, the
+            // splash-asset promotion and the boot manifest — 500 ms of debounce does
+            // not reliably outlast that. Only the cheap, UI-affine apply is posted.
+            void Reload(object? state)
+                => _ = Task.Run(() =>
                 {
                     var config = ConfigStore.Load();
-                    ApplyCefMasterSwitch(config.Cef.Enabled);
-                    ApplyNetworkIndicator(config.Cef.Enabled && config.Cef.WifiIndicator);
-                    _overlay?.ApplyConfig(config);
-                    _startupWatcher?.Apply(config.StartupApps);
-                    _keepAwake?.ApplyConfig(AutoKeepAwakeEnabled(config));
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                    {
+                        // One instance for every reader: the volume OSD's UI-scale
+                        // callback and DisplayScale's saved-scale snapshot must not
+                        // drift onto different AppConfig objects.
+                        _config = config;
+                        ApplyCefMasterSwitch(config.Cef.Enabled);
+                        ApplyNetworkIndicator(config.Cef.Enabled && config.Cef.WifiIndicator);
+                        _overlay?.ApplyConfig(config);
+                        _startupWatcher?.Apply(config.StartupApps);
+                        _keepAwake?.ApplyConfig(AutoKeepAwakeEnabled(config));
+                    });
                 });
             // Changed/Renamed fire on threadpool threads — the swap must be locked
             // so two near-simultaneous events can't both dispose the same timer and
@@ -519,6 +619,29 @@ public sealed class ShellSession
             }
             _configWatcher.Changed += (_, _) => Debounce();
             _configWatcher.Renamed += (_, _) => Debounce();
+            // Internal-buffer overflow or a directory-level error kills the change
+            // events silently — settings would stop applying for the rest of the
+            // session with nothing in the log to diagnose it from. Log, reload once
+            // (the missed write is already on disk), and re-arm by restarting the
+            // watch. Deliberately NOT a recreate: this handler would resubscribe
+            // itself and a persistently failing directory would spin.
+            _configWatcher.Error += (sender, e) =>
+            {
+                Log.Warn($"Config watcher error: {e.GetException().Message} — re-arming.");
+                Debounce();
+                try
+                {
+                    if (sender is System.IO.FileSystemWatcher watcher)
+                    {
+                        watcher.EnableRaisingEvents = false;
+                        watcher.EnableRaisingEvents = true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"Config watcher could not be re-armed: {ex.Message}");
+                }
+            };
         }
         catch (Exception ex)
         {
@@ -528,6 +651,11 @@ public sealed class ShellSession
 
     private async Task LaunchAppsAsync()
     {
+        // Snapshot the token up front: KickTabBootSync (UI thread) disposes and
+        // replaces the source, and reading .Token off the replaced instance later
+        // throws ObjectDisposedException — which would abort the rest of this
+        // sequence, including the Wi-Fi-indicator start below.
+        var tabSyncToken = _tabBootSyncCancellation.Token;
         var haveApps = _config.StartupApps.Exists(a => a.Enabled && !string.IsNullOrWhiteSpace(a.Path));
         if (haveApps && _config.StartupDelayMs > 0)
         {
@@ -585,7 +713,7 @@ public sealed class ShellSession
 
         // Inject the WSGM library tabs once Steam's UI has loaded, so they appear at
         // boot without the user opening the overlay. Fire-and-forget; self-limiting.
-        _ = new LibraryTabManager().SyncOnBootAsync(_tabBootSyncCancellation.Token);
+        _ = new LibraryTabManager().SyncOnBootAsync(tabSyncToken);
 
         // The initial boot enters game mode without a GameModeEntered event — start
         // the Wi-Fi indicator feed here; its own retries wait out Steam's UI.

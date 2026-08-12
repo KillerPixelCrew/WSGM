@@ -99,6 +99,13 @@ public static class ConfigStore
                     RepairFilterJson(tab["FilterTree"] as JsonObject);
                 }
             }
+            if (root["LaunchWrappers"] is JsonArray wrappers)
+            {
+                foreach (var wrapper in wrappers.OfType<JsonObject>())
+                {
+                    RepairEnum(wrapper, "Mode", LaunchWrapperMode.None);
+                }
+            }
             return JsonSerializer.Deserialize(root.ToJsonString(), ConfigJsonContext.Default.AppConfig);
         }
     }
@@ -166,7 +173,19 @@ public static class ConfigStore
         config.SteamGridDbApiKey ??= "";
         config.SgdbLinks ??= [];
         config.LaunchWrappers ??= [];
-        config.LaunchWrappers = config.LaunchWrappers.Where(static w => w is not null).ToList();
+        // A null ELEMENT ("StartupApps": [null]) survives the list-level ??= above and
+        // would NRE in SelfElevation before the crash-loop breaker has recorded the
+        // start — the shell would then die at every sign-in with nothing disarming it.
+        // RemoveAll repairs in place: Normalize must hand back the caller's own list
+        // instances (RegressionCoverageTests pins that), and rebuilding them would
+        // allocate on every config load just to drop elements that are almost never there.
+        config.StartupApps.RemoveAll(static app => app is null);
+        foreach (var app in config.StartupApps)
+        {
+            app.Path ??= "";
+            app.Args ??= "";
+        }
+        config.LaunchWrappers.RemoveAll(static w => w is null);
         foreach (var wrapper in config.LaunchWrappers)
         {
             wrapper.OriginalTarget ??= "";
@@ -208,6 +227,21 @@ public static class ConfigStore
         {
             native.Id ??= "";
             native.Title ??= "";
+        }
+        config.SavedDisplayScaleEntries.RemoveAll(static entry => entry is null);
+        foreach (var entry in config.SavedDisplayScaleEntries)
+        {
+            entry.DeviceName ??= "";
+        }
+        config.PreviousConsoleLockSchemeValues.RemoveAll(static scheme => scheme is null);
+        foreach (var scheme in config.PreviousConsoleLockSchemeValues)
+        {
+            scheme.SchemeGuid ??= "";
+        }
+        config.SgdbLinks.RemoveAll(static link => link is null);
+        foreach (var link in config.SgdbLinks)
+        {
+            link.Name ??= "";
         }
         config.AccentColor ??= "#FFFF9D3D";
         config.AccentColor = Truncate(config.AccentColor, MaxColorLength, "Accent color");
@@ -457,6 +491,34 @@ public static class ConfigStore
         // Atomic replace (MoveFileEx REPLACE_EXISTING) — covers both the exists and
         // not-yet-exists cases without a TOCTOU window.
         File.Move(temp, ConfigPath, overwrite: true);
+    }
+
+    /// <summary>The only supported read-modify-write path for config.json: takes the
+    /// cross-process lock, loads through <see cref="LoadForMutation"/>, applies
+    /// <paramref name="mutate"/>, and saves — all inside one scope, so no other WSGM
+    /// process can persist between the read and the write and have its fields dropped
+    /// by it. Callers must apply ONLY their own fields: everything else in the loaded
+    /// instance is written straight back.
+    /// <para>The strict load is the point. <see cref="Load"/> answers an unreadable
+    /// file with defaults, which is right for a reader but catastrophic here — saving
+    /// those defaults erases the previous-shell/UAC/lock-screen registry snapshots
+    /// uninstall restores from. An unreadable existing file therefore throws out of
+    /// this method and ABORTS the mutation; <see cref="Load"/> stays available for
+    /// read-only callers.</para>
+    /// <para>A caller that needs more work under the same lock (see
+    /// SettingsViewModel.SaveMerged, which also promotes splash assets and writes the
+    /// boot manifest) wraps this in its own <see cref="AcquireLock"/> scope — the
+    /// nested acquisition is free.</para></summary>
+    /// <param name="mutate">Applies the caller's fields to the freshly loaded configuration.</param>
+    /// <returns>The configuration instance that was persisted.</returns>
+    /// <exception cref="InvalidDataException">The existing file could not be parsed.</exception>
+    internal static AppConfig Mutate(Action<AppConfig> mutate)
+    {
+        using var guard = ConfigMutex.Acquire();
+        var config = LoadForMutation();
+        mutate(config);
+        Save(config);
+        return config;
     }
 
     /// <summary>Takes the cross-process config lock for a caller that must keep a

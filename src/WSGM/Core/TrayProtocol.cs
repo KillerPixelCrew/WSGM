@@ -114,8 +114,11 @@ public static class TrayProtocol
         var cbSize = BinaryPrimitives.ReadUInt32LittleEndian(nid);
         // The wire NID is always the 32-bit layout; cbSize gates which trailing
         // fields exist (v3 = 952 ends at guidItem, v4 = 956 adds hBalloonIcon).
-        // Values other than the known sizes are either hostile or a layout this
-        // parser doesn't know — reject so the caller returns "not handled".
+        // Accepted range is 952..968: at least the v3 shape, which is the whole
+        // region this parser reads, plus slack for a padded or extended trailing
+        // field a later Windows may append. Anything outside that range is either
+        // hostile or a layout this parser doesn't know — reject so the caller
+        // returns "not handled".
         if (cbSize < MinimumNidSize || cbSize > 968 || nid.Length < (int)cbSize)
         {
             return false;
@@ -199,12 +202,12 @@ public sealed class TrayIconTable
         /// <summary>Gets whether the app asked the icon to be hidden (NIS_HIDDEN).</summary>
         public bool IsHidden { get; internal set; }
 
-        /// <summary>Gets the last NIF_ICON handle value (32-bit wire form,
-        /// zero-extended); used to resolve NIS_SHAREDICON references.</summary>
-        public nint LastIconHandle { get; internal set; }
-
         /// <summary>Gets or sets the host-rasterized icon image (opaque to this
-        /// pure table; the tray host stores an Avalonia bitmap here).</summary>
+        /// pure table; the tray host stores an Avalonia bitmap here). Ownership is
+        /// per icon: the host disposes this image when the icon is removed and
+        /// again at teardown, so one image instance must never be shared between
+        /// two icons — a NIS_SHAREDICON registration has to rasterize its own from
+        /// the shared handle.</summary>
         public object? IconImage { get; set; }
     }
 
@@ -225,21 +228,6 @@ public sealed class TrayIconTable
                 return icon;
             }
             if (icon.Hwnd == n.Hwnd && icon.Uid == n.Uid)
-            {
-                return icon;
-            }
-        }
-        return null;
-    }
-
-    /// <summary>Finds an icon whose last NIF_ICON handle equals the given wire
-    /// handle (NIS_SHAREDICON resolution).</summary>
-    /// <param name="iconHandle">The shared handle value to look up.</param>
-    public TrayIcon? FindByIconHandle(nint iconHandle)
-    {
-        foreach (var icon in _icons)
-        {
-            if (icon.LastIconHandle == iconHandle && icon.IconImage is not null)
             {
                 return icon;
             }
@@ -338,12 +326,9 @@ public sealed class TrayIconTable
         {
             icon.IsHidden = (n.State & TrayProtocol.NisHidden) != 0;
         }
-        // NIF_ICON handle bookkeeping is the caller's job (it must rasterize
-        // synchronously while the foreign handle is alive); the table only
-        // records the wire value for shared-icon resolution.
-        if ((n.Flags & TrayProtocol.NifIcon) != 0)
-        {
-            icon.LastIconHandle = n.IconHandle;
-        }
+        // NIF_ICON handle bookkeeping is deliberately NOT the table's job: the host
+        // must rasterize synchronously while the foreign handle is alive, and it
+        // rasterizes per icon even for NIS_SHAREDICON, so the table has no reason to
+        // retain the wire handle.
     }
 }

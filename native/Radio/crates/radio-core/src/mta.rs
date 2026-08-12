@@ -14,8 +14,8 @@
 //! in an apartment dies with it, and callers hold device/watcher state across
 //! calls.
 
-use std::sync::OnceLock;
 use std::sync::mpsc::{Sender, SyncSender, channel, sync_channel};
+use std::sync::{Mutex, OnceLock};
 use std::thread;
 
 use windows::Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize};
@@ -24,36 +24,46 @@ use crate::error::{Error, Result};
 
 type Job = Box<dyn FnOnce() + Send + 'static>;
 
-static WORKER: OnceLock<Sender<Job>> = OnceLock::new();
+static WORKER: OnceLock<Mutex<Option<Sender<Job>>>> = OnceLock::new();
 
-fn worker() -> &'static Sender<Job> {
-    WORKER.get_or_init(|| {
-        let (tx, rx) = channel::<Job>();
-        let spawned = thread::Builder::new()
-            .name("wsgm-radio-mta".to_owned())
-            .spawn(move || {
-                // SAFETY: this thread is created and owned here, so nothing else
-                // has initialised an apartment on it. A failure is not fatal —
-                // an apartment may already be implicitly present — and the first
-                // real WinRT call will surface any genuine problem with context.
-                unsafe {
-                    let _ = RoInitialize(RO_INIT_MULTITHREADED);
-                }
-                // Deliberately no RoUninitialize: the thread runs for the life of
-                // the process, and tearing the apartment down would invalidate
-                // every proxy the caller still holds.
-                while let Ok(job) = rx.recv() {
-                    job();
-                }
-            });
-        if spawned.is_err() {
-            // Leave the channel disconnected; `on_mta` then reports
-            // WorkerUnavailable rather than hanging.
-            let (dead, _) = channel::<Job>();
-            return dead;
-        }
-        tx
-    })
+fn worker_slot() -> &'static Mutex<Option<Sender<Job>>> {
+    WORKER.get_or_init(|| Mutex::new(None))
+}
+
+/// A sender for the MTA worker, spawning the thread on first use.
+///
+/// Deliberately not a `OnceLock<Sender<Job>>` holding a dead channel on
+/// failure: a spawn can fail transiently under resource pressure — many
+/// processes starting at logon is exactly when WSGM first reaches this crate —
+/// and caching that failure would disable radio power, Bluetooth, audio connect
+/// and the Wi-Fi indicator for the rest of the session. An empty slot is simply
+/// retried by the next call.
+fn worker() -> Result<Sender<Job>> {
+    let mut slot = worker_slot().lock().map_err(|_| Error::WorkerUnavailable)?;
+    if let Some(existing) = slot.as_ref() {
+        return Ok(existing.clone());
+    }
+    let (tx, rx) = channel::<Job>();
+    thread::Builder::new()
+        .name("wsgm-radio-mta".to_owned())
+        .spawn(move || {
+            // SAFETY: this thread is created and owned here, so nothing else
+            // has initialised an apartment on it. A failure is not fatal —
+            // an apartment may already be implicitly present — and the first
+            // real WinRT call will surface any genuine problem with context.
+            unsafe {
+                let _ = RoInitialize(RO_INIT_MULTITHREADED);
+            }
+            // Deliberately no RoUninitialize: the thread runs for the life of
+            // the process, and tearing the apartment down would invalidate
+            // every proxy the caller still holds.
+            while let Ok(job) = rx.recv() {
+                job();
+            }
+        })
+        .map_err(|_| Error::WorkerUnavailable)?;
+    *slot = Some(tx.clone());
+    Ok(tx)
 }
 
 /// Runs `work` on the MTA worker and blocks until it returns.
@@ -66,7 +76,7 @@ where
     F: FnOnce() -> T + Send + 'static,
 {
     let (tx, rx): (SyncSender<T>, _) = sync_channel(1);
-    worker()
+    worker()?
         .send(Box::new(move || {
             // A closed receiver just means the caller went away; dropping the
             // value is correct and must not panic on the worker thread.
@@ -84,7 +94,7 @@ pub fn post_mta<F>(work: F) -> Result<()>
 where
     F: FnOnce() + Send + 'static,
 {
-    worker()
+    worker()?
         .send(Box::new(work))
         .map_err(|_| Error::WorkerUnavailable)
 }

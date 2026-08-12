@@ -234,7 +234,7 @@ public interface ISdCardResolver
 /// (collection sets, compiled regexes, id sets). The shape mirrors TabMaster's
 /// <c>filterFunctions</c> evaluation (per-group <c>every</c>/<c>some</c>, per-node
 /// <c>inverted ? !r : r</c>). Pure and unit-testable — no Steam contact here; the
-/// resulting JS is run by <see cref="SteamCollections.EvaluateFilterAsync"/>.</summary>
+/// resulting JS is run by <see cref="SteamCollections.EvaluateFiltersAsync"/>.</summary>
 public static class LibraryFilter
 {
     /// <summary>Bitfield category flags (values match TabMaster's so the concepts

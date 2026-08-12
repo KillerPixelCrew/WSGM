@@ -207,7 +207,6 @@ public sealed class RadioIcon : Control
         var x = origin.X + (size / 2);
         var top = origin.Y + (size * 0.12);
         var bottom = origin.Y + (size * 0.88);
-        var mid = origin.Y + (size / 2);
         var wing = size * 0.22;
 
         var geometry = new StreamGeometry();
@@ -221,7 +220,6 @@ public sealed class RadioIcon : Control
             sink.LineTo(new Point(x - wing, origin.Y + (size * 0.70)));
             sink.EndFigure(false);
         }
-        _ = mid;
         context.DrawGeometry(null, pen, geometry);
     }
 }

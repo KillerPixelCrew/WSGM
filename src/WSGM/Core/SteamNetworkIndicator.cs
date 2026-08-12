@@ -30,16 +30,6 @@ public static class SteamNetworkIndicator
 {
     private static readonly TimeSpan Budget = TimeSpan.FromSeconds(8);
 
-    // Synthetic access-point id inside the wireless device's report; any value works
-    // as long as it never collides with a real one (Windows never sends any).
-    private const int WapId = 990001;
-
-    // Bump BOTH this and the literal netVer values in ResidentSetup when the resident
-    // functions change: the setup block is guarded by netVer, so an old session's
-    // functions are replaced on the next push after an upgrade (same pattern as the
-    // badge script's BadgeScriptVersion).
-    private const int ScriptVersion = 1;
-
     /// <summary>Maps the radio helper's 0-100 signal quality onto Steam's
     /// EWirelessEndpointStrength (1 Weak … 4 Excellent). Connected implies at
     /// least Weak — the store's None draws the same empty bars as disconnected.</summary>
@@ -113,6 +103,14 @@ public static class SteamNetworkIndicator
     // netVer so re-running only refreshes the functions. Shape notes (from the live
     // store): device.estate 5=Connected, etype 2=Wireless; ap.estrength 0-4 maps
     // 1:1 to the icon's filled arcs; the map key is "<deviceId>:<wapId>".
+    //
+    // When the resident functions change, bump BOTH netVer literals below (the
+    // "W.netVer!==1" guard and the "W.netVer=1" assignment) — a live Steam session
+    // keeps the functions already installed into it, so without the bump an upgraded
+    // WSGM keeps calling the OLD applyNetInfo until Steam restarts (same pattern as
+    // the badge script's BadgeScriptVersion). netWapId is the synthetic access-point
+    // id; any value works as long as it never collides with a real one (the Windows
+    // backend never reports any).
     private const string ResidentSetup = """
         var W=window.__wsgm=window.__wsgm||{};
         if(W.netVer!==1){

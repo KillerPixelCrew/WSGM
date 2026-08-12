@@ -179,6 +179,12 @@ public sealed class OnScreenKeyboard : Decorator
         {
             _shift = false;
             Build();
+            // The rebuild detaches the key that was just pressed, so focus has to
+            // be put back on its replacement — otherwise the gamepad cursor falls
+            // back to the first key in the window after every capital letter. The
+            // labels are lower case again now that the shift is cleared; the space
+            // bar is a control key and keeps its own label.
+            FocusControl(text == " " ? "Space" : text.ToLowerInvariant());
         }
     }
 

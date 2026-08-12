@@ -57,13 +57,29 @@ public static class WindowFinder
         }
     }
 
+    // Names whose session-id query has already been reported once. The callers are
+    // polls, so an unthrottled warning per pid per tick would flood the capped log.
+    private static readonly HashSet<string> WarnedSessionIdNames = new(StringComparer.OrdinalIgnoreCase);
+
+    private static readonly int CurrentSessionId = ReadCurrentSessionId();
+
+    private static int ReadCurrentSessionId()
+    {
+        using var self = Process.GetCurrentProcess();
+        return self.SessionId;
+    }
+
     /// <summary>Finds process identifiers whose names appear in a semicolon-separated allowlist.</summary>
     /// <param name="semicolonNames">Case-insensitive process names separated by semicolons.</param>
     /// <returns>The matching process identifiers.</returns>
     public static HashSet<uint> FindProcessIds(string semicolonNames)
     {
         var result = new HashSet<uint>();
-        var session = Process.GetCurrentProcess().SessionId;
+        // Disposed, and resolved once per process: this runs on the splash's 250 ms
+        // Big-Picture poll and the 5 s Steam monitor, so an undisposed Process per
+        // call leaked a handle four times a second for the life of the session. Our
+        // own session id cannot change while we run.
+        var session = CurrentSessionId;
         foreach (var name in semicolonNames.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             var plain = name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? name[..^4] : name;
@@ -78,11 +94,54 @@ public static class WindowFinder
                         result.Add((uint)p.Id);
                     }
                 }
-                catch { /* process may have exited */ }
+                // Catch EVERYTHING, deliberately. This runs inside the boot splash's
+                // 250 ms Big-Picture detection poll: an exception type escaping here
+                // propagates out of FindWindow into that timer tick, so BP is never
+                // detected, the splash never fades, and an opaque cover sits over a
+                // live BP window — which is exactly what leaves the Big Picture intro
+                // video black (invariant 7). Narrowing this to the two "expected"
+                // types cost that video. The match set going quietly empty is the
+                // lesser failure; this must not throw.
+                catch (Exception ex)
+                {
+                    // Throttled to once per process name per process lifetime: the
+                    // callers are polls (250 ms splash detection, 5 s Steam monitor)
+                    // and Steam runs several helpers, so a per-pid line here floods
+                    // the capped log and pushes the boot/lease lines out of it.
+                    if (WarnedSessionIdNames.Add(plain))
+                    {
+                        Log.Warn($"Session id unreadable for {plain} (pid {p.Id}): {ex.Message}. "
+                            + "Further occurrences for this name are not logged.");
+                    }
+                }
                 finally { p.Dispose(); }
             }
         }
         return result;
+    }
+
+    /// <summary>Describes the current foreground window as "0x&lt;hwnd&gt; (process)" for
+    /// the log. <c>SendInput</c> has no window target — Windows delivers a synthetic
+    /// chord to whatever holds focus — so this is the only way a pasted log can show
+    /// where a "shortcut sent" line actually went.</summary>
+    /// <returns>A short description, or "none" when there is no foreground window.</returns>
+    public static string DescribeForeground()
+    {
+        var hwnd = NativeMethods.GetForegroundWindow();
+        if (hwnd == 0)
+        {
+            return "none";
+        }
+        NativeMethods.GetWindowThreadProcessId(hwnd, out var pid);
+        try
+        {
+            using var process = Process.GetProcessById((int)pid);
+            return $"0x{hwnd:X} ({process.ProcessName})";
+        }
+        catch (Exception)
+        {
+            return $"0x{hwnd:X}";
+        }
     }
 
     /// <summary>Finds the first qualifying top-level window owned by an allowed process.</summary>

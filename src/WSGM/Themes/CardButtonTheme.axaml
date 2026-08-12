@@ -37,17 +37,31 @@
                                 CornerRadius="{TemplateBinding CornerRadius}"
                                 Padding="{TemplateBinding Padding}">
                             <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-                                <Path Name="PART_Icon"
-                                      Width="20"
-                                      Height="20"
-                                      Data="{TemplateBinding IconGeometry}"
-                                      Stretch="Uniform"
-                                      Stroke="{TemplateBinding Foreground}"
-                                      StrokeThickness="1.8"
-                                      StrokeLineCap="Round"
-                                      StrokeJoin="Round"
-                                      VerticalAlignment="Center"
-                                      IsVisible="{TemplateBinding IconGeometry, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                <!-- Fixed 20x20 slot so every row's title starts at
+                                     the same x, with the glyph CENTERED inside it:
+                                     Avalonia scales a Uniform geometry and then
+                                     aligns it top-left in the element box, so a
+                                     Path sized 20x20 parks a wide-and-short icon
+                                     against the top. MaxWidth/MaxHeight keep the
+                                     same uniform scale as the old fixed size while
+                                     letting the box hug the drawn glyph, which is
+                                     what makes the alignments apply. -->
+                                <Panel Width="20"
+                                       Height="20"
+                                       VerticalAlignment="Center"
+                                       IsVisible="{TemplateBinding IconGeometry, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                    <Path Name="PART_Icon"
+                                          MaxWidth="20"
+                                          MaxHeight="20"
+                                          Data="{TemplateBinding IconGeometry}"
+                                          Stretch="Uniform"
+                                          Stroke="{TemplateBinding Foreground}"
+                                          StrokeThickness="1.8"
+                                          StrokeLineCap="Round"
+                                          StrokeJoin="Round"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center" />
+                                </Panel>
                                 <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
                                     <TextBlock Name="PART_Title"
                                                Classes="setting-title"
@@ -85,7 +99,7 @@
          above propagate them (icon stroke and title follow Foreground).
          Declaration order is load-bearing: .primary comes after :pointerover
          so a hovered primary card keeps the accent background, and
-         .primary:focus comes last so its white border wins. -->
+         .primary:focus comes last so its primary-text border wins. -->
     <Style Selector="c|CardButton:pointerover">
         <Setter Property="Background" Value="{StaticResource HcCardHoverBrush}" />
     </Style>
@@ -98,7 +112,7 @@
         <Setter Property="Foreground" Value="{DynamicResource HcOnAccentBrush}" />
     </Style>
     <Style Selector="c|CardButton.primary:focus">
-        <Setter Property="BorderBrush" Value="White" />
+        <Setter Property="BorderBrush" Value="{StaticResource HcTextPrimaryBrush}" />
     </Style>
     <Style Selector="c|CardButton.primary /template/ TextBlock#PART_Description">
         <Setter Property="Foreground" Value="{DynamicResource HcOnAccentCaptionBrush}" />

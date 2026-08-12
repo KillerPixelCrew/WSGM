@@ -38,6 +38,7 @@ public sealed class OverlayController : IDisposable
     private string _pendingWarning = "";
     private bool _reopenOverlayForWarning;
     private bool _disposed;
+    private readonly bool _previewOnly;
 
     /// <summary>Creates the overlay controller and its input activation surfaces.</summary>
     /// <param name="config">The initial shell configuration.</param>
@@ -45,13 +46,19 @@ public sealed class OverlayController : IDisposable
     /// <param name="modes">The session-mode coordinator that performs requested transitions.</param>
     /// <param name="keepAwake">The optional session keep-awake service behind the Power
     /// tab's toggle; null (the Settings preview overlay) hides the row.</param>
+    /// <param name="previewOnly">True for a surface that only demonstrates layout and
+    /// input — Settings' "Test panel"/"Test taskbar" and <c>--overlay-test</c>. It hides
+    /// the desktop/game-mode row and refuses the transition even if it is reached, because
+    /// those processes have no ShellSession, tray host or crash-loop/watchdog recovery:
+    /// one press would exit Explorer and strand the user with no shell.</param>
     public OverlayController(AppConfig config, SteamMonitor? monitor, SessionModes modes,
-        KeepAwakeService? keepAwake = null)
+        KeepAwakeService? keepAwake = null, bool previewOnly = false)
     {
         _config = config;
         _monitor = monitor;
         _modes = modes;
         _keepAwake = keepAwake;
+        _previewOnly = previewOnly;
         if (_keepAwake is not null)
         {
             _keepAwake.StateChanged += OnKeepAwakeStateChanged;
@@ -93,7 +100,10 @@ public sealed class OverlayController : IDisposable
         }
         _touchSwipes.Configure(gestures);
 
-        if (_overlay is not null)
+        // Both surfaces disarm the edges: with the full-width bar docked on the
+        // bottom edge, a re-arm would read touches inside the bar as bottom-edge
+        // swipes (every other site pairs the disarm with both surfaces).
+        if (_overlay is not null || _taskbar is not null)
         {
             HideTouchEdges();
         }
@@ -228,13 +238,18 @@ public sealed class OverlayController : IDisposable
     }
 
     /// <summary>Applies a freshly loaded config (settings saved in another process).</summary>
+    /// <param name="config">The freshly loaded configuration; it replaces the previous
+    /// instance wholesale, so runtime state must stay on the controllers rather than
+    /// on the configuration object.</param>
     public void ApplyConfig(AppConfig config)
     {
         _config = config;
         // The master CEF switch is owned by ShellSession, which retracts injected UI
         // before closing it — setting it here as well would cut that retraction off.
-        // Accent re-apply must run on the UI thread; the debounced config watcher
-        // may deliver this call from a worker thread.
+        // UI-thread only: this writes view-model state, control titles and the
+        // gamepad's DispatcherTimer with no marshalling of its own. ShellSession's
+        // debounced config watcher already posts it; the Post below only keeps the
+        // accent re-apply safe for this public entry point.
         Avalonia.Threading.Dispatcher.UIThread.Post(() => Themes.AccentPalette.Apply(Avalonia.Application.Current!, Themes.AccentPalette.Parse(config.AccentColor)));
         _modes.ApplyConfig(config);
         _hotkey.Apply(config.Hotkey);
@@ -399,6 +414,14 @@ public sealed class OverlayController : IDisposable
     private bool _leaseReleased;
     private Task? _leaseAcquireTask;
     private Task? _leaseReleaseTask;
+    private static int _nextLeaseOwnerId;
+
+    /// <summary>This controller's identity in the blocker's process-wide ownership
+    /// set. Per instance on purpose: a replacement controller (the Settings preview's
+    /// "Test panel" pressed twice) claims the lease under its own name, so the
+    /// outgoing controller's release cannot drop the live surface's lease.</summary>
+    private readonly string _leaseOwner =
+        $"overlay-controller#{System.Threading.Interlocked.Increment(ref _nextLeaseOwnerId)}";
 
     /// <summary>The lease is scoped to WSGM's focus-taking surfaces. It blocks
     /// Steam's controller access only while SDL needs direct input for the
@@ -414,20 +437,27 @@ public sealed class OverlayController : IDisposable
             Log.Info("Steam Input lease disabled in settings — surface opens without blocking Steam Input.");
             return;
         }
-        if (SteamInputBlocker.IsApplied || _leaseAcquireTask is { IsCompleted: false })
+        // Deliberately NOT gated on SteamInputBlocker.IsApplied: the lease is
+        // process-wide, so "applied" can just as well mean ANOTHER owner holds it
+        // (the settings window this panel opened). Claiming it under our own name is
+        // what stops that owner's release from leaving this surface unblocked —
+        // invariant 1. AcquireFor is a no-op inside the blocker when the lease is
+        // already live, so an inherited lease still costs no release/re-inject churn.
+        if (_leaseAcquireTask is { IsCompleted: false })
         {
             return;
         }
 
         var pendingRelease = _leaseReleaseTask;
         _leaseAcquireTask = pendingRelease is { IsCompleted: false }
-            ? pendingRelease.ContinueWith(_ => SteamInputBlocker.Acquire(), TaskScheduler.Default)
-            : Task.Run(SteamInputBlocker.Acquire);
+            ? pendingRelease.ContinueWith(_ => SteamInputBlocker.AcquireFor(_leaseOwner), TaskScheduler.Default)
+            : Task.Run(() => SteamInputBlocker.AcquireFor(_leaseOwner));
     }
 
     /// <summary>At most one release per lease acquisition from this controller.
     /// Dispose releases early, so the deferred Closed handler cannot tear down a
-    /// replacement controller's live surface.</summary>
+    /// replacement controller's live surface. The blocker only really lets go of
+    /// the lease when no other owner still claims it.</summary>
     private void ReleaseSteamInputLease()
     {
         if (_leaseReleased)
@@ -436,14 +466,25 @@ public sealed class OverlayController : IDisposable
         }
         _leaseReleased = true;
         var pendingAcquire = _leaseAcquireTask;
+        var owner = _leaseOwner;
         _leaseAcquireTask = null;
         _leaseReleaseTask = Task.Run(async () =>
         {
             if (pendingAcquire is not null)
             {
-                await pendingAcquire;
+                try
+                {
+                    await pendingAcquire;
+                }
+                catch (Exception ex)
+                {
+                    // The acquire logs its own failures and does not throw; if one
+                    // ever did, the release must still run — a swallowed release is
+                    // a lease that outlives every surface (invariant 1).
+                    Log.Warn($"Steam Input lease acquire faulted before release ({owner}): {ex.Message}");
+                }
             }
-            SteamInputBlocker.ReleaseBestEffort("surface-closed");
+            SteamInputBlocker.ReleaseFor(owner, "surface-closed");
         });
     }
 
@@ -579,6 +620,13 @@ public sealed class OverlayController : IDisposable
                 _pendingClose?.Dispose();
                 _pendingClose = null;
                 _closePending = false;
+                // The action that requested the close was abandoned with it: a
+                // handoff that never happens must not make the eventual close skip
+                // the lease release (a lease with no surface on screen), and a
+                // suppressed focus restore must not stay latched for the rest of
+                // this panel's life (invariant 6).
+                _handoffLease = false;
+                _suppressFocusRestore = false;
                 Log.Info("Overlay re-shown during deferred close — pending close cancelled.");
             }
             if (_overlayViewModel is not null)
@@ -610,6 +658,7 @@ public sealed class OverlayController : IDisposable
             GlyphStyle = _config.GlyphStyle,
             WarningText = _pendingWarning,
             ShowKeepAwake = _keepAwake is not null,
+            ModeSwitchAvailable = !_previewOnly,
             KeepAwakeManualMode = _keepAwake?.ManualMode ?? ManualWakeMode.Off,
             KeepAwakeDownloadActive = _keepAwake?.DownloadHold ?? false,
         };
@@ -621,6 +670,13 @@ public sealed class OverlayController : IDisposable
         _overlay.HomeAppRequested += () => { _suppressFocusRestore = true; CloseOverlay(); _modes.StartOrFocusSteam(); };
         _overlay.DesktopRequested += () =>
         {
+            // Belt and braces with the hidden row: a preview surface must never run a
+            // real transition, and this process has no recovery layer if it did.
+            if (_previewOnly)
+            {
+                Log.Info("Mode switch ignored — this is a preview surface.");
+                return;
+            }
             // Mid-transition (boot takeover, or a switch already running) the
             // explorer state is in flux — acting on it would start a second,
             // conflicting transition (device-observed 2026-08-07).
@@ -912,6 +968,10 @@ public sealed class OverlayController : IDisposable
                 _pendingTaskbarClose?.Dispose();
                 _pendingTaskbarClose = null;
                 _taskbarClosePending = false;
+                // The tile pick (or handover) that suppressed the restore was
+                // abandoned with the close — the bar lives on and owes its opener a
+                // focus restore again (invariant 6).
+                _taskbarSuppressFocusRestore = false;
                 Log.Info("Taskbar re-shown during deferred close — pending close cancelled.");
             }
             RefreshTaskbarEntries();
@@ -1424,6 +1484,9 @@ public sealed class OverlayController : IDisposable
     private void OnTrayIconsChanged()
         => _taskbarViewModel?.ReconcileTray(_trayHost?.Table.Icons ?? []);
 
+    private System.Collections.Generic.HashSet<uint> _steamPids = [];
+    private DateTime _steamPidsAtUtc;
+
     /// <summary>Rebuilds/updates the tile collection in place. While the bar is
     /// open the foreground window is the bar itself, so the highlight uses the
     /// captured pre-open foreground instead.</summary>
@@ -1433,18 +1496,66 @@ public sealed class OverlayController : IDisposable
         {
             return;
         }
-        var steamPids = WindowFinder.FindProcessIds(Steam.ProcessNames);
+        // Steam's pid set barely moves within a bar session, but resolving it
+        // snapshots the whole process table — on the UI thread that also drives the
+        // 16 ms gamepad poll and the tile focus. Re-read at the SteamMonitor's own
+        // 5 s cadence instead of on every 1 s tile refresh.
+        var now = DateTime.UtcNow;
+        if (_steamPidsAtUtc == default || now - _steamPidsAtUtc >= TimeSpan.FromSeconds(5))
+        {
+            _steamPids = WindowFinder.FindProcessIds(Steam.ProcessNames);
+            _steamPidsAtUtc = now;
+        }
+        var steamPids = _steamPids;
         var active = _taskbar is { IsVisible: true }
             ? _taskbarRestoreFocusTo
             : Interop.NativeMethods.GetForegroundWindow();
         _taskbarViewModel.Reconcile(
             WindowFinder.ListSwitchableWindows(),
             active,
-            window => new TaskbarEntry(
-                window.Hwnd,
-                window.Title,
-                steamPids.Contains(window.ProcessId),
-                _iconCache?.Get(window.Hwnd, window.ProcessId)));
+            window =>
+            {
+                // Cached icons are handed over synchronously; a miss resolves off the
+                // UI thread (cross-process WM_GETICON probes plus a possible exe read)
+                // and lands on the tile in place when it arrives.
+                Avalonia.Media.Imaging.Bitmap? icon = null;
+                if (_iconCache is not null && !_iconCache.TryGetCached(window.Hwnd, out icon))
+                {
+                    _iconCache.ResolveInBackground(window.Hwnd, window.ProcessId, ApplyResolvedIcon);
+                }
+                return new TaskbarEntry(
+                    window.Hwnd,
+                    window.Title,
+                    steamPids.Contains(window.ProcessId),
+                    icon);
+            });
+    }
+
+    /// <summary>Places a background-resolved icon on its tile, if that tile is still on
+    /// the open bar. Runs off the UI thread, so it marshals before touching view state.</summary>
+    private void ApplyResolvedIcon(nint hwnd, Avalonia.Media.Imaging.Bitmap? icon)
+    {
+        if (icon is null)
+        {
+            return;
+        }
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            // The window may have closed, or the bar may have been dismissed and its
+            // cache cleared, between the resolve starting and finishing.
+            if (_taskbarViewModel is null || _taskbar is not { IsVisible: true })
+            {
+                return;
+            }
+            foreach (var entry in _taskbarViewModel.Entries)
+            {
+                if (entry.Hwnd == hwnd)
+                {
+                    entry.Icon = icon;
+                    return;
+                }
+            }
+        });
     }
 
     /// <summary>Keeps the open bar current (new/closed windows, titles, minimize
@@ -1544,6 +1655,8 @@ public sealed class OverlayController : IDisposable
         _systemStatus = null;
         // Free the rasterized icons with the bar; the next open re-resolves.
         _iconCache?.Clear();
+        // Same for the cached Steam pid set: the next bar session starts fresh.
+        _steamPidsAtUtc = default;
         // Game mode only, and only when no tile pick redirected focus (invariant 6).
         if (!_taskbarSuppressFocusRestore && _taskbarRestoreFocusTo != 0 && !ExplorerControl.IsRunningInSession())
         {
@@ -1640,9 +1753,10 @@ public sealed class OverlayController : IDisposable
         }
         _disposed = true;
         CloseKeyboardNow();
-        _ = SteamPageBridge.DisableBadgeAsync();
-        _ = SteamLibraryTabs.DisableAsync();
-        _ = SteamNetworkIndicator.DisableAsync();
+        // Deliberately NOT retracting the injected Steam UI (tabs, badge, Wi-Fi AP)
+        // here: the only caller of this Dispose is the Settings preview controller,
+        // and retracting would tear the LIVE session's tabs out of Big Picture.
+        // ShellSession owns that teardown and awaits it in ApplyCefMasterSwitch.
         AttachTrayHost(null);
         _modes.SteamStartFailed -= WarnOrReopen;
         SteamInputBlocker.RecoveryWarningRaised -= OnSteamInputRecoveryWarning;

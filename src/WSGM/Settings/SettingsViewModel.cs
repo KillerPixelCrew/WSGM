@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using System.Text.Json;
+using System.Threading.Tasks;
 using Avalonia;
 using WSGM.Core;
 using WSGM.Input;
@@ -76,18 +77,10 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
                 StatusText = $"Save failed: {ex.Message}";
             }
         });
-        InstallAppCommand = new RelayCommand(() =>
-        {
-            try
-            {
-                InstallApp();
-            }
-            catch (Exception ex)
-            {
-                Log.Error("App install failed", ex);
-                StatusText = $"Install failed: {ex.Message}";
-            }
-        });
+        // The copy set is the NativeAOT executable plus every native sibling DLL, so
+        // it runs OFF the UI thread (seconds on handheld storage, longer behind an AV
+        // scan); the button stays disabled until it finishes.
+        InstallAppCommand = new RelayCommand(() => _ = InstallAppAsync(), () => !_installInProgress);
         UninstallCommand = new RelayCommand(Uninstall);
         OpenLogLocationCommand = new RelayCommand(OpenLogLocation);
         RemoveAppCommand = new RelayCommand<StartupAppRow>(row =>
@@ -203,6 +196,16 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         try
         {
             var log = System.IO.Path.Combine(Log.Directory, "wsgm.log");
+            // Game mode has no Explorer in the session, and WSGM is normally elevated:
+            // starting explorer.exe here would either break UWP for the session (an
+            // elevated Explorer — invariant 5) or bring its taskbar up next to WSGM's
+            // own tray host. Show the path instead; the user can open it in desktop mode.
+            if (!ExplorerControl.IsRunningInSession())
+            {
+                Log.Info($"Open log location: no Explorer in this session — showing the path instead ({Log.Directory}).");
+                StatusText = $"Log folder: {Log.Directory} (open it in desktop mode)";
+                return;
+            }
             // Absolute system path: a relative name would resolve via the process
             // working directory, which is the user-writable install dir.
             var windir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
@@ -347,6 +350,22 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         return ok;
     }
 
+    /// <summary>Off-thread form of <see cref="SetUacPrompts"/>. The elevated one-shot
+    /// blocks for as long as the consent prompt is on screen — up to a minute if the
+    /// user leaves it sitting — and in game mode the frozen window is the one holding
+    /// the Steam Input lease, so the pad looks dead too and it reads as a hang.
+    /// <para>Call from the UI thread: the continuation resumes there, so the property
+    /// change notifications stay UI-thread owned.</para></summary>
+    /// <param name="disable">Whether to suppress consent prompts.</param>
+    /// <returns><see langword="true"/> when Windows accepted the policy change.</returns>
+    public async Task<bool> SetUacPromptsAsync(bool disable)
+    {
+        var ok = await Task.Run(() => UacSettings.RequestChange(disable)).ConfigureAwait(true);
+        Raise(nameof(UacPromptsDisabled));
+        Raise(nameof(UacStatusText));
+        return ok;
+    }
+
     // --- Lock on wake ---
     /// <summary>Gets whether Windows will skip a sign-in prompt after display sleep.</summary>
     public bool LockOnWakeDisabled => LockScreenSettings.SignInOnWakeDisabled();
@@ -367,6 +386,19 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         return ok;
     }
 
+    /// <summary>Off-thread form of <see cref="SetLockOnWake"/>; see
+    /// <see cref="SetUacPromptsAsync"/> for why the synchronous one freezes the window.
+    /// Call from the UI thread so the notifications resume there.</summary>
+    /// <param name="disable">Whether to bypass the sign-in prompt after display sleep.</param>
+    /// <returns><see langword="true"/> when Windows accepted the policy change.</returns>
+    public async Task<bool> SetLockOnWakeAsync(bool disable)
+    {
+        var ok = await Task.Run(() => LockScreenSettings.RequestChange(disable)).ConfigureAwait(true);
+        Raise(nameof(LockOnWakeDisabled));
+        Raise(nameof(LockOnWakeStatusText));
+        return ok;
+    }
+
     /// <summary>Gets whether WSGM has a copy in its stable per-user install directory.</summary>
     public bool AppInstalled => Installer.IsAppInstalled;
 
@@ -382,6 +414,37 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     {
         Installer.InstallApp();
         RaiseShellStatus();
+    }
+
+    private bool _installInProgress;
+
+    /// <summary>Runs the install/update file copy off the UI thread (see
+    /// <see cref="InstallApp"/> for the same work done synchronously), keeping the
+    /// command disabled for its duration and reporting the outcome in
+    /// <see cref="StatusText"/>. The continuation resumes on the UI thread, so the
+    /// property notifications stay where Avalonia needs them.</summary>
+    /// <returns>A task that completes after the status has been refreshed.</returns>
+    private async System.Threading.Tasks.Task InstallAppAsync()
+    {
+        _installInProgress = true;
+        InstallAppCommand.RaiseCanExecuteChanged();
+        StatusText = "Installing…";
+        try
+        {
+            await System.Threading.Tasks.Task.Run(Installer.InstallApp);
+            RaiseShellStatus();
+            StatusText = $"Installed {DateTime.Now:HH:mm:ss}";
+        }
+        catch (Exception ex)
+        {
+            Log.Error("App install failed", ex);
+            StatusText = $"Install failed: {ex.Message}";
+        }
+        finally
+        {
+            _installInProgress = false;
+            InstallAppCommand.RaiseCanExecuteChanged();
+        }
     }
 
     /// <summary>Migration: removes the legacy shell registration and restores the
@@ -977,31 +1040,36 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         IReadOnlyList<string> failedSlots;
         string? failure;
         // The lock now covers exactly four fast operations, and nothing else:
-        //   Load → Save → Commit → (repair Save) → boot-manifest write.
+        //   Mutate → Commit → (repair Save) → boot-manifest write.
         // That is sufficient because
-        //   (a) Load..Save is the read-modify-write this merge exists for — another
-        //       process must not persist between our read and our write;
+        //   (a) Mutate IS the read-modify-write this merge exists for — another
+        //       process must not persist between our read and our write, and its
+        //       strict load makes an unreadable config.json abort the save instead of
+        //       replacing the registry recovery snapshots with defaults;
         //   (b) Save and Commit stay in ONE scope, so a concurrent saver can never
         //       interleave between the config write and the image promotion it
         //       describes: whoever holds the lock last leaves config.json and the
         //       live images agreeing (the round-3 invariant);
         //   (c) boot.json is a projection of the config we just persisted, so it is
         //       written before another saver can change config.json underneath it.
-        // Load/Save re-acquire the same named mutex inside this scope; a Win32 mutex
+        // Mutate re-acquires the same named mutex inside this scope; a Win32 mutex
         // is owned per thread with a recursion count, so those nested acquisitions
         // balance their own releases and the outer hold survives (see AcquireLock).
         using (ConfigStore.AcquireLock())
         {
-            config = ConfigStore.Load();
             // Captured BEFORE ApplyTo overwrites them: if a staged copy cannot be
             // promoted the persisted config has to go back to the path whose file is
             // actually there.
-            var previousLogoPath = config.Splash.LogoImagePath;
-            var previousBackgroundPath = config.Splash.BackgroundImagePath;
-            ApplyTo(config, splash);
+            var previousLogoPath = "";
+            var previousBackgroundPath = "";
             // Any throw from here to Commit leaves the transaction uncommitted, and the
             // enclosing `using` rolls it back: the live splash assets stay untouched.
-            ConfigStore.Save(config);
+            config = ConfigStore.Mutate(fresh =>
+            {
+                previousLogoPath = fresh.Splash.LogoImagePath;
+                previousBackgroundPath = fresh.Splash.BackgroundImagePath;
+                ApplyTo(fresh, splash);
+            });
             failedSlots = splashAssets.Commit();
             // A slot that could not be promoted (locked file, AV hold, permissions)
             // leaves the just-persisted path pointing at an image that was never

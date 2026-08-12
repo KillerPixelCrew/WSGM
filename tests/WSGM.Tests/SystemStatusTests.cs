@@ -3,10 +3,9 @@ using WSGM.Shell;
 
 namespace WSGM.Tests;
 
-/// <summary>Pure logic of the taskbar status cluster: clock/date formatting,
-/// battery interpretation (incl. the GetSystemPowerStatus unknown markers), the
-/// WLAN_INTERFACE_INFO_LIST interpretation (all records, not just the first), and
-/// the Wi-Fi state wording shown in the button flyout.</summary>
+/// <summary>Pure logic of the taskbar status cluster: clock and date formatting and
+/// battery interpretation (incl. the GetSystemPowerStatus unknown markers). The Wi-Fi
+/// state wording shown in the button flyout is covered by RadioManagerTests.</summary>
 public sealed class SystemStatusTests
 {
     [Fact]

@@ -94,11 +94,17 @@ public sealed unsafe class TrayHost : IDisposable
     private bool CreateWindows()
     {
         var hInstance = NativeMethods.GetModuleHandleW(0);
-        if (!RegisterClass(TrayClassName, hInstance) | !RegisterClass(NotifyClassName, hInstance))
+        // RegisterClass logs specifics; ERROR_CLASS_ALREADY_EXISTS is benign
+        // (recreate after a previous destroy) and reported as success. Without the
+        // protocol class there is no tray at all, so give up on the real error
+        // instead of letting CreateWindowExW report a misleading 1407 later.
+        if (!RegisterClass(TrayClassName, hInstance))
         {
-            // RegisterClass logs specifics; ERROR_CLASS_ALREADY_EXISTS is benign
-            // (recreate after a previous destroy) and reported as success.
+            return false;
         }
+        // The legacy TrayNotifyWnd child is optional (its creation failure below is
+        // only warned about), so a failed registration must not sink the host.
+        _ = RegisterClass(NotifyClassName, hInstance);
 
         // ManagedShell's shape: an invisible full-width popup pinned to the top of
         // the Z-order region shell32 scans. Never shown — WSGM's own taskbar UI
@@ -271,34 +277,28 @@ public sealed unsafe class TrayHost : IDisposable
         // stays valid only while the sender keeps it alive — after this handler
         // returns there is no guarantee. CopyIcon → rasterize → destroy the copy;
         // never destroy the sender's original.
-        if (icon is not null && (parsed.Flags & TrayProtocol.NifIcon) != 0)
+        // NIS_SHAREDICON only says the HICON is also used by another icon; it changes
+        // nothing about who owns the BITMAP. Every TrayIcon rasterizes its own, because
+        // IconImage ownership is per icon (Removed disposes it, and so does teardown) —
+        // aliasing one instance into two icons made the first Removed free an image the
+        // surviving icon was still rendering.
+        if (icon is not null && (parsed.Flags & TrayProtocol.NifIcon) != 0 && parsed.IconHandle != 0)
         {
-            if ((parsed.State & TrayProtocol.NisSharedIcon) != 0 || parsed.IconHandle == 0)
+            var copy = NativeMethods.CopyIcon(parsed.IconHandle);
+            if (copy != 0)
             {
-                var shared = parsed.IconHandle != 0 ? _table.FindByIconHandle(parsed.IconHandle) : null;
-                if (shared is not null && !ReferenceEquals(shared, icon))
+                try
                 {
-                    icon.IconImage = shared.IconImage;
+                    var bitmap = IconRasterizer.Rasterize(copy, 48);
+                    if (bitmap is not null)
+                    {
+                        (icon.IconImage as Bitmap)?.Dispose();
+                        icon.IconImage = bitmap;
+                    }
                 }
-            }
-            else
-            {
-                var copy = NativeMethods.CopyIcon(parsed.IconHandle);
-                if (copy != 0)
+                finally
                 {
-                    try
-                    {
-                        var bitmap = IconRasterizer.Rasterize(copy, 48);
-                        if (bitmap is not null)
-                        {
-                            (icon.IconImage as Bitmap)?.Dispose();
-                            icon.IconImage = bitmap;
-                        }
-                    }
-                    finally
-                    {
-                        NativeMethods.DestroyIcon(copy);
-                    }
+                    NativeMethods.DestroyIcon(copy);
                 }
             }
         }
@@ -311,8 +311,16 @@ public sealed unsafe class TrayHost : IDisposable
             }
         }
 
-        Log.Info($"Tray icon {change}: '{icon?.Tip}' (hwnd 0x{parsed.Hwnd:X}, uid {parsed.Uid}, " +
-                 $"version {icon?.Version ?? 0}, guid {(parsed.Flags & TrayProtocol.NifGuid) != 0}).");
+        // Added/Removed only: the device-verification contract needs the
+        // registration lifecycle, while a tray app that animates its icon or
+        // refreshes its tooltip on a timer would otherwise write a synchronous log
+        // line per tick from the UI thread and push the boot/takeover/lease lines
+        // out of the capped log.
+        if (change is TrayChange.Added or TrayChange.Removed)
+        {
+            Log.Info($"Tray icon {change}: '{icon?.Tip}' (hwnd 0x{parsed.Hwnd:X}, uid {parsed.Uid}, " +
+                     $"version {icon?.Version ?? 0}, guid {(parsed.Flags & TrayProtocol.NifGuid) != 0}).");
+        }
         IconsChanged?.Invoke();
         return 1;
     }

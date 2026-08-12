@@ -35,8 +35,24 @@ public sealed class TaskbarEntry : INotifyPropertyChanged
     /// <summary>Gets whether the window belongs to Steam.</summary>
     public bool IsSteam { get; }
 
-    /// <summary>Gets the rasterized application icon (null renders the fallback glyph).</summary>
-    public Bitmap? Icon { get; }
+    private Bitmap? _icon;
+    /// <summary>Gets or sets the rasterized application icon (null renders the fallback
+    /// glyph). Settable because resolution runs off the UI thread: the tile is created
+    /// with whatever is cached and the icon lands here IN PLACE when it arrives — a
+    /// wholesale rebuild would destroy the button under the gamepad cursor.</summary>
+    public Bitmap? Icon
+    {
+        get => _icon;
+        set
+        {
+            if (!ReferenceEquals(_icon, value))
+            {
+                _icon = value;
+                Raise(nameof(Icon));
+                Raise(nameof(HasNoIcon));
+            }
+        }
+    }
 
     /// <summary>Gets whether a fallback glyph should render instead of an icon.</summary>
     public bool HasNoIcon => Icon is null;

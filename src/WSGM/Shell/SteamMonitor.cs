@@ -21,6 +21,7 @@ public sealed class SteamMonitor : IDisposable
     public event Action? SteamStarted;
 
     private bool _seenDead;
+    private bool _pollInFlight;
 
     /// <summary>Gets whether Steam was alive during the most recent poll.</summary>
     public bool IsAlive { get; private set; }
@@ -42,7 +43,36 @@ public sealed class SteamMonitor : IDisposable
 
     private void Poll()
     {
-        IsAlive = Steam.IsRunning;
+        if (_pollInFlight)
+        {
+            return;
+        }
+        _pollInFlight = true;
+        // Steam.IsRunning takes a full process snapshot per watched name — off the
+        // UI thread, with only the resulting boolean marshalled back, so the 16 ms
+        // gamepad poll and the overlay animations never wait on it. All monitor
+        // state stays UI-thread owned in Apply.
+        _ = System.Threading.Tasks.Task.Run(() =>
+        {
+            bool alive;
+            try
+            {
+                alive = Steam.IsRunning;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Steam liveness poll failed: {ex.Message}");
+                Dispatcher.UIThread.Post(() => _pollInFlight = false);
+                return;
+            }
+            Dispatcher.UIThread.Post(() => Apply(alive));
+        });
+    }
+
+    private void Apply(bool alive)
+    {
+        _pollInFlight = false;
+        IsAlive = alive;
 
         // The detector only fires after a poll saw Steam alive, so the
         // seen-alive-once requirement is implied.

@@ -32,7 +32,8 @@ public sealed class WakeLock : IDisposable
         _requestType = requestType;
     }
 
-    /// <summary>Whether the system-required request is currently set.</summary>
+    /// <summary>Whether this lock's configured power request — the
+    /// <c>requestType</c> the constructor was given — is currently set.</summary>
     public bool IsHeld
     {
         get
@@ -44,9 +45,9 @@ public sealed class WakeLock : IDisposable
         }
     }
 
-    /// <summary>Sets the system-required request (idempotent). Failures are logged and
-    /// reported as false — a keep-awake that cannot engage must never take a feature
-    /// down with it.</summary>
+    /// <summary>Sets this lock's configured power request (idempotent). Failures are
+    /// logged and reported as false — a keep-awake that cannot engage must never take
+    /// a feature down with it.</summary>
     public bool Acquire()
     {
         lock (_gate)
@@ -92,7 +93,9 @@ public sealed class WakeLock : IDisposable
         }
     }
 
-    /// <summary>Clears the system-required request (idempotent).</summary>
+    /// <summary>Clears this lock's configured power request (idempotent). A failed
+    /// clear leaves the lock held: Windows is still blocking standby, so
+    /// <see cref="IsHeld"/> must keep saying so and <see cref="Dispose"/> retries.</summary>
     public void Release()
     {
         lock (_gate)
@@ -101,13 +104,14 @@ public sealed class WakeLock : IDisposable
             {
                 return;
             }
-            _held = false;
             if (_request != 0
                 && !NativeMethods.PowerClearRequest(_request, _requestType))
             {
                 Log.Warn($"Keep awake: PowerClearRequest failed "
                     + $"(error {Marshal.GetLastPInvokeError()}).");
+                return;
             }
+            _held = false;
         }
     }
 

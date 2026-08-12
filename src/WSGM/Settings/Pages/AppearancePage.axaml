@@ -190,8 +190,13 @@
                 <Border Classes="setting-row alt">
                     <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                         <TextBlock Text="Background color" Classes="setting-title" VerticalAlignment="Center" />
-                        <!-- Swatch buttons open a color-picker flyout: the controller path
-                             to these colors (gamepad navigation skips the hex TextBoxes). -->
+                        <!-- Swatch buttons open a color-picker flyout: the TOUCH path to
+                             these colors. Flyout content lives in its own popup root,
+                             which gamepad navigation cannot enter, and pad traversal
+                             skips the hex TextBoxes — so these four colors have no
+                             controller path today. B is handled (SettingsWindow's back
+                             action closes an open flyout first) so it dismisses the
+                             picker instead of Settings. -->
                         <Button Grid.Column="1" Width="22" Height="22" MinWidth="22" MinHeight="22" Padding="0"
                                 CornerRadius="4" VerticalAlignment="Center"
                                 BorderBrush="{StaticResource HcControlBorderBrush}" BorderThickness="1"

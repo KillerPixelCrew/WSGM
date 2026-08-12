@@ -102,7 +102,6 @@ public partial class TaskbarWindow : Window
         // The right zone binds a different object than the window (compiled
         // bindings: x:DataType="sh:SystemStatus" on the StatusZone subtree).
         StatusZone.DataContext = status;
-        _status = status;
         // Controller navigation moves focus with InputElement.Focus(Directional),
         // which does NOT raise RequestBringIntoView on its own — a tile scrolled
         // out of the strip would take focus invisibly. Ask for it explicitly:
@@ -140,8 +139,6 @@ public partial class TaskbarWindow : Window
         // controller's deferred Close() keep this window alive to do so.
         Win32Properties.AddWndProcHookCallback(this, WndProcHook);
     }
-
-    private readonly SystemStatus _status;
 
     /// <summary>Raised when a radio tile is tapped. The flag selects the tab to
     /// open on: true for Bluetooth, false for Wi-Fi.</summary>

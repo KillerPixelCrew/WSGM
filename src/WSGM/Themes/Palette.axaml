@@ -33,7 +33,11 @@
     <SolidColorBrush x:Key="HcTextMutedBrush" Color="#FFB8B8B8" />
 
     <!-- Accent family: shadowed in Application.Resources by the runtime accent
-         pipeline. Consume via DynamicResource only. -->
+         pipeline. Consume via DynamicResource only.
+         HcAccentColor has no consumer today: it is the Color-typed form of the
+         accent, kept (and kept in sync by AccentPalette.Apply) for consumers
+         that need a Color rather than a brush — a gradient stop, a drawn
+         surface. Do not treat it as dead until that write goes too. -->
     <Color x:Key="HcAccentColor">#FFFF9D3D</Color>
     <SolidColorBrush x:Key="HcAccentBrush" Color="#FFFF9D3D" />
     <SolidColorBrush x:Key="HcOnAccentBrush" Color="Black" />

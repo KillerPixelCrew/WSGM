@@ -27,6 +27,7 @@ public sealed class StartupAppWatcher : IDisposable
     // Keyed by full path so two configured apps sharing an exe basename don't
     // collide on one state.
     private readonly Dictionary<string, WatchState> _states = new(StringComparer.OrdinalIgnoreCase);
+    private bool _pollInFlight;
 
     /// <summary>Creates a watcher for the currently configured startup programs.</summary>
     /// <param name="apps">The startup-program configuration to monitor.</param>
@@ -46,6 +47,13 @@ public sealed class StartupAppWatcher : IDisposable
 
     private void Poll()
     {
+        if (_pollInFlight)
+        {
+            return;
+        }
+        // Snapshot the watch list on the UI thread — Apply() replaces _apps wholesale
+        // on a config reload, so the background probe must not enumerate it.
+        var probes = new List<(string Path, string Name)>();
         foreach (var app in _apps)
         {
             if (!app.Enabled || !app.AutoRelaunch || app.Path.Length == 0 || AppLauncher.IsProtocol(app.Path))
@@ -57,18 +65,55 @@ public sealed class StartupAppWatcher : IDisposable
             {
                 continue;
             }
-            if (!_states.TryGetValue(app.Path, out var state))
+            probes.Add((app.Path, name));
+        }
+        if (probes.Count == 0)
+        {
+            return;
+        }
+
+        _pollInFlight = true;
+        // FindProcessIds takes a full process snapshot PER WATCHED APP — off the UI
+        // thread, with only the resulting booleans marshalled back, so the 16 ms
+        // gamepad poll and the overlay animations never wait on it. All watcher state
+        // stays UI-thread owned in Apply.
+        _ = System.Threading.Tasks.Task.Run(() =>
+        {
+            var alive = new bool[probes.Count];
+            for (var i = 0; i < probes.Count; i++)
+            {
+                try
+                {
+                    alive[i] = WindowFinder.FindProcessIds(probes[i].Name).Count > 0;
+                }
+                catch (Exception ex)
+                {
+                    // An unknown result must never read as a crash: a failed probe
+                    // would otherwise relaunch an app that is still running.
+                    Log.Warn($"Startup app liveness poll failed for '{probes[i].Name}': {ex.Message}");
+                    alive[i] = true;
+                }
+            }
+            Dispatcher.UIThread.Post(() => Apply(probes, alive));
+        });
+    }
+
+    private void Apply(List<(string Path, string Name)> probes, bool[] alive)
+    {
+        _pollInFlight = false;
+        for (var i = 0; i < probes.Count; i++)
+        {
+            var (path, name) = probes[i];
+            if (!_states.TryGetValue(path, out var state))
             {
                 state = new WatchState();
-                _states[app.Path] = state;
+                _states[path] = state;
             }
-
-            var alive = WindowFinder.FindProcessIds(name).Count > 0;
 
             // Update() always records the new state, even while a relaunch is
             // pending — only the reaction is gated, matching the old
             // WasAlive bookkeeping.
-            if (state.Edge.Update(alive) && !state.RelaunchPending)
+            if (state.Edge.Update(alive[i]) && !state.RelaunchPending)
             {
                 // A falling edge inside the cooldown isn't dropped — the relaunch is
                 // scheduled for when the cooldown expires (never sooner than the
@@ -77,7 +122,6 @@ public sealed class StartupAppWatcher : IDisposable
                 var delay = remaining > RelaunchDelay ? remaining : RelaunchDelay;
                 state.RelaunchPending = true;
                 Log.Info($"Startup app '{name}' exited — relaunching in {delay.TotalSeconds:0} s.");
-                var path = app.Path;
                 System.Threading.Tasks.Task.Delay(delay).ContinueWith(_ =>
                     Dispatcher.UIThread.Post(() => Relaunch(path, name, state)));
             }

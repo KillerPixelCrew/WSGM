@@ -24,6 +24,7 @@ param(
     [switch]$Validate
 )
 
+Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $library = Join-Path $root "native\Radio"
@@ -45,6 +46,19 @@ if ($Validate) {
 cargo build --manifest-path $manifest --workspace --release
 if ($LASTEXITCODE -ne 0) { throw "Radio helper release build failed" }
 
+# Stale artifacts (a renamed or dropped DLL) would otherwise survive here, get
+# copied beside the AOT executable by the csproj wildcards and ship. Start empty.
+# Best-effort, NOT fatal: a staged helper that some process still has loaded cannot
+# be deleted, and that must not sink the whole build (see build-steam-input-lease.ps1).
+if (Test-Path -LiteralPath $staging) {
+    try {
+        Remove-Item -Recurse -Force -LiteralPath $staging -ErrorAction Stop
+    }
+    catch {
+        Write-Warning ("Could not clear $staging ($($_.Exception.Message)). " +
+            "A staged helper is probably loaded; stale artifacts may survive this build.")
+    }
+}
 New-Item -ItemType Directory -Force -Path $staging | Out-Null
 
 # Cargo requires a snake_case crate name; the shipped file matches the naming of

@@ -73,7 +73,13 @@ public static class LockScreenSettings
     {
         try
         {
-            var config = ConfigStore.Load();
+            // Strict load: both branches below are read-modify-write transactions on
+            // config.json. A lenient load would hand an unreadable file back as
+            // defaults, and this method would then capture the ALREADY MODIFIED
+            // registry state as the "pre-WSGM" snapshot and save those defaults over
+            // every other recovery snapshot. A throw aborts the change instead — the
+            // catch below logs it and reports failure.
+            var config = ConfigStore.LoadForMutation();
 
             if (disableSignInOnWake)
             {

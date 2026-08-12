@@ -11,7 +11,8 @@ namespace WSGM.Core;
 /// <summary>Reaches into Steam's own library UI over the CEF leg (<see cref="SteamCef"/>):
 /// <list type="bullet">
 /// <item><b>Current-game detection</b> — which game page the user is viewing, read from
-/// the largest visible wide library-asset image in the rendered DOM.</item>
+/// the focused element's React fiber and, failing that, from the largest visible wide
+/// library-asset image in the rendered DOM.</item>
 /// <item><b>In-page card badge</b> — a resident script installs a <c>MutationObserver</c>
 /// that renders an "On: &lt;card&gt;" badge on a game page when that game lives on a
 /// tracked card. The observer runs inside the visible Steam page and survives its SPA
@@ -49,9 +50,9 @@ public static class SteamPageBridge
         "let f=fk?el[fk]:null,hops=0;" +
         "while(f&&hops<40){const p=f.memoizedProps;" +
         "if(p&&typeof p==='object'){" +
-        "if(typeof p.appid==='number')return p.appid;" +
+        "if(typeof p.appid==='number')return {id:p.appid,src:'focus'};" +
         "const a=p.app||p.overview||p.appOverview;" +
-        "if(a&&typeof a.appid==='number')return a.appid;}" +
+        "if(a&&typeof a.appid==='number')return {id:a.appid,src:'focus'};}" +
         "f=f.return;hops++;}}}catch(e){}" +
         "const cx=window.innerWidth/2,ch=window.innerHeight;" +
         "const imgs=document.querySelectorAll('img');let best=0,bestW=0;" +
@@ -60,7 +61,8 @@ public static class SteamPageBridge
         "if(r.bottom<=0||r.top>=ch||cx<r.left||cx>r.right)continue;" +
         "if(i.checkVisibility&&!i.checkVisibility({checkOpacity:true,checkVisibilityCSS:true}))continue;" +
         "const m=(i.src||'').match(/assets\\/(\\d+)\\//);" +
-        "if(m&&r.width>bestW){bestW=r.width;best=Number(m[1]);}}return best;}catch(e){return 0;}})()";
+        "if(m&&r.width>bestW){bestW=r.width;best=Number(m[1]);}}" +
+        "return {id:best,src:best?'hero image':'none'};}catch(e){return {id:0,src:'error'};}})()";
 
     // Fallback when the page shows no artwork at all (a custom shortcut with no
     // images): Steam's SPA router keeps SharedJSContext's location on the current
@@ -72,23 +74,27 @@ public static class SteamPageBridge
         "return m?Number(m[1]):0;}catch(e){return 0;}})()";
 
     /// <summary>The app id of the game page the user is currently viewing, or 0 when
-    /// not on a game page / unreachable. Primary signal: the visible window's
-    /// library-asset image URLs (device-verified). Fallback for pages with no images
-    /// (custom shortcuts): the library route in SharedJSContext (live-verified).</summary>
+    /// not on a game page / unreachable. In the visible window two signals run in
+    /// order (both live-verified, see <c>CurrentAppIdJs</c>): the FOCUSED element's
+    /// React fiber first, then the largest wide library-asset image.
+    /// Fallback for pages with neither (custom shortcuts): the library route in
+    /// SharedJSContext (live-verified). The matching signal is named in the log line,
+    /// so a detection that silently changed which one carries it is diagnosable from a
+    /// pasted wsgm.log.</summary>
     /// <param name="cancellationToken">Cancels the exchange.</param>
     public static async Task<long> GetCurrentAppIdAsync(CancellationToken cancellationToken = default)
     {
-        var expression = "JSON.stringify({ok:true,appid:" + CurrentAppIdJs + "})";
+        var expression = "JSON.stringify(Object.assign({ok:true}," + CurrentAppIdJs + "))";
         var result = await SteamCef.EvaluateOnVisibleWindowAsync(expression, Budget, cancellationToken)
             .ConfigureAwait(false);
-        var fromImages = ParseAppId(result);
-        if (fromImages > 0)
+        var fromPage = ParseAppId(result);
+        if (fromPage > 0)
         {
-            Log.Info($"Steam current app {fromImages} (hero image).");
-            return fromImages;
+            Log.Info($"Steam current app {fromPage} ({ParseSignal(result)}).");
+            return fromPage;
         }
         var routeResult = await SteamCef.EvaluateAsync(
-            "JSON.stringify({ok:true,appid:" + RouteAppIdJs + "})", Budget, cancellationToken)
+            "JSON.stringify({ok:true,id:" + RouteAppIdJs + "})", Budget, cancellationToken)
             .ConfigureAwait(false);
         var fromRoute = ParseAppId(routeResult);
         if (fromRoute > 0)
@@ -107,7 +113,7 @@ public static class SteamPageBridge
         try
         {
             using var document = JsonDocument.Parse(result.Value);
-            if (document.RootElement.TryGetProperty("appid", out var appid)
+            if (document.RootElement.TryGetProperty("id", out var appid)
                 && appid.TryGetInt64(out var value))
             {
                 return value;
@@ -118,6 +124,31 @@ public static class SteamPageBridge
             Log.Warn($"Current-app parse failed: {ex.Message}");
         }
         return 0;
+    }
+
+    /// <summary>Names the in-page signal that produced the app id, for the log line.
+    /// Falls back to the old generic label if the shape is ever missing, so a decode
+    /// surprise degrades the diagnostic instead of the detection.</summary>
+    private static string ParseSignal(CefEvalResult result)
+    {
+        if (result.Value is null)
+        {
+            return "in-page";
+        }
+        try
+        {
+            using var document = JsonDocument.Parse(result.Value);
+            if (document.RootElement.TryGetProperty("src", out var src)
+                && src.ValueKind == JsonValueKind.String)
+            {
+                return src.GetString() ?? "in-page";
+            }
+        }
+        catch (Exception)
+        {
+            // ParseAppId already logged whatever went wrong with this payload.
+        }
+        return "in-page";
     }
 
     /// <summary>Disconnects the resident badge observer and removes its node from the
@@ -167,9 +198,11 @@ public static class SteamPageBridge
                 var err = document.RootElement.TryGetProperty("err", out var e) ? e.GetString() : null;
                 Log.Warn($"Card badge install failed: {err}.");
             }
-            catch
+            catch (Exception ex)
             {
-                // Non-fatal; the badge is a convenience.
+                // Non-fatal; the badge is a convenience — but the boot path retries on
+                // the false this returns, so the reason has to reach the device log.
+                Log.Warn($"Card badge install parse failed: {ex.Message}");
             }
         }
         return false;
@@ -196,7 +229,8 @@ public static class SteamPageBridge
     // keeps whatever observer was installed into it, so without a version gate an
     // upgraded WSGM would keep talking to the OLD detection logic until Steam
     // restarts. On mismatch the old observer is disconnected and replaced.
-    private const int BadgeScriptVersion = 3;
+    // 4: CurrentAppIdJs resolves to {id,src}; the resident script's curId() unwraps .id.
+    private const int BadgeScriptVersion = 4;
 
     // The resident badge script, installed into the VISIBLE library window. Idempotent
     // per version (sentinel-guarded), namespaced under window.__wsgm, and non-destructive
@@ -218,7 +252,10 @@ public static class SteamPageBridge
         "const BID='wsgm-card-badge';" +
         // Same detection as GetCurrentAppIdAsync — one source string, so the
         // center/visibility rules can never drift between the two consumers.
-        "const curId=()=>" + CurrentAppIdJs + ";" +
+        // `.id`: the shared string resolves to {id,src} so the C# caller can log WHICH
+        // signal matched. The badge only wants the number. Live-verified on the visible
+        // window that both branches return the same id through this accessor.
+        "const curId=()=>(" + CurrentAppIdJs + ").id;" +
         "const remove=()=>{const b=document.getElementById(BID);if(b)b.remove();};" +
         "const render=()=>{try{const id=curId();const map=window.__wsgm.cardMap||{};" +
         "const name=id&&map[id];if(!name){remove();return;}" +

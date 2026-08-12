@@ -10,6 +10,10 @@ namespace WSGM.Core;
 /// ExitCode from a still-running process would throw.</summary>
 internal static class ConsoleTool
 {
+    // How long a killed tool's output pipes may take to close before the
+    // captured output is given up on.
+    private const int DrainTimeoutMs = 2000;
+
     /// <summary>True only when the tool started, exited within the timeout, and
     /// returned 0. Never throws; failures are logged with the leading argument so
     /// pasted logs show WHICH invocation failed.</summary>
@@ -92,6 +96,17 @@ internal static class ConsoleTool
                 catch (Exception ex)
                 {
                     Log.Warn($"{what} could not be killed: {ex.Message}");
+                }
+                // A read completes only once every writer handle on the pipe is
+                // gone, so a kill that failed (or a child still holding the
+                // inherited handle) would leave these awaits pending forever and
+                // hang the caller. Bound the drain: the documented contract is
+                // (-1, output), never a wait without end.
+                var drain = Task.WhenAll(stdout, stderr);
+                if (await Task.WhenAny(drain, Task.Delay(DrainTimeoutMs)) != drain)
+                {
+                    Log.Warn($"{what} output could not be drained after the kill.");
+                    return (-1, "");
                 }
                 return (-1, $"{await stdout}{await stderr}");
             }

@@ -92,7 +92,7 @@ public sealed class SteamInputClient : IDisposable
 
     /// <summary>Runs a process tree while Steam Input is blocked.</summary>
     /// <param name="arguments">Executable followed by its individual arguments.</param>
-    /// <returns>The root process exit code after synchronous lease recovery.</returns>
+    /// <returns>The root process exit code and the final release handshake.</returns>
     /// <remarks>
     /// The root process starts suspended, is assigned to a Windows job object,
     /// and is then resumed. Release is attempted even when launch/wait fails.
@@ -100,7 +100,7 @@ public sealed class SteamInputClient : IDisposable
     /// <exception cref="ArgumentNullException"><paramref name="arguments"/> is null.</exception>
     /// <exception cref="ArgumentException">No executable was supplied.</exception>
     /// <exception cref="SteamInputLeaseException">The native lifecycle failed.</exception>
-    public uint RunWrapped(params string[] arguments)
+    public SteamInputWrappedRun RunWrapped(params string[] arguments)
     {
         ArgumentNullException.ThrowIfNull(arguments);
         if (arguments.Length == 0)
@@ -121,8 +121,9 @@ public sealed class SteamInputClient : IDisposable
                 _handle,
                 checked((nuint)arguments.Length),
                 pointerArray,
-                out uint exitCode));
-            return exitCode;
+                out uint exitCode,
+                out var release));
+            return new SteamInputWrappedRun(exitCode, SteamInputBlockLease.FromNative(release));
         }
         finally
         {
@@ -181,7 +182,9 @@ public sealed class SteamInputBlockLease : IDisposable
         }
     }
 
-    private static unsafe SteamInputReleaseOutcome FromNative(NativeMethods.ReleaseOutcome outcome)
+    // internal, not private: SteamInputClient.RunWrapped reports the same outcome for
+    // the release it performs itself, and both must decode it identically.
+    internal static unsafe SteamInputReleaseOutcome FromNative(NativeMethods.ReleaseOutcome outcome)
     {
         var recovery = (SteamControllerRecovery)outcome.Recovery;
         SteamControllerRescanResult? rescan = recovery == SteamControllerRecovery.Completed

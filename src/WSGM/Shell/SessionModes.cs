@@ -40,10 +40,11 @@ public sealed class SessionModes
     /// could not bring Steam up, with the user-facing warning text.</summary>
     public event Action<string>? SteamStartFailed;
 
-    /// <summary>Raised (on the caller's thread) during a desktop-mode transition,
-    /// after Steam left Big Picture but BEFORE explorer starts. Listeners that own
-    /// per-game-mode resources which must not coexist with explorer (the tray host's
-    /// Shell_TrayWnd — explorer's taskbar creates its own) tear down here.</summary>
+    /// <summary>Raised (on the UI thread — the transition posts back there after the
+    /// off-thread Big Picture close) during a desktop-mode transition, after Steam
+    /// left Big Picture but BEFORE explorer starts. Listeners that own per-game-mode
+    /// resources which must not coexist with explorer (the tray host's Shell_TrayWnd
+    /// — explorer's taskbar creates its own) tear down here.</summary>
     public event Action? DesktopModeStarting;
 
     /// <summary>Raised (on the UI thread — the transition completes there after the
@@ -101,29 +102,61 @@ public sealed class SessionModes
     }
 
     /// <summary>Desktop mode: stop reacting to Steam (no auto-relaunch, no overlay
-    /// pop), drop Steam out of Big Picture, bring the desktop up.</summary>
+    /// pop), drop Steam out of Big Picture, bring the desktop up. Returns
+    /// immediately — the Big Picture close, the display-scale restore and the
+    /// explorer start are all blocking and run off the UI thread, for the same
+    /// reason <see cref="EnterGameMode"/> does (a synchronous transition froze the
+    /// overlay for its full duration, including the 150 ms deferred close that
+    /// makes the panel disappear when the button was pressed). Only the monitor
+    /// pause (before anything can react to Steam leaving) and
+    /// <see cref="DesktopModeStarting"/> stay UI-thread work.</summary>
     public void EnterDesktopMode()
     {
         if (!TryBeginTransition("desktop-mode switch"))
         {
             return;
         }
-        try
+        Log.Info("Entering desktop mode.");
+        if (_monitor is not null)
         {
-            Log.Info("Entering desktop mode.");
-            if (_monitor is not null)
+            _monitor.Paused = true;
+        }
+        System.Threading.Tasks.Task.Run(() =>
+        {
+            try
             {
-                _monitor.Paused = true;
+                ExitBigPicture();
+                DisplayScale.RestoreSaved(_config);
             }
-            ExitBigPicture();
-            DisplayScale.RestoreSaved(_config);
-            DesktopModeStarting?.Invoke();
-            ExplorerControl.StartExplorer();
-        }
-        finally
-        {
-            EndTransition();
-        }
+            catch (Exception ex)
+            {
+                Log.Error("Leaving Big Picture / restoring the display scale failed", ex);
+            }
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                try
+                {
+                    // UI-thread owned: the listeners destroy the tray host window,
+                    // and that must still happen BEFORE explorer starts.
+                    DesktopModeStarting?.Invoke();
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("Desktop-mode teardown failed", ex);
+                }
+                System.Threading.Tasks.Task.Run(() =>
+                {
+                    try
+                    {
+                        ExplorerControl.StartExplorer();
+                    }
+                    finally
+                    {
+                        EndTransition();
+                    }
+                });
+            });
+        });
     }
 
     /// <summary>Plain desktop Steam start — no Big Picture. Used by the boot

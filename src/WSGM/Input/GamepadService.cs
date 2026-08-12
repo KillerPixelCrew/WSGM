@@ -69,8 +69,12 @@ public enum GamepadButtons : uint
 /// enabled. Emits edge-triggered button events with D-pad/stick auto-repeat.</summary>
 public sealed class GamepadService : IDisposable
 {
-    private static readonly TimeSpan RepeatInitial = TimeSpan.FromMilliseconds(400);
-    private static readonly TimeSpan RepeatRate = TimeSpan.FromMilliseconds(150);
+    // Monotonic (Environment.TickCount64) rather than wall-clock deadlines: a
+    // backward system-clock adjustment — w32time resyncing shortly after logon,
+    // or a resume from Modern Standby — would otherwise leave the next repeat
+    // parked in the future and the D-pad would silently stop repeating.
+    private const long RepeatInitialMs = 400;
+    private const long RepeatRateMs = 150;
     private const GamepadButtons DirectionMask = GamepadButtons.DPadUp | GamepadButtons.DPadDown |
                                                  GamepadButtons.DPadLeft | GamepadButtons.DPadRight;
 
@@ -80,7 +84,7 @@ public sealed class GamepadService : IDisposable
     private readonly Dictionary<uint, GamepadButtons> _perPad = new();
     private readonly List<uint> _stalePads = new();
     private GamepadButtons _repeating;
-    private DateTime _nextRepeat;
+    private long _nextRepeat;
     private bool _loggedFirstPress;
 
     /// <summary>Newly pressed buttons across all pads (edge-triggered per pad),
@@ -100,9 +104,18 @@ public sealed class GamepadService : IDisposable
         _timer.Tick += (_, _) => Poll();
     }
 
-    /// <summary>Initializes SDL, clears stale controller state, and begins polling.</summary>
+    /// <summary>Initializes SDL, clears stale controller state, and begins polling.
+    /// A no-op while already polling.</summary>
     public void Start()
     {
+        if (_timer.IsEnabled)
+        {
+            // Already polling. Clearing the per-pad state here would make the next
+            // 16 ms tick report every STILL-HELD button as a fresh press: a hold
+            // chord that opened a surface while its buttons are down would confirm
+            // or dismiss that surface immediately.
+            return;
+        }
         _perPad.Clear();
         _repeating = 0;
         _loggedFirstPress = false;
@@ -189,18 +202,18 @@ public sealed class GamepadService : IDisposable
                 // direction, so a diagonal repeats the direction that initiated it
                 // instead of the whole held set (which navigation resolves as Next).
                 _repeating = newDirections;
-                _nextRepeat = DateTime.UtcNow + RepeatInitial;
+                _nextRepeat = Environment.TickCount64 + RepeatInitialMs;
             }
             else if ((directions & _repeating) == 0)
             {
                 // The repeated direction was released but another is still held
                 // (diagonal released in the other order): re-arm on what remains.
                 _repeating = directions;
-                _nextRepeat = DateTime.UtcNow + RepeatInitial;
+                _nextRepeat = Environment.TickCount64 + RepeatInitialMs;
             }
-            else if (DateTime.UtcNow >= _nextRepeat)
+            else if (Environment.TickCount64 >= _nextRepeat)
             {
-                _nextRepeat = DateTime.UtcNow + RepeatRate;
+                _nextRepeat = Environment.TickCount64 + RepeatRateMs;
                 ButtonPressed?.Invoke(directions & _repeating);
             }
         }

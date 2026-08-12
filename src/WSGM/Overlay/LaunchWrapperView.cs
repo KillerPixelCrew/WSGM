@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using WSGM.Controls;
 using WSGM.Core;
@@ -48,33 +49,58 @@ public sealed class LaunchWrapperView : OverlaySubView
         }
 
         _games = games;
-        Replace(() =>
+        Replace(() => RenderGamePage(heading, 0));
+    }
+
+    // A full Steam library is one CardButton per title in a non-virtualizing
+    // host, so it is paged the way LibraryTabsView's multi-select is: laying out
+    // a 1000+ title account in one pass stalls the overlay's UI thread.
+    private const int PageSize = 200;
+
+    private void RenderGamePage(string heading, int page)
+    {
+        var pageCount = Math.Max(1, (_games.Count + PageSize - 1) / PageSize);
+        page = Math.Clamp(page, 0, pageCount - 1);
+        var current = page;
+        var stack = NewStack(heading);
+        if (_games.Count == 0)
         {
-            var stack = NewStack(heading);
-            if (_games.Count == 0)
+            // GetGamesAsync answers empty for an unreachable Steam too, so this
+            // says "could not read" rather than claiming the library is empty.
+            stack.Children.Add(Caption("Couldn't read your library from Steam. Is it running?"));
+        }
+        else
+        {
+            stack.Children.Add(Caption(
+                "Choose a game, or open one in Steam and use this panel from its page."));
+            if (pageCount > 1)
             {
-                // GetGamesAsync answers empty for an unreachable Steam too, so this
-                // says "could not read" rather than claiming the library is empty.
-                stack.Children.Add(Caption("Couldn't read your library from Steam. Is it running?"));
-            }
-            else
-            {
-                stack.Children.Add(Caption(
-                    "Choose a game, or open one in Steam and use this panel from its page."));
-                foreach (var game in _games)
+                stack.Children.Add(Caption($"Page {page + 1} of {pageCount} · {_games.Count} games"));
+                if (page > 0)
                 {
-                    var g = game;
-                    stack.Children.Add(Row(
-                        g.Name,
-                        g.Shortcut ? "Non-Steam shortcut" : "",
-                        Icons.SteamLike,
-                        () => Picked?.Invoke(g)));
+                    stack.Children.Add(Row("Previous page", "", Icons.Restart,
+                        () => Replace(() => RenderGamePage(heading, current - 1))));
                 }
             }
-            stack.Children.Add(SectionLabel(""));
-            stack.Children.Add(Row("Back", "Cancel", Icons.ExitFullscreen, () => Back()));
-            SetContent(stack);
-        });
+            foreach (var game in _games.Skip(page * PageSize).Take(PageSize))
+            {
+                var g = game;
+                stack.Children.Add(Row(
+                    g.Name,
+                    g.Shortcut ? "Non-Steam shortcut" : "",
+                    Icons.SteamLike,
+                    () => Picked?.Invoke(g)));
+            }
+        }
+        stack.Children.Add(SectionLabel(""));
+        if (page + 1 < pageCount)
+        {
+            stack.Children.Add(Row("Next page",
+                $"Games {((page + 1) * PageSize) + 1}–{Math.Min(_games.Count, (page + 2) * PageSize)}",
+                Icons.Play, () => Replace(() => RenderGamePage(heading, current + 1))));
+        }
+        stack.Children.Add(Row("Back", "Cancel", Icons.ExitFullscreen, () => Back()));
+        SetContent(stack);
     }
 
     private async Task<IReadOnlyList<SteamCollections.AppInfo>> SafeGamesAsync()

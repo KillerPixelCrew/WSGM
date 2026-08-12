@@ -249,7 +249,7 @@
                                  State="{Binding Radios.WifiIconState}"
                                  Signal="{Binding Radios.WifiSignal}"
                                  Accent="{DynamicResource HcAccentBrush}"
-                                 Muted="{DynamicResource HcTextPrimaryBrush}"
+                                 Muted="{StaticResource HcTextPrimaryBrush}"
                                  VerticalAlignment="Center"
                                  HorizontalAlignment="Center" />
                 </Button>
@@ -262,7 +262,7 @@
                                  Bluetooth="True"
                                  State="{Binding Radios.BluetoothIconState}"
                                  Accent="{DynamicResource HcAccentBrush}"
-                                 Muted="{DynamicResource HcTextPrimaryBrush}"
+                                 Muted="{StaticResource HcTextPrimaryBrush}"
                                  VerticalAlignment="Center"
                                  HorizontalAlignment="Center" />
                 </Button>
@@ -361,8 +361,9 @@
             <Setter Property="Background" Value="{StaticResource HcCardHoverBrush}" />
         </Style>
 
-        <!-- Status buttons (right zone): neutral stroke icons; only a known-on
-             radio state (Wi-Fi connected) tints the icon with the accent. -->
+        <!-- Status buttons (right zone): neutral stroke icons. The radio tiles
+             draw themselves (c:RadioIcon) and tint their own glyph with the
+             accent through its Accent property; the Path tiles stay muted. -->
         <Style Selector="Button.status-tile">
             <Setter Property="Width" Value="36" />
             <Setter Property="Height" Value="40" />
@@ -388,9 +389,6 @@
             <Setter Property="StrokeThickness" Value="1.5" />
             <Setter Property="StrokeJoin" Value="Round" />
             <Setter Property="StrokeLineCap" Value="Round" />
-        </Style>
-        <Style Selector="Button.status-tile.active Path.status-icon">
-            <Setter Property="Stroke" Value="{DynamicResource HcAccentBrush}" />
         </Style>
     </Window.Styles>
 </Window>

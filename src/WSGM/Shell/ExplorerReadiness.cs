@@ -39,7 +39,10 @@ public static class ExplorerReadiness
     /// <summary>Decides the next poller action from the current observations.</summary>
     /// <param name="shellWindowPresent">GetShellWindow() returned a window.</param>
     /// <param name="taskbarPresent">A Shell_TrayWnd window exists.</param>
-    /// <param name="bigPictureVisible">A Steam Big Picture window exists.</param>
+    /// <param name="bigPictureVisible">A Steam Big Picture window exists UNDER THE
+    /// BOOT COVER. The caller reports false when no cover is on screen (splash
+    /// disabled): there is nothing to accelerate away from then, and skipping the
+    /// settle would cut explorer's logon prep short for no reason.</param>
     /// <param name="elapsed">Time since the poll started.</param>
     /// <param name="settleElapsed">Time since the settle began, or null before it did.</param>
     /// <param name="settleDuration">Configured settle delay (ExplorerLogonSettleMs).</param>

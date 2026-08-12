@@ -29,6 +29,14 @@ internal static unsafe partial class NativeStorage
     /// <summary>CONFIGRET: the eject was vetoed; the veto type and name say why.</summary>
     internal const int CrRemoveVetoed = 0x17;
 
+    /// <summary>CONFIGRET: the buffer sized by the preceding size query no longer
+    /// fits, because the device set changed in between. Re-query and retry.</summary>
+    private const int CrBufferSmall = 0x1A;
+
+    /// <summary>How often the interface-list size query and list call are retried
+    /// as a pair before the list is reported as empty.</summary>
+    private const int InterfaceListAttempts = 3;
+
     /// <summary>CM_DEVCAP_REMOVABLE: the devnode itself can be ejected.</summary>
     internal const uint DevCapRemovable = 0x4;
 
@@ -266,22 +274,40 @@ internal static unsafe partial class NativeStorage
         return true;
     }
 
-    /// <summary>Lists the device-interface paths of every present disk.</summary>
+    /// <summary>Lists the device-interface paths of every present disk. The size
+    /// query and the list call are a documented race — a disk arriving or leaving
+    /// between them makes the list call report CR_BUFFER_SMALL — so the pair is
+    /// retried with a freshly queried size before giving up.</summary>
     internal static string[] ListDiskInterfaces()
     {
         var guid = DiskInterfaceGuid;
-        if (CM_Get_Device_Interface_List_SizeW(out var length, in guid, null, 0) != CrSuccess
-            || length < 2)
+        char[]? buffer = null;
+        for (var attempt = 0; attempt < InterfaceListAttempts; attempt++)
         {
-            return [];
-        }
-        var buffer = new char[length];
-        fixed (char* p = buffer)
-        {
-            if (CM_Get_Device_Interface_ListW(in guid, null, p, length, 0) != CrSuccess)
+            if (CM_Get_Device_Interface_List_SizeW(out var length, in guid, null, 0) != CrSuccess
+                || length < 2)
             {
                 return [];
             }
+            var candidate = new char[length];
+            int code;
+            fixed (char* p = candidate)
+            {
+                code = CM_Get_Device_Interface_ListW(in guid, null, p, length, 0);
+            }
+            if (code == CrSuccess)
+            {
+                buffer = candidate;
+                break;
+            }
+            if (code != CrBufferSmall)
+            {
+                return [];
+            }
+        }
+        if (buffer is null)
+        {
+            return [];
         }
         // Double-NUL-terminated multi-string.
         var result = new System.Collections.Generic.List<string>();

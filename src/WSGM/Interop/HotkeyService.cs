@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 using System.Threading;
 using WSGM.Core;
 
@@ -11,6 +12,12 @@ public sealed class HotkeyService : IDisposable
     // settings test) can each own a HotkeyService: a fixed id would make the second
     // RegisterHotKey fail and one WM_HOTKEY fire Pressed on both instances.
     private static int _nextId;
+
+    // ERROR_HOTKEY_ALREADY_REGISTERED: Windows rejects a duplicate
+    // hwnd+modifiers+key even under a different id, so the shell's own
+    // registration is what blocks a second controller's — not a third-party app.
+    private const int ErrorHotkeyAlreadyRegistered = 1409;
+
     private readonly int _hotkeyId;
     private readonly MessageWindow _window;
     private bool _registered;
@@ -77,7 +84,10 @@ public sealed class HotkeyService : IDisposable
         }
         else
         {
-            Log.Warn("RegisterHotKey failed — combination may be taken by another app.");
+            var error = Marshal.GetLastWin32Error();
+            Log.Warn(error == ErrorHotkeyAlreadyRegistered
+                ? $"RegisterHotKey skipped (id {_hotkeyId}, vk 0x{config.VirtualKey:X}, mods 0x{modifiers:X}): the combination is already registered by this process, so this instance's global shortcut stays inert."
+                : $"RegisterHotKey failed (id {_hotkeyId}, vk 0x{config.VirtualKey:X}, mods 0x{modifiers:X}, Win32 error {error}) — combination may be taken by another app.");
         }
     }
 

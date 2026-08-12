@@ -74,6 +74,8 @@ public sealed class ArtworkView : UserControl
         }
 
         Navigate(() => RenderMessage("Change Artwork", "Detecting the game you're viewing…"));
+        // Navigate invalidates the previous level, so re-snapshot for the awaits below.
+        generation = _generation;
         try
         {
             _appId = await SteamPageBridge.GetCurrentAppIdAsync();
@@ -127,6 +129,10 @@ public sealed class ArtworkView : UserControl
     /// <summary>Handles Back/B: pops one level or requests close at the top.</summary>
     public bool Back()
     {
+        // Same contract as OverlaySubView: leaving a level invalidates its
+        // outstanding loads, so an abandoned grid stops downloading and its
+        // decoded bitmaps are dropped instead of landing on a detached Image.
+        _generation++;
         if (_stack.Count == 0)
         {
             CloseRequested?.Invoke();
@@ -139,6 +145,7 @@ public sealed class ArtworkView : UserControl
 
     private void Navigate(Action render)
     {
+        _generation++;
         if (_current is not null)
         {
             _stack.Push(_current);
@@ -167,6 +174,12 @@ public sealed class ArtworkView : UserControl
 
     // ---- Level: pick a game ----
 
+    // A full Steam library is rendered one CardButton per title into a
+    // non-virtualizing host, so it is paged exactly like LibraryTabsView's
+    // multi-select: on a 1000+ title account a single pass stalls the UI thread
+    // of a focused overlay that is muting the game.
+    private const int GamePageSize = 200;
+
     private void RenderGameList() => _ = RunSafelyAsync(RenderGameListAsync(), "game list");
 
     private async Task RenderGameListAsync()
@@ -176,9 +189,27 @@ public sealed class ArtworkView : UserControl
         var games = await SafeGamesAsync();
         if (generation != _generation) { return; }
         _games = games;
+        RenderGamePage(0);
+    }
+
+    private void RenderGamePage(int page)
+    {
+        var games = _games ?? Array.Empty<SteamCollections.AppInfo>();
+        var pageCount = Math.Max(1, (games.Count + GamePageSize - 1) / GamePageSize);
+        page = Math.Clamp(page, 0, pageCount - 1);
+        var current = page;
         var stack = NewStack("Change Artwork");
         stack.Children.Add(Caption("Choose a game (or open one in Steam and reopen this)."));
-        foreach (var game in _games)
+        if (pageCount > 1)
+        {
+            stack.Children.Add(Caption($"Page {page + 1} of {pageCount} · {games.Count} games"));
+            if (page > 0)
+            {
+                stack.Children.Add(Row("Previous page", "", Icons.Restart,
+                    () => Replace(() => RenderGamePage(current - 1))));
+            }
+        }
+        foreach (var game in games.Skip(page * GamePageSize).Take(GamePageSize))
         {
             var g = game;
             stack.Children.Add(Row(g.Name, g.Shortcut ? "Non-Steam shortcut" : "", Icons.SteamLike, () =>
@@ -206,6 +237,12 @@ public sealed class ArtworkView : UserControl
             }));
         }
         stack.Children.Add(SectionLabel(""));
+        if (page + 1 < pageCount)
+        {
+            stack.Children.Add(Row("Next page",
+                $"Games {((page + 1) * GamePageSize) + 1}–{Math.Min(games.Count, (page + 2) * GamePageSize)}",
+                Icons.Play, () => Replace(() => RenderGamePage(current + 1))));
+        }
         stack.Children.Add(Row("Back", "Close", Icons.ExitFullscreen, () => Back()));
         SetContent(stack);
     }
@@ -279,25 +316,31 @@ public sealed class ArtworkView : UserControl
             var box = new TextBox { Text = _appName, Margin = new Avalonia.Thickness(0, 0, 0, 4) };
             stack.Children.Add(box);
             var keyboard = new OnScreenKeyboard { Target = box };
-            keyboard.Accepted += (_, _) => DoSgdbSearch(box.Text ?? "");
+            keyboard.Accepted += (_, _) => DoSgdbSearch(box.Text ?? "", inlineKeyboardLevel: true);
             stack.Children.Add(keyboard);
             stack.Children.Add(PrimaryRow("Search", "Find matching games", Icons.Play,
-                () => DoSgdbSearch(box.Text ?? "")));
+                () => DoSgdbSearch(box.Text ?? "", inlineKeyboardLevel: true)));
             stack.Children.Add(Row("Cancel", "Back", Icons.ExitFullscreen, () => Back()));
             SetContent(stack);
         });
     }
 
-    private void DoSgdbSearch(string term) => _ = RunSafelyAsync(DoSgdbSearchAsync(term), "search");
+    // inlineKeyboardLevel: true only when the search was started from the inline
+    // keyboard SCREEN, which is a navigation level of its own. The peer keyboard
+    // window (the normal path) pushes nothing, so popping for it as well ate the
+    // level the user came from — the game list.
+    private void DoSgdbSearch(string term, bool inlineKeyboardLevel = false)
+        => _ = RunSafelyAsync(DoSgdbSearchAsync(term, inlineKeyboardLevel), "search");
 
-    private async Task DoSgdbSearchAsync(string term)
+    private async Task DoSgdbSearchAsync(string term, bool inlineKeyboardLevel)
     {
         if (string.IsNullOrWhiteSpace(term))
         {
             return;
         }
-        var generation = _generation;
         Navigate(() => RenderMessage("Search SteamGridDB", $"Searching for \"{term}\"…"));
+        // Navigate invalidates the previous level, so snapshot after it.
+        var generation = _generation;
         IReadOnlyList<SgdbGame> matches;
         string? failure = null;
         try
@@ -330,9 +373,14 @@ public sealed class ArtworkView : UserControl
                     _sgdbGameId = g.Id;
                     _appName = g.Name;
                     RememberSgdbLink(g.Id, g.Name);
-                    // Drop the search + pick levels; land back on the asset types.
+                    // Drop exactly what this flow pushed — the search level, plus
+                    // the inline keyboard screen when that fallback was used —
+                    // and land back on the asset types.
                     PopIfAny();
-                    PopIfAny();
+                    if (inlineKeyboardLevel)
+                    {
+                        PopIfAny();
+                    }
                     Replace(RenderAssetTypes);
                 }));
             }
@@ -364,10 +412,11 @@ public sealed class ArtworkView : UserControl
 
     private async Task OpenArtGridAsync(ArtworkAsset asset)
     {
-        var generation = _generation;
         var sourceGameId = _sgdbGameId;
         var targetAppId = _appId;
         Navigate(() => RenderMessage(AssetLabel(asset), "Loading artwork from SteamGridDB…"));
+        // Navigate invalidates the previous level, so snapshot after it.
+        var generation = _generation;
         IReadOnlyList<SgdbAsset> assets;
         string? failure = null;
         try
@@ -499,6 +548,12 @@ public sealed class ArtworkView : UserControl
         await ThumbnailGate.WaitAsync();
         try
         {
+            // Checked before the download, not only after it: a queued thumbnail
+            // whose screen the user already left is not worth fetching at all.
+            if (generation != _generation)
+            {
+                return;
+            }
             var bytes = await SteamGridDb.DownloadImageAsync(url);
             if (generation != _generation || bytes is null || bytes.Length == 0)
             {
@@ -542,10 +597,11 @@ public sealed class ArtworkView : UserControl
 
     private async Task ApplyAsync(ArtworkAsset asset, SgdbAsset? art)
     {
-        var generation = _generation;
         var targetAppId = _appId;
         Navigate(() => RenderMessage(AssetLabel(asset),
             art is null ? "Resetting to official art…" : "Applying artwork…"));
+        // Navigate invalidates the previous level, so snapshot after it.
+        var generation = _generation;
 
         ArtworkResult result;
         try
@@ -633,7 +689,10 @@ public sealed class ArtworkView : UserControl
         }
         _sgdbLinks[_appId] = (sgdbGameId, name);
         var appId = _appId;
-        _ = LibraryTabManager.MutateConfigAsync<object?>(config =>
+        // Observed, not fire-and-forget: the write takes the cross-process config
+        // lock and can fail, and a dropped association silently asks the user to
+        // search again on the next visit with nothing in the log to explain it.
+        _ = RunSafelyAsync(LibraryTabManager.MutateConfigAsync<object?>(config =>
         {
             config.SgdbLinks.RemoveAll(l => l.AppId == appId);
             config.SgdbLinks.Add(new SgdbLinkConfig
@@ -643,7 +702,7 @@ public sealed class ArtworkView : UserControl
                 Name = name,
             });
             return null;
-        });
+        }), "remember SGDB link");
     }
 
     private static string AssetLabel(ArtworkAsset asset)

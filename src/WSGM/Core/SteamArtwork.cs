@@ -17,11 +17,12 @@ public readonly record struct ArtworkResult(bool Ok, string Detail);
 /// Steam's own robust JS API over the CEF leg (<see cref="SteamCef"/>) —
 /// <c>SteamClient.Apps.ClearCustomArtworkForApp</c> then
 /// <c>SetCustomArtworkForApp(appid, base64, ext, assetType)</c> — so Steam persists and
-/// renders them live with no restart. Icons are the exception: Steam has no client API
-/// for them, so a real game's icon is written into <c>appcache\librarycache</c>
-/// (a cache overwrite). Non-Steam shortcut icons need a <c>shortcuts.vdf</c> edit + a
-/// Steam restart and are reported as not-yet-supported. The image bytes are fetched by
-/// <see cref="SteamGridDb"/> and base64-encoded here.</summary>
+/// renders them live with no restart. Icons are the exception and are NOT supported yet
+/// for either kind of entry: Steam has no client API for them, a real game's icon lives
+/// in a versioned per-app cache and a non-Steam shortcut's needs a <c>shortcuts.vdf</c>
+/// edit plus a Steam restart, so both apply and reset report not-yet-supported and write
+/// nothing. The image bytes are fetched by <see cref="SteamGridDb"/> and base64-encoded
+/// here.</summary>
 public static class SteamArtwork
 {
     private static readonly TimeSpan Budget = TimeSpan.FromSeconds(20);

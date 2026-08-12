@@ -1,10 +1,10 @@
 using System;
 using System.Threading;
 using Avalonia.Threading;
+using WSGM.Core;
 using WSGM.Interop;
-using WSGM.Shell;
 
-namespace WSGM.Core;
+namespace WSGM.Shell;
 
 /// <summary>A read-only diagnostic that writes what the radio subsystem can
 /// actually do on this machine into the log.

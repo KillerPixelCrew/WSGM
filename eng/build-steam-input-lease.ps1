@@ -19,6 +19,7 @@ param(
     [switch]$Validate
 )
 
+Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $library = Join-Path $root "native\SteamInput"
@@ -40,6 +41,25 @@ if ($Validate) {
 cargo build --manifest-path $manifest --workspace --release
 if ($LASTEXITCODE -ne 0) { throw "Steam Input Lease release build failed" }
 
+# Repopulating in place would let an artifact that is no longer produced (a
+# renamed or dropped DLL) survive in the staging directory, get copied beside the
+# AOT executable by the csproj wildcards and ship in the installer. Start empty.
+#
+# Best-effort, NOT fatal: steam_input_gate.dll is injected into a running steam.exe
+# and stays mapped until Steam restarts, so on a machine where the gate was used for
+# diagnostics the delete fails with "access denied". That must not sink the whole
+# build — warn, and let the copy below report the real problem if the artifact
+# genuinely cannot be replaced.
+if (Test-Path -LiteralPath $staging) {
+    try {
+        Remove-Item -Recurse -Force -LiteralPath $staging -ErrorAction Stop
+    }
+    catch {
+        Write-Warning ("Could not clear $staging ($($_.Exception.Message)). " +
+            "A staged DLL is probably loaded (the gate stays mapped in a running Steam until it restarts); " +
+            "stale artifacts may survive this build.")
+    }
+}
 New-Item -ItemType Directory -Force -Path $staging | Out-Null
 
 # The gate is injected into steam.exe, the FFI library is what the managed

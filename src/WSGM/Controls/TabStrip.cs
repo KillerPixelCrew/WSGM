@@ -66,6 +66,9 @@ public sealed class TabStripSelectionChangedEventArgs : EventArgs
 /// Themes\TabStripTheme.axaml.</summary>
 public sealed class TabStrip : TemplatedControl
 {
+    /// <summary>Rendered size of a tab icon along its longer axis, in DIPs.</summary>
+    private const double IconExtent = 15;
+
     /// <summary>Defines the Avalonia property holding the list of tabs. Assigning a new
     /// list rebuilds the tab buttons; mutating a previously assigned list is not observed.</summary>
     public static readonly StyledProperty<IReadOnlyList<TabStripItem>?> TabsProperty =
@@ -193,14 +196,29 @@ public sealed class TabStrip : TemplatedControl
         };
         if (item.IconGeometry is not null)
         {
+            // Only the dominant dimension is sized: Avalonia scales a Uniform
+            // geometry and then aligns it TOP-LEFT inside the element box, so a
+            // square 15x15 box around a wide-and-short glyph (the gamepad, the
+            // panel) parks it against the top while a square glyph fills the box,
+            // and the icons in one strip lose their shared baseline. Sizing the
+            // long side only keeps the identical scale (uniform = side / longest
+            // extent either way) and lets the box hug the drawn glyph, so the
+            // centering below actually applies.
+            var bounds = item.IconGeometry.Bounds;
             var icon = new Path
             {
                 Data = item.IconGeometry,
                 Stretch = Stretch.Uniform,
-                Width = 15,
-                Height = 15,
                 VerticalAlignment = VerticalAlignment.Center,
             };
+            if (bounds.Width >= bounds.Height)
+            {
+                icon.Width = IconExtent;
+            }
+            else
+            {
+                icon.Height = IconExtent;
+            }
             icon.Classes.Add("tab-strip-icon");
             face.Children.Add(icon);
         }

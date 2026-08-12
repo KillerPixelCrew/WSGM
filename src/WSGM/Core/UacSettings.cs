@@ -101,7 +101,13 @@ public static class UacSettings
     {
         try
         {
-            var config = ConfigStore.Load();
+            // Strict load, not Load(): this is a read-modify-write of the snapshot
+            // uninstall restores UAC from. An unreadable config must abort through the
+            // catch below, never re-capture the ALREADY-MODIFIED prompt levels as the
+            // pre-WSGM state and then save defaults over every other snapshot.
+            // Not ConfigStore.Mutate: the registry work below runs between the read and
+            // the write, and only fast operations belong inside the config lock.
+            var config = ConfigStore.LoadForMutation();
             var current = Read();
 
             if (disablePrompts)

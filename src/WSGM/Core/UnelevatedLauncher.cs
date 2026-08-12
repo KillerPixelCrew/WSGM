@@ -67,7 +67,8 @@ internal static class UnelevatedLauncher
     {
         // InteractiveToken principal without a RunLevel element = the user's
         // filtered medium-IL token (RunLevel defaults to LeastPrivilege).
-        var user = System.Security.Principal.WindowsIdentity.GetCurrent().Name;
+        using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+        var user = identity.Name;
         var argumentsElement = arguments.Length == 0
             ? ""
             : $"\n                  <Arguments>{System.Security.SecurityElement.Escape(arguments)}</Arguments>";

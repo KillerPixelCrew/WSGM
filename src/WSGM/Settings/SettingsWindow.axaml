@@ -13,7 +13,7 @@
         Background="{StaticResource HcBackgroundBrush}">
 
     <!-- Dense two-column utility layout (approved "Option 3 rev 2"): bumper
-         TabStrip on top, five always-alive pages toggled by IsVisible (scroll
+         TabStrip on top, six always-alive pages toggled by IsVisible (scroll
          positions survive), status strip at the bottom. These styles are the
          setting-row family shared by every page: zebra rows on the page surface
          (HcHeaderBrush) with HcBackgroundBrush "alt" stripes, a 2 px transparent

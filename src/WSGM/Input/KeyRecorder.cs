@@ -32,6 +32,15 @@ public sealed class KeyRecorder : IDisposable
     /// <summary>Installs the low-level keyboard hook and begins capturing one shortcut.</summary>
     public void Start()
     {
+        if (_active is { } previous && !ReferenceEquals(previous, this))
+        {
+            // HookProc dispatches through _active only, so simply repointing it
+            // would strand the previous recorder's hook in the system keystroke
+            // path with no recording in progress. The hook may exist only for the
+            // lifetime of an active recording.
+            Log.Warn("Key recorder: a new recording replaced an active one; releasing the previous keyboard hook.");
+            previous.Stop();
+        }
         Stop();
         _active = this;
         unsafe
@@ -41,8 +50,9 @@ public sealed class KeyRecorder : IDisposable
         }
         if (_hook == 0)
         {
+            var error = Marshal.GetLastWin32Error();
             Stop();     // clear _active so the failed recorder isn't statically rooted
-            Log.Warn("Could not install keyboard hook for recording.");
+            Log.Warn($"Could not install keyboard hook for recording (Win32 error {error}).");
             Recorded?.Invoke(0, 0);
         }
     }

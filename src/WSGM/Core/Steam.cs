@@ -194,7 +194,11 @@ public static class Steam
             return false;
         }
 
-        Log.Info($"Steam Big Picture shortcut Ctrl+{(char)virtualKey} sent ({shortcut}).");
+        // SendInput has no window target: Windows delivers the chord to whatever holds
+        // focus. Naming that window is the only way a pasted log distinguishes "Steam
+        // ignored it" from "it went somewhere else entirely".
+        Log.Info($"Steam Big Picture shortcut Ctrl+{(char)virtualKey} sent ({shortcut}) "
+            + $"to foreground {WindowFinder.DescribeForeground()}.");
         return true;
     }
 

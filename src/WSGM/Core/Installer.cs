@@ -150,8 +150,12 @@ public static class Installer
         // snapshots inside config.json) are scheduled for deletion.
         RestoreMachineSettings();
 
-        try { File.Delete(ShortcutPath); } catch { }
-        try { Registry.CurrentUser.DeleteSubKeyTree(UninstallKey, throwOnMissingSubKey: false); } catch { }
+        // Both are best-effort — a leftover shortcut or Apps entry must not stop the
+        // uninstall — but they stay visible to the user, so record why they survived.
+        try { File.Delete(ShortcutPath); }
+        catch (Exception ex) { Log.Warn($"Uninstall: could not remove the Start Menu shortcut: {ex.Message}"); }
+        try { Registry.CurrentUser.DeleteSubKeyTree(UninstallKey, throwOnMissingSubKey: false); }
+        catch (Exception ex) { Log.Warn($"Uninstall: could not remove the Apps uninstall entry: {ex.Message}"); }
 
         Log.Info("Uninstalling — scheduling directory removal.");
         try

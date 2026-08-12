@@ -1,6 +1,5 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
-using WSGM.Controls;
 
 namespace WSGM.Settings.Pages;
 
@@ -12,28 +11,22 @@ public partial class SteamPage : UserControl
     /// <summary>Loads the compiled page XAML.</summary>
     public SteamPage() => InitializeComponent();
 
+    // The window hosts the keyboard dialog: it owns the gamepad service and the
+    // navigation swap the dialog needs, and without that swap the keys are
+    // unreachable by pad while the settings page behind the modal still answers
+    // presses (a machine-policy toggle sits on this very page).
     private void OnOpenApiKeyKeyboard(object? sender, RoutedEventArgs e)
     {
-        var keyboard = new OnScreenKeyboard { Target = SteamGridDbKeyBox };
-        var window = new Window
+        if (TopLevel.GetTopLevel(this) is SettingsWindow window)
         {
-            Title = "SteamGridDB API key",
-            Width = 760,
-            Height = 430,
-            Content = keyboard,
-        };
-        keyboard.Accepted += (_, _) => window.Close();
-        if (VisualRoot is Window owner)
-        {
-            _ = window.ShowDialog(owner);
-        }
-        else
-        {
-            window.Show();
+            window.ShowOnScreenKeyboard(SteamGridDbKeyBox, "SteamGridDB API key");
         }
     }
 
-    private void OnToggleUac(object? sender, RoutedEventArgs e)
+    // async void is the framework event-handler form; the awaited work is a Task on
+    // the view model and its continuation resumes on the UI thread. The toggle is
+    // disabled meanwhile so a second press cannot queue a second elevation prompt.
+    private async void OnToggleUac(object? sender, RoutedEventArgs e)
     {
         if (DataContext is not SettingsViewModel viewModel)
         {
@@ -42,18 +35,34 @@ public partial class SteamPage : UserControl
         // The toggle mirrors machine state, not a config value: ask Windows to
         // change it (one elevation prompt), then re-read whatever actually stuck.
         var wanted = UacCheckBox.IsChecked == true;
-        viewModel.SetUacPrompts(wanted);
-        UacCheckBox.IsChecked = viewModel.UacPromptsDisabled;
+        UacCheckBox.IsEnabled = false;
+        try
+        {
+            await viewModel.SetUacPromptsAsync(wanted);
+        }
+        finally
+        {
+            UacCheckBox.IsEnabled = true;
+            UacCheckBox.IsChecked = viewModel.UacPromptsDisabled;
+        }
     }
 
-    private void OnToggleLockOnWake(object? sender, RoutedEventArgs e)
+    private async void OnToggleLockOnWake(object? sender, RoutedEventArgs e)
     {
         if (DataContext is not SettingsViewModel viewModel)
         {
             return;
         }
         var wanted = LockOnWakeCheckBox.IsChecked == true;
-        viewModel.SetLockOnWake(wanted);
-        LockOnWakeCheckBox.IsChecked = viewModel.LockOnWakeDisabled;
+        LockOnWakeCheckBox.IsEnabled = false;
+        try
+        {
+            await viewModel.SetLockOnWakeAsync(wanted);
+        }
+        finally
+        {
+            LockOnWakeCheckBox.IsEnabled = true;
+            LockOnWakeCheckBox.IsChecked = viewModel.LockOnWakeDisabled;
+        }
     }
 }

@@ -68,14 +68,7 @@ internal static class ServiceInstaller
             {
                 ApplyDescription(service);
                 ApplyFailureActions(service);
-                if (!NativeMethods.StartServiceW(service, 0, 0))
-                {
-                    var error = Marshal.GetLastWin32Error();
-                    if (error != NativeMethods.ErrorServiceAlreadyRunning)
-                    {
-                        ServiceLog.Warn($"Install: StartService failed (error {error}) — it will start at next boot.");
-                    }
-                }
+                StartForInstall(service);
             }
             finally
             {
@@ -86,6 +79,33 @@ internal static class ServiceInstaller
         finally
         {
             NativeMethods.CloseServiceHandle(scm);
+        }
+    }
+
+    /// <summary>Starts the service, tagging the start as installer-initiated.
+    /// <para>The tag matters because <c>--install</c> runs from inside Setup, minutes
+    /// or hours after the user signed in, and the installer stopped the service first
+    /// — so its per-session "already launched" memory is gone. Without the tag the
+    /// host's catch-up sweep would treat the live session as an autologon that beat
+    /// the service and run a full game-mode boot takeover in the middle of setup.</para></summary>
+    /// <param name="service">An open service handle with start rights.</param>
+    private static unsafe void StartForInstall(nint service)
+    {
+        var started = false;
+        fixed (char* tag = ServiceHost.InstallStartArgument)
+        {
+            var argv = stackalloc nint[1];
+            argv[0] = (nint)tag;
+            started = NativeMethods.StartServiceW(service, 1, (nint)argv);
+        }
+        if (started)
+        {
+            return;
+        }
+        var error = Marshal.GetLastWin32Error();
+        if (error != NativeMethods.ErrorServiceAlreadyRunning)
+        {
+            ServiceLog.Warn($"Install: StartService failed (error {error}) — it will start at next boot.");
         }
     }
 
@@ -145,7 +165,10 @@ internal static class ServiceInstaller
         try
         {
             Marshal.StructureToPtr(new NativeMethods.ServiceDescriptionW { lpDescription = text }, info, false);
-            NativeMethods.ChangeServiceConfig2W(service, NativeMethods.ServiceConfigDescription, info);
+            if (!NativeMethods.ChangeServiceConfig2W(service, NativeMethods.ServiceConfigDescription, info))
+            {
+                ServiceLog.Warn($"Install: description not applied (error {Marshal.GetLastWin32Error()}).");
+            }
         }
         finally
         {

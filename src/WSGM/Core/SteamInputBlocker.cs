@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using SteamInterop;
 
 namespace WSGM.Core;
@@ -14,6 +15,13 @@ public static class SteamInputBlocker
     public const string DynamicRecoveryWarning = "Steam Input could not dynamically locate Steam's controller-release code. Please report this on GitHub — the Steam Input hook may need updating.";
 
     private static readonly object Sync = new();
+
+    // The lease itself is process-wide, but several WSGM surfaces can need it at
+    // the same time (the quick-access panel/taskbar and the settings window opened
+    // from them). Each names itself here, so one surface closing cannot take the
+    // controller away from another that is still on screen — invariant 1.
+    private static readonly HashSet<string> Owners = new(StringComparer.Ordinal);
+
     private static SteamInputClient? _client;
     private static SteamInputBlockLease? _lease;
 
@@ -62,12 +70,55 @@ public static class SteamInputBlocker
         }
     }
 
+    /// <summary>Acquires the shared lease for a named surface owner and records that
+    /// owner's claim. Acquiring is a no-op when the lease is already live, so a
+    /// surface opening over another one inherits it without release/re-inject churn
+    /// while still becoming an owner of it.</summary>
+    /// <param name="owner">A stable identifier for the claiming surface owner; it
+    /// appears in the lease log lines the device workflow reads.</param>
+    public static void AcquireFor(string owner)
+    {
+        lock (Sync)
+        {
+            if (Owners.Add(owner))
+            {
+                Log.Info($"Steam Input lease claimed by {owner} ({Owners.Count} owner(s)).");
+            }
+            Acquire();
+        }
+    }
+
+    /// <summary>Ends <paramref name="owner"/>'s claim and releases the shared lease
+    /// only once no other owner still holds one. A surface closing must never drop
+    /// the controller block out from under a surface that is still on screen
+    /// (invariant 1).</summary>
+    /// <param name="owner">The owner whose claim ends.</param>
+    /// <param name="reason">Why the claim ends; logged for device diagnosis.</param>
+    public static void ReleaseFor(string owner, string reason)
+    {
+        lock (Sync)
+        {
+            Owners.Remove(owner);
+            if (Owners.Count > 0)
+            {
+                Log.Info($"Steam Input lease kept ({reason}; {owner} let go, still owned by " +
+                         $"{string.Join(", ", Owners)}).");
+                return;
+            }
+            ReleaseBestEffort(reason);
+        }
+    }
+
     /// <summary>Releases the shared lease and asks the gate to resume Steam's
-    /// controller discovery. Never throws because it runs during shutdown.</summary>
+    /// controller discovery. Never throws because it runs during shutdown.
+    /// Unconditional: this is the recovery/shutdown form, so it drops every
+    /// recorded owner claim as well. Surface owners use <see cref="ReleaseFor"/>.</summary>
+    /// <param name="reason">Why the lease is released; logged for device diagnosis.</param>
     public static void ReleaseBestEffort(string reason)
     {
         lock (Sync)
         {
+            Owners.Clear();
             if (_lease is null)
             {
                 return;

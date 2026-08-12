@@ -17,9 +17,11 @@ namespace WSGM.Overlay;
 /// <summary>The gamepad-driven custom-tab builder, hosted as a Tools sub-view of the
 /// overlay (the <c>PanelFormat</c> idiom; scaffolding in <see cref="OverlaySubView"/>).
 /// All Steam contact goes through <see cref="SteamCollections"/> /
-/// <see cref="LibraryTabManager"/>; membership is materialized as WSGM-owned
-/// collections, never touching user/SRM ones. Card libraries are managed by the
-/// separate <see cref="CardManagerView"/>.</summary>
+/// <see cref="LibraryTabManager"/>; a tab is injected into Steam's own tab strip
+/// by <see cref="SteamLibraryTabs"/> and its membership is a fake in-memory
+/// collection — no Steam collection is ever created, and user/SRM ones are never
+/// touched. Card libraries are managed by the separate
+/// <see cref="CardManagerView"/>.</summary>
 public sealed class LibraryTabsView : OverlaySubView
 {
     private LibraryTabManager _manager = new();
@@ -299,7 +301,7 @@ public sealed class LibraryTabsView : OverlaySubView
         stack.Children.Add(PrimaryRow("Save tab", "Materialize as a Steam tab", Icons.Play, SaveTab));
         if (_editingOriginal is not null)
         {
-            stack.Children.Add(DangerRow("Delete tab", "Remove this tab and its Steam collection",
+            stack.Children.Add(DangerRow("Delete tab", "Remove this tab from Steam's library",
                 Icons.Close, DeleteTab));
         }
         stack.Children.Add(Row("Cancel", "Discard changes", Icons.ExitFullscreen, () => Back()));

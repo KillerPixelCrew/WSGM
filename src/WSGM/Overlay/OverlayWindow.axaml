@@ -64,7 +64,8 @@
                         <c:CardButton x:Name="DesktopButton" Click="OnDesktop"
                                       IconGeometry="{x:Static c:Icons.Monitor}"
                                       Title="{Binding DesktopButtonText}"
-                                      Description="Show or hide the Windows desktop" />
+                                      Description="Show or hide the Windows desktop"
+                                      IsVisible="{Binding ModeSwitchAvailable}" />
                         <c:CardButton x:Name="ExitBigPictureButton" Click="OnExitBigPicture"
                                       IconGeometry="{x:Static c:Icons.ExitFullscreen}"
                                       Title="Exit Big Picture"
@@ -313,13 +314,18 @@
     </LayoutTransformControl>
 
     <Window.Styles>
+        <!-- The local BorderBrush wins the equal-specificity tie against
+             Shared.axaml's Button:focus, so the accent focus border is restated
+             here (same workaround as TabStripTheme and the taskbar tiles) —
+             otherwise the header's only focus cue would be the text colour. -->
         <Style Selector="Button.close">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderBrush" Value="Transparent" />
             <Setter Property="Foreground" Value="{StaticResource HcTextMutedBrush}" />
         </Style>
         <Style Selector="Button.close:focus">
-            <Setter Property="Foreground" Value="White" />
+            <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource HcTextPrimaryBrush}" />
         </Style>
     </Window.Styles>
 </Window>

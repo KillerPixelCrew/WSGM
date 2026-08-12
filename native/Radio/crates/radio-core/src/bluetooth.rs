@@ -319,10 +319,26 @@ pub enum WatchEvent {
     Ready,
 }
 
-/// The live watcher, kept alive because dropping it stops the enumeration.
-static WATCHER: OnceLock<Mutex<Option<DeviceWatcher>>> = OnceLock::new();
+/// The live watcher together with the tokens its handlers were registered
+/// under.
+///
+/// The tokens are kept because `DeviceWatcher::Stop` is asynchronous — it only
+/// moves the watcher to Stopping — so an event can still be delivered after it
+/// returns. Revoking every handler is what makes [`stop_watch`] final, which is
+/// what lets the ABI promise that the context its callbacks carry is no longer
+/// used once the stop call has returned.
+struct Watch {
+    watcher: DeviceWatcher,
+    added: i64,
+    updated: i64,
+    removed: i64,
+    completed: i64,
+}
 
-fn watcher_slot() -> &'static Mutex<Option<DeviceWatcher>> {
+/// The live watcher, kept alive because dropping it stops the enumeration.
+static WATCHER: OnceLock<Mutex<Option<Watch>>> = OnceLock::new();
+
+fn watcher_slot() -> &'static Mutex<Option<Watch>> {
     WATCHER.get_or_init(|| Mutex::new(None))
 }
 
@@ -381,7 +397,7 @@ where
         )
         .map_err(|e| winrt("DeviceInformation.CreateWatcher", e))?;
 
-        watcher
+        let added_token = watcher
             .Added(&TypedEventHandler::new(
                 move |_, info: windows_core::Ref<'_, DeviceInformation>| {
                     if let Some(info) = info.as_ref()
@@ -394,7 +410,7 @@ where
             ))
             .map_err(|e| winrt("DeviceWatcher.Added", e))?;
 
-        watcher
+        let updated_token = watcher
             .Updated(&TypedEventHandler::new(
                 move |_, update: windows_core::Ref<'_, DeviceInformationUpdate>| {
                     // An update carries only the changed properties, so the id is
@@ -419,7 +435,7 @@ where
             ))
             .map_err(|e| winrt("DeviceWatcher.Updated", e))?;
 
-        watcher
+        let removed_token = watcher
             .Removed(&TypedEventHandler::new(
                 move |_, update: windows_core::Ref<'_, DeviceInformationUpdate>| {
                     if let Some(update) = update.as_ref()
@@ -432,7 +448,7 @@ where
             ))
             .map_err(|e| winrt("DeviceWatcher.Removed", e))?;
 
-        watcher
+        let completed_token = watcher
             .EnumerationCompleted(&TypedEventHandler::new(move |_, _| {
                 ready(WatchEvent::Ready);
                 Ok(())
@@ -443,7 +459,13 @@ where
             .Start()
             .map_err(|e| winrt("DeviceWatcher.Start", e))?;
         if let Ok(mut slot) = watcher_slot().lock() {
-            *slot = Some(watcher);
+            *slot = Some(Watch {
+                watcher,
+                added: added_token,
+                updated: updated_token,
+                removed: removed_token,
+                completed: completed_token,
+            });
         }
         Ok(())
     })?
@@ -452,12 +474,20 @@ where
 /// Stops the watcher started by [`start_watch`]. Idempotent.
 pub fn stop_watch() {
     let existing = watcher_slot().lock().ok().and_then(|mut slot| slot.take());
-    let Some(watcher) = existing else {
+    let Some(watch) = existing else {
         return;
     };
-    // Stopping touches the same apartment the watcher was created in.
+    // Stopping touches the same apartment the watcher was created in, and so
+    // does revoking. The handlers go FIRST and this call blocks until they are
+    // gone: Stop only asks the watcher to stop, so a still-registered handler
+    // could otherwise fire after this function returned — into a caller that
+    // has already freed the context it handed to `start_watch`.
     let _ = on_mta(move || {
-        let _ = watcher.Stop();
+        let _ = watch.watcher.RemoveAdded(watch.added);
+        let _ = watch.watcher.RemoveUpdated(watch.updated);
+        let _ = watch.watcher.RemoveRemoved(watch.removed);
+        let _ = watch.watcher.RemoveEnumerationCompleted(watch.completed);
+        let _ = watch.watcher.Stop();
     });
 }
 

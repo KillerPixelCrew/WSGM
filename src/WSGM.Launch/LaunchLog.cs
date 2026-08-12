@@ -15,6 +15,8 @@ internal static class LaunchLog
 
     internal static void Info(string message) => Write("info ", message);
 
+    internal static void Warn(string message) => Write("warn ", message);
+
     internal static void Error(string message) => Write("error", message);
 
     private static void Write(string level, string message)

@@ -708,14 +708,29 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
                         hwndTarget = 0,
                     },
                 };
-                NativeMethods.RegisterRawInputDevices(devices, 1, (uint)Marshal.SizeOf<NativeMethods.RawInputDevice>());
+                if (!NativeMethods.RegisterRawInputDevices(devices, 1, (uint)Marshal.SizeOf<NativeMethods.RawInputDevice>()))
+                {
+                    Log.Warn($"Raw touch input de-registration failed (Win32 error {Marshal.GetLastWin32Error()}); last touch monitor disposed.");
+                }
+                else
+                {
+                    Log.Info("Raw touch input unregistered (last touch monitor disposed).");
+                }
 
                 if (_sharedHwnd != 0)
                 {
-                    NativeMethods.DestroyWindow(_sharedHwnd);
-                    _sharedHwnd = 0;
+                    // DestroyWindow fails from a thread other than the one that
+                    // created the window; the window then still exists, so the
+                    // handle must not be cleared as if it were gone.
+                    if (NativeMethods.DestroyWindow(_sharedHwnd))
+                    {
+                        _sharedHwnd = 0;
+                    }
+                    else
+                    {
+                        Log.Warn($"Failed to destroy the raw touch input window (Win32 error {Marshal.GetLastWin32Error()}); the handle survives this teardown.");
+                    }
                 }
-                Log.Info("Raw touch input unregistered (last touch monitor disposed).");
             }
         }
 

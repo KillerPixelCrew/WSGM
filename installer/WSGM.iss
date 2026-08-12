@@ -99,10 +99,10 @@ Filename: "{autopf}\WSGM\WSGM.LogonService.exe"; Parameters: "--uninstall"; RunO
 ; Legacy: restore a pre-service Winlogon shell registration BEFORE files are
 ; removed — otherwise the next logon would point at a deleted exe. Self-guarding
 ; no-op on service-boot installs. Quiet: no explorer start, no UI.
-Filename: "{app}\WSGM.exe"; Parameters: "--unregister-shell"; RunOnceId: "UnregisterShell"; Flags: runhidden
+Filename: "{app}\WSGM.exe"; Parameters: "--unregister-shell"; RunOnceId: "UnregisterShell"; Flags: runhidden skipifdoesntexist
 ; Restore machine settings (UAC, lock-on-wake, ...) from the config snapshots
 ; while config.json still exists — [UninstallDelete] removes it afterwards.
-Filename: "{app}\WSGM.exe"; Parameters: "--uninstall-restore"; RunOnceId: "UninstallRestore"; Flags: runhidden
+Filename: "{app}\WSGM.exe"; Parameters: "--uninstall-restore"; RunOnceId: "UninstallRestore"; Flags: runhidden skipifdoesntexist
 
 [UninstallDelete]
 ; Config/logs live one level up; remove them with the app (per-user data only).
@@ -280,7 +280,16 @@ begin
   // unrelated instance can at worst restart as a settings window.
   WasShell := CheckForMutexes('WSGM.Shell');
   WasRunning := StopRunningInstances() or WasShell;
-  StopSteamForUpdate();
+  // Force-closing Steam is only justified when a WSGM instance was actually
+  // running: only then is there an injected gate to unload and a steam://exit
+  // for Steam to comply with. On a fresh install (or with WSGM not running) the
+  // /T kill would take a running game's process tree down with no save prompt,
+  // for a five-second wait that buys nothing. The wrapper cleanup stays
+  // unconditional — [Files]/[InstallDelete] need those binaries unlocked.
+  if WasRunning then
+    StopSteamForUpdate()
+  else
+    StopLaunchWrappers();
   if WasRunning then
     Sleep(500);
   Result := '';

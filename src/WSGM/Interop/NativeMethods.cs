@@ -76,6 +76,18 @@ internal static partial class NativeMethods
     internal const ushort VkControl = 0x11;
     internal const short KeyDownState = unchecked((short)0x8000);
 
+    internal const uint KeyEventExtendedKey = 0x0001;
+    internal const uint KeyEventScanCode = 0x0008;
+
+    /// <summary>MAPVK_VK_TO_VSC: virtual key to scan code.</summary>
+    internal const uint MapVkToVsc = 0;
+
+    [LibraryImport("user32.dll", EntryPoint = "MapVirtualKeyExW")]
+    internal static partial uint MapVirtualKeyExW(uint code, uint mapType, nint layout);
+
+    [LibraryImport("user32.dll")]
+    internal static partial nint GetKeyboardLayout(uint threadId);
+
     [StructLayout(LayoutKind.Sequential)]
     internal struct InputRecord
     {
@@ -505,7 +517,7 @@ internal static partial class NativeMethods
     [LibraryImport("ntdll.dll")]
     internal static partial void RtlGetNtVersionNumbers(out uint major, out uint minor, out uint build);
 
-    // ---- System status (taskbar clock/battery/Wi-Fi cluster) ----
+    // ---- System status (taskbar clock/battery cluster; Wi-Fi comes from NativeRadio) ----
     /// <summary>SYSTEM_POWER_STATUS: BatteryFlag 128 = no system battery, 255 = unknown;
     /// BatteryLifePercent 255 = unknown.</summary>
     [StructLayout(LayoutKind.Sequential)]
@@ -522,23 +534,6 @@ internal static partial class NativeMethods
     [LibraryImport("kernel32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool GetSystemPowerStatus(out SystemPowerStatus status);
-
-    // wlanapi is a flat (COM-free) Win32 API; used read-only for the taskbar's
-    // best-effort Wi-Fi state. WlanEnumInterfaces returns an allocation that must
-    // be freed with WlanFreeMemory.
-    internal const int WlanInterfaceStateConnected = 1;
-
-    [LibraryImport("wlanapi.dll")]
-    internal static partial uint WlanOpenHandle(uint dwClientVersion, nint pReserved, out uint pdwNegotiatedVersion, out nint phClientHandle);
-
-    [LibraryImport("wlanapi.dll")]
-    internal static partial uint WlanCloseHandle(nint hClientHandle, nint pReserved);
-
-    [LibraryImport("wlanapi.dll")]
-    internal static partial uint WlanEnumInterfaces(nint hClientHandle, nint pReserved, out nint ppInterfaceList);
-
-    [LibraryImport("wlanapi.dll")]
-    internal static partial void WlanFreeMemory(nint pMemory);
 
     // ---- Window icons (taskbar) ----
     internal const uint WmGetIcon = 0x007F;

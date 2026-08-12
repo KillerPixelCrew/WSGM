@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -145,9 +146,27 @@ public static class SteamCef
                 .ConfigureAwait(false);
             return CefEvalResult.Ok(value);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The CALLER cancelled (a debounced order push, the boot sync, shutdown) —
+            // not a Steam fault. Still a value, because this method never throws, but
+            // with its own reason so a device log does not read as a port timeout.
+            return CefEvalResult.Unreachable("Steam CEF evaluation cancelled.");
+        }
         catch (OperationCanceledException)
         {
             return CefEvalResult.Unreachable("Timed out talking to Steam's debug port.");
+        }
+        catch (InvalidDataException ex)
+        {
+            // Steam answered but the expression did not produce a value: a CDP protocol
+            // error, or a JS exception (a renamed SteamClient API after a Steam UI
+            // update). That is REACHABLE-but-no-result, which every caller already
+            // renders as "No response from Steam." — collapsing it into unreachable
+            // would report a broken injection as a closed Steam. The message carries
+            // Steam's own error/exceptionDetails text into the only remote log surface.
+            Log.Warn($"{ex.Message} (target {which}).");
+            return CefEvalResult.Ok(null);
         }
         catch (Exception ex)
         {
@@ -188,10 +207,7 @@ public static class SteamCef
                 && url.ValueKind == JsonValueKind.String)
             {
                 var candidate = url.GetString();
-                if (Uri.TryCreate(candidate, UriKind.Absolute, out var socketUri)
-                    && socketUri.Scheme is "ws" or "wss"
-                    && (socketUri.Host == "127.0.0.1" || socketUri.Host == "localhost")
-                    && socketUri.Port == DebugPort)
+                if (IsAllowedDebuggerUrl(candidate))
                 {
                     return candidate;
                 }
@@ -202,14 +218,57 @@ public static class SteamCef
         return null;
     }
 
+    /// <summary>Decides whether a <c>webSocketDebuggerUrl</c> from <c>/json/list</c> may
+    /// be connected to. A squatter answering the HTTP probe could otherwise redirect the
+    /// CDP client anywhere, so the URL must stay loopback WebSocket on the same port.
+    /// <para>A pure seam over the live check so the hardening is regression-testable.</para></summary>
+    /// <param name="candidate">The URL exactly as Steam's target list reported it.</param>
+    /// <returns><see langword="true"/> when the URL is safe to connect to.</returns>
+    internal static bool IsAllowedDebuggerUrl(string? candidate) =>
+        Uri.TryCreate(candidate, UriKind.Absolute, out var socketUri)
+        && socketUri.Scheme is "ws" or "wss"
+        && (socketUri.Host == "127.0.0.1" || socketUri.Host == "localhost")
+        && socketUri.Port == DebugPort;
+
     // Reads the TCP listener table directly instead of parsing netstat: netstat's
     // STATE column is localized, so matching the literal "LISTENING" fails closed on
     // every non-English Windows and takes the whole Steam integration down with it.
-    // A loopback listener is preferred over a wildcard one so a 127.0.0.1 squatter
-    // cannot hide behind Steam's own [::]/0.0.0.0 row.
-    private static bool IsSteamPortOwner()
+    private static bool IsSteamPortOwner() =>
+        IsSteamPortOwner(NativeTcp.ListListeners(), static pid =>
+        {
+            try
+            {
+                using var process = Process.GetProcessById(pid);
+                return process.ProcessName;
+            }
+            catch (Exception ex)
+            {
+                // The owner exited between the table read and the lookup; keep
+                // scanning rather than treating one stale row as a verdict.
+                Log.Warn($"Steam CEF listener ownership check failed: {ex.Message}");
+                return null;
+            }
+        });
+
+    /// <summary>Decides whether the debug port is owned by Steam, given a listener table
+    /// and a pid→process-name lookup. A loopback listener is preferred over a wildcard one
+    /// so a 127.0.0.1 squatter cannot hide behind Steam's own <c>[::]</c>/<c>0.0.0.0</c> row.
+    /// <para>A pure seam over the live check so the hardening is regression-testable.</para></summary>
+    /// <param name="listeners">The listener table, or null when it could not be read.</param>
+    /// <param name="processName">Resolves a pid to its process name, or null if it is gone.</param>
+    /// <returns><see langword="true"/> only when a Steam process owns the port.</returns>
+    internal static bool IsSteamPortOwner(IReadOnlyList<NativeTcp.Listener>? listeners,
+        Func<int, string?> processName)
     {
-        var candidates = NativeTcp.ListListeners()
+        if (listeners is null)
+        {
+            // A failed table read is NOT "nothing is listening" — reporting it as such
+            // once sent the maintainer hunting a closed Steam port that was open.
+            Log.Warn($"Steam CEF: TCP listener table unavailable; "
+                + $"cannot verify the owner of port {DebugPort}.");
+            return false;
+        }
+        var candidates = listeners
             .Where(l => l.Port == DebugPort)
             .OrderBy(l => l.LocalAddress == NativeTcp.Loopback ? 0 : 1)
             .ToList();
@@ -220,22 +279,25 @@ public static class SteamCef
         }
         foreach (var listener in candidates)
         {
-            try
+            var name = processName(listener.ProcessId);
+            if (name is null)
             {
-                using var process = Process.GetProcessById(listener.ProcessId);
-                if (process.ProcessName is "steamwebhelper" or "steam")
-                {
-                    return true;
-                }
-                Log.Warn($"Steam CEF: port {DebugPort} is owned by "
-                    + $"{process.ProcessName} (pid {listener.ProcessId}), not Steam.");
+                // The owner exited between the table read and the lookup; that row is
+                // stale, so keep scanning rather than treating it as a verdict.
+                continue;
             }
-            catch (Exception ex)
+            if (name is "steamwebhelper" or "steam")
             {
-                // The owner exited between the table read and the lookup; keep
-                // scanning rather than treating one stale row as a verdict.
-                Log.Warn($"Steam CEF listener ownership check failed: {ex.Message}");
+                return true;
             }
+            // Decisive, not just logged: we connect to 127.0.0.1, and Windows routes
+            // that to the MOST SPECIFIC binding — the loopback listener sorted first
+            // above. If that one is not Steam, then Steam's own wildcard row further
+            // down the list belongs to a socket our connect never reaches, and
+            // continuing the scan would clear a squatter sitting in front of Steam.
+            Log.Warn($"Steam CEF: port {DebugPort} is owned by "
+                + $"{name} (pid {listener.ProcessId}), not Steam.");
+            return false;
         }
         return false;
     }

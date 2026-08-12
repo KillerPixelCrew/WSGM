@@ -833,19 +833,26 @@ public sealed class SplashThemeTests : IDisposable
         var stagingRoot = Path.Combine(_root, "staging");
         var staged = StagedDirectory(stagingRoot, "unsaved-import");
         SplashTheme.BeginImportSession(stagingRoot);
-        SplashTheme.TrackStagingOwnership(staged);
+        try
+        {
+            SplashTheme.TrackStagingOwnership(staged);
 
-        // A second settings window opens and closes while the import is unsaved: its
-        // close must not free the first window's staged images.
-        SplashTheme.BeginImportSession(stagingRoot);
-        SplashTheme.EndImportSession(stagingRoot);
-        Assert.Equal([1, 2, 3], File.ReadAllBytes(Path.Combine(staged, "logo.png")));
+            // A second settings window opens and closes while the import is unsaved: its
+            // close must not free the first window's staged images.
+            SplashTheme.BeginImportSession(stagingRoot);
+            SplashTheme.EndImportSession(stagingRoot);
+            Assert.Equal([1, 2, 3], File.ReadAllBytes(Path.Combine(staged, "logo.png")));
+        }
+        finally
+        {
+            // The session count is process-wide, so an assertion failure above must not
+            // leave it stuck at one for every later test in this run.
+            SplashTheme.EndImportSession(stagingRoot);
+        }
 
-        // The window that imported closes: nothing can point at the staged images any
-        // more, so the claim is dropped and the same sweep collects the directory —
-        // which used to stay pinned until the whole shell process exited.
-        SplashTheme.EndImportSession(stagingRoot);
-
+        // The window that imported closed with that last End: nothing can point at the
+        // staged images any more, so the claim is dropped and the same sweep collects
+        // the directory — which used to stay pinned until the whole shell process exited.
         Assert.False(Directory.Exists(staged));
     }
 
@@ -915,15 +922,22 @@ public sealed class SplashThemeTests : IDisposable
 
         var staged = StagedDirectory(stagingRoot, "unsaved-import");
         SplashTheme.BeginImportSession(stagingRoot);
-        SplashTheme.TrackStagingOwnership(staged);
-        SplashTheme.BeginImportSession(stagingRoot);
-        SplashTheme.EndImportSession(stagingRoot);
+        try
+        {
+            SplashTheme.TrackStagingOwnership(staged);
+            SplashTheme.BeginImportSession(stagingRoot);
+            SplashTheme.EndImportSession(stagingRoot);
 
-        // A negative count makes the SECOND window's close look like the last one, so
-        // the first window's unsaved import would be freed while it is still on screen.
-        Assert.Equal([1, 2, 3], File.ReadAllBytes(Path.Combine(staged, "logo.png")));
-
-        SplashTheme.EndImportSession(stagingRoot);
+            // A negative count makes the SECOND window's close look like the last one, so
+            // the first window's unsaved import would be freed while it is still on screen.
+            Assert.Equal([1, 2, 3], File.ReadAllBytes(Path.Combine(staged, "logo.png")));
+        }
+        finally
+        {
+            // The session count is process-wide, so an assertion failure above must not
+            // leave it stuck at one for every later test in this run.
+            SplashTheme.EndImportSession(stagingRoot);
+        }
 
         Assert.False(Directory.Exists(staged));
     }

@@ -184,7 +184,9 @@ internal static unsafe partial class NativeRadio
     /// <summary>One visible Wi-Fi network.</summary>
     /// <param name="Ssid">The network name.</param>
     /// <param name="Signal">Signal quality, 0-100.</param>
-    /// <param name="Security">0 open, 1 pre-shared key, 2 enterprise.</param>
+    /// <param name="Security">0 open, 1 pre-shared key, 2 enterprise, 3 Enhanced
+    /// Open (OWE), 4 unsupported protection (WEP) — the full domain of
+    /// WsgmWifiNetwork::security.</param>
     /// <param name="Saved">Whether a saved profile already exists.</param>
     /// <param name="Connectable">Whether Windows believes it can be joined.</param>
     /// <param name="Connected">Whether this is the network currently joined.</param>

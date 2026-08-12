@@ -116,7 +116,7 @@ public static class SteamCdp
             return new SteamLibraryRemoveResult(SteamLibraryRemoveStatus.NotPresent, null);
         }
         var matchingPaths = Shell.SteamLibraryVdf.ValuesOf(libraryFoldersVdf, "path")
-            .Count(path => string.Equals(path.Replace("\\\\", "\\").TrimEnd('\\', '/'),
+            .Count(path => string.Equals(path.TrimEnd('\\', '/'),
                 libraryPath.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase));
         if (matchingPaths != 1)
         {
@@ -152,7 +152,7 @@ public static class SteamCdp
             return new SteamLibraryLabelResult(SteamLibraryLabelStatus.NotPresent, null);
         }
         var matchingPaths = Shell.SteamLibraryVdf.ValuesOf(libraryFoldersVdf, "path")
-            .Count(path => string.Equals(path.Replace("\\\\", "\\").TrimEnd('\\', '/'),
+            .Count(path => string.Equals(path.TrimEnd('\\', '/'),
                 libraryPath.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase));
         if (matchingPaths != 1)
         {

@@ -12,9 +12,33 @@ internal static class ServiceHost
 {
     internal const string ServiceName = "WSGMLogonService";
 
+    /// <summary>Start argument the installer passes through <c>StartService</c> to mark
+    /// a start it initiated itself. Not a command line: SCM delivers it to ServiceMain.</summary>
+    internal const string InstallStartArgument = "--installed-start";
+
     private static nint _statusHandle;
     private static NativeMethods.ServiceStatus _status;
     private static readonly ManualResetEventSlim StopRequested = new(false);
+
+    /// <summary>Reads the SCM-delivered start arguments (argv[0] is the service name)
+    /// and reports whether the installer marked this start as its own.</summary>
+    private static unsafe bool IsInstallStart(uint argc, nint argv)
+    {
+        if (argv == 0)
+        {
+            return false;
+        }
+        var vector = (nint*)argv;
+        for (var i = 1u; i < argc; i++)
+        {
+            if (string.Equals(Marshal.PtrToStringUni(vector[i]), InstallStartArgument,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 
     /// <summary>Connects to the SCM dispatcher (blocks until the service stops).
     /// Returns nonzero when started from a console instead of the SCM.</summary>
@@ -76,18 +100,28 @@ internal static class ServiceHost
             ServiceLog.Info($"WSGM logon service v{typeof(ServiceHost).Assembly.GetName().Version?.ToString(3) ?? "?"} started.");
 
             // An auto-start service can come up after an autologon already signed
-            // the user in — sweep existing sessions once.
-            ThreadPool.QueueUserWorkItem(static _ =>
+            // the user in — sweep existing sessions once. NOT when the installer
+            // started us: that start happens long after logon, with the per-session
+            // memory cleared by the stop the installer just performed, so the sweep
+            // would take over a session the user is actively using mid-setup.
+            if (IsInstallStart(argc, argv))
             {
-                try
+                ServiceLog.Info("Installer-initiated start — skipping the logon catch-up sweep.");
+            }
+            else
+            {
+                ThreadPool.QueueUserWorkItem(static _ =>
                 {
-                    SessionLauncher.CatchUpExistingSessions();
-                }
-                catch (Exception ex)
-                {
-                    ServiceLog.Error($"Startup catch-up failed: {ex.Message}");
-                }
-            });
+                    try
+                    {
+                        SessionLauncher.CatchUpExistingSessions();
+                    }
+                    catch (Exception ex)
+                    {
+                        ServiceLog.Error($"Startup catch-up failed: {ex.Message}");
+                    }
+                });
+            }
 
             StopRequested.Wait();
 

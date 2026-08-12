@@ -17,7 +17,7 @@
 //! programmatically, and writing them behind the user's back would be exactly
 //! the kind of consent bypass the settings exist to prevent.
 
-use windows::Win32::Foundation::ERROR_SUCCESS;
+use windows::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS};
 use windows::Win32::System::Registry::{
     HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, RRF_RT_REG_SZ, RegCloseKey,
     RegGetValueW, RegOpenKeyExW,
@@ -49,7 +49,14 @@ fn read(root: HKEY, capability: &str) -> Consent {
     let opened =
         unsafe { RegOpenKeyExW(root, PCWSTR(path.as_ptr()), Some(0), KEY_READ, &mut key) };
     if opened != ERROR_SUCCESS {
-        return Consent::Unset;
+        // Only an absent key is "no value present". Access denied or any other
+        // status means the store could not be read, and reporting that as the
+        // Windows default would send a remote diagnosis down the wrong path.
+        return if opened == ERROR_FILE_NOT_FOUND {
+            Consent::Unset
+        } else {
+            Consent::Unknown
+        };
     }
     let name = wide("Value");
     let mut buffer = [0u16; 64];
@@ -69,7 +76,14 @@ fn read(root: HKEY, capability: &str) -> Consent {
         let _ = RegCloseKey(key);
     }
     if status != ERROR_SUCCESS {
-        return Consent::Unset;
+        // Same distinction as above: a missing value is the documented default,
+        // while ERROR_MORE_DATA (a value longer than the buffer) or a denied
+        // read is a state this module cannot describe.
+        return if status == ERROR_FILE_NOT_FOUND {
+            Consent::Unset
+        } else {
+            Consent::Unknown
+        };
     }
     let end = buffer.iter().position(|&c| c == 0).unwrap_or(buffer.len());
     match String::from_utf16_lossy(&buffer[..end]).trim() {

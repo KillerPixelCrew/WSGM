@@ -20,6 +20,7 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
     public event PropertyChangedEventHandler? PropertyChanged;
 
     private DispatcherTimer? _timer;
+    private bool _disposed;
 
     private string _clockText = "";
     /// <summary>Gets the current time of day, e.g. "21:37".</summary>
@@ -83,9 +84,16 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
     public RemovableDriveManager Drives { get; } = new();
 
     /// <summary>Performs an immediate refresh and starts the 1 s update timer.
-    /// UI-thread callers only (the timer is a DispatcherTimer). Idempotent.</summary>
+    /// UI-thread callers only (the timer is a DispatcherTimer). Idempotent.
+    /// Refused (and logged) after <see cref="Dispose"/> — the owned managers are
+    /// gone by then and a restarted timer would tick a dead status cluster.</summary>
     public void Start()
     {
+        if (_disposed)
+        {
+            Log.Warn("System status Start() ignored: the instance was already disposed.");
+            return;
+        }
         if (_timer is not null)
         {
             return;
@@ -101,9 +109,13 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
         _timer.Start();
     }
 
-    /// <summary>Stops the update timer. Idempotent; bound values keep their last state.</summary>
+    /// <summary>Ends this object's life: stops the update timer AND disposes the
+    /// owned radio, audio and removable-drive managers, which cannot be recreated —
+    /// create a fresh <see cref="SystemStatus"/> instead of restarting this one.
+    /// Idempotent; bound values keep their last state.</summary>
     public void Dispose()
     {
+        _disposed = true;
         Radios.Dispose();
         Audio.Dispose();
         Drives.Dispose();
@@ -144,8 +156,9 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
     internal static (bool HasBattery, int Percent, string Text) InterpretBattery(
         bool callSucceeded, byte batteryFlag, byte lifePercent)
     {
-        // 128 = no system battery, 255 = unknown flag; 255 percent = unknown level.
-        if (!callSucceeded || (batteryFlag & 0x80) != 0 || batteryFlag == 255 || lifePercent > 100)
+        // The 0x80 mask covers both unknown markers (128 = no system battery,
+        // 255 = unknown flag); 255 percent = unknown level.
+        if (!callSucceeded || (batteryFlag & 0x80) != 0 || lifePercent > 100)
         {
             return (false, 0, "");
         }

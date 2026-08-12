@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Security.Cryptography;
+using System.Text;
 
 namespace WSGM.Shell;
 
@@ -91,8 +92,9 @@ public static class SteamLibraryVdf
         + "\t\t}\n"
         + "\t}\n";
 
-    /// <summary>All quoted values following a given key anywhere in the file —
-    /// used for registered-path and content-id collision checks. Line-based on
+    /// <summary>All quoted values following a given key anywhere in the file,
+    /// UNESCAPED (the inverse of <see cref="EscapeValue"/>/<see cref="EscapePath"/>) —
+    /// used for registered-path, label and content-id lookups. Line-based on
     /// purpose: existing content is never reserialized, only inspected.</summary>
     /// <param name="vdf">The file text.</param>
     /// <param name="key">The bare key name, e.g. "path".</param>
@@ -107,14 +109,9 @@ public static class SteamLibraryVdf
             {
                 continue;
             }
-            var rest = line[marker.Length..].TrimStart('\t', ' ');
-            if (rest.Length >= 2 && rest[0] == '"')
+            if (TryReadQuoted(line[marker.Length..].TrimStart('\t', ' '), out var value))
             {
-                var end = rest.IndexOf('"', 1);
-                if (end > 0)
-                {
-                    results.Add(rest[1..end]);
-                }
+                results.Add(value);
             }
         }
         return results;
@@ -131,8 +128,7 @@ public static class SteamLibraryVdf
     {
         foreach (var value in ValuesOf(vdf, "path"))
         {
-            if (string.Equals(value.Replace("\\\\", "\\"), libraryPath,
-                    StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(value, libraryPath, StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
@@ -184,7 +180,7 @@ public static class SteamLibraryVdf
             }
             if (TryReadValue(line, "path", out var candidatePath))
             {
-                path = candidatePath.Replace("\\\\", "\\");
+                path = candidatePath;
             }
             else if (TryReadValue(line, "contentid", out var candidateId))
             {
@@ -418,18 +414,39 @@ public static class SteamLibraryVdf
         {
             return false;
         }
-        var rest = trimmed[marker.Length..].TrimStart('\t', ' ');
+        return TryReadQuoted(trimmed[marker.Length..].TrimStart('\t', ' '), out value);
+    }
+
+    /// <summary>Reads one quoted VDF value and returns it UNESCAPED. A backslash
+    /// escapes the next character, so an escaped quote does not terminate the
+    /// value: a label may legitimately contain <c>"</c> or <c>\</c> (both are
+    /// written escaped by <see cref="EscapeValue"/>) and a path is stored with its
+    /// backslashes doubled. Scanning to the first raw quote instead truncated such
+    /// a value, and returning it still escaped doubled it on the next write.</summary>
+    private static bool TryReadQuoted(string rest, out string value)
+    {
+        value = "";
         if (rest.Length < 2 || rest[0] != '"')
         {
             return false;
         }
-        var end = rest.IndexOf('"', 1);
-        if (end <= 0)
+        var builder = new StringBuilder(rest.Length - 1);
+        for (var i = 1; i < rest.Length; i++)
         {
-            return false;
+            var current = rest[i];
+            if (current == '\\' && i + 1 < rest.Length)
+            {
+                builder.Append(rest[++i]);
+                continue;
+            }
+            if (current == '"')
+            {
+                value = builder.ToString();
+                return true;
+            }
+            builder.Append(current);
         }
-        value = rest[1..end];
-        return true;
+        return false;
     }
 
     /// <summary>The next free top-level entry index: highest existing numbered

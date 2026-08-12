@@ -85,12 +85,28 @@ public static class ShellRegistration
     {
         try
         {
-            if (!GamingHomeSnapshot.IsCaptured(config))
+            // Read-only snapshot — OpenSubKey so a pure read can't materialize the key.
+            using (var gamingSnapshot = Registry.CurrentUser.OpenSubKey(GamingConfigKey))
             {
-                // Read-only snapshot — OpenSubKey so a pure read can't materialize the key.
-                using var gamingSnapshot = Registry.CurrentUser.OpenSubKey(GamingConfigKey);
-                GamingHomeSnapshot.Capture(config, GamingHomeSnapshot.ReadCurrent(gamingSnapshot));
-                ConfigStore.Save(config);
+                var current = GamingHomeSnapshot.ReadCurrent(gamingSnapshot);
+                // The capture is persisted through Mutate rather than saving the caller's
+                // instance: Mutate reloads strictly under the lock, so an unreadable
+                // config.json aborts here instead of writing defaults over the recovery
+                // snapshots — whichever way the caller obtained its own AppConfig. The
+                // captured check lives inside the scope so disk, not the caller's
+                // possibly stale copy, decides (upgrades keep the original snapshot).
+                var persisted = ConfigStore.Mutate(c =>
+                {
+                    if (!GamingHomeSnapshot.IsCaptured(c))
+                    {
+                        GamingHomeSnapshot.Capture(c, current);
+                    }
+                });
+                config.PreviousStartupToGamingHomeValue = persisted.PreviousStartupToGamingHomeValue;
+                config.PreviousStartupToGamingHomeSnapshotCaptured =
+                    persisted.PreviousStartupToGamingHomeSnapshotCaptured;
+                config.PreviousStartupToGamingHomeValueExists = persisted.PreviousStartupToGamingHomeValueExists;
+                config.PreviousStartupToGamingHomeValueKind = persisted.PreviousStartupToGamingHomeValueKind;
             }
             using var gaming = Registry.CurrentUser.CreateSubKey(GamingConfigKey);
             gaming.SetValue(StartupToGamingHome, 0, RegistryValueKind.DWord);

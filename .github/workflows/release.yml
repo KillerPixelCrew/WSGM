@@ -10,12 +10,15 @@ permissions:
 jobs:
   release:
     runs-on: windows-latest
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: 9.0.x
+          dotnet-version: 10.0.x
 
       # Derive the version once (v1.2.3 -> 1.2.3). The tag name goes through env,
       # never spliced into script source (script-injection hardening).
@@ -38,8 +41,15 @@ jobs:
         run: |
           $ver = $env:VER
           (Get-Content src/WSGM/WSGM.csproj) -replace '<Version>.*</Version>', "<Version>$ver</Version>" | Set-Content src/WSGM/WSGM.csproj
-          # assemblyIdentity requires a four-part version.
-          $mver = if ($ver.Split('.').Count -eq 3) { "$ver.0" } else { $ver }
+          # assemblyIdentity requires four decimal numbers, so it is derived from
+          # the tag's NUMERIC CORE only: a prerelease tag (v1.4.0-rc1) otherwise
+          # yields "1.4.0-rc1.0", a manifest Windows refuses at process creation
+          # (SxS error 14001). A tag without a numeric core fails the release.
+          $core = ($ver -split '[-+]')[0]
+          if ($core -notmatch '^\d+(\.\d+){0,3}$') { throw "Tag version '$ver' has no numeric core; refusing to stamp an invalid assemblyIdentity." }
+          $parts = @($core.Split('.'))
+          while ($parts.Count -lt 4) { $parts += '0' }
+          $mver = $parts -join '.'
           (Get-Content src/WSGM/app.manifest) -replace 'assemblyIdentity version="[^"]*"', "assemblyIdentity version=`"$mver`"" | Set-Content src/WSGM/app.manifest
 
       # windows-latest ships VS Build Tools (NativeAOT linker) and Inno Setup 6 —

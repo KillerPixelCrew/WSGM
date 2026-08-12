@@ -22,6 +22,7 @@ public partial class SettingsWindow : Window
     private GamepadNavigation? _navigation;
     private OverlayController? _testOverlay;
     private BootSplashWindow? _splashPreview;
+    private Window? _keyboardDialog;
     private bool _closed;
 
     // When Settings is the on-screen surface in game mode it must hold the Steam
@@ -41,6 +42,13 @@ public partial class SettingsWindow : Window
     // Big Picture. The reconciler keeps at most one inject/release in flight and
     // re-runs on completion, so rapid focus flips coalesce instead of thrashing.
     private readonly bool _gameModeSurface;
+    private static int _nextLeaseOwnerId;
+    // Owner-scoped, like OverlayController's: the lease is shared static state, so a
+    // surface that merely observes IsApplied cannot tell "I hold it" from "someone
+    // else does" — and its release then drops the block out from under whichever
+    // surface is still on screen (invariant 1).
+    private readonly string _leaseOwner =
+        $"settings-window#{System.Threading.Interlocked.Increment(ref _nextLeaseOwnerId)}";
     private readonly object _leaseSync = new();
     private bool _leaseEnabled;
     private bool _leaseHeld;
@@ -80,7 +88,10 @@ public partial class SettingsWindow : Window
         // Focus changes drive the lease; the value is fixed for the window's life.
         if (_gameModeSurface)
         {
-            _leaseEnabled = ConfigStore.Load().SteamInputLeaseEnabled;
+            // From the view model, which already loaded config.json for this
+            // window — a second ConfigStore.Load here takes the cross-process
+            // mutex again on the UI thread for a value that is already in memory.
+            _leaseEnabled = _viewModel.SteamInputLeaseEnabled;
             Activated += (_, _) => UpdateLeaseDesired();
             Deactivated += (_, _) => UpdateLeaseDesired();
             PropertyChanged += (_, e) =>
@@ -91,6 +102,11 @@ public partial class SettingsWindow : Window
                 }
             };
         }
+        // Every other GamepadNavigation host handles Escape itself; Settings did not,
+        // and GamepadNavigation's keyboard-Escape branch arms its cross-source
+        // suppression window whether or not anything acted on the key — so an Escape
+        // arriving here swallowed the next controller B press instead of going back.
+        KeyDown += OnWindowKeyDown;
         Opened += (_, _) =>
         {
             _navigation = CreateWindowNavigation();
@@ -123,6 +139,10 @@ public partial class SettingsWindow : Window
             // sees _closed and skips recreating window navigation.
             _splashPreview?.Close();
             _splashPreview = null;
+            // Neither may the keyboard dialog; its own Closed handler restores
+            // this window's navigation, which the line above already disposed.
+            _keyboardDialog?.Close();
+            _keyboardDialog = null;
             _testOverlay?.Dispose();
             _testOverlay = null;
             // The Appearance page live-applies accent picks to the running
@@ -150,7 +170,7 @@ public partial class SettingsWindow : Window
     }
 
     /// <summary>One selection path for touch, mouse, keyboard and the LB/RB
-    /// shoulder buttons: the TabStrip owns the index, this toggles the five
+    /// shoulder buttons: the TabStrip owns the index, this toggles the six
     /// always-alive pages' visibility.</summary>
     private void OnTabSelectionChanged(object? sender, TabStripSelectionChangedEventArgs e)
     {
@@ -200,7 +220,8 @@ public partial class SettingsWindow : Window
     {
         _testOverlay?.Dispose();
         var config = _viewModel.SnapshotForTest();
-        _testOverlay = new OverlayController(config, monitor: null, new SessionModes(config, monitor: null));
+        _testOverlay = new OverlayController(config, monitor: null, new SessionModes(config, monitor: null),
+            previewOnly: true);
         _testOverlay.ShowOverlay();
     }
 
@@ -212,24 +233,108 @@ public partial class SettingsWindow : Window
     {
         _testOverlay?.Dispose();
         var config = _viewModel.SnapshotForTest();
-        _testOverlay = new OverlayController(config, monitor: null, new SessionModes(config, monitor: null));
+        _testOverlay = new OverlayController(config, monitor: null, new SessionModes(config, monitor: null),
+            previewOnly: true);
         _testOverlay.ShowTaskbar();
     }
 
     /// <summary>Creates the controller navigation attached to this window
     /// (initial Opened wiring and restoration after a splash preview closes).</summary>
-    private GamepadNavigation CreateWindowNavigation() => new(_gamepad, this, back: Close,
+    private GamepadNavigation CreateWindowNavigation() => new(_gamepad, this, back: BackOrClose,
         isNintendoLayout: () => _viewModel.GlyphStyleIndex == 2,
         tabPrevious: Tabs.SelectPrevious,
         tabNext: Tabs.SelectNext);
 
+    /// <summary>The controller Back action. A color-picker flyout the Appearance
+    /// page has open takes B first: its content lives in a popup root that
+    /// gamepad navigation cannot enter, so without this B would close the whole
+    /// window and discard every unsaved edit on all six pages.</summary>
+    private void BackOrClose()
+    {
+        if (PageAppearance.TryCloseColorFlyout())
+        {
+            return;
+        }
+        Close();
+    }
+
+    /// <summary>Routes a keyboard Escape through the same Back action the controller's
+    /// B button uses, so an open colour flyout is closed first rather than the whole
+    /// window with every unsaved edit on it.</summary>
+    private void OnWindowKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            BackOrClose();
+        }
+    }
+
+    /// <summary>Opens the on-screen keyboard for a text box in its own dialog and
+    /// moves controller navigation onto it (called by the Steam page for the
+    /// SteamGridDB key). The window owns this because it owns the gamepad service
+    /// and the navigation swap: the keyboard's keys are only reachable by pad once
+    /// a <see cref="GamepadNavigation"/> is attached to THAT window, and this
+    /// window's own navigation has to be parked meanwhile — Avalonia's modal
+    /// dialog disables the owner at the Win32 level only, so its controls stay
+    /// effectively enabled and a pad press would otherwise still act on the page
+    /// behind the dialog (a machine-policy toggle sits there).</summary>
+    /// <param name="target">The text box the keystrokes are typed into.</param>
+    /// <param name="title">The dialog window title.</param>
+    internal void ShowOnScreenKeyboard(TextBox target, string title)
+    {
+        var keyboard = new OnScreenKeyboard { Target = target };
+        var window = new Window
+        {
+            Title = title,
+            Width = 760,
+            Height = 430,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = keyboard,
+        };
+        keyboard.Accepted += (_, _) => window.Close();
+        GamepadNavigation? keyboardNavigation = null;
+        window.Opened += (_, _) =>
+        {
+            if (_navigation is not null)
+            {
+                _navigation.IsEnabled = false;
+            }
+            keyboardNavigation = new GamepadNavigation(_gamepad, window, back: window.Close,
+                isNintendoLayout: () => _viewModel.GlyphStyleIndex == 2);
+        };
+        window.Closed += (_, _) =>
+        {
+            keyboardNavigation?.Dispose();
+            keyboardNavigation = null;
+            if (_navigation is not null)
+            {
+                _navigation.IsEnabled = true;
+            }
+            if (ReferenceEquals(_keyboardDialog, window))
+            {
+                _keyboardDialog = null;
+            }
+            // Same re-evaluation the splash preview does on close, in case focus
+            // did not return to this window.
+            UpdateLeaseDesired();
+        };
+        // The dialog deactivates this window, and an unfocused Settings drops the
+        // Steam Input lease — which in game mode hands the pad straight back to
+        // Steam's desktop profile and makes the keyboard unusable by controller.
+        // Tracked like the splash preview so the lease follows the child surface.
+        _keyboardDialog = window;
+        UpdateLeaseDesired();
+        _ = window.ShowDialog(this);
+    }
+
     /// <summary>Whether the lease should be held right now: only in game mode with
     /// the user opt-in, while this window is open, not minimized, and either active
-    /// or driving the splash preview by pad. Reads UI state — UI thread only.</summary>
+    /// or driving one of its child surfaces (the splash preview, the on-screen
+    /// keyboard dialog) by pad. Reads UI state — UI thread only.</summary>
     private bool ShouldHoldLease()
         => _gameModeSurface && _leaseEnabled && !_closed
            && WindowState != WindowState.Minimized
-           && (IsActive || _splashPreview is not null);
+           && (IsActive || _splashPreview is not null || _keyboardDialog is not null);
 
     /// <summary>Takes over the lease the sidebar handed off. It is already held, so
     /// this is a no-op that avoids releasing/re-injecting (the churn); the reconcile
@@ -240,10 +345,21 @@ public partial class SettingsWindow : Window
         {
             return;
         }
+        // Held by the sidebar right up to this handoff; REGISTER a claim on it rather
+        // than inferring ownership from IsApplied, so the overlay re-opening over this
+        // window cannot be left unblocked and this window's own release cannot drop the
+        // panel's lease. AcquireFor is a no-op inside the blocker while the lease is
+        // live, so the handoff stays free of release/re-inject churn. Claimed only when
+        // it really is live — a cold acquire belongs on the reconciler's worker, never
+        // on the UI thread — and outside _leaseSync to keep the lock order one-way.
+        var held = SteamInputBlocker.IsApplied;
+        if (held)
+        {
+            SteamInputBlocker.AcquireFor(_leaseOwner);
+        }
         lock (_leaseSync)
         {
-            // Held by the sidebar right up to this handoff; keep it as the window's.
-            _leaseHeld = SteamInputBlocker.IsApplied;
+            _leaseHeld = held;
             // Shown as the foreground surface — do not gate the initial state on
             // IsActive, which can still be false at Opened and would drop the lease.
             _leaseDesired = true;
@@ -291,7 +407,7 @@ public partial class SettingsWindow : Window
         // SteamInputBlocker is a no-op when the lease is already held (the handoff
         // case) and injects only on a real 0-held transition; it logs its own
         // outcome and never throws.
-        SteamInputBlocker.Acquire();
+        SteamInputBlocker.AcquireFor(_leaseOwner);
         bool held = SteamInputBlocker.IsApplied;
         lock (_leaseSync)
         {
@@ -308,7 +424,9 @@ public partial class SettingsWindow : Window
 
     private void ReleaseLeaseWork()
     {
-        SteamInputBlocker.ReleaseBestEffort("settings surface inactive");
+        // ReleaseFor, not ReleaseBestEffort: the quick-access panel may have been
+        // re-summoned over this window and still own the lease.
+        SteamInputBlocker.ReleaseFor(_leaseOwner, "settings surface inactive");
         lock (_leaseSync)
         {
             _leaseHeld = false;
@@ -356,13 +474,24 @@ public partial class SettingsWindow : Window
     }
 
     /// <summary>Starts hotkey recording (called by the Quick access page).</summary>
-    internal void RecordHotkey() => _recorders.RecordHotkey();
+    internal void RecordHotkey() => Observe(_recorders.RecordHotkey(), "Hotkey recording");
 
     /// <summary>Clears the recorded hotkey (called by the Quick access page).</summary>
     internal void ClearHotkey() => _recorders.ClearHotkey();
 
     /// <summary>Starts controller-chord recording (called by the Quick access page).</summary>
-    internal void RecordChord() => _recorders.RecordChord();
+    internal void RecordChord() => Observe(_recorders.RecordChord(), "Chord recording");
+
+    /// <summary>Observes an armed recorder: the recorders are manager operations,
+    /// not framework event handlers, so a throw after their arming delay is logged
+    /// here instead of reaching the dispatcher unobserved (which in the shell
+    /// process is a crash rather than a reported failure).</summary>
+    private static void Observe(Task task, string operation) =>
+        task.ContinueWith(
+            t => Log.Error($"{operation} failed", t.Exception!),
+            System.Threading.CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
 
     /// <summary>Clears the recorded chord (called by the Quick access page).</summary>
     internal void ClearChord() => _recorders.ClearChord();

@@ -19,9 +19,6 @@ public sealed class CardManagerView : OverlaySubView
 {
     private LibraryTabManager _manager = new();
 
-    // Lazily-loaded, cached Steam data for the game list.
-    private IReadOnlyList<SteamCollections.AppInfo>? _games;
-
     /// <inheritdoc />
     protected override string LogScope => "Card manager";
 
@@ -33,7 +30,6 @@ public sealed class CardManagerView : OverlaySubView
         _manager = manager;
         _stack.Clear();
         _current = null;
-        _games = null;
         Navigate(RenderCardList);
     }
 
@@ -46,6 +42,7 @@ public sealed class CardManagerView : OverlaySubView
         var generation = _navigationGeneration;
         SetContent(NewStack("Card Manager").Also(s => s.Children.Add(Caption("Scanning cards…"))));
         IReadOnlyList<LibraryTabManager.CardView> cards;
+        var failed = false;
         try
         {
             cards = await _manager.ListCardsAsync();
@@ -57,10 +54,23 @@ public sealed class CardManagerView : OverlaySubView
         catch (Exception ex)
         {
             Log.Warn($"Card list failed: {ex.Message}");
+            // The failure path leaves the level just like the success path does:
+            // the user may already have backed out while the read was running.
+            if (generation != _navigationGeneration)
+            {
+                return;
+            }
             cards = Array.Empty<LibraryTabManager.CardView>();
+            failed = true;
         }
         var stack = NewStack("Card Manager");
-        if (cards.Count == 0)
+        if (failed)
+        {
+            // Never dress a read failure up as "you have no cards": that invites
+            // re-formatting a card that is in fact still tracked.
+            stack.Children.Add(Caption("Couldn't read your cards — try again."));
+        }
+        else if (cards.Count == 0)
         {
             stack.Children.Add(Caption("No SD-card libraries tracked yet. Format or add one first."));
         }
@@ -164,8 +174,7 @@ public sealed class CardManagerView : OverlaySubView
         {
             return;
         }
-        _games = loaded;
-        var names = _games!.ToDictionary(g => g.AppId, g => g.Name);
+        var names = loaded.ToDictionary(g => g.AppId, g => g.Name);
         Replace(() =>
         {
             var stack = NewStack($"{card.Name} — Games");

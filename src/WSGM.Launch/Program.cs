@@ -81,7 +81,7 @@ internal static class Program
         // the process from this elevated parent, which is the thing we are avoiding.
         if (options.InputLease && !options.Deelevate)
         {
-            return RunLeaseWrapped(options);
+            return await RunLeaseWrappedAsync(options);
         }
 
         using var lease = options.InputLease ? SteamInputLeaseHost.TryAcquire(options) : null;
@@ -91,16 +91,29 @@ internal static class Program
             : await RunElevatedParentAsync(payload);
     }
 
-    private static int RunLeaseWrapped(LaunchOptions options)
+    private static async Task<int> RunLeaseWrappedAsync(LaunchOptions options)
     {
         try
         {
             using var client = SteamInputLeaseHost.CreateClient(options);
             Console.WriteLine("Acquiring Steam Input block lease...");
-            var exitCode = client.RunWrapped(options.Command);
+            var run = client.RunWrapped(options.Command);
             Console.WriteLine("Game process tree exited; Steam Input unblocked.");
-            LaunchLog.Info($"Steam Input lease wrapper finished with exit code {exitCode}.");
-            return unchecked((int)exitCode);
+            LaunchLog.Info($"Steam Input lease wrapper finished with exit code {run.ExitCode}.");
+            // Blocking is lifted either way (the lease is a pipe Windows closes with
+            // this process), but if Steam was never asked to rediscover controllers it
+            // will not see the pad again until then — and launch.log is the only place
+            // that can be diagnosed from.
+            if (run.Release.RecoveryRequested)
+            {
+                LaunchLog.Info($"Steam Input lease released ({run.Release.Recovery}).");
+            }
+            else
+            {
+                LaunchLog.Warn("Steam Input lease released, but Steam controller recovery did not run"
+                    + $" ({run.Release.Recovery}: {run.Release.RecoveryMessage ?? "no reason reported"}).");
+            }
+            return unchecked((int)run.ExitCode);
         }
         catch (Exception ex)
         {
@@ -112,7 +125,7 @@ internal static class Program
             LaunchLog.Error($"Steam Input lease wrapper failed: {ex.Message}. Launching without it.");
             Console.Error.WriteLine($"Steam Input block unavailable: {ex.Message}");
             var payload = LaunchPayload.Capture(options.Command);
-            return LaunchAndWaitAsync(payload).GetAwaiter().GetResult();
+            return await LaunchAndWaitAsync(payload);
         }
     }
 
@@ -199,6 +212,23 @@ internal static class Program
             ScheduledTaskLauncher.Delete(taskName);
             taskName = null;
 
+            // The child reports its readiness before anything else, and this read
+            // has to come before the payload write: the protocol only stays
+            // deadlock-free while exactly one side writes at a time. A child that
+            // reports "no medium token" (UAC off) never reads the payload, so a
+            // parent writing it concurrently would block against the child's flush
+            // until the handshake expires — and the fail-open below, which is the
+            // whole point of that report, would never be reached.
+            var ready = await PipeProtocol.ReadInt32Async(pipe, handshake.Token);
+            if (ready != 1)
+            {
+                var reason = ready == 0
+                    ? await PipeProtocol.ReadStringAsync(pipe, 64 * 1024, handshake.Token)
+                    : $"invalid readiness status {ready}";
+                LaunchLog.Error($"Medium-integrity helper is not usable: {reason}");
+                return await FailOpenOrGiveUpAsync(reason, payload);
+            }
+
             await payload.WriteAsync(pipe, handshake.Token);
             await pipe.FlushAsync(handshake.Token);
 
@@ -207,18 +237,7 @@ internal static class Program
             {
                 var error = await PipeProtocol.ReadStringAsync(pipe, 64 * 1024, handshake.Token);
                 LaunchLog.Error($"Medium-integrity launch failed: {error}");
-                // Fail open, on the same rule the lease follows: a game that never
-                // starts is a broken one. With UAC switched off entirely there is no
-                // limited token for the scheduled task to hand out, so de-elevation
-                // is impossible on this machine and the game would simply never run.
-                // Launch it the way it would have run without the wrapper.
-                if (error.Contains(NoMediumTokenMarker, StringComparison.Ordinal))
-                {
-                    Console.Error.WriteLine(
-                        "De-elevation is unavailable because UAC is disabled; starting the game as-is.");
-                    return await LaunchAndWaitAsync(payload);
-                }
-                return 1;
+                return await FailOpenOrGiveUpAsync(error, payload);
             }
             if (started != 1)
             {
@@ -250,6 +269,25 @@ internal static class Program
         }
     }
 
+    /// <summary>Launches the target as-is when the medium child reported that
+    /// de-elevation is impossible on this machine, and gives up otherwise.</summary>
+    private static async Task<int> FailOpenOrGiveUpAsync(string error, LaunchPayload payload)
+    {
+        // Fail open, on the same rule the lease follows: a game that never starts
+        // is a broken one. With UAC switched off entirely there is no limited token
+        // for the scheduled task to hand out, so de-elevation is impossible on this
+        // machine and the game would simply never run. Launch it the way it would
+        // have run without the wrapper.
+        if (!error.Contains(NoMediumTokenMarker, StringComparison.Ordinal))
+        {
+            return 1;
+        }
+
+        Console.Error.WriteLine(
+            "De-elevation is unavailable because UAC is disabled; starting the game as-is.");
+        return await LaunchAndWaitAsync(payload);
+    }
+
     private static async Task<int> RunMediumChildAsync(string pipeName)
     {
         using var pipe = new NamedPipeClientStream(
@@ -269,6 +307,12 @@ internal static class Program
                 return 1;
             }
 
+            // Readiness first, and the parent reads it before it sends anything:
+            // the failure above takes the same slot, so the two sides never write
+            // at the same time and a report the parent cannot receive is impossible.
+            await PipeProtocol.WriteInt32Async(pipe, 1, handshake.Token);
+            await pipe.FlushAsync(handshake.Token);
+
             var payload = await LaunchPayload.ReadAsync(pipe, handshake.Token);
 
             using var process = Start(payload);
@@ -284,9 +328,27 @@ internal static class Program
             // lease mid-session and tells Steam the game stopped.
             using var job = JobObject.TryCapture(process.Handle);
 
-            await PipeProtocol.WriteInt32Async(pipe, 1, handshake.Token);
-            await PipeProtocol.WriteInt32Async(pipe, process.Id, handshake.Token);
-            await pipe.FlushAsync(handshake.Token);
+            // The handshake deadline covers connecting, readiness and the payload
+            // read, but must not cover this response: a slow CreateProcess (an
+            // on-access scan of a large game image) would otherwise cancel the
+            // report and leave the game running with no wrapper — the parent times
+            // out, releases the Steam Input lease mid-session and tells Steam the
+            // game stopped. If the report cannot be delivered at all, the tree is
+            // stopped so nothing survives unwrapped.
+            try
+            {
+                await PipeProtocol.WriteInt32Async(pipe, 1, CancellationToken.None);
+                await PipeProtocol.WriteInt32Async(pipe, process.Id, CancellationToken.None);
+                await pipe.FlushAsync(CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                LaunchLog.Error($"Could not report the started target pid {process.Id} to the Steam " +
+                                $"wrapper: {ex.Message}; stopping its process tree.");
+                StopTargetTree(process, job);
+                await process.WaitForExitAsync();
+                return 1;
+            }
             launchResponseSent = true;
             LaunchLog.Info($"Launched {Path.GetFileName(payload.Arguments[0])} at medium integrity " +
                               $"(pid {process.Id}); preserving Steam wrapper lifetime" +
@@ -303,16 +365,7 @@ internal static class Program
             {
                 LaunchLog.Info($"Steam wrapper exited before target pid {process.Id}; stopping its process tree.");
                 treeCancellation.Cancel();
-                // The job reaches descendants whose intermediate parent already
-                // exited, which Kill(entireProcessTree) cannot.
-                if (job is not null)
-                {
-                    job.TerminateTree();
-                }
-                else
-                {
-                    try { process.Kill(entireProcessTree: true); } catch { }
-                }
+                StopTargetTree(process, job);
                 await process.WaitForExitAsync();
                 return 1;
             }
@@ -328,9 +381,38 @@ internal static class Program
             LaunchLog.Error($"Medium-integrity child failed: {ex.Message}");
             if (!launchResponseSent && pipe.IsConnected)
             {
-                try { await WriteLaunchFailureAsync(pipe, ex.Message, CancellationToken.None); } catch { }
+                try
+                {
+                    await WriteLaunchFailureAsync(pipe, ex.Message, CancellationToken.None);
+                }
+                catch (Exception reportEx)
+                {
+                    LaunchLog.Error($"Could not report the failure to the Steam wrapper: {reportEx.Message}");
+                }
             }
             return 1;
+        }
+    }
+
+    /// <summary>Ends the target and everything it spawned, so nothing keeps running
+    /// once the wrapper Steam is watching can no longer track it.</summary>
+    private static void StopTargetTree(Process process, JobObject? job)
+    {
+        // The job reaches descendants whose intermediate parent already exited,
+        // which Kill(entireProcessTree) cannot.
+        if (job is not null)
+        {
+            job.TerminateTree();
+            return;
+        }
+
+        try
+        {
+            process.Kill(entireProcessTree: true);
+        }
+        catch (Exception ex)
+        {
+            LaunchLog.Error($"Could not stop the target tree of pid {process.Id}: {ex.Message}");
         }
     }
 

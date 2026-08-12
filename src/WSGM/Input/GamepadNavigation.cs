@@ -21,7 +21,12 @@ public sealed class GamepadNavigation : IDisposable
     // The window must exceed the OS keyboard auto-repeat interval relative to the
     // 150 ms pad repeat cadence, or the follower slips through between repeats and
     // double-steps.
-    private static readonly TimeSpan CrossSourceSuppression = TimeSpan.FromMilliseconds(250);
+    // Every deadline below is monotonic (Environment.TickCount64), never wall
+    // clock: a backward system-clock adjustment — w32time resyncing shortly after
+    // logon, or a resume from Modern Standby — would otherwise leave the deadlines
+    // seconds in the future and suppress pad or keyboard steps wholesale, which
+    // reads on the device as "the controller went dead" with nothing in the log.
+    private const long CrossSourceSuppressionMs = 250;
 
     private readonly GamepadService _gamepad;
     private readonly Window _window;
@@ -40,17 +45,23 @@ public sealed class GamepadNavigation : IDisposable
     /// <summary>FocusManager fallback: in a window that never gets OS-activated
     /// (the overlay), GetFocusedElement may not track our programmatic focus.</summary>
     private InputElement? _lastFocused;
-    private DateTime _suppressKeyboardUntil;
-    private DateTime _suppressPadUntil;
-    private DateTime _suppressConfirmKeyboardUntil;
-    private DateTime _suppressConfirmPadUntil;
-    private DateTime _suppressBackKeyboardUntil;
-    private DateTime _suppressBackPadUntil;
+    private long _suppressKeyboardUntil;
+    private long _suppressPadUntil;
+    private long _suppressConfirmKeyboardUntil;
+    private long _suppressConfirmPadUntil;
+    private long _suppressBackKeyboardUntil;
+    private long _suppressBackPadUntil;
     private bool _raisingSynthesizedInput;
     private bool _loggedFocusFallback;
     private bool _loggedEdge;
     private bool _loggedTextBoxCycle;
     private bool _loggedKeyboardLed;
+
+    /// <summary>The direction the peer handoff was last logged for. Directions
+    /// auto-repeat at 150 ms, so a stick resting against an edge would otherwise
+    /// write ~7 lines a second into the only remote diagnostic log. Cleared as
+    /// soon as a directional move lands on a control again.</summary>
+    private NavigationDirection? _loggedEdgeHandoff;
 
     /// <summary>Whether this instance currently owns controller navigation for
     /// its window. Covered windows remain alive during surface handovers, so
@@ -110,11 +121,11 @@ public sealed class GamepadNavigation : IDisposable
 
         if (buttons.HasFlag(back))
         {
-            if (DateTime.UtcNow < _suppressBackPadUntil)
+            if (Environment.TickCount64 < _suppressBackPadUntil)
             {
                 return;
             }
-            _suppressBackKeyboardUntil = DateTime.UtcNow + CrossSourceSuppression;
+            _suppressBackKeyboardUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
             if (target is ComboBox { IsDropDownOpen: true } openCombo)
             {
                 openCombo.IsDropDownOpen = false;
@@ -125,11 +136,11 @@ public sealed class GamepadNavigation : IDisposable
         }
         if (buttons.HasFlag(confirm) || buttons.HasFlag(GamepadButtons.Start))
         {
-            if (DateTime.UtcNow < _suppressConfirmPadUntil)
+            if (Environment.TickCount64 < _suppressConfirmPadUntil)
             {
                 return;
             }
-            _suppressConfirmKeyboardUntil = DateTime.UtcNow + CrossSourceSuppression;
+            _suppressConfirmKeyboardUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
             if (target is ComboBox combo)
             {
                 // Avalonia does not give a programmatically raised Enter the
@@ -180,7 +191,7 @@ public sealed class GamepadNavigation : IDisposable
             && (buttons.HasFlag(GamepadButtons.DPadLeft)
                 || buttons.HasFlag(GamepadButtons.DPadRight)))
         {
-            _suppressKeyboardUntil = DateTime.UtcNow + CrossSourceSuppression;
+            _suppressKeyboardUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
             slider.Value = AdjustSliderValue(
                 slider.Value,
                 slider.Minimum,
@@ -193,7 +204,7 @@ public sealed class GamepadNavigation : IDisposable
             && (buttons.HasFlag(GamepadButtons.DPadUp)
                 || buttons.HasFlag(GamepadButtons.DPadDown)))
         {
-            _suppressKeyboardUntil = DateTime.UtcNow + CrossSourceSuppression;
+            _suppressKeyboardUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
             var forward = buttons.HasFlag(GamepadButtons.DPadDown);
             openSelector.SelectedIndex = AdjustComboBoxIndex(
                 openSelector.SelectedIndex,
@@ -205,7 +216,7 @@ public sealed class GamepadNavigation : IDisposable
         var direction = DirectionForButtons(buttons);
         if (direction is not null)
         {
-            _suppressKeyboardUntil = DateTime.UtcNow + CrossSourceSuppression;
+            _suppressKeyboardUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
             MoveFocus(direction.Value);
         }
     }
@@ -268,7 +279,7 @@ public sealed class GamepadNavigation : IDisposable
     /// the pad edge from stepping a second time.</summary>
     private bool PadStepSuppressed()
     {
-        if (DateTime.UtcNow >= _suppressPadUntil)
+        if (Environment.TickCount64 >= _suppressPadUntil)
         {
             return false;
         }
@@ -291,12 +302,12 @@ public sealed class GamepadNavigation : IDisposable
         }
         if (e.Key == Key.Escape)
         {
-            if (DateTime.UtcNow < _suppressBackKeyboardUntil)
+            if (Environment.TickCount64 < _suppressBackKeyboardUntil)
             {
                 e.Handled = true;
                 return;
             }
-            _suppressBackPadUntil = DateTime.UtcNow + CrossSourceSuppression;
+            _suppressBackPadUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
             if (CurrentTarget() is ComboBox { IsDropDownOpen: true } combo)
             {
                 e.Handled = true;
@@ -309,12 +320,12 @@ public sealed class GamepadNavigation : IDisposable
             // Confirmation has the same two-source path as directions. Without
             // this gate, SDL opens a ComboBox and Steam's mirrored Enter closes
             // it immediately (or a Button command fires twice).
-            if (DateTime.UtcNow < _suppressConfirmKeyboardUntil)
+            if (Environment.TickCount64 < _suppressConfirmKeyboardUntil)
             {
                 e.Handled = true;
                 return;
             }
-            _suppressConfirmPadUntil = DateTime.UtcNow + CrossSourceSuppression;
+            _suppressConfirmPadUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
             if (CurrentTarget() is ComboBox combo)
             {
                 e.Handled = true;
@@ -350,7 +361,7 @@ public sealed class GamepadNavigation : IDisposable
         {
             // SDL already applied this physical press directly. Consume Steam's
             // mirrored key before the control sees it and applies a second step.
-            if (DateTime.UtcNow < _suppressKeyboardUntil)
+            if (Environment.TickCount64 < _suppressKeyboardUntil)
             {
                 e.Handled = true;
                 return;
@@ -358,7 +369,7 @@ public sealed class GamepadNavigation : IDisposable
             // The control consumes this key itself. Still arm the opposite input
             // source so the SDL edge for the same physical press cannot apply a
             // second value change a few milliseconds later.
-            _suppressPadUntil = DateTime.UtcNow + CrossSourceSuppression;
+            _suppressPadUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
             return;
         }
         e.Handled = true;
@@ -366,11 +377,11 @@ public sealed class GamepadNavigation : IDisposable
         // arrive near-simultaneously; don't double-step. Whichever lands first
         // moves and suppresses the other: the pad already arms the keyboard window,
         // so when the arrow leads it must arm the pad window symmetrically.
-        if (DateTime.UtcNow < _suppressKeyboardUntil)
+        if (Environment.TickCount64 < _suppressKeyboardUntil)
         {
             return;
         }
-        _suppressPadUntil = DateTime.UtcNow + CrossSourceSuppression;
+        _suppressPadUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
         MoveFocus(direction.Value);
     }
 
@@ -431,6 +442,9 @@ public sealed class GamepadNavigation : IDisposable
         {
             input.Focus(NavigationMethod.Directional);
             _lastFocused = input;
+            // The move landed, so the next edge in any direction is a new event
+            // and gets its own log line.
+            _loggedEdgeHandoff = null;
         }
         else
         {
@@ -438,7 +452,14 @@ public sealed class GamepadNavigation : IDisposable
             // window (the keyboard beside the sidebar) if one is there.
             if (_onEdge is not null)
             {
-                Log.Info($"Gamepad nav: window edge in the {direction} direction; invoking peer handoff.");
+                // Log the attempted direction before transferring focus, but only
+                // once per sustained push: a direction held against an edge repeats
+                // every 150 ms and would flood the device log.
+                if (_loggedEdgeHandoff != direction)
+                {
+                    _loggedEdgeHandoff = direction;
+                    Log.Info($"Gamepad nav: window edge in the {direction} direction; invoking peer handoff.");
+                }
                 _onEdge(direction);
                 return;
             }
