@@ -255,21 +255,41 @@ internal static class Program
                 return 1;
             }
 
+            // Track the whole tree, not just the process Steam's command names: a
+            // launcher that spawns the real game and exits would otherwise end this
+            // child seconds in, which releases the elevated parent's Steam Input
+            // lease mid-session and tells Steam the game stopped.
+            using var job = JobObject.TryCapture(process.Handle);
+
             await PipeProtocol.WriteInt32Async(pipe, 1, handshake.Token);
             await PipeProtocol.WriteInt32Async(pipe, process.Id, handshake.Token);
             await pipe.FlushAsync(handshake.Token);
             launchResponseSent = true;
             LaunchLog.Info($"Launched {Path.GetFileName(payload.Arguments[0])} at medium integrity " +
-                              $"(pid {process.Id}); preserving Steam wrapper lifetime.");
+                              $"(pid {process.Id}); preserving Steam wrapper lifetime" +
+                              $"{(job is null ? "" : " for its process tree")}.");
 
             using var disconnectCancellation = new CancellationTokenSource();
             var parentDisconnected = WaitForParentDisconnectAsync(pipe, disconnectCancellation.Token);
-            var processExited = process.WaitForExitAsync();
-            var completed = await Task.WhenAny(processExited, parentDisconnected);
+            using var treeCancellation = new CancellationTokenSource();
+            var targetFinished = job is null
+                ? process.WaitForExitAsync()
+                : WaitForTreeAsync(process, job, treeCancellation.Token);
+            var completed = await Task.WhenAny(targetFinished, parentDisconnected);
             if (completed == parentDisconnected)
             {
                 LaunchLog.Info($"Steam wrapper exited before target pid {process.Id}; stopping its process tree.");
-                try { process.Kill(entireProcessTree: true); } catch { }
+                treeCancellation.Cancel();
+                // The job reaches descendants whose intermediate parent already
+                // exited, which Kill(entireProcessTree) cannot.
+                if (job is not null)
+                {
+                    job.TerminateTree();
+                }
+                else
+                {
+                    try { process.Kill(entireProcessTree: true); } catch { }
+                }
                 await process.WaitForExitAsync();
                 return 1;
             }
@@ -298,9 +318,27 @@ internal static class Program
         {
             return 1;
         }
+        using var job = JobObject.TryCapture(process.Handle);
         LaunchLog.Info($"Wrapper already has medium integrity; target started directly (pid {process.Id}).");
-        await process.WaitForExitAsync();
+        if (job is null)
+        {
+            await process.WaitForExitAsync();
+        }
+        else
+        {
+            await WaitForTreeAsync(process, job, CancellationToken.None);
+        }
         return process.ExitCode;
+    }
+
+    /// <summary>Waits for the started process AND anything it spawned, so a game
+    /// behind a launcher keeps the wrapper (and with it Steam's idea of a running
+    /// game, and any held Steam Input lease) alive for its real lifetime.</summary>
+    private static async Task WaitForTreeAsync(
+        Process process, JobObject job, CancellationToken cancellationToken)
+    {
+        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        await job.WaitUntilEmptyAsync(cancellationToken).ConfigureAwait(false);
     }
 
     internal static Process? Start(LaunchPayload payload)
