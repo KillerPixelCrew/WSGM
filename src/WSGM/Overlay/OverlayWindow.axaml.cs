@@ -589,19 +589,32 @@ public partial class OverlayWindow : Window
                 // Snapshot BEFORE the write: configuring a shortcut overwrites its
                 // Target, so this becomes the only record of the real program. When
                 // the game is already wrapped (the user is switching modes) the
-                // values on screen are WSGM's own — keep the first snapshot instead.
+                // values on screen are WSGM's own — keep the first snapshot instead,
+                // and when there is none (the command was pasted by hand, or the
+                // config was reset) unwrap them rather than recording the wrapper as
+                // the "original", which would make Remove restore the wrapper itself.
+                var originals = SteamLaunchConfig.OriginalsFrom(isShortcut, details);
                 var wrapped = SteamLaunchConfig.ModeFor(isShortcut, details) != LaunchWrapperMode.None;
+                if (wrapped && existing is null && isShortcut
+                    && string.IsNullOrWhiteSpace(originals.Target))
+                {
+                    // A wrapped shortcut whose real program cannot be recovered has
+                    // no restorable state; writing WSGM's own values as the original
+                    // would strand it permanently.
+                    button.Title = "Can't read the original program";
+                    Log.Warn($"Launch fix refused for {name} ({appId}): the shortcut is already "
+                        + "wrapped and its original target could not be recovered.");
+                    return;
+                }
                 var snapshot = wrapped && existing is not null
                     ? existing
                     : new LaunchWrapperConfig
                     {
                         AppId = appId,
                         IsShortcut = isShortcut,
-                        OriginalTarget = details.ShortcutTarget,
-                        OriginalLaunchOptions = isShortcut
-                            ? details.ShortcutArguments
-                            : details.LaunchOptions,
-                        OriginalStartDir = details.ShortcutStartDir,
+                        OriginalTarget = originals.Target,
+                        OriginalLaunchOptions = originals.LaunchOptions,
+                        OriginalStartDir = originals.StartDir,
                     };
                 snapshot.Mode = mode;
                 snapshot.Name = name;

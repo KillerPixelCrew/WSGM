@@ -85,6 +85,49 @@ public sealed class LaunchWrapperTests
     public void OriginalLaunchOptionsLeaveAnUnwrappedValueAlone()
         => Assert.Equal("-dx11", LaunchWrapperCommand.OriginalLaunchOptions("  -dx11  "));
 
+    // A game can be wrapped without WSGM holding a snapshot — the user pasted the
+    // copied command, or the configuration was reset. Snapshotting the values on
+    // screen would record the wrapper as the "original" and make Remove restore it.
+    [Fact]
+    public void OriginalsFromUnwrapAWrappedTitleSoTheSnapshotIsTheUsersOwnOptions()
+    {
+        var wrapped = LaunchWrapperCommand.SteamLaunchOptions(
+            Helper, LaunchWrapperMode.Both, "-dx11");
+        var details = new SteamLaunchDetails(wrapped, "", "", "");
+
+        var originals = SteamLaunchConfig.OriginalsFrom(isShortcut: false, details);
+
+        Assert.Equal("-dx11", originals.LaunchOptions);
+    }
+
+    [Fact]
+    public void OriginalsFromUnwrapAWrappedShortcutBackToItsRealProgram()
+    {
+        var details = new SteamLaunchDetails(
+            "",
+            LaunchWrapperCommand.ShortcutTarget(Helper),
+            LaunchWrapperCommand.ShortcutArguments(
+                LaunchWrapperMode.Deelevate, "\"D:\\Games\\game.exe\"", "-windowed"),
+            "D:\\Games");
+
+        var originals = SteamLaunchConfig.OriginalsFrom(isShortcut: true, details);
+
+        Assert.Equal("\"D:\\Games\\game.exe\"", originals.Target);
+        Assert.Equal("-windowed", originals.LaunchOptions);
+        Assert.Equal("D:\\Games", originals.StartDir);
+    }
+
+    [Fact]
+    public void OriginalsFromLeaveAnUnwrappedGameUntouched()
+    {
+        var details = new SteamLaunchDetails("-dx11", "\"D:\\g\\game.exe\"", "-mod", "D:\\g");
+
+        var originals = SteamLaunchConfig.OriginalsFrom(isShortcut: false, details);
+
+        Assert.Equal("\"D:\\g\\game.exe\"", originals.Target);
+        Assert.Equal("-dx11", originals.LaunchOptions);
+    }
+
     // Steam stores a shortcut's Target verbatim and its own shortcuts carry the
     // quoted form, so the quotes are part of the value WSGM has to write.
     [Fact]

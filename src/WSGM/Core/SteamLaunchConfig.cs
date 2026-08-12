@@ -228,6 +228,34 @@ public static class SteamLaunchConfig
             : LaunchWrapperMode.None;
     }
 
+    /// <summary>Derives what a game's launch configuration looked like before any
+    /// wrapper was written into it, so a snapshot taken for an already-wrapped game
+    /// records the real program rather than WSGM's own values. Needed whenever a
+    /// game is wrapped but WSGM holds no snapshot: the command was pasted by hand
+    /// from the clipboard fallback, or the configuration was restored/reset.</summary>
+    /// <param name="isShortcut">Whether the entry is a non-Steam shortcut.</param>
+    /// <param name="details">The game's current configuration, from <see cref="ReadAsync"/>.</param>
+    /// <returns>The pre-wrapper target, launch options/arguments and start directory.
+    /// An unwrapped game's values are returned unchanged.</returns>
+    public static (string Target, string LaunchOptions, string StartDir) OriginalsFrom(
+        bool isShortcut, SteamLaunchDetails details)
+    {
+        if (ModeFor(isShortcut, details) == LaunchWrapperMode.None)
+        {
+            return (details.ShortcutTarget, isShortcut
+                ? details.ShortcutArguments
+                : details.LaunchOptions, details.ShortcutStartDir);
+        }
+        if (!isShortcut)
+        {
+            return (details.ShortcutTarget,
+                LaunchWrapperCommand.OriginalLaunchOptions(details.LaunchOptions),
+                details.ShortcutStartDir);
+        }
+        var (target, arguments) = OriginalFromWrappedArguments(details.ShortcutArguments);
+        return (target, arguments, details.ShortcutStartDir);
+    }
+
     /// <summary>Recovers the program a wrapped shortcut actually runs.</summary>
     /// <param name="arguments">The shortcut's current Launch Arguments.</param>
     /// <returns>The original target and its own arguments, both empty when the value
