@@ -64,8 +64,11 @@ public sealed class ShellSession
         _modes = new SessionModes(_config, _monitor);
         // Session-lifetime on purpose (survives desktop trips): a Steam download must
         // keep the device awake in both modes, and the manual hold belongs to the user.
-        _keepAwake = KeepAwakeService.StartNew(
-            _monitor, _config.Cef.Enabled && _config.Cef.DownloadKeepAwake);
+        // The automatic side is off in overlay-test mode: its poll drives the live
+        // Steam client over CEF (and would write the debug flag into a Steam install
+        // that never opted in), which the safe local modes must not do. The manual
+        // toggle still works there — it only takes a local power request.
+        _keepAwake = KeepAwakeService.StartNew(_monitor, AutoKeepAwakeEnabled(_config));
         _overlay = new OverlayController(_config, _monitor, _modes, _keepAwake);
 
         // The tray host must never coexist with explorer's taskbar (Z-order war
@@ -443,6 +446,13 @@ public sealed class ShellSession
         });
     }
 
+    /// <summary>Whether the automatic download wake lock may poll Steam: its CEF
+    /// query is autonomous Steam traffic, so it stays off in overlay-test mode
+    /// alongside the other injections that mode excludes.</summary>
+    /// <param name="config">The configuration to read the gates from.</param>
+    private bool AutoKeepAwakeEnabled(AppConfig config)
+        => !_overlayTestOnly && config.Cef.Enabled && config.Cef.DownloadKeepAwake;
+
     /// <summary>Starts or stops the Big Picture Wi-Fi indicator to match a reloaded
     /// configuration. Without this the feed keeps running (and keeps being recreated
     /// on every game-mode entry) after the user turns the toggle off, because the
@@ -494,7 +504,7 @@ public sealed class ShellSession
                     ApplyNetworkIndicator(config.Cef.Enabled && config.Cef.WifiIndicator);
                     _overlay?.ApplyConfig(config);
                     _startupWatcher?.Apply(config.StartupApps);
-                    _keepAwake?.ApplyConfig(config.Cef.Enabled && config.Cef.DownloadKeepAwake);
+                    _keepAwake?.ApplyConfig(AutoKeepAwakeEnabled(config));
                 });
             // Changed/Renamed fire on threadpool threads — the swap must be locked
             // so two near-simultaneous events can't both dispose the same timer and
