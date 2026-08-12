@@ -173,22 +173,48 @@ public sealed class OverlayViewModel : INotifyPropertyChanged
         set { _sleepAcTimeout = value; Raise(nameof(SleepAcTimeout)); }
     }
 
+    private bool _showLibraryTabs = true;
+    private bool _showCardManager = true;
+    private bool _showArtwork = true;
+    private bool _showSdCard = true;
+    private bool _configureLaunchOptionsLive = true;
+
+    // Settable, not init-only: a config saved from another process while the panel
+    // is open must be able to hide a feature the user just turned off, instead of
+    // leaving a button that drives a now-disabled integration until the next reopen.
+
     /// <summary>Whether the CEF library-tabs builder button is shown
-    /// (<c>Cef.Enabled &amp;&amp; Cef.LibraryTabs</c>). Set per show; a hidden button
-    /// removes the only entry point to that CEF feature.</summary>
-    public bool ShowLibraryTabs { get; init; } = true;
+    /// (<c>Cef.Enabled &amp;&amp; Cef.LibraryTabs</c>). A hidden button removes the
+    /// only entry point to that CEF feature.</summary>
+    public bool ShowLibraryTabs
+    {
+        get => _showLibraryTabs;
+        set { _showLibraryTabs = value; Raise(nameof(ShowLibraryTabs)); Raise(nameof(ShowSteamLibrarySection)); }
+    }
 
     /// <summary>Whether the CEF SD-card library-manager button is shown
     /// (<c>Cef.Enabled &amp;&amp; Cef.CardManager</c>).</summary>
-    public bool ShowCardManager { get; init; } = true;
+    public bool ShowCardManager
+    {
+        get => _showCardManager;
+        set { _showCardManager = value; Raise(nameof(ShowCardManager)); Raise(nameof(ShowSteamLibrarySection)); }
+    }
 
     /// <summary>Whether the CEF shortcut-artwork button is shown
     /// (<c>Cef.Enabled &amp;&amp; Cef.Artwork</c>).</summary>
-    public bool ShowArtwork { get; init; } = true;
+    public bool ShowArtwork
+    {
+        get => _showArtwork;
+        set { _showArtwork = value; Raise(nameof(ShowArtwork)); Raise(nameof(ShowSteamLibrarySection)); }
+    }
 
     /// <summary>Whether the CEF Format-SD-card and Add-library buttons are shown
     /// (<c>Cef.Enabled &amp;&amp; Cef.SdFormat</c>).</summary>
-    public bool ShowSdCard { get; init; } = true;
+    public bool ShowSdCard
+    {
+        get => _showSdCard;
+        set { _showSdCard = value; Raise(nameof(ShowSdCard)); Raise(nameof(ShowSteamLibrarySection)); }
+    }
 
     /// <summary>Whether the "STEAM LIBRARY" tools section has any visible button, so
     /// its header is hidden rather than left orphaned when every CEF feature is off.</summary>
@@ -198,7 +224,16 @@ public sealed class OverlayViewModel : INotifyPropertyChanged
     /// <summary>Whether the launch-wrapper buttons configure the selected game in the
     /// running Steam client (<c>Cef.Enabled</c>) instead of copying a command to the
     /// clipboard for the user to paste by hand.</summary>
-    public bool ConfigureLaunchOptionsLive { get; init; } = true;
+    public bool ConfigureLaunchOptionsLive
+    {
+        get => _configureLaunchOptionsLive;
+        set
+        {
+            _configureLaunchOptionsLive = value;
+            Raise(nameof(ConfigureLaunchOptionsLive));
+            Raise(nameof(ShowRemoveLaunchWrapper));
+        }
+    }
 
     /// <summary>Whether the "remove wrappers" row is shown — only meaningful when WSGM
     /// can write the launch configuration itself.</summary>

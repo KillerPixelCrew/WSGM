@@ -254,6 +254,11 @@ public sealed class OverlayController : IDisposable
             // Keep the open panel's footer glyphs in step with the (already live)
             // Nintendo A/B input mapping.
             _overlayViewModel.GlyphStyle = config.GlyphStyle;
+            // A feature the user just turned off must lose its button now, not at the
+            // next reopen: pressing one would drive an integration that is already
+            // disabled and answer with an unreachable-Steam warning.
+            ApplyCefVisibility(_overlayViewModel, config);
+            _overlay?.RefreshLaunchFixLabels();
         }
         if (_overlay is not null || _taskbar is not null)
         {
@@ -300,6 +305,21 @@ public sealed class OverlayController : IDisposable
                 SetWarning(warning);
             }
         });
+    }
+
+    /// <summary>Hides each CEF feature's sidebar button when that feature is off, so
+    /// a disabled integration has no entry point. With CEF off entirely the
+    /// launch-wrapper buttons fall back to copying the command instead of
+    /// disappearing, which keeps them useful.</summary>
+    /// <param name="vm">The panel's view model.</param>
+    /// <param name="config">The configuration to read the gates from.</param>
+    private static void ApplyCefVisibility(OverlayViewModel vm, AppConfig config)
+    {
+        vm.ShowLibraryTabs = config.Cef.Enabled && config.Cef.LibraryTabs;
+        vm.ShowCardManager = config.Cef.Enabled && config.Cef.CardManager;
+        vm.ShowArtwork = config.Cef.Enabled && config.Cef.Artwork;
+        vm.ShowSdCard = config.Cef.Enabled && config.Cef.SdFormat;
+        vm.ConfigureLaunchOptionsLive = config.Cef.Enabled;
     }
 
     /// <summary>Reads the four idle timeouts from the active power scheme into the
@@ -589,18 +609,11 @@ public sealed class OverlayController : IDisposable
             HomeAppName = "Steam",
             GlyphStyle = _config.GlyphStyle,
             WarningText = _pendingWarning,
-            // Hide each CEF feature's sidebar button when that feature is off.
-            ShowLibraryTabs = _config.Cef.Enabled && _config.Cef.LibraryTabs,
-            ShowCardManager = _config.Cef.Enabled && _config.Cef.CardManager,
-            ShowArtwork = _config.Cef.Enabled && _config.Cef.Artwork,
-            ShowSdCard = _config.Cef.Enabled && _config.Cef.SdFormat,
-            // With CEF off the launch-wrapper buttons fall back to copying the
-            // command, so they stay useful rather than disappearing.
-            ConfigureLaunchOptionsLive = _config.Cef.Enabled,
             ShowKeepAwake = _keepAwake is not null,
             KeepAwakeManualMode = _keepAwake?.ManualMode ?? ManualWakeMode.Off,
             KeepAwakeDownloadActive = _keepAwake?.DownloadHold ?? false,
         };
+        ApplyCefVisibility(vm, _config);
         RefreshPowerTimeouts(vm);
 
         _overlayViewModel = vm;

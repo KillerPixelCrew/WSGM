@@ -447,9 +447,19 @@ public partial class OverlayWindow : Window
 
     // ---- Per-game launch fixes ----
 
-    // Set once, from the view model, because the same buttons do two different
-    // things: with CEF on they configure the game in the running Steam client, with
-    // CEF off they fall back to copying the command for the user to paste.
+    /// <summary>Re-labels the launch-fix rows for the current CEF state. Called when
+    /// a config reload flips live configuration on or off under an open panel.</summary>
+    internal void RefreshLaunchFixLabels()
+    {
+        if (DataContext is OverlayViewModel viewModel)
+        {
+            InitializeLaunchFixLabels(viewModel);
+        }
+    }
+
+    // Set from the view model, because the same buttons do two different things:
+    // with CEF on they configure the game in the running Steam client, with CEF off
+    // they fall back to copying the command for the user to paste.
     private void InitializeLaunchFixLabels(OverlayViewModel viewModel)
     {
         var live = viewModel.ConfigureLaunchOptionsLive;
