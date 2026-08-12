@@ -20,6 +20,7 @@ public sealed class OverlayController : IDisposable
     private AppConfig _config;
     private readonly SteamMonitor? _monitor;
     private readonly SessionModes _modes;
+    private readonly KeepAwakeService? _keepAwake;
     private readonly HotkeyService _hotkey;
     private readonly GamepadService _gamepad = new();
     private readonly GamepadChordWatcher _chordWatcher;
@@ -42,11 +43,19 @@ public sealed class OverlayController : IDisposable
     /// <param name="config">The initial shell configuration.</param>
     /// <param name="monitor">The optional Steam lifecycle monitor shared by the shell.</param>
     /// <param name="modes">The session-mode coordinator that performs requested transitions.</param>
-    public OverlayController(AppConfig config, SteamMonitor? monitor, SessionModes modes)
+    /// <param name="keepAwake">The optional session keep-awake service behind the Power
+    /// tab's toggle; null (the Settings preview overlay) hides the row.</param>
+    public OverlayController(AppConfig config, SteamMonitor? monitor, SessionModes modes,
+        KeepAwakeService? keepAwake = null)
     {
         _config = config;
         _monitor = monitor;
         _modes = modes;
+        _keepAwake = keepAwake;
+        if (_keepAwake is not null)
+        {
+            _keepAwake.StateChanged += OnKeepAwakeStateChanged;
+        }
         _modes.SteamStartFailed += WarnOrReopen;
         SteamInputBlocker.RecoveryWarningRaised += OnSteamInputRecoveryWarning;
 
@@ -292,6 +301,80 @@ public sealed class OverlayController : IDisposable
         });
     }
 
+    /// <summary>Reads the four idle timeouts from the active power scheme into the
+    /// Power tab's badges ("—" when the power API gives no answer).</summary>
+    private static void RefreshPowerTimeouts(OverlayViewModel vm)
+    {
+        static string Format(int? seconds)
+            => seconds is null ? "—" : PowerTimeouts.Describe(seconds.Value);
+        vm.DisplayDcTimeout = Format(PowerTimeouts.Read(PowerTimeoutKind.DisplayDc));
+        vm.DisplayAcTimeout = Format(PowerTimeouts.Read(PowerTimeoutKind.DisplayAc));
+        vm.SleepDcTimeout = Format(PowerTimeouts.Read(PowerTimeoutKind.SleepDc));
+        vm.SleepAcTimeout = Format(PowerTimeouts.Read(PowerTimeoutKind.SleepAc));
+    }
+
+    /// <summary>Mirrors keep-awake hold changes (poll loop or toggle, any thread)
+    /// into an open panel's view model.</summary>
+    private void OnKeepAwakeStateChanged()
+        => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            if (_disposed || _overlayViewModel is null || _keepAwake is null)
+            {
+                return;
+            }
+            _overlayViewModel.KeepAwakeManualMode = _keepAwake.ManualMode;
+            _overlayViewModel.KeepAwakeDownloadActive = _keepAwake.DownloadHold;
+        });
+
+    private Avalonia.Threading.DispatcherTimer? _wakeLockRefresh;
+    private string? _lastWakeLockError;
+
+    /// <summary>Polls the system-wide power-request list into the Keep Awake row's
+    /// WakeWatch-style dot while the panel is open (~65 µs syscall, WakeWatch runs
+    /// it at 1 Hz permanently). Started per ShowOverlay, stopped with the panel.</summary>
+    private void StartWakeLockRefresh()
+    {
+        if (_keepAwake is null)
+        {
+            return;
+        }
+        if (_wakeLockRefresh is null)
+        {
+            // Parameterless ctor + explicit Start (the 3-arg ctor auto-starts and
+            // defeats IsEnabled guards — device-verified invariant).
+            _wakeLockRefresh = new Avalonia.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(1500),
+            };
+            _wakeLockRefresh.Tick += (_, _) => RefreshWakeLockIndicator();
+        }
+        _wakeLockRefresh.Start();
+    }
+
+    private void StopWakeLockRefresh() => _wakeLockRefresh?.Stop();
+
+    private void RefreshWakeLockIndicator()
+    {
+        if (_disposed || _overlay is null || _overlayViewModel is null || _keepAwake is null)
+        {
+            return;
+        }
+        var (entries, error) = Interop.PowerRequestList.Query();
+        if (error != _lastWakeLockError)
+        {
+            // Log transitions only — this ticks every 1.5 s while the panel is open.
+            _lastWakeLockError = error;
+            if (error is not null)
+            {
+                Log.Warn($"Wake lock indicator unavailable: {error}.");
+            }
+        }
+        var (state, summary) = WakeLockStatus.Compute(
+            entries, (uint)Environment.ProcessId);
+        _overlayViewModel.WakeLockSummary = summary;
+        _overlay.SetKeepAwakeStatus(state);
+    }
+
     private bool _leaseReleased;
     private Task? _leaseAcquireTask;
     private Task? _leaseReleaseTask;
@@ -484,6 +567,11 @@ public sealed class OverlayController : IDisposable
                 // or the desktop may have changed while the panel stayed open.
                 _overlayViewModel.ExplorerRunning = ExplorerControl.IsRunningInSession();
                 _overlayViewModel.HomeAppAlive = _monitor?.IsAlive ?? false;
+                _overlayViewModel.KeepAwakeManualMode = _keepAwake?.ManualMode ?? ManualWakeMode.Off;
+                _overlayViewModel.KeepAwakeDownloadActive = _keepAwake?.DownloadHold ?? false;
+                RefreshPowerTimeouts(_overlayViewModel);
+                RefreshWakeLockIndicator();
+                StartWakeLockRefresh();
             }
             _overlay.Activate();
             if (_touchSwipes is not null)
@@ -508,7 +596,11 @@ public sealed class OverlayController : IDisposable
             // With CEF off the launch-wrapper buttons fall back to copying the
             // command, so they stay useful rather than disappearing.
             ConfigureLaunchOptionsLive = _config.Cef.Enabled,
+            ShowKeepAwake = _keepAwake is not null,
+            KeepAwakeManualMode = _keepAwake?.ManualMode ?? ManualWakeMode.Off,
+            KeepAwakeDownloadActive = _keepAwake?.DownloadHold ?? false,
         };
+        RefreshPowerTimeouts(vm);
 
         _overlayViewModel = vm;
         _overlay = new OverlayWindow(vm, UiScale());
@@ -542,6 +634,24 @@ public sealed class OverlayController : IDisposable
             _modes.ExitBigPicture();
         };
         _overlay.CloseLauncherRequested += () => { _modes.CloseSteam(); vm.HomeAppAlive = false; };
+        _overlay.KeepAwakeToggleRequested += () =>
+        {
+            // The service's StateChanged callback (already subscribed) writes the
+            // resulting state back into the view model; the indicator dot follows
+            // on its own poll tick.
+            _keepAwake?.CycleManualMode();
+        };
+        _overlay.PowerTimeoutCycleRequested += kind =>
+        {
+            // Registry-fast policy reads/writes — no off-thread hop needed. A failed
+            // read leaves the row's badge at "—" rather than writing blind.
+            var current = PowerTimeouts.Read(kind);
+            if (current is not null)
+            {
+                PowerTimeouts.Write(kind, PowerTimeouts.NextPreset(current.Value));
+            }
+            RefreshPowerTimeouts(vm);
+        };
         _overlay.TaskManagerRequested += () => { _suppressFocusRestore = true; CloseOverlay(); StartTaskManager(); };
         _overlay.SettingsRequested += () =>
         {
@@ -593,6 +703,7 @@ public sealed class OverlayController : IDisposable
             _reopenOverlayForWarning = false;
             _navigation?.Dispose();
             _navigation = null;
+            StopWakeLockRefresh();
             KeyboardService.Handler = null;
             _keyboardWindow?.Close();
             // Keep polling if the controller chord or the open taskbar still needs it.
@@ -652,6 +763,8 @@ public sealed class OverlayController : IDisposable
         // Game-Bar-style: the game stops receiving input while the panel is up.
         // Safe because the Steam Input lease keeps the pad readable despite focus.
         _overlay.Activate();
+        RefreshWakeLockIndicator();
+        StartWakeLockRefresh();
         if (_touchSwipes is not null)
         {
             _touchSwipes.WatchTaps = true;
@@ -1519,6 +1632,11 @@ public sealed class OverlayController : IDisposable
         AttachTrayHost(null);
         _modes.SteamStartFailed -= WarnOrReopen;
         SteamInputBlocker.RecoveryWarningRaised -= OnSteamInputRecoveryWarning;
+        if (_keepAwake is not null)
+        {
+            // The service belongs to ShellSession; only the subscription is ours.
+            _keepAwake.StateChanged -= OnKeepAwakeStateChanged;
+        }
         if (_monitor is not null)
         {
             _monitor.SteamExited -= OnSteamExited;

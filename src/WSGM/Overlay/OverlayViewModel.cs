@@ -71,6 +71,108 @@ public sealed class OverlayViewModel : INotifyPropertyChanged
     /// <summary>Gets the destructive-action label, including confirmation state.</summary>
     public string CloseLauncherText => ConfirmingCloseLauncher ? "Really?" : $"Close {HomeAppName}";
 
+    private ManualWakeMode _keepAwakeManualMode = ManualWakeMode.Off;
+    private bool _keepAwakeDownload;
+    private string _wakeLockSummary = "";
+
+    /// <summary>Whether the keep-awake row is shown at all (a session
+    /// <c>KeepAwakeService</c> exists; the Settings preview overlay has none).</summary>
+    public bool ShowKeepAwake { get; init; }
+
+    /// <summary>The user's manual wake mode (the row cycles it).</summary>
+    public ManualWakeMode KeepAwakeManualMode
+    {
+        get => _keepAwakeManualMode;
+        set
+        {
+            _keepAwakeManualMode = value;
+            Raise(nameof(KeepAwakeManualMode));
+            Raise(nameof(KeepAwakeDescription));
+            Raise(nameof(KeepAwakeTrailing));
+        }
+    }
+
+    /// <summary>Whether the automatic download keep-awake hold is active.</summary>
+    public bool KeepAwakeDownloadActive
+    {
+        get => _keepAwakeDownload;
+        set
+        {
+            _keepAwakeDownload = value;
+            Raise(nameof(KeepAwakeDownloadActive));
+            Raise(nameof(KeepAwakeDescription));
+            Raise(nameof(KeepAwakeTrailing));
+        }
+    }
+
+    /// <summary>System-wide wake-lock holder summary from the indicator poll
+    /// (for example "Standby blocked by steam.exe ×3"); empty when free, unknown,
+    /// or when only WSGM itself holds locks.</summary>
+    public string WakeLockSummary
+    {
+        get => _wakeLockSummary;
+        set
+        {
+            _wakeLockSummary = value;
+            Raise(nameof(WakeLockSummary));
+            Raise(nameof(KeepAwakeDescription));
+        }
+    }
+
+    /// <summary>Gets the status line rendered under the keep-awake row: WSGM's own
+    /// mode first, then other holders seen by the indicator, then the cycle hint.</summary>
+    public string KeepAwakeDescription => KeepAwakeManualMode switch
+    {
+        ManualWakeMode.StandbyAndDisplay => "Standby blocked and screen kept on",
+        ManualWakeMode.Standby => "Standby blocked until you turn this off",
+        _ when KeepAwakeDownloadActive => "Held awake while Steam downloads",
+        _ when WakeLockSummary.Length > 0 => WakeLockSummary,
+        _ => "Off",
+    };
+
+    /// <summary>Gets the trailing badge for the keep-awake row ("ON" for a standby
+    /// hold, "ON+" when the display is pinned too, empty otherwise).</summary>
+    public string KeepAwakeTrailing => KeepAwakeManualMode switch
+    {
+        ManualWakeMode.StandbyAndDisplay => "ON+",
+        ManualWakeMode.Standby => "ON",
+        _ => KeepAwakeDownloadActive ? "ON" : "",
+    };
+
+    private string _displayDcTimeout = "—";
+    private string _displayAcTimeout = "—";
+    private string _sleepDcTimeout = "—";
+    private string _sleepAcTimeout = "—";
+
+    /// <summary>Current display-off timeout on battery, as a trailing badge ("5 min",
+    /// "Never", "—" when the power API gave no answer).</summary>
+    public string DisplayDcTimeout
+    {
+        get => _displayDcTimeout;
+        set { _displayDcTimeout = value; Raise(nameof(DisplayDcTimeout)); }
+    }
+
+    /// <summary>Current display-off timeout when plugged in.</summary>
+    public string DisplayAcTimeout
+    {
+        get => _displayAcTimeout;
+        set { _displayAcTimeout = value; Raise(nameof(DisplayAcTimeout)); }
+    }
+
+    /// <summary>Current standby timeout on battery.</summary>
+    public string SleepDcTimeout
+    {
+        get => _sleepDcTimeout;
+        set { _sleepDcTimeout = value; Raise(nameof(SleepDcTimeout)); }
+    }
+
+    /// <summary>Current standby timeout when plugged in.</summary>
+    public string SleepAcTimeout
+    {
+        get => _sleepAcTimeout;
+        set { _sleepAcTimeout = value; Raise(nameof(SleepAcTimeout)); }
+    }
+
     /// <summary>Whether the CEF library-tabs builder button is shown
     /// (<c>Cef.Enabled &amp;&amp; Cef.LibraryTabs</c>). Set per show; a hidden button
     /// removes the only entry point to that CEF feature.</summary>

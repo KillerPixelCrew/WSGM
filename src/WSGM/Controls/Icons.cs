@@ -64,6 +64,13 @@ public static class Icons
     public static StreamGeometry Moon { get; } =
         StreamGeometry.Parse("M 21,12.8 A 9,9 0 1 1 11.2,3 A 7,7 0 0 0 21,12.8 Z");
 
+    /// <summary>Steaming coffee mug (keep awake).</summary>
+    public static StreamGeometry Mug { get; } =
+        StreamGeometry.Parse(
+            "M 4,8 L 16,8 L 16,17 A 3,3 0 0 1 13,20 L 7,20 A 3,3 0 0 1 4,17 Z "
+                + "M 16,10.5 L 17.5,10.5 A 2.5,2.5 0 0 1 17.5,15.5 L 16,15.5 "
+                + "M 7.5,5 L 7.5,3 M 12.5,5 L 12.5,3");
+
     /// <summary>Circular arrow with an arrowhead (restart).</summary>
     public static StreamGeometry Restart { get; } =
         StreamGeometry.Parse("M 12,4 A 8,8 0 1 0 20,12 M 17.4,14.6 L 20,12 L 22.6,14.6");

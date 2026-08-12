@@ -118,6 +118,15 @@
                         <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefWifiIndicator}" VerticalAlignment="Center" />
                     </Grid>
                 </Border>
+                <Border Classes="setting-row alt" IsVisible="{Binding CefEnabled}">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel VerticalAlignment="Center" Spacing="1">
+                            <TextBlock Text="Keep awake during downloads" Classes="setting-title" />
+                            <TextBlock Text="Hold a wake lock while Steam downloads, so standby cannot interrupt them." Classes="caption" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefDownloadKeepAwake}" VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
 
                 <Border Classes="section-header">
                     <TextBlock Text="WINDOWS POLICIES" />

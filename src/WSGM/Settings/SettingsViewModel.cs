@@ -129,6 +129,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         CefSdFormat = _config.Cef.SdFormat;
         CefArtwork = _config.Cef.Artwork;
         CefWifiIndicator = _config.Cef.WifiIndicator;
+        CefDownloadKeepAwake = _config.Cef.DownloadKeepAwake;
         _hotkey = _config.Hotkey;
         _chord = _config.GamepadChord;
         GestureBottom = _config.Gestures.BottomEdge;
@@ -290,6 +291,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private bool _cefSdFormat = true;
     private bool _cefArtwork = true;
     private bool _cefWifiIndicator = true;
+    private bool _cefDownloadKeepAwake = true;
 
     /// <summary>Gets or sets the master Steam CEF integration switch. Off closes the
     /// debug port, injects nothing, and hides the sub-toggles below and the overlay
@@ -310,6 +312,10 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     /// <summary>Gets or sets the Big Picture Wi-Fi indicator.</summary>
     public bool CefWifiIndicator { get => _cefWifiIndicator; set { _cefWifiIndicator = value; Raise(nameof(CefWifiIndicator)); } }
+
+    /// <summary>Gets or sets the automatic download wake lock (keep the device awake
+    /// while Steam reports an active download).</summary>
+    public bool CefDownloadKeepAwake { get => _cefDownloadKeepAwake; set { _cefDownloadKeepAwake = value; Raise(nameof(CefDownloadKeepAwake)); } }
 
     /// <summary>Gets whether the LEGACY shell registration is still active for this
     /// account (pre-service installs). Shows the migration Restore card.</summary>
@@ -910,6 +916,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.Cef.SdFormat = CefSdFormat;
         config.Cef.Artwork = CefArtwork;
         config.Cef.WifiIndicator = CefWifiIndicator;
+        config.Cef.DownloadKeepAwake = CefDownloadKeepAwake;
         config.Hotkey = _hotkey;
         config.GamepadChord = _chord;
         config.Gestures.BottomEdge = GestureBottom;

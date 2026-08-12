@@ -689,6 +689,12 @@ public sealed class CefConfig
 
     /// <summary>Big Picture header Wi-Fi indicator (feeds Steam's <c>SystemNetworkStore</c>).</summary>
     public bool WifiIndicator { get; set; } = true;
+
+    /// <summary>Automatic wake lock while the running Steam client reports an active
+    /// download (polled over the CEF bridge), so the device finishes downloading
+    /// instead of entering standby. The quick-access Power tab's manual Keep Awake
+    /// cycle works regardless of this flag.</summary>
+    public bool DownloadKeepAwake { get; set; } = true;
 }
 
 /// <summary>Source-generated JSON metadata for the persisted <see cref="AppConfig"/> contract.</summary>

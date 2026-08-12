@@ -49,6 +49,12 @@ public partial class OverlayWindow : Window
     /// <summary>Raised when the user requests Task Manager.</summary>
     public event Action? TaskManagerRequested;
 
+    /// <summary>Raised when the keep-awake row is activated (toggle the manual hold).</summary>
+    public event Action? KeepAwakeToggleRequested;
+
+    /// <summary>Raised when an idle-timeout row is activated (cycle to the next preset).</summary>
+    public event Action<Core.PowerTimeoutKind>? PowerTimeoutCycleRequested;
+
     /// <summary>Raised when the overlay is dismissed without another action.</summary>
     public event Action? Dismissed;
 
@@ -966,6 +972,37 @@ public partial class OverlayWindow : Window
         Dismissed?.Invoke();
         Core.PowerActions.Sleep();
     }
+
+    // Deliberately no dismiss: the row is a toggle, and the updated description/badge
+    // are the immediate feedback the user is looking at.
+    private void OnKeepAwakeToggle(object? sender, RoutedEventArgs e)
+        => KeepAwakeToggleRequested?.Invoke();
+
+    /// <summary>Paints the Keep Awake row's status dot in the WakeWatch color
+    /// vocabulary: green free, yellow standby-blocked, red display-pinned, grey
+    /// unknown. Brushes come from the palette tokens; set from the controller's
+    /// indicator poll.</summary>
+    /// <param name="state">The system-wide wake-lock state.</param>
+    internal void SetKeepAwakeStatus(Core.WakeLockState state)
+        => KeepAwakeButton.StatusBrush = this.FindResource(state switch
+        {
+            Core.WakeLockState.DisplayHeld => "HcDangerBrush",
+            Core.WakeLockState.SystemHeld => "HcWarningBrush",
+            Core.WakeLockState.Free => "HcSuccessBrush",
+            _ => "HcTextMutedBrush",
+        }) as Avalonia.Media.IBrush;
+
+    private void OnCycleDisplayDc(object? sender, RoutedEventArgs e)
+        => PowerTimeoutCycleRequested?.Invoke(Core.PowerTimeoutKind.DisplayDc);
+
+    private void OnCycleDisplayAc(object? sender, RoutedEventArgs e)
+        => PowerTimeoutCycleRequested?.Invoke(Core.PowerTimeoutKind.DisplayAc);
+
+    private void OnCycleSleepDc(object? sender, RoutedEventArgs e)
+        => PowerTimeoutCycleRequested?.Invoke(Core.PowerTimeoutKind.SleepDc);
+
+    private void OnCycleSleepAc(object? sender, RoutedEventArgs e)
+        => PowerTimeoutCycleRequested?.Invoke(Core.PowerTimeoutKind.SleepAc);
 
     private void OnRestart(object? sender, RoutedEventArgs e)
     {

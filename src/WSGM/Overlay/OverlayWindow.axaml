@@ -245,6 +245,37 @@
                                       IconGeometry="{x:Static c:Icons.Moon}"
                                       Title="Sleep"
                                       Description="Put this handheld to sleep" />
+                        <c:CardButton x:Name="KeepAwakeButton" Click="OnKeepAwakeToggle"
+                                      IsVisible="{Binding ShowKeepAwake}"
+                                      IconGeometry="{x:Static c:Icons.Mug}"
+                                      Title="Keep Awake"
+                                      Description="{Binding KeepAwakeDescription}"
+                                      TrailingText="{Binding KeepAwakeTrailing}" />
+
+                        <!-- Each row cycles its timeout through the presets; the
+                             trailing badge is the current value read live from the
+                             active power scheme. -->
+                        <TextBlock Text="IDLE TIMEOUTS" Classes="eyebrow" Margin="2,6,2,2" />
+                        <c:CardButton Click="OnCycleDisplayDc"
+                                      IconGeometry="{x:Static c:Icons.Monitor}"
+                                      Title="Screen off — battery"
+                                      Description="Idle time before the display turns off"
+                                      TrailingText="{Binding DisplayDcTimeout}" />
+                        <c:CardButton Click="OnCycleDisplayAc"
+                                      IconGeometry="{x:Static c:Icons.Monitor}"
+                                      Title="Screen off — plugged in"
+                                      Description="Idle time before the display turns off"
+                                      TrailingText="{Binding DisplayAcTimeout}" />
+                        <c:CardButton Click="OnCycleSleepDc"
+                                      IconGeometry="{x:Static c:Icons.Moon}"
+                                      Title="Standby — battery"
+                                      Description="Idle time before the device sleeps"
+                                      TrailingText="{Binding SleepDcTimeout}" />
+                        <c:CardButton Click="OnCycleSleepAc"
+                                      IconGeometry="{x:Static c:Icons.Moon}"
+                                      Title="Standby — plugged in"
+                                      Description="Idle time before the device sleeps"
+                                      TrailingText="{Binding SleepAcTimeout}" />
                         <!-- The two-step confirms rewrite Title ("Really?") from
                              code-behind, same auto-revert as before. -->
                         <c:CardButton x:Name="RestartButton" Click="OnRestart"

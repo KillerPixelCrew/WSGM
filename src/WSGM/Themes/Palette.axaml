@@ -42,4 +42,5 @@
     <!-- Status -->
     <SolidColorBrush x:Key="HcDangerBrush" Color="#FFFFA0A0" />
     <SolidColorBrush x:Key="HcWarningBrush" Color="#FFFFC66D" />
+    <SolidColorBrush x:Key="HcSuccessBrush" Color="#FFA3DCA3" />
 </ResourceDictionary>

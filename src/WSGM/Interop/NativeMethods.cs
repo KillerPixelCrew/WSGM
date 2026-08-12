@@ -1,3 +1,4 @@
+using System;
 using System.Runtime.InteropServices;
 
 namespace WSGM.Interop;
@@ -425,6 +426,84 @@ internal static partial class NativeMethods
         [MarshalAs(UnmanagedType.U1)] bool hibernate,
         [MarshalAs(UnmanagedType.U1)] bool forceCritical,
         [MarshalAs(UnmanagedType.U1)] bool disableWakeEvent);
+
+    // ---- Power requests (keep-awake wake lock) ----
+    internal const uint PowerRequestContextVersion = 0;
+    internal const uint PowerRequestContextSimpleString = 0x1;
+    /// <summary>POWER_REQUEST_TYPE: PowerRequestDisplayRequired — pins the display
+    /// on (which on a Modern Standby device also keeps the system awake).</summary>
+    internal const int PowerRequestDisplayRequired = 0;
+    /// <summary>POWER_REQUEST_TYPE: PowerRequestSystemRequired — blocks automatic
+    /// sleep/standby entry while set; the display still turns off on its own timeout.</summary>
+    internal const int PowerRequestSystemRequired = 1;
+
+    /// <summary>REASON_CONTEXT with the simple-string variant of its union: the string
+    /// pointer is a caller-owned UTF-16 buffer (this struct stores the pointer only, so
+    /// the caller keeps the buffer alive for the life of the request object).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ReasonContext
+    {
+        public uint Version;
+        public uint Flags;
+        public nint SimpleReasonString;
+    }
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    internal static partial nint PowerCreateRequest(in ReasonContext context);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool PowerSetRequest(nint powerRequest, int requestType);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool PowerClearRequest(nint powerRequest, int requestType);
+
+    // ---- Power scheme values (display-off / sleep timeouts) ----
+    // Flat powrprof.dll policy API instead of parsing `powercfg /q`, whose output is
+    // localized (this codebase already learned that lesson with netstat). All return
+    // ERROR_SUCCESS (0) on success.
+    /// <summary>Returns the active scheme GUID as a LocalAlloc'd pointer the caller
+    /// must free with <see cref="LocalFree"/>.</summary>
+    [LibraryImport("powrprof.dll")]
+    internal static partial uint PowerGetActiveScheme(nint userRootPowerKey, out nint activePolicyGuid);
+
+    [LibraryImport("powrprof.dll")]
+    internal static partial uint PowerSetActiveScheme(nint userRootPowerKey, in Guid schemeGuid);
+
+    [LibraryImport("powrprof.dll")]
+    internal static partial uint PowerReadACValueIndex(
+        nint rootPowerKey, in Guid schemeGuid, in Guid subGroupGuid, in Guid powerSettingGuid,
+        out uint acValueIndex);
+
+    [LibraryImport("powrprof.dll")]
+    internal static partial uint PowerReadDCValueIndex(
+        nint rootPowerKey, in Guid schemeGuid, in Guid subGroupGuid, in Guid powerSettingGuid,
+        out uint dcValueIndex);
+
+    [LibraryImport("powrprof.dll")]
+    internal static partial uint PowerWriteACValueIndex(
+        nint rootPowerKey, in Guid schemeGuid, in Guid subGroupGuid, in Guid powerSettingGuid,
+        uint acValueIndex);
+
+    [LibraryImport("powrprof.dll")]
+    internal static partial uint PowerWriteDCValueIndex(
+        nint rootPowerKey, in Guid schemeGuid, in Guid subGroupGuid, in Guid powerSettingGuid,
+        uint dcValueIndex);
+
+    // ---- System-wide power request list (wake-lock indicator) ----
+    // The undocumented GetPowerRequestList (45) information class — what
+    // `powercfg /requests` uses internally. The documented CallNtPowerInformation
+    // wrapper REJECTS this class with STATUS_INVALID_PARAMETER, so the call goes
+    // against ntdll directly. Requires an elevated token (STATUS_ACCESS_DENIED
+    // otherwise) — same restriction as powercfg itself.
+    [LibraryImport("ntdll.dll")]
+    internal static partial int NtPowerInformation(
+        int informationLevel, nint inputBuffer, uint inputLength,
+        nint outputBuffer, uint outputLength);
+
+    [LibraryImport("ntdll.dll")]
+    internal static partial void RtlGetNtVersionNumbers(out uint major, out uint minor, out uint build);
 
     // ---- System status (taskbar clock/battery/Wi-Fi cluster) ----
     /// <summary>SYSTEM_POWER_STATUS: BatteryFlag 128 = no system battery, 255 = unknown;

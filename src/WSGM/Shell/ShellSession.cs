@@ -23,6 +23,7 @@ public sealed class ShellSession
     private VolumeButtonService? _volumeButtons;
     private CardAcfWatcher? _cardAcfWatcher;
     private NetworkIndicatorService? _networkIndicator;
+    private KeepAwakeService? _keepAwake;
     private BootSplash? _splash;
     // Replaced (not just cancelled) on every game-mode entry: a single cancelled
     // source would permanently kill boot syncing after the first desktop trip.
@@ -53,7 +54,11 @@ public sealed class ShellSession
     {
         _monitor = new SteamMonitor();
         _modes = new SessionModes(_config, _monitor);
-        _overlay = new OverlayController(_config, _monitor, _modes);
+        // Session-lifetime on purpose (survives desktop trips): a Steam download must
+        // keep the device awake in both modes, and the manual hold belongs to the user.
+        _keepAwake = KeepAwakeService.StartNew(
+            _monitor, _config.Cef.Enabled && _config.Cef.DownloadKeepAwake);
+        _overlay = new OverlayController(_config, _monitor, _modes, _keepAwake);
 
         // The tray host must never coexist with explorer's taskbar (Z-order war
         // over FindWindow — see TrayHost): gone before explorer starts, back
@@ -407,6 +412,7 @@ public sealed class ShellSession
                     SteamCef.SetMasterEnabled(config.Cef.Enabled);
                     _overlay?.ApplyConfig(config);
                     _startupWatcher?.Apply(config.StartupApps);
+                    _keepAwake?.ApplyConfig(config.Cef.Enabled && config.Cef.DownloadKeepAwake);
                 });
             // Changed/Renamed fire on threadpool threads — the swap must be locked
             // so two near-simultaneous events can't both dispose the same timer and

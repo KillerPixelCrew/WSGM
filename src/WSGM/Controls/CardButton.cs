@@ -41,6 +41,12 @@ public class CardButton : Button
         AvaloniaProperty.Register<CardButton, string?>(nameof(TrailingText));
 
     /// <summary>
+    /// Defines the <see cref="StatusBrush"/> property.
+    /// </summary>
+    public static readonly StyledProperty<IBrush?> StatusBrushProperty =
+        AvaloniaProperty.Register<CardButton, IBrush?>(nameof(StatusBrush));
+
+    /// <summary>
     /// Gets or sets the vector icon rendered at the left edge of the card,
     /// stroked with the button's foreground brush. The icon slot collapses
     /// when this is null.
@@ -81,5 +87,16 @@ public class CardButton : Button
     {
         get => GetValue(TrailingTextProperty);
         set => SetValue(TrailingTextProperty, value);
+    }
+
+    /// <summary>
+    /// Gets or sets the fill of the small status dot rendered before the trailing
+    /// text (a state indicator, for example the wake-lock colors). The dot slot
+    /// collapses when this is null.
+    /// </summary>
+    public IBrush? StatusBrush
+    {
+        get => GetValue(StatusBrushProperty);
+        set => SetValue(StatusBrushProperty, value);
     }
 }
