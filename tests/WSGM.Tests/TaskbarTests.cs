@@ -71,17 +71,23 @@ public sealed class TaskbarTests
                 y: 70,
                 triggerDistance: 48));
 
-    [Fact]
-    public void SettingsSnapshotPersistsLeftAndTopSteamGestureSwitchesIndependently()
+    // Each switch is exercised at its NON-default value in one of the two cases:
+    // both default to true, so asserting a true round trip would also pass if the
+    // snapshot never read the view model at all.
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void SettingsSnapshotPersistsLeftAndTopSteamGestureSwitchesIndependently(
+        bool left, bool top)
     {
         var viewModel = new SettingsViewModel(new AppConfig());
-        viewModel.GestureLeftSteamMenu = false;
-        viewModel.GestureTopSteamQuickAccess = true;
+        viewModel.GestureLeftSteamMenu = left;
+        viewModel.GestureTopSteamQuickAccess = top;
 
         var snapshot = viewModel.SnapshotForTest();
 
-        Assert.False(snapshot.Gestures.LeftEdgeSteamMenu);
-        Assert.True(snapshot.Gestures.TopEdgeSteamQuickAccess);
+        Assert.Equal(left, snapshot.Gestures.LeftEdgeSteamMenu);
+        Assert.Equal(top, snapshot.Gestures.TopEdgeSteamQuickAccess);
     }
 
     [Theory]
