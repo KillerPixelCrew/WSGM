@@ -61,11 +61,25 @@ public sealed class LibraryTabManager
             // strip is never pushed. Discovery, badges, and config merge below still
             // run so the SD-card manager and its badges remain independent.
             var tabsEnabled = config.Cef.Enabled && config.Cef.LibraryTabs;
-            var sync = reachable && !filterFailed && tabsEnabled
-                ? await SteamLibraryTabs.SyncTabsAsync(
+            TabSyncResult sync;
+            if (reachable && !filterFailed && tabsEnabled)
+            {
+                sync = await SteamLibraryTabs.SyncTabsAsync(
                     tabs, config.LibraryTabOrder, config.HiddenNativeTabs, cancellationToken)
-                    .ConfigureAwait(false)
-                : new TabSyncResult(false, []);
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                sync = new TabSyncResult(false, []);
+                if (reachable && !tabsEnabled)
+                {
+                    // Turning the sub-toggle off has to retract, not merely stop
+                    // pushing: the resident script keeps rendering the tabs that were
+                    // already injected, so without this the setting appears to do
+                    // nothing until a desktop trip or a Steam restart clears them.
+                    await SteamLibraryTabs.DisableAsync(cancellationToken).ConfigureAwait(false);
+                }
+            }
             var ok = sync.Ok;
 
             // One-time migration off the old collection approach: delete any collections
@@ -312,9 +326,15 @@ public sealed class LibraryTabManager
         AppConfig config, CancellationToken cancellationToken)
     {
         // CEF SD-card-manager feature gate (master + sub-toggle): the "On: <card>"
-        // badges are part of that feature, so skip pushing them when it is off.
+        // badges are part of that feature, so retract them when it is off. Merely
+        // skipping the push would leave the resident observer and the last map in
+        // place, so the toggle would look ignored for the rest of the session.
         if (!(config.Cef.Enabled && config.Cef.CardManager))
         {
+            if (config.Cef.Enabled)
+            {
+                await SteamPageBridge.DisableBadgeAsync(cancellationToken).ConfigureAwait(false);
+            }
             return false;
         }
         try
