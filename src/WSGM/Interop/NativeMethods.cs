@@ -69,6 +69,39 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll")]
     internal static partial short GetAsyncKeyState(int vKey);
 
+    // ---- Synthetic keyboard input (Steam Big Picture's own Ctrl+1/Ctrl+2 shortcuts) ----
+    internal const uint InputKeyboard = 1;
+    internal const uint KeyEventKeyUp = 0x0002;
+    internal const ushort VkControl = 0x11;
+    internal const short KeyDownState = unchecked((short)0x8000);
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct InputRecord
+    {
+        public uint type;
+        public InputUnion data;
+    }
+
+    [StructLayout(LayoutKind.Explicit, Size = 32)]
+    internal struct InputUnion
+    {
+        [FieldOffset(0)]
+        public KeyboardInputData keyboard;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct KeyboardInputData
+    {
+        public ushort virtualKey;
+        public ushort scanCode;
+        public uint flags;
+        public uint time;
+        public nuint extraInfo;
+    }
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    internal static partial uint SendInput(uint inputCount, [In] InputRecord[] inputs, int inputSize);
+
     // ---- Message-only window ----
     internal const nint HwndMessage = -3;
 

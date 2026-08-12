@@ -227,8 +227,10 @@ events). UI-thread 16 ms `DispatcherTimer` poll → edge-triggered `ButtonPresse
 auto-repeat) and full-state `StateChanged` (chords) → `GamepadNavigation` (focus movement through
 tab order, synthesized Enter to activate, arrow-key mirror with 100 ms dedupe, skips TextBoxes so
 the touch keyboard doesn't pop) and `GamepadChordWatcher`. `Overlay\TouchSwipeMonitor` observes the
-raw HID digitizer (`RIDEV_INPUTSINK`, observation only) for edge swipes _and_ tap-outside-overlay
-dismissal.
+raw HID digitizer (`RIDEV_INPUTSINK`, observation only) for four configurable edge swipes _and_
+tap-outside-overlay dismissal. Bottom/right retain WSGM's taskbar/quick-access actions; left/top
+always send Steam's installed-client keyboard mappings Ctrl+1 (Steam menu) / Ctrl+2 (Quick Access
+Menu), including while a game is foreground — bringing Steam's menu over the game is their purpose.
 
 **Steam integration** (`Core\Steam.cs`, `Core\SteamInputBlocker.cs`, `Shell\SessionModes.cs`,
 `Overlay\OverlayController.cs`): everything is protocol URLs — start/focus =

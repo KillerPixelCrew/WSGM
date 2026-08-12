@@ -68,7 +68,7 @@ public enum EdgeAction
     Taskbar,
 }
 
-/// <summary>Controls the raw-input edge-swipe activation areas for quick access.</summary>
+/// <summary>Controls the raw-input edge-swipe activation areas.</summary>
 public sealed class GestureConfig
 {
     /// <summary>Whether a swipe from the bottom edge is recognized.</summary>
@@ -76,6 +76,13 @@ public sealed class GestureConfig
 
     /// <summary>Whether a swipe from the right edge opens the overlay.</summary>
     public bool RightEdge { get; set; } = true;
+
+    /// <summary>Whether a swipe from the left edge opens Steam's Big Picture menu.</summary>
+    public bool LeftEdgeSteamMenu { get; set; } = true;
+
+    /// <summary>Whether a swipe from the top edge opens Steam's Big Picture quick-access menu.</summary>
+    public bool TopEdgeSteamQuickAccess { get; set; } = true;
+
     /// <summary>Strip thickness in physical pixels.</summary>
     public int StripThickness { get; set; } = 16;
 

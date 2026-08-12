@@ -133,6 +133,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         _chord = _config.GamepadChord;
         GestureBottom = _config.Gestures.BottomEdge;
         GestureRight = _config.Gestures.RightEdge;
+        GestureLeftSteamMenu = _config.Gestures.LeftEdgeSteamMenu;
+        GestureTopSteamQuickAccess = _config.Gestures.TopEdgeSteamQuickAccess;
         BottomEdgeActionIndex = (int)_config.Gestures.BottomEdgeAction;
         GlyphStyleIndex = (int)_config.GlyphStyle;
         AccentColorHex = _config.AccentColor;
@@ -525,7 +527,10 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     public void ClearChord() => ApplyRecordedChord(0, false);
 
     // --- Gestures / glyphs ---
-    private bool _gestureBottom, _gestureRight;
+    private bool _gestureBottom;
+    private bool _gestureRight;
+    private bool _gestureLeftSteamMenu;
+    private bool _gestureTopSteamQuickAccess;
     private int _glyphStyleIndex;
 
     /// <summary>Gets or sets whether a bottom-edge swipe opens the overlay.</summary>
@@ -533,6 +538,12 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     /// <summary>Gets or sets whether a right-edge swipe opens the overlay.</summary>
     public bool GestureRight { get => _gestureRight; set { _gestureRight = value; Raise(nameof(GestureRight)); } }
+
+    /// <summary>Gets or sets whether a left-edge swipe opens Steam's Big Picture menu.</summary>
+    public bool GestureLeftSteamMenu { get => _gestureLeftSteamMenu; set { _gestureLeftSteamMenu = value; Raise(nameof(GestureLeftSteamMenu)); } }
+
+    /// <summary>Gets or sets whether a top-edge swipe opens Steam's Big Picture quick-access menu.</summary>
+    public bool GestureTopSteamQuickAccess { get => _gestureTopSteamQuickAccess; set { _gestureTopSteamQuickAccess = value; Raise(nameof(GestureTopSteamQuickAccess)); } }
 
     private int _bottomEdgeActionIndex;
     /// <summary>Gets or sets the selected bottom-edge swipe action index
@@ -903,6 +914,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.GamepadChord = _chord;
         config.Gestures.BottomEdge = GestureBottom;
         config.Gestures.RightEdge = GestureRight;
+        config.Gestures.LeftEdgeSteamMenu = GestureLeftSteamMenu;
+        config.Gestures.TopEdgeSteamQuickAccess = GestureTopSteamQuickAccess;
         config.Gestures.BottomEdgeAction = (EdgeAction)Math.Clamp(BottomEdgeActionIndex, 0, 1);
         config.GlyphStyle = (GlyphStyle)Math.Clamp(GlyphStyleIndex, 0, 2);
         config.AccentColor = AccentColorHex;

@@ -7,6 +7,8 @@ Steam Input lease and focus handover.
   before opening a surface and release it only after the last surface closes.
 - Preserve the 150 ms deferred close and touch-synthesized mouse filtering; removing either causes
   ghost clicks on controls behind the overlay.
+- Raw-touch left/top gestures always emit Steam's Ctrl+1/Ctrl+2 Big Picture shortcuts, including
+  while a game is foreground; bringing Steam's menu over the game is their purpose.
 - Peer keyboard focus is part of the active sub-view: include its bounds in tap hit-testing, keep
   only one navigation active, and invalidate asynchronous picker loads when navigation changes.
 - Artwork operations snapshot both the target app and navigation generation across awaits; bound

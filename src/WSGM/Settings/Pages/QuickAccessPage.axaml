@@ -5,7 +5,8 @@
              x:DataType="s:SettingsViewModel">
     <!-- Quick access + taskbar surfaces. Element order preserved (controller tab
          order): panel test → taskbar test → lease toggle → glyph style →
-         hotkey recorder → chord recorder → bottom edge → right edge. -->
+         hotkey recorder → chord recorder → bottom edge → right edge →
+         Steam menu edge → Steam QAM edge. -->
     <Border Padding="16,10,16,10">
         <Grid ColumnDefinitions="*,24,*">
             <StackPanel Grid.Column="0">
@@ -52,7 +53,7 @@
 
             <StackPanel Grid.Column="2">
                 <Border Classes="section-header">
-                    <TextBlock Text="OPEN QUICK ACCESS" />
+                    <TextBlock Text="SHORTCUTS &amp; SWIPES" />
                 </Border>
                 <Border Classes="setting-row alt">
                     <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
@@ -91,6 +92,24 @@
                             <TextBlock Text="Open the panel with a short leftward swipe." Classes="caption" />
                         </StackPanel>
                         <ToggleSwitch Grid.Column="1" IsChecked="{Binding GestureRight}" VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+                <Border Classes="setting-row alt">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel VerticalAlignment="Center" Spacing="1">
+                            <TextBlock Text="Swipe from the left edge" Classes="setting-title" />
+                            <TextBlock Text="Send Ctrl+1 to open Steam Big Picture's left menu, including over a running game." Classes="caption" />
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding GestureLeftSteamMenu}" VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+                <Border Classes="setting-row">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel VerticalAlignment="Center" Spacing="1">
+                            <TextBlock Text="Swipe from the top edge" Classes="setting-title" />
+                            <TextBlock Text="Send Ctrl+2 to open Steam Big Picture's Quick Access Menu, including over a running game." Classes="caption" />
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding GestureTopSteamQuickAccess}" VerticalAlignment="Center" />
                     </Grid>
                 </Border>
             </StackPanel>

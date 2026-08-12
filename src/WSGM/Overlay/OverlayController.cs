@@ -105,6 +105,12 @@ public sealed class OverlayController : IDisposable
 
         /// <summary>The game-mode taskbar opens.</summary>
         Taskbar,
+
+        /// <summary>Steam Big Picture's left-side Steam menu opens.</summary>
+        SteamMenu,
+
+        /// <summary>Steam Big Picture's right-side Quick Access Menu opens.</summary>
+        SteamQuickAccess,
     }
 
     private void OnSwipeTriggered(ScreenEdge edge)
@@ -117,23 +123,38 @@ public sealed class OverlayController : IDisposable
             case SwipeAction.QuickAccess:
                 ShowOverlay();
                 break;
+            case SwipeAction.SteamMenu:
+                Steam.TrySendBigPictureShortcut(BigPictureShortcut.SteamMenu);
+                break;
+            case SwipeAction.SteamQuickAccess:
+                Steam.TrySendBigPictureShortcut(BigPictureShortcut.QuickAccess);
+                break;
             default:
                 Log.Info("Bottom swipe ignored in desktop mode (explorer's taskbar owns the edge).");
                 break;
         }
     }
 
-    /// <summary>The pure edge-routing decision: the right edge always opens quick
-    /// access; a bottom edge assigned to the taskbar opens it in game mode and is
-    /// IGNORED in desktop mode — explorer's real taskbar owns that edge there,
-    /// and falling back to the panel read as a regression (device-reported).</summary>
+    /// <summary>The pure edge-routing decision: left/top open Steam's own menus,
+    /// right always opens WSGM quick access, and a bottom edge assigned to the
+    /// taskbar opens it in game mode but is IGNORED in desktop mode — explorer's
+    /// real taskbar owns that edge there, and falling back to the panel read as a
+    /// regression (device-reported).</summary>
     /// <param name="edge">The swiped screen edge.</param>
     /// <param name="bottomEdgeAction">The configured bottom-edge action.</param>
     /// <param name="explorerRunning">Whether the session currently has a desktop.</param>
     /// <returns>What the swipe opens, if anything.</returns>
     public static SwipeAction DecideSwipe(ScreenEdge edge, EdgeAction bottomEdgeAction, bool explorerRunning)
     {
-        if (edge != ScreenEdge.Bottom || bottomEdgeAction == EdgeAction.QuickAccess)
+        if (edge == ScreenEdge.Left)
+        {
+            return SwipeAction.SteamMenu;
+        }
+        if (edge == ScreenEdge.Top)
+        {
+            return SwipeAction.SteamQuickAccess;
+        }
+        if (edge == ScreenEdge.Right || bottomEdgeAction == EdgeAction.QuickAccess)
         {
             return SwipeAction.QuickAccess;
         }

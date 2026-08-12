@@ -16,10 +16,16 @@ public enum ScreenEdge
 
     /// <summary>The right edge of the primary display.</summary>
     Right,
+
+    /// <summary>The left edge of the primary display.</summary>
+    Left,
+
+    /// <summary>The top edge of the primary display.</summary>
+    Top,
 }
 
 /// <summary>
-/// Turns inward swipes from the bottom/right screen edge into <see cref="Triggered"/>
+/// Turns inward swipes from enabled screen edges into <see cref="Triggered"/>
 /// events by observing the touch digitizer through Raw Input (WM_INPUT on a
 /// message-only window, RIDEV_INPUTSINK).
 ///
@@ -74,11 +80,16 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     private byte[] _inputBuffer = new byte[256];
     private bool _bottomEnabled;
     private bool _rightEnabled;
+    private bool _leftSteamMenuEnabled;
+    private bool _topSteamQuickAccessEnabled;
     private int _bandPx = MinimumBandPx;
     private bool _armed = true;
     private bool _contactWasDown;
     private bool _tracking;
-    private ScreenEdge _edge;
+    private bool _bottomCandidate;
+    private bool _rightCandidate;
+    private bool _leftCandidate;
+    private bool _topCandidate;
     private int _startX;
     private int _startY;
     private ulong _startedAt;
@@ -147,9 +158,13 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
     {
         _bottomEnabled = gestures.BottomEdge;
         _rightEnabled = gestures.RightEdge;
+        _leftSteamMenuEnabled = gestures.LeftEdgeSteamMenu;
+        _topSteamQuickAccessEnabled = gestures.TopEdgeSteamQuickAccess;
         _bandPx = Math.Max(MinimumBandPx, gestures.StripThickness);
         _tracking = false;
-        Log.Info($"Touch edge swipes configured (bottom={_bottomEnabled}, right={_rightEnabled}, band={_bandPx}px).");
+        Log.Info(
+            $"Touch edge swipes configured (bottom={_bottomEnabled}, right={_rightEnabled}, " +
+            $"left-steam={_leftSteamMenuEnabled}, top-qam={_topSteamQuickAccessEnabled}, band={_bandPx}px).");
     }
 
     /// <summary>Resume gesture detection (overlay closed).</summary>
@@ -539,15 +554,11 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
             return;
         }
 
-        if (_bottomEnabled && y >= _screenH - _bandPx)
-        {
-            _edge = ScreenEdge.Bottom;
-        }
-        else if (_rightEnabled && x >= _screenW - _bandPx)
-        {
-            _edge = ScreenEdge.Right;
-        }
-        else
+        _bottomCandidate = _bottomEnabled && y >= _screenH - _bandPx;
+        _rightCandidate = _rightEnabled && x >= _screenW - _bandPx;
+        _leftCandidate = _leftSteamMenuEnabled && x < _bandPx;
+        _topCandidate = _topSteamQuickAccessEnabled && y < _bandPx;
+        if (!_bottomCandidate && !_rightCandidate && !_leftCandidate && !_topCandidate)
         {
             return;
         }
@@ -556,7 +567,10 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         _startX = x;
         _startY = y;
         _startedAt = (ulong)Environment.TickCount64;
-        Log.Info($"{_edge} touch edge swipe started at {x},{y}.");
+        Log.Info(
+            $"Touch edge swipe started at {x},{y} " +
+            $"(bottom={_bottomCandidate}, right={_rightCandidate}, " +
+            $"left={_leftCandidate}, top={_topCandidate}).");
     }
 
     private void OnContactMove(DeviceCaps caps, uint rawX, uint rawY)
@@ -577,8 +591,10 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         }
 
         var (x, y) = ScaleToScreen(caps, rawX, rawY);
-        var inwardDistance = _edge == ScreenEdge.Bottom ? _startY - y : _startX - x;
-        if (inwardDistance < TriggerDistancePx)
+        var triggeredEdge = PickTriggeredEdge(
+            _bottomCandidate, _rightCandidate, _leftCandidate, _topCandidate,
+            _startX, _startY, x, y, TriggerDistancePx);
+        if (triggeredEdge is null)
         {
             return;
         }
@@ -589,7 +605,7 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
             return;
         }
 
-        var edge = _edge;
+        var edge = triggeredEdge.Value;
         Dispatcher.UIThread.Post(() =>
         {
             Interlocked.Exchange(ref _dispatchPending, 0);
@@ -597,9 +613,65 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
             {
                 return;
             }
-            Log.Info($"{edge} touch edge swipe triggered quick access.");
+            Log.Info($"{edge} touch edge swipe triggered.");
             Triggered?.Invoke(edge);
         });
+    }
+
+    /// <summary>Calculates how far a contact has moved inward from its tracked edge.</summary>
+    /// <param name="edge">The edge that started the gesture.</param>
+    /// <param name="startX">Starting horizontal screen coordinate.</param>
+    /// <param name="startY">Starting vertical screen coordinate.</param>
+    /// <param name="x">Current horizontal screen coordinate.</param>
+    /// <param name="y">Current vertical screen coordinate.</param>
+    /// <returns>The signed inward distance in physical pixels.</returns>
+    internal static int InwardDistance(ScreenEdge edge, int startX, int startY, int x, int y) => edge switch
+    {
+        ScreenEdge.Bottom => startY - y,
+        ScreenEdge.Right => startX - x,
+        ScreenEdge.Left => x - startX,
+        ScreenEdge.Top => y - startY,
+        _ => throw new ArgumentOutOfRangeException(nameof(edge)),
+    };
+
+    /// <summary>Selects the candidate edge whose inward movement has crossed the
+    /// trigger distance by the greatest amount. Tracking all candidates makes
+    /// corner-origin gestures follow their movement instead of an arbitrary edge priority.</summary>
+    /// <param name="bottomCandidate">Whether the contact began inside the bottom band.</param>
+    /// <param name="rightCandidate">Whether the contact began inside the right band.</param>
+    /// <param name="leftCandidate">Whether the contact began inside the left band.</param>
+    /// <param name="topCandidate">Whether the contact began inside the top band.</param>
+    /// <param name="startX">Starting horizontal screen coordinate.</param>
+    /// <param name="startY">Starting vertical screen coordinate.</param>
+    /// <param name="x">Current horizontal screen coordinate.</param>
+    /// <param name="y">Current vertical screen coordinate.</param>
+    /// <param name="triggerDistance">Required inward distance in physical pixels.</param>
+    /// <returns>The movement-matching edge, or null while none has crossed the threshold.</returns>
+    internal static ScreenEdge? PickTriggeredEdge(
+        bool bottomCandidate, bool rightCandidate, bool leftCandidate, bool topCandidate,
+        int startX, int startY, int x, int y, int triggerDistance)
+    {
+        ScreenEdge? bestEdge = null;
+        var bestDistance = triggerDistance - 1;
+        Consider(ScreenEdge.Bottom, bottomCandidate);
+        Consider(ScreenEdge.Right, rightCandidate);
+        Consider(ScreenEdge.Left, leftCandidate);
+        Consider(ScreenEdge.Top, topCandidate);
+        return bestEdge;
+
+        void Consider(ScreenEdge edge, bool candidate)
+        {
+            if (!candidate)
+            {
+                return;
+            }
+            var distance = InwardDistance(edge, startX, startY, x, y);
+            if (distance > bestDistance)
+            {
+                bestDistance = distance;
+                bestEdge = edge;
+            }
+        }
     }
 
     private (int X, int Y) ScaleToScreen(DeviceCaps caps, uint rawX, uint rawY)

@@ -1,5 +1,6 @@
 using WSGM.Core;
 using WSGM.Overlay;
+using WSGM.Settings;
 
 namespace WSGM.Tests;
 
@@ -14,13 +15,81 @@ public sealed class TaskbarTests
     [InlineData(ScreenEdge.Bottom, EdgeAction.QuickAccess, true, OverlayController.SwipeAction.QuickAccess)]
     [InlineData(ScreenEdge.Right, EdgeAction.Taskbar, false, OverlayController.SwipeAction.QuickAccess)] // right edge is always quick access
     [InlineData(ScreenEdge.Right, EdgeAction.Taskbar, true, OverlayController.SwipeAction.QuickAccess)]
-    public void BottomSwipeOpensTheTaskbarInGameModeAndNothingOnTheDesktop(
+    [InlineData(ScreenEdge.Left, EdgeAction.Taskbar, false, OverlayController.SwipeAction.SteamMenu)]
+    [InlineData(ScreenEdge.Left, EdgeAction.Taskbar, true, OverlayController.SwipeAction.SteamMenu)]
+    [InlineData(ScreenEdge.Top, EdgeAction.Taskbar, false, OverlayController.SwipeAction.SteamQuickAccess)]
+    [InlineData(ScreenEdge.Top, EdgeAction.Taskbar, true, OverlayController.SwipeAction.SteamQuickAccess)]
+    public void EdgeSwipeRoutesToItsConfiguredSurface(
         ScreenEdge edge, EdgeAction bottomAction, bool explorerRunning, OverlayController.SwipeAction expected)
         => Assert.Equal(expected, OverlayController.DecideSwipe(edge, bottomAction, explorerRunning));
 
     [Fact]
-    public void NewConfigurationsDefaultTheBottomEdgeToTheTaskbar()
-        => Assert.Equal(EdgeAction.Taskbar, new GestureConfig().BottomEdgeAction);
+    public void NewConfigurationsEnableEveryEdgeAndDefaultTheBottomToTheTaskbar()
+    {
+        var gestures = new GestureConfig();
+
+        Assert.True(gestures.BottomEdge);
+        Assert.True(gestures.RightEdge);
+        Assert.True(gestures.LeftEdgeSteamMenu);
+        Assert.True(gestures.TopEdgeSteamQuickAccess);
+        Assert.Equal(EdgeAction.Taskbar, gestures.BottomEdgeAction);
+    }
+
+    [Theory]
+    [InlineData(ScreenEdge.Bottom, 100, 100, 125, 35, 65)]
+    [InlineData(ScreenEdge.Right, 100, 100, 35, 125, 65)]
+    [InlineData(ScreenEdge.Left, 100, 100, 165, 35, 65)]
+    [InlineData(ScreenEdge.Top, 100, 100, 35, 165, 65)]
+    public void InwardDistanceUsesTheDirectionOppositeEachScreenEdge(
+        ScreenEdge edge, int startX, int startY, int x, int y, int expected)
+        => Assert.Equal(expected, TouchSwipeMonitor.InwardDistance(edge, startX, startY, x, y));
+
+    [Theory]
+    [InlineData(true, false, true, false, 100, 100, 165, 100, ScreenEdge.Left)]
+    [InlineData(true, false, true, false, 100, 100, 100, 35, ScreenEdge.Bottom)]
+    [InlineData(false, true, false, true, 100, 100, 35, 100, ScreenEdge.Right)]
+    [InlineData(false, true, false, true, 100, 100, 100, 165, ScreenEdge.Top)]
+    public void CornerSwipeUsesTheEdgeMatchingTheContactsDirection(
+        bool bottom, bool right, bool left, bool top,
+        int startX, int startY, int x, int y, ScreenEdge expected)
+        => Assert.Equal(
+            expected,
+            TouchSwipeMonitor.PickTriggeredEdge(
+                bottom, right, left, top, startX, startY, x, y, triggerDistance: 48));
+
+    [Fact]
+    public void CornerSwipeWaitsUntilOneDirectionCrossesTheTriggerDistance()
+        => Assert.Null(
+            TouchSwipeMonitor.PickTriggeredEdge(
+                bottomCandidate: true,
+                rightCandidate: false,
+                leftCandidate: true,
+                topCandidate: false,
+                startX: 100,
+                startY: 100,
+                x: 140,
+                y: 70,
+                triggerDistance: 48));
+
+    [Fact]
+    public void SettingsSnapshotPersistsLeftAndTopSteamGestureSwitchesIndependently()
+    {
+        var viewModel = new SettingsViewModel(new AppConfig());
+        viewModel.GestureLeftSteamMenu = false;
+        viewModel.GestureTopSteamQuickAccess = true;
+
+        var snapshot = viewModel.SnapshotForTest();
+
+        Assert.False(snapshot.Gestures.LeftEdgeSteamMenu);
+        Assert.True(snapshot.Gestures.TopEdgeSteamQuickAccess);
+    }
+
+    [Theory]
+    [InlineData(BigPictureShortcut.SteamMenu, 0x31)]
+    [InlineData(BigPictureShortcut.QuickAccess, 0x32)]
+    public void BigPictureMenuShortcutsMatchSteamsKeyboardSimulator(
+        BigPictureShortcut shortcut, ushort expected)
+        => Assert.Equal(expected, Steam.ShortcutVirtualKey(shortcut));
 
     [Theory]
     [InlineData(150, 100u, 100u, 150u)] // saved desktop scaling wins

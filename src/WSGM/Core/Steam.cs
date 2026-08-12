@@ -3,8 +3,19 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using Microsoft.Win32;
+using WSGM.Interop;
 
 namespace WSGM.Core;
+
+/// <summary>A native keyboard shortcut understood by Steam's Big Picture UI.</summary>
+public enum BigPictureShortcut
+{
+    /// <summary>Ctrl+1, equivalent to Steam's guide button and left-side menu.</summary>
+    SteamMenu,
+
+    /// <summary>Ctrl+2, equivalent to Steam's Quick Access button and right-side menu.</summary>
+    QuickAccess,
+}
 
 /// <summary>Everything WSGM knows about Steam. WSGM is Steam-exclusive: Steam is
 /// located via the registry (no path configuration), started/focused/closed via
@@ -165,6 +176,37 @@ public static class Steam
         }
         return AppLauncher.StartProtocol(OpenBigPictureUrl);
     }
+
+    /// <summary>Sends one of Steam's own Big Picture keyboard shortcuts globally.
+    /// This deliberately has no foreground-window gate: when a game is foreground,
+    /// Steam uses the shortcut to bring its menu up over that game.</summary>
+    /// <param name="shortcut">The Big Picture menu shortcut to send.</param>
+    /// <returns>True when Windows accepted the complete synthetic key chord.</returns>
+    public static bool TrySendBigPictureShortcut(BigPictureShortcut shortcut)
+    {
+        var virtualKey = ShortcutVirtualKey(shortcut);
+        var result = KeyboardInput.SendControlChord(virtualKey);
+        if (result.Sent != result.Requested)
+        {
+            Log.Warn(
+                $"Steam Big Picture shortcut Ctrl+{(char)virtualKey} failed " +
+                $"(sent {result.Sent}/{result.Requested}, Win32 error {result.Error}).");
+            return false;
+        }
+
+        Log.Info($"Steam Big Picture shortcut Ctrl+{(char)virtualKey} sent ({shortcut}).");
+        return true;
+    }
+
+    /// <summary>Returns Steam's installed-client keyboard mapping for a Big Picture menu.</summary>
+    /// <param name="shortcut">The menu shortcut to map.</param>
+    /// <returns>The Win32 virtual key combined with Control.</returns>
+    internal static ushort ShortcutVirtualKey(BigPictureShortcut shortcut) => shortcut switch
+    {
+        BigPictureShortcut.SteamMenu => 0x31,
+        BigPictureShortcut.QuickAccess => 0x32,
+        _ => throw new ArgumentOutOfRangeException(nameof(shortcut)),
+    };
 
     /// <summary>Stops Steam for an application update that must replace an
     /// injected payload DLL. First requests Steam's normal shutdown, then uses
