@@ -18,6 +18,12 @@ public static class Log
     // per line. One previous file is kept, so on-disk logs stay under ~2x the cap.
     private const long MaxLogBytes = 5 * 1024 * 1024;
     private const long RotationCheckInterval = 256 * 1024;
+
+    // Session-local (and therefore per-user) name, matching the config lock's
+    // convention. Short timeout: rotation is best-effort and must never stall a
+    // log write behind another process.
+    private const string RotationMutexName = @"Local\WSGM.LogRotate";
+    private const int RotationMutexTimeoutMs = 1000;
     private static long _bytesSinceRotationCheck;
 
     /// <summary>Gets the per-user directory used for logs, configuration, and installed files.</summary>
@@ -65,10 +71,16 @@ public static class Log
     public static void Error(string message, Exception ex) => Write("error", $"{message}: {ex}");
 
     /// <summary>Moves the live log aside when it passes <see cref="MaxLogBytes"/>,
-    /// keeping one previous file. Best-effort: a held-open file or a race with
-    /// another WSGM process just leaves rotation for the next attempt, so appends
-    /// keep working either way. Callers serialize this through <see cref="Gate"/>,
-    /// or run it before logging starts (Init).</summary>
+    /// keeping one previous file. Best-effort: a held-open file just leaves rotation
+    /// for the next attempt, so appends keep working either way. Callers serialize
+    /// this through <see cref="Gate"/>, or run it before logging starts (Init).
+    ///
+    /// The shell, Settings and the elevated one-shots all append to the same file, so
+    /// <see cref="Gate"/> alone is not enough: two processes that both saw an oversized
+    /// file used to delete each other's archive (the second Delete removed the copy the
+    /// first had just moved into place), destroying up to 5 MB of the primary remote
+    /// diagnosis surface. A named mutex plus a re-check inside it makes the loser see
+    /// the already-rotated small file and do nothing.</summary>
     private static void RotateIfLarge()
     {
         var path = _path;
@@ -76,8 +88,26 @@ public static class Log
         {
             return;
         }
+        Mutex? mutex = null;
+        var owned = false;
         try
         {
+            try
+            {
+                mutex = new Mutex(initiallyOwned: false, RotationMutexName);
+                owned = mutex.WaitOne(RotationMutexTimeoutMs);
+            }
+            catch (AbandonedMutexException)
+            {
+                // A previous holder died mid-rotation; the wait still succeeded.
+                owned = true;
+            }
+            catch
+            {
+                // No cross-process lock available — fall through and rotate anyway,
+                // which is no worse than the behavior this replaced.
+            }
+
             var fi = new FileInfo(path);
             if (fi.Exists && fi.Length > MaxLogBytes)
             {
@@ -89,6 +119,21 @@ public static class Log
         catch
         {
             // Never throw from logging; rotation retries on the next interval.
+        }
+        finally
+        {
+            if (owned)
+            {
+                try
+                {
+                    mutex!.ReleaseMutex();
+                }
+                catch
+                {
+                    // Releasing a mutex this thread no longer owns must not throw here.
+                }
+            }
+            mutex?.Dispose();
         }
     }
 
