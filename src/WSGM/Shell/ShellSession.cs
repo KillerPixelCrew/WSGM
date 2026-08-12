@@ -32,6 +32,9 @@ public sealed class ShellSession
     // Last applied master CEF state, so a reload can tell an on->off transition
     // (which must retract first) from a repeat of the same value.
     private bool _cefMasterEnabled;
+    // Live Wi-Fi-indicator gate. NOT read from _config: that field is the boot-time
+    // snapshot and is never replaced, so gating on it made the toggle need a re-logon.
+    private bool _wifiIndicatorEnabled;
     // Field-rooted deliberately: an unreferenced enabled FileSystemWatcher is
     // GC-collectible (it holds only a WeakReference to itself in its pending
     // ReadDirectoryChangesW state) and silently stops raising events.
@@ -48,6 +51,7 @@ public sealed class ShellSession
     {
         _config = config;
         _cefMasterEnabled = config.Cef.Enabled;
+        _wifiIndicatorEnabled = config.Cef.Enabled && config.Cef.WifiIndicator;
         SteamCef.SetMasterEnabled(config.Cef.Enabled);
         _overlayTestOnly = overlayTestOnly;
         _serviceBoot = serviceBoot;
@@ -96,7 +100,7 @@ public sealed class ShellSession
             }
             _volumeButtons?.SetGameModeActive(true);
             _cardAcfWatcher ??= CardAcfWatcher.StartNew();
-            if (!_overlayTestOnly && _config.Cef.Enabled && _config.Cef.WifiIndicator)
+            if (!_overlayTestOnly && _wifiIndicatorEnabled)
             {
                 _networkIndicator ??= NetworkIndicatorService.StartNew();
                 _networkIndicator.Poke();
@@ -439,6 +443,40 @@ public sealed class ShellSession
         });
     }
 
+    /// <summary>Starts or stops the Big Picture Wi-Fi indicator to match a reloaded
+    /// configuration. Without this the feed keeps running (and keeps being recreated
+    /// on every game-mode entry) after the user turns the toggle off, because the
+    /// start gates read the boot-time configuration.</summary>
+    /// <param name="enabled">Whether the indicator should be feeding Steam.</param>
+    private void ApplyNetworkIndicator(bool enabled)
+    {
+        if (_overlayTestOnly || enabled == _wifiIndicatorEnabled)
+        {
+            _wifiIndicatorEnabled = enabled;
+            return;
+        }
+        _wifiIndicatorEnabled = enabled;
+        if (!enabled)
+        {
+            _networkIndicator?.Dispose();
+            _networkIndicator = null;
+            // When the master switch is going down too, its own retraction removes
+            // the synthetic access point — calling it here as well would race that.
+            if (_cefMasterEnabled)
+            {
+                _ = SteamNetworkIndicator.DisableAsync();
+            }
+            Log.Info("Big Picture Wi-Fi indicator turned off.");
+            return;
+        }
+        if (_inGameMode)
+        {
+            _networkIndicator ??= NetworkIndicatorService.StartNew();
+            _networkIndicator.Poke();
+            Log.Info("Big Picture Wi-Fi indicator turned on.");
+        }
+    }
+
     private void WatchConfig()
     {
         try
@@ -453,6 +491,7 @@ public sealed class ShellSession
                 {
                     var config = ConfigStore.Load();
                     ApplyCefMasterSwitch(config.Cef.Enabled);
+                    ApplyNetworkIndicator(config.Cef.Enabled && config.Cef.WifiIndicator);
                     _overlay?.ApplyConfig(config);
                     _startupWatcher?.Apply(config.StartupApps);
                     _keepAwake?.ApplyConfig(config.Cef.Enabled && config.Cef.DownloadKeepAwake);
@@ -540,7 +579,7 @@ public sealed class ShellSession
 
         // The initial boot enters game mode without a GameModeEntered event — start
         // the Wi-Fi indicator feed here; its own retries wait out Steam's UI.
-        if (!_overlayTestOnly && _config.Cef.Enabled && _config.Cef.WifiIndicator)
+        if (!_overlayTestOnly && _wifiIndicatorEnabled)
         {
             _networkIndicator ??= NetworkIndicatorService.StartNew();
         }
