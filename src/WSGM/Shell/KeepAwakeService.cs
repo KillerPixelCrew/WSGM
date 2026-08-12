@@ -25,8 +25,11 @@ public sealed class KeepAwakeService : IDisposable
     private readonly SteamMonitor? _monitor;
     private readonly CancellationTokenSource _cts = new();
     private readonly object _manualGate = new();
+    // Guards every download-hold transition together with _autoEnabled and the
+    // streak, so a config change and an in-flight poll cannot interleave.
+    private readonly object _downloadGate = new();
     private ManualWakeMode _manualMode = ManualWakeMode.Off;
-    private volatile bool _autoEnabled;
+    private bool _autoEnabled;
     private int _inactiveStreak;
 
     /// <summary>Raised (on an arbitrary thread) whenever a hold engages or drops.</summary>
@@ -46,6 +49,17 @@ public sealed class KeepAwakeService : IDisposable
 
     /// <summary>Whether the automatic download hold is active.</summary>
     public bool DownloadHold => _downloadLock.IsHeld;
+
+    private bool AutoEnabled
+    {
+        get
+        {
+            lock (_downloadGate)
+            {
+                return _autoEnabled;
+            }
+        }
+    }
 
     private KeepAwakeService(SteamMonitor? monitor, bool autoEnabled)
     {
@@ -114,11 +128,23 @@ public sealed class KeepAwakeService : IDisposable
     /// <param name="autoEnabled">The new <c>KeepAwakeDuringDownloads</c> setting.</param>
     public void ApplyConfig(bool autoEnabled)
     {
-        _autoEnabled = autoEnabled;
-        if (!autoEnabled && _downloadLock.IsHeld)
+        bool released;
+        // Same gate as the poll's own decision: the flag write and the release must
+        // not interleave with an in-flight poll's acquire, or a poll that started
+        // before the disable could re-engage the hold behind it — and with the loop
+        // then skipping polls entirely, nothing would ever release it again.
+        lock (_downloadGate)
         {
-            _downloadLock.Release();
-            Interlocked.Exchange(ref _inactiveStreak, 0);
+            _autoEnabled = autoEnabled;
+            released = !autoEnabled && _downloadLock.IsHeld;
+            if (released)
+            {
+                _downloadLock.Release();
+                _inactiveStreak = 0;
+            }
+        }
+        if (released)
+        {
             Log.Info("Keep awake: download hold released (disabled in settings).");
             StateChanged?.Invoke();
         }
@@ -131,7 +157,7 @@ public sealed class KeepAwakeService : IDisposable
         {
             try
             {
-                if (_autoEnabled)
+                if (AutoEnabled)
                 {
                     await PollOnceAsync(token).ConfigureAwait(false);
                 }
@@ -178,21 +204,31 @@ public sealed class KeepAwakeService : IDisposable
             }
         }
 
-        var hadHold = _downloadLock.IsHeld;
-        var (hold, streak) = KeepAwakeDecider.Next(hadHold, _inactiveStreak, active);
-        Interlocked.Exchange(ref _inactiveStreak, streak);
-        if (hold && !hadHold)
+        // The whole decision runs under the gate ApplyConfig also takes, and
+        // re-reads _autoEnabled inside it: the CEF query above can take seconds,
+        // and a disable that lands during it must win over this (now stale) sample.
+        string? change = null;
+        lock (_downloadGate)
         {
-            if (_downloadLock.Acquire())
+            var hadHold = _downloadLock.IsHeld;
+            var (hold, streak) = KeepAwakeDecider.Next(hadHold, _inactiveStreak, active && _autoEnabled);
+            _inactiveStreak = streak;
+            if (hold && !hadHold)
             {
-                Log.Info($"Keep awake: download hold acquired ({detail}).");
-                StateChanged?.Invoke();
+                if (_downloadLock.Acquire())
+                {
+                    change = $"acquired ({detail})";
+                }
+            }
+            else if (!hold && hadHold)
+            {
+                _downloadLock.Release();
+                change = $"released ({detail})";
             }
         }
-        else if (!hold && hadHold)
+        if (change is not null)
         {
-            _downloadLock.Release();
-            Log.Info($"Keep awake: download hold released ({detail}).");
+            Log.Info($"Keep awake: download hold {change}.");
             StateChanged?.Invoke();
         }
     }
