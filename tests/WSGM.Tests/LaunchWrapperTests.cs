@@ -29,6 +29,62 @@ public sealed class LaunchWrapperTests
         => Assert.Throws<ArgumentException>(
             () => LaunchWrapperCommand.SteamLaunchOptions(Helper, LaunchWrapperMode.None));
 
+    // A title's existing launch options must survive being wrapped: %command%
+    // expands to the game's own command only, so options replaced by the wrapper
+    // value would silently stop applying. (Real titles only — a non-Steam shortcut
+    // ignores %command% entirely and takes the wrapper in its Target instead.)
+    [Fact]
+    public void SteamLaunchOptionsAppendPlainOriginalOptionsAfterThePlaceholder()
+        => Assert.Equal(
+            $"\"{Helper}\" --deelevate -- %command% -dx11 -nolauncher",
+            LaunchWrapperCommand.SteamLaunchOptions(
+                Helper, LaunchWrapperMode.Deelevate, "-dx11 -nolauncher"));
+
+    [Fact]
+    public void SteamLaunchOptionsSubstituteTheWrapperIntoAUserPlacedPlaceholder()
+        => Assert.Equal(
+            $"profiler.exe \"{Helper}\" --input-lease -- %command% -windowed",
+            LaunchWrapperCommand.SteamLaunchOptions(
+                Helper, LaunchWrapperMode.InputLease, "profiler.exe %command% -windowed"));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void SteamLaunchOptionsWithoutOriginalsAreTheBareWrapperCommand(string? original)
+        => Assert.Equal(
+            $"\"{Helper}\" --deelevate -- %command%",
+            LaunchWrapperCommand.SteamLaunchOptions(Helper, LaunchWrapperMode.Deelevate, original));
+
+    [Theory]
+    [InlineData("-dx11 -nolauncher")]
+    [InlineData("profiler.exe %command% -windowed")]
+    [InlineData("")]
+    public void OriginalLaunchOptionsRoundTripThroughTheWrappedValue(string original)
+    {
+        var wrapped = LaunchWrapperCommand.SteamLaunchOptions(
+            Helper, LaunchWrapperMode.Both, original);
+
+        Assert.Equal(original, LaunchWrapperCommand.OriginalLaunchOptions(wrapped));
+    }
+
+    [Fact]
+    public void ReapplyingADifferentModeKeepsTheOriginalOptionsAndDoesNotNestTheWrapper()
+    {
+        var first = LaunchWrapperCommand.SteamLaunchOptions(
+            Helper, LaunchWrapperMode.Deelevate, "-dx11");
+
+        var second = LaunchWrapperCommand.SteamLaunchOptions(
+            Helper, LaunchWrapperMode.Both, LaunchWrapperCommand.OriginalLaunchOptions(first));
+
+        Assert.Equal($"\"{Helper}\" --deelevate --input-lease -- %command% -dx11", second);
+        Assert.DoesNotContain("-- %command% \"", second, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OriginalLaunchOptionsLeaveAnUnwrappedValueAlone()
+        => Assert.Equal("-dx11", LaunchWrapperCommand.OriginalLaunchOptions("  -dx11  "));
+
     // Steam stores a shortcut's Target verbatim and its own shortcuts carry the
     // quoted form, so the quotes are part of the value WSGM has to write.
     [Fact]

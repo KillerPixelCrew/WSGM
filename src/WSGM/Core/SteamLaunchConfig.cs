@@ -147,8 +147,11 @@ public static class SteamLaunchConfig
         }
         else
         {
-            var options = SteamCef.JsString(
-                LaunchWrapperCommand.SteamLaunchOptions(helper, mode));
+            // Real titles only (%command% is meaningless on a non-Steam shortcut —
+            // see the shortcut branch above). Re-applying reads the user's own
+            // options back out of the existing wrapper value instead of nesting it.
+            var options = SteamCef.JsString(LaunchWrapperCommand.SteamLaunchOptions(
+                helper, mode, LaunchWrapperCommand.OriginalLaunchOptions(current.LaunchOptions)));
             expression =
                 "(async()=>{try{await SteamClient.Apps.SetAppLaunchOptions(" +
                 Unsigned(appId) + "," + options + ");" +

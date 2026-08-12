@@ -44,14 +44,75 @@ internal static class LaunchWrapperCommand
         return Path.Combine(directory ?? Installer.InstallDir, HelperFileName);
     }
 
-    /// <summary>Builds the value written into a real Steam title's launch options.</summary>
+    /// <summary>The token Steam expands to a game's own command. REAL TITLES ONLY —
+    /// a non-Steam shortcut ignores an exe-replacing launch option and runs its
+    /// original Target anyway (device-verified), which is why the shortcut path puts
+    /// the wrapper in the Target and never builds a value containing this.</summary>
+    internal const string CommandPlaceholder = "%command%";
+
+    /// <summary>Builds the value written into a real Steam title's launch options,
+    /// preserving any launch options the user already had.</summary>
     /// <param name="helperPath">Absolute path of the wrapper executable.</param>
     /// <param name="mode">Which wrapper behaviours to enable.</param>
+    /// <param name="originalOptions">The game's pre-existing launch options, if any.
+    /// A value of its own that positions <c>%command%</c> keeps its prefix and suffix
+    /// (the wrapper is substituted for the placeholder); a plain value becomes extra
+    /// arguments after the placeholder, which the wrapper forwards to the game.</param>
     /// <returns>The launch-option string, quoted for paths containing spaces.</returns>
     /// <exception cref="ArgumentException"><paramref name="helperPath"/> is missing, or
     /// <paramref name="mode"/> selects no behaviour.</exception>
-    internal static string SteamLaunchOptions(string helperPath, LaunchWrapperMode mode)
-        => $"{Quote(helperPath)} {FlagsFor(mode)} -- %command%";
+    internal static string SteamLaunchOptions(
+        string helperPath, LaunchWrapperMode mode, string? originalOptions = null)
+    {
+        var wrapper = $"{Quote(helperPath)} {FlagsFor(mode)} -- {CommandPlaceholder}";
+        var original = originalOptions?.Trim() ?? "";
+        if (original.Length == 0)
+        {
+            return wrapper;
+        }
+        var placeholder = original.IndexOf(CommandPlaceholder, StringComparison.Ordinal);
+        if (placeholder < 0)
+        {
+            return $"{wrapper} {original}";
+        }
+        // Substitute the first placeholder only: the user's value already says where
+        // the game command belongs, so their own prefix (a profiler, an env shim) and
+        // trailing arguments both survive.
+        return string.Concat(
+            original.AsSpan(0, placeholder),
+            wrapper,
+            original.AsSpan(placeholder + CommandPlaceholder.Length));
+    }
+
+    /// <summary>Recovers the launch options a real Steam title had before the wrapper
+    /// was written into them, so re-applying with a different mode does not nest the
+    /// wrapper inside itself or drop the user's arguments.</summary>
+    /// <param name="wrapped">The title's current launch options.</param>
+    /// <returns>The user's own options, or an empty string when nothing was preserved.</returns>
+    internal static string OriginalLaunchOptions(string? wrapped)
+    {
+        if (string.IsNullOrWhiteSpace(wrapped) || ModeFor(wrapped) == LaunchWrapperMode.None)
+        {
+            return wrapped?.Trim() ?? "";
+        }
+        var placeholder = wrapped.IndexOf(CommandPlaceholder, StringComparison.Ordinal);
+        var helper = wrapped.IndexOf(HelperFileName, StringComparison.OrdinalIgnoreCase);
+        if (placeholder < 0 || helper < 0)
+        {
+            return "";
+        }
+        // Everything WSGM contributed sits between the helper path and the
+        // placeholder; what brackets it is the user's. The match above lands on the
+        // file name inside the (quoted) path, so walk back to where that token
+        // starts — otherwise the rest of the path would be read as a user prefix.
+        var quote = wrapped.LastIndexOf('"', helper);
+        var start = quote >= 0 ? quote : wrapped.LastIndexOf(' ', helper) + 1;
+        var prefix = wrapped[..start].TrimEnd();
+        var suffix = wrapped[(placeholder + CommandPlaceholder.Length)..].Trim();
+        return prefix.Length == 0
+            ? suffix
+            : $"{prefix} {CommandPlaceholder} {suffix}".TrimEnd();
+    }
 
     /// <summary>Builds the value written into a non-Steam shortcut's Target field.</summary>
     /// <param name="helperPath">Absolute path of the wrapper executable.</param>
