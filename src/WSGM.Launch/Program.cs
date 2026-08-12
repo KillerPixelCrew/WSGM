@@ -95,7 +95,10 @@ internal static class Program
         catch (Exception ex)
         {
             // Fail open: a controller Steam refuses to let go of is a degraded
-            // experience, but a game that never starts is a broken one.
+            // experience, but a game that never starts is a broken one. Safe to
+            // relaunch because RunWrapped only reports failure when the target
+            // never started — a release handshake that fails after the game has
+            // exited returns its exit code instead (see run_wrapped).
             LaunchLog.Error($"Steam Input lease wrapper failed: {ex.Message}. Launching without it.");
             Console.Error.WriteLine($"Steam Input block unavailable: {ex.Message}");
             var payload = LaunchPayload.Capture(options.Command);
