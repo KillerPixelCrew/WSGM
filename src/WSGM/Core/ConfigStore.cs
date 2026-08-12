@@ -403,10 +403,43 @@ public static class ConfigStore
                 source.CopyTo(dest);
             }
             Log.Error($"Corrupt config preserved at {bad} — registry snapshots may be recoverable from it.");
+            PruneCorruptFiles();
         }
         catch
         {
             // Best effort — an unreadable file cannot be preserved either.
+        }
+    }
+
+    /// <summary>Keeps only the newest few preserved copies. Every Load of a broken
+    /// config writes another uniquely named one — several per boot across the shell,
+    /// Settings and the elevated one-shots — and nothing else ever reclaims them.
+    /// Deleting by enumerated exact name keeps the unpredictable-name property that
+    /// makes the write itself reparse-point safe.</summary>
+    private static void PruneCorruptFiles()
+    {
+        const int keep = 5;
+        try
+        {
+            var stale = new DirectoryInfo(Log.Directory)
+                .GetFiles("config.bad.*.json")
+                .OrderByDescending(f => f.LastWriteTimeUtc)
+                .Skip(keep);
+            foreach (var file in stale)
+            {
+                try
+                {
+                    file.Delete();
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"Could not prune {file.Name}: {ex.Message}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Could not prune preserved configs: {ex.Message}");
         }
     }
 
