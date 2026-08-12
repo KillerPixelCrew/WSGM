@@ -119,6 +119,10 @@ public static class PowerTimeouts
     public static string Describe(int seconds) => seconds switch
     {
         0 => "Never",
+        // A scheme can carry a sub-minute timeout (powercfg takes seconds, and OEM
+        // tools write such values). Rounding those to "0 min" would read as off —
+        // the opposite of a timeout that fires almost immediately.
+        < 60 => "<1 min",
         < 3600 => $"{(seconds + 30) / 60} min",
         _ => seconds % 3600 == 0
             ? $"{seconds / 3600} h"

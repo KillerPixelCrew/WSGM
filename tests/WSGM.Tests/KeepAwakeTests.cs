@@ -172,6 +172,11 @@ public sealed class KeepAwakeTests
     [InlineData(1800, "30 min")]
     [InlineData(3600, "1 h")]
     [InlineData(5400, "1.5 h")]
+    // A sub-minute timeout is reachable (powercfg takes seconds) and must never
+    // round to "0 min", which would read as "off".
+    [InlineData(1, "<1 min")]
+    [InlineData(29, "<1 min")]
+    [InlineData(59, "<1 min")]
     public void DescribeFormatsTimeoutsForTheBadge(int seconds, string expected)
         => Assert.Equal(expected, PowerTimeouts.Describe(seconds));
 }
