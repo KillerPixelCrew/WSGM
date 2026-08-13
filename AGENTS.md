@@ -652,8 +652,9 @@ button visibility is recomputed on config reload as well, so a disabled feature 
 immediately.
 
 **Mute while the screen is off** (`Shell\DisplayOffMuteService.cs`, `Interop\MessageWindow.cs`,
-config `MuteWhileDisplayOff`, default OFF, Settings → System → POWER — **device-verification
-pending**): the companion to keep-awake, which deliberately lets the display time out while downloads
+config `MuteWhileDisplayOff`, default OFF, Settings → System → POWER — device-verified on the MSI
+Claw 2026-08-13): the companion to keep-awake, which deliberately lets the display time out while
+downloads
 continue — and Steam plays a sound on every finished download, into a dark room. The signal is
 `RegisterPowerSettingNotification(hwnd, GUID_SESSION_DISPLAY_STATUS, DEVICE_NOTIFY_WINDOW_HANDLE)` on
 the existing process message-only window → `WM_POWERBROADCAST` / `PBT_POWERSETTINGCHANGE`, payload a
@@ -661,9 +662,10 @@ DWORD `MONITOR_DISPLAY_STATE` (0 off, 1 on, 2 dimmed). Microsoft documents
 **`GUID_SESSION_DISPLAY_STATUS` as the one interactive user-mode apps must use** —
 `GUID_CONSOLE_DISPLAY_STATE` is for services/kernel-mode and `GUID_MONITOR_POWER_ON` is the
 superseded legacy setting; do not "simplify" to either. Dimmed is NOT treated as off (the screen is
-still lit in front of the user). What has NOT been verified is whether the notification actually
-fires when the Claw's screen times out under Modern Standby — the `Display state: off/on` and
-`Mute on display off: …` log lines are the whole remote test surface, so preserve them. Only a mute
+still lit in front of the user). The open question was whether the notification fires at all when
+the Claw's screen times out under Modern Standby; it does (device-verified 2026-08-13). The
+`Display state: off/on` and `Mute on display off: …` log lines are the whole remote test surface,
+so preserve them. Only a mute
 WSGM applied itself is undone (a user who muted on purpose stays muted), and the service restores on
 `ProcessExit` so a normal exit while the screen is dark cannot strand the device muted; a hard kill
 still can, which is why the toggle defaults off. Muting goes through the native helper's APPCOMMAND
