@@ -13,6 +13,7 @@ public sealed unsafe class MessageWindow : IDisposable
     private nint _hwnd;
     private uint _shellHookMessage;
     private bool _shellHookRegistered;
+    private nint _displayNotify;
 
     /// <summary>Create() is the only entry point: a directly constructed instance
     /// would carry Handle == 0, and RegisterHotKey on hwnd 0 registers a thread
@@ -26,6 +27,10 @@ public sealed unsafe class MessageWindow : IDisposable
 
     /// <summary>Raised on the Avalonia UI thread with the hotkey id.</summary>
     public event Action<int>? HotkeyPressed;
+
+    /// <summary>Raised on the Avalonia UI thread when the session's display turns on or
+    /// off, with the MONITOR_DISPLAY_STATE value (0 = off, 1 = on, 2 = dimmed).</summary>
+    public event Action<int>? DisplayStateChanged;
 
     /// <summary>Raised on the Avalonia UI thread for a shell-hook notification.
     /// Its delegate receives the HSHELL_* event code followed by the event-specific
@@ -93,6 +98,43 @@ public sealed unsafe class MessageWindow : IDisposable
         Log.Info("Shell-hook window deregistered.");
     }
 
+    /// <summary>Subscribes this window to the session's display on/off notifications.
+    /// Idempotent; safe to call when the feature toggle turns on at runtime.</summary>
+    /// <returns>True when the registration is active.</returns>
+    public bool RegisterDisplayStateNotifications()
+    {
+        if (_displayNotify != 0)
+        {
+            return true;
+        }
+        _displayNotify = NativeMethods.RegisterPowerSettingNotification(
+            _hwnd, NativeMethods.GuidSessionDisplayStatus, NativeMethods.DeviceNotifyWindowHandle);
+        if (_displayNotify == 0)
+        {
+            Log.Warn("RegisterPowerSettingNotification(display status) failed "
+                + $"(error {Marshal.GetLastWin32Error()}).");
+            return false;
+        }
+        Log.Info("Display-state notifications registered.");
+        return true;
+    }
+
+    /// <summary>Stops this window receiving display on/off notifications.</summary>
+    public void DeregisterDisplayStateNotifications()
+    {
+        if (_displayNotify == 0)
+        {
+            return;
+        }
+        if (!NativeMethods.UnregisterPowerSettingNotification(_displayNotify))
+        {
+            Log.Warn("UnregisterPowerSettingNotification failed "
+                + $"(error {Marshal.GetLastWin32Error()}).");
+        }
+        _displayNotify = 0;
+        Log.Info("Display-state notifications deregistered.");
+    }
+
     /// <summary>Shared class-registration + window-creation path for the process's
     /// message-only (HWND_MESSAGE) windows. Class registration is idempotent:
     /// ERROR_CLASS_ALREADY_EXISTS (1410) is benign — a re-create after a destroy
@@ -149,6 +191,24 @@ public sealed unsafe class MessageWindow : IDisposable
             Dispatcher.UIThread.Post(() => instance.HotkeyPressed?.Invoke(id));
             return 0;
         }
+        if (msg == NativeMethods.WmPowerBroadcast
+            && wParam == NativeMethods.PbtPowerSettingChange
+            && lParam != 0
+            && instance._displayNotify != 0)
+        {
+            var setting = Marshal.PtrToStructure<NativeMethods.PowerBroadcastSetting>(lParam);
+            // The same window could later carry other power settings; only the display
+            // status is ours, and only a 4-byte DWORD payload is the documented shape.
+            if (setting.PowerSetting == NativeMethods.GuidSessionDisplayStatus
+                && setting.DataLength >= 4)
+            {
+                var state = Marshal.ReadInt32(
+                    lParam + (int)Marshal.OffsetOf<NativeMethods.PowerBroadcastSetting>(
+                        nameof(NativeMethods.PowerBroadcastSetting.Data)));
+                Dispatcher.UIThread.Post(() => instance.DisplayStateChanged?.Invoke(state));
+            }
+            return 1;
+        }
         if (msg == instance._shellHookMessage && instance._shellHookRegistered)
         {
             Dispatcher.UIThread.Post(() => instance.ShellHookReceived?.Invoke(wParam, lParam));
@@ -161,6 +221,7 @@ public sealed unsafe class MessageWindow : IDisposable
     public void Dispose()
     {
         DeregisterShellHook();
+        DeregisterDisplayStateNotifications();
         if (_hwnd != 0)
         {
             if (!NativeMethods.DestroyWindow(_hwnd))

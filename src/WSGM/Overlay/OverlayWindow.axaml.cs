@@ -86,6 +86,10 @@ public partial class OverlayWindow : Window
     /// <summary>Whether the launch-fix game picker sub-view is showing.</summary>
     internal bool InLaunchWrapperSubView { get; private set; }
 
+    /// <summary>Whether the wake-lock holder list sub-view is showing. It belongs to
+    /// the Power tab, so leaving it restores that panel rather than Tools.</summary>
+    internal bool InWakeLockSubView { get; private set; }
+
     /// <summary>The launch fix waiting on the user to pick a game, and the button
     /// whose title reports the outcome.</summary>
     private (LaunchWrapperMode Mode, CardButton Button)? _pendingLaunchFix;
@@ -97,7 +101,7 @@ public partial class OverlayWindow : Window
     /// <summary>Whether any in-place Tools sub-view owns the surface.</summary>
     private bool AnySubView
         => InFormatSubView || InLibraryTabsSubView || InCardManagerSubView || InArtworkSubView
-           || InLaunchWrapperSubView;
+           || InLaunchWrapperSubView || InWakeLockSubView;
 
     /// <summary>Gives the overlay the shared removable-storage format manager so
     /// its Tools sub-view can drive it. Called by the controller right after
@@ -109,12 +113,31 @@ public partial class OverlayWindow : Window
         PanelFormat.DataContext = format;
     }
 
+    // The library name the confirm step will format with. Held here rather than in a
+    // TextBox: the row is press-to-edit (see the XAML), matching the tab editor and
+    // card rename, and the peer keyboard window owns the typing.
+    private string _formatName = "";
+
+    /// <summary>Shows the name on its row so the value is visible without focusing
+    /// anything, the way every other name row in the panel reads.</summary>
+    private void SetFormatName(string value)
+    {
+        _formatName = value ?? "";
+        FormatNameButton.Description = _formatName.Length > 0 ? _formatName : "(required)";
+    }
+
     // Controller text entry for the library name goes through the peer keyboard
-    // window (KeyboardService), like every other game-mode text field; the inline
-    // TextBox stays usable with a physical keyboard.
-    private void OnFormatTypeName(object? sender, RoutedEventArgs e)
-        => Core.KeyboardService.Request("Name (volume and Steam library)",
-            FormatNameInput.Text ?? "", 32, v => FormatNameInput.Text = v);
+    // window (KeyboardService), like every other game-mode text field.
+    private void OnFormatEditName(object? sender, RoutedEventArgs e)
+    {
+        if (!Core.KeyboardService.Request("Name (volume and Steam library)",
+                _formatName, 32, SetFormatName))
+        {
+            // No keyboard window means no way to type on a controller; say so instead
+            // of leaving a row that silently does nothing when pressed.
+            Core.Log.Warn("Format: no on-screen keyboard available for the library name.");
+        }
+    }
 
     /// <summary>The control gamepad navigation should land on when the panel opens
     /// or when focus tracking is lost: the ACTIVE tab's first row — HomeAppButton
@@ -132,6 +155,7 @@ public partial class OverlayWindow : Window
                     : InCardManagerSubView ? CardManagerHost
                     : InArtworkSubView ? ArtworkHost
                     : InLaunchWrapperSubView ? LaunchWrapperHost
+                    : InWakeLockSubView ? WakeLockHost
                     : PanelFormat;
                 foreach (var visual in host.GetVisualDescendants())
                 {
@@ -199,14 +223,17 @@ public partial class OverlayWindow : Window
             LeaveCardManagerSubView();
             LeaveArtworkSubView();
             LeaveLaunchWrapperSubView();
+            LeaveWakeLockSubView();
             Tabs.SelectedIndex = _lastSelectedTab;
         };
 
         LibraryTabsHost.CloseRequested += LeaveLibraryTabsSubView;
         CardManagerHost.CloseRequested += LeaveCardManagerSubView;
+        CardManagerHost.FormatRequested += OnFormatFromCardManager;
         ArtworkHost.CloseRequested += LeaveArtworkSubView;
         LaunchWrapperHost.CloseRequested += LeaveLaunchWrapperSubView;
         LaunchWrapperHost.Picked += OnLaunchFixGamePicked;
+        WakeLockHost.CloseRequested += LeaveWakeLockSubView;
         InitializeLaunchFixLabels(viewModel);
 
         KeyDown += OnKeyDown;
@@ -299,11 +326,15 @@ public partial class OverlayWindow : Window
         {
             return LaunchWrapperHost.Back();
         }
+        if (InWakeLockSubView)
+        {
+            return WakeLockHost.Back();
+        }
         if (!InFormatSubView)
         {
             return false;
         }
-        LeaveFormatSubView();
+        LeaveFormatSubViewToOrigin();
         return true;
     }
 
@@ -335,6 +366,10 @@ public partial class OverlayWindow : Window
         if (InLaunchWrapperSubView)
         {
             LeaveLaunchWrapperSubView();
+        }
+        if (InWakeLockSubView)
+        {
+            LeaveWakeLockSubView();
         }
         _lastSelectedTab = e.NewIndex;
         PanelSession.IsVisible = e.NewIndex == 0;
@@ -694,6 +729,38 @@ public partial class OverlayWindow : Window
         _ = ApplyLaunchFixToAsync(pending.Mode, pending.Button, game.AppId, game.Name, game.Shortcut);
     }
 
+    private void OnShowWakeLockHolders(object? sender, RoutedEventArgs e)
+    {
+        WakeLockHost.Open();
+        EnterWakeLockSubView();
+    }
+
+    private void EnterWakeLockSubView()
+    {
+        InWakeLockSubView = true;
+        PanelPower.IsVisible = false;
+        WakeLockHost.IsVisible = true;
+        FocusFirstControl(WakeLockHost);
+    }
+
+    private void LeaveWakeLockSubView()
+    {
+        if (!InWakeLockSubView)
+        {
+            return;
+        }
+        InWakeLockSubView = false;
+        SubViewClosed?.Invoke();
+        WakeLockHost.IsVisible = false;
+        // Unlike the Tools sub-views this one belongs to the Power tab, so it is
+        // that panel that comes back.
+        PanelPower.IsVisible = Tabs.SelectedIndex == 2;
+        if (PanelPower.IsVisible)
+        {
+            FocusFirstControl(PanelPower);
+        }
+    }
+
     private void EnterLaunchWrapperSubView()
     {
         InLaunchWrapperSubView = true;
@@ -770,7 +837,7 @@ public partial class OverlayWindow : Window
         _pendingTarget = entry;
         FormatConfirmTarget.Text = $"Erase {entry.Name}?";
         FormatConfirmDetail.Text = entry.Detail;
-        FormatNameInput.Text = Shell.SdFormatManager.DefaultLabel;
+        SetFormatName(Shell.SdFormatManager.DefaultLabel);
         ShowFormatState(pick: false, confirm: true, progress: false);
         FocusFirstControl(FormatConfirmView);
     }
@@ -782,13 +849,13 @@ public partial class OverlayWindow : Window
             return;
         }
         var target = _pendingTarget;
-        var name = FormatNameInput.Text;
+        var name = _formatName;
         ShowFormatState(pick: false, confirm: false, progress: true);
         ScrollFormatToTop();
         await _format.FormatAsync(target, name);
     }
 
-    private void OnFormatCancel(object? sender, RoutedEventArgs e) => LeaveFormatSubView();
+    private void OnFormatCancel(object? sender, RoutedEventArgs e) => LeaveFormatSubViewToOrigin();
 
     private Shell.LibraryTabManager? _libraryTabs;
     private Shell.LibraryTabManager LibraryTabs => _libraryTabs ??= new Shell.LibraryTabManager();
@@ -810,8 +877,39 @@ public partial class OverlayWindow : Window
     /// <summary>Opens the SD-card library manager sub-view.</summary>
     private void OnCardManager(object? sender, RoutedEventArgs e)
     {
+        CardManagerHost.ShowFormat = _format is not null
+            && DataContext is OverlayViewModel { ShowSdCard: true };
         CardManagerHost.Open(LibraryTabs);
         EnterCardManagerSubView();
+    }
+
+    /// <summary>Format picked from inside the Card Manager: hand the surface over to
+    /// the format panel. Both are Tools sub-views, so the old one must be left first
+    /// or two would claim the surface at once.</summary>
+    private void OnFormatFromCardManager()
+    {
+        LeaveCardManagerSubView();
+        OnFormatSdCard(this, new RoutedEventArgs());
+        // Set AFTER entering: OnFormatSdCard runs the ordinary enter path, and
+        // LeaveFormatSubView clears this on every exit.
+        _formatReturnsToCards = true;
+    }
+
+    /// <summary>Whether leaving the format panel should land back in the Card Manager
+    /// rather than the Tools list, because that is where the user opened it from.</summary>
+    private bool _formatReturnsToCards;
+
+    /// <summary>Cancel/Back out of the format panel, returning to whichever surface
+    /// opened it. Re-opening the Card Manager also rescans, so a card that was just
+    /// formatted shows up straight away.</summary>
+    private void LeaveFormatSubViewToOrigin()
+    {
+        var toCards = _formatReturnsToCards;
+        LeaveFormatSubView();
+        if (toCards)
+        {
+            OnCardManager(this, new RoutedEventArgs());
+        }
     }
 
     private void EnterCardManagerSubView()
@@ -972,6 +1070,7 @@ public partial class OverlayWindow : Window
         }
         InFormatSubView = false;
         _pendingTarget = null;
+        _formatReturnsToCards = false;
         // Close the format-name peer keyboard on the way out, matching the other
         // Leave*SubView methods; without this the keyboard can outlive its sub-view
         // and keep writing back to the now-hidden name field.

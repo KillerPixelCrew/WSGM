@@ -656,6 +656,47 @@ internal static partial class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool DeregisterShellHookWindow(nint hWnd);
 
+    /// <summary>WM_POWERBROADCAST.</summary>
+    internal const uint WmPowerBroadcast = 0x0218;
+
+    /// <summary>PBT_POWERSETTINGCHANGE — wParam of a power-setting notification.</summary>
+    internal const nint PbtPowerSettingChange = 0x8013;
+
+    /// <summary>GUID_SESSION_DISPLAY_STATUS {2B84C20E-AD23-4DDF-93DB-05FFBD7EFCA5}: the
+    /// display of the CALLING SESSION turned on or off. Microsoft documents this as the
+    /// one interactive user-mode applications must use — GUID_CONSOLE_DISPLAY_STATE is
+    /// for services and kernel-mode callers. Data is a DWORD MONITOR_DISPLAY_STATE:
+    /// 0 = off, 1 = on, 2 = dimmed.</summary>
+    internal static readonly Guid GuidSessionDisplayStatus =
+        new(0x2B84C20E, 0xAD23, 0x4DDF, 0x93, 0xDB, 0x05, 0xFF, 0xBD, 0x7E, 0xFC, 0xA5);
+
+    /// <summary>DEVICE_NOTIFY_WINDOW_HANDLE: deliver as WM_POWERBROADCAST messages.</summary>
+    internal const uint DeviceNotifyWindowHandle = 0;
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    internal static partial nint RegisterPowerSettingNotification(
+        nint hRecipient, in Guid powerSettingGuid, uint flags);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool UnregisterPowerSettingNotification(nint handle);
+
+    /// <summary>POWERBROADCAST_SETTING: the lParam payload of PBT_POWERSETTINGCHANGE.
+    /// Only the fixed header is declared; <c>Data</c> is a variable-length array whose
+    /// first four bytes carry the DWORD the display-status setting reports.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct PowerBroadcastSetting
+    {
+        /// <summary>Which power setting changed.</summary>
+        internal Guid PowerSetting;
+
+        /// <summary>Size in bytes of the payload that follows.</summary>
+        internal uint DataLength;
+
+        /// <summary>First byte of the payload.</summary>
+        internal byte Data;
+    }
+
     [LibraryImport("user32.dll", EntryPoint = "SendNotifyMessageW", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool SendNotifyMessageW(nint hWnd, uint msg, nint wParam, nint lParam);

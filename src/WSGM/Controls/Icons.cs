@@ -39,6 +39,12 @@ public static class Icons
             "M 4,4 L 10,4 L 10,10 L 4,10 Z M 14,4 L 20,4 L 20,10 L 14,10 Z "
                 + "M 4,14 L 10,14 L 10,20 L 4,20 Z M 14,14 L 20,14 L 20,20 L 14,20 Z");
 
+    /// <summary>Three bulleted lines (a list of entries).</summary>
+    public static StreamGeometry ListLines { get; } =
+        StreamGeometry.Parse(
+            "M 3,6 L 5,6 M 8,6 L 21,6 M 3,12 L 5,12 M 8,12 L 21,12 "
+                + "M 3,18 L 5,18 M 8,18 L 21,18");
+
     /// <summary>Up and down arrows side by side (reorder a list).</summary>
     public static StreamGeometry Reorder { get; } =
         StreamGeometry.Parse(

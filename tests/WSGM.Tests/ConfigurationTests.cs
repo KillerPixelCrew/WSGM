@@ -677,6 +677,47 @@ public sealed class ConfigurationTests
     }
 
     [Fact]
+    public void EveryCefSubToggleDefaultsOnAndRoundTripsOff()
+    {
+        // Default-on matters as much as the round trip: an older config.json has no
+        // Cef section at all, and a sub-toggle that deserialized to false would
+        // silently disable a shipped feature on upgrade.
+        var defaults = new AppConfig().Cef;
+        Assert.True(defaults.Enabled);
+        Assert.True(defaults.LibraryTabs);
+        Assert.True(defaults.CardManager);
+        Assert.True(defaults.SdFormat);
+        Assert.True(defaults.Artwork);
+        Assert.True(defaults.WifiIndicator);
+        Assert.True(defaults.DownloadKeepAwake);
+        Assert.True(defaults.DownloadQueueSort);
+
+        var original = new AppConfig();
+        original.Cef.DownloadQueueSort = false;
+        original.Cef.DownloadKeepAwake = false;
+
+        var json = JsonSerializer.Serialize(original, ConfigJsonContext.Default.AppConfig);
+        var restored = JsonSerializer.Deserialize(json, ConfigJsonContext.Default.AppConfig);
+
+        Assert.NotNull(restored);
+        Assert.False(restored.Cef.DownloadQueueSort);
+        Assert.False(restored.Cef.DownloadKeepAwake);
+        Assert.True(restored.Cef.WifiIndicator);
+    }
+
+    [Fact]
+    public void ACefSectionMissingFromAnOlderConfigStillEnablesTheNewSubToggles()
+    {
+        // Exactly what an upgrade from a build that predates the sub-toggle sees.
+        var restored = JsonSerializer.Deserialize(
+            "{\"SteamAutoRelaunch\":true}", ConfigJsonContext.Default.AppConfig);
+
+        Assert.NotNull(restored);
+        Assert.NotNull(restored.Cef);
+        Assert.True(restored.Cef.DownloadQueueSort);
+    }
+
+    [Fact]
     public void AccentColorRoundTripsAndDefaultsToTheWsgmOrange()
     {
         Assert.Equal("#FFFF9D3D", new AppConfig().AccentColor);

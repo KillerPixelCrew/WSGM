@@ -69,6 +69,19 @@
                     </Border>
 
                     <Border Classes="section-header">
+                        <TextBlock Text="POWER" />
+                    </Border>
+                    <Border Classes="setting-row alt">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                            <StackPanel VerticalAlignment="Center" Spacing="1">
+                                <TextBlock Text="Mute while the screen is off" Classes="setting-title" />
+                                <TextBlock Text="Keep Awake lets downloads continue with the screen dark — this silences the sounds Steam plays when they finish, and restores the volume when the screen comes back. A mute you set yourself is left alone." Classes="caption" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsChecked="{Binding MuteWhileDisplayOff}" VerticalAlignment="Center" />
+                        </Grid>
+                    </Border>
+
+                    <Border Classes="section-header">
                         <TextBlock Text="DIAGNOSTICS" />
                     </Border>
                     <Border Classes="setting-row alt">

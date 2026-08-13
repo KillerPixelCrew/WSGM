@@ -19,6 +19,15 @@ public sealed class CardManagerView : OverlaySubView
 {
     private LibraryTabManager _manager = new();
 
+    /// <summary>Raised when the user picks Format SD Card from the card list. The
+    /// overlay owns the format flow (it is an inline panel, not a level of this
+    /// view), so it swaps this sub-view for that one.</summary>
+    public event Action? FormatRequested;
+
+    /// <summary>Whether to offer Format SD Card here, mirroring the SD-format
+    /// feature toggle. Set by the overlay before <see cref="Open"/>.</summary>
+    public bool ShowFormat { get; set; }
+
     /// <inheritdoc />
     protected override string LogScope => "Card manager";
 
@@ -83,6 +92,13 @@ public sealed class CardManagerView : OverlaySubView
             stack.Children.Add(Row(c.Name, state, Icons.SdCard, () => RenderCardEditor(c)));
         }
         stack.Children.Add(SectionLabel(""));
+        if (ShowFormat)
+        {
+            // Formatting a card and managing tracked cards are the same subject, so
+            // the action lives with the list it acts on rather than in the Tools tab.
+            stack.Children.Add(Row("Format SD Card", "Erase a drive and set it up as a Steam library",
+                Icons.SdCard, () => FormatRequested?.Invoke()));
+        }
         stack.Children.Add(Row("Back", "Return to Tools", Icons.ExitFullscreen, () => Back()));
         SetContent(stack);
     }

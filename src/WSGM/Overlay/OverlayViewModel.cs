@@ -203,7 +203,13 @@ public sealed class OverlayViewModel : INotifyPropertyChanged
     public bool ShowCardManager
     {
         get => _showCardManager;
-        set { _showCardManager = value; Raise(nameof(ShowCardManager)); Raise(nameof(ShowSteamLibrarySection)); }
+        set
+        {
+            _showCardManager = value;
+            Raise(nameof(ShowCardManager));
+            Raise(nameof(ShowSteamLibrarySection));
+            Raise(nameof(ShowFormatInTools));
+        }
     }
 
     /// <summary>Whether the CEF shortcut-artwork button is shown
@@ -219,8 +225,21 @@ public sealed class OverlayViewModel : INotifyPropertyChanged
     public bool ShowSdCard
     {
         get => _showSdCard;
-        set { _showSdCard = value; Raise(nameof(ShowSdCard)); Raise(nameof(ShowSteamLibrarySection)); }
+        set
+        {
+            _showSdCard = value;
+            Raise(nameof(ShowSdCard));
+            Raise(nameof(ShowSteamLibrarySection));
+            Raise(nameof(ShowFormatInTools));
+        }
     }
+
+    /// <summary>Whether the Tools tab still needs its own Format-SD-card button.
+    /// Formatting normally lives inside the Card Manager (cards are one subject, one
+    /// place), so the Tools entry only comes back when the Card Manager is switched
+    /// off — otherwise turning that toggle off would strip the only way to reach a
+    /// feature its own toggle says is enabled.</summary>
+    public bool ShowFormatInTools => ShowSdCard && !ShowCardManager;
 
     /// <summary>Whether the "STEAM LIBRARY" tools section has any visible button, so
     /// its header is hidden rather than left orphaned when every CEF feature is off.</summary>

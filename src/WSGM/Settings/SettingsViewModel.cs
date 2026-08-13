@@ -123,6 +123,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         CefArtwork = _config.Cef.Artwork;
         CefWifiIndicator = _config.Cef.WifiIndicator;
         CefDownloadKeepAwake = _config.Cef.DownloadKeepAwake;
+        CefDownloadQueueSort = _config.Cef.DownloadQueueSort;
+        MuteWhileDisplayOff = _config.MuteWhileDisplayOff;
         _hotkey = _config.Hotkey;
         _chord = _config.GamepadChord;
         GestureBottom = _config.Gestures.BottomEdge;
@@ -295,6 +297,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private bool _cefArtwork = true;
     private bool _cefWifiIndicator = true;
     private bool _cefDownloadKeepAwake = true;
+    private bool _cefDownloadQueueSort = true;
+    private bool _muteWhileDisplayOff;
 
     /// <summary>Gets or sets the master Steam CEF integration switch. Off closes the
     /// debug port, injects nothing, and hides the sub-toggles below and the overlay
@@ -319,6 +323,13 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// <summary>Gets or sets the automatic download wake lock (keep the device awake
     /// while Steam reports an active download).</summary>
     public bool CefDownloadKeepAwake { get => _cefDownloadKeepAwake; set { _cefDownloadKeepAwake = value; Raise(nameof(CefDownloadKeepAwake)); } }
+
+    /// <summary>Gets or sets the Name/Size/Type sort buttons injected into Big
+    /// Picture's download-queue header.</summary>
+    public bool CefDownloadQueueSort { get => _cefDownloadQueueSort; set { _cefDownloadQueueSort = value; Raise(nameof(CefDownloadQueueSort)); } }
+
+    /// <summary>Gets or sets muting system audio while the screen is off.</summary>
+    public bool MuteWhileDisplayOff { get => _muteWhileDisplayOff; set { _muteWhileDisplayOff = value; Raise(nameof(MuteWhileDisplayOff)); } }
 
     /// <summary>Gets whether the LEGACY shell registration is still active for this
     /// account (pre-service installs). Shows the migration Restore card.</summary>
@@ -980,6 +991,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.Cef.Artwork = CefArtwork;
         config.Cef.WifiIndicator = CefWifiIndicator;
         config.Cef.DownloadKeepAwake = CefDownloadKeepAwake;
+        config.Cef.DownloadQueueSort = CefDownloadQueueSort;
+        config.MuteWhileDisplayOff = MuteWhileDisplayOff;
         config.Hotkey = _hotkey;
         config.GamepadChord = _chord;
         config.Gestures.BottomEdge = GestureBottom;

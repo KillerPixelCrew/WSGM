@@ -46,6 +46,13 @@ public sealed class ShellSession
     // Live Wi-Fi-indicator gate: the applied state, so a reload can tell an
     // on->off transition from a repeat of the same value.
     private bool _wifiIndicatorEnabled;
+    // Same for the injected download-queue sort buttons, with its own readiness
+    // wait (replaced rather than cancelled, for the same reason as the tab sync).
+    private bool _downloadSortEnabled;
+    private CancellationTokenSource _downloadSortCancellation = new();
+    // Field-rooted for the session lifetime: it owns a native power-setting
+    // registration and the "did WSGM mute this?" flag.
+    private DisplayOffMuteService? _displayMute;
     // Field-rooted deliberately: an unreferenced enabled FileSystemWatcher is
     // GC-collectible (it holds only a WeakReference to itself in its pending
     // ReadDirectoryChangesW state) and silently stops raising events.
@@ -63,6 +70,7 @@ public sealed class ShellSession
         _config = config;
         _cefMasterEnabled = config.Cef.Enabled;
         _wifiIndicatorEnabled = config.Cef.Enabled && config.Cef.WifiIndicator;
+        _downloadSortEnabled = config.Cef.Enabled && config.Cef.DownloadQueueSort;
         SteamCef.SetMasterEnabled(config.Cef.Enabled);
         _overlayTestOnly = overlayTestOnly;
         _serviceBoot = serviceBoot;
@@ -98,9 +106,11 @@ public sealed class ShellSession
             _cardAcfWatcher = null;
             _networkIndicator?.Dispose();
             _networkIndicator = null;
+            _downloadSortCancellation.Cancel();
             _ = SteamPageBridge.DisableBadgeAsync();
             _ = SteamLibraryTabs.DisableAsync();
             _ = SteamNetworkIndicator.DisableAsync();
+            _ = SteamDownloadSort.DisableAsync();
             _volumeButtons?.SetGameModeActive(false);
             _overlay?.AttachTrayHost(null);
             _trayHost?.Dispose();
@@ -124,6 +134,7 @@ public sealed class ShellSession
             // Returning from desktop mode disabled tabs/badge and cancelled the boot
             // sync; re-inject without requiring an overlay open.
             KickTabBootSync();
+            KickDownloadSort();
         };
         // A fresh Steam start while WSGM keeps running (client update, crash restart)
         // wipes the injected tabs and the resident badge with the old CEF session —
@@ -133,6 +144,7 @@ public sealed class ShellSession
             if (_inGameMode)
             {
                 KickTabBootSync();
+                KickDownloadSort();
                 // The fresh CEF session also wiped the resident network-indicator
                 // script — push again as soon as the poll loop next ticks.
                 _networkIndicator?.Poke();
@@ -153,6 +165,8 @@ public sealed class ShellSession
         _volumeButtons = new VolumeButtonService(
             MessageWindow.Create(),
             () => DisplayScale.GetUiScalePercent(_config) / 100.0);
+        _displayMute = new DisplayOffMuteService(MessageWindow.Create());
+        _displayMute.ApplyConfig(_config.MuteWhileDisplayOff);
 
         // Refresh boot.json every session start so a stale Elevate/ExePath heals
         // itself before the next sign-in.
@@ -454,6 +468,74 @@ public sealed class ShellSession
         _ = new LibraryTabManager().SyncOnBootAsync(_tabBootSyncCancellation.Token);
     }
 
+    /// <summary>(Re)installs the injected download-queue sort buttons once Steam's UI
+    /// is up. The readiness poll is what retries — the injection itself is attempted
+    /// exactly once per Steam session, so a genuine script failure logs a single
+    /// warning instead of refilling the capped log every few seconds.</summary>
+    private void KickDownloadSort()
+    {
+        _downloadSortCancellation.Cancel();
+        _downloadSortCancellation.Dispose();
+        _downloadSortCancellation = new CancellationTokenSource();
+        if (_overlayTestOnly || !_downloadSortEnabled)
+        {
+            return;
+        }
+        var token = _downloadSortCancellation.Token;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                for (var attempt = 0; attempt < 30 && !token.IsCancellationRequested; attempt++)
+                {
+                    await Task.Delay(attempt == 0 ? 3000 : 5000, token).ConfigureAwait(false);
+                    var probe = await SteamCef.EvaluateAsync(
+                        "JSON.stringify(!!window.webpackChunksteamui)",
+                        TimeSpan.FromSeconds(4), token).ConfigureAwait(false);
+                    if (probe.Reachable && probe.Value == "true")
+                    {
+                        await SteamDownloadSort.EnableAsync(token).ConfigureAwait(false);
+                        return;
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Desktop trip, a master-switch flip, or shutdown — nothing to report.
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Download queue sort injection failed: {ex.Message}");
+            }
+        });
+    }
+
+    /// <summary>Starts or retracts the injected download-queue sort buttons to match a
+    /// reloaded configuration, so the toggle applies without a re-logon.</summary>
+    /// <param name="enabled">Whether the sort buttons should be injected.</param>
+    private void ApplyDownloadSort(bool enabled)
+    {
+        if (_overlayTestOnly || enabled == _downloadSortEnabled)
+        {
+            _downloadSortEnabled = enabled;
+            return;
+        }
+        _downloadSortEnabled = enabled;
+        if (!enabled)
+        {
+            _downloadSortCancellation.Cancel();
+            // When the master switch is going down too, its own retraction removes
+            // the buttons — calling it here as well would race that.
+            if (_cefMasterEnabled)
+            {
+                _ = SteamDownloadSort.DisableAsync();
+            }
+            Log.Info("Download queue sorting turned off.");
+            return;
+        }
+        KickDownloadSort();
+    }
+
     /// <summary>Mirrors the master CEF switch, retracting anything WSGM already
     /// injected on the way down. Ordering is load-bearing: the switch fails every
     /// evaluation closed, including WSGM's own retractions, so flipping it first
@@ -492,7 +574,11 @@ public sealed class ShellSession
                 }
                 // Field-mutating and fire-and-forget from the UI thread, like every
                 // other caller.
-                Avalonia.Threading.Dispatcher.UIThread.Post(KickTabBootSync);
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    KickTabBootSync();
+                    KickDownloadSort();
+                });
             });
             return;
         }
@@ -501,6 +587,7 @@ public sealed class ShellSession
         // stranding them until Steam restarts (the desktop trip cancels for the
         // same reason).
         _tabBootSyncCancellation.Cancel();
+        _downloadSortCancellation.Cancel();
         _ = Task.Run(async () =>
         {
             await _cefMasterGate.WaitAsync().ConfigureAwait(false);
@@ -509,6 +596,7 @@ public sealed class ShellSession
                 await SteamPageBridge.DisableBadgeAsync().ConfigureAwait(false);
                 await SteamLibraryTabs.DisableAsync().ConfigureAwait(false);
                 await SteamNetworkIndicator.DisableAsync().ConfigureAwait(false);
+                await SteamDownloadSort.DisableAsync().ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -601,6 +689,8 @@ public sealed class ShellSession
                         _config = config;
                         ApplyCefMasterSwitch(config.Cef.Enabled);
                         ApplyNetworkIndicator(config.Cef.Enabled && config.Cef.WifiIndicator);
+                        ApplyDownloadSort(config.Cef.Enabled && config.Cef.DownloadQueueSort);
+                        _displayMute?.ApplyConfig(config.MuteWhileDisplayOff);
                         _overlay?.ApplyConfig(config);
                         _startupWatcher?.Apply(config.StartupApps);
                         _keepAwake?.ApplyConfig(AutoKeepAwakeEnabled(config));
@@ -721,5 +811,8 @@ public sealed class ShellSession
         {
             _networkIndicator ??= NetworkIndicatorService.StartNew();
         }
+        // Same reason: inject the download-queue sort buttons at boot so they are
+        // already there the first time the user opens the Downloads page.
+        KickDownloadSort();
     }
 }

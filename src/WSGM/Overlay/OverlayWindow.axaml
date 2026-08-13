@@ -113,8 +113,11 @@
                                       IconGeometry="{x:Static c:Icons.FolderPlus}"
                                       Title="Add Steam Library"
                                       Description="Register a folder, drive, or network share" />
+                        <!-- Formatting normally lives inside the Card Manager; this
+                             entry only returns when that manager is switched off, so
+                             the SD-format toggle can never be on with no way in. -->
                         <c:CardButton Click="OnFormatSdCard"
-                                      IsVisible="{Binding ShowSdCard}"
+                                      IsVisible="{Binding ShowFormatInTools}"
                                       IconGeometry="{x:Static c:Icons.SdCard}"
                                       Title="Format SD Card"
                                       Description="Erase a card as a Steam game library" />
@@ -186,18 +189,16 @@
                                                TextWrapping="Wrap" />
                                 </StackPanel>
                             </Border>
-                            <StackPanel Spacing="4">
-                                <TextBlock Text="Name (volume and Steam library)" Classes="caption" />
-                                <TextBox x:Name="FormatNameInput" MaxLength="32" PlaceholderText="Games" />
-                                <!-- Controller text entry goes through the peer keyboard
-                                     window beside the sidebar (the panel is too narrow for
-                                     an inline keyboard); the box stays for physical
-                                     keyboards. -->
-                                <c:CardButton Click="OnFormatTypeName"
-                                              IconGeometry="{x:Static c:Icons.CopyDoc}"
-                                              Title="Type name with controller"
-                                              Description="Opens the on-screen keyboard" />
-                            </StackPanel>
+                            <!-- Press-to-edit row, the same shape every other name field
+                                 in the panel uses (tab editor, card rename): the current
+                                 value lives on the row and the peer keyboard window owns
+                                 the typing. A bare TextBox reads as broken on a controller,
+                                 which is exactly how this one was reported. -->
+                            <c:CardButton x:Name="FormatNameButton"
+                                          Click="OnFormatEditName"
+                                          IconGeometry="{x:Static c:Icons.CopyDoc}"
+                                          Title="Name (volume and Steam library)"
+                                          Description="Games" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Button x:Name="FormatConfirmButton"
                                         Classes="danger"
@@ -241,6 +242,9 @@
                          could not tell which game the user is looking at. -->
                     <ov:LaunchWrapperView x:Name="LaunchWrapperHost" IsVisible="False" />
 
+                    <!-- Power-tab sub-view: everything currently holding a wake lock. -->
+                    <ov:WakeLockHoldersView x:Name="WakeLockHost" IsVisible="False" />
+
                     <StackPanel x:Name="PanelPower" Spacing="4" IsVisible="False">
                         <c:CardButton Click="OnSleep"
                                       IconGeometry="{x:Static c:Icons.Moon}"
@@ -252,6 +256,10 @@
                                       Title="Keep Awake"
                                       Description="{Binding KeepAwakeDescription}"
                                       TrailingText="{Binding KeepAwakeTrailing}" />
+                        <c:CardButton Click="OnShowWakeLockHolders"
+                                      IconGeometry="{x:Static c:Icons.ListLines}"
+                                      Title="What's keeping this awake"
+                                      Description="List the programs holding a wake lock" />
 
                         <!-- Each row cycles its timeout through the presets; the
                              trailing badge is the current value read live from the

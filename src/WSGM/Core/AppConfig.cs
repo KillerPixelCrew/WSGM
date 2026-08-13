@@ -530,6 +530,11 @@ public sealed class AppConfig
 
     /// <summary>Extra delay before Steam Big Picture is started at logon.</summary>
     public int SteamDelayMs { get; set; } = 0;
+    /// <summary>Mute system audio while the screen is off and restore it when the
+    /// screen comes back (see Shell\DisplayOffMuteService). Keep-awake deliberately
+    /// lets the display time out during downloads, and Steam plays a sound on every
+    /// completed download. Only a mute WSGM applied itself is undone.</summary>
+    public bool MuteWhileDisplayOff { get; set; }
     /// <summary>Fullscreen "Please wait" cover at logon that hides startup-app
     /// window flashes until Steam Big Picture is on screen (see Shell\BootSplash).</summary>
     public bool BootSplashEnabled { get; set; } = true;
@@ -695,6 +700,10 @@ public sealed class CefConfig
     /// instead of entering standby. The quick-access Power tab's manual Keep Awake
     /// cycle works regardless of this flag.</summary>
     public bool DownloadKeepAwake { get; set; } = true;
+
+    /// <summary>Name/Size/Type sort buttons injected into the header of Big Picture's
+    /// download queue (<c>SteamDownloadSort</c>).</summary>
+    public bool DownloadQueueSort { get; set; } = true;
 }
 
 /// <summary>Source-generated JSON metadata for the persisted <see cref="AppConfig"/> contract.</summary>

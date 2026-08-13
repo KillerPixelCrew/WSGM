@@ -258,6 +258,26 @@ sub-views (`PanelFormat`, `LibraryTabsView`, `CardManagerView`, `ArtworkView`, `
 adding one means extending `AnySubView`, `DefaultFocusTarget`, `TryCancelSubView`, the `Activated`
 teardown, and an `Enter*`/`Leave*` pair — never a Popup/Flyout, which `GamepadNavigation` cannot reach.
 
+**Text entry in the panel is a press-to-edit ROW, never a bare `TextBox`** (maintainer, on the
+format name reading as broken). Every editable name — the tab editor, card rename, filter
+patterns — is a `CardButton`/`Row` whose Description shows the current value and whose click
+opens the peer keyboard window through `KeyboardService.Request`. A `TextBox` dropped into a
+panel looks editable but is unusable on a controller: `GamepadNavigation` deliberately skips
+TextBoxes so the Windows touch keyboard cannot pop, so focus never lands on it and nothing
+types. The format library name was the last holdout and is now a row like the rest. When
+`KeyboardService.Request` returns false there is no way to type at all — log it rather than
+leaving a row that silently does nothing when pressed.
+
+**Format SD Card lives inside the Card Manager**, not the Tools list (maintainer): formatting a
+card and managing tracked cards are one subject. `CardManagerView` raises `FormatRequested`, the
+overlay leaves that sub-view and enters `PanelFormat` (two Tools sub-views must never own the
+surface at once), and Cancel/Back returns to the Card Manager via `LeaveFormatSubViewToOrigin`
+— which rescans, so a card that was just formatted appears immediately. The two feature toggles
+stay independent: `OverlayViewModel.ShowFormatInTools` (`ShowSdCard && !ShowCardManager`) brings
+the Tools button back when the Card Manager is switched off, so `Cef.SdFormat` can never be on
+with no way to reach it. `_formatReturnsToCards` is cleared in `LeaveFormatSubView` so the
+`Activated` teardown cannot bounce a fresh summon back into the Card Manager.
+
 **Input stack** (`Input\`): `SdlGamepads` is the process-wide SDL3 owner (single event pump — two
 `GamepadService` instances exist when Settings is open; per-instance pumps would steal hotplug
 events). UI-thread 16 ms `DispatcherTimer` poll → edge-triggered `ButtonPressed` (+ direction
@@ -567,14 +587,88 @@ delete a first window's unsaved import. `SplashAssets` is a **two-phase transact
 promoted only after `ConfigStore.Save` succeeds, a failed promotion reports a failed save and keeps
 the previous path, and the picked path stays in the view model so a retry works.
 
-**Turning a CEF feature off must RETRACT, not just stop pushing.** The injected tabs, badges and
-synthetic Wi-Fi AP are resident in Steam's CEF session and survive until Steam restarts. The master
-switch fails every evaluation closed — including WSGM's own `Disable*` calls — so `ShellSession`
-owns it and awaits the three retractions BEFORE closing the choke point (`ApplyCefMasterSwitch`);
-a sub-toggle going off retracts through the same kill switches inside the sync
-(`LibraryTabManager`), and the Wi-Fi indicator's start gate is a live field, not the boot-time
-`_config`, so its toggle applies without a re-logon. The overlay's per-feature button visibility is
-recomputed on config reload as well, so a disabled feature loses its entry point immediately.
+12. **Download-queue sorting (`Core\SteamDownloadSort.cs`, live-verified 2026-08-12).** Name/Size/Type
+   sort buttons injected into the header of Big Picture's "Up Next" download section, reordering the
+   queue through Steam's own `SteamClient.Downloads.SetQueueIndex(appid, index, remoteClientId)`.
+   Three findings are load-bearing and were each a real failure first:
+   (a) **The buttons must be built from Steam's own `Focusable` component.** A plain DOM injection
+   renders and clicks fine but is invisible to Big Picture's gamepad focus tree — device-confirmed
+   ("its not navigateable with controller"). With `Focusable` the controller reaches them and the
+   footer shows the select hint.
+   (b) **The injection point is the JSX runtime**, not the component. The section header rebuilds its
+   own `children` array after spreading rest props, so it can only be WRAPPED; and the download-list
+   section is a **MobX observer** whose `render` is a NON-configurable, NON-writable own property on
+   every instance, so it cannot be patched, deleted, or shadowed by a prototype accessor. Wrapping
+   `jsx`/`jsxs` and intercepting the header element at creation is what is left; the hot-path cost is
+   one reference comparison. Some runtime modules re-export the same binding, so a wrapper must be
+   skipped if it already carries the guard property — wrapping a wrapper renders the bar twice.
+   (c) **The `Focusable` lookup must stay tight.** Matching "flow-children" + "onActivate" also hits
+   three chat/friends CLASS components and the registry hands a text-area component back FIRST — which
+   rendered a textbox into the download header. Require a plain function under 1500 chars that
+   destructures the quoted `"flow-children"` key together with `onActivate:` / `focusClassName` /
+   `focusWithinClassName`; that leaves exactly one match. Note webpack's ES exports are ACCESSOR
+   properties — a value-only scan (`getOwnPropertyDescriptor(...).value`) finds neither React nor
+   `Focusable`, which is also why they cannot be located the way a plain object's members would be.
+   **Scope is the ENTIRE pending list** (maintainer-directed): `QueuedTransfers` + `UnqueuedTransfers`
+   + `ScheduledTransfers`, minus completed, renumbered from index 0. Index 0 is included — the item
+   Steam is currently working on is part of the queue, and excluding it made a sort look broken;
+   moving another app to index 0 only switches which one Steam works on, and per-app progress is
+   retained. Including the scheduled entries **queues them** (their `queue_index` is -1 until a sort
+   gives them one), which is exactly what dragging them into the queue does in Steam's own UI — so a
+   sort empties the "Scheduled" section. **That is the point, not a side effect** (maintainer, on
+   being offered the schedule-preserving alternative): when Wi-Fi drops mid-download Steam kicks the
+   whole queue out to unqueued/scheduled, and one tap on a sort button is how fifty entries go back
+   in. Do NOT "fix" this into sorting each section separately or preserving `deferred_time` — a
+   reviewer re-raising it should be answered "deliberate, it is the bulk re-queue path". Never seed
+   the renumbering from `items[0].queue_index`: with unqueued entries in the list that can be -1.
+   The apply loop is one `SetQueueIndex` per item at 120 ms, so a fifty-entry re-queue takes ~6 s
+   with the buttons dimmed; that pacing is deliberate and the list is deliberately not capped.
+   **SIZE means bytes LEFT to download** (`bytes_total - bytes_in_progress`), not the total — the
+   queue is about what is still coming down the wire. A freshly restarted client reports
+   `bytes_total == 0` for queued-but-not-yet-planned apps; that is "unknown", NOT "smallest", and
+   ranking it as zero is what made the first tap look like it did nothing while the second (reversed)
+   tap looked correct — the reported "only works on the second tap" bug. Unknown-size items are
+   parked at the END in BOTH directions, which is why each comparator takes the direction as an
+   argument instead of the caller flipping the sign. WSGM never calls
+   `EnableAllDownloads`, but a sort still **resumes a paused queue** (live-verified: paused →
+   `Downloading`, even when the resulting order is unchanged) because Steam reacts to a
+   `SetQueueIndex` at the head. That is accepted — it is what dragging an item to the top does in
+   Steam's own UI — and must not be "fixed" by re-pausing afterwards. Displayed size is Steam's own formula: the sum
+   of `progress[k_EAppUpdateProgress_Download].bytes_total` across every content type; taking the max
+   over the progress array yields numbers that do not match the rows. `buildid == 0` = Install,
+   otherwise Update. The queued section is identified by the locale-independent
+   `#Downloads_Section_Current` title token plus a `count`+`labelId` shape check. Re-probe against a
+   live Steam (`tools/WsgmLibTest/run-prod-sort.mjs`, which extracts the script verbatim from the C#)
+   before shipping a change here.
+
+**Turning a CEF feature off must RETRACT, not just stop pushing.** The injected tabs, badges,
+synthetic Wi-Fi AP and download-sort buttons are resident in Steam's CEF session and survive until
+Steam restarts. The master switch fails every evaluation closed — including WSGM's own `Disable*`
+calls — so `ShellSession` owns it and awaits the retractions BEFORE closing the choke point
+(`ApplyCefMasterSwitch`); a sub-toggle going off retracts through the same kill switches inside the
+sync (`LibraryTabManager`), and the Wi-Fi indicator's and download sort's start gates are live fields,
+not the boot-time `_config`, so their toggles apply without a re-logon. The overlay's per-feature
+button visibility is recomputed on config reload as well, so a disabled feature loses its entry point
+immediately.
+
+**Mute while the screen is off** (`Shell\DisplayOffMuteService.cs`, `Interop\MessageWindow.cs`,
+config `MuteWhileDisplayOff`, default OFF, Settings → System → POWER — **device-verification
+pending**): the companion to keep-awake, which deliberately lets the display time out while downloads
+continue — and Steam plays a sound on every finished download, into a dark room. The signal is
+`RegisterPowerSettingNotification(hwnd, GUID_SESSION_DISPLAY_STATUS, DEVICE_NOTIFY_WINDOW_HANDLE)` on
+the existing process message-only window → `WM_POWERBROADCAST` / `PBT_POWERSETTINGCHANGE`, payload a
+DWORD `MONITOR_DISPLAY_STATE` (0 off, 1 on, 2 dimmed). Microsoft documents
+**`GUID_SESSION_DISPLAY_STATUS` as the one interactive user-mode apps must use** —
+`GUID_CONSOLE_DISPLAY_STATE` is for services/kernel-mode and `GUID_MONITOR_POWER_ON` is the
+superseded legacy setting; do not "simplify" to either. Dimmed is NOT treated as off (the screen is
+still lit in front of the user). What has NOT been verified is whether the notification actually
+fires when the Claw's screen times out under Modern Standby — the `Display state: off/on` and
+`Mute on display off: …` log lines are the whole remote test surface, so preserve them. Only a mute
+WSGM applied itself is undone (a user who muted on purpose stays muted), and the service restores on
+`ProcessExit` so a normal exit while the screen is dark cannot strand the device muted; a hard kill
+still can, which is why the toggle defaults off. Muting goes through the native helper's APPCOMMAND
+**toggle** (`WsgmVolumeCommand(8)`) after reading the current state — there is no absolute set-mute
+export, so never call it without checking `WsgmVolumeGet` first.
 
 **Keep-awake wake lock** (`Core\WakeLock.cs`, `Core\SteamDownloads.cs`, `Core\KeepAwakeDecider.cs`,
 `Shell\KeepAwakeService.cs` — device-verified on the MSI Claw 2026-08-12, including the download
@@ -605,6 +699,16 @@ a lock gap. Preserve the `Keep awake: … hold acquired/released / manual mode �
 the remote test surface. The row also carries a **WakeWatch-style indicator dot** (the maintainer's
 WakeWatch tray tool, deliberately the same color vocabulary): green free / yellow standby-blocked /
 red display-pinned / grey unknown, computed from the system-wide power-request list —
+A **"What's keeping this awake"** row below it opens the Power tab's own in-place sub-view
+(`Overlay\WakeLockHoldersView.cs`, grouped by `Core\WakeLockHolders.cs`) listing every requester —
+WakeWatch's right-click detail, reimplemented: dedupe on (label, detail, reason) so thirty identical
+Steam requests read as `steam.exe ×30`, sorted by count then name, with the caller kind, pid, path and
+reason string on the second line. It is the first sub-view that belongs to the **Power** tab rather
+than Tools, so `LeaveWakeLockSubView` restores `PanelPower`, and it appears in `AnySubView`,
+`DefaultFocusTarget`, `TryCancelSubView`, the tab-switch teardown and the `Activated` reset like every
+other one. Unlike the summary line it deliberately does NOT hide WSGM's own request: the row above
+already explains WSGM's holds, but the full list is answering "what is holding this awake" and must
+not omit an answer. An unelevated read yields "couldn't read", never an empty all-clear.
 `Interop\PowerRequestList.cs` calls the undocumented `NtPowerInformation(GetPowerRequestList=45)`
 against ntdll directly (the documented wrapper rejects the class; needs elevation, denied → grey),
 decodes the version-dependent layout through bounds-checked readers ported from WakeWatch's

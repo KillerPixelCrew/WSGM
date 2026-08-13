@@ -88,6 +88,15 @@
                         <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefDownloadKeepAwake}" VerticalAlignment="Center" />
                     </Grid>
                 </Border>
+                <Border Classes="setting-row">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel VerticalAlignment="Center" Spacing="1">
+                            <TextBlock Text="Download queue sorting" Classes="setting-title" />
+                            <TextBlock Text="Add Name, Size and Type sort buttons to Big Picture's download queue." Classes="caption" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefDownloadQueueSort}" VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
             </StackPanel>
         </Grid>
     </Border>
