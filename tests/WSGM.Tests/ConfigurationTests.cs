@@ -16,6 +16,7 @@ public sealed class ConfigurationTests
             Gestures = null!,
             SavedDisplayScales = null!,
             SavedDisplayScaleEntries = null!,
+            DisplayProfiles = null!,
             PreviousConsoleLockSchemeValues = null!,
             CardLibraries = null!,
             ForgottenInsertedCardIds = null!,
@@ -39,6 +40,7 @@ public sealed class ConfigurationTests
         Assert.NotNull(normalized.Gestures);
         Assert.NotNull(normalized.SavedDisplayScales);
         Assert.NotNull(normalized.SavedDisplayScaleEntries);
+        Assert.NotNull(normalized.DisplayProfiles);
         Assert.NotNull(normalized.PreviousConsoleLockSchemeValues);
         Assert.NotNull(normalized.CardLibraries);
         Assert.NotNull(normalized.ForgottenInsertedCardIds);
@@ -64,6 +66,7 @@ public sealed class ConfigurationTests
         {
             StartupApps = [null!, new StartupAppConfig { Path = null!, Args = null! }],
             SavedDisplayScaleEntries = [null!, new DisplayScaleEntry { DeviceName = null! }],
+            DisplayProfiles = [null!, new MonitorDisplayProfile { MonitorId = null!, DeviceName = null!, DisplayName = null!, Desktop = null!, Game = null! }],
             PreviousConsoleLockSchemeValues = [null!, new PowerSchemeConsoleLock { SchemeGuid = null! }],
             SgdbLinks = [null!, new SgdbLinkConfig { Name = null! }],
         };
@@ -74,6 +77,11 @@ public sealed class ConfigurationTests
         Assert.Equal("", app.Path);
         Assert.Equal("", app.Args);
         Assert.Equal("", Assert.Single(normalized.SavedDisplayScaleEntries).DeviceName);
+        var display = Assert.Single(normalized.DisplayProfiles);
+        Assert.Equal("", display.MonitorId);
+        Assert.Equal("", display.DeviceName);
+        Assert.NotNull(display.Desktop);
+        Assert.NotNull(display.Game);
         Assert.Equal("", Assert.Single(normalized.PreviousConsoleLockSchemeValues).SchemeGuid);
         Assert.Equal("", Assert.Single(normalized.SgdbLinks).Name);
     }
@@ -799,6 +807,74 @@ public sealed class ConfigurationTests
         Assert.True(config.GameModeBootEnabled);
         Assert.Equal(5000, config.ExplorerLogonSettleMs);
     }
+
+    [Fact]
+    public void DisplayManagementDefaultsToLegacyDpiOnlyBehavior()
+        => Assert.Equal(DisplayManagementMode.DpiOnly, new AppConfig().DisplayManagement);
+
+    [Fact]
+    public void NormalizeRepairsAnOutOfRangeDisplayManagementValue()
+    {
+        var config = new AppConfig { DisplayManagement = (DisplayManagementMode)99 };
+
+        ConfigStore.Normalize(config);
+
+        Assert.Equal(DisplayManagementMode.DpiOnly, config.DisplayManagement);
+    }
+
+    [Fact]
+    public void PerMonitorDesktopAndGameProfilesRoundTrip()
+    {
+        var original = new AppConfig
+        {
+            DisplayManagement = DisplayManagementMode.FixedProfiles,
+            DisplayProfiles = [new MonitorDisplayProfile
+            {
+                MonitorId = "MONITOR\\AUO1234",
+                DeviceName = @"\\.\DISPLAY1",
+                DisplayName = "Internal panel",
+                HdrAvailable = true,
+                Desktop = new DisplayModeValues { Width = 1920, Height = 1080, RefreshRate = 120, DpiPercent = 150, HdrEnabled = false },
+                Game = new DisplayModeValues { Width = 1280, Height = 720, RefreshRate = 120, DpiPercent = 100, HdrEnabled = true },
+            }],
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize(original, ConfigJsonContext.Default.AppConfig);
+        var restored = System.Text.Json.JsonSerializer.Deserialize(json, ConfigJsonContext.Default.AppConfig)!;
+
+        Assert.Equal(DisplayManagementMode.FixedProfiles, restored.DisplayManagement);
+        var profile = Assert.Single(restored.DisplayProfiles);
+        Assert.Equal("MONITOR\\AUO1234", profile.MonitorId);
+        Assert.True(profile.HdrAvailable);
+        Assert.Equal((1920, 1080, 120, 150), (profile.Desktop.Width, profile.Desktop.Height, profile.Desktop.RefreshRate, profile.Desktop.DpiPercent));
+        Assert.Equal((1280, 720, 120, 100), (profile.Game.Width, profile.Game.Height, profile.Game.RefreshRate, profile.Game.DpiPercent));
+        Assert.False(profile.Desktop.HdrEnabled);
+        Assert.True(profile.Game.HdrEnabled);
+    }
+
+    [Theory]
+    [InlineData(DisplayManagementMode.AutomaticProfiles, DisplayManagementMode.AutomaticProfiles, false)]
+    [InlineData(DisplayManagementMode.DpiOnly, DisplayManagementMode.AutomaticProfiles, true)]
+    [InlineData(DisplayManagementMode.AutomaticProfiles, DisplayManagementMode.FixedProfiles, true)]
+    [InlineData(DisplayManagementMode.FixedProfiles, DisplayManagementMode.Off, false)]
+    public void SettingsDoesNotOverwriteRuntimeOwnedAutomaticSnapshots(
+        DisplayManagementMode initial,
+        DisplayManagementMode selected,
+        bool expected)
+        => Assert.Equal(expected, WSGM.Settings.SettingsViewModel.ShouldWriteDisplayProfiles(initial, selected));
+
+    [Theory]
+    [InlineData(false, false, true, false)]
+    [InlineData(false, true, false, false)]
+    [InlineData(true, false, true, true)]
+    [InlineData(true, true, false, true)]
+    [InlineData(true, true, true, false)]
+    public void HdrChangesOnlyWhenTheActiveTargetSupportsIt(
+        bool available,
+        bool current,
+        bool requested,
+        bool expected)
+        => Assert.Equal(expected, DisplayHdr.ShouldChange(available, current, requested));
 
     [Fact]
     public void GameModeBootFieldsRoundTripThroughSourceGeneratedJson()

@@ -13,7 +13,7 @@
         Background="{StaticResource HcBackgroundBrush}">
 
     <!-- Dense two-column utility layout (approved "Option 3 rev 2"): bumper
-         TabStrip on top, six always-alive pages toggled by IsVisible (scroll
+         TabStrip on top, seven always-alive pages toggled by IsVisible (scroll
          positions survive), status strip at the bottom. These styles are the
          setting-row family shared by every page: zebra rows on the page surface
          (HcHeaderBrush) with HcBackgroundBrush "alt" stripes, a 2 px transparent
@@ -84,6 +84,7 @@
             <pages:IntegrationPage x:Name="PageIntegration" IsVisible="False" />
             <pages:StartupPage x:Name="PageStartup" IsVisible="False" />
             <pages:QuickAccessPage x:Name="PageQuickAccess" IsVisible="False" />
+            <pages:DisplayPage x:Name="PageDisplay" IsVisible="False" />
             <pages:AppearancePage x:Name="PageAppearance" IsVisible="False" />
         </Grid>
 

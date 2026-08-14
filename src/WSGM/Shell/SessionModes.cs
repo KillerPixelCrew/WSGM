@@ -126,7 +126,7 @@ public sealed class SessionModes
             try
             {
                 ExitBigPicture();
-                DisplayScale.RestoreSaved(_config);
+                DisplayScale.ApplyDesktopMode(_config);
             }
             catch (Exception ex)
             {

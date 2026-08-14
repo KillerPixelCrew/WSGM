@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 
 namespace WSGM.Core;
@@ -102,6 +103,15 @@ public static partial class DisplayScale
     /// scaling is left untouched.</summary>
     public static void ApplyGameMode(AppConfig config)
     {
+        if (config.DisplayManagement == DisplayManagementMode.Off)
+        {
+            return;
+        }
+        if (config.DisplayManagement is DisplayManagementMode.AutomaticProfiles or DisplayManagementMode.FixedProfiles)
+        {
+            DisplayProfiles.Transition(config, enteringGameMode: true);
+            return;
+        }
         var sources = GetActiveSources();
         if (sources.Count == 0)
         {
@@ -129,7 +139,17 @@ public static partial class DisplayScale
                 continue;
             }
             captured.Add(new DisplayScaleEntry { DeviceName = name, Percent = (int)current });
-            toLower.Add((source, current));
+            // A surviving snapshot means the previous game-mode session did not
+            // finish restoring every display.  A dock/undock can expose a different
+            // active source before recovery runs; never force that new display to
+            // 100% without first owning its desktop-scale snapshot.  Existing named
+            // entries are safe to lower again because their original value is still
+            // recoverable.  Legacy positional snapshots cannot identify a newly
+            // attached display, so leave all sources alone until they are restored.
+            if (ShouldLowerDisplay(freshCapture, config.SavedDisplayScaleEntries, name))
+            {
+                toLower.Add((source, current));
+            }
         }
 
         if (freshCapture && captured.Count > 0)
@@ -155,10 +175,41 @@ public static partial class DisplayScale
         }
     }
 
-    /// <summary>Restores the captured scaling (desktop mode, clean exit, panic,
-    /// recovery). Only entries that actually restored are cleared — failed sets and
-    /// currently-missing displays stay persisted so a later recovery can retry.</summary>
+    /// <summary>Recovery path for clean exit, panic, uninstall and shell repair.
+    /// Full-profile modes apply the last known Desktop profile without capturing;
+    /// any pending legacy DPI snapshot is restored regardless of the current mode.</summary>
     public static void RestoreSaved(AppConfig config)
+    {
+        // Consume a legacy DPI-only snapshot first when the user changed modes
+        // while game mode was active. A configured Desktop profile then wins as
+        // the final state rather than being overwritten by that migration cleanup.
+        RestoreDpiSnapshot(config);
+        if (config.DisplayManagement is DisplayManagementMode.AutomaticProfiles or DisplayManagementMode.FixedProfiles)
+        {
+            // Recovery must never capture the possibly half-torn-down mode as a
+            // new preference. Apply the last known desktop profile directly.
+            DisplayProfiles.ApplySaved(config.DisplayProfiles, game: false);
+        }
+    }
+
+    /// <summary>Handles an intentional transition into desktop mode. Automatic
+    /// profiles capture the game values being left; Off performs no new display
+    /// changes, while still leaving crash recovery to <see cref="RestoreSaved"/>.</summary>
+    public static void ApplyDesktopMode(AppConfig config)
+    {
+        if (config.DisplayManagement == DisplayManagementMode.Off)
+        {
+            return;
+        }
+        if (config.DisplayManagement is DisplayManagementMode.AutomaticProfiles or DisplayManagementMode.FixedProfiles)
+        {
+            DisplayProfiles.Transition(config, enteringGameMode: false);
+            return;
+        }
+        RestoreDpiSnapshot(config);
+    }
+
+    private static void RestoreDpiSnapshot(AppConfig config)
     {
         if (config.SavedDisplayScaleEntries.Count == 0 && config.SavedDisplayScales.Count == 0)
         {
@@ -268,6 +319,15 @@ public static partial class DisplayScale
             foreach (var source in sources)
             {
                 var name = GetSourceDeviceName(source);
+                if (config.DisplayManagement is DisplayManagementMode.AutomaticProfiles or DisplayManagementMode.FixedProfiles)
+                {
+                    var desktop = config.DisplayProfiles.Find(
+                        profile => string.Equals(profile.DeviceName, name, StringComparison.OrdinalIgnoreCase))?.Desktop.DpiPercent;
+                    if (desktop is >= 100 and <= 500)
+                    {
+                        return (uint)NormalizeConfiguredPercent(desktop.Value);
+                    }
+                }
                 var saved = config.SavedDisplayScaleEntries.Find(
                     e => string.Equals(e.DeviceName, name, StringComparison.OrdinalIgnoreCase));
                 if (saved is { Percent: >= 100 and <= 500 })
@@ -298,6 +358,54 @@ public static partial class DisplayScale
         => savedPercent is >= 100 and <= 500
             ? (uint)savedPercent
             : Math.Max(Math.Max(currentPercent, recommendedPercent), 100);
+
+    /// <summary>Decides whether a display may be lowered after its scale was read.
+    /// A fresh capture owns every successfully identified value; during crash
+    /// recovery only a source already present in the durable snapshot is owned.</summary>
+    /// <param name="freshCapture">Whether no earlier recovery snapshot exists.</param>
+    /// <param name="savedEntries">The durable, device-keyed recovery snapshot.</param>
+    /// <param name="deviceName">The active source's GDI device name.</param>
+    internal static bool ShouldLowerDisplay(
+        bool freshCapture,
+        IReadOnlyList<DisplayScaleEntry> savedEntries,
+        string deviceName)
+        => freshCapture || savedEntries.Any(entry =>
+            string.Equals(entry.DeviceName, deviceName, StringComparison.OrdinalIgnoreCase));
+
+    internal static Dictionary<string, int> ReadActivePercentages()
+    {
+        var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var source in GetActiveSources())
+        {
+            var name = GetSourceDeviceName(source);
+            if (name.Length > 0 && TryGetScale(source, out var current, out _, out _))
+            {
+                result[name] = (int)current;
+            }
+        }
+        return result;
+    }
+
+    internal static void ApplyPercentages(IEnumerable<MonitorDisplayProfile> profiles, bool game)
+    {
+        foreach (var source in GetActiveSources())
+        {
+            var name = GetSourceDeviceName(source);
+            var profile = profiles.FirstOrDefault(p => string.Equals(p.DeviceName, name, StringComparison.OrdinalIgnoreCase));
+            if (profile is null)
+            {
+                continue;
+            }
+            var percent = NormalizeConfiguredPercent(game ? profile.Game.DpiPercent : profile.Desktop.DpiPercent);
+            if (TrySetScale(source, (uint)percent))
+            {
+                Log.Info($"Display profile: {name} DPI -> {percent}%.");
+            }
+        }
+    }
+
+    internal static int NormalizeConfiguredPercent(int percent)
+        => (int)DpiVals.MinBy(candidate => Math.Abs((int)candidate - percent));
 
     private static bool TryGetScale((Luid Adapter, uint SourceId) source, out uint currentPct, out uint recommendedPct, out uint maxPct)
     {

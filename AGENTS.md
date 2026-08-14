@@ -302,6 +302,22 @@ one runs) and failure keeps desktop mode (fail open, never a half game mode). Th
 buttons); `OverlayController` stays the UI owner (lease lifecycle, overlay window) and surfaces
 `SessionModes.SteamStartFailed` warnings.
 
+**Display profiles** (`Core\DisplayScale.cs`, `Core\DisplayProfiles.cs`): display management has
+four mutually exclusive modes: Off, legacy DPI-only, automatic profiles, and fixed profiles.
+Profiles are keyed by stable monitor device identity (with the current GDI source name retained for
+Win32 application) and contain resolution, refresh rate, DPI, and — only when the active target
+reports advanced-color support — an HDR flag for both Desktop
+and Game mode. Automatic mode captures only at a Desktop/Game transition (never continuously, or an
+exclusive-fullscreen game's temporary mode would become the saved preference), then restores the
+last values for the mode being entered. Fixed mode applies the values edited in Settings. DPI-only
+retains the crash-safe saved-scale recovery path. A surviving DPI-only snapshot never authorizes
+lowering a newly docked display absent from that snapshot. Panic/uninstall recovery applies the last
+known Desktop profile without capturing the possibly half-torn-down current mode, and restores any
+pending legacy DPI snapshot even when display management has since been switched Off. Automatic
+snapshots are runtime-owned; Settings preserves a newer capture made while its window was open.
+HDR uses DisplayConfig advanced-color get/set packets against the path TARGET; never show or apply
+the flag merely because it was persisted when the currently active target reports no HDR support.
+
 ## Device-verified invariants — do not regress these
 
 1. **Steam Input's desktop profile swallows the controller from every API** (XInput/DInput/HID,

@@ -12,7 +12,7 @@ using WSGM.Shell;
 namespace WSGM.Settings;
 
 /// <summary>The interactive settings window for shell and game-mode configuration:
-/// a bumper <see cref="TabStrip"/> over six always-alive pages (toggled by
+/// a bumper <see cref="TabStrip"/> over seven always-alive pages (toggled by
 /// visibility so their state survives switching) and a bottom status strip.</summary>
 public partial class SettingsWindow : Window
 {
@@ -79,7 +79,8 @@ public partial class SettingsWindow : Window
             new("Integration", Icons.Wrench, 2),
             new("Startup", Icons.Rocket, 3),
             new("Quick access", Icons.Panel, 4),
-            new("Appearance", Icons.Palette, 5),
+            new("Display", Icons.Monitor, 5),
+            new("Appearance", Icons.Palette, 6),
         };
         Tabs.SelectionChanged += OnTabSelectionChanged;
 
@@ -170,7 +171,7 @@ public partial class SettingsWindow : Window
     }
 
     /// <summary>One selection path for touch, mouse, keyboard and the LB/RB
-    /// shoulder buttons: the TabStrip owns the index, this toggles the six
+    /// shoulder buttons: the TabStrip owns the index, this toggles the seven
     /// always-alive pages' visibility.</summary>
     private void OnTabSelectionChanged(object? sender, TabStripSelectionChangedEventArgs e)
     {
@@ -179,7 +180,8 @@ public partial class SettingsWindow : Window
         PageIntegration.IsVisible = e.NewIndex == 2;
         PageStartup.IsVisible = e.NewIndex == 3;
         PageQuickAccess.IsVisible = e.NewIndex == 4;
-        PageAppearance.IsVisible = e.NewIndex == 5;
+        PageDisplay.IsVisible = e.NewIndex == 5;
+        PageAppearance.IsVisible = e.NewIndex == 6;
 
         // Land controller focus inside the newly shown page — without this the
         // next D-pad press falls back to the window's first focusable, which is
@@ -191,6 +193,7 @@ public partial class SettingsWindow : Window
             2 => PageIntegration,
             3 => PageStartup,
             4 => PageQuickAccess,
+            5 => PageDisplay,
             _ => PageAppearance,
         };
         FocusFirstControl(page);
@@ -248,7 +251,7 @@ public partial class SettingsWindow : Window
     /// <summary>The controller Back action. A color-picker flyout the Appearance
     /// page has open takes B first: its content lives in a popup root that
     /// gamepad navigation cannot enter, so without this B would close the whole
-    /// window and discard every unsaved edit on all six pages.</summary>
+    /// window and discard every unsaved edit on all seven pages.</summary>
     private void BackOrClose()
     {
         if (PageAppearance.TryCloseColorFlyout())

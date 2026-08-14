@@ -8,6 +8,8 @@ scroll position and short-lived editing state survive tab changes.
 - Tests must use the internal view-model constructor with an explicit `AppConfig` and temporary asset
   directories. Never invoke parameterless `SettingsViewModel` or real `ConfigStore.Load/Save`.
 - Maintain the layout floor: Settings minimum 1024×640; a page that needs scrolling earns another tab.
+- Per-monitor display profiles own the dedicated Display tab; automatic snapshots are runtime-owned,
+  so an already-open Settings window must never merge its stale profile rows over a newer transition capture.
 - Shortcut recording owns its hook only while recording and must dispose it on every close/cancel path.
 - Any required text credential must have a controller-accessible `OnScreenKeyboard` path; gamepad
   navigation intentionally skips ordinary `TextBox` controls.
