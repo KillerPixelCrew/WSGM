@@ -24,7 +24,7 @@ public sealed class BootSplash
     private static readonly TimeSpan TouchCloseGrace = TimeSpan.FromMilliseconds(150);
 
     private readonly AppConfig _config;
-    private readonly SessionModes _modes;
+    private readonly Action _switchToDesktop;
     private BootSplashWindow? _window;
     private GamepadService? _gamepad;
     private GamepadNavigation? _navigation;
@@ -36,11 +36,13 @@ public sealed class BootSplash
 
     /// <summary>Creates the startup splash coordinator.</summary>
     /// <param name="config">The shell configuration containing splash and display settings.</param>
-    /// <param name="modes">The session coordinator used for the desktop fallback.</param>
-    public BootSplash(AppConfig config, SessionModes modes)
+    /// <param name="switchToDesktop">The session-owned action that cancels any
+    /// active boot takeover and completes the desktop fallback.</param>
+    public BootSplash(AppConfig config, Action switchToDesktop)
     {
+        ArgumentNullException.ThrowIfNull(switchToDesktop);
         _config = config;
-        _modes = modes;
+        _switchToDesktop = switchToDesktop;
     }
 
     /// <summary>UI thread only (ShellSession.Start is).</summary>
@@ -111,10 +113,7 @@ public sealed class BootSplash
         Log.Info("Boot splash: switching to desktop.");
         _pollTimer?.Stop();
         CloseAfter(TouchCloseGrace);
-        _modes.EnterDesktopMode();
-        // The boot sequence will skip its Big Picture start (monitor paused) —
-        // give the desktop session a normal windowed Steam instead.
-        _modes.StartSteamDesktop();
+        _switchToDesktop();
     }
 
     /// <summary>External dismissal (quick access opened, Steam start warning).

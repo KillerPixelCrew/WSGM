@@ -7,6 +7,9 @@ startup applications, tray host, removable storage, radio, audio, and system sta
   and Steam/overlay ownership unresolved.
 - Explorer must finish logon preparation before a takeover; Steam starts only after Explorer exits.
   Do not change the orderly Exit Explorer mechanism or kill Winlogon replacement processes.
+- The boot splash's Switch to desktop is a recovery path: cancel the service takeover before the
+  orderly exit when possible; if that request already began, skip game-mode setup and restart
+  Explorer through the normal desktop transition. Never drop it at the transition-serialization gate.
 - Keep blocking Explorer work off the UI thread and serialize mode transitions through `SessionModes`.
 - `TrayHost` never coexists with Explorer's tray, and elevated WSGM must retain its `WM_COPYDATA` UIPI
   allowance for unelevated applications.

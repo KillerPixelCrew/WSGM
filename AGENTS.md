@@ -217,6 +217,11 @@ explorer's `Shell_TrayWnd`, then `ExplorerLogonSettleMs` settle (default 5000 ms
 and **invariant-7 acceleration** (BP window appears under the opaque cover → take over immediately)
 → `ExplorerControl.ExitExplorerAndWait(30 s)` → posture → TrayHost → startup apps (skipping ones
 explorer's autostart already launched) → Steam, strictly AFTER explorer is gone.
+The splash's **Switch to desktop** is a recovery/quickswitch owned by `ShellSession`: while the
+service takeover is active it cancels the input-desktop/readiness waits before Explorer shutdown;
+if Explorer's irreversible orderly-exit request already began, it skips every game-mode side effect
+and completes the ordinary desktop transition, which starts Explorer again. It must never compete
+through `SessionModes`' already-held transition gate or allow Big Picture to start afterward.
 
 **How Explorer is ended — device-settled, do not change the mechanism:** `ExitExplorerAndWait`
 posts `0x5B4` (WM_USER+436, explorer's own Ctrl+Shift-taskbar "Exit Explorer" command) to

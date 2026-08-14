@@ -28,6 +28,10 @@ public sealed class ShellSession
     private NetworkIndicatorService? _networkIndicator;
     private KeepAwakeService? _keepAwake;
     private BootSplash? _splash;
+    // Non-null from the moment the service-boot splash becomes interactive until
+    // the worker releases SessionModes' transition gate. The splash's desktop
+    // recovery cancels through this owner instead of racing that gate.
+    private BootTakeoverCancellation? _bootTakeover;
     // Replaced (not just cancelled) on every game-mode entry: a single cancelled
     // source would permanently kill boot syncing after the first desktop trip.
     private CancellationTokenSource _tabBootSyncCancellation = new();
@@ -219,7 +223,7 @@ public sealed class ShellSession
         }
         if (_config.BootSplashEnabled)
         {
-            _splash = new BootSplash(_config, _modes);
+            _splash = new BootSplash(_config, SwitchToDesktopFromSplash);
             _overlay.OverlayShown += () => _splash?.Dismiss("quick access opened");
             _splash.Show();
         }
@@ -252,10 +256,12 @@ public sealed class ShellSession
     {
         Log.Info("Boot cover: waiting for explorer logon prep.");
         _tookOverFromExplorer = true;
+        var takeover = new BootTakeoverCancellation();
+        _bootTakeover = takeover;
 
         if (_config.BootSplashEnabled)
         {
-            _splash = new BootSplash(_config, _modes!);
+            _splash = new BootSplash(_config, SwitchToDesktopFromSplash);
             _overlay!.OverlayShown += () => _splash?.Dismiss("quick access opened");
             _splash.Show();
         }
@@ -276,7 +282,11 @@ public sealed class ShellSession
             var tookOver = false;
             try
             {
-                tookOver = await RunBootTakeoverAsync();
+                tookOver = await RunBootTakeoverAsync(takeover.Token);
+            }
+            catch (OperationCanceledException) when (takeover.DesktopRequested)
+            {
+                Log.Info("Boot takeover cancelled by the splash desktop recovery.");
             }
             catch (Exception ex)
             {
@@ -291,8 +301,24 @@ public sealed class ShellSession
                 // runs and LaunchAppsAsync's monitor-paused guard skips Big Picture
                 // exactly as its comment already claims.
                 _modes!.EndTransition();
+                takeover.Complete();
             }
-            if (tookOver)
+
+            var desktopRequested = takeover.DesktopRequested;
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (ReferenceEquals(_bootTakeover, takeover))
+                {
+                    _bootTakeover = null;
+                }
+                if (desktopRequested)
+                {
+                    BeginDesktopModeFromSplash();
+                }
+            });
+            takeover.Dispose();
+
+            if (tookOver && !desktopRequested)
             {
                 try
                 {
@@ -311,7 +337,10 @@ public sealed class ShellSession
     /// <summary>Runs the takeover phase only (input-desktop barrier, explorer
     /// readiness, orderly exit, posture, tray host). Returns false when it failed
     /// open with explorer preserved — the caller then skips the launch sequence.</summary>
-    private async Task<bool> RunBootTakeoverAsync()
+    /// <param name="cancellationToken">Cancelled by the splash's desktop recovery.
+    /// Before the orderly exit it preserves Explorer; after that irreversible
+    /// request began, it skips game-mode setup so the caller can restart Explorer.</param>
+    private async Task<bool> RunBootTakeoverAsync(CancellationToken cancellationToken)
     {
         // Input-desktop barrier (era-proven): WTS_SESSION_LOGON fires while the
         // Welcome screen still owns the input desktop — proceeding then starts
@@ -320,13 +349,15 @@ public sealed class ShellSession
         var desktopWatch = System.Diagnostics.Stopwatch.StartNew();
         while (!InputDesktop.IsDefaultInputDesktop())
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (desktopWatch.Elapsed >= TimeSpan.FromSeconds(60))
             {
                 Log.Warn("Input desktop never became winsta0\\Default within 60 s — proceeding anyway.");
                 break;
             }
-            await Task.Delay(250);
+            await Task.Delay(250, cancellationToken);
         }
+        cancellationToken.ThrowIfCancellationRequested();
         if (desktopWatch.ElapsedMilliseconds > 250)
         {
             Log.Info($"Interactive desktop ready after {desktopWatch.ElapsedMilliseconds} ms.");
@@ -339,6 +370,7 @@ public sealed class ShellSession
 
         while (true)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var shellWindow = NativeMethods.GetShellWindow() != 0;
             var taskbar = NativeMethods.FindWindowW("Shell_TrayWnd", null) != 0;
             var bigPicture = WindowFinder.FindWindow(Steam.ProcessNames, Steam.BigPictureWindowClass) != 0;
@@ -378,7 +410,7 @@ public sealed class ShellSession
             {
                 break;
             }
-            await Task.Delay(250);
+            await Task.Delay(250, cancellationToken);
         }
 
         // Already off the UI thread — the bounded exit wait never blocks the
@@ -386,7 +418,12 @@ public sealed class ShellSession
         // ExplorerControl's 8 s linger grace (waiting out a slow remnant is
         // cheaper than terminating it — that is what Winlogon respawns) AND the
         // respawn retry, which shares the same deadline.
+        cancellationToken.ThrowIfCancellationRequested();
         var exited = ExplorerControl.ExitExplorerAndWait(TimeSpan.FromSeconds(30));
+        // Posting Explorer's orderly-exit command is irreversible. A desktop
+        // request that landed during the bounded wait must recover by starting
+        // Explorer again, never continue into posture/tray/Steam game mode.
+        cancellationToken.ThrowIfCancellationRequested();
         if (!exited && ExplorerControl.IsRunningInSession())
         {
             // Fail open (era-proven): never enter a half game mode next to a live
@@ -407,8 +444,12 @@ public sealed class ShellSession
             return false;
         }
 
-        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        var enteredGameMode = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
         {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return false;
+            }
             // Same order as the direct game-mode boot: posture (scale) with the
             // splash re-covering on the display change, then the tray host —
             // explorer is verifiably gone, so Create() can't race a dying taskbar.
@@ -419,9 +460,44 @@ public sealed class ShellSession
                 _overlay?.AttachTrayHost(_trayHost);
             }
             _volumeButtons?.SetGameModeActive(true);
+            return true;
         });
+        if (!enteredGameMode || cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(cancellationToken);
+        }
 
         return true;
+    }
+
+    /// <summary>Handles the boot splash's recovery/quickswitch action on the UI
+    /// thread. During the service takeover, cancellation owns the eventual desktop
+    /// transition; outside it, the ordinary session transition can start now.</summary>
+    private void SwitchToDesktopFromSplash()
+    {
+        if (_bootTakeover?.RequestDesktop() == true)
+        {
+            // Pause immediately so even a worker already leaving the takeover
+            // cannot race through LaunchAppsAsync into Big Picture.
+            if (_monitor is not null)
+            {
+                _monitor.Paused = true;
+            }
+            Log.Info("Boot splash desktop request accepted — cancelling takeover.");
+            return;
+        }
+        BeginDesktopModeFromSplash();
+    }
+
+    /// <summary>Starts the normal desktop transition and supplies windowed Steam.
+    /// The caller must own the UI thread and, for a cancelled service takeover,
+    /// release its transition gate first.</summary>
+    private void BeginDesktopModeFromSplash()
+    {
+        _modes!.EnterDesktopMode();
+        // The boot sequence skips its Big Picture start once the monitor is paused;
+        // give the resulting desktop session a normal windowed Steam instead.
+        _modes.StartSteamDesktop();
     }
 
     /// <summary>Name-based liveness check for the double-launch guard. Deliberately
