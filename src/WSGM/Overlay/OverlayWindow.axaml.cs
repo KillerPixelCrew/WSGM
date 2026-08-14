@@ -1106,10 +1106,16 @@ public partial class OverlayWindow : Window
     /// terminal format message would otherwise be invisible.</summary>
     private void ScrollFormatToTop() => ContentScroller.Offset = new Vector(0, 0);
 
-    private void OnSleep(object? sender, RoutedEventArgs e)
+    private void OnStandby(object? sender, RoutedEventArgs e)
     {
         Dismissed?.Invoke();
-        Core.PowerActions.Sleep();
+        Core.PowerActions.Standby();
+    }
+
+    private void OnHibernate(object? sender, RoutedEventArgs e)
+    {
+        Dismissed?.Invoke();
+        Core.PowerActions.Hibernate();
     }
 
     // Deliberately no dismiss: the row is a toggle, and the updated description/badge

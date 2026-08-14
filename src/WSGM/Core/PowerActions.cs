@@ -9,17 +9,28 @@ namespace WSGM.Core;
 /// <summary>Invokes explicit user-requested Windows power operations.</summary>
 public static class PowerActions
 {
-    /// <summary>Puts the device to sleep. The suspend runs off the caller's thread:
+    /// <summary>Puts the device into standby. The suspend runs off the caller's thread:
     /// SetSuspendState does not return until the system resumes, and the quick-access
     /// panel's deferred close (invariant 3) needs its dispatcher back immediately.</summary>
-    public static void Sleep()
+    public static void Standby()
     {
-        Log.Info("Power: sleep");
+        Suspend(hibernate: false, "standby");
+    }
+
+    /// <summary>Hibernates the device without blocking the caller's thread.</summary>
+    public static void Hibernate()
+    {
+        Suspend(hibernate: true, "hibernate");
+    }
+
+    private static void Suspend(bool hibernate, string operation)
+    {
+        Log.Info($"Power: {operation}");
         _ = Task.Run(() =>
         {
-            if (!NativeMethods.SetSuspendState(false, false, false))
+            if (!NativeMethods.SetSuspendState(hibernate, false, false))
             {
-                Log.Error($"SetSuspendState failed (error {Marshal.GetLastPInvokeError()})");
+                Log.Error($"SetSuspendState ({operation}) failed (error {Marshal.GetLastPInvokeError()})");
             }
         });
     }

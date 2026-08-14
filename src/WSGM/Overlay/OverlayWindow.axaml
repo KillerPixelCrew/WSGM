@@ -246,10 +246,14 @@
                     <ov:WakeLockHoldersView x:Name="WakeLockHost" IsVisible="False" />
 
                     <StackPanel x:Name="PanelPower" Spacing="4" IsVisible="False">
-                        <c:CardButton Click="OnSleep"
+                        <c:CardButton Click="OnStandby"
                                       IconGeometry="{x:Static c:Icons.Moon}"
-                                      Title="Sleep"
-                                      Description="Put this handheld to sleep" />
+                                      Title="Standby"
+                                      Description="Put this handheld into standby" />
+                        <c:CardButton Click="OnHibernate"
+                                      IconGeometry="{x:Static c:Icons.Power}"
+                                      Title="Hibernate"
+                                      Description="Save the session and power off" />
                         <c:CardButton x:Name="KeepAwakeButton" Click="OnKeepAwakeToggle"
                                       IsVisible="{Binding ShowKeepAwake}"
                                       IconGeometry="{x:Static c:Icons.Mug}"
