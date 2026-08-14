@@ -80,6 +80,7 @@ public static class ConfigStore
             var root = JsonNode.Parse(json)?.AsObject()
                 ?? throw new JsonException("Configuration root was not an object.");
             RepairEnum(root, "GlyphStyle", GlyphStyle.Xbox);
+            RepairEnum(root, "DisplayManagement", DisplayManagementMode.DpiOnly);
             if (root["Gestures"] is JsonObject gestures)
             {
                 RepairEnum(gestures, "BottomEdgeAction", EdgeAction.Taskbar);
@@ -153,6 +154,10 @@ public static class ConfigStore
     /// handler runs). New nested object/list members belong in this list too.</summary>
     internal static AppConfig Normalize(AppConfig config)
     {
+        if (!Enum.IsDefined(config.DisplayManagement))
+        {
+            config.DisplayManagement = DisplayManagementMode.DpiOnly;
+        }
         config.StartupApps ??= [];
         config.Cef ??= new CefConfig();
         config.Hotkey ??= new HotkeyConfig();
@@ -160,6 +165,7 @@ public static class ConfigStore
         config.Gestures ??= new GestureConfig();
         config.SavedDisplayScales ??= [];
         config.SavedDisplayScaleEntries ??= [];
+        config.DisplayProfiles ??= [];
         config.PreviousConsoleLockSchemeValues ??= [];
         config.CardLibraries ??= [];
         config.ForgottenInsertedCardIds ??= [];
@@ -233,6 +239,17 @@ public static class ConfigStore
         {
             entry.DeviceName ??= "";
         }
+        config.DisplayProfiles.RemoveAll(static profile => profile is null);
+        foreach (var profile in config.DisplayProfiles)
+        {
+            profile.MonitorId ??= "";
+            profile.DeviceName ??= "";
+            profile.DisplayName ??= "";
+            profile.Desktop ??= new DisplayModeValues();
+            profile.Game ??= new DisplayModeValues();
+            NormalizeDisplayMode(profile.Desktop);
+            NormalizeDisplayMode(profile.Game);
+        }
         config.PreviousConsoleLockSchemeValues.RemoveAll(static scheme => scheme is null);
         foreach (var scheme in config.PreviousConsoleLockSchemeValues)
         {
@@ -248,6 +265,14 @@ public static class ConfigStore
         config.Splash ??= new SplashConfig();
         NormalizeSplash(config.Splash);
         return config;
+    }
+
+    private static void NormalizeDisplayMode(DisplayModeValues mode)
+    {
+        mode.Width = Math.Clamp(mode.Width, 0, 16384);
+        mode.Height = Math.Clamp(mode.Height, 0, 16384);
+        mode.RefreshRate = Math.Clamp(mode.RefreshRate, 0, 1000);
+        mode.DpiPercent = DisplayScale.NormalizeConfiguredPercent(Math.Clamp(mode.DpiPercent, 100, 500));
     }
 
     private static void NormalizeFilter(FilterNode node)

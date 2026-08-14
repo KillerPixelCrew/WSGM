@@ -1,0 +1,66 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:s="using:WSGM.Settings"
+             x:Class="WSGM.Settings.Pages.DisplayPage"
+             x:DataType="s:SettingsViewModel">
+    <Border Padding="16,10">
+        <Grid RowDefinitions="Auto,*">
+            <StackPanel>
+                <Border Classes="section-header"><TextBlock Text="DISPLAY MANAGEMENT" /></Border>
+                <Border Classes="setting-row alt">
+                    <Grid ColumnDefinitions="*,220" ColumnSpacing="12">
+                        <StackPanel Spacing="1">
+                            <TextBlock Text="Desktop and Game profiles" Classes="setting-title" />
+                            <TextBlock Text="Automatic profiles capture only when switching modes; temporary fullscreen changes are never watched continuously." Classes="caption" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ComboBox Grid.Column="1" SelectedIndex="{Binding DisplayManagementModeIndex}">
+                            <ComboBoxItem Content="Off" />
+                            <ComboBoxItem Content="DPI only" />
+                            <ComboBoxItem Content="Automatic profiles" />
+                            <ComboBoxItem Content="Fixed profiles" />
+                        </ComboBox>
+                    </Grid>
+                </Border>
+            </StackPanel>
+            <ScrollViewer Grid.Row="1" IsVisible="{Binding ShowFixedDisplayProfiles}">
+                <ItemsControl ItemsSource="{Binding DisplayProfiles}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="s:DisplayProfileRow">
+                            <Border Classes="setting-row">
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="{Binding DisplayName}" Classes="setting-title" />
+                                    <TextBlock Text="{Binding DeviceName}" Classes="caption" />
+                                    <Grid ColumnDefinitions="80,*,*,*,*" ColumnSpacing="6">
+                                        <TextBlock Grid.Column="1" Text="Width" Classes="caption" />
+                                        <TextBlock Grid.Column="2" Text="Height" Classes="caption" />
+                                        <TextBlock Grid.Column="3" Text="Hz" Classes="caption" />
+                                        <TextBlock Grid.Column="4" Text="DPI %" Classes="caption" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="80,Auto,24,Auto" IsVisible="{Binding HdrAvailable}">
+                                        <TextBlock Text="HDR" VerticalAlignment="Center" />
+                                        <CheckBox Grid.Column="1" Content="Desktop" IsChecked="{Binding Desktop.HdrEnabled}" />
+                                        <CheckBox Grid.Column="3" Content="Game" IsChecked="{Binding Game.HdrEnabled}" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="80,*,*,*,*" ColumnSpacing="6">
+                                        <TextBlock Text="Desktop" VerticalAlignment="Center" />
+                                        <NumericUpDown Grid.Column="1" Value="{Binding Desktop.Width}" Minimum="640" Maximum="16384" />
+                                        <NumericUpDown Grid.Column="2" Value="{Binding Desktop.Height}" Minimum="480" Maximum="16384" />
+                                        <NumericUpDown Grid.Column="3" Value="{Binding Desktop.RefreshRate}" Minimum="24" Maximum="1000" />
+                                        <NumericUpDown Grid.Column="4" Value="{Binding Desktop.DpiPercent}" Minimum="100" Maximum="500" Increment="25" />
+                                    </Grid>
+                                    <Grid ColumnDefinitions="80,*,*,*,*" ColumnSpacing="6">
+                                        <TextBlock Text="Game" VerticalAlignment="Center" />
+                                        <NumericUpDown Grid.Column="1" Value="{Binding Game.Width}" Minimum="640" Maximum="16384" />
+                                        <NumericUpDown Grid.Column="2" Value="{Binding Game.Height}" Minimum="480" Maximum="16384" />
+                                        <NumericUpDown Grid.Column="3" Value="{Binding Game.RefreshRate}" Minimum="24" Maximum="1000" />
+                                        <NumericUpDown Grid.Column="4" Value="{Binding Game.DpiPercent}" Minimum="100" Maximum="500" Increment="25" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Grid>
+    </Border>
+</UserControl>

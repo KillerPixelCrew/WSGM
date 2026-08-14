@@ -108,6 +108,35 @@ public sealed class TaskbarTests
         int? saved, uint current, uint recommended, uint expected)
         => Assert.Equal(expected, DisplayScale.PickUiScalePercent(saved, current, recommended));
 
+    [Theory]
+    [InlineData(100, 100)]
+    [InlineData(113, 125)]
+    [InlineData(275, 250)]
+    [InlineData(490, 500)]
+    public void ConfiguredDpiUsesAValueSupportedByTheDisplayConfigPacket(int requested, int expected)
+        => Assert.Equal(expected, DisplayScale.NormalizeConfiguredPercent(requested));
+
+    [Fact]
+    public void ANewDockDisplayIsNotLoweredWhileAnotherDisplaysRecoverySnapshotSurvives()
+        => Assert.False(DisplayScale.ShouldLowerDisplay(
+            freshCapture: false,
+            [new DisplayScaleEntry { DeviceName = @"\\.\DISPLAY1", Percent = 150 }],
+            @"\\.\DISPLAY2"));
+
+    [Fact]
+    public void ADisplayAlreadyOwnedByTheRecoverySnapshotCanBeLoweredAgain()
+        => Assert.True(DisplayScale.ShouldLowerDisplay(
+            freshCapture: false,
+            [new DisplayScaleEntry { DeviceName = @"\\.\DISPLAY1", Percent = 150 }],
+            @"\\.\display1"));
+
+    [Fact]
+    public void AFreshCaptureCanLowerEveryIdentifiedDisplay()
+        => Assert.True(DisplayScale.ShouldLowerDisplay(
+            freshCapture: true,
+            [],
+            @"\\.\DISPLAY2"));
+
     // ---- Tray width budget: the right zone must never grow past the bar ----
 
     [Theory]

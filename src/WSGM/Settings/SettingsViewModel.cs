@@ -41,6 +41,23 @@ public sealed class StartupAppRow : INotifyPropertyChanged
     private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
 
+/// <summary>Editable desktop/game display values for one monitor.</summary>
+public sealed class DisplayProfileRow
+{
+    /// <summary>Stable monitor device identity.</summary>
+    public string MonitorId { get; set; } = "";
+    /// <summary>GDI display source identity.</summary>
+    public string DeviceName { get; set; } = "";
+    /// <summary>User-facing monitor label.</summary>
+    public string DisplayName { get; set; } = "";
+    /// <summary>Whether HDR controls are available for this monitor.</summary>
+    public bool HdrAvailable { get; set; }
+    /// <summary>Desktop profile.</summary>
+    public DisplayModeValues Desktop { get; set; } = new();
+    /// <summary>Game-mode profile.</summary>
+    public DisplayModeValues Game { get; set; } = new();
+}
+
 /// <summary>Binds persisted shell, startup, input, and display settings to the Settings window.</summary>
 public sealed class SettingsViewModel : INotifyPropertyChanged
 {
@@ -115,6 +132,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         StaggerDelayMs = _config.StaggerDelayMs;
         BootSplashEnabled = _config.BootSplashEnabled;
         GameModeBootEnabled = _config.GameModeBootEnabled;
+        DisplayManagementModeIndex = (int)_config.DisplayManagement;
         SteamInputLeaseEnabled = _config.SteamInputLeaseEnabled;
         CefEnabled = _config.Cef.Enabled;
         CefLibraryTabs = _config.Cef.LibraryTabs;
@@ -147,6 +165,37 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
                 AutoRelaunch = app.AutoRelaunch,
             });
         }
+        foreach (var profile in _config.DisplayProfiles)
+        {
+            DisplayProfiles.Add(new DisplayProfileRow { MonitorId = profile.MonitorId, DeviceName = profile.DeviceName, DisplayName = profile.DisplayName, HdrAvailable = profile.HdrAvailable, Desktop = profile.Desktop, Game = profile.Game });
+        }
+        if (OperatingSystem.IsWindows())
+        {
+            try
+            {
+                foreach (var profile in Core.DisplayProfiles.ReadActiveProfiles())
+                {
+                    var existing = DisplayProfiles.FirstOrDefault(row => !string.IsNullOrEmpty(row.MonitorId)
+                        ? string.Equals(row.MonitorId, profile.MonitorId, StringComparison.OrdinalIgnoreCase)
+                        : string.Equals(row.DeviceName, profile.DeviceName, StringComparison.OrdinalIgnoreCase));
+                    if (existing is null)
+                    {
+                        DisplayProfiles.Add(new DisplayProfileRow { MonitorId = profile.MonitorId, DeviceName = profile.DeviceName, DisplayName = profile.DisplayName, HdrAvailable = profile.HdrAvailable, Desktop = profile.Desktop, Game = profile.Game });
+                    }
+                    else
+                    {
+                        existing.MonitorId = profile.MonitorId;
+                        existing.DeviceName = profile.DeviceName;
+                        existing.DisplayName = profile.DisplayName;
+                        existing.HdrAvailable = profile.HdrAvailable;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Could not enumerate display profiles for Settings: {ex.Message}");
+            }
+        }
 
         BuildStartupSuggestions();
     }
@@ -174,6 +223,16 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     /// <summary>Gets the command that moves one startup-program row down.</summary>
     public RelayCommand<StartupAppRow> MoveDownCommand { get; }
+
+    /// <summary>Editable per-monitor display profiles.</summary>
+    public ObservableCollection<DisplayProfileRow> DisplayProfiles { get; } = [];
+
+    private int _displayManagementModeIndex;
+    /// <summary>Selected <see cref="DisplayManagementMode"/> index.</summary>
+    public int DisplayManagementModeIndex { get => _displayManagementModeIndex; set { _displayManagementModeIndex = value; Raise(nameof(DisplayManagementModeIndex)); Raise(nameof(ShowFixedDisplayProfiles)); } }
+
+    /// <summary>Whether fixed profile fields are relevant to the selected mode.</summary>
+    public bool ShowFixedDisplayProfiles => DisplayManagementModeIndex == (int)DisplayManagementMode.FixedProfiles;
 
     private string _statusText = "";
 
@@ -983,6 +1042,24 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.StaggerDelayMs = StaggerDelayMs;
         config.BootSplashEnabled = BootSplashEnabled;
         config.GameModeBootEnabled = GameModeBootEnabled;
+        var displayManagement = (DisplayManagementMode)Math.Clamp(DisplayManagementModeIndex, 0, 3);
+        config.DisplayManagement = displayManagement;
+        // In Automatic mode the running shell owns these snapshots. A Settings
+        // window may have been open while a transition persisted newer values;
+        // never overwrite those with the window's stale rows. The rows seed the
+        // first switch into Automatic and remain UI-owned in Fixed mode.
+        if (ShouldWriteDisplayProfiles(_config.DisplayManagement, displayManagement))
+        {
+            config.DisplayProfiles = DisplayProfiles.Select(profile => new MonitorDisplayProfile
+            {
+                MonitorId = profile.MonitorId,
+                DeviceName = profile.DeviceName,
+                DisplayName = profile.DisplayName,
+                HdrAvailable = profile.HdrAvailable,
+                Desktop = profile.Desktop,
+                Game = profile.Game,
+            }).ToList();
+        }
         config.SteamInputLeaseEnabled = SteamInputLeaseEnabled;
         config.Cef.Enabled = CefEnabled;
         config.Cef.LibraryTabs = CefLibraryTabs;
@@ -1015,6 +1092,13 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             })
             .ToList();
     }
+
+    internal static bool ShouldWriteDisplayProfiles(
+        DisplayManagementMode initial,
+        DisplayManagementMode selected)
+        => selected == DisplayManagementMode.FixedProfiles
+            || selected == DisplayManagementMode.AutomaticProfiles
+                && initial != DisplayManagementMode.AutomaticProfiles;
 
     /// <summary>Merges UI-owned values with fresh persisted state and saves the result.</summary>
     public void Save()

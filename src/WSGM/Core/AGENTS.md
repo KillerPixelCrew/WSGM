@@ -18,3 +18,5 @@ utilities.
   data over HTTPS, and protocol/JavaScript errors remain distinct from an unreachable Steam client.
 - Keep recovery paths (`--restore-shell`, legacy shell migration, de-elevation) usable before normal
   logging or Avalonia initialization.
+- Display HDR is DisplayConfig advanced color on a target, not on its GDI source: query current
+  support before showing or applying a saved HDR flag, and keep the interop packets blittable.
