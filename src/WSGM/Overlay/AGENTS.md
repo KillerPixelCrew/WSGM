@@ -1,7 +1,8 @@
 # Overlay
 
 Overlay owns the quick-access panel, game-mode taskbar, radio/audio/eject surfaces, and their shared
-Steam Input lease and focus handover.
+Steam Input lease and focus handover. The Power tab exposes explicit Standby and Hibernate actions;
+both dismiss the overlay before asking Windows to suspend.
 
 - `OverlayController` is the lifetime owner for both focused surfaces. Acquire the Steam Input lease
   before opening a surface and release it only after the last surface closes.
