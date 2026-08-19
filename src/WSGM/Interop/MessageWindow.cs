@@ -14,6 +14,9 @@ public sealed unsafe class MessageWindow : IDisposable
     private uint _shellHookMessage;
     private bool _shellHookRegistered;
     private nint _displayNotify;
+    private nint _consoleDisplayNotify;
+    private nint _legacyDisplayNotify;
+    private bool _sessionNotify;
 
     /// <summary>Create() is the only entry point: a directly constructed instance
     /// would carry Handle == 0, and RegisterHotKey on hwnd 0 registers a thread
@@ -28,9 +31,17 @@ public sealed unsafe class MessageWindow : IDisposable
     /// <summary>Raised on the Avalonia UI thread with the hotkey id.</summary>
     public event Action<int>? HotkeyPressed;
 
-    /// <summary>Raised on the Avalonia UI thread when the session's display turns on or
-    /// off, with the MONITOR_DISPLAY_STATE value (0 = off, 1 = on, 2 = dimmed).</summary>
-    public event Action<int>? DisplayStateChanged;
+    /// <summary>Raised on the Avalonia UI thread when a display turns on or off, with the
+    /// MONITOR_DISPLAY_STATE value (0 = off, 1 = on, 2 = dimmed) and which of the three
+    /// registered power settings reported it. Subscribers must weigh the source: only
+    /// <see cref="DisplayStateSource.Session"/> describes this session's own display.
+    /// </summary>
+    public event Action<int, DisplayStateSource>? DisplayStateChanged;
+
+    /// <summary>Raised on the Avalonia UI thread when this session's desktop is unlocked —
+    /// an independent "the user is back at a lit screen" signal for wakes where no display
+    /// notification is delivered.</summary>
+    public event Action? SessionUnlocked;
 
     /// <summary>Raised on the Avalonia UI thread for a shell-hook notification.
     /// Its delegate receives the HSHELL_* event code followed by the event-specific
@@ -98,9 +109,17 @@ public sealed unsafe class MessageWindow : IDisposable
         Log.Info("Shell-hook window deregistered.");
     }
 
-    /// <summary>Subscribes this window to the session's display on/off notifications.
-    /// Idempotent; safe to call when the feature toggle turns on at runtime.</summary>
-    /// <returns>True when the registration is active.</returns>
+    /// <summary>Subscribes this window to display on/off notifications and to session
+    /// unlock. Idempotent; safe to call when the feature toggle turns on at runtime.
+    ///
+    /// <para>THREE power settings are registered, not one.
+    /// <c>GUID_SESSION_DISPLAY_STATUS</c> is the primary and the only one that describes
+    /// this session's own display — it stays the sole source allowed to report the screen
+    /// going dark. <c>GUID_CONSOLE_DISPLAY_STATE</c> and the superseded
+    /// <c>GUID_MONITOR_POWER_ON</c> are redundant wake sources: a subscriber may act on
+    /// them only to undo something, never to start it. Registering the extras costs one
+    /// call each and a setting Windows never sends simply stays silent.</para></summary>
+    /// <returns>True when the primary registration is active.</returns>
     public bool RegisterDisplayStateNotifications()
     {
         if (_displayNotify != 0)
@@ -111,28 +130,66 @@ public sealed unsafe class MessageWindow : IDisposable
             _hwnd, NativeMethods.GuidSessionDisplayStatus, NativeMethods.DeviceNotifyWindowHandle);
         if (_displayNotify == 0)
         {
-            Log.Warn("RegisterPowerSettingNotification(display status) failed "
+            Log.Warn("RegisterPowerSettingNotification(session display status) failed "
                 + $"(error {Marshal.GetLastWin32Error()}).");
-            return false;
         }
-        Log.Info("Display-state notifications registered.");
-        return true;
+        _consoleDisplayNotify = NativeMethods.RegisterPowerSettingNotification(
+            _hwnd, NativeMethods.GuidConsoleDisplayState, NativeMethods.DeviceNotifyWindowHandle);
+        _legacyDisplayNotify = NativeMethods.RegisterPowerSettingNotification(
+            _hwnd, NativeMethods.GuidMonitorPowerOn, NativeMethods.DeviceNotifyWindowHandle);
+        if (!_sessionNotify)
+        {
+            _sessionNotify = NativeMethods.WTSRegisterSessionNotification(
+                _hwnd, NativeMethods.NotifyForThisSession);
+            if (!_sessionNotify)
+            {
+                Log.Warn("WTSRegisterSessionNotification failed "
+                    + $"(error {Marshal.GetLastWin32Error()}).");
+            }
+        }
+        Log.Info($"Display-state notifications registered (session={_displayNotify != 0}, "
+            + $"console={_consoleDisplayNotify != 0}, legacy={_legacyDisplayNotify != 0}, "
+            + $"unlock={_sessionNotify}).");
+        return _displayNotify != 0;
     }
 
-    /// <summary>Stops this window receiving display on/off notifications.</summary>
+    /// <summary>Stops this window receiving display on/off and session-unlock
+    /// notifications.</summary>
     public void DeregisterDisplayStateNotifications()
     {
-        if (_displayNotify == 0)
+        var any = _displayNotify != 0 || _consoleDisplayNotify != 0
+            || _legacyDisplayNotify != 0 || _sessionNotify;
+        if (!any)
         {
             return;
         }
-        if (!NativeMethods.UnregisterPowerSettingNotification(_displayNotify))
+        UnregisterPowerSetting(ref _displayNotify, "session display status");
+        UnregisterPowerSetting(ref _consoleDisplayNotify, "console display state");
+        UnregisterPowerSetting(ref _legacyDisplayNotify, "monitor power on");
+        if (_sessionNotify)
         {
-            Log.Warn("UnregisterPowerSettingNotification failed "
+            if (!NativeMethods.WTSUnRegisterSessionNotification(_hwnd))
+            {
+                Log.Warn("WTSUnRegisterSessionNotification failed "
+                    + $"(error {Marshal.GetLastWin32Error()}).");
+            }
+            _sessionNotify = false;
+        }
+        Log.Info("Display-state notifications deregistered.");
+    }
+
+    private static void UnregisterPowerSetting(ref nint handle, string name)
+    {
+        if (handle == 0)
+        {
+            return;
+        }
+        if (!NativeMethods.UnregisterPowerSettingNotification(handle))
+        {
+            Log.Warn($"UnregisterPowerSettingNotification({name}) failed "
                 + $"(error {Marshal.GetLastWin32Error()}).");
         }
-        _displayNotify = 0;
-        Log.Info("Display-state notifications deregistered.");
+        handle = 0;
     }
 
     /// <summary>Shared class-registration + window-creation path for the process's
@@ -193,21 +250,41 @@ public sealed unsafe class MessageWindow : IDisposable
         }
         if (msg == NativeMethods.WmPowerBroadcast
             && wParam == NativeMethods.PbtPowerSettingChange
-            && lParam != 0
-            && instance._displayNotify != 0)
+            && lParam != 0)
         {
             var setting = Marshal.PtrToStructure<NativeMethods.PowerBroadcastSetting>(lParam);
-            // The same window could later carry other power settings; only the display
-            // status is ours, and only a 4-byte DWORD payload is the documented shape.
-            if (setting.PowerSetting == NativeMethods.GuidSessionDisplayStatus
-                && setting.DataLength >= 4)
+            // The same window could later carry other power settings; only the three
+            // display settings are ours, and only a 4-byte DWORD payload is the
+            // documented shape.
+            DisplayStateSource? source = null;
+            if (setting.PowerSetting == NativeMethods.GuidSessionDisplayStatus)
+            {
+                source = DisplayStateSource.Session;
+            }
+            else if (setting.PowerSetting == NativeMethods.GuidConsoleDisplayState)
+            {
+                source = DisplayStateSource.Console;
+            }
+            else if (setting.PowerSetting == NativeMethods.GuidMonitorPowerOn)
+            {
+                source = DisplayStateSource.LegacyMonitor;
+            }
+            if (source is { } reported && setting.DataLength >= 4)
             {
                 var state = Marshal.ReadInt32(
                     lParam + (int)Marshal.OffsetOf<NativeMethods.PowerBroadcastSetting>(
                         nameof(NativeMethods.PowerBroadcastSetting.Data)));
-                Dispatcher.UIThread.Post(() => instance.DisplayStateChanged?.Invoke(state));
+                Dispatcher.UIThread.Post(
+                    () => instance.DisplayStateChanged?.Invoke(state, reported));
             }
             return 1;
+        }
+        if (msg == NativeMethods.WmWtsSessionChange
+            && wParam == NativeMethods.WtsSessionUnlock
+            && instance._sessionNotify)
+        {
+            Dispatcher.UIThread.Post(() => instance.SessionUnlocked?.Invoke());
+            return 0;
         }
         if (msg == instance._shellHookMessage && instance._shellHookRegistered)
         {

@@ -670,6 +670,24 @@ internal static partial class NativeMethods
     internal static readonly Guid GuidSessionDisplayStatus =
         new(0x2B84C20E, 0xAD23, 0x4DDF, 0x93, 0xDB, 0x05, 0xFF, 0xBD, 0x7E, 0xFC, 0xA5);
 
+    /// <summary>GUID_CONSOLE_DISPLAY_STATE {6FE69556-704A-47A0-8F24-C28D936FDA47}: the
+    /// display attached to the CONSOLE session turned on or off, same DWORD
+    /// MONITOR_DISPLAY_STATE payload. Microsoft points interactive apps at
+    /// <see cref="GuidSessionDisplayStatus"/> instead, and this is NOT a replacement for
+    /// it — it is registered alongside as a second, independent source so a wake that the
+    /// session notification misses is still seen. It describes the console session rather
+    /// than ours, so it may only ever drive a restore, never a mute.</summary>
+    internal static readonly Guid GuidConsoleDisplayState =
+        new(0x6FE69556, 0x704A, 0x47A0, 0x8F, 0x24, 0xC2, 0x8D, 0x93, 0x6F, 0xDA, 0x47);
+
+    /// <summary>GUID_MONITOR_POWER_ON {02731015-4510-4526-99E6-E5A17EBD1AEA}: the
+    /// superseded pre-Windows-8 display-power setting (DWORD 0 = off, 1 = on). Modern
+    /// Windows may never send it; it is registered best-effort as a third restore-only
+    /// source because the registration costs one call and a silent one costs nothing.
+    /// </summary>
+    internal static readonly Guid GuidMonitorPowerOn =
+        new(0x02731015, 0x4510, 0x4526, 0x99, 0xE6, 0xE5, 0xA1, 0x7E, 0xBD, 0x1A, 0xEA);
+
     /// <summary>DEVICE_NOTIFY_WINDOW_HANDLE: deliver as WM_POWERBROADCAST messages.</summary>
     internal const uint DeviceNotifyWindowHandle = 0;
 
@@ -696,6 +714,43 @@ internal static partial class NativeMethods
         /// <summary>First byte of the payload.</summary>
         internal byte Data;
     }
+
+    /// <summary>LASTINPUTINFO: the tick count of the last keyboard/mouse/touch input in
+    /// the session. It is the recovery signal for the display-off mute — a user who is
+    /// typing or tapping is looking at a lit screen, so the mute can be undone even when
+    /// the display-status notification for the screen coming back was never delivered.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct LastInputInfo
+    {
+        /// <summary>Size of this structure in bytes; must be set before the call.</summary>
+        internal uint CbSize;
+
+        /// <summary>GetTickCount-based timestamp of the last input event.</summary>
+        internal uint DwTime;
+    }
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetLastInputInfo(ref LastInputInfo plii);
+
+    // ---- Session lock/unlock (an independent "the user is back" signal) ----
+
+    /// <summary>WM_WTSSESSION_CHANGE.</summary>
+    internal const uint WmWtsSessionChange = 0x02B1;
+
+    /// <summary>WTS_SESSION_UNLOCK — the session's desktop was unlocked.</summary>
+    internal const nint WtsSessionUnlock = 0x8;
+
+    /// <summary>NOTIFY_FOR_THIS_SESSION.</summary>
+    internal const uint NotifyForThisSession = 0;
+
+    [LibraryImport("wtsapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool WTSRegisterSessionNotification(nint hWnd, uint dwFlags);
+
+    [LibraryImport("wtsapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool WTSUnRegisterSessionNotification(nint hWnd);
 
     [LibraryImport("user32.dll", EntryPoint = "SendNotifyMessageW", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
