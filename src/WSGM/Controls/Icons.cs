@@ -70,6 +70,14 @@ public static class Icons
     public static StreamGeometry Moon { get; } =
         StreamGeometry.Parse("M 21,12.8 A 9,9 0 1 1 11.2,3 A 7,7 0 0 0 21,12.8 Z");
 
+    /// <summary>Six-point snowflake (hibernate). Deliberately not the power symbol:
+    /// hibernate sits next to Shut down in the Power tab, and sharing that glyph made
+    /// the two rows read as the same action.</summary>
+    public static StreamGeometry Snowflake { get; } =
+        StreamGeometry.Parse(
+            "M 12,3 L 12,21 M 4.2,7.5 L 19.8,16.5 M 4.2,16.5 L 19.8,7.5 "
+                + "M 9.5,5.5 L 12,3 L 14.5,5.5 M 9.5,18.5 L 12,21 L 14.5,18.5");
+
     /// <summary>Steaming coffee mug (keep awake).</summary>
     public static StreamGeometry Mug { get; } =
         StreamGeometry.Parse(

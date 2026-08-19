@@ -246,14 +246,6 @@
                     <ov:WakeLockHoldersView x:Name="WakeLockHost" IsVisible="False" />
 
                     <StackPanel x:Name="PanelPower" Spacing="4" IsVisible="False">
-                        <c:CardButton Click="OnStandby"
-                                      IconGeometry="{x:Static c:Icons.Moon}"
-                                      Title="Standby"
-                                      Description="Put this handheld into standby" />
-                        <c:CardButton Click="OnHibernate"
-                                      IconGeometry="{x:Static c:Icons.Power}"
-                                      Title="Hibernate"
-                                      Description="Save the session and power off" />
                         <c:CardButton x:Name="KeepAwakeButton" Click="OnKeepAwakeToggle"
                                       IsVisible="{Binding ShowKeepAwake}"
                                       IconGeometry="{x:Static c:Icons.Mug}"
@@ -289,8 +281,22 @@
                                       Title="Standby — plugged in"
                                       Description="Idle time before the device sleeps"
                                       TrailingText="{Binding SleepAcTimeout}" />
-                        <!-- The two-step confirms rewrite Title ("Really?") from
+                        <!-- Its own section: these end the session, they are not
+                             another idle timeout, and rendering them straight under
+                             the timeout rows read as one list. Ordered by how much
+                             they throw away — standby keeps the session in RAM,
+                             hibernate writes it to disk, restart and shut down end it.
+                             The two-step confirms rewrite Title ("Really?") from
                              code-behind, same auto-revert as before. -->
+                        <TextBlock Text="POWER" Classes="eyebrow" Margin="2,10,2,2" />
+                        <c:CardButton Click="OnStandby"
+                                      IconGeometry="{x:Static c:Icons.Moon}"
+                                      Title="Standby"
+                                      Description="Suspend to RAM and resume where you left off" />
+                        <c:CardButton Click="OnHibernate"
+                                      IconGeometry="{x:Static c:Icons.Snowflake}"
+                                      Title="Hibernate"
+                                      Description="Save the session to disk and power off" />
                         <c:CardButton x:Name="RestartButton" Click="OnRestart"
                                       IconGeometry="{x:Static c:Icons.Restart}"
                                       Title="Restart"
