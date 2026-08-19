@@ -5,7 +5,8 @@
              x:Class="WSGM.Settings.Pages.SteamPage"
              x:DataType="s:SettingsViewModel">
     <!-- The old "Home" page. Element order preserved (controller tab order):
-         Big Picture info → Steam status → auto-relaunch → UAC → lock-on-wake.
+         Big Picture info → Steam status → auto-relaunch → Steam Input management →
+         UAC → lock-on-wake.
          The CEF integration toggles live on their own Integration tab: with them
          here the right column no longer fit the 1024x640 layout floor. -->
     <Border Padding="16,10,16,10">
@@ -66,6 +67,22 @@
             </StackPanel>
 
             <StackPanel Grid.Column="2">
+                <Border Classes="section-header">
+                    <TextBlock Text="STEAM INPUT" />
+                </Border>
+                <Border Classes="setting-row alt">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel VerticalAlignment="Center" Spacing="1">
+                            <TextBlock Text="Steam Input management" Classes="setting-title" />
+                            <TextBlock Text="Puts a small WSGM file next to Steam so WSGM can take the controller for its own panels without writing into the running Steam. Off leaves Steam's folder alone." Classes="caption" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding SteamInputManagementEnabled}" VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+                <Border Classes="setting-row">
+                    <TextBlock Text="{Binding SteamInputShimStatusText}" Classes="caption" TextWrapping="Wrap" VerticalAlignment="Center" />
+                </Border>
+
                 <Border Classes="section-header">
                     <TextBlock Text="WINDOWS POLICIES" />
                 </Border>

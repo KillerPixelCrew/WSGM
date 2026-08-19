@@ -11,6 +11,8 @@ public sealed class LaunchWrapperTests
     [InlineData(LaunchWrapperMode.Deelevate, "--deelevate")]
     [InlineData(LaunchWrapperMode.InputLease, "--input-lease")]
     [InlineData(LaunchWrapperMode.Both, "--deelevate --input-lease")]
+    [InlineData(LaunchWrapperMode.InputLeaseInject, "--input-lease-inject")]
+    [InlineData(LaunchWrapperMode.BothInject, "--deelevate --input-lease-inject")]
     public void SteamLaunchOptionsWrapTheHelperAndPreserveTheOriginalCommandPlaceholder(
         LaunchWrapperMode mode, string expectedFlags)
         => Assert.Equal(
@@ -328,5 +330,94 @@ public sealed class LaunchWrapperTests
         Assert.True(status.Status);
         Assert.True(CommandLine.TryParse(["--rescan"], out var rescan, out _));
         Assert.True(rescan.Rescan);
+    }
+
+    /// <summary>The substring trap: "--input-lease-inject" contains "--input-lease",
+    /// so a plain Contains would report both lease behaviours at once - which then
+    /// trips the mutual-exclusion guard the next time the game is re-applied.</summary>
+    [Fact]
+    public void ModeForDoesNotReadInputLeaseOutOfInputLeaseInject()
+    {
+        var wrapped = LaunchWrapperCommand.SteamLaunchOptions(
+            Helper, LaunchWrapperMode.InputLeaseInject);
+
+        var mode = LaunchWrapperCommand.ModeFor(wrapped);
+
+        Assert.Equal(LaunchWrapperMode.InputLeaseInject, mode);
+        Assert.False(mode.HasFlag(LaunchWrapperMode.InputLease));
+    }
+
+    [Theory]
+    [InlineData(LaunchWrapperMode.InputLease)]
+    [InlineData(LaunchWrapperMode.InputLeaseInject)]
+    [InlineData(LaunchWrapperMode.BothInject)]
+    public void ModeForReadsBackEveryLeaseBehaviourSteamLaunchOptionsCanWrite(
+        LaunchWrapperMode mode)
+        => Assert.Equal(
+            mode,
+            LaunchWrapperCommand.ModeFor(LaunchWrapperCommand.SteamLaunchOptions(Helper, mode)));
+
+    [Fact]
+    public void OriginalLaunchOptionsRoundTripsAcrossTheLeaseFlagSplit()
+    {
+        const string user = "-novid -high";
+        var shim = LaunchWrapperCommand.SteamLaunchOptions(
+            Helper, LaunchWrapperMode.InputLease, user);
+        var unwrapped = LaunchWrapperCommand.OriginalLaunchOptions(shim);
+        var injected = LaunchWrapperCommand.SteamLaunchOptions(
+            Helper, LaunchWrapperMode.InputLeaseInject, unwrapped);
+
+        Assert.Equal(user, unwrapped);
+        Assert.Equal(user, LaunchWrapperCommand.OriginalLaunchOptions(injected));
+        // Re-applying must never nest one wrapper inside the other.
+        Assert.Equal(1, CountOccurrences(injected, "WSGM.Launch.exe"));
+    }
+
+    private static int CountOccurrences(string value, string needle)
+    {
+        var count = 0;
+        for (var i = value.IndexOf(needle, StringComparison.OrdinalIgnoreCase);
+             i >= 0;
+             i = value.IndexOf(needle, i + 1, StringComparison.OrdinalIgnoreCase))
+        {
+            count++;
+        }
+        return count;
+    }
+
+    [Theory]
+    [InlineData(LaunchWrapperMode.InputLease, true, LaunchWrapperMode.InputLease)]
+    [InlineData(LaunchWrapperMode.InputLease, false, LaunchWrapperMode.InputLeaseInject)]
+    [InlineData(LaunchWrapperMode.Both, false, LaunchWrapperMode.BothInject)]
+    [InlineData(LaunchWrapperMode.Deelevate, false, LaunchWrapperMode.Deelevate)]
+    [InlineData(LaunchWrapperMode.None, false, LaunchWrapperMode.None)]
+    public void ForCurrentInputModeSwapsOnlyTheLeaseBit(
+        LaunchWrapperMode requested, bool shimManaged, LaunchWrapperMode expected)
+        => Assert.Equal(
+            expected, LaunchWrapperCommand.ForCurrentInputMode(requested, shimManaged));
+
+    [Fact]
+    public void SteamLaunchOptionsRefusesToAskForBothLeaseBehavioursAtOnce()
+        => Assert.Throws<ArgumentException>(() => LaunchWrapperCommand.SteamLaunchOptions(
+            Helper, LaunchWrapperMode.InputLease | LaunchWrapperMode.InputLeaseInject));
+
+    [Fact]
+    public void CommandLineAcceptsInputLeaseInjectAsTheOnlyBehaviour()
+    {
+        Assert.True(CommandLine.TryParse(
+            ["--input-lease-inject", "--", "game.exe"], out var options, out _));
+
+        Assert.True(options.InputLeaseInject);
+        Assert.False(options.InputLease);
+        Assert.True(options.AnyLease);
+    }
+
+    [Fact]
+    public void CommandLineRejectsBothLeaseFlagsTogether()
+    {
+        Assert.False(CommandLine.TryParse(
+            ["--input-lease", "--input-lease-inject", "--", "game.exe"], out _, out var error));
+
+        Assert.Contains("mutually exclusive", error);
     }
 }

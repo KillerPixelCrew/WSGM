@@ -70,12 +70,12 @@ public static class SteamCef
         }
         try
         {
-            var steamExe = Steam.ExePath;
-            if (steamExe is null)
+            var steamDirectory = Steam.InstallDirectory;
+            if (steamDirectory is null)
             {
                 return false;
             }
-            var flag = Path.Combine(Path.GetDirectoryName(steamExe)!, FlagFileName);
+            var flag = Path.Combine(steamDirectory, FlagFileName);
             if (!File.Exists(flag))
             {
                 File.WriteAllBytes(flag, Array.Empty<byte>());

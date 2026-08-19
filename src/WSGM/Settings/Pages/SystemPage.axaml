@@ -18,7 +18,6 @@
                     <StackPanel Grid.Column="1" Spacing="2">
                         <TextBlock Text="Windows shell" Classes="setting-title" />
                         <TextBlock Text="{Binding ShellStatusText}" Classes="caption" />
-                        <TextBlock Text="{Binding AppStatusText}" Classes="caption" />
                     </StackPanel>
                 </Grid>
             </Border>
@@ -29,15 +28,6 @@
                         <TextBlock Text="SHELL" />
                     </Border>
                     <Border Classes="setting-row alt">
-                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                            <StackPanel VerticalAlignment="Center" Spacing="1">
-                                <TextBlock Text="Install or update WSGM" Classes="setting-title" />
-                                <TextBlock Text="Copies WSGM to its stable per-user location. This does not change your shell." Classes="caption" />
-                            </StackPanel>
-                            <Button Grid.Column="1" Content="Install app" Command="{Binding InstallAppCommand}" VerticalAlignment="Center" />
-                        </Grid>
-                    </Border>
-                    <Border Classes="setting-row">
                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                             <StackPanel VerticalAlignment="Center" Spacing="1">
                                 <TextBlock Text="Start game mode at sign-in" Classes="setting-title" />

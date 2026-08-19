@@ -41,9 +41,15 @@ public static class SteamInputBlocker
         }
     }
 
-    /// <summary>Acquires the shared lease when Steam is available. Failures are
-    /// logged and leave the UI alive so the device report can identify the
-    /// target-process or integrity-level mismatch.</summary>
+    /// <summary>Acquires the shared lease when a resident shim is available.
+    /// Failures are logged and leave the UI alive so the device report can identify
+    /// what was missing.</summary>
+    /// <remarks>
+    /// WSGM.exe never injects. The block is delivered by the shim Steam loads from
+    /// its own directory, so with Steam Input Management off - or before Steam has
+    /// restarted since the shim was deployed - there is simply nothing to connect
+    /// to, and this fails open exactly like the Steam-unavailable path always did.
+    /// </remarks>
     public static void Acquire()
     {
         lock (Sync)
@@ -53,11 +59,29 @@ public static class SteamInputBlocker
                 return;
             }
 
+            var shim = SteamInputShim.Probe();
+            if (shim.State is not (SteamInputShimState.Deployed or SteamInputShimState.UpdatePending))
+            {
+                // UpdatePending is connectable on purpose: an older-but-ours shim is
+                // the one Steam has mapped, and the protocol handshake is the
+                // authority on whether it is compatible.
+                Log.Warn(
+                    $"Steam Input lease unavailable - no resident shim ({shim.State}" +
+                    $"{(shim.Detail is null ? "" : $": {shim.Detail}")}). Surface opens unblocked.");
+                return;
+            }
+
             try
             {
-                _client ??= new SteamInputClient();
+                // AllowInjection stays false: this is what makes "WSGM never writes
+                // into the Steam process" a property of the code rather than a promise.
+                _client ??= new SteamInputClient(new SteamInputClientOptions { AllowInjection = false });
                 _lease = _client.Acquire();
-                Log.Info($"Steam Input lease acquired (revoked {_lease.InitialStatus.LastRevokedHandleCount} HID handles).");
+                if (shim.Vector != SteamInputShimVector.None)
+                {
+                    SteamInputShim.RecordLoad(shim.Vector);
+                }
+                Log.Info($"Steam Input lease acquired via {SteamInputShim.FileNameFor(shim.Vector)} (revoked {_lease.InitialStatus.LastRevokedHandleCount} HID handles).");
                 if (!_lease.InitialStatus.SupportsInternalRecovery)
                 {
                     CheckHostRecoveryBestEffort();
@@ -80,11 +104,28 @@ public static class SteamInputBlocker
     {
         lock (Sync)
         {
-            if (Owners.Add(owner))
-            {
-                Log.Info($"Steam Input lease claimed by {owner} ({Owners.Count} owner(s)).");
-            }
+            ClaimForCore(owner);
             Acquire();
+        }
+    }
+
+    // The Settings handoff must register its name synchronously before the overlay's
+    // deferred close drops the old one, but it must not perform a cold injection on
+    // the UI thread. Its reconciler follows this quick claim with AcquireFor on a
+    // worker when no native lease was available to inherit.
+    internal static void ClaimFor(string owner)
+    {
+        lock (Sync)
+        {
+            ClaimForCore(owner);
+        }
+    }
+
+    private static void ClaimForCore(string owner)
+    {
+        if (Owners.Add(owner))
+        {
+            Log.Info($"Steam Input lease claimed by {owner} ({Owners.Count} owner(s)).");
         }
     }
 

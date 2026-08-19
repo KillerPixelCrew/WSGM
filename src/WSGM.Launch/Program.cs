@@ -71,6 +71,7 @@ internal static class Program
         var elevated = Elevation.IsCurrentProcessElevated();
         LaunchLog.Info($"Steam wrapper invoked (elevated={elevated?.ToString() ?? "unknown"}, " +
                        $"deelevate={options.Deelevate}, inputLease={options.InputLease}, " +
+                       $"inputLeaseInject={options.InputLeaseInject}, " +
                        $"target={Path.GetFileName(options.Command[0])}, " +
                        $"argumentCount={options.Command.Length - 1}).");
 
@@ -79,12 +80,12 @@ internal static class Program
         // process tree, so a launcher that spawns the real game and exits still
         // holds the lease. The de-elevation path cannot use it — it would create
         // the process from this elevated parent, which is the thing we are avoiding.
-        if (options.InputLease && !options.Deelevate)
+        if (options.AnyLease && !options.Deelevate)
         {
             return await RunLeaseWrappedAsync(options);
         }
 
-        using var lease = options.InputLease ? SteamInputLeaseHost.TryAcquire(options) : null;
+        using var lease = options.AnyLease ? SteamInputLeaseHost.TryAcquire(options) : null;
         var payload = LaunchPayload.Capture(options.Command);
         return elevated == false
             ? await LaunchAndWaitAsync(payload)

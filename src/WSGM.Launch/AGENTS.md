@@ -28,3 +28,17 @@ Input block, or both. WSGM writes its command into a game's launch options over 
   degraded experience; a game that will not start is a broken one.
 - `SteamInterop\*.cs` is linked from `src\WSGM`, not copied. Treat it as the mirror it is and change it
   in `native\SteamInput\bindings` first.
+
+## The two lease flags
+
+`--input-lease` and `--input-lease-inject` differ only in how the block is delivered and are
+mutually exclusive; `TryParse` rejects both together. `--input-lease` sets
+`SteamInputClientOptions.AllowInjection = false` and therefore connects only to the shim Steam
+loaded from its own directory — it can never write into the Steam process. `--input-lease-inject`
+is the sole route in the shipped product that injects, and WSGM writes it into a game only while
+Steam Input Management is off, because then no resident shim exists to connect to.
+
+Both still fail **open**: a lease that cannot be acquired logs and launches the game anyway. When
+`--input-lease` was requested and no shim answered, say so specifically in `launch.log` — "turn
+Steam Input Management on, or re-apply the launch fix with it off" is the difference between a
+diagnosable report and a shrug.

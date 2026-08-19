@@ -328,13 +328,50 @@ the flag merely because it was persisted when the currently active target report
 1. **Steam Input's desktop profile swallows the controller from every API** (XInput/DInput/HID,
    system-wide) the moment it activates. The **only** reason the overlay may take focus
    (Game-Bar-style, which mutes the game while the panel is open) is the **Steam Input Lease**:
-   its injected gate blocks controller access inside `steam.exe`, leaving SDL direct access for
+   its gate blocks controller access inside `steam.exe`, leaving SDL direct access for
    WSGM without changing Steam's active layout. The lease is **scoped to the overlay/taskbar
    lifetime** — acquired before each focused surface opens and released after the last one closes.
    It is an open named-pipe connection, so Windows releases it after a WSGM crash; normal release
-   requests Steam controller rediscovery. Keep the native `steam_input_gate.dll` and
+   requests Steam controller rediscovery.
+   **Delivery is a proxy DLL, not injection (since the Steam Input Management work).**
+   `WSGM.exe` NEVER injects — the C ABI's `allow_injection` defaults to false and
+   `SteamInputBlocker` sets it explicitly, so this is a property of the code, not a promise.
+   The payload is deployed by `Core\SteamInputShim.cs` into **Steam's own install directory**
+   under a name Steam resolves through the default DLL search order (`XInput1_4.dll` first —
+   ValvePlug proves that vector loads — then `dinput8.dll`), and Steam loads it itself. Verified
+   on a live client: nothing in `steam.exe` hardens the search order (no `SetDefaultDllDirectories`
+   / `AddDllDirectory` anywhere, statically or dynamically; the lone `SetDllDirectoryA` in
+   `SteamUI.dll` cannot displace the application directory), neither name is a KnownDLL, and
+   **nothing in Steam's directory statically imports XInput or DirectInput** — so a missing export
+   degrades a `GetProcAddress` to NULL instead of failing a load. Three rules are load-bearing:
+   never overwrite a file the ownership signature does not prove is ours (ValvePlug and Special K
+   claim the same names); never `File.Move(..., overwrite: true)` on the park/restore path
+   (`REPLACE_EXISTING` fails against a mapped image, which is why disabling parks to `.dlld`
+   instead of deleting); and resolve the real system module by FULL System32 path inside the gate,
+   because the loader keys loaded modules by BASE NAME and a bare-name load would hand the gate
+   its own image to detour.
+   **Hooks are installed on the FIRST LEASE, never at load (device-verified 2026-08-19).**
+   MinHook's `MH_ApplyQueued` suspends every thread in the process to patch safely. Under
+   injection that ran against a fully started, quiescent Steam. As a proxy the DLL is mapped
+   during Steam's OWN startup, and suspending threads while the loader lock is being taken
+   constantly hung Steam on the first cold boot after an install — completely, unkillable by
+   `steam://exit` or a process-tree kill, Task Manager required, with a second (warm) start
+   working. `ensure_hooks_installed()` therefore defers `install_hooks()` and the recovery
+   warm-up to the first `AcquireLease`, so the payload is entirely inert until WSGM asks for a
+   block. Never move hook installation back into `DllMain`/`server_thread`. The observable
+   check: with the proxy loaded and no lease taken, `steam.exe` maps only `XInput1_4.dll`
+   (ours plus the real one, pulled lazily by a forwarder); `xinput1_3/1_2/1_1/9_1_0` appearing
+   means hooks are installed. Keep the native `steam_input_gate.dll` and
    `steam_input_lease_ffi.dll` beside WSGM.exe, and preserve the `Steam Input lease
    acquired/released` logs for device diagnosis.
+   **Owner claims outlive a failed native acquire by design:** `AcquireFor` registers the focused
+   surface before it attempts injection, so every deactivate/close path must call `ReleaseFor` even
+   when Steam was unavailable and `IsApplied` stayed false. During the overlay-to-Settings handoff,
+   Settings registers first and the deferred overlay close removes the overlay owner; abandoning
+   either name leaves the controller blocked after the visible surface is gone (device-observed
+   2026-08-15). Settings ignores the transient deactivation caused by that still-closing 150 ms
+   overlay, then resumes normal focus-based ownership after the overlay acknowledges the handoff;
+   releasing during the overlap drops and re-revokes the controller (device-observed 2026-08-12).
    **Live-verified end to end (2026-08-12, dev box, `steam-input-lease.exe`, real Steam Controller
    connected):** acquire took the pad from Steam (`tracked HID handles` 1 → 0, `handles revoked by
    last transition` = 1), Steam had rediscovered it within 700 ms of release (0 → 1), and an
@@ -371,8 +408,19 @@ the flag merely because it was persisted when the currently active target report
    `WSGM.Launch.exe` is the user-facing extension of the same mechanism for Steam games that
    reject elevation. It is the **single** launch wrapper: it replaced `WSGM.Deelevate.exe` and
    `steam-input-lease.exe`, which the installer now deletes on update, so anyone who had pasted one
-   of the old commands must re-apply the fix (call this out in the release notes). Behaviours are selected by flag: `"...\WSGM.Launch.exe" [--deelevate] [--input-lease]
-   -- %command%`, at least one required, the target command always after `--`. The elevated
+   of the old commands must re-apply the fix (call this out in the release notes). Behaviours are selected by flag:
+   `"...\WSGM.Launch.exe" [--deelevate] [--input-lease | --input-lease-inject] -- %command%`, at
+   least one required, the target command always after `--`.
+   **The two lease flags differ only in delivery and are mutually exclusive.** `--input-lease`
+   connects to the resident shim and NEVER injects; `--input-lease-inject` injects and is the only
+   route in the shipped product that can. The Tools-tab button picks between them from the Steam
+   Input Management setting **at apply time** (`LaunchWrapperCommand.ForCurrentInputMode`), so the
+   value a game carries always names the route it will take. Two consequences: `ModeFor` must match
+   on TOKEN boundaries, because `"--input-lease-inject".Contains("--input-lease")` is true and a
+   plain `Contains` reports both behaviours at once; and every launch option written before this
+   split says `--input-lease`, which now means shim-only — with Steam Input Management off those
+   games silently stop blocking, so the toggle logs the affected appids and the release notes must
+   say to re-apply the fix. The elevated
    wrapper must remain alive for the target lifetime, preserve Steam's arguments/environment/CWD,
    and stop the target tree if Steam terminates the wrapper. Do not replace it with a fire-and-forget
    scheduled task or an Explorer-token shortcut. **The lease is the OUTER behaviour**: its gate
@@ -692,6 +740,34 @@ WSGM applied itself is undone (a user who muted on purpose stays muted), and the
 still can, which is why the toggle defaults off. Muting goes through the native helper's APPCOMMAND
 **toggle** (`WsgmVolumeCommand(8)`) after reading the current state — there is no absolute set-mute
 export, so never call it without checking `WsgmVolumeGet` first.
+**The wake side listens on every signal Windows has, because there is no way to ASK.** No
+user-mode API reports current display power state (`GetDevicePowerState` explicitly excludes
+displays), so a notification is the only mechanism, and WSGM registers all three display power
+settings plus session unlock on the same message window: `GUID_SESSION_DISPLAY_STATUS` (primary),
+`GUID_CONSOLE_DISPLAY_STATE`, the superseded `GUID_MONITOR_POWER_ON`, and `WM_WTSSESSION_CHANGE` /
+`WTS_SESSION_UNLOCK`. **The asymmetry is the safety rule** (`DisplayMuteDecider.MayReportDark`):
+only the session setting may report the screen going DARK — console state describes whichever
+session owns the console, so acting on its "off" would mute the wrong session after a fast user
+switch — while **every** source may report it coming back. The `Display state: … (via Session |
+Console | LegacyMonitor)` tag is what makes a missed wake diagnosable from a pasted log; the extra
+registrations are not a substitute for the documented one and must not replace it. Note the blind
+spot in the `GetLastInputInfo` net below: it does not see gamepads or the power button, so a user
+who wakes with the power button and then navigates by controller (HandheldCompanion blocks
+controller wake by design) depends entirely on the notifications.
+**Coming back must not hang on any one notification** (reported 2026-08-19: a mute applied at
+screen-off while downloading never came back; `Core\DisplayMuteDecider.cs` now owns the pure
+mapping). Three rules make the restore path robust and none of them may be simplified away: the
+"we muted this" claim is cleared only after a **confirmed** unmute — the default endpoint is
+re-enumerated when the display wakes, and the old code cleared the flag *before* attempting the
+read/toggle, so one transient `GetDefaultAudioEndpoint` failure stranded the mute permanently with
+nothing left to retry; a failed attempt is retried on a 2 s timer that runs **only** while the claim
+is outstanding; and while muted that timer also watches `GetLastInputInfo` against a baseline taken
+at mute time (wrap-safe signed tick compare), because keyboard/mouse/touch input means a lit screen,
+so the mute is undone even if the display-on notification never arrives. Restore direction is
+fail-safe and deliberately asymmetric with mute: only state 0 mutes, **every other value restores**
+— dimmed and any value Windows may add later — since an unrecognised state must never be the reason
+a device stays silent. The added `Mute on display off: user input while muted, …` line joins the
+remote test surface.
 
 **Keep-awake wake lock** (`Core\WakeLock.cs`, `Core\SteamDownloads.cs`, `Core\KeepAwakeDecider.cs`,
 `Shell\KeepAwakeService.cs` — device-verified on the MSI Claw 2026-08-12, including the download

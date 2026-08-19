@@ -335,6 +335,7 @@ public sealed class OverlayController : IDisposable
         vm.ShowArtwork = config.Cef.Enabled && config.Cef.Artwork;
         vm.ShowSdCard = config.Cef.Enabled && config.Cef.SdFormat;
         vm.ConfigureLaunchOptionsLive = config.Cef.Enabled;
+        vm.InputLeaseUsesShim = config.SteamInputManagementEnabled;
     }
 
     /// <summary>Reads the four idle timeouts from the active power scheme into the
@@ -458,7 +459,7 @@ public sealed class OverlayController : IDisposable
     /// Dispose releases early, so the deferred Closed handler cannot tear down a
     /// replacement controller's live surface. The blocker only really lets go of
     /// the lease when no other owner still claims it.</summary>
-    private void ReleaseSteamInputLease()
+    private void ReleaseSteamInputLease(string reason = "surface-closed")
     {
         if (_leaseReleased)
         {
@@ -484,7 +485,7 @@ public sealed class OverlayController : IDisposable
                     Log.Warn($"Steam Input lease acquire faulted before release ({owner}): {ex.Message}");
                 }
             }
-            SteamInputBlocker.ReleaseFor(owner, "surface-closed");
+            SteamInputBlocker.ReleaseFor(owner, reason);
         });
     }
 
@@ -560,6 +561,7 @@ public sealed class OverlayController : IDisposable
     /// lease is handed to Settings rather than released, so Steam's controller is
     /// not dropped and re-revoked across the switch.</summary>
     private bool _handoffLease;
+    private SettingsWindow? _settingsHandoffWindow;
 
     /// <summary>Raised whenever quick access comes up (hotkey, swipe, chord,
     /// Steam-exit pop, warning reopen). The boot splash dismisses on it — the
@@ -626,6 +628,8 @@ public sealed class OverlayController : IDisposable
                 // suppressed focus restore must not stay latched for the rest of
                 // this panel's life (invariant 6).
                 _handoffLease = false;
+                _settingsHandoffWindow?.CompleteSteamInputLeaseHandoff();
+                _settingsHandoffWindow = null;
                 _suppressFocusRestore = false;
                 Log.Info("Overlay re-shown during deferred close — pending close cancelled.");
             }
@@ -737,6 +741,8 @@ public sealed class OverlayController : IDisposable
             // Hand the lease to Settings instead of releasing it: the close below
             // keeps Steam's controller blocked continuously, so Settings inherits a
             // live lease with no release/re-inject churn.
+            var settings = new SettingsWindow(gameModeSurface: true);
+            _settingsHandoffWindow = settings;
             _handoffLease = true;
             CloseOverlay();
             // A shell session normally has no main window. Opening settings in this
@@ -744,7 +750,7 @@ public sealed class OverlayController : IDisposable
             // gameModeSurface: the window takes over as the on-screen surface and owns
             // the handed-off Steam Input lease, else Steam's desktop profile grabs the
             // pad over Settings.
-            Avalonia.Threading.Dispatcher.UIThread.Post(() => new SettingsWindow(gameModeSurface: true).Show());
+            Avalonia.Threading.Dispatcher.UIThread.Post(settings.Show);
         };
         // Dismiss never refocuses anything: Windows hands the foreground back to
         // the previous window on close. An explicit refocus-on-dismiss once yanked
@@ -755,15 +761,25 @@ public sealed class OverlayController : IDisposable
             _closePending = false;
             _pendingClose = null;
             // Give Steam its pad back the moment the panel is gone — unless the
-            // taskbar took over the surface and still needs the lease, or the
-            // settings window is taking it over (handoff): then keep it held and
-            // mark it released from the overlay's side so no later overlay path
-            // touches the lease Settings now owns.
+            // taskbar took over the surface and still needs the lease. A Settings
+            // handoff ends only this overlay's named claim after Settings has
+            // registered its own, which keeps the shared native lease continuous.
             if (_handoffLease)
             {
                 _handoffLease = false;
-                _leaseReleased = true;
+                var settings = _settingsHandoffWindow;
+                _settingsHandoffWindow = null;
                 Log.Info("Steam Input lease handed off to the settings window.");
+                // Settings registered its own owner in Opened before this deferred
+                // close completes. End the overlay's claim now; abandoning it here
+                // leaves a phantom overlay owner until the panel is opened and
+                // closed again. If Steam was unavailable, there is no live native
+                // lease to churn and Settings' worker still owns its claim.
+                ReleaseSteamInputLease("handed-off-to-settings");
+                // The overlay itself can momentarily deactivate the new Settings
+                // window during this required 150 ms close. Only now should normal
+                // focus-based lease release resume.
+                settings?.CompleteSteamInputLeaseHandoff();
             }
             else if (_taskbar is null)
             {

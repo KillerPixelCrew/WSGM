@@ -533,6 +533,12 @@ public partial class OverlayWindow : Window
 
     private void StartLaunchFix(LaunchWrapperMode mode, CardButton button)
     {
+        // Resolve the lease route ONCE, here, before anything branches. The
+        // clipboard text, the value written into Steam and the snapshot persisted
+        // into config all flow from this, so deciding it in one place is what stops
+        // them disagreeing about how a given game blocks Steam Input.
+        mode = LaunchWrapperCommand.ForCurrentInputMode(
+            mode, (DataContext as OverlayViewModel)?.InputLeaseUsesShim ?? true);
         var helperPath = LaunchWrapperCommand.HelperPathForCurrentDeployment();
         if (mode != LaunchWrapperMode.None && !System.IO.File.Exists(helperPath))
         {

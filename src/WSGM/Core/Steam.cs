@@ -93,6 +93,13 @@ public static class Steam
         return null;
     }
 
+    /// <summary>Gets Steam's install directory, or <see langword="null"/> when Steam
+    /// is not installed. Everything WSGM writes beside Steam - the CEF debug flag and
+    /// the Steam Input proxy - resolves through here rather than repeating the
+    /// directory split at each call site.</summary>
+    public static string? InstallDirectory =>
+        ExePath is { } exe ? Path.GetDirectoryName(exe) : null;
+
     /// <summary>Gets whether a usable Steam executable was found.</summary>
     public static bool IsInstalled => ExePath is not null;
 
@@ -168,6 +175,10 @@ public static class Steam
     {
         if (!IsRunning && ExePath is { } exe)
         {
+            // Steam is provably not running on this branch, which makes it the one
+            // moment in a session when a stale Steam Input shim can actually be
+            // replaced - anywhere else the image is mapped and the copy fails.
+            SteamInputShim.Reconcile("steam-cold-start");
             // Enable Steam's CEF debug port before it starts so WSGM can add
             // libraries to the live client later without a restart. Only takes
             // effect on a fresh Steam start, which this cold path is.

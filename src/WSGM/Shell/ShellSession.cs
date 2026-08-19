@@ -76,6 +76,7 @@ public sealed class ShellSession
         _wifiIndicatorEnabled = config.Cef.Enabled && config.Cef.WifiIndicator;
         _downloadSortEnabled = config.Cef.Enabled && config.Cef.DownloadQueueSort;
         SteamCef.SetMasterEnabled(config.Cef.Enabled);
+        SteamInputShim.SetEnabled(config.SteamInputManagementEnabled);
         _overlayTestOnly = overlayTestOnly;
         _serviceBoot = serviceBoot;
     }
@@ -622,6 +623,24 @@ public sealed class ShellSession
     /// three round-trips cannot leave the choke point closed while the field —
     /// and the equality guard that would have repaired it — say enabled.</summary>
     /// <param name="enabled">The reloaded <c>Cef.Enabled</c> value.</param>
+    /// <summary>Applies a Steam Input Management change that arrived through a
+    /// config reload.</summary>
+    /// <remarks>
+    /// The park/restore rename touches Steam's directory, so it runs off the UI
+    /// thread. Reconciles are idempotent and serialized inside
+    /// <see cref="SteamInputShim"/>, which is what lets the Settings save path and
+    /// this watcher both fire without coordinating.
+    /// </remarks>
+    private static void ApplySteamInputManagement(bool enabled)
+    {
+        if (SteamInputShim.Enabled == enabled)
+        {
+            return;
+        }
+        SteamInputShim.SetEnabled(enabled);
+        _ = System.Threading.Tasks.Task.Run(() => SteamInputShim.Reconcile("settings-change"));
+    }
+
     private void ApplyCefMasterSwitch(bool enabled)
     {
         if (_cefMasterEnabled == enabled)
@@ -764,6 +783,7 @@ public sealed class ShellSession
                         // drift onto different AppConfig objects.
                         _config = config;
                         ApplyCefMasterSwitch(config.Cef.Enabled);
+                        ApplySteamInputManagement(config.SteamInputManagementEnabled);
                         ApplyNetworkIndicator(config.Cef.Enabled && config.Cef.WifiIndicator);
                         ApplyDownloadSort(config.Cef.Enabled && config.Cef.DownloadQueueSort);
                         _displayMute?.ApplyConfig(config.MuteWhileDisplayOff);

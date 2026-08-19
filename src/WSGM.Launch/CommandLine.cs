@@ -8,8 +8,21 @@ internal sealed class LaunchOptions
     /// <summary>Run the target at medium integrity when Steam launched us elevated.</summary>
     internal bool Deelevate { get; set; }
 
-    /// <summary>Hold a Steam Input block lease for the target's lifetime.</summary>
+    /// <summary>Hold a Steam Input block lease for the target's lifetime, using the
+    /// resident shim Steam loaded itself. Never injects; fails open when no shim
+    /// answers.</summary>
     internal bool InputLease { get; set; }
+
+    /// <summary>Hold the same lease by injecting the gate into Steam.</summary>
+    /// <remarks>
+    /// Written into a game's launch options only while Steam Input Management is
+    /// off, because then Steam has loaded no shim to connect to. This is the single
+    /// route in the shipped product that can inject.
+    /// </remarks>
+    internal bool InputLeaseInject { get; set; }
+
+    /// <summary>Whether either lease behaviour was requested.</summary>
+    internal bool AnyLease => InputLease || InputLeaseInject;
 
     internal bool Status { get; set; }
 
@@ -71,6 +84,9 @@ internal static class CommandLine
                 case "--input-lease":
                     options.InputLease = true;
                     break;
+                case "--input-lease-inject":
+                    options.InputLeaseInject = true;
+                    break;
                 case "--status":
                     options.Status = true;
                     break;
@@ -113,11 +129,19 @@ internal static class CommandLine
                 : "A target command is required. Expected: WSGM.Launch.exe [options] -- %command%";
             return false;
         }
-        if (!options.Deelevate && !options.InputLease)
+        if (options.InputLease && options.InputLeaseInject)
+        {
+            // The two differ only in how the block is delivered, so asking for both
+            // is a configuration mistake rather than a combination to reconcile.
+            error = "--input-lease and --input-lease-inject are mutually exclusive.";
+            return false;
+        }
+        if (!options.Deelevate && !options.AnyLease)
         {
             // Launching the target with neither wrapper behaviour would silently
             // add a process to Steam's chain for no benefit; say so instead.
-            error = "At least one of --deelevate or --input-lease is required.";
+            error =
+                "At least one of --deelevate, --input-lease or --input-lease-inject is required.";
             return false;
         }
         return true;
@@ -136,7 +160,12 @@ internal static class CommandLine
 
         Behaviours (at least one required):
           --deelevate       run the target at medium integrity under elevated Steam
-          --input-lease     block Steam Input for the target's lifetime
+          --input-lease     block Steam Input for the target's lifetime using the
+                            shim Steam loaded from its own directory. Requires Steam
+                            Input Management to be on; fails open if it is not.
+          --input-lease-inject
+                            block Steam Input by injecting into Steam instead. Used
+                            when Steam Input Management is off, so there is no shim
 
         Diagnostics:
           --status          report the Steam Input gate's lease and handle counts

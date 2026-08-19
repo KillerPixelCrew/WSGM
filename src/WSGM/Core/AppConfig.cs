@@ -610,6 +610,27 @@ public sealed class AppConfig
     /// nothing is ever injected into Steam.</summary>
     public bool SteamInputLeaseEnabled { get; set; } = true;
 
+    /// <summary>Whether WSGM deploys its Steam Input shim into Steam's own install
+    /// directory as a search-order proxy DLL, so Steam loads it itself and WSGM
+    /// never writes into the Steam process.</summary>
+    /// <remarks>
+    /// Off parks the deployed file beside itself instead of deleting it, and every
+    /// lease WSGM takes for its own surfaces fails open. <see cref="SteamInputLeaseEnabled"/>
+    /// still decides whether the block is asked for at all; this decides how it gets
+    /// into Steam. Absent from an older config.json it defaults on, which is what
+    /// carries an upgrading device across without losing controller navigation.
+    /// </remarks>
+    public bool SteamInputManagementEnabled { get; set; } = true;
+
+    /// <summary>Which revision of the first-run Quick Setup this device has completed.</summary>
+    /// <remarks>
+    /// An int rather than a bool so a later build that adds a setting needing an
+    /// explicit decision can raise <see cref="QuickSetup.CurrentRevision"/> and have
+    /// the panel appear once more, showing only what is new. Zero means the panel
+    /// has never been completed.
+    /// </remarks>
+    public int QuickSetupRevision { get; set; }
+
     /// <summary>Steam CEF integration master switch and per-feature sub-toggles
     /// (see <see cref="CefConfig"/>).</summary>
     public CefConfig Cef { get; set; } = new();

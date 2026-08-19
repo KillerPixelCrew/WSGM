@@ -15,11 +15,21 @@ public enum LaunchWrapperMode
     /// <summary>Run the game at medium integrity under elevated Steam.</summary>
     Deelevate = 1,
 
-    /// <summary>Block Steam Input for the game's lifetime.</summary>
+    /// <summary>Block Steam Input for the game's lifetime through the resident
+    /// shim Steam loaded itself. Fails open when no shim is loaded - the wrapper
+    /// never injects on this route.</summary>
     InputLease = 2,
 
     /// <summary>Both behaviours in one wrapper process.</summary>
     Both = Deelevate | InputLease,
+
+    /// <summary>Block Steam Input by injecting the gate into Steam for the game's
+    /// lifetime. Written only when Steam Input Management is off, because then no
+    /// resident shim exists to connect to.</summary>
+    InputLeaseInject = 4,
+
+    /// <summary>De-elevation plus the injecting lease.</summary>
+    BothInject = Deelevate | InputLeaseInject,
 }
 
 /// <summary>
@@ -167,16 +177,62 @@ internal static class LaunchWrapperCommand
         }
 
         var mode = LaunchWrapperMode.None;
-        if (value.Contains(DeelevateFlag, StringComparison.OrdinalIgnoreCase))
+        if (HasFlagToken(value, DeelevateFlag))
         {
             mode |= LaunchWrapperMode.Deelevate;
         }
-        if (value.Contains(InputLeaseFlag, StringComparison.OrdinalIgnoreCase))
+        // Test the injecting flag FIRST and match on token boundaries: a plain
+        // Contains would read "--input-lease" out of "--input-lease-inject" and
+        // report both lease behaviours at once, which then trips the mutual
+        // exclusion in FlagsFor the next time the game is re-applied.
+        if (HasFlagToken(value, InputLeaseInjectFlag))
+        {
+            mode |= LaunchWrapperMode.InputLeaseInject;
+        }
+        else if (HasFlagToken(value, InputLeaseFlag))
         {
             mode |= LaunchWrapperMode.InputLease;
         }
         return mode;
     }
+
+    /// <summary>Whether a value contains a flag as a whole command-line token.</summary>
+    /// <param name="value">The launch-option or argument string to search.</param>
+    /// <param name="flag">The flag to look for.</param>
+    /// <returns>Whether the flag appears bounded by whitespace, a quote, or an end.</returns>
+    private static bool HasFlagToken(string value, string flag)
+    {
+        for (var index = value.IndexOf(flag, StringComparison.OrdinalIgnoreCase);
+             index >= 0;
+             index = value.IndexOf(flag, index + 1, StringComparison.OrdinalIgnoreCase))
+        {
+            var end = index + flag.Length;
+            var startsToken = index == 0 || char.IsWhiteSpace(value[index - 1]) || value[index - 1] == '"';
+            var endsToken = end >= value.Length || char.IsWhiteSpace(value[end]) || value[end] == '"';
+            if (startsToken && endsToken)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>Selects the lease behaviour matching the current Steam Input
+    /// Management setting.</summary>
+    /// <param name="mode">The behaviours the user asked for.</param>
+    /// <param name="shimManaged">Whether Steam Input Management is on.</param>
+    /// <returns>The mode to actually write.</returns>
+    /// <remarks>
+    /// With the shim deployed a game rides the payload Steam already loaded; with it
+    /// off there is nothing to ride, so the wrapper injects the way it always did.
+    /// Applied exactly once, where the fix is written, so the clipboard text, the
+    /// value written into Steam and the persisted snapshot can never disagree.
+    /// </remarks>
+    internal static LaunchWrapperMode ForCurrentInputMode(
+        LaunchWrapperMode mode, bool shimManaged) =>
+        shimManaged || !mode.HasFlag(LaunchWrapperMode.InputLease)
+            ? mode
+            : (mode & ~LaunchWrapperMode.InputLease) | LaunchWrapperMode.InputLeaseInject;
 
     /// <summary>Whether a shortcut's Target already points at the wrapper.</summary>
     /// <param name="target">The shortcut's current Target value.</param>
@@ -214,6 +270,7 @@ internal static class LaunchWrapperCommand
 
     private const string DeelevateFlag = "--deelevate";
     private const string InputLeaseFlag = "--input-lease";
+    private const string InputLeaseInjectFlag = "--input-lease-inject";
 
     private static string Quote(string path)
     {
@@ -234,6 +291,16 @@ internal static class LaunchWrapperCommand
         if (mode.HasFlag(LaunchWrapperMode.InputLease))
         {
             flags.Add(InputLeaseFlag);
+        }
+        if (mode.HasFlag(LaunchWrapperMode.InputLeaseInject))
+        {
+            flags.Add(InputLeaseInjectFlag);
+        }
+        if (mode.HasFlag(LaunchWrapperMode.InputLease)
+            && mode.HasFlag(LaunchWrapperMode.InputLeaseInject))
+        {
+            throw new ArgumentException(
+                "A wrapper cannot both use the resident shim and inject.", nameof(mode));
         }
         if (flags.Count == 0)
         {

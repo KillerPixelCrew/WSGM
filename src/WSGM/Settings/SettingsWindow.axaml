@@ -67,7 +67,8 @@
         </Style>
     </Window.Styles>
 
-    <Grid RowDefinitions="Auto,*,Auto">
+    <Grid>
+      <Grid RowDefinitions="Auto,*,Auto" x:Name="SettingsRoot">
         <Border Grid.Row="0"
                 Background="{StaticResource HcBackgroundBrush}"
                 BorderBrush="{StaticResource HcCardBorderBrush}"
@@ -108,5 +109,48 @@
                 </StackPanel>
             </Grid>
         </Border>
+      </Grid>
+
+      <!-- First-run Quick Setup. Drawn OVER the whole window rather than as an
+           eighth page: it must own input while it is up, and the tab strip must
+           not offer a way around the one decision it exists to ask for. -->
+      <Border x:Name="QuickSetupOverlay" IsVisible="False"
+              Background="{StaticResource HcBackgroundBrush}">
+        <Border MaxWidth="640" VerticalAlignment="Center" HorizontalAlignment="Center"
+                Background="{StaticResource HcHeaderBrush}" Padding="28,24" CornerRadius="4">
+          <StackPanel Spacing="16">
+            <TextBlock Text="Quick Setup" Classes="setting-title" FontSize="20" />
+            <TextBlock TextWrapping="Wrap" Classes="caption"
+                       Text="WSGM can integrate with Steam in two ways. Both are recommended, and both can be changed later in Settings. Nothing is written until you choose Continue." />
+
+            <Border Classes="setting-row alt">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <StackPanel VerticalAlignment="Center" Spacing="1">
+                  <TextBlock Text="Steam Input management" Classes="setting-title" />
+                  <TextBlock TextWrapping="Wrap" Classes="caption"
+                             Text="Puts a small WSGM file next to Steam so the quick-access panel can use your controller. Without it, Steam keeps the controller while a panel is open." />
+                </StackPanel>
+                <ToggleSwitch Grid.Column="1" x:Name="QuickSetupSteamInput" IsChecked="True" VerticalAlignment="Center" />
+              </Grid>
+            </Border>
+
+            <Border Classes="setting-row">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <StackPanel VerticalAlignment="Center" Spacing="1">
+                  <TextBlock Text="Steam integration" Classes="setting-title" />
+                  <TextBlock TextWrapping="Wrap" Classes="caption"
+                             Text="Library tabs, SD-card tools, artwork and the Big Picture Wi-Fi indicator. Uses Steam's own local debug port." />
+                </StackPanel>
+                <ToggleSwitch Grid.Column="1" x:Name="QuickSetupCef" IsChecked="True" VerticalAlignment="Center" />
+              </Grid>
+            </Border>
+
+            <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right">
+              <Button x:Name="QuickSetupSkipButton" Content="Skip" Click="OnQuickSetupSkip" />
+              <Button x:Name="QuickSetupContinueButton" Content="Continue" Click="OnQuickSetupContinue" />
+            </StackPanel>
+          </StackPanel>
+        </Border>
+      </Border>
     </Grid>
 </Window>

@@ -28,6 +28,10 @@ internal sealed class SteamInputLeaseHost : IDisposable
         {
             TargetName = options.TargetName ?? defaults.TargetName,
             PayloadPath = options.PayloadPath ?? defaults.PayloadPath,
+            // Injection is opt-in and reachable only through --input-lease-inject.
+            // Plain --input-lease connects to the shim Steam loaded itself, so the
+            // wrapper cannot write into the Steam process on the default route.
+            AllowInjection = options.InputLeaseInject,
         });
     }
 
@@ -52,6 +56,13 @@ internal sealed class SteamInputLeaseHost : IDisposable
         catch (Exception ex)
         {
             client?.Dispose();
+            if (options.InputLease)
+            {
+                LaunchLog.Error(
+                    "Steam Input shim not resident - launching without the block. " +
+                    "--input-lease uses Steam Input Management; turn it on in WSGM " +
+                    "settings, or re-apply the launch fix with it off to inject instead.");
+            }
             LaunchLog.Error($"Could not acquire the Steam Input block lease: {ex.Message}. " +
                             "Launching without it.");
             Console.Error.WriteLine($"Steam Input block unavailable: {ex.Message}");

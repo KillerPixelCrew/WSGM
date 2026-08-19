@@ -97,7 +97,6 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         // The copy set is the NativeAOT executable plus every native sibling DLL, so
         // it runs OFF the UI thread (seconds on handheld storage, longer behind an AV
         // scan); the button stays disabled until it finishes.
-        InstallAppCommand = new RelayCommand(() => _ = InstallAppAsync(), () => !_installInProgress);
         UninstallCommand = new RelayCommand(Uninstall);
         OpenLogLocationCommand = new RelayCommand(OpenLogLocation);
         RemoveAppCommand = new RelayCommand<StartupAppRow>(row =>
@@ -134,6 +133,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         GameModeBootEnabled = _config.GameModeBootEnabled;
         DisplayManagementModeIndex = (int)_config.DisplayManagement;
         SteamInputLeaseEnabled = _config.SteamInputLeaseEnabled;
+        SteamInputManagementEnabled = _config.SteamInputManagementEnabled;
         CefEnabled = _config.Cef.Enabled;
         CefLibraryTabs = _config.Cef.LibraryTabs;
         CefCardManager = _config.Cef.CardManager;
@@ -206,7 +206,6 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     public RelayCommand SaveCommand { get; }
 
     /// <summary>Gets the command that installs or updates the per-user app copy.</summary>
-    public RelayCommand InstallAppCommand { get; }
 
     /// <summary>Gets the command that removes the legacy shell registration and
     /// restores the saved previous shell.</summary>
@@ -349,6 +348,50 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// Input while its focused surfaces are open. Off = Steam is never touched.</summary>
     public bool SteamInputLeaseEnabled { get => _steamInputLeaseEnabled; set { _steamInputLeaseEnabled = value; Raise(nameof(SteamInputLeaseEnabled)); } }
 
+    /// <summary>Gets or sets whether WSGM deploys its Steam Input shim into Steam's
+    /// own install directory, so Steam loads it and WSGM never injects.</summary>
+    public bool SteamInputManagementEnabled
+    {
+        get => _steamInputManagementEnabled;
+        set { _steamInputManagementEnabled = value; Raise(nameof(SteamInputManagementEnabled)); }
+    }
+
+    private bool _steamInputManagementEnabled = true;
+
+    /// <summary>Gets whether first-run Quick Setup still has to be answered.</summary>
+    public bool QuickSetupPending => QuickSetup.ShouldShow(_config);
+
+    /// <summary>Gets or sets whether the Quick Setup panel was answered in this
+    /// session, so the next save stamps the revision it answered.</summary>
+    public bool QuickSetupAnswered { get; set; }
+
+    /// <summary>Gets a plain-language description of the shim deployment, naming the
+    /// file so a pasted screenshot is diagnostic on its own.</summary>
+    public string SteamInputShimStatusText
+    {
+        get
+        {
+            var status = SteamInputShim.LastStatus;
+            var name = SteamInputShim.FileNameFor(status.Vector);
+            return status.State switch
+            {
+                SteamInputShimState.SteamNotInstalled =>
+                    "Steam was not found on this PC, so nothing was installed.",
+                SteamInputShimState.Disabled =>
+                    "Off. WSGM's file is parked next to Steam and does nothing; turning this back on restores it instantly.",
+                SteamInputShimState.Deployed when SteamInputShim.LoadedVector is not null =>
+                    $"Active - installed as {name} and loaded by the running Steam.",
+                SteamInputShimState.Deployed =>
+                    $"Installed as {name}. It takes effect the next time Steam starts.",
+                SteamInputShimState.UpdatePending =>
+                    "An update is waiting: Steam is using the old copy right now. WSGM replaces it the next time it starts Steam.",
+                SteamInputShimState.Blocked =>
+                    "Could not install: XInput1_4.dll and dinput8.dll in Steam's folder both belong to another program (ValvePlug or Special K, for example). WSGM will not overwrite them.",
+                _ => "Could not write to Steam's folder. Run WSGM setup again, or start WSGM as administrator once.",
+            };
+        }
+    }
+
     private bool _cefEnabled = true;
     private bool _cefLibraryTabs = true;
     private bool _cefCardManager = true;
@@ -469,54 +512,6 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         return ok;
     }
 
-    /// <summary>Gets whether WSGM has a copy in its stable per-user install directory.</summary>
-    public bool AppInstalled => Installer.IsAppInstalled;
-
-    /// <summary>Gets a user-facing explanation of the current installation state.</summary>
-    public string AppStatusText => Installer.IsRunningFromInstallDir
-        ? $"Installed at {Installer.InstallDir}."
-        : Installer.IsAppInstalled
-            ? $"Running portable — an installed copy exists at {Installer.InstallDir}. \"Install app\" updates it."
-            : "Running portable — not installed yet. Installing copies WSGM to a stable per-user location and adds it to Start Menu and Settings → Apps.";
-
-    /// <summary>Installs or updates the app files without changing shell registration.</summary>
-    public void InstallApp()
-    {
-        Installer.InstallApp();
-        RaiseShellStatus();
-    }
-
-    private bool _installInProgress;
-
-    /// <summary>Runs the install/update file copy off the UI thread (see
-    /// <see cref="InstallApp"/> for the same work done synchronously), keeping the
-    /// command disabled for its duration and reporting the outcome in
-    /// <see cref="StatusText"/>. The continuation resumes on the UI thread, so the
-    /// property notifications stay where Avalonia needs them.</summary>
-    /// <returns>A task that completes after the status has been refreshed.</returns>
-    private async System.Threading.Tasks.Task InstallAppAsync()
-    {
-        _installInProgress = true;
-        InstallAppCommand.RaiseCanExecuteChanged();
-        StatusText = "Installing…";
-        try
-        {
-            await System.Threading.Tasks.Task.Run(Installer.InstallApp);
-            RaiseShellStatus();
-            StatusText = $"Installed {DateTime.Now:HH:mm:ss}";
-        }
-        catch (Exception ex)
-        {
-            Log.Error("App install failed", ex);
-            StatusText = $"Install failed: {ex.Message}";
-        }
-        finally
-        {
-            _installInProgress = false;
-            InstallAppCommand.RaiseCanExecuteChanged();
-        }
-    }
-
     /// <summary>Migration: removes the legacy shell registration and restores the
     /// saved previous shell. The logon service keeps starting game mode afterwards.</summary>
     public void Uninstall()
@@ -530,8 +525,6 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         Raise(nameof(ShellInstalled));
         Raise(nameof(ShellStatusText));
         Raise(nameof(ShellStateText));
-        Raise(nameof(AppInstalled));
-        Raise(nameof(AppStatusText));
     }
 
     // --- Steam (the only launcher; located via registry, nothing to configure) ---
@@ -1061,6 +1054,13 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             }).ToList();
         }
         config.SteamInputLeaseEnabled = SteamInputLeaseEnabled;
+        config.SteamInputManagementEnabled = SteamInputManagementEnabled;
+        if (QuickSetupAnswered)
+        {
+            // Stamped only on a save that actually persists the answer, so a failed
+            // save leaves the panel due to appear again rather than silently lost.
+            QuickSetup.MarkCompleted(config);
+        }
         config.Cef.Enabled = CefEnabled;
         config.Cef.LibraryTabs = CefLibraryTabs;
         config.Cef.CardManager = CefCardManager;
@@ -1197,7 +1197,67 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             throw new System.IO.IOException(failure);
         }
         Log.Info("Settings saved.");
+        ApplySteamInputManagementAfterSave(config);
         return config;
+    }
+
+    /// <summary>Brings Steam's directory in line with the setting that was just
+    /// persisted.</summary>
+    /// <remarks>
+    /// Deployment follows persisted intent and never precedes it: a save that failed
+    /// must not leave Steam's directory describing a setting nobody wrote. It also
+    /// runs outside <c>ConfigStore.AcquireLock</c> - that lock's timeout is sized for
+    /// one small JSON write, not for file copies into Program Files.
+    /// </remarks>
+    private void ApplySteamInputManagementAfterSave(AppConfig config)
+    {
+        SteamInputShim.SetEnabled(config.SteamInputManagementEnabled);
+        var status = SteamInputShim.Reconcile("settings-save");
+        if (status.State == SteamInputShimState.Failed
+            && status.Detail == "access denied"
+            // Tri-state: only retry when we KNOW we are unelevated. Unknown stays
+            // put rather than throwing a UAC prompt at a user who may not need one.
+            && ElevationCheck.IsCurrentProcessElevated() == false)
+        {
+            // Steam normally lives under Program Files, which a desktop-mode Settings
+            // process cannot write. Without this the toggle would appear to do nothing
+            // at all on most machines.
+            Log.Warn("Steam Input shim write refused - retrying elevated.");
+            SelfElevation.RunElevatedAction(
+                config.SteamInputManagementEnabled
+                    ? "--apply-steam-input-shim"
+                    : "--remove-steam-input-shim",
+                "Steam Input shim");
+            SteamInputShim.Probe();
+        }
+        if (!config.SteamInputManagementEnabled)
+        {
+            WarnAboutShimOnlyLaunchFixes(config);
+        }
+        Raise(nameof(SteamInputShimStatusText));
+    }
+
+    /// <summary>Names the games whose stored launch fix just stopped blocking.</summary>
+    /// <remarks>
+    /// Turning Steam Input Management off changes what an already-written
+    /// <c>--input-lease</c> does: there is no resident shim left for it to use, so it
+    /// fails open. One log line is what makes "why did my controller fix stop working"
+    /// answerable from a pasted log instead of a bisect.
+    /// </remarks>
+    private static void WarnAboutShimOnlyLaunchFixes(AppConfig config)
+    {
+        var affected = config.LaunchWrappers
+            .Where(wrapper => wrapper.Mode.HasFlag(LaunchWrapperMode.InputLease))
+            .Select(wrapper => wrapper.AppId.ToString(System.Globalization.CultureInfo.InvariantCulture))
+            .ToList();
+        if (affected.Count == 0)
+        {
+            return;
+        }
+        Log.Warn(
+            $"Steam Input Management off - {affected.Count} game(s) still carry the shim-only " +
+            $"launch fix (appids: {string.Join(", ", affected)}); re-apply the launch fix to " +
+            "switch them to injection.");
     }
 
     private static bool Failed(IReadOnlyList<string> failedSlots, string slot) =>

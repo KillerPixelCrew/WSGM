@@ -24,9 +24,8 @@ public static class BootManifestWriter
             {
                 GameModeBoot = config.GameModeBootEnabled,
                 Elevate = config.StartupApps.Any(a => a.Enabled && a.Elevated) || Steam.RequiresElevatedShell,
-                ExePath = Installer.IsAppInstalled
-                    ? Installer.InstalledExePath
-                    : Environment.ProcessPath ?? Installer.InstalledExePath,
+                // Inno is the only installer, so the installed path is the only path.
+                ExePath = Installer.InstalledExePath,
             };
             BootManifestStore.Save(ManifestPath, manifest);
             Log.Info($"Boot manifest written: enabled={manifest.GameModeBoot} elevate={manifest.Elevate} exe={manifest.ExePath}");

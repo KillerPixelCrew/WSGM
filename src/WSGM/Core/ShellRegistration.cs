@@ -59,9 +59,8 @@ public static class ShellRegistration
     {
         get
         {
-            var exe = Installer.IsAppInstalled
-                ? Installer.InstalledExePath
-                : Environment.ProcessPath ?? System.IO.Path.Combine(AppContext.BaseDirectory, "WSGM.exe");
+            // Inno is the only installer, so the installed path is the only path.
+            var exe = Installer.InstalledExePath;
             return $"\"{exe}\" --shell";
         }
     }

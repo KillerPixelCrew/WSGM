@@ -26,19 +26,13 @@ public static class Installer
     private static string ShortcutPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs", "WSGM.lnk");
 
-    /// <summary>Gets whether the current process is the installed copy rather than a portable copy.</summary>
-    public static bool IsRunningFromInstallDir =>
-        string.Equals(Environment.ProcessPath, InstalledExePath, StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>Gets whether an installed WSGM executable exists.</summary>
-    public static bool IsAppInstalled => File.Exists(InstalledExePath);
-
-    /// <summary>True when the install was made by the Inno Setup installer, which then
-    /// owns the shortcut and the Settings → Apps entry.</summary>
-    public static bool IsInnoManaged => File.Exists(Path.Combine(InstallDir, "unins000.exe"));
-
-    /// <summary>Copies the running exe into the install dir, creates the Start Menu
-    /// shortcut and the Apps uninstall entry. Returns the installed exe path.</summary>
+    /// <summary>Prepares the install directory for the files Inno just laid down.
+    /// Returns the installed exe path.</summary>
+    /// <remarks>
+    /// WSGM no longer installs itself. Inno is the only installer, so this keeps only
+    /// the housekeeping that still applies after its files are in place: making sure
+    /// the directory exists, and clearing update-swap leftovers.
+    /// </remarks>
     public static string InstallApp()
     {
         Directory.CreateDirectory(InstallDir);
@@ -50,51 +44,6 @@ public static class Installer
             try { File.Delete(old); } catch { }
         }
 
-        if (!IsRunningFromInstallDir)
-        {
-            var source = Environment.ProcessPath
-                ?? throw new InvalidOperationException("Cannot determine own executable path");
-            var sourceDir = Path.GetDirectoryName(source)!;
-            var sourceExeName = Path.GetFileName(source);
-
-            // NativeAOT keeps Skia/ANGLE as native sibling DLLs — the exe alone is
-            // not a complete install. Copy our own exe plus the runtime DLLs, but
-            // nothing else: a portable run from a mixed folder (Downloads with other
-            // setups/tools) must not sweep unrelated exes into the install dir.
-            foreach (var file in Directory.GetFiles(sourceDir))
-            {
-                var ext = Path.GetExtension(file);
-                var isDll = ext.Equals(".dll", StringComparison.OrdinalIgnoreCase);
-                var isOwnExe = ext.Equals(".exe", StringComparison.OrdinalIgnoreCase) &&
-                    Path.GetFileName(file).Equals(sourceExeName, StringComparison.OrdinalIgnoreCase);
-                var isLaunchWrapper = ext.Equals(".exe", StringComparison.OrdinalIgnoreCase) &&
-                    Path.GetFileName(file).Equals(
-                        LaunchWrapperCommand.HelperFileName, StringComparison.OrdinalIgnoreCase);
-                if (!isDll && !isOwnExe && !isLaunchWrapper)
-                {
-                    continue;
-                }
-                var target = Path.Combine(InstallDir, Path.GetFileName(file));
-                try
-                {
-                    File.Copy(file, target, overwrite: true);
-                }
-                catch (IOException)
-                {
-                    // Target is loaded by a running instance (e.g. the active shell).
-                    // A loaded file can't be overwritten but CAN be renamed — swap it.
-                    MoveAsideLockedTarget(target);
-                    File.Copy(file, target, overwrite: true);
-                    Log.Info($"Swapped in-use file via rename: {Path.GetFileName(file)}");
-                }
-            }
-        }
-
-        if (!IsInnoManaged)
-        {
-            CreateShortcut();
-            RegisterUninstallEntry();
-        }
         Log.Info($"Installed to {InstalledExePath}");
         return InstalledExePath;
     }

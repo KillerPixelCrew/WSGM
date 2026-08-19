@@ -917,4 +917,52 @@ public sealed class ConfigurationTests
         Assert.Equal("", wrapper.OriginalStartDir);
         Assert.Equal("", wrapper.Name);
     }
+
+    /// <summary>The upgrade guarantee. Every config.json written before Steam Input
+    /// Management existed omits the property, and those devices must come up with the
+    /// shim deploying - otherwise an upgrade silently costs them controller
+    /// navigation in the overlay.</summary>
+    [Fact]
+    public void AConfigWrittenBeforeSteamInputManagementDeserializesWithItOn()
+    {
+        var restored = JsonSerializer.Deserialize(
+            """{"SteamInputLeaseEnabled":true}""", ConfigJsonContext.Default.AppConfig);
+
+        Assert.NotNull(restored);
+        Assert.True(restored!.SteamInputManagementEnabled);
+        Assert.Equal(0, restored.QuickSetupRevision);
+    }
+
+    [Fact]
+    public void AnExplicitlyDisabledSteamInputManagementSurvivesARoundTrip()
+    {
+        var original = new AppConfig { SteamInputManagementEnabled = false };
+
+        var json = JsonSerializer.Serialize(original, ConfigJsonContext.Default.AppConfig);
+        var restored = JsonSerializer.Deserialize(json, ConfigJsonContext.Default.AppConfig);
+
+        Assert.False(restored!.SteamInputManagementEnabled);
+    }
+
+    [Fact]
+    public void QuickSetupIsOfferedUntilItsCurrentRevisionHasBeenAnswered()
+    {
+        var config = new AppConfig();
+        Assert.True(QuickSetup.ShouldShow(config));
+
+        QuickSetup.MarkCompleted(config);
+
+        Assert.False(QuickSetup.ShouldShow(config));
+        Assert.Equal(QuickSetup.CurrentRevision, config.QuickSetupRevision);
+    }
+
+    /// <summary>A device that answered an older revision is asked once more, which is
+    /// the whole reason the stamp is an int rather than a bool.</summary>
+    [Fact]
+    public void QuickSetupIsOfferedAgainWhenANewerRevisionAddsSettings()
+    {
+        var config = new AppConfig { QuickSetupRevision = QuickSetup.CurrentRevision - 1 };
+
+        Assert.True(QuickSetup.ShouldShow(config));
+    }
 }

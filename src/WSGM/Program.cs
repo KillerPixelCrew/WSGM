@@ -104,6 +104,24 @@ public static class Program
             return LockScreenSettings.ApplyDirect(disableSignInOnWake: false) ? 0 : 1;
         }
 
+        // Elevated one-shots for the Steam Input shim. Steam normally lives under
+        // Program Files, which a desktop-mode Settings process cannot write, so the
+        // Settings save path re-runs itself through these when a write is refused.
+        if (args.Contains("--apply-steam-input-shim", StringComparer.OrdinalIgnoreCase))
+        {
+            SteamInputShim.SetEnabled(true);
+            return SteamInputShim.Reconcile("elevated-apply").State
+                is SteamInputShimState.Deployed or SteamInputShimState.UpdatePending
+                ? 0
+                : 1;
+        }
+
+        if (args.Contains("--remove-steam-input-shim", StringComparer.OrdinalIgnoreCase))
+        {
+            SteamInputShim.Remove("uninstall");
+            return 0;
+        }
+
         // Read-only radio diagnostic. Run it on the device, in the session being
         // diagnosed, and read the verdict out of wsgm.log — it answers what the
         // documentation cannot: whether radio control works elevated with no
@@ -160,6 +178,11 @@ public static class Program
                 Log.Error("Setup: config.json is unreadable — skipping the gaming-home guard and the boot manifest", ex);
             }
             Installer.InstallApp();
+            // Deploy the Steam Input shim only after the payload exists in the
+            // install directory. Default-on when config.json is unreadable, because
+            // on is the default the property itself carries.
+            SteamInputShim.SetEnabled(config?.SteamInputManagementEnabled ?? true);
+            SteamInputShim.Reconcile("setup");
             // Migration off shell replacement: restore the snapshotted previous
             // shell on upgraded devices (self-guarding no-op everywhere else) —
             // WSGM boots via the logon service over an explorer shell now.

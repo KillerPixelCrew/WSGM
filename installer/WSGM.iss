@@ -93,6 +93,11 @@ Filename: "{app}\WSGM.exe"; Flags: nowait; Check: WasSettingsRunning
 Filename: "{app}\WSGM.exe"; Description: "Open WSGM settings"; Flags: nowait postinstall skipifsilent; Check: WasNothingRunning
 
 [UninstallRun]
+; Remove the Steam Input shim from STEAM's directory before anything else — it is
+; the only file WSGM puts outside its own install, it needs {app}\WSGM.exe to
+; still exist, and only WSGM can tell its own copy from a same-named file another
+; tool (ValvePlug, Special K) owns. [UninstallDelete] deliberately cannot do this.
+Filename: "{app}\WSGM.exe"; Parameters: "--remove-steam-input-shim"; RunOnceId: "RemoveSteamInputShim"; Flags: runhidden skipifdoesntexist
 ; Stop + delete the logon service FIRST — after files are gone the SCM would
 ; point at a missing binary and the next boot would log service-start failures.
 Filename: "{autopf}\WSGM\WSGM.LogonService.exe"; Parameters: "--uninstall"; RunOnceId: "UninstallService"; Flags: runhidden skipifdoesntexist

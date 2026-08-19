@@ -6,6 +6,9 @@ both dismiss the overlay before asking Windows to suspend.
 
 - `OverlayController` is the lifetime owner for both focused surfaces. Acquire the Steam Input lease
   before opening a surface and release it only after the last surface closes.
+- Settings handoff transfers named ownership: Settings registers its claim before the deferred
+  overlay close removes the overlay claim. Never abandon the old owner in the blocker's owner set,
+  and acknowledge the close so Settings can end its temporary deactivation exemption.
 - Preserve the 150 ms deferred close and touch-synthesized mouse filtering; removing either causes
   ghost clicks on controls behind the overlay.
 - Raw-touch left/top gestures always emit Steam's Ctrl+1/Ctrl+2 Big Picture shortcuts, including

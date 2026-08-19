@@ -48,11 +48,10 @@ public class App : Application
 
                 case RunMode.Settings:
                 default:
-                    // Running portable (not from the install dir)? Offer the friendly
-                    // install/update dialog first — CLI flags are for scripts only.
-                    desktop.MainWindow = Core.Installer.IsRunningFromInstallDir
-                        ? new SettingsWindow()
-                        : new WelcomeWindow();
+                    // Inno is the only installer, so there is no portable run to offer
+                    // an install for. First-run onboarding is Quick Setup, which the
+                    // Settings window raises over itself.
+                    desktop.MainWindow = new SettingsWindow();
                     break;
             }
         }
