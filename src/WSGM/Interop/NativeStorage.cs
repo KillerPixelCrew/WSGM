@@ -69,6 +69,12 @@ internal static unsafe partial class NativeStorage
     private static Guid DiskInterfaceGuid { get; } =
         new("53f56307-b6bf-11d0-94f2-00a0c91efb8b");
 
+    /// <summary>GUID_DEVINTERFACE_VOLUME: every volume the volume manager has
+    /// surfaced exposes one of these — letter or no letter — which is what makes
+    /// the list usable as a "has the new partition's volume arrived yet" probe.</summary>
+    private static Guid VolumeInterfaceGuid { get; } =
+        new("53f5630d-b6bf-11d0-94f2-00a0c91efb8b");
+
     /// <summary>How Windows says an eject was refused (cfg.h PNP_VETO_TYPE,
     /// zero-based).</summary>
     internal enum PnpVetoType
@@ -278,9 +284,16 @@ internal static unsafe partial class NativeStorage
     /// query and the list call are a documented race — a disk arriving or leaving
     /// between them makes the list call report CR_BUFFER_SMALL — so the pair is
     /// retried with a freshly queried size before giving up.</summary>
-    internal static string[] ListDiskInterfaces()
+    internal static string[] ListDiskInterfaces() => ListInterfaces(DiskInterfaceGuid);
+
+    /// <summary>Lists the device-interface paths of every volume the volume
+    /// manager currently exposes, mounted or not. Each opens with
+    /// <see cref="OpenVolumeForQueryPath"/> for a device-number query, which maps
+    /// it back to its disk.</summary>
+    internal static string[] ListVolumeInterfaces() => ListInterfaces(VolumeInterfaceGuid);
+
+    private static string[] ListInterfaces(Guid guid)
     {
-        var guid = DiskInterfaceGuid;
         char[]? buffer = null;
         for (var attempt = 0; attempt < InterfaceListAttempts; attempt++)
         {

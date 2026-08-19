@@ -18,11 +18,14 @@ namespace WSGM.Shell;
 /// Steam library structure on it. Windows Steam has no such flow of its own.
 ///
 /// The main input is a card straight out of a Steam Deck — GPT plus ext4, no
-/// Windows drive letter — so the whole job runs at DISK level through one
-/// diskpart script (clean → primary partition → NTFS quick, 128K units →
-/// assign) rather than on a drive letter. 128K allocation units mirror the
-/// user's proven reference card; quick format only (a full format writes every
-/// sector of a wear-limited card for nothing).
+/// Windows drive letter — so the whole job runs at DISK level through diskpart
+/// (clean → primary partition, then NTFS quick with 128K units, then the letter
+/// if automount did not already hand it out) rather than on a drive letter. 128K
+/// allocation units mirror the user's proven reference card; quick format only
+/// (a full format writes every sector of a wear-limited card for nothing). The
+/// steps are SEPARATE diskpart runs with a volume-arrival wait between the first
+/// two — see <see cref="BuildDiskpartFormatScript"/> for the device-observed
+/// reason.
 ///
 /// Enumeration is disk-level too (the eject list only sees mounted volumes) and
 /// runs off-thread on demand — no background polling. Rows reconcile in place
@@ -326,10 +329,43 @@ public sealed class SdFormatManager : INotifyPropertyChanged
 
     // ---- the format run ----
 
-    /// <summary>The diskpart script for one target. Quick NTFS format with 128K
-    /// allocation units (the proven game-library tuning); `clean` (never
-    /// `clean all`) wipes any prior layout — GPT+ext4 Deck cards included —
-    /// and MBR is the correct default for removable SD media.
+    /// <summary>The first diskpart script for one target: erase and repartition.
+    /// `clean` (never `clean all`) wipes any prior layout — GPT+ext4 Deck cards
+    /// included — and MBR is the correct default for removable SD media.</summary>
+    /// <param name="diskNumber">The physical disk number.</param>
+    internal static string BuildDiskpartPartitionScript(int diskNumber) =>
+        $"select disk {diskNumber.ToString(CultureInfo.InvariantCulture)}\r\n"
+        + "clean\r\n"
+        + "create partition primary\r\n";
+
+    /// <summary>The second diskpart script for one target: quick NTFS format with
+    /// 128K allocation units (the proven game-library tuning).
+    ///
+    /// This is a SEPARATE run from <see cref="BuildDiskpartPartitionScript"/> on
+    /// purpose. In one script, `format` right after `create partition primary`
+    /// only works when the volume manager has already surfaced the new
+    /// partition's volume — diskpart does not wait for it, and on the MSI Claw's
+    /// Realtek reader a 512 GB card consistently lost that race
+    /// (device-observed 2026-08-16: "no volume selected", exit E_INVALIDARG,
+    /// 1.9 s after start) while a 256 GB card in the same reader won it every
+    /// time. A fresh diskpart with `select partition 1` (which on a basic disk
+    /// also focuses the volume) after <see cref="WaitForVolume"/> sees the volume.
+    ///
+    /// The letter is deliberately NOT part of this script: by the time it runs,
+    /// Windows automount has normally already given the new volume its letter,
+    /// and <see cref="BuildDiskpartAssignScript"/> is only run when it has not
+    /// handed out the one the card must keep.</summary>
+    /// <param name="diskNumber">The physical disk number.</param>
+    /// <param name="label">The volume label (already sanitized); quoted so a name
+    /// with spaces stays one token.</param>
+    internal static string BuildDiskpartFormatScript(
+        int diskNumber, string label = DefaultLabel) =>
+        $"select disk {diskNumber.ToString(CultureInfo.InvariantCulture)}\r\n"
+        + "select partition 1\r\n"
+        + $"format fs=ntfs quick unit=128k label=\"{label}\"\r\n";
+
+    /// <summary>The third, conditional diskpart script: give the formatted volume
+    /// its drive letter when automount did not.
     ///
     /// The letter is PINNED to the card's current one when it has it: a bare
     /// `assign` hands out the next free letter, which device-observed moved a
@@ -338,17 +374,24 @@ public sealed class SdFormatManager : INotifyPropertyChanged
     /// A letterless card (raw / ext4 Deck card) gets a bare `assign`.</summary>
     /// <param name="diskNumber">The physical disk number.</param>
     /// <param name="preferredLetter">The letter to reassign, or '\0' for none.</param>
-    /// <param name="label">The volume label (already sanitized); quoted so a name
-    /// with spaces stays one token.</param>
-    internal static string BuildDiskpartScript(
-        int diskNumber, char preferredLetter = '\0', string label = DefaultLabel) =>
+    internal static string BuildDiskpartAssignScript(int diskNumber, char preferredLetter) =>
         $"select disk {diskNumber.ToString(CultureInfo.InvariantCulture)}\r\n"
-        + "clean\r\n"
-        + "create partition primary\r\n"
-        + $"format fs=ntfs quick unit=128k label=\"{label}\"\r\n"
+        + "select partition 1\r\n"
         + (preferredLetter is >= 'A' and <= 'Z'
             ? $"assign letter={preferredLetter}\r\n"
             : "assign\r\n");
+
+    /// <summary>How long the format waits for the freshly created partition's
+    /// volume to be surfaced by the volume manager before the format run is
+    /// attempted anyway.</summary>
+    internal const int VolumeWaitMs = 20_000;
+
+    /// <summary>How many times the format run is attempted; each failure waits
+    /// <see cref="FormatRetryDelayMs"/> before the next try.</summary>
+    internal const int FormatAttempts = 3;
+
+    /// <summary>The pause between format-run attempts.</summary>
+    internal const int FormatRetryDelayMs = 2_000;
 
     /// <summary>Erases and formats one target and puts a Steam library on it.
     /// Serialized; progress lands in <see cref="StatusText"/>; the terminal
@@ -419,17 +462,19 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             CardAcfWatcher.SuspendAll();
 
             var keepLetter = entry.PreferredLetter;
-            var (exitCode, output) = await RunDiskpart(entry.DiskNumber, keepLetter, label);
-            if (exitCode != 0)
+            var (partitionExit, partitionOutput) = await RunDiskpart(
+                BuildDiskpartPartitionScript(entry.DiskNumber));
+            if (partitionExit != 0)
             {
                 await Task.Run(() => RestoreRemovedLibraryIfCardSurvived(
                     entry, removedContentId, removedLabel));
-                Log.Warn($"Format: diskpart failed (exit {exitCode}). Output:\n{output}");
+                Log.Warn($"Format: diskpart clean/partition failed (exit {partitionExit}). "
+                    + $"Output:\n{partitionOutput}");
                 Finish("Formatting failed — Windows could not rebuild the drive. "
                     + "Reinsert the card and try again.", false);
                 return;
             }
-            Log.Info($"Format: diskpart succeeded for disk {entry.DiskNumber}.");
+            Log.Info($"Format: disk {entry.DiskNumber} erased and repartitioned.");
 
             // The erase destroyed the old library, so there is nothing left to
             // compensate: a later failure must not splice its identity back in beside
@@ -450,8 +495,69 @@ public sealed class SdFormatManager : INotifyPropertyChanged
                 });
             }
 
+            // Give the volume manager time to surface the new partition's volume
+            // before diskpart is asked to format it (see BuildDiskpartFormatScript);
+            // a wait that runs out is logged and the format still attempted, since
+            // diskpart itself may see the volume by then.
+            StatusText = $"Formatting {entry.Name}...";
+            var volumeWaitMs = await Task.Run(() => WaitForVolume(entry.DiskNumber));
+            if (volumeWaitMs < 0)
+            {
+                Log.Warn($"Format: no volume appeared on disk {entry.DiskNumber} within "
+                    + $"{VolumeWaitMs / 1000} s; attempting the format anyway.");
+            }
+            else
+            {
+                Log.Info($"Format: volume on disk {entry.DiskNumber} appeared after "
+                    + $"{volumeWaitMs} ms.");
+            }
+            var formatScript = BuildDiskpartFormatScript(entry.DiskNumber, label);
+            var (formatExit, formatOutput) = (-1, "");
+            for (var attempt = 1; attempt <= FormatAttempts; attempt++)
+            {
+                if (attempt > 1)
+                {
+                    Log.Warn($"Format: diskpart format attempt {attempt - 1} of {FormatAttempts} "
+                        + $"failed (exit {formatExit}); retrying in {FormatRetryDelayMs} ms. "
+                        + $"Output:\n{formatOutput}");
+                    await Task.Delay(FormatRetryDelayMs);
+                }
+                (formatExit, formatOutput) = await RunDiskpart(formatScript);
+                if (formatExit == 0)
+                {
+                    break;
+                }
+            }
+            if (formatExit != 0)
+            {
+                Log.Warn($"Format: diskpart format failed after {FormatAttempts} attempts "
+                    + $"(exit {formatExit}). Output:\n{formatOutput}");
+                Finish("Formatting failed — Windows could not format the new drive. "
+                    + "Reinsert the card and try again.", false);
+                return;
+            }
+            Log.Info($"Format: diskpart formatted disk {entry.DiskNumber}.");
+
+            // Automount normally hands the new volume its letter the moment it
+            // arrives — usually the card's own, freed by the erase. Only when the
+            // card is not sitting on that letter now does diskpart assign it.
             StatusText = "Waiting for the new drive...";
-            var letter = await Task.Run(() => WaitForLetter(entry.DiskNumber));
+            var letter = await Task.Run(() => WaitForLetter(entry.DiskNumber, LetterProbeAttempts));
+            if (letter is null || (keepLetter is >= 'A' and <= 'Z' && letter.Value != keepLetter))
+            {
+                Log.Info($"Format: disk {entry.DiskNumber} is on "
+                    + (letter is null ? "no letter" : $"{letter}:")
+                    + " after the format; assigning "
+                    + (keepLetter is >= 'A' and <= 'Z' ? $"{keepLetter}:." : "a letter."));
+                var (assignExit, assignOutput) = await RunDiskpart(
+                    BuildDiskpartAssignScript(entry.DiskNumber, keepLetter));
+                if (assignExit != 0)
+                {
+                    Log.Warn($"Format: diskpart assign failed (exit {assignExit}). "
+                        + $"Output:\n{assignOutput}");
+                }
+                letter = await Task.Run(() => WaitForLetter(entry.DiskNumber));
+            }
             if (letter is null)
             {
                 Finish("The drive was formatted, but Windows did not mount it. "
@@ -838,10 +944,9 @@ public sealed class SdFormatManager : INotifyPropertyChanged
     /// <summary>Writes the script beside the log (an elevated diskpart consumes
     /// it — never %TEMP%, same rule as the de-elevation task XML), runs
     /// diskpart, deletes the script.</summary>
-    private static async Task<(int ExitCode, string Output)> RunDiskpart(
-        int diskNumber, char preferredLetter, string label)
+    /// <param name="script">The full diskpart script text.</param>
+    private static async Task<(int ExitCode, string Output)> RunDiskpart(string script)
     {
-        var script = BuildDiskpartScript(diskNumber, preferredLetter, label);
         Log.Info($"Format: diskpart script:\n{script.TrimEnd()}");
         var scriptPath = Path.Combine(Log.Directory, $"format-disk-{Guid.NewGuid():N}.dp.txt");
         await using (var stream = new FileStream(scriptPath, FileMode.CreateNew, FileAccess.Write,
@@ -916,12 +1021,48 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         }
     }
 
-    /// <summary>Polls for the freshly assigned drive letter by matching mounted
-    /// volumes back to the disk number. Worker thread; ~15 s cap (typically
-    /// 1-3 s after diskpart's assign).</summary>
-    private static char? WaitForLetter(int diskNumber)
+    /// <summary>Polls the volume manager's device interfaces until one of them
+    /// maps back to the disk — i.e. the partition just created has a volume for
+    /// diskpart's `format` to focus. Letter-agnostic on purpose: the volume has
+    /// none yet. Worker thread; <see cref="VolumeWaitMs"/> cap.</summary>
+    /// <param name="diskNumber">The physical disk number.</param>
+    /// <returns>Milliseconds until the volume was seen, or -1 on timeout.</returns>
+    private static int WaitForVolume(int diskNumber)
     {
-        for (var attempt = 0; attempt < 30; attempt++)
+        var started = Environment.TickCount64;
+        while (true)
+        {
+            foreach (var path in NativeStorage.ListVolumeInterfaces())
+            {
+                using var volume = NativeStorage.OpenVolumeForQueryPath(path);
+                if (!volume.IsInvalid
+                    && NativeStorage.TryGetDeviceNumber(volume, out var type, out var disk)
+                    && type == NativeStorage.FileDeviceDisk && disk == diskNumber)
+                {
+                    return (int)(Environment.TickCount64 - started);
+                }
+            }
+            if (Environment.TickCount64 - started >= VolumeWaitMs)
+            {
+                return -1;
+            }
+            Thread.Sleep(250);
+        }
+    }
+
+    /// <summary>How many 500 ms polls <see cref="WaitForLetter"/> spends when it
+    /// is only checking whether automount already mounted the formatted volume,
+    /// before diskpart is asked to assign the letter.</summary>
+    internal const int LetterProbeAttempts = 6;
+
+    /// <summary>Polls for the freshly assigned drive letter by matching mounted
+    /// volumes back to the disk number. Worker thread; ~15 s cap by default
+    /// (typically 1-3 s after diskpart's assign).</summary>
+    /// <param name="diskNumber">The physical disk number.</param>
+    /// <param name="attempts">How many 500 ms polls to make before giving up.</param>
+    private static char? WaitForLetter(int diskNumber, int attempts = 30)
+    {
+        for (var attempt = 0; attempt < attempts; attempt++)
         {
             foreach (var drive in DriveInfo.GetDrives())
             {

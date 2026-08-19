@@ -19,3 +19,13 @@ startup applications, tray host, removable storage, radio, audio, and system sta
   key registration, removal, and retirement by `contentId`, never by drive letter alone.
 - Steam VDF mutations are shape-checked, renumbered, backed up once, and atomically replaced; a
   random write-through diskpart script and post-failure compensation protect destructive formats.
+- **The SD format is THREE diskpart runs, not one** (`SdFormatManager`, device-observed 2026-08-16):
+  clean + `create partition primary`, then a wait for the new partition's volume interface
+  (`NativeStorage.ListVolumeInterfaces` mapped back to the disk number, 20 s cap), then
+  `select partition 1` + `format` (3 attempts), then `assign` only if automount did not already
+  put the card on its own letter. In one script, `format` straight after `create partition`
+  fails with "no volume selected" (exit `E_INVALIDARG`) whenever the volume manager surfaces the
+  volume slower than diskpart moves on — a 512 GB card in the Claw's Realtek reader lost that race
+  every time while a 256 GB card won it. Do not merge the scripts back together, and keep the
+  `Format: volume on disk N appeared after … ms` / `no volume appeared` lines — they are how the
+  timing is diagnosed from a pasted log.

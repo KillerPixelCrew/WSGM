@@ -8,24 +8,61 @@ public sealed class SdFormatTests
     // ---- diskpart script ----
 
     [Fact]
-    public void DiskpartScriptPreservesTheCardsDriveLetter()
-    {
-        var script = SdFormatManager.BuildDiskpartScript(3, 'E');
-
-        Assert.Equal(
+    public void PartitionScriptCleansAndCreatesOnePrimaryPartition()
+        => Assert.Equal(
             "select disk 3\r\n"
             + "clean\r\n"
-            + "create partition primary\r\n"
-            + "format fs=ntfs quick unit=128k label=\"Games\"\r\n"
-            + "assign letter=E\r\n",
-            script);
+            + "create partition primary\r\n",
+            SdFormatManager.BuildDiskpartPartitionScript(3));
+
+    [Fact]
+    public void PartitionScriptNeverFormats()
+    {
+        var script = SdFormatManager.BuildDiskpartPartitionScript(3);
+
+        Assert.DoesNotContain("format", script);
+        Assert.DoesNotContain("assign", script);
+    }
+
+    [Fact]
+    public void FormatScriptSelectsTheNewPartitionAndFormatsOnly()
+        => Assert.Equal(
+            "select disk 3\r\n"
+            + "select partition 1\r\n"
+            + "format fs=ntfs quick unit=128k label=\"Games\"\r\n",
+            SdFormatManager.BuildDiskpartFormatScript(3));
+
+    [Fact]
+    public void FormatScriptNeverCleansOrAssigns()
+    {
+        var script = SdFormatManager.BuildDiskpartFormatScript(3);
+
+        Assert.DoesNotContain("clean", script);
+        Assert.DoesNotContain("assign", script);
     }
 
     [Fact]
     public void DiskpartScriptQuotesTheGivenLabel()
         => Assert.Contains(
             "label=\"My Games\"\r\n",
-            SdFormatManager.BuildDiskpartScript(1, 'E', "My Games"));
+            SdFormatManager.BuildDiskpartFormatScript(1, "My Games"));
+
+    [Fact]
+    public void AssignScriptPreservesTheCardsDriveLetter()
+        => Assert.Equal(
+            "select disk 3\r\n"
+            + "select partition 1\r\n"
+            + "assign letter=E\r\n",
+            SdFormatManager.BuildDiskpartAssignScript(3, 'E'));
+
+    [Fact]
+    public void AssignScriptNeverCleansOrFormats()
+    {
+        var script = SdFormatManager.BuildDiskpartAssignScript(3, 'E');
+
+        Assert.DoesNotContain("clean", script);
+        Assert.DoesNotContain("format", script);
+    }
 
     [Theory]
     [InlineData(null, "Games")]
@@ -39,7 +76,7 @@ public sealed class SdFormatTests
     [Fact]
     public void ALetterlessCardGetsABareAssign()
     {
-        var script = SdFormatManager.BuildDiskpartScript(3, '\0');
+        var script = SdFormatManager.BuildDiskpartAssignScript(3, '\0');
 
         Assert.EndsWith("assign\r\n", script);
         Assert.DoesNotContain("assign letter=", script);
@@ -47,7 +84,7 @@ public sealed class SdFormatTests
 
     [Fact]
     public void DiskpartScriptNeverIssuesCleanAll()
-        => Assert.DoesNotContain("clean all", SdFormatManager.BuildDiskpartScript(0, 'E'));
+        => Assert.DoesNotContain("clean all", SdFormatManager.BuildDiskpartPartitionScript(0));
 
     // ---- bus labelling ----
 
