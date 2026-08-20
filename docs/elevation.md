@@ -1,0 +1,66 @@
+# Elevation, de-elevation and the launch wrapper
+
+Device-verified behaviour and the reasoning behind it. These are findings, not style: where a
+section says device-verified or live-verified, it encodes something that only revealed itself on
+real hardware or against a live Steam client, and changing it without re-verifying is a regression
+waiting to happen.
+
+5. **De-elevation:** the naive `TokenLinkedToken` → primary-token route fails (error 1346, needs
+   `SeTcbPrivilege`); the working mechanism is a one-shot scheduled task (`InteractiveToken`, no
+   RunLevel, task XML **must be UTF-16**, never ship `/NoUACCheck` — EDRs flag it). Win11 explorer
+   usually de-elevates itself; `ExplorerControl` verifies 5 s after start and repairs once via the
+   task. Modern Settings activation uses this same task to run a narrow WSGM one-shot at medium
+   integrity before opening `ms-settings:`. The shell is normally elevated, and relying on
+   `ShellExecute` directly only works while unelevated Explorer happens to broker the request; never
+   start Explorer just to open Bluetooth or Wi-Fi Settings. `WSGM.Launch.exe` is the user-facing
+   extension of the same mechanism for Steam games that reject elevation. It is the **single**
+   launch wrapper: it replaced `WSGM.Deelevate.exe` and `steam-input-lease.exe`, which the installer
+   now deletes on update, so anyone who had pasted one of the old commands must re-apply the fix
+   (call this out in the release notes). Behaviours are selected by flag:
+   `"...\WSGM.Launch.exe" [--deelevate] [--input-lease | --input-lease-inject] -- %command%`, at
+   least one required, the target command always after `--`. **The two lease flags differ only in
+   delivery and are mutually exclusive.** `--input-lease` connects to the resident shim and NEVER
+   injects; `--input-lease-inject` injects and is the only route in the shipped product that can.
+   The Tools-tab button picks between them from the Steam Input Management setting **at apply time**
+   (`LaunchWrapperCommand.ForCurrentInputMode`), so the value a game carries always names the route
+   it will take. Two consequences: `ModeFor` must match on TOKEN boundaries, because
+   `"--input-lease-inject".Contains("--input-lease")` is true and a plain `Contains` reports both
+   behaviours at once; and every launch option written before this split says `--input-lease`, which
+   now means shim-only — with Steam Input Management off those games silently stop blocking, so the
+   toggle logs the affected appids and the release notes must say to re-apply the fix. The elevated
+   wrapper must remain alive for the target lifetime, preserve Steam's arguments/environment/CWD,
+   and stop the target tree if Steam terminates the wrapper. Do not replace it with a
+   fire-and-forget scheduled task or an Explorer-token shortcut. **The lease is the OUTER
+   behaviour**: its gate injects into an elevated `steam.exe`, which a medium-integrity process
+   cannot do, so it is acquired by the elevated parent _before_ the de-elevation hand-off and
+   released after the medium child reports the target's exit. **Both paths wait on a job object, not
+   on the process they started** (`--input-lease` alone in the native wrapper, which starts the
+   target suspended and assigns before resume; the de-elevated child in `WSGM.Launch\JobObject.cs`,
+   which assigns right after `Process.Start`): a game behind a launcher exits its root process
+   seconds in, and waiting on that alone released the lease mid-session and told Steam the game had
+   stopped. The job is also what makes the stop-on-parent-exit path reach orphaned descendants.
+   Lease failures fail **open** — log, tell the user, launch anyway — and so does an impossible
+   de-elevation (UAC switched off leaves no limited token to hand out; the child tags that failure
+   and the parent launches the game as-is). An error out of `run_wrapped` means only that the target
+   NEVER STARTED, because that is what the caller does about it; a release handshake that fails
+   after the game exited returns the exit code instead, or the wrapper would start a finished game a
+   second time. It is still **reported**, through `WrappedRun.release` (ABI 3 added the `release`
+   output to `sil_client_run_wrapped`, which previously discarded it): blocking is lifted either
+   way, but a failed handshake means Steam was never asked to rediscover controllers, so
+   `WSGM.Launch` writes `Steam Input lease released, but Steam controller recovery did not run …` to
+   `launch.log` — the only surface that failure was ever diagnosable from. **Four device-verified
+   invariants make it actually work when Steam is elevated (each was a separate real failure,
+   2026-08-12):** (a) it MUST be a **console** subsystem exe (`<OutputType>Exe</OutputType>`, shows
+   a CLI window) — a windowless `WinExe` is treated by Steam as a game and gets Steam Input hooked
+   into it, dying before it logs; (b) the elevated parent's IPC pipe MUST grant the **User SID**
+   explicitly (`NamedPipeServerStreamAcl`
+   - `WindowsIdentity.User`), NOT `PipeOptions.CurrentUserOnly` — an elevated server's
+     CurrentUserOnly grants the token OWNER = `BUILTIN\Administrators`, deny-only in the child's
+     filtered token, so the medium child's connect fails "Access is denied"; (c) the medium child
+     launches the game with `__COMPAT_LAYER=RunAsInvoker` in its environment, or a target with a
+     RUNASADMIN flag / admin manifest fails a medium `CreateProcess` with `ERROR_ELEVATION_REQUIRED`
+     (740); (d) for a **non-Steam (custom) shortcut** Steam ignores an exe-replacement `%command%`
+     launch option and runs the original target anyway — the wrapper goes in the shortcut's
+     **Target**, the real program in **Launch Arguments**. Never reintroduce `CurrentUserOnly` on an
+     elevated↔medium pipe, and never make the wrapper WinExe. `Core\SteamLaunchConfig.cs` writes (d)
+     into the running client so the user never has to; see invariant 11.
