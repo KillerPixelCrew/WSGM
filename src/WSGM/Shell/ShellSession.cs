@@ -173,6 +173,10 @@ public sealed class ShellSession
                 // The fresh CEF session also wiped the resident network-indicator
                 // script — push again as soon as the poll loop next ticks.
                 _networkIndicator?.Poke();
+                // A restarted client rebuilds its folder list from libraryfolders.vdf,
+                // which can bring back a library for a card that is no longer in the
+                // reader — and no volume notification will fire to say so.
+                _cardVolumes?.Kick("Steam restarted");
             }
         };
 

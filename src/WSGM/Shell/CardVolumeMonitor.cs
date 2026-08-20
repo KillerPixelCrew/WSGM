@@ -57,6 +57,13 @@ internal sealed class CardVolumeMonitor : IDisposable
     private readonly Func<bool> _enabled;
     private readonly Func<Task> _afterReconcile;
     private readonly SemaphoreSlim _gate = new(1, 1);
+
+    /// <summary>Library paths seen as live removable cards this session, normalized
+    /// key to the path as it was discovered. Only touched inside a reconcile pass,
+    /// which the gate serializes.</summary>
+    private readonly Dictionary<string, string> _knownCardPaths =
+        new(StringComparer.Ordinal);
+
     private Timer? _settle;
     private bool _disposed;
 
@@ -83,7 +90,25 @@ internal sealed class CardVolumeMonitor : IDisposable
             return null;
         }
         window.VolumeChanged += monitor.OnVolumeChanged;
+        // Seed from the cards that are already in their readers. Without a first pass
+        // the removal path is blind to anything inserted before WSGM started: it only
+        // ever purges a path it saw as a live card, and nothing would have seen it.
+        monitor.Kick("startup");
         return monitor;
+    }
+
+    /// <summary>Schedules a reconcile pass without a volume notification — used at
+    /// startup and whenever Steam restarts, since a fresh client rebuilds its folder
+    /// list from disk and may bring a departed card's library back with it.</summary>
+    /// <param name="reason">What asked for the pass; appears in the log.</param>
+    internal void Kick(string reason)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+        Log.Info($"Card volumes: reconcile requested ({reason}).");
+        Schedule();
     }
 
     private void OnVolumeChanged(bool arrived)
@@ -94,9 +119,15 @@ internal sealed class CardVolumeMonitor : IDisposable
         }
         Log.Info($"Card volumes: {(arrived ? "arrival" : "removal")} reported, "
             + $"reconciling in {SettleDelay.TotalSeconds:0}s.");
-        // Restarting the one-shot timer collapses the burst a single card produces
-        // (a reader reports the interface, then the volume, then the mount) into one
-        // pass, and covers a user swapping several cards in a row.
+        Schedule();
+    }
+
+    /// <summary>Arms the settle timer. Restarting a one-shot timer collapses the burst
+    /// a single card produces — a reader reports the interface, then the volume, then
+    /// the mount — into one pass, and covers a user swapping several cards in a row.
+    /// </summary>
+    private void Schedule()
+    {
         _settle ??= new Timer(_ => _ = RunPassAsync(), null, Timeout.Infinite, Timeout.Infinite);
         _settle.Change(SettleDelay, Timeout.InfiniteTimeSpan);
     }
@@ -136,17 +167,25 @@ internal sealed class CardVolumeMonitor : IDisposable
         }
     }
 
-    /// <summary>Brings Steam's registrations for every mounted card path in line with
-    /// the card that is actually there. Returns true when anything changed.</summary>
+    /// <summary>Brings Steam's registrations in line with the cards that are actually
+    /// in their readers — both the ones that arrived and the ones that left. Returns
+    /// true when anything changed.</summary>
     private async Task<bool> ReconcileAsync(CancellationToken cancellationToken)
     {
         var registered = ReadRegisteredContentIdsByPath();
+        var present = ScanCardLibraryPaths();
         var changed = false;
-        foreach (var (libraryPath, cardContentId) in ScanCardLibraryPaths())
+
+        foreach (var (libraryPath, cardContentId) in present)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var ids = registered.TryGetValue(SteamLibraryVdf.NormalizePath(libraryPath), out var at)
-                ? at : [];
+            var key = SteamLibraryVdf.NormalizePath(libraryPath);
+            // Remembering the path while the card is HERE is the only way the
+            // removal pass below can know it was a card at all: once the media is
+            // out, the volume is gone and nothing can be asked whether it was
+            // hot-pluggable. See RemoveDepartedCardsAsync.
+            _knownCardPaths[key] = libraryPath;
+            var ids = registered.TryGetValue(key, out var at) ? at : [];
             var action = CardLibraryDecision.Decide(cardContentId, ids);
             if (action == CardLibraryAction.None)
             {
@@ -156,6 +195,67 @@ internal sealed class CardVolumeMonitor : IDisposable
                 + $"(card {cardContentId ?? "none"}, Steam has {ids.Count} registration(s)).");
             changed |= await ApplyAsync(action, libraryPath, cancellationToken)
                 .ConfigureAwait(false);
+        }
+
+        var here = present
+            .Select(card => SteamLibraryVdf.NormalizePath(card.LibraryPath))
+            .ToHashSet(StringComparer.Ordinal);
+        changed |= await RemoveDepartedCardsAsync(here, registered, cancellationToken)
+            .ConfigureAwait(false);
+        return changed;
+    }
+
+    /// <summary>Drops Steam's library for every card this session has seen that is no
+    /// longer in its reader.</summary>
+    /// <remarks>
+    /// <para>
+    /// Without this, taking a card out changes nothing Steam can see: its registration
+    /// is persistent, so the card's games stay in the library as though the card were
+    /// still in — reported for both a Safe Eject and pulling the card out.
+    /// </para>
+    /// <para>
+    /// It cannot be driven off the present-volume scan, which is the bug this fixes:
+    /// once the media is out, the letter reports not-ready (or disappears), so the path
+    /// simply drops out of the scan and nothing ever concludes that it left. Nor can
+    /// staleness be inferred from Steam's list alone — a registered path that is
+    /// currently unreachable might be an external drive or a share the user unplugged
+    /// on purpose, and purging that would throw away a library WSGM never created.
+    /// </para>
+    /// <para>
+    /// So removal is driven off paths this monitor POSITIVELY identified as removable
+    /// card libraries while they were mounted. That is deliberately conservative: a
+    /// card that was already out when WSGM started is left alone, because nothing
+    /// observed it as a card and Steam's own unmounted state is the honest answer.
+    /// </para>
+    /// </remarks>
+    private async Task<bool> RemoveDepartedCardsAsync(
+        HashSet<string> present,
+        Dictionary<string, List<string>> registered,
+        CancellationToken cancellationToken)
+    {
+        var changed = false;
+        foreach (var (key, libraryPath) in _knownCardPaths.ToList())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (present.Contains(key))
+            {
+                continue;
+            }
+            if (!registered.ContainsKey(key))
+            {
+                // Gone, and Steam no longer lists it: nothing to do, and no reason to
+                // keep watching a path that is not a card any more.
+                _knownCardPaths.Remove(key);
+                continue;
+            }
+            Log.Info($"Card volumes: {libraryPath} left the reader; "
+                + "removing the library Steam still holds for it.");
+            if (await ApplyAsync(CardLibraryAction.Purge, libraryPath, cancellationToken)
+                .ConfigureAwait(false))
+            {
+                changed = true;
+                _knownCardPaths.Remove(key);
+            }
         }
         return changed;
     }
