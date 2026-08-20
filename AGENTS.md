@@ -364,6 +364,33 @@ the flag merely because it was persisted when the currently active target report
    means hooks are installed. Keep the native `steam_input_gate.dll` and
    `steam_input_lease_ffi.dll` beside WSGM.exe, and preserve the `Steam Input lease
    acquired/released` logs for device diagnosis.
+   **That deferral was NOT the whole cure. `DllMain` must `record_self_module(instance)`
+   before anything else, and that single store is what actually stopped the cold-boot hang
+   (device-verified 2026-08-20: Steam hung on EVERY boot with the 1.5.0 proxy deployed,
+   Task Manager required, gone when the shim was disabled; 0 hangs in 10 boots after).**
+   The mechanism: `proxy::is_self` fails closed while the payload's own handle is unknown,
+   and the handle used to be recorded only on the server thread — which cannot run until
+   the loader lock is released. During that window `load_system32_module` performed a full
+   `LoadLibraryExW` of the real System32 XInput, rejected the result as possibly-us, and
+   returned null **without caching**, so `real_module`/`real_export` repeated the entire
+   load on every call while SDL probed four user indices and retried. That is a burst of
+   full loader transactions on Steam's own startup thread, contending the very lock the
+   server thread needed to end the window; which side won was a race, and losing it wedged
+   Steam. **It is a LIVELOCK, not a deadlock, and three device observations say so:** it
+   hung on every cold boot yet a warm second start worked (the module is in the standby
+   list by then, so each repeated load is fast enough that the server thread wins the gap);
+   and holding the stick UP through startup also made it come up (device-observed
+   2026-08-20) — HID traffic satisfies Steam's controller enumeration by a path that is not
+   the failing XInput probe, the retry burst stops, and the loader lock frees for long
+   enough. Anything that perturbs that loop from outside lets the window close. The `HINSTANCE` the loader hands `DllMain` IS the image base, so recording it
+   there costs nothing and adds no loader call. Never move the record back to the server
+   thread, and never let the identity guard be the only thing deciding whether the real
+   module gets cached. Two latent defects in that path are still unfixed and are worth
+   closing if it is ever touched: a rejected `load_system32_module` leaks the module
+   reference (no `FreeLibrary`), and a failed resolve is retried unboundedly with no cache.
+   For reference, the known-good comparable — **ValvePlug** — pins itself in `DllMain` and
+   resolves the real System32 XInput eagerly on its own init thread, i.e. it never has this
+   window at all.
    **Owner claims outlive a failed native acquire by design:** `AcquireFor` registers the focused
    surface before it attempts injection, so every deactivate/close path must call `ReleaseFor` even
    when Steam was unavailable and `IsApplied` stayed false. During the overlay-to-Settings handoff,
