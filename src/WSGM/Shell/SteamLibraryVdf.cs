@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -373,6 +374,111 @@ public static class SteamLibraryVdf
             return true;
         }
         return false;
+    }
+
+    /// <summary>Removes EVERY top-level registration whose <c>path</c> is
+    /// <paramref name="libraryPath"/>, whatever content id each one carries.</summary>
+    /// <remarks>
+    /// The closed-Steam counterpart of the live purge in
+    /// <see cref="Core.SteamCdp"/>. A card reader reuses its drive letter, so
+    /// <c>E:\SteamLibrary</c> names a different card every time one is swapped, and
+    /// a registration left behind by the previous card keeps its own content id.
+    /// Dedup by content id therefore does NOT see it, the freshly formatted card is
+    /// appended as a second entry at the same path, and Steam ends up listing the
+    /// old card's games next to the new card's capacity. Removal is by PATH here
+    /// for exactly that reason; identity-based removal stays
+    /// <see cref="TryRemoveContentId"/>, which is what the pre-format step uses
+    /// when the card's own marker is still readable.
+    /// </remarks>
+    /// <param name="vdf">The current libraryfolders configuration text.</param>
+    /// <param name="libraryPath">The plain library path, e.g. <c>E:\SteamLibrary</c>.</param>
+    /// <param name="updated">The text without those entries, when any were removed.</param>
+    /// <returns>How many registrations were removed.</returns>
+    public static int TryRemovePath(string vdf, string libraryPath, out string? updated)
+    {
+        updated = null;
+        if (!vdf.TrimStart('\uFEFF', ' ', '\r', '\n', '\t')
+                .StartsWith("\"libraryfolders\"", StringComparison.Ordinal)
+            || vdf.LastIndexOf('}') < 0)
+        {
+            return 0;
+        }
+        var target = NormalizePath(libraryPath);
+        if (target.Length == 0)
+        {
+            return 0;
+        }
+        var removed = 0;
+        var current = vdf;
+        // Re-scan after each removal: the offsets of every later block move, and
+        // renumbering rewrites the entry keys. Cards are few, so the repeated scan
+        // costs nothing and keeps the index bookkeeping impossible to get wrong.
+        while (true)
+        {
+            var starts = TopLevelEntryStarts(current);
+            var rootClose = current.LastIndexOf('}');
+            var cut = -1;
+            var cutEnd = -1;
+            for (var i = 0; i < starts.Count; i++)
+            {
+                var end = i + 1 < starts.Count ? starts[i + 1] : rootClose;
+                if (end <= starts[i])
+                {
+                    continue;
+                }
+                if (ValuesOf(current[starts[i]..end], "path")
+                    .Any(path => string.Equals(NormalizePath(path), target, StringComparison.Ordinal)))
+                {
+                    cut = starts[i];
+                    cutEnd = end;
+                    break;
+                }
+            }
+            if (cut < 0)
+            {
+                break;
+            }
+            current = RenumberEntries(current.Remove(cut, cutEnd - cut));
+            removed++;
+        }
+        if (removed > 0)
+        {
+            updated = current;
+        }
+        return removed;
+    }
+
+    /// <summary>Canonical form used to decide whether two registrations name the
+    /// same folder: separator direction unified, trailing separators dropped, case
+    /// folded. Mirrors the normalizer the injected CEF expressions use, so the
+    /// closed-Steam and live paths can never disagree about "the same folder".
+    /// </summary>
+    /// <param name="path">A library path as stored or as supplied.</param>
+    /// <returns>The comparable form, or an empty string for an empty input.</returns>
+    public static string NormalizePath(string? path) =>
+        string.IsNullOrWhiteSpace(path)
+            ? string.Empty
+            : path.Replace('/', '\\').TrimEnd('\\').ToLowerInvariant();
+
+    /// <summary>Offsets of every top-level numbered entry line, in file order.</summary>
+    private static List<int> TopLevelEntryStarts(string vdf)
+    {
+        var starts = new List<int>();
+        var lineStart = 0;
+        while (lineStart < vdf.Length)
+        {
+            var lineEnd = vdf.IndexOf('\n', lineStart);
+            if (lineEnd < 0)
+            {
+                lineEnd = vdf.Length;
+            }
+            if (IsTopLevelEntry(vdf[lineStart..lineEnd].TrimEnd('\r')))
+            {
+                starts.Add(lineStart);
+            }
+            lineStart = lineEnd + 1;
+        }
+        return starts;
     }
 
     private static string RenumberEntries(string vdf)

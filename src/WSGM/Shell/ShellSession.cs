@@ -25,6 +25,7 @@ public sealed class ShellSession
     private TrayHost? _trayHost;
     private VolumeButtonService? _volumeButtons;
     private CardAcfWatcher? _cardAcfWatcher;
+    private CardVolumeMonitor? _cardVolumes;
     private NetworkIndicatorService? _networkIndicator;
     private KeepAwakeService? _keepAwake;
     private BootSplash? _splash;
@@ -109,6 +110,8 @@ public sealed class ShellSession
             // to keep them fresh, so it stands down with them.
             _cardAcfWatcher?.Dispose();
             _cardAcfWatcher = null;
+            _cardVolumes?.Dispose();
+            _cardVolumes = null;
             _networkIndicator?.Dispose();
             _networkIndicator = null;
             _downloadSortCancellation.Cancel();
@@ -131,6 +134,23 @@ public sealed class ShellSession
             }
             _volumeButtons?.SetGameModeActive(true);
             _cardAcfWatcher ??= CardAcfWatcher.StartNew();
+            // Card swaps are reconciled against Steam's install-folder list on the
+            // volume notification itself. Gated on the CEF master switch because the
+            // reconcile drives Steam's own front-end, and skipped in overlay-test
+            // mode, whose contract excludes autonomous Steam traffic.
+            if (!_overlayTestOnly && _cefMasterEnabled)
+            {
+                _cardVolumes ??= CardVolumeMonitor.StartNew(
+                    Interop.MessageWindow.Create(),
+                    () => _cefMasterEnabled,
+                    () =>
+                    {
+                        // A changed library list moves games between cards, so the
+                        // tabs and the in-page badge are both stale now.
+                        Avalonia.Threading.Dispatcher.UIThread.Post(KickTabBootSync);
+                        return System.Threading.Tasks.Task.CompletedTask;
+                    });
+            }
             if (!_overlayTestOnly && _wifiIndicatorEnabled)
             {
                 _networkIndicator ??= NetworkIndicatorService.StartNew();

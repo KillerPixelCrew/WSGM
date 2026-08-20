@@ -16,6 +16,7 @@ public sealed unsafe class MessageWindow : IDisposable
     private nint _displayNotify;
     private nint _consoleDisplayNotify;
     private nint _legacyDisplayNotify;
+    private nint _volumeNotify;
     private bool _sessionNotify;
 
     /// <summary>Create() is the only entry point: a directly constructed instance
@@ -47,6 +48,17 @@ public sealed unsafe class MessageWindow : IDisposable
     /// Its delegate receives the HSHELL_* event code followed by the event-specific
     /// lParam supplied by the shell.</summary>
     public event Action<nint, nint>? ShellHookReceived;
+
+    /// <summary>Raised on the Avalonia UI thread when any volume appeared or
+    /// disappeared. The argument is true for arrival, false for removal.</summary>
+    /// <remarks>
+    /// Deliberately carries no device identity. The payload's device path would have
+    /// to be mapped back to a mount point, which is fragile and reader-specific;
+    /// rescanning drive letters answers the same question and works for every reader.
+    /// Subscribers must debounce and settle: the notification fires before Windows has
+    /// finished mounting the volume and assigning its letter.
+    /// </remarks>
+    public event Action<bool>? VolumeChanged;
 
     /// <summary>Gets or creates the process-wide message-only window.</summary>
     /// <returns>The singleton message window.</returns>
@@ -178,6 +190,58 @@ public sealed unsafe class MessageWindow : IDisposable
         Log.Info("Display-state notifications deregistered.");
     }
 
+    /// <summary>Subscribes this window to volume arrival and removal. Idempotent.
+    /// </summary>
+    /// <remarks>
+    /// This replaces guessing at a card reader's identity. The Playnite-era approach
+    /// watched WMI for a <c>Win32_DiskDrive</c> whose model matched a hard-coded
+    /// string, which only ever worked for the reader it was written against — and
+    /// WMI is COM, which a NativeAOT WSGM cannot use at all. A device-interface
+    /// registration for <c>GUID_DEVINTERFACE_VOLUME</c> is reader-agnostic, bus
+    /// agnostic and pure Win32.
+    /// </remarks>
+    /// <returns>True when the registration is active.</returns>
+    public bool RegisterVolumeNotifications()
+    {
+        if (_volumeNotify != 0)
+        {
+            return true;
+        }
+        var filter = new NativeMethods.DevBroadcastDeviceInterface
+        {
+            Size = (uint)Marshal.SizeOf<NativeMethods.DevBroadcastDeviceInterface>(),
+            DeviceType = NativeMethods.DbtDevTypDeviceInterface,
+            ClassGuid = NativeMethods.GuidDevInterfaceVolume,
+        };
+        _volumeNotify = NativeMethods.RegisterDeviceNotification(
+            _hwnd, filter, NativeMethods.DeviceNotifyWindowHandle);
+        if (_volumeNotify == 0)
+        {
+            Log.Warn("RegisterDeviceNotification(volume interface) failed "
+                + $"(error {Marshal.GetLastWin32Error()}) — card changes fall back to polling.");
+            return false;
+        }
+        Log.Info("Volume arrival/removal notifications registered.");
+        return true;
+    }
+
+    /// <summary>Stops this window receiving volume arrival and removal notifications.
+    /// </summary>
+    public void DeregisterVolumeNotifications()
+    {
+        if (_volumeNotify == 0)
+        {
+            return;
+        }
+        if (!NativeMethods.UnregisterDeviceNotification(_volumeNotify))
+        {
+            Log.Warn("UnregisterDeviceNotification(volume interface) failed "
+                + $"(error {Marshal.GetLastWin32Error()}).");
+        }
+        _volumeNotify = 0;
+        Log.Info("Volume arrival/removal notifications deregistered.");
+    }
+
     private static void UnregisterPowerSetting(ref nint handle, string name)
     {
         if (handle == 0)
@@ -286,6 +350,17 @@ public sealed unsafe class MessageWindow : IDisposable
             Dispatcher.UIThread.Post(() => instance.SessionUnlocked?.Invoke());
             return 0;
         }
+        if (msg == NativeMethods.WmDeviceChange && instance._volumeNotify != 0
+            && (wParam == NativeMethods.DbtDeviceArrival
+                || wParam == NativeMethods.DbtDeviceRemoveComplete))
+        {
+            // The payload is not read: see the VolumeChanged remarks. Returning
+            // TRUE is the documented answer for a device event that is not a
+            // removal QUERY, which this window never registers for.
+            var arrived = wParam == NativeMethods.DbtDeviceArrival;
+            Dispatcher.UIThread.Post(() => instance.VolumeChanged?.Invoke(arrived));
+            return 1;
+        }
         if (msg == instance._shellHookMessage && instance._shellHookRegistered)
         {
             Dispatcher.UIThread.Post(() => instance.ShellHookReceived?.Invoke(wParam, lParam));
@@ -299,6 +374,7 @@ public sealed unsafe class MessageWindow : IDisposable
     {
         DeregisterShellHook();
         DeregisterDisplayStateNotifications();
+        DeregisterVolumeNotifications();
         if (_hwnd != 0)
         {
             if (!NativeMethods.DestroyWindow(_hwnd))

@@ -699,6 +699,65 @@ internal static partial class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool UnregisterPowerSettingNotification(nint handle);
 
+    /// <summary>WM_DEVICECHANGE — a device or media was added or removed.</summary>
+    internal const uint WmDeviceChange = 0x0219;
+
+    /// <summary>DBT_DEVICEARRIVAL: the device named by lParam is now available.</summary>
+    internal const nint DbtDeviceArrival = 0x8000;
+
+    /// <summary>DBT_DEVICEREMOVECOMPLETE: the device named by lParam is gone.</summary>
+    internal const nint DbtDeviceRemoveComplete = 0x8004;
+
+    /// <summary>DBT_DEVTYP_DEVICEINTERFACE: the lParam payload describes a device
+    /// interface class rather than a volume, port or handle.</summary>
+    internal const uint DbtDevTypDeviceInterface = 0x0000_0005;
+
+    /// <summary>GUID_DEVINTERFACE_VOLUME {53F5630D-B6BF-11D0-94F2-00A0C91EFB8B}.</summary>
+    /// <remarks>
+    /// The universal signal that a volume appeared or disappeared, whatever bus or
+    /// reader it came from. It is registered EXPLICITLY rather than relying on the
+    /// broadcast <c>DBT_DEVTYP_VOLUME</c> message, because Windows broadcasts that
+    /// one only to top-level windows and WSGM's notification window is message-only
+    /// (HWND_MESSAGE) — it would never see it. An explicit device-interface
+    /// registration is delivered to a message-only window.
+    /// </remarks>
+    internal static readonly Guid GuidDevInterfaceVolume =
+        new(0x53F5630D, 0xB6BF, 0x11D0, 0x94, 0xF2, 0x00, 0xA0, 0xC9, 0x1E, 0xFB, 0x8B);
+
+    [LibraryImport("user32.dll", EntryPoint = "RegisterDeviceNotificationW", SetLastError = true)]
+    internal static partial nint RegisterDeviceNotification(
+        nint hRecipient, in DevBroadcastDeviceInterface notificationFilter, uint flags);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool UnregisterDeviceNotification(nint handle);
+
+    /// <summary>DEV_BROADCAST_DEVICEINTERFACE_W, as a REGISTRATION FILTER only.
+    /// The variable-length device path that follows an incoming notification is
+    /// deliberately not declared: WSGM reacts to "some volume changed" by
+    /// rescanning drive letters, which is both simpler and more robust than
+    /// mapping a device path back to a mount point.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct DevBroadcastDeviceInterface
+    {
+        /// <summary>Size of this structure in bytes; must be set before the call.</summary>
+        internal uint Size;
+
+        /// <summary>DBT_DEVTYP_DEVICEINTERFACE.</summary>
+        internal uint DeviceType;
+
+        /// <summary>Reserved; must be zero.</summary>
+        internal uint Reserved;
+
+        /// <summary>The interface class to subscribe to.</summary>
+        internal Guid ClassGuid;
+
+        /// <summary>First UTF-16 unit of the device name; unused for a filter, and
+        /// declared as <c>ushort</c> rather than <c>char</c> so the struct stays
+        /// blittable for <c>LibraryImport</c> without runtime marshalling.</summary>
+        internal ushort Name;
+    }
+
     /// <summary>POWERBROADCAST_SETTING: the lParam payload of PBT_POWERSETTINGCHANGE.
     /// Only the fixed header is declared; <c>Data</c> is a variable-length array whose
     /// first four bytes carry the DWORD the display-status setting reports.</summary>

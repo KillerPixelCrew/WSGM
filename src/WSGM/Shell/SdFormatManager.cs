@@ -1151,7 +1151,11 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         // to the config write only when the debug channel cannot be reached.
         if (Steam.IsRunning)
         {
-            var live = SteamCdp.AddLibrary(libraryPath, label);
+            // replaceExisting: the library at this path was created seconds ago on a
+            // freshly wiped card, so any registration Steam still holds there belongs
+            // to a card that is gone. Left in place, Steam lists the previous card's
+            // games beside the new card's capacity until it is restarted.
+            var live = SteamCdp.AddLibrary(libraryPath, label, replaceExisting: true);
             switch (live.Status)
             {
                 case SteamLibraryAddStatus.Added:
@@ -1178,6 +1182,17 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         {
             Log.Info($"Format: content id {contentId} already in libraryfolders.vdf.");
             return "This library is already in Steam.";
+        }
+        // Same staleness rule as the live path, applied to the file: dedup below is
+        // by CONTENT ID, which cannot see a registration the previous card left at
+        // this reader's drive letter under its own id. Splicing next to it would put
+        // two entries at one path into the file Steam reads on next start.
+        var stale = SteamLibraryVdf.TryRemovePath(configText, libraryPath, out var purged);
+        if (stale > 0 && purged is not null)
+        {
+            Log.Info($"Format: dropped {stale} stale registration(s) at {libraryPath} "
+                + "from libraryfolders.vdf before adding the new card.");
+            configText = purged;
         }
         if (!SteamLibraryVdf.TrySplice(configText, libraryPath, contentId, sizeBytes,
                 out var updated, label))

@@ -545,6 +545,43 @@ the flag merely because it was persisted when the currently active target report
    marker's `contentid`, removes the matching registered/live library first, and
    only then erases the disk; never identify the old library by its reused drive
    letter or path.
+   **Steam allows SEVERAL install folders at ONE path and never dedupes them
+   (live-verified 2026-08-20, and it is the cause of the "new card shows the previous
+   card's games but the right capacity" report).** Steam keys install folders by PATH.
+   A card pulled out of the reader leaves its registration behind — `bIsMounted:false`,
+   still carrying its own `contentid`, app list and the capacity it had when last seen.
+   `AddInstallFolder` on that same path does NOT adopt or replace it: it APPENDS a second
+   entry, and `libraryfolders.vdf` is then written with two blocks at one path. Ejecting
+   does not clear the phantom (it was never tied to the card) and `RefreshFolders()` does
+   NOT dedupe — verified; only `RemoveInstallFolder(index)` drops it, and a Steam restart
+   hides it by rebuilding the list from disk, which is why the bug "fixes itself" after a
+   reboot. Two further measured facts: when a registration at the path IS mounted, a second
+   add is refused with **`NotWritableFolder`** (not `DriveAlreadyHasLibrary`) even though
+   the folder is writable, so that code means "already registered" here; and a registration
+   stays `bIsMounted:true` with `nCapacity:0` when its folder is deleted while the volume
+   is still present, so **mounted does not prove a registration is current**.
+   The consequences are binding: `SteamCdp`'s add expression purges same-path
+   registrations before adding (`replaceExisting: true` from the format flow purges even a
+   mounted one, because a just-formatted card makes every prior registration there stale);
+   the remove expression removes EVERY match, not the first; the relabel expression prefers
+   the mounted match, because a phantom sorts FIRST and `find` would relabel it; the
+   closed-Steam path calls `SteamLibraryVdf.TryRemovePath` before splicing, because dedup
+   there is by content id and cannot see a registration the previous card left under its own
+   id. `SteamLibraryVdf.NormalizePath` and `SteamCdp.NormalizePathJs` must stay equivalent —
+   a mismatch silently skips the purge.
+   **Card swaps are reconciled on the volume notification, not by polling
+   (`Shell\CardVolumeMonitor.cs`, `Core\CardLibraryDecision.cs`).** The signal is a
+   `RegisterDeviceNotification` subscription to **`GUID_DEVINTERFACE_VOLUME`** on the process
+   message-only window. It must be that and not the broadcast `DBT_DEVTYP_VOLUME` message,
+   which Windows sends only to TOP-LEVEL windows and which a `HWND_MESSAGE` window therefore
+   never receives. It must also not be WMI (`Win32_DiskDrive` + a model string): that is COM,
+   which NativeAOT WSGM cannot use, and a model match only works for the one reader it was
+   written against. The notification arrives BEFORE the volume is mounted and lettered, so the
+   reaction settles 3 s and rescans all drives rather than resolving the reported device path.
+   The decision is `cardContentId` (from the card's own marker, the identity that travels with
+   the card) against the ids registered for that path in `libraryfolders.vdf` — Steam's live
+   folder API exposes no content id at all, which is why the file is the source. Gated on the
+   CEF master switch and off in `--overlay-test`.
    `SteamCollections` remains only as the read/filter bridge and one-time cleanup for collection IDs
    created by pre-injection builds. New tabs never create collections. CEF unreachability must save
    the desired configuration but fail open with a retryable warning; it must not replace the last

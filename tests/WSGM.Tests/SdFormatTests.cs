@@ -324,6 +324,59 @@ public sealed class SdFormatTests
     }
 
     [Fact]
+    public void RemovingByPathDropsAPreviousCardsRegistrationAtTheSameReaderLetter()
+    {
+        // The reported bug: the reader keeps its letter, so the card that was
+        // pulled out left a registration behind under ITS OWN content id, which
+        // content-id dedup cannot see.
+        var removed = SteamLibraryVdf.TryRemovePath(TwoEntryConfig, @"D:\SteamLibrary",
+            out var updated);
+
+        Assert.Equal(1, removed);
+        Assert.NotNull(updated);
+        Assert.DoesNotContain("\"contentid\"\t\t\"222\"", updated);
+        Assert.Contains("\"contentid\"\t\t\"111\"", updated);
+    }
+
+    [Fact]
+    public void RemovingByPathDropsEveryDuplicateAtThatPathNotJustTheFirst()
+    {
+        // Steam happily holds several registrations at one path (live-verified),
+        // so a single-match removal would leave a phantom behind.
+        var doubled = SteamLibraryVdf.TrySplice(
+            TwoEntryConfig, @"D:\SteamLibrary", "333", 1L, out var withDuplicate)
+            ? withDuplicate!
+            : throw new InvalidOperationException("splice failed");
+
+        var removed = SteamLibraryVdf.TryRemovePath(doubled, @"D:\SteamLibrary", out var updated);
+
+        Assert.Equal(2, removed);
+        Assert.NotNull(updated);
+        Assert.DoesNotContain(@"D:\\SteamLibrary", updated);
+        Assert.Contains("\"contentid\"\t\t\"111\"", updated);
+        Assert.Contains("\t\"0\"\n", updated);
+        Assert.DoesNotContain("\t\"1\"\n", updated);
+    }
+
+    [Theory]
+    [InlineData(@"d:\steamlibrary")]
+    [InlineData(@"D:\SteamLibrary\")]
+    [InlineData("D:/SteamLibrary")]
+    public void RemovingByPathIgnoresCaseTrailingSeparatorsAndSlashDirection(string path)
+    {
+        Assert.Equal(1, SteamLibraryVdf.TryRemovePath(TwoEntryConfig, path, out var updated));
+        Assert.NotNull(updated);
+    }
+
+    [Fact]
+    public void RemovingByPathLeavesTheConfigUntouchedWhenNothingMatches()
+    {
+        Assert.Equal(0, SteamLibraryVdf.TryRemovePath(TwoEntryConfig, @"E:\SteamLibrary",
+            out var updated));
+        Assert.Null(updated);
+    }
+
+    [Fact]
     public void RemovingFirstContentIdRenumbersRemainingEntries()
     {
         var removed = SteamLibraryVdf.TryRemoveContentId(TwoEntryConfig, "111", out var updated);

@@ -77,19 +77,34 @@ public static class SteamCdp
     /// <summary>Blocking wrapper for worker-thread callers (never call on the UI thread).</summary>
     /// <param name="libraryPath">The library folder, e.g. <c>E:\SteamLibrary</c>.</param>
     /// <param name="label">A label to apply after adding, or null/empty for none.</param>
-    public static SteamLibraryAddResult AddLibrary(string libraryPath, string? label = null)
-        => AddLibraryAsync(libraryPath, label).GetAwaiter().GetResult();
+    /// <param name="replaceExisting">True when the caller has just CREATED the
+    /// library at this path, which makes every prior registration there stale by
+    /// definition. See <see cref="AddLibraryAsync"/>.</param>
+    public static SteamLibraryAddResult AddLibrary(
+        string libraryPath, string? label = null, bool replaceExisting = false)
+        => AddLibraryAsync(libraryPath, label, replaceExisting).GetAwaiter().GetResult();
 
     /// <summary>Adds <paramref name="libraryPath"/> to the live Steam client and,
     /// on success, labels it.</summary>
     /// <param name="libraryPath">The library folder, e.g. <c>E:\SteamLibrary</c>.</param>
     /// <param name="label">A label to apply after adding, or null/empty for none.</param>
+    /// <param name="replaceExisting">
+    /// True when the caller has just CREATED a brand-new library at this path — a
+    /// card format. Every registration already at the path then belongs to a card
+    /// that is no longer there, including one Steam still reports as mounted (it
+    /// keeps that flag while the volume is present but reports zero capacity, so
+    /// "mounted" alone does not prove a registration is current). All of them are
+    /// removed before the add. False for an ordinary add, which keeps a mounted
+    /// registration and adopts it rather than churning a live library.
+    /// </param>
     /// <param name="cancellationToken">Cancels the exchange.</param>
     public static async Task<SteamLibraryAddResult> AddLibraryAsync(
-        string libraryPath, string? label = null, CancellationToken cancellationToken = default)
+        string libraryPath, string? label = null, bool replaceExisting = false,
+        CancellationToken cancellationToken = default)
     {
         var result = await SteamCef.EvaluateAsync(
-            BuildAddExpression(libraryPath, label), TimeSpan.FromSeconds(10), cancellationToken)
+            BuildAddExpression(libraryPath, label, replaceExisting),
+            TimeSpan.FromSeconds(10), cancellationToken)
             .ConfigureAwait(false);
         if (!result.Reachable)
         {
@@ -123,6 +138,32 @@ public static class SteamCdp
             return new SteamLibraryRemoveResult(SteamLibraryRemoveStatus.Rejected,
                 "ContentIdPathAmbiguous");
         }
+        var result = await SteamCef.EvaluateAsync(
+            BuildRemoveExpression(libraryPath), TimeSpan.FromSeconds(10), cancellationToken)
+            .ConfigureAwait(false);
+        if (!result.Reachable)
+        {
+            return new SteamLibraryRemoveResult(SteamLibraryRemoveStatus.Unavailable, result.Error);
+        }
+        return InterpretRemove(result.Value);
+    }
+
+    /// <summary>Removes EVERY live registration at <paramref name="libraryPath"/>,
+    /// whichever card each one belonged to.</summary>
+    /// <remarks>
+    /// The identity-free counterpart of <see cref="RemoveLibraryByContentIdAsync"/>,
+    /// for the case where identity is exactly what is missing: the card that owned the
+    /// registration has left the reader, so its marker cannot be read and Steam's
+    /// folder API never exposed the content id in the first place. Selecting by path
+    /// is safe here precisely because the caller has established that nothing at that
+    /// path is current — see <see cref="Shell.CardVolumeMonitor"/>.
+    /// </remarks>
+    /// <param name="libraryPath">The library folder, e.g. <c>E:\SteamLibrary</c>.</param>
+    /// <param name="cancellationToken">Cancels the exchange.</param>
+    /// <returns>The live removal outcome.</returns>
+    public static async Task<SteamLibraryRemoveResult> RemoveLibrariesAtPathAsync(
+        string libraryPath, CancellationToken cancellationToken = default)
+    {
         var result = await SteamCef.EvaluateAsync(
             BuildRemoveExpression(libraryPath), TimeSpan.FromSeconds(10), cancellationToken)
             .ConfigureAwait(false);
@@ -169,30 +210,80 @@ public static class SteamCdp
         return InterpretLabel(result.Value);
     }
 
+    /// <summary>Normalizes a Steam folder path for comparison: trailing separators
+    /// dropped, case folded. Shared by every expression here so the add, remove and
+    /// relabel paths can never disagree about what "the same folder" means. A
+    /// mismatch here would silently skip the stale-registration purge and put the
+    /// duplicate-library bug straight back, so separator DIRECTION is unified too
+    /// and not just trailing separators trimmed.</summary>
+    private const string NormalizePathJs =
+        "const norm=p=>String(p||'').replace(/\\//g,'\\\\')"
+        + ".replace(/\\\\+$/,'').toLowerCase();";
+
     /// <summary>Builds the JS that adds the folder, labels it when a label is
     /// given, and reports the outcome as a JSON string. Both the path and label are
     /// JSON-encoded into JS string literals — a raw path would lose its backslashes
     /// and Steam would reject the malformed path.</summary>
-    private static string BuildAddExpression(string libraryPath, string? label)
+    /// <remarks>
+    /// <para>
+    /// <b>Stale same-path registrations are purged first, and that is the whole
+    /// point of this expression</b> (live-verified against a running client,
+    /// 2026-08-20). Steam keys an install folder by its PATH and never dedupes the
+    /// list. A card pulled out of the reader leaves its registration behind,
+    /// unmounted, still carrying the app list and capacity it had when it was last
+    /// seen. Calling <c>AddInstallFolder</c> for that same path does NOT adopt or
+    /// replace it — Steam APPENDS a second entry, and the client is left holding
+    /// two folders at one path: the phantom with the previous card's games, the new
+    /// one with the real capacity. That is exactly the reported "the new card shows
+    /// the previous card's games but the right size", and it survives ejecting the
+    /// card because the phantom was never tied to the card at all. Only a Steam
+    /// restart clears it, because the next start rebuilds the list from disk.
+    /// </para>
+    /// <para>
+    /// The purge deliberately spares a MOUNTED registration at the same path and
+    /// adopts it instead of re-adding: Steam refuses a second add there anyway (it
+    /// answers <c>NotWritableFolder</c>, which reads as a hard failure), and
+    /// removing a live library only to add it back would drop the user's games out
+    /// of the UI for the length of a rescan.
+    /// </para>
+    /// </remarks>
+    private static string BuildAddExpression(
+        string libraryPath, string? label, bool replaceExisting)
     {
         var pathLiteral = SteamCef.JsString(libraryPath);
         var labelLiteral = string.IsNullOrEmpty(label) ? "null" : SteamCef.JsString(label);
-        return
-            "(async()=>{try{const i=await SteamClient.InstallFolder.AddInstallFolder(" +
-            pathLiteral + ");const l=" + labelLiteral + ";" +
-            "if(l!==null&&typeof i==='number'&&i>=0){" +
-            "try{await SteamClient.InstallFolder.SetFolderLabel(i,l);}catch(e){}}" +
-            "return JSON.stringify({ok:true,index:i});}" +
-            "catch(e){return JSON.stringify({ok:false,result:(e&&e.result),message:(e&&e.message)});}})()";
+        return "(async()=>{try{const path=" + pathLiteral + ";const l=" + labelLiteral + ";"
+            + NormalizePathJs
+            + "const target=norm(path);let purged=0;"
+            + "const folders=await SteamClient.InstallFolder.GetInstallFolders();"
+            + "const same=folders.filter(x=>norm(x.strFolderPath)===target);"
+            // A just-formatted card makes every prior registration at this path
+            // stale, mounted or not: Steam keeps the mounted flag while the volume
+            // is present and only zeroes the capacity, so it cannot be trusted to
+            // mean "this is still the card that library belongs to".
+            + (replaceExisting ? "const live=null;" : "const live=same.find(x=>x.bIsMounted);")
+            // Everything at this path Steam has not mounted is a leftover, and so
+            // is any surplus mounted duplicate beyond the one being kept.
+            + "for(const f of same){if(f===live)continue;"
+            + "try{await SteamClient.InstallFolder.RemoveInstallFolder(f.nFolderIndex);purged++;}catch(e){}}"
+            + "const i=live?live.nFolderIndex:await SteamClient.InstallFolder.AddInstallFolder(path);"
+            + "if(l!==null&&typeof i==='number'&&i>=0){"
+            + "try{await SteamClient.InstallFolder.SetFolderLabel(i,l);}catch(e){}}"
+            + "return JSON.stringify({ok:true,index:i,purged:purged,existing:!!live});}"
+            + "catch(e){return JSON.stringify({ok:false,result:(e&&e.result),message:(e&&e.message)});}})()";
     }
 
     private static string BuildLabelExpression(string libraryPath, string label)
     {
         var pathLiteral = SteamCef.JsString(libraryPath);
         var labelLiteral = SteamCef.JsString(label);
-        return "(async()=>{try{const path=" + pathLiteral + ";const norm=p=>p.replace(/[\\\\/]+$/,'').toLowerCase();"
+        return "(async()=>{try{const path=" + pathLiteral + ";" + NormalizePathJs
             + "const folders=await SteamClient.InstallFolder.GetInstallFolders();"
-            + "const folder=folders.find(x=>norm(x.strFolderPath)===norm(path));"
+            + "const same=folders.filter(x=>norm(x.strFolderPath)===norm(path));"
+            // A mounted registration is the one the user is looking at. A phantom
+            // left by a previous card can sit at the same path and comes FIRST in
+            // Steam's list, so taking the first match would label the wrong one.
+            + "const folder=same.find(x=>x.bIsMounted)||same[0];"
             + "if(!folder)return JSON.stringify({ok:true,absent:true});"
             + "await SteamClient.InstallFolder.SetFolderLabel(folder.nFolderIndex," + labelLiteral + ");"
             + "return JSON.stringify({ok:true});}catch(e){return JSON.stringify({ok:false,result:(e&&e.result),message:(e&&e.message)});}})()";
@@ -201,12 +292,16 @@ public static class SteamCdp
     private static string BuildRemoveExpression(string libraryPath)
     {
         var pathLiteral = SteamCef.JsString(libraryPath);
-        return "(async()=>{try{const path=" + pathLiteral + ";const norm=p=>p.replace(/[\\\\/]+$/,'').toLowerCase();"
+        return "(async()=>{try{const path=" + pathLiteral + ";" + NormalizePathJs
             + "const folders=await SteamClient.InstallFolder.GetInstallFolders();"
-            + "const folder=folders.find(x=>norm(x.strFolderPath)===norm(path));"
-            + "if(!folder)return JSON.stringify({ok:true,absent:true});"
-            + "await SteamClient.InstallFolder.RemoveInstallFolder(folder.nFolderIndex);"
-            + "return JSON.stringify({ok:true});}catch(e){return JSON.stringify({ok:false,result:(e&&e.result),message:(e&&e.message)});}})()";
+            // EVERY registration at the path, not just the first: Steam allows
+            // duplicates at one path, so removing a single match can leave the
+            // phantom behind and make the removal look like it did nothing.
+            + "const same=folders.filter(x=>norm(x.strFolderPath)===norm(path));"
+            + "if(!same.length)return JSON.stringify({ok:true,absent:true});"
+            + "let removed=0;"
+            + "for(const f of same){await SteamClient.InstallFolder.RemoveInstallFolder(f.nFolderIndex);removed++;}"
+            + "return JSON.stringify({ok:true,removed:removed});}catch(e){return JSON.stringify({ok:false,result:(e&&e.result),message:(e&&e.message)});}})()";
     }
 
     /// <summary>Maps Steam's JSON reply to a result. Success carries no reason;
@@ -225,6 +320,21 @@ public static class SteamCdp
             var root = document.RootElement;
             if (root.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True)
             {
+                if (root.TryGetProperty("purged", out var purgedCount)
+                    && purgedCount.TryGetInt32(out var purged) && purged > 0)
+                {
+                    // Device-diagnosable on its own: this line is what identifies a
+                    // reader handing the same drive letter to a different card.
+                    Log.Info($"Steam library add: purged {purged} stale registration(s) "
+                        + "at the same path first.");
+                }
+                if (root.TryGetProperty("existing", out var existing)
+                    && existing.ValueKind == JsonValueKind.True)
+                {
+                    Log.Info("Steam library already mounted at this path; adopted it.");
+                    return new SteamLibraryAddResult(
+                        SteamLibraryAddStatus.AlreadyPresent, "AlreadyMounted");
+                }
                 Log.Info("Steam library added to the live client.");
                 return new SteamLibraryAddResult(SteamLibraryAddStatus.Added, null);
             }
