@@ -904,6 +904,8 @@ public sealed class ConfigurationTests
                     OriginalLaunchOptions = null!,
                     OriginalStartDir = null!,
                     Name = null!,
+                    CustomActionPath = null!,
+                    CustomArguments = null!,
                 },
             ],
         };
@@ -916,6 +918,8 @@ public sealed class ConfigurationTests
         Assert.Equal("", wrapper.OriginalLaunchOptions);
         Assert.Equal("", wrapper.OriginalStartDir);
         Assert.Equal("", wrapper.Name);
+        Assert.Equal("", wrapper.CustomActionPath);
+        Assert.Equal("", wrapper.CustomArguments);
     }
 
     /// <summary>The upgrade guarantee. Every config.json written before Steam Input

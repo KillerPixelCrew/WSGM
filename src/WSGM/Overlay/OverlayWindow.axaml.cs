@@ -10,6 +10,7 @@ using Avalonia.Input;
 // Avalonia 12 moved SetTextAsync off IClipboard onto ClipboardExtensions.
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Controls;
@@ -233,6 +234,7 @@ public partial class OverlayWindow : Window
         ArtworkHost.CloseRequested += LeaveArtworkSubView;
         LaunchWrapperHost.CloseRequested += LeaveLaunchWrapperSubView;
         LaunchWrapperHost.Picked += OnLaunchFixGamePicked;
+        LaunchWrapperHost.CustomPicked += OnCustomLaunchGamePicked;
         WakeLockHost.CloseRequested += LeaveWakeLockSubView;
         InitializeLaunchFixLabels(viewModel);
 
@@ -515,8 +517,8 @@ public partial class OverlayWindow : Window
         InputLeaseFixButton.Description = "For games that read the controller themselves";
         BothFixesButton.Title = live ? "Fix: both of the above" : "Copy combined command";
         BothFixesButton.Description = "No admin, and the game owns the controller";
-        RemoveFixesButton.Title = "Remove launch fixes";
-        RemoveFixesButton.Description = "Restore the game's original launch settings";
+        RemoveFixesButton.Title = "Restore original launch action";
+        RemoveFixesButton.Description = "Remove WSGM changes and restore the original";
     }
 
     private void OnApplyDeelevation(object? sender, RoutedEventArgs e)
@@ -530,6 +532,103 @@ public partial class OverlayWindow : Window
 
     private void OnRemoveLaunchWrappers(object? sender, RoutedEventArgs e)
         => StartLaunchFix(LaunchWrapperMode.None, RemoveFixesButton);
+
+    private async void OnPickCustomLaunchAction(object? sender, RoutedEventArgs e)
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Choose a custom launch action",
+            AllowMultiple = false,
+            FileTypeFilter =
+            [
+                new FilePickerFileType("Launch actions")
+                {
+                    Patterns = ["*.exe", "*.cmd", "*.bat", "*.ps1"],
+                },
+            ],
+        });
+        if (_closed || files.Count == 0 || !files[0].Path.IsFile)
+        {
+            return;
+        }
+        var path = files[0].Path.LocalPath;
+        if (!SteamCustomLaunchCommand.IsSupported(path))
+        {
+            CustomLaunchButton.Title = "Unsupported file type";
+            return;
+        }
+        LaunchWrapperHost.OpenCustom(path);
+        EnterLaunchWrapperSubView();
+    }
+
+    private void OnCustomLaunchGamePicked(
+        string path, string arguments, SteamCollections.AppInfo game)
+        => _ = ApplyCustomLaunchToAsync(path, arguments, game, CustomLaunchButton);
+
+    private async System.Threading.Tasks.Task ApplyCustomLaunchToAsync(
+        string path, string arguments, SteamCollections.AppInfo game, CardButton button)
+    {
+        try
+        {
+            if (!System.IO.File.Exists(path))
+            {
+                button.Title = "File is no longer available";
+                return;
+            }
+            var details = await SteamLaunchConfig.ReadAsync(game.AppId);
+            if (details is null)
+            {
+                button.Title = "Steam didn't answer";
+                return;
+            }
+            var existing = await LibraryTabManager.FindLaunchWrapperAsync(game.AppId);
+            var originals = existing is null
+                ? (details.ShortcutTarget,
+                    game.Shortcut ? details.ShortcutArguments : details.LaunchOptions,
+                    details.ShortcutStartDir)
+                : (existing.OriginalTarget, existing.OriginalLaunchOptions, existing.OriginalStartDir);
+            var snapshot = existing ?? new LaunchWrapperConfig
+            {
+                AppId = game.AppId,
+                IsShortcut = game.Shortcut,
+                OriginalTarget = originals.Item1,
+                OriginalLaunchOptions = originals.Item2,
+                OriginalStartDir = originals.Item3,
+            };
+            snapshot.Kind = LaunchConfigurationKind.CustomAction;
+            snapshot.Mode = LaunchWrapperMode.None;
+            snapshot.CustomActionPath = path;
+            snapshot.CustomArguments = arguments;
+            snapshot.Name = game.Name;
+            if (existing is null)
+            {
+                // Persist the only restoration copy before Steam destroys a shortcut Target.
+                await LibraryTabManager.RememberLaunchWrapperAsync(snapshot);
+            }
+            var result = await SteamLaunchConfig.ApplyCustomAsync(
+                game.AppId, game.Shortcut, path, arguments);
+            if (!result.Ok && existing is null)
+            {
+                await LibraryTabManager.ForgetLaunchWrapperAsync(game.AppId);
+            }
+            else if (result.Ok && existing is not null)
+            {
+                await LibraryTabManager.RememberLaunchWrapperAsync(snapshot);
+            }
+            button.Title = result.Ok ? $"Applied to {game.Name}" : result.Detail;
+            if (result.Ok)
+            {
+                Log.Info($"Custom launch action written for {game.Name} ({game.AppId}).");
+                LeaveLaunchWrapperSubView();
+                await DismissAfterCopyFeedback();
+            }
+        }
+        catch (Exception ex)
+        {
+            button.Title = "Couldn't configure launch action";
+            Log.Error($"Could not configure custom launch action for {game.AppId}", ex);
+        }
+    }
 
     private void StartLaunchFix(LaunchWrapperMode mode, CardButton button)
     {
@@ -674,9 +773,7 @@ public partial class OverlayWindow : Window
                         + "wrapped and its original target could not be recovered.");
                     return;
                 }
-                var snapshot = wrapped && existing is not null
-                    ? existing
-                    : new LaunchWrapperConfig
+                var snapshot = existing ?? new LaunchWrapperConfig
                     {
                         AppId = appId,
                         IsShortcut = isShortcut,
@@ -684,7 +781,10 @@ public partial class OverlayWindow : Window
                         OriginalLaunchOptions = originals.LaunchOptions,
                         OriginalStartDir = originals.StartDir,
                     };
+                snapshot.Kind = LaunchConfigurationKind.Wrapper;
                 snapshot.Mode = mode;
+                snapshot.CustomActionPath = "";
+                snapshot.CustomArguments = "";
                 snapshot.Name = name;
                 await LibraryTabManager.RememberLaunchWrapperAsync(snapshot);
 

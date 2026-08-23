@@ -170,6 +170,14 @@ waiting to happen.
     the "original" and Remove cannot restore the wrapper itself — and re-applying an already-wrapped
     game keeps the first snapshot rather than recording WSGM's own values.
 
+    The Tools tab's custom launch action is deliberately different from those fixes: it uses no
+    WSGM wrapper and replaces the active launch fields with Steam-native syntax. A real title gets
+    `"selected.exe" [arguments] %command%`; CMD/BAT and PS1 selections prefix that placeholder with
+    an explicit `cmd.exe` or Windows PowerShell invocation. A non-Steam shortcut gets the selected
+    EXE (or script host) in `Exe` and only the script plus custom arguments in Launch Arguments —
+    `%command%` is never written there. The first pre-change snapshot is retained across edits so
+    Restore returns every field verbatim.
+
 12. **Download-queue sorting (`Core\SteamDownloadSort.cs`, live-verified 2026-08-12).**
     Name/Size/Type sort buttons injected into the header of Big Picture's "Up Next" download
     section, reordering the queue through Steam's own

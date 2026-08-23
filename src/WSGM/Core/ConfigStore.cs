@@ -105,6 +105,7 @@ public static class ConfigStore
                 foreach (var wrapper in wrappers.OfType<JsonObject>())
                 {
                     RepairEnum(wrapper, "Mode", LaunchWrapperMode.None);
+                    RepairEnum(wrapper, "Kind", LaunchConfigurationKind.Wrapper);
                 }
             }
             return JsonSerializer.Deserialize(root.ToJsonString(), ConfigJsonContext.Default.AppConfig);
@@ -198,6 +199,8 @@ public static class ConfigStore
             wrapper.OriginalLaunchOptions ??= "";
             wrapper.OriginalStartDir ??= "";
             wrapper.Name ??= "";
+            wrapper.CustomActionPath ??= "";
+            wrapper.CustomArguments ??= "";
         }
         config.CardLibraries = config.CardLibraries.Where(static card => card is not null).ToList();
         foreach (var card in config.CardLibraries)

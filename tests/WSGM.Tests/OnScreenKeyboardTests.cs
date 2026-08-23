@@ -5,6 +5,43 @@ namespace WSGM.Tests;
 public class OnScreenKeyboardTests
 {
     [Fact]
+    public void InsertExternalText_ReplacesSelectionAndMovesCaret()
+    {
+        var box = new Avalonia.Controls.TextBox
+        {
+            Text = "before OLD after",
+            SelectionStart = 7,
+            SelectionEnd = 10,
+        };
+        var keyboard = new OnScreenKeyboard { Target = box };
+
+        keyboard.InsertExternalText("NEW");
+
+        Assert.Equal("before NEW after", box.Text);
+        Assert.Equal(10, box.CaretIndex);
+        Assert.Equal(box.SelectionStart, box.SelectionEnd);
+    }
+
+    [Fact]
+    public void InsertExternalText_TruncatesPasteAtMaximumLength()
+    {
+        var box = new Avalonia.Controls.TextBox
+        {
+            Text = "1234",
+            CaretIndex = 4,
+            SelectionStart = 4,
+            SelectionEnd = 4,
+            MaxLength = 6,
+        };
+        var keyboard = new OnScreenKeyboard { Target = box };
+
+        keyboard.InsertExternalText("56789");
+
+        Assert.Equal("123456", box.Text);
+        Assert.Equal(6, box.CaretIndex);
+    }
+
+    [Fact]
     public void EveryCharacterAWpaPassphraseMayContainIsReachable()
     {
         // This keyboard is the only text entry in game mode: Windows' own touch

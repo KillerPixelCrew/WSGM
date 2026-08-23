@@ -24,6 +24,12 @@ public sealed class LaunchWrapperView : OverlaySubView
     /// pending action and leaves this sub-view.</summary>
     public event Action<SteamCollections.AppInfo>? Picked;
 
+    /// <summary>Raised with the selected file, arguments, and game for a custom action.</summary>
+    public event Action<string, string, SteamCollections.AppInfo>? CustomPicked;
+
+    private string? _customPath;
+    private string _customArguments = "";
+
     /// <inheritdoc />
     protected override string LogScope => "Launch wrappers";
 
@@ -31,9 +37,45 @@ public sealed class LaunchWrapperView : OverlaySubView
     /// <param name="heading">What the caller is about to do, as a title.</param>
     public void Open(string heading)
     {
+        _customPath = null;
         _stack.Clear();
         _current = null;
         _ = RunSafelyAsync(RenderGameListAsync(heading), "game list");
+    }
+
+    /// <summary>Asks for optional arguments before choosing the custom action's game.</summary>
+    public void OpenCustom(string path)
+    {
+        _customPath = path;
+        _customArguments = "";
+        _stack.Clear();
+        _current = null;
+        Navigate(RenderArgumentChoice);
+    }
+
+    private void RenderArgumentChoice()
+    {
+        var name = System.IO.Path.GetFileName(_customPath);
+        var stack = NewStack("Custom launch action");
+        stack.Children.Add(Caption(name));
+        stack.Children.Add(PrimaryRow("No arguments", "Continue without additional arguments",
+            Icons.Play, OpenCustomGamePicker));
+        stack.Children.Add(Row("Add arguments", "Enter command-line arguments", Icons.CopyDoc,
+            () => EditText($"Arguments for {name}", _customArguments, 2048, value =>
+            {
+                _customArguments = value;
+                Avalonia.Threading.Dispatcher.UIThread.Post(OpenCustomGamePicker);
+            })));
+        stack.Children.Add(Row("Cancel", "Do not change the game", Icons.ExitFullscreen,
+            () => Back()));
+        SetContent(stack);
+    }
+
+    private void OpenCustomGamePicker()
+    {
+        _stack.Clear();
+        _current = null;
+        _ = RunSafelyAsync(RenderGameListAsync("Replace launch action"), "game list");
     }
 
     private async Task RenderGameListAsync(string heading)
@@ -89,7 +131,17 @@ public sealed class LaunchWrapperView : OverlaySubView
                     g.Name,
                     g.Shortcut ? "Non-Steam shortcut" : "",
                     Icons.SteamLike,
-                    () => Picked?.Invoke(g)));
+                    () =>
+                    {
+                        if (_customPath is { } path)
+                        {
+                            CustomPicked?.Invoke(path, _customArguments, g);
+                        }
+                        else
+                        {
+                            Picked?.Invoke(g);
+                        }
+                    }));
             }
         }
         stack.Children.Add(SectionLabel(""));

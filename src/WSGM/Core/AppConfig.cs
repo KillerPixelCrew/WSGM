@@ -385,8 +385,8 @@ public sealed class SgdbLinkConfig
     public string Name { get; set; } = "";
 }
 
-/// <summary>What one game's launch configuration looked like before WSGM pointed it
-/// at <c>WSGM.Launch.exe</c>. Removing the wrapper writes these values back.</summary>
+/// <summary>What one game's launch configuration looked like before WSGM changed it.
+/// Restoring the launch action writes these values back.</summary>
 /// <remarks>
 /// Load-bearing for non-Steam shortcuts: configuring one overwrites its Target with
 /// the wrapper path, so without this snapshot the real program's path would survive
@@ -404,6 +404,15 @@ public sealed class LaunchWrapperConfig
     /// <summary>Which wrapper behaviours were applied.</summary>
     public LaunchWrapperMode Mode { get; set; }
 
+    /// <summary>Whether WSGM applied its launch wrapper or a Steam-native custom action.</summary>
+    public LaunchConfigurationKind Kind { get; set; }
+
+    /// <summary>The executable or script selected for a Steam-native custom action.</summary>
+    public string CustomActionPath { get; set; } = "";
+
+    /// <summary>User-supplied native arguments appended to the custom action.</summary>
+    public string CustomArguments { get; set; } = "";
+
     /// <summary>The shortcut's Target before WSGM replaced it (shortcuts only).</summary>
     public string OriginalTarget { get; set; } = "";
 
@@ -417,6 +426,16 @@ public sealed class LaunchWrapperConfig
     /// <summary>Display name at configuration time, so the overlay can name an entry
     /// whose game Steam can no longer resolve.</summary>
     public string Name { get; set; } = "";
+}
+
+/// <summary>Identifies the kind of per-game launch configuration WSGM owns.</summary>
+public enum LaunchConfigurationKind
+{
+    /// <summary>The existing de-elevation or Steam Input wrapper.</summary>
+    Wrapper,
+
+    /// <summary>A Steam-native executable or script launch action.</summary>
+    CustomAction,
 }
 
 /// <summary>One Steam library on a removable drive (a MicroSD card or external

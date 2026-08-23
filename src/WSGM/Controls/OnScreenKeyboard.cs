@@ -29,6 +29,9 @@ public sealed class OnScreenKeyboard : Decorator
     /// <summary>Raised when the user presses the accept key.</summary>
     public event EventHandler? Accepted;
 
+    /// <summary>Raised when the user asks the owning window to paste clipboard text.</summary>
+    public event EventHandler? PasteRequested;
+
     private readonly Panel _root = new StackPanel { Spacing = 4 };
     private bool _shift;
 
@@ -122,10 +125,11 @@ public sealed class OnScreenKeyboard : Decorator
             Build();
             FocusControl("Shift");
         }, width: 62));
-        controls.Children.Add(KeyButton("Space", () => Insert(" "), width: 150));
-        controls.Children.Add(KeyButton("Back", Backspace, width: 62));
+        controls.Children.Add(KeyButton("Space", () => Insert(" "), width: 96));
+        controls.Children.Add(KeyButton("Paste", () => PasteRequested?.Invoke(this, EventArgs.Empty), width: 62));
+        controls.Children.Add(KeyButton("Back", Backspace, width: 58));
         controls.Children.Add(KeyButton("Enter", () => Accepted?.Invoke(this, EventArgs.Empty),
-            width: 68));
+            width: 62));
         _root.Children.Add(controls);
     }
 
@@ -164,6 +168,19 @@ public sealed class OnScreenKeyboard : Decorator
 
     private void Insert(string text)
     {
+        InsertExternalText(text);
+        if (_shift && _layer == LayerLetters)
+        {
+            _shift = false;
+            Build();
+            FocusControl(text == " " ? "Space" : text.ToLowerInvariant());
+        }
+    }
+
+    /// <summary>Inserts pasted text at the selection or caret, respecting the target limit.</summary>
+    /// <param name="text">Clipboard text to insert.</param>
+    public void InsertExternalText(string text)
+    {
         if (Target is not { } target)
         {
             return;
@@ -171,21 +188,16 @@ public sealed class OnScreenKeyboard : Decorator
         var current = target.Text ?? "";
         // Respect the caret rather than always appending: a mistyped character
         // in the middle of a long password is otherwise unfixable.
-        var caret = Math.Clamp(target.CaretIndex, 0, current.Length);
-        target.Text = current[..caret] + text + current[caret..];
-        target.CaretIndex = caret + text.Length;
-        // One-shot shift, the way every phone keyboard behaves.
-        if (_shift && _layer == LayerLetters)
-        {
-            _shift = false;
-            Build();
-            // The rebuild detaches the key that was just pressed, so focus has to
-            // be put back on its replacement — otherwise the gamepad cursor falls
-            // back to the first key in the window after every capital letter. The
-            // labels are lower case again now that the shift is cleared; the space
-            // bar is a control key and keeps its own label.
-            FocusControl(text == " " ? "Space" : text.ToLowerInvariant());
-        }
+        var start = Math.Clamp(Math.Min(target.SelectionStart, target.SelectionEnd), 0, current.Length);
+        var end = Math.Clamp(Math.Max(target.SelectionStart, target.SelectionEnd), start, current.Length);
+        var available = target.MaxLength > 0
+            ? Math.Max(0, target.MaxLength - (current.Length - (end - start)))
+            : text.Length;
+        var inserted = text[..Math.Min(text.Length, available)];
+        target.Text = current[..start] + inserted + current[end..];
+        target.CaretIndex = start + inserted.Length;
+        target.SelectionStart = target.CaretIndex;
+        target.SelectionEnd = target.CaretIndex;
     }
 
     private void Backspace()

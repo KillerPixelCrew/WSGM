@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Media;
 using Avalonia.Threading;
 using WSGM.Controls;
@@ -211,6 +212,22 @@ public abstract class OverlaySubView : UserControl
             var box = new TextBox { Text = current, MaxLength = maxLen, Margin = new Avalonia.Thickness(0, 0, 0, 6) };
             stack.Children.Add(box);
             var keyboard = new OnScreenKeyboard { Target = box };
+            keyboard.PasteRequested += async (_, _) =>
+            {
+                try
+                {
+                    var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+                    var text = clipboard is null ? null : await clipboard.GetTextAsync();
+                    if (!string.IsNullOrEmpty(text))
+                    {
+                        keyboard.InsertExternalText(text);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"{LogScope}: keyboard paste failed: {ex.Message}");
+                }
+            };
             keyboard.Accepted += (_, _) => { onAccept(box.Text ?? ""); Back(); };
             stack.Children.Add(keyboard);
             stack.Children.Add(PrimaryRow("Accept", "Save this text", Icons.Play,
