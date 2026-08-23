@@ -118,6 +118,14 @@ public static class SteamInputShim
     /// <summary>Gets whether Steam Input Management is on.</summary>
     public static bool Enabled => _enabled;
 
+    /// <summary>Returns the durable startup trace path written by the resident shim
+    /// in one Steam process. A per-process name preserves a failed boot trace when
+    /// the user subsequently starts Steam by hand.</summary>
+    /// <param name="processId">The Steam process identifier.</param>
+    /// <returns>The full per-user trace path.</returns>
+    internal static string StartupTracePath(int processId)
+        => Path.Combine(Log.Directory, $"steam-input-gate-{processId}.log");
+
     /// <summary>Gets the most recent deployment snapshot.</summary>
     public static SteamInputShimStatus LastStatus
     {

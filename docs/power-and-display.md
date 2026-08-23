@@ -21,11 +21,17 @@ Settings preserves a newer capture made while its window was open. HDR uses Disp
 advanced-color get/set packets against the path TARGET; never show or apply the flag merely because
 it was persisted when the currently active target reports no HDR support.
 
-**Mute while the screen is off** (`Shell\DisplayOffMuteService.cs`, `Interop\MessageWindow.cs`,
-config `MuteWhileDisplayOff`, default OFF, Settings → System → POWER — device-verified on the MSI
-Claw 2026-08-13): the companion to keep-awake, which deliberately lets the display time out while
-downloads continue — and Steam plays a sound on every finished download, into a dark room. The
-signal is
+**Mute during screen-off downloads** (`Shell\DisplayOffMuteService.cs`, `Shell\KeepAwakeService.cs`,
+`Interop\MessageWindow.cs`, config `MuteWhileDisplayOff`, default OFF, Settings → System → POWER —
+display notification device-verified on the MSI Claw 2026-08-13; download-aware policy implemented
+2026-08-22, device re-verification required): the companion to keep-awake, which deliberately lets
+the display time out while downloads continue — and Steam plays a sound on every finished download,
+into a dark room. The condition is the exact conjunction **setting enabled + this session's display
+off + Steam actively downloading**. Screen-off alone never mutes. An active download arriving while
+the display is already dark mutes then; display wake restores immediately; the first usable inactive
+Steam snapshot starts a 10 s restore grace, and a new active snapshot cancels it. A transient CEF
+failure preserves the last usable activity answer rather than inventing a completion, while a
+confirmed dead Steam process is inactive. The display signal is
 `RegisterPowerSettingNotification(hwnd, GUID_SESSION_DISPLAY_STATUS, DEVICE_NOTIFY_WINDOW_HANDLE)`
 on the existing process message-only window → `WM_POWERBROADCAST` / `PBT_POWERSETTINGCHANGE`,
 payload a DWORD `MONITOR_DISPLAY_STATE` (0 off, 1 on, 2 dimmed). Microsoft documents
@@ -60,20 +66,20 @@ gamepads or the power button, so a user who wakes with the power button and then
 controller (HandheldCompanion blocks controller wake by design) depends entirely on the
 notifications.
 
-**Coming back must not hang on any one notification** (reported 2026-08-19: a mute applied at
-screen-off while downloading never came back; `Core\DisplayMuteDecider.cs` now owns the pure
-mapping). Three rules make the restore path robust and none of them may be simplified away: the "we
-muted this" claim is cleared only after a **confirmed** unmute — the default endpoint is
-re-enumerated when the display wakes, and the old code cleared the flag _before_ attempting the
-read/toggle, so one transient `GetDefaultAudioEndpoint` failure stranded the mute permanently with
-nothing left to retry; a failed attempt is retried on a 2 s timer that runs **only** while the claim
-is outstanding; and while muted that timer also watches `GetLastInputInfo` against a baseline taken
-at mute time (wrap-safe signed tick compare), because keyboard/mouse/touch input means a lit screen,
-so the mute is undone even if the display-on notification never arrives. Restore direction is
-fail-safe and deliberately asymmetric with mute: only state 0 mutes, **every other value restores**
-— dimmed and any value Windows may add later — since an unrecognised state must never be the reason
-a device stays silent. The added `Mute on display off: user input while muted, …` line joins the
-remote test surface.
+**Coming back must not hang on any one notification** (reported 2026-08-19: a mute applied during a
+screen-off download never came back; `Core\DisplayMuteDecider.cs` now owns the pure display mapping
+and download/display reconciliation). Three rules make the restore path robust and none of them may
+be simplified away: the "we muted this" claim is cleared only after a **confirmed** unmute — the
+default endpoint is re-enumerated when the display wakes, and the old code cleared the flag _before_
+attempting the read/toggle, so one transient `GetDefaultAudioEndpoint` failure stranded the mute
+permanently with nothing left to retry; a failed attempt is retried on a 2 s timer that runs
+**only** while the claim is outstanding; and while muted that timer also watches `GetLastInputInfo`
+against a baseline taken at mute time (wrap-safe signed tick compare), because keyboard/mouse/touch
+input means a lit screen, so the mute is undone even if the display-on notification never arrives.
+Restore direction is fail-safe and deliberately asymmetric with mute: only state 0 establishes the
+dark half of the mute condition; **every other value restores** — dimmed and any value Windows may
+add later — since an unrecognised state must never be the reason a device stays silent. The added
+`Mute on display off: user input while muted, …` line joins the remote test surface.
 
 **Keep-awake wake lock** (`Core\WakeLock.cs`, `Core\SteamDownloads.cs`, `Core\KeepAwakeDecider.cs`,
 `Shell\KeepAwakeService.cs` — device-verified on the MSI Claw 2026-08-12, including the download
@@ -92,14 +98,17 @@ wins. Two independent holds, each its own request so `powercfg /requests` attrib
 subscribe/unsubscribe; fires immediately with a snapshot, live-verified; active =
 `update_state != "None" && !paused`, and the Windows client's active state string is `Downloading`,
 NOT decky's Linux-documented `Updating`). Release is debounced (`KeepAwakeDecider`, 2 consecutive
-inactive polls) so queue gaps don't flap the hold; unreachable polls count as inactive so a dead
-Steam can't pin the device awake. `CefConfig.DownloadKeepAwake` (default on, Settings row on the
-Integration tab, gated by the CEF master switch AND off in `--overlay-test`, whose safe-mode
-contract excludes autonomous Steam traffic) gates only the automatic side. Hold transitions and the
-config apply share one gate — a disable landing mid-poll must not lose to the stale sample, or the
-hold sticks for the session. The manual side is a **three-state cycle** (Off → Standby lock →
-Standby+Display lock → Off), holding a separate DisplayRequired request for the third state —
-acquired-before-released so a step never has a lock gap. Preserve the
+inactive polls) so queue gaps don't flap the hold; unreachable polls count as inactive for that
+wake-lock debounce so a dead Steam cannot pin the device awake. The separate activity answer
+consumed by display muting is stricter: an unreachable live client preserves the prior answer, and
+only a usable idle snapshot or dead process ends activity. `CefConfig.DownloadKeepAwake` (default
+on, Settings row on the Integration tab, gated by the CEF master switch AND off in `--overlay-test`,
+whose safe-mode contract excludes autonomous Steam traffic) gates only the automatic hold. The
+shared poll remains active while either that hold or download-aware muting consumes it. Hold
+transitions and the config apply share one gate — a disable landing mid-poll must not lose to the
+stale sample, or the hold sticks for the session. The manual side is a **three-state cycle** (Off →
+Standby lock → Standby+Display lock → Off), holding a separate DisplayRequired request for the third
+state — acquired-before-released so a step never has a lock gap. Preserve the
 `Keep awake: … hold acquired/released / manual mode …` log lines — they are the remote test surface.
 The row also carries a **WakeWatch-style indicator dot** (the maintainer's WakeWatch tray tool,
 deliberately the same color vocabulary): green free / yellow standby-blocked / red display-pinned /

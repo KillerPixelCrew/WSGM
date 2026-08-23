@@ -24,6 +24,31 @@ internal static class Program
     internal const string DisabledUacFailureMessage = NoMediumTokenMarker
         + "; Task Scheduler did not provide a medium-integrity token.";
 
+    /// <summary>Decides whether the elevated parent may launch the target itself after
+    /// the helper reported a failure. The marker alone is not enough: it arrives over an
+    /// unauthenticated pipe, so anything able to connect could ask this elevated process
+    /// to start an arbitrary command at high integrity — the exact outcome
+    /// <c>--deelevate</c> exists to prevent. The parent's OWN token is the second,
+    /// unspoofable condition.</summary>
+    /// <param name="error">The failure text the medium-integrity helper reported.</param>
+    /// <param name="hasLinkedLimitedToken">Whether this process holds a full split token
+    /// with a linked limited token (<see cref="Elevation.HasLinkedLimitedToken"/>);
+    /// <c>null</c> when the token could not be queried.</param>
+    /// <returns><c>true</c> when the target may be launched as-is.</returns>
+    // The parent reads its OWN token rather than the peer's on purpose. Identifying the
+    // peer (GetNamedPipeClientProcessId + OpenProcess) races the genuine child, which
+    // exits milliseconds after writing its report, and the pipe DACL grants the user SID
+    // full control by device mandate (docs\elevation.md) so the peer can never be
+    // authenticated anyway. The parent's token answers the only question that matters —
+    // "could this machine have produced a limited token at all?" — and it answers it the
+    // same way for the built-in Administrator and UAC-off cases the fail-open serves:
+    // both report TokenElevationTypeDefault, so the launch still goes ahead. An
+    // unqueryable token (null) also keeps failing open; only a confirmed split token,
+    // where de-elevation genuinely was possible, refuses.
+    internal static bool ShouldFailOpen(string error, bool? hasLinkedLimitedToken)
+        => error.Contains(NoMediumTokenMarker, StringComparison.Ordinal)
+            && hasLinkedLimitedToken != true;
+
     private static async Task<int> Main(string[] args)
     {
         try
@@ -281,6 +306,26 @@ internal static class Program
         // have run without the wrapper.
         if (!error.Contains(NoMediumTokenMarker, StringComparison.Ordinal))
         {
+            return 1;
+        }
+
+        // The marker is the peer's word, so it decides nothing on its own: confirm
+        // against this process's own token that no limited token existed to hand out.
+        // Checking the marker first keeps the token query off the common path and
+        // leaves the non-marker outcome byte-identical to what it always was.
+        var hasLinkedLimitedToken = Elevation.HasLinkedLimitedToken();
+        if (!ShouldFailOpen(error, hasLinkedLimitedToken))
+        {
+            LaunchLog.Error(
+                "Refusing to launch the game from the elevated wrapper: the helper reported " +
+                $"\"{NoMediumTokenMarker}\", but this process's TOKEN_ELEVATION_TYPE is " +
+                "TokenElevationTypeFull (a full split token WITH a linked limited token, " +
+                $"elevated={Elevation.IsCurrentProcessElevated()?.ToString() ?? "unknown"}), so " +
+                "de-elevation was possible and the report cannot be trusted.");
+            Console.Error.WriteLine(
+                "De-elevation failed and the reported reason does not match this machine, so the "
+                + "game was not started elevated. Remove --deelevate from this game's launch "
+                + "options if you want it to run without de-elevation.");
             return 1;
         }
 

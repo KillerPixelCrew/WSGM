@@ -59,6 +59,17 @@ public partial class OverlayWindow : Window
     /// <summary>Raised when the overlay is dismissed without another action.</summary>
     public event Action? Dismissed;
 
+    /// <summary>Raised with <c>true</c> while a modal system dialog owns the screen,
+    /// and <c>false</c> once it closes.</summary>
+    /// <remarks>
+    /// A system dialog is its own window OUTSIDE the bar's rectangle, so for its
+    /// lifetime the controller must suspend tap-outside dismissal and gamepad
+    /// navigation. Without this the first touch inside the file picker read as a tap
+    /// outside the bar, closed it, and cancelled the whole flow (user-reproduced);
+    /// a B press would likewise have driven the bar hidden behind the dialog.
+    /// </remarks>
+    public event Action<bool>? SystemDialogActive;
+
     private bool _confirmCloseLauncher;
 
     /// <summary>Set once this window instance is gone. Post-action feedback delays
@@ -535,30 +546,76 @@ public partial class OverlayWindow : Window
 
     private async void OnPickCustomLaunchAction(object? sender, RoutedEventArgs e)
     {
-        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        try
         {
-            Title = "Choose a custom launch action",
-            AllowMultiple = false,
-            FileTypeFilter =
-            [
-                new FilePickerFileType("Launch actions")
+            IReadOnlyList<IStorageFile> files;
+            // The picker is a separate top-level window, so every touch in it lands
+            // outside the bar. Suspend the controller's tap-outside dismissal (and
+            // the gamepad driving the bar behind the dialog) until it closes.
+            SystemDialogActive?.Invoke(true);
+            try
+            {
+                files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
                 {
-                    Patterns = ["*.exe", "*.cmd", "*.bat", "*.ps1"],
-                },
-            ],
-        });
-        if (_closed || files.Count == 0 || !files[0].Path.IsFile)
-        {
-            return;
+                    Title = "Choose a custom launch action",
+                    AllowMultiple = false,
+                    FileTypeFilter =
+                    [
+                        new FilePickerFileType("Launch actions")
+                        {
+                            Patterns = ["*.exe", "*.cmd", "*.bat", "*.ps1"],
+                        },
+                    ],
+                });
+            }
+            finally
+            {
+                SystemDialogActive?.Invoke(false);
+            }
+            if (_closed || files.Count == 0 || !files[0].Path.IsFile)
+            {
+                return;
+            }
+            var path = files[0].Path.LocalPath;
+            if (!SteamCustomLaunchCommand.IsSupported(path))
+            {
+                CustomLaunchButton.Title = "Unsupported file type";
+                return;
+            }
+            LaunchWrapperHost.OpenCustom(path, await ResolveCurrentGameAsync(CustomLaunchButton));
+            if (_closed)
+            {
+                return;
+            }
+            EnterLaunchWrapperSubView();
         }
-        var path = files[0].Path.LocalPath;
-        if (!SteamCustomLaunchCommand.IsSupported(path))
+        catch (Exception ex)
         {
-            CustomLaunchButton.Title = "Unsupported file type";
-            return;
+            if (!_closed)
+            {
+                CustomLaunchButton.Title = "Couldn't choose a file";
+            }
+            Log.Error("Could not pick a custom launch action", ex);
         }
-        LaunchWrapperHost.OpenCustom(path);
-        EnterLaunchWrapperSubView();
+    }
+
+    /// <summary>Resolves the game whose Steam page is on screen, so a custom action
+    /// applies to it directly. Answers <c>null</c> for the library root and for a
+    /// Steam that reported no current app — the caller then asks which game, exactly
+    /// as <see cref="ApplyLaunchFixAsync"/> does for the wrapper buttons.</summary>
+    private async Task<SteamCollections.AppInfo?> ResolveCurrentGameAsync(CardButton button)
+    {
+        button.Title = "Asking Steam…";
+        var appId = await SteamPageBridge.GetCurrentAppIdAsync();
+        if (_closed || appId <= 0)
+        {
+            return null;
+        }
+        var match = (await SafeGameLookupAsync()).FirstOrDefault(g => g.AppId == appId);
+        // A game Steam knows about but the collection store did not list still
+        // resolves: the id came from the page, and the shortcut flag from its range.
+        return match ?? new SteamCollections.AppInfo(
+            appId, appId.ToString(CultureInfo.InvariantCulture), appId >= 0x80000000L);
     }
 
     private void OnCustomLaunchGamePicked(
@@ -576,16 +633,16 @@ public partial class OverlayWindow : Window
                 return;
             }
             var details = await SteamLaunchConfig.ReadAsync(game.AppId);
-            if (details is null)
+            if (details is not { } current)
             {
                 button.Title = "Steam didn't answer";
                 return;
             }
             var existing = await LibraryTabManager.FindLaunchWrapperAsync(game.AppId);
             var originals = existing is null
-                ? (details.ShortcutTarget,
-                    game.Shortcut ? details.ShortcutArguments : details.LaunchOptions,
-                    details.ShortcutStartDir)
+                ? (current.ShortcutTarget,
+                    game.Shortcut ? current.ShortcutArguments : current.LaunchOptions,
+                    current.ShortcutStartDir)
                 : (existing.OriginalTarget, existing.OriginalLaunchOptions, existing.OriginalStartDir);
             var snapshot = existing ?? new LaunchWrapperConfig
             {
@@ -774,13 +831,13 @@ public partial class OverlayWindow : Window
                     return;
                 }
                 var snapshot = existing ?? new LaunchWrapperConfig
-                    {
-                        AppId = appId,
-                        IsShortcut = isShortcut,
-                        OriginalTarget = originals.Target,
-                        OriginalLaunchOptions = originals.LaunchOptions,
-                        OriginalStartDir = originals.StartDir,
-                    };
+                {
+                    AppId = appId,
+                    IsShortcut = isShortcut,
+                    OriginalTarget = originals.Target,
+                    OriginalLaunchOptions = originals.LaunchOptions,
+                    OriginalStartDir = originals.StartDir,
+                };
                 snapshot.Kind = LaunchConfigurationKind.Wrapper;
                 snapshot.Mode = mode;
                 snapshot.CustomActionPath = "";

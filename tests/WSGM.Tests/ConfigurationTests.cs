@@ -969,4 +969,20 @@ public sealed class ConfigurationTests
 
         Assert.True(QuickSetup.ShouldShow(config));
     }
+
+    /// <summary>The opt-out has to survive a round trip on its own: it is read once
+    /// when a focused surface opens, so a value that failed to persist would silently
+    /// re-enable the lease at the next overlay open rather than at some visible moment.
+    /// </summary>
+    [Fact]
+    public void AnExplicitlyDisabledSteamInputLeaseSurvivesARoundTrip()
+    {
+        var original = new AppConfig { SteamInputLeaseEnabled = false };
+
+        var json = JsonSerializer.Serialize(original, ConfigJsonContext.Default.AppConfig);
+        var restored = JsonSerializer.Deserialize(json, ConfigJsonContext.Default.AppConfig);
+
+        Assert.False(restored!.SteamInputLeaseEnabled);
+        Assert.True(restored.SteamInputManagementEnabled);
+    }
 }

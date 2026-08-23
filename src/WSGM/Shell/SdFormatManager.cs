@@ -29,9 +29,15 @@ namespace WSGM.Shell;
 ///
 /// Enumeration is disk-level too (the eject list only sees mounted volumes) and
 /// runs off-thread on demand — no background polling. Rows reconcile in place
-/// (gamepad-cursor discipline). The destructive step re-verifies the target on
-/// fresh handles first: same disk number, same size, same bus — closing the
-/// card-swap race between picking and confirming.</summary>
+/// (gamepad-cursor discipline). EVERY destructive diskpart run re-verifies the
+/// target on fresh handles first: same disk number, same size, same bus, still
+/// hot-pluggable, still not a system disk. One check up front is NOT enough —
+/// the pre-erase library removal can spend its whole CEF budget, the volume wait
+/// runs for up to 20 s, and each run is a fresh diskpart that resolves
+/// `select disk N` again. What no re-verification can see is a swap to a card of
+/// the SAME capacity in the same reader: the reader owns the device instance, the
+/// bus type and the hotplug flags, so capacity is the only discriminator left
+/// (see <see cref="CompareIdentity"/>).</summary>
 public sealed class SdFormatManager : INotifyPropertyChanged
 {
     /// <summary>Raised after a status property changes.</summary>
@@ -462,6 +468,24 @@ public sealed class SdFormatManager : INotifyPropertyChanged
             CardAcfWatcher.SuspendAll();
 
             var keepLetter = entry.PreferredLetter;
+
+            // Re-verify on fresh handles right before the only irreversible verb.
+            // VerifyTarget ran before RemoveExistingLibrary above, which can spend its
+            // whole CEF budget — long enough for a card to be swapped in the reader.
+            var beforeErase = await Task.Run(() => ReadTargetIdentity(entry));
+            LogReverification(entry, beforeErase, ReverifiedStages[0]);
+            if (beforeErase.Identity == TargetIdentity.Changed)
+            {
+                // Nothing has been erased yet, so the registration this run removed
+                // belongs to a card that is still intact: put it back, exactly as the
+                // diskpart-failure branch below does.
+                await Task.Run(() => RestoreRemovedLibraryIfCardSurvived(
+                    entry, removedContentId, removedLabel));
+                Finish("The drive changed since it was listed — refresh and pick it again.",
+                    false);
+                return;
+            }
+
             var (partitionExit, partitionOutput) = await RunDiskpart(
                 BuildDiskpartPartitionScript(entry.DiskNumber));
             if (partitionExit != 0)
@@ -522,6 +546,18 @@ public sealed class SdFormatManager : INotifyPropertyChanged
                         + $"Output:\n{formatOutput}");
                     await Task.Delay(FormatRetryDelayMs);
                 }
+                // Each attempt is a FRESH diskpart that resolves `select disk N` again,
+                // and the volume wait before the loop can have run for 20 s: re-verify
+                // per attempt, or a card swapped in during the wait gets quick-formatted.
+                var beforeFormat = await Task.Run(() => ReadTargetIdentity(entry));
+                LogReverification(entry, beforeFormat, ReverifiedStages[1]);
+                if (beforeFormat.Identity == TargetIdentity.Changed)
+                {
+                    // No compensation on this path: the erase already destroyed the old
+                    // library, which is why removedContentId/removedLabel were cleared.
+                    Finish(CardChangedMidRunMessage, false);
+                    return;
+                }
                 (formatExit, formatOutput) = await RunDiskpart(formatScript);
                 if (formatExit == 0)
                 {
@@ -549,6 +585,18 @@ public sealed class SdFormatManager : INotifyPropertyChanged
                     + (letter is null ? "no letter" : $"{letter}:")
                     + " after the format; assigning "
                     + (keepLetter is >= 'A' and <= 'Z' ? $"{keepLetter}:." : "a letter."));
+
+                // Last re-verify: the assign run pins the OLD card's letter, so on a
+                // swapped card it would hand the new media the letter every emulator and
+                // library path on this machine points at. No compensation here either.
+                var beforeAssign = await Task.Run(() => ReadTargetIdentity(entry));
+                LogReverification(entry, beforeAssign, ReverifiedStages[2]);
+                if (beforeAssign.Identity == TargetIdentity.Changed)
+                {
+                    Finish(CardChangedMidRunMessage, false);
+                    return;
+                }
+
                 var (assignExit, assignOutput) = await RunDiskpart(
                     BuildDiskpartAssignScript(entry.DiskNumber, keepLetter));
                 if (assignExit != 0)
@@ -642,6 +690,151 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         }
         return null;
     }
+
+    /// <summary>What a fresh look at the target's disk number says about the media
+    /// sitting there now, compared with the identity the run started from.</summary>
+    internal enum TargetIdentity
+    {
+        /// <summary>Everything that could be read still matches the picked card.</summary>
+        Same,
+
+        /// <summary>The disk did not answer its identity queries. NOT a mismatch: a
+        /// reader whose media is momentarily not ready reports exactly this, and the
+        /// run must carry on so the existing waits and retries can still rescue it.</summary>
+        Unreadable,
+
+        /// <summary>The disk number now belongs to something else — a different
+        /// capacity or bus, no longer removable media, or a system disk.</summary>
+        Changed,
+    }
+
+    /// <summary>Decides whether the disk behind the target's number is still the card
+    /// the user picked. Pure, so the ordering below is testable.
+    ///
+    /// A query FAILURE is never a mismatch. <see cref="NativeStorage.GetDiskLength"/>
+    /// returns 0 and <see cref="NativeStorage.TryGetDeviceDescriptor"/> reports -1
+    /// when the device does not answer, which is what a card reader looks like while
+    /// its media settles — aborting on those would break formats that succeed today.
+    /// Only a positively DIFFERENT identity aborts.
+    ///
+    /// A same-capacity card swapped into the same reader is indistinguishable here:
+    /// the reader — not the card — owns the device instance, the bus type and the
+    /// hotplug flags, so capacity is the only discriminator this can use. This
+    /// narrows the swap window; it does not close it.</summary>
+    /// <param name="opened">The disk handle opened and answered its hotplug query.</param>
+    /// <param name="systemDisk">The disk number now hosts Windows or WSGM.</param>
+    /// <param name="removable">It still classifies as hot-pluggable/removable media.</param>
+    /// <param name="size">The disk length just read; 0 means the query failed.</param>
+    /// <param name="busType">The STORAGE_BUS_TYPE just read; -1 means the query failed.</param>
+    /// <param name="expectedSize">The size the run started from.</param>
+    /// <param name="expectedBusType">The bus type the run started from.</param>
+    internal static TargetIdentity CompareIdentity(
+        bool opened, bool systemDisk, bool removable, long size, int busType,
+        long expectedSize, int expectedBusType)
+    {
+        if (systemDisk)
+        {
+            // First and unconditional: a disk number that now points at system
+            // storage must abort even when nothing else about it could be read.
+            return TargetIdentity.Changed;
+        }
+        if (!opened || size <= 0)
+        {
+            return TargetIdentity.Unreadable;
+        }
+        // The sentinel tolerance is SYMMETRIC. `size == 0` and `busType == -1` are real
+        // query-failure values on BOTH sides: the baseline is captured at enumeration
+        // (see the FormatTargetEntry construction), where a reader that did not answer
+        // records the same sentinels and VerifyTarget still lets the run start. Guarding
+        // only the fresh read would turn a reader with an intermittent
+        // IOCTL_STORAGE_QUERY_PROPERTY into a mid-run abort — after `clean` has already
+        // erased the card — on a card that never moved. A fact we never had cannot
+        // contradict one we just read.
+        return !removable
+            || (size > 0 && expectedSize > 0 && size != expectedSize)
+            || (busType >= 0 && expectedBusType >= 0 && busType != expectedBusType)
+            ? TargetIdentity.Changed
+            : TargetIdentity.Same;
+    }
+
+    /// <summary>The destructive diskpart runs, in the order FormatAsync issues them.
+    /// Each one re-verifies the target's identity first; the array is what a test can
+    /// pin, because the guards themselves sit on a device-only flow that is never
+    /// automated. Dropping a stage here fails <c>SdFormatTests</c>.</summary>
+    internal static readonly string[] ReverifiedStages = ["clean/partition", "format", "assign"];
+
+    /// <summary>One re-verification pass: the verdict plus the raw facts behind it,
+    /// so an abort can name what differed in a pasted log.</summary>
+    /// <param name="Identity">The verdict.</param>
+    /// <param name="SystemDisk">Whether the disk number now hosts Windows or WSGM.</param>
+    /// <param name="Removable">Whether it still reports as removable media.</param>
+    /// <param name="SizeBytes">The size just read, 0 when the query failed.</param>
+    /// <param name="BusType">The bus type just read, -1 when the query failed.</param>
+    private readonly record struct TargetIdentitySnapshot(
+        TargetIdentity Identity, bool SystemDisk, bool Removable, long SizeBytes, int BusType);
+
+    /// <summary>Re-reads the target's identity on FRESH handles immediately before one
+    /// destructive diskpart run. Disk handle only — never a volume handle: an open
+    /// volume handle is exactly what makes diskpart's own volume lock fail, which is
+    /// why <see cref="CardAcfWatcher.SuspendAll"/> is called before the erase at all.
+    /// Identity predicates only (see <see cref="CompareIdentity"/>); nothing here may
+    /// read the filesystem, because `clean` legitimately erases it before the second
+    /// and third runs. Worker thread.</summary>
+    /// <param name="entry">The target being formatted.</param>
+    private static TargetIdentitySnapshot ReadTargetIdentity(FormatTargetEntry entry)
+    {
+        var systemDisk = RemovableDriveManager.ResolveSystemDisks().Contains(entry.DiskNumber);
+        // Declared up front: an out-var introduced in the right operand of && is not
+        // definitely assigned afterwards (CS0165, an error under the Release gate).
+        var opened = false;
+        var removable = false;
+        var size = 0L;
+        var busType = -1;
+        using var handle = NativeStorage.OpenDiskForRead(entry.DiskNumber);
+        if (!handle.IsInvalid
+            && NativeStorage.TryGetHotplugInfo(handle, out var media, out var hotplug))
+        {
+            opened = true;
+            removable = RemovableDriveManager.Classify(hotplug, media) is not null;
+            size = NativeStorage.GetDiskLength(handle);
+            NativeStorage.TryGetDeviceDescriptor(handle, out busType, out _);
+        }
+        return new TargetIdentitySnapshot(
+            CompareIdentity(opened, systemDisk, removable, size, busType,
+                entry.SizeBytes, entry.BusType),
+            systemDisk, removable, size, busType);
+    }
+
+    /// <summary>Logs one re-verification verdict. A mismatch is an abort reason and
+    /// names every fact that differs; an unreadable disk does NOT stop the run but is
+    /// logged too, so a pasted log always says which of the two happened.</summary>
+    /// <param name="entry">The target being formatted.</param>
+    /// <param name="snapshot">What the re-verification saw.</param>
+    /// <param name="stage">The diskpart run that was about to be issued.</param>
+    private static void LogReverification(
+        FormatTargetEntry entry, TargetIdentitySnapshot snapshot, string stage)
+    {
+        if (snapshot.Identity == TargetIdentity.Changed)
+        {
+            Log.Warn($"Format: disk {entry.DiskNumber} is not the card that was picked — "
+                + $"aborting before the {stage} run (system disk {snapshot.SystemDisk}, "
+                + $"removable {snapshot.Removable}, size {entry.SizeBytes}->{snapshot.SizeBytes}, "
+                + $"bus {entry.BusType}->{snapshot.BusType}).");
+        }
+        else if (snapshot.Identity == TargetIdentity.Unreadable)
+        {
+            Log.Info($"Format: disk {entry.DiskNumber} did not answer the identity re-check "
+                + $"before the {stage} run (size {snapshot.SizeBytes}, bus {snapshot.BusType}); "
+                + "continuing — a reader that is not ready yet is not a swapped card.");
+        }
+    }
+
+    /// <summary>The refusal when a re-verification BETWEEN the destructive runs finds a
+    /// different card: the run stops where it is rather than quick-formatting media the
+    /// user never picked, or pinning the old card's drive letter onto it.</summary>
+    private const string CardChangedMidRunMessage =
+        "The card changed while it was being formatted, so WSGM stopped. Reinsert the card "
+        + "you want to format and start again.";
 
     /// <summary>What the pre-format removal did: the user-facing refusal when the
     /// old library cannot safely be removed, and — only when a registration was
@@ -917,6 +1110,32 @@ public sealed class SdFormatManager : INotifyPropertyChanged
         if (string.IsNullOrEmpty(contentId)) { return; }
         var marker = FindExistingMarker(entry);
         if (marker is null) { return; }
+        // FindExistingMarker resolves by LOCATION (the letters currently on this disk
+        // number), not by identity. The pre-erase abort above reaches this after
+        // PROVING the media behind that disk number is a different card, so without
+        // this gate the compensation would register the swapped-in card under the
+        // removed card's contentid, label and size. A no-op for the diskpart-failure
+        // callers: their removedContentId was read out of this very marker.
+        string? markerContentId = null;
+        try
+        {
+            // The card can be gone by now — that is the scenario this guard exists for,
+            // so an unreadable marker must refuse the restore rather than fault the run.
+            markerContentId = SteamLibraryVdf
+                .ValuesOf(File.ReadAllText(marker), "contentid")
+                .FirstOrDefault();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log.Warn($"Format: could not read {marker} to confirm the library identity: {ex.Message}");
+        }
+        if (!string.Equals(markerContentId, contentId, StringComparison.Ordinal))
+        {
+            Log.Warn(
+                $"Format: not restoring library {contentId} — the marker now on disk "
+                    + $"{entry.DiskNumber} reports contentid {markerContentId ?? "(none)"}.");
+            return;
+        }
         var libraryPath = Path.GetDirectoryName(marker)!;
         if (Steam.IsRunning)
         {

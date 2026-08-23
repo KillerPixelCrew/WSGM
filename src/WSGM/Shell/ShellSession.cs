@@ -38,7 +38,7 @@ public sealed class ShellSession
     private CancellationTokenSource _tabBootSyncCancellation = new();
     // True for the direct game-mode boot; the desktop-resume paths clear it, and
     // DesktopModeStarting/GameModeEntered keep it current afterwards.
-    private bool _inGameMode = true;
+    private volatile bool _inGameMode = true;
     // Last applied master CEF state, so a reload can tell an on->off transition
     // (which must retract first) from a repeat of the same value. Volatile: the
     // retraction task reads it to decide whether closing the choke point is still
@@ -93,7 +93,12 @@ public sealed class ShellSession
         // Steam client over CEF (and would write the debug flag into a Steam install
         // that never opted in), which the safe local modes must not do. The manual
         // toggle still works there — it only takes a local power request.
-        _keepAwake = KeepAwakeService.StartNew(_monitor, AutoKeepAwakeEnabled(_config));
+        _keepAwake = KeepAwakeService.StartNew(
+            _monitor,
+            AutoKeepAwakeEnabled(_config),
+            DownloadMonitoringEnabled(_config),
+            () => !_inGameMode || SteamUiReadiness.IsReady);
+        _keepAwake.DownloadActivityChanged += OnDownloadActivityChanged;
         // --overlay-test shares the Settings preview's exposure: it has no boot takeover
         // and no watchdog behind it, so the mode row must not offer a real transition.
         _overlay = new OverlayController(_config, _monitor, _modes, _keepAwake, previewOnly: _overlayTestOnly);
@@ -108,10 +113,7 @@ public sealed class ShellSession
             _tabBootSyncCancellation.Cancel();
             // Tabs and the badge are game-mode surfaces; the ACF watcher only exists
             // to keep them fresh, so it stands down with them.
-            _cardAcfWatcher?.Dispose();
-            _cardAcfWatcher = null;
-            _cardVolumes?.Dispose();
-            _cardVolumes = null;
+            ApplyCardServices(gameModeActive: false);
             _networkIndicator?.Dispose();
             _networkIndicator = null;
             _downloadSortCancellation.Cancel();
@@ -133,24 +135,7 @@ public sealed class ShellSession
                 _overlay?.AttachTrayHost(_trayHost);
             }
             _volumeButtons?.SetGameModeActive(true);
-            _cardAcfWatcher ??= CardAcfWatcher.StartNew();
-            // Card swaps are reconciled against Steam's install-folder list on the
-            // volume notification itself. Gated on the CEF master switch because the
-            // reconcile drives Steam's own front-end, and skipped in overlay-test
-            // mode, whose contract excludes autonomous Steam traffic.
-            if (!_overlayTestOnly && _cefMasterEnabled)
-            {
-                _cardVolumes ??= CardVolumeMonitor.StartNew(
-                    Interop.MessageWindow.Create(),
-                    () => _cefMasterEnabled,
-                    () =>
-                    {
-                        // A changed library list moves games between cards, so the
-                        // tabs and the in-page badge are both stale now.
-                        Avalonia.Threading.Dispatcher.UIThread.Post(KickTabBootSync);
-                        return System.Threading.Tasks.Task.CompletedTask;
-                    });
-            }
+            ApplyCardServices(gameModeActive: true);
             if (!_overlayTestOnly && _wifiIndicatorEnabled)
             {
                 _networkIndicator ??= NetworkIndicatorService.StartNew();
@@ -196,6 +181,18 @@ public sealed class ShellSession
             () => DisplayScale.GetUiScalePercent(_config) / 100.0);
         _displayMute = new DisplayOffMuteService(MessageWindow.Create());
         _displayMute.ApplyConfig(_config.MuteWhileDisplayOff);
+        _displayMute.SetDownloadActive(_keepAwake.DownloadActive);
+        if (_config.MuteWhileDisplayOff && !_config.Cef.Enabled)
+        {
+            // The mute only engages while Steam reports a download, and that comes
+            // from the CEF poll. An upgraded config can carry MuteWhileDisplayOff
+            // true with Steam integration off, where every log line lives inside the
+            // poll that never runs — so say it once here, or a pasted log shows
+            // nothing at all for a feature the user can see switched on.
+            Log.Warn(
+                "Mute screen-off downloads is enabled but Steam integration is off; "
+                + "download state is unavailable, so muting will never engage.");
+        }
 
         // Refresh boot.json every session start so a stale Elevate/ExePath heals
         // itself before the next sign-in.
@@ -237,6 +234,10 @@ public sealed class ShellSession
         // to the final screen metrics.
         _modes.ApplyGameModePosture();
         _volumeButtons.SetGameModeActive(true);
+        // Initial game mode does not raise GameModeEntered. Start the same card
+        // services explicitly or an entire direct-boot session misses every eject
+        // and insert (device log, 2026-08-22).
+        ApplyCardServices(gameModeActive: true);
         // Game-mode logon boot: host the tray now, before startup apps launch —
         // their Shell_NotifyIcon registrations need a living Shell_TrayWnd or
         // they only get an icon after the TaskbarCreated-driven retry (which
@@ -485,6 +486,9 @@ public sealed class ShellSession
                 _overlay?.AttachTrayHost(_trayHost);
             }
             _volumeButtons?.SetGameModeActive(true);
+            // The service takeover is another initial entry, not a SessionModes
+            // transition, so GameModeEntered does not initialize card services.
+            ApplyCardServices(gameModeActive: true);
             return true;
         });
         if (!enteredGameMode || cancellationToken.IsCancellationRequested)
@@ -585,11 +589,26 @@ public sealed class ShellSession
         var token = _downloadSortCancellation.Token;
         _ = Task.Run(async () =>
         {
+            var waitingForBigPicture = false;
             try
             {
                 for (var attempt = 0; attempt < 30 && !token.IsCancellationRequested; attempt++)
                 {
                     await Task.Delay(attempt == 0 ? 3000 : 5000, token).ConfigureAwait(false);
+                    if (!SteamUiReadiness.IsReady)
+                    {
+                        if (!waitingForBigPicture)
+                        {
+                            waitingForBigPicture = true;
+                            Log.Info("Download queue sort (boot): waiting for the Big Picture window.");
+                        }
+                        continue;
+                    }
+                    if (waitingForBigPicture)
+                    {
+                        waitingForBigPicture = false;
+                        Log.Info("Download queue sort (boot): Big Picture is ready; probing CEF.");
+                    }
                     var probe = await SteamCef.EvaluateAsync(
                         "JSON.stringify(!!window.webpackChunksteamui)",
                         TimeSpan.FromSeconds(4), token).ConfigureAwait(false);
@@ -695,12 +714,16 @@ public sealed class ShellSession
                 // other caller.
                 Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                 {
+                    ApplyCardServices(_inGameMode);
                     KickTabBootSync();
                     KickDownloadSort();
                 });
             });
             return;
         }
+        // The volume monitor owns autonomous CEF traffic. Stop it as soon as the
+        // master gate closes; the ACF watcher remains because it is Steam-file only.
+        ApplyCardServices(_inGameMode);
         // A boot sync still in its retry loop would otherwise re-inject the tabs
         // between the awaited DisableAsync and the choke point closing behind it,
         // stranding them until Steam restarts (the desktop trip cancels for the
@@ -748,6 +771,65 @@ public sealed class ShellSession
     /// <param name="config">The configuration to read the gates from.</param>
     private bool AutoKeepAwakeEnabled(AppConfig config)
         => !_overlayTestOnly && config.Cef.Enabled && config.Cef.DownloadKeepAwake;
+
+    /// <summary>Whether the shared Steam download poll has at least one consumer.
+    /// The mute feature reuses the same answer even when its automatic wake lock is
+    /// disabled; overlay-test still excludes all autonomous Steam traffic.</summary>
+    /// <param name="config">The configuration to read the gates from.</param>
+    private bool DownloadMonitoringEnabled(AppConfig config)
+        => !_overlayTestOnly
+            && config.Cef.Enabled
+            && (config.Cef.DownloadKeepAwake || config.MuteWhileDisplayOff);
+
+    /// <summary>Marshals the shared poller's download transition onto the UI thread,
+    /// where the display mute service and its timers are owned.</summary>
+    /// <param name="active">Whether Steam reports an active download.</param>
+    private void OnDownloadActivityChanged(bool active)
+        => Avalonia.Threading.Dispatcher.UIThread.Post(
+            () => _displayMute?.SetDownloadActive(active));
+
+    /// <summary>Starts or stops the game-mode card services from one shared policy.</summary>
+    /// <remarks>
+    /// Initial direct boot and a later desktop-to-game transition are separate entry
+    /// paths: only the latter raises <c>GameModeEntered</c>. Keeping their activation
+    /// here prevents one path from silently losing volume notifications again.
+    /// </remarks>
+    /// <param name="gameModeActive">Whether the destination/current mode is game mode.</param>
+    private void ApplyCardServices(bool gameModeActive)
+    {
+        var state = GameModeCardServicePolicy.Decide(
+            gameModeActive, _overlayTestOnly, _cefMasterEnabled);
+
+        if (state.WatchAppManifests)
+        {
+            _cardAcfWatcher ??= CardAcfWatcher.StartNew();
+        }
+        else
+        {
+            _cardAcfWatcher?.Dispose();
+            _cardAcfWatcher = null;
+        }
+
+        if (state.ReconcileSteamLibraries)
+        {
+            // Card swaps are reconciled against Steam's install-folder list on the
+            // volume notification itself. The callback refreshes both consumers of
+            // the changed library membership after Steam accepts the reconcile.
+            _cardVolumes ??= CardVolumeMonitor.StartNew(
+                MessageWindow.Create(),
+                () => _cefMasterEnabled,
+                () =>
+                {
+                    Avalonia.Threading.Dispatcher.UIThread.Post(KickTabBootSync);
+                    return Task.CompletedTask;
+                });
+        }
+        else
+        {
+            _cardVolumes?.Dispose();
+            _cardVolumes = null;
+        }
+    }
 
     /// <summary>Starts or stops the Big Picture Wi-Fi indicator to match a reloaded
     /// configuration. Without this the feed keeps running (and keeps being recreated
@@ -813,7 +895,9 @@ public sealed class ShellSession
                         _displayMute?.ApplyConfig(config.MuteWhileDisplayOff);
                         _overlay?.ApplyConfig(config);
                         _startupWatcher?.Apply(config.StartupApps);
-                        _keepAwake?.ApplyConfig(AutoKeepAwakeEnabled(config));
+                        _keepAwake?.ApplyConfig(
+                            AutoKeepAwakeEnabled(config),
+                            DownloadMonitoringEnabled(config));
                     });
                 });
             // Changed/Renamed fire on threadpool threads — the swap must be locked

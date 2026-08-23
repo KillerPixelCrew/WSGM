@@ -98,4 +98,23 @@ public static class SteamDownloads
     /// the hold rather than flapping it.</summary>
     internal static bool IsActive(string state, bool paused)
         => state.Length > 0 && state != "None" && !paused;
+
+    /// <summary>Updates the last known download activity without turning a transient
+    /// CEF failure into a false completion. A confirmed dead Steam process is idle;
+    /// a live but temporarily unreachable client leaves the prior answer intact.</summary>
+    /// <param name="currentActive">The last usable activity answer.</param>
+    /// <param name="steamAlive">Whether the shared lifecycle monitor sees Steam.</param>
+    /// <param name="overview">The latest usable CEF snapshot, or null when unavailable.</param>
+    /// <returns>The activity state consumers should publish.</returns>
+    internal static bool ResolveActivity(
+        bool currentActive,
+        bool steamAlive,
+        DownloadOverview? overview)
+    {
+        if (!steamAlive)
+        {
+            return false;
+        }
+        return overview?.Active ?? currentActive;
+    }
 }

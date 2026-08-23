@@ -16,25 +16,38 @@ namespace WSGM.Core;
 /// fire too.</summary>
 public static class UpdateExitWatcher
 {
+    // CROSS-VERSION CONTRACT — do not rename this event and do not narrow the
+    // 0x00100002 grant below. During an update the event object is created by the
+    // OLD running build; the new installer only opens it BY NAME and signals it
+    // (installer\WSGM.iss:216, StopRunningInstances — OpenEventW with
+    // EVENT_MODIFY_STATE, then SetEvent). If either drifts, a future upgrade can no
+    // longer stop WSGM gracefully, Steam is never asked to exit, and the injected
+    // Steam Input payload stays mapped. No test can cover that pairing — only an
+    // actual installer run against an older build can.
+
     /// <summary>Gets the per-session event used by an updater to request a graceful exit.</summary>
     public const string EventName = @"Local\WSGM.ExitForUpdate";
 
-    // D: current user + BUILTIN\Administrators -> EVENT_MODIFY_STATE | SYNCHRONIZE
-    // (0x00100002). The setup is ALWAYS elevated (PrivilegesRequired=admin): the
-    // user-SID ACE covers every same-user WSGM instance (elevated or filtered
-    // token — the user SID is never deny-only) and a setup elevated as this user;
-    // the BA ACE covers a setup elevated via a different admin account. S: medium
-    // mandatory label, no-write-up — the unelevated settings instance (medium) can
-    // still wait/reset, but low-IL/sandboxed processes can no longer force an exit.
-    private static string BuildEventSddl()
-    {
-        string user;
-        using (var id = System.Security.Principal.WindowsIdentity.GetCurrent())
-        {
-            user = id.User?.Value ?? "WD"; // null is practically impossible; fall back to the old grant.
-        }
-        return $"D:(A;;0x00100002;;;{user})(A;;0x00100002;;;BA)S:(ML;;NW;;;ME)";
-    }
+    // The setup is ALWAYS elevated (PrivilegesRequired=admin): the user-SID ACE
+    // covers every same-user WSGM instance (elevated or filtered token — the user
+    // SID is never deny-only) and a setup elevated as this user; the BA ACE covers
+    // a setup elevated via a different admin account. The medium label keeps the
+    // unelevated settings instance able to wait/reset (it needs EVENT_MODIFY_STATE
+    // for the stale-signal ResetEvent and the OpenEventW fallback below), while
+    // low-IL/sandboxed processes can no longer force an exit. Internal rather than
+    // private, and taking the SID rather than reading the token, so the "WD"
+    // fallback is covered by a test instead of being asserted away.
+
+    /// <summary>Builds the event's security descriptor: a DACL granting the given
+    /// user SID and BUILTIN\Administrators EVENT_MODIFY_STATE | SYNCHRONIZE
+    /// (0x00100002), plus a medium mandatory label with no-write-up.</summary>
+    /// <param name="userSid">The current token's user SID in SDDL form, or
+    /// <see langword="null"/> when it could not be read — practically impossible,
+    /// and then that ACE falls back to the old Everyone ("WD") grant so an update
+    /// can still stop this instance.</param>
+    /// <returns>The SDDL string for <c>CreateEventW</c>'s security descriptor.</returns>
+    internal static string BuildEventSddl(string? userSid)
+        => $"D:(A;;0x00100002;;;{userSid ?? "WD"})(A;;0x00100002;;;BA)S:(ML;;NW;;;ME)";
 
     private static nint _event;
 
@@ -44,7 +57,12 @@ public static class UpdateExitWatcher
     {
         try
         {
-            if (!NativeMethods.ConvertStringSecurityDescriptorToSecurityDescriptor(BuildEventSddl(), 1, out var sd, out _))
+            string? userSid;
+            using (var identity = System.Security.Principal.WindowsIdentity.GetCurrent())
+            {
+                userSid = identity.User?.Value;
+            }
+            if (!NativeMethods.ConvertStringSecurityDescriptorToSecurityDescriptor(BuildEventSddl(userSid), 1, out var sd, out _))
             {
                 Log.Warn($"Update-exit watcher: SDDL conversion failed (error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}).");
                 return;

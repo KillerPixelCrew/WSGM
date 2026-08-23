@@ -217,7 +217,7 @@ public abstract class OverlaySubView : UserControl
                 try
                 {
                     var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
-                    var text = clipboard is null ? null : await clipboard.GetTextAsync();
+                    var text = clipboard is null ? null : await clipboard.TryGetTextAsync();
                     if (!string.IsNullOrEmpty(text))
                     {
                         keyboard.InsertExternalText(text);

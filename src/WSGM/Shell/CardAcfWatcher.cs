@@ -28,10 +28,21 @@ internal sealed class CardAcfWatcher : IDisposable
 
     private readonly Dictionary<char, FileSystemWatcher> _watchers = new();
     private readonly object _gate = new();
+    private readonly CancellationTokenSource _cts = new();
+    private readonly CancellationToken _token;
     private Timer? _reconcile;
     private Timer? _debounce;
+
+    /// <summary>1 while a deferred boot sync is running. Its retry loop outlives many
+    /// debounce ticks, and overlapping loops would drive concurrent CEF mutation.</summary>
+    private int _bootSyncPending;
     private long _suppressedUntilTicks;
     private bool _disposed;
+
+    private CardAcfWatcher()
+    {
+        _token = _cts.Token;
+    }
 
     /// <summary>Creates, registers and starts the session's watcher.</summary>
     internal static CardAcfWatcher StartNew()
@@ -159,12 +170,44 @@ internal sealed class CardAcfWatcher : IDisposable
         }
     }
 
-    private static async Task SyncAsync()
+    private async Task SyncAsync()
     {
         try
         {
-            var summary = await new LibraryTabManager().SyncAllAsync().ConfigureAwait(false);
+            var manager = new LibraryTabManager();
+            if (!SteamUiReadiness.IsReady)
+            {
+                // SyncOnBootAsync retries for up to ~2.5 minutes. A card finishing
+                // several installs during a cold boot fires one ACF event per game,
+                // and without this gate each would start its own loop — they would
+                // then all clear the readiness gate at once and run
+                // SyncAllDetailedAsync concurrently against the same collectionStore,
+                // which is exactly the interleaving LibraryTabManager's single-flight
+                // discipline exists to prevent. A second event while one is pending is
+                // dropped, not queued: the pending sync reads current state anyway.
+                if (Interlocked.CompareExchange(ref _bootSyncPending, 1, 0) != 0)
+                {
+                    Log.Info("Card watcher: a deferred boot sync is already pending; skipping.");
+                    return;
+                }
+                try
+                {
+                    Log.Info(
+                        "Card watcher: Steam UI is still starting; deferring automatic tab sync.");
+                    await manager.SyncOnBootAsync(_token).ConfigureAwait(false);
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _bootSyncPending, 0);
+                }
+                return;
+            }
+            var summary = await manager.SyncAllAsync(_token).ConfigureAwait(false);
             Log.Info($"Card watcher: {summary}");
+        }
+        catch (OperationCanceledException)
+        {
+            // Desktop transition or session shutdown.
         }
         catch (Exception ex)
         {
@@ -174,6 +217,7 @@ internal sealed class CardAcfWatcher : IDisposable
 
     public void Dispose()
     {
+        _cts.Cancel();
         lock (_gate)
         {
             _disposed = true;
@@ -187,6 +231,7 @@ internal sealed class CardAcfWatcher : IDisposable
             }
             _watchers.Clear();
         }
+        _cts.Dispose();
         if (ReferenceEquals(_active, this))
         {
             _active = null;

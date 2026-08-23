@@ -41,6 +41,7 @@ public sealed unsafe class TrayHost : IDisposable
     private bool _loggedAppBar;
     private bool _loggedIconRect;
     private bool _loggedLoadInProc;
+    private bool _loggedBlockedCallback;
     private bool _disposed;
 
     /// <summary>Raised (on the window's thread — the Avalonia UI thread) whenever
@@ -357,6 +358,36 @@ public sealed unsafe class TrayHost : IDisposable
         {
             // NIF_MESSAGE never arrived — the app cannot receive interactions.
             Log.Warn($"Tray click dropped: '{icon.Tip}' registered no callback message.");
+            return;
+        }
+        if (!TrayProtocol.IsRelayableCallback(icon.CallbackMessage))
+        {
+            // Both halves of this send are attacker-supplied: the callback message
+            // AND the target hwnd come straight off the WM_COPYDATA wire, which the
+            // UIPI allowance in CreateWindows deliberately opens to Medium-IL
+            // senders, and SendNotifyMessageW below leaves High IL outbound where
+            // UIPI restricts nothing. Without this bound a Medium-IL process could
+            // register an icon naming an ELEVATED window with uCallbackMessage =
+            // WM_CLOSE / WM_SYSCOMMAND and have the tray deliver it on the next
+            // click. The filter is on the MESSAGE and never on the target's
+            // integrity level: WSGM itself starts Handheld Companion / RTSS /
+            // MSI Afterburner elevated (Core\KnownStartupApps.cs), so an IL-based
+            // filter would break exactly the apps the device depends on.
+            //
+            // Registration is untouched on purpose (see IsRelayableCallback): the
+            // icon stays registered, rendered and tooltipped, and shell32 still sees
+            // a success reply — a rejected NIM_ADD would put well-behaved apps into
+            // an add/reject loop. One-shot logging for the same reason the
+            // Added/Removed filter exists above: a per-click line from a hostile or
+            // simply odd registration would push the boot/takeover/lease lines out
+            // of the capped log.
+            if (!_loggedBlockedCallback)
+            {
+                _loggedBlockedCallback = true;
+                Log.Warn($"Tray click dropped: '{icon.Tip}' (hwnd 0x{icon.Hwnd:X}) registered callback " +
+                         $"0x{icon.CallbackMessage:X}, outside the application-defined range " +
+                         "0x400..0xFFFF; the icon stays registered. Logged once per tray host.");
+            }
             return;
         }
         if (!NativeMethods.IsWindow(icon.Hwnd))

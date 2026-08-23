@@ -106,6 +106,13 @@ public static class Steam
     /// <summary>Gets whether a Steam client or Big Picture helper process is running.</summary>
     public static bool IsRunning => WindowFinder.FindProcessIds(ProcessNames).Count > 0;
 
+    /// <summary>Gets whether Steam's process-owned Big Picture window exists. This is
+    /// deliberately stronger than <see cref="IsRunning"/>: on a cold start Steam's
+    /// process and headless CEF context exist before its UI is safe for autonomous
+    /// mutation.</summary>
+    public static bool IsBigPictureVisible =>
+        WindowFinder.FindWindow(ProcessNames, BigPictureWindowClass) != IntPtr.Zero;
+
     /// <summary>Gets whether WSGM must match Steam's elevated integrity level so
     /// raw-touch gestures and overlay input are not blocked by UIPI.</summary>
     public static bool RequiresElevatedShell
@@ -183,7 +190,21 @@ public static class Steam
             // libraries to the live client later without a restart. Only takes
             // effect on a fresh Steam start, which this cold path is.
             SteamCdp.EnsureRemoteDebuggingEnabled();
-            return AppLauncher.Start(exe, OpenBigPictureUrl, elevated: false);
+            var result = AppLauncher.Start(exe, OpenBigPictureUrl, elevated: false);
+            // Only when a vector is actually deployed, and worded as the EXPECTED
+            // path. docs\steam-input.md tells the reader a missing file means the
+            // gate worker never got past the loader — so naming a path for a Steam
+            // with no shim, or for a pid Steam's bootstrapper then re-execs away
+            // from, makes that diagnostic assert the opposite of the truth.
+            if (result.Process is { } process
+                && SteamInputShim.LastStatus.State == SteamInputShimState.Deployed)
+            {
+                Log.Info(
+                    $"Steam Input shim startup trace expected for pid {process.Id}: "
+                    + SteamInputShim.StartupTracePath(process.Id)
+                    + " (absent if Steam re-execed into another pid)");
+            }
+            return result;
         }
         return AppLauncher.StartProtocol(OpenBigPictureUrl);
     }

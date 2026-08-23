@@ -29,3 +29,18 @@ startup applications, tray host, removable storage, radio, audio, and system sta
   every time while a 256 GB card won it. Do not merge the scripts back together, and keep the
   `Format: volume on disk N appeared after … ms` / `no volume appeared` lines — they are how the
   timing is diagnosed from a pasted log.
+  Every one of the three runs re-verifies the target on fresh DISK handles first
+  (`ReadTargetIdentity` -> `CompareIdentity`): still not a system disk, still removable media,
+  same capacity, same bus type. One check up front was not enough — the pre-erase library removal
+  can spend its whole CEF budget and the volume wait runs up to 20 s, so a card can be swapped
+  after the check and before the run that consumes it. Identity predicates ONLY: `clean` erases
+  the partition table and the WSGM marker, so any filesystem- or partition-based re-check would
+  legitimately fail on runs 2 and 3 and break every format. A failed QUERY is not a mismatch
+  either — `GetDiskLength` returns 0 and `TryGetDeviceDescriptor` reports bus -1 for a reader
+  whose media is still settling, so those keep flowing into the existing waits and retries
+  unchanged. Only the pre-erase abort restores the removed Steam library
+  (`RestoreRemovedLibraryIfCardSurvived`); after the erase that identity is deliberately gone.
+  **Residual, stated honestly:** in a card reader the device instance, the bus type and the
+  hotplug flags all belong to the READER and survive a media swap, so CAPACITY is the only
+  discriminator left — two cards of the same capacity stay indistinguishable. This narrows the
+  swap window; it does not close it.

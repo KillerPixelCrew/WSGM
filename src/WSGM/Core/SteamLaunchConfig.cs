@@ -150,8 +150,24 @@ public static class SteamLaunchConfig
             // Real titles only (%command% is meaningless on a non-Steam shortcut —
             // see the shortcut branch above). Re-applying reads the user's own
             // options back out of the existing wrapper value instead of nesting it.
+            var originals = LaunchWrapperCommand.OriginalLaunchOptions(current.LaunchOptions);
+            // Diagnosability, not a warning: a profiler/RTSS shim ahead of %command%
+            // is a supported configuration, so this is what a healthy apply looks
+            // like. It is logged because the prefix keeps running at Steam's own
+            // integrity level in front of the wrapper, and a pasted wsgm.log is the
+            // only way to see that from here. Emitted BEFORE the evaluate, so the
+            // wording claims nothing about the outcome. The prefix is bounded and
+            // control-character stripped by PreservedPrefix; the value handed to
+            // SteamLaunchOptions is untouched, because Steam stores it verbatim.
+            var prefix = LaunchWrapperCommand.PreservedPrefix(originals);
+            if (prefix.Length > 0)
+            {
+                Log.Info(
+                    $"Applying launch options for {appId} with a user-placed prefix ahead of " +
+                    $"%command%, preserved and run at Steam's integrity before the wrapper: {prefix}");
+            }
             var options = SteamCef.JsString(LaunchWrapperCommand.SteamLaunchOptions(
-                helper, mode, LaunchWrapperCommand.OriginalLaunchOptions(current.LaunchOptions)));
+                helper, mode, originals));
             expression =
                 "(async()=>{try{await SteamClient.Apps.SetAppLaunchOptions(" +
                 Unsigned(appId) + "," + options + ");" +

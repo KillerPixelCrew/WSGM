@@ -17,7 +17,12 @@ $version = $Matches[1]
 # release build, so a shipped installer can never carry a gate older than the
 # code beside it. This must precede the publish, which copies the staged output.
 Write-Host "== Building Steam Input Lease (Rust) ==" -ForegroundColor Cyan
-& "$root\eng\build-steam-input-lease.ps1"
+# -Validate for the export check: build.rs now drives exports from one authoritative
+# .def, and the dumpbin ordinal comparison is the ONLY thing that catches link.exe
+# putting an unrelated symbol at XInput's ordinal 104/109 - the stack-corruption case
+# that .def exists to prevent. Without this the shipped DLL is the one artifact never
+# export-checked, since eng\verify.ps1 only validates a separately built copy.
+& "$root\eng\build-steam-input-lease.ps1" -Validate
 
 # Same rule as the lease: built from source on every release so the shipped
 # helper can never be older than the code beside it, and staged before the

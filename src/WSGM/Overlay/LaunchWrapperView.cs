@@ -29,6 +29,7 @@ public sealed class LaunchWrapperView : OverlaySubView
 
     private string? _customPath;
     private string _customArguments = "";
+    private SteamCollections.AppInfo? _customGame;
 
     /// <inheritdoc />
     protected override string LogScope => "Launch wrappers";
@@ -38,16 +39,21 @@ public sealed class LaunchWrapperView : OverlaySubView
     public void Open(string heading)
     {
         _customPath = null;
+        _customGame = null;
         _stack.Clear();
         _current = null;
         _ = RunSafelyAsync(RenderGameListAsync(heading), "game list");
     }
 
-    /// <summary>Asks for optional arguments before choosing the custom action's game.</summary>
-    public void OpenCustom(string path)
+    /// <summary>Asks for optional arguments before applying the custom action.</summary>
+    /// <param name="path">The executable or script the user picked.</param>
+    /// <param name="game">The game whose Steam page is on screen, or <c>null</c> to
+    /// ask which game the action applies to.</param>
+    public void OpenCustom(string path, SteamCollections.AppInfo? game = null)
     {
         _customPath = path;
         _customArguments = "";
+        _customGame = game;
         _stack.Clear();
         _current = null;
         Navigate(RenderArgumentChoice);
@@ -55,26 +61,36 @@ public sealed class LaunchWrapperView : OverlaySubView
 
     private void RenderArgumentChoice()
     {
-        var name = System.IO.Path.GetFileName(_customPath);
+        var name = System.IO.Path.GetFileName(_customPath) ?? "";
         var stack = NewStack("Custom launch action");
-        stack.Children.Add(Caption(name));
+        // Name the target when it is already known, so the flow that skips the
+        // picker still says which game it is about to change.
+        stack.Children.Add(Caption(_customGame is { } target ? $"{name} → {target.Name}" : name));
         stack.Children.Add(PrimaryRow("No arguments", "Continue without additional arguments",
-            Icons.Play, OpenCustomGamePicker));
+            Icons.Play, ContinueCustomAction));
         stack.Children.Add(Row("Add arguments", "Enter command-line arguments", Icons.CopyDoc,
             () => EditText($"Arguments for {name}", _customArguments, 2048, value =>
             {
                 _customArguments = value;
-                Avalonia.Threading.Dispatcher.UIThread.Post(OpenCustomGamePicker);
+                Avalonia.Threading.Dispatcher.UIThread.Post(ContinueCustomAction);
             })));
         stack.Children.Add(Row("Cancel", "Do not change the game", Icons.ExitFullscreen,
             () => Back()));
         SetContent(stack);
     }
 
-    private void OpenCustomGamePicker()
+    // The game open in Steam is the target, the same rule the launch-fix buttons
+    // follow. The picker below is only for the panel opened from the library root
+    // and for a Steam that reported no current app.
+    private void ContinueCustomAction()
     {
         _stack.Clear();
         _current = null;
+        if (_customPath is { } path && _customGame is { } game)
+        {
+            CustomPicked?.Invoke(path, _customArguments, game);
+            return;
+        }
         _ = RunSafelyAsync(RenderGameListAsync("Replace launch action"), "game list");
     }
 

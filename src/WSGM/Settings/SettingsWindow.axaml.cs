@@ -87,7 +87,14 @@ public partial class SettingsWindow : Window
 
         // Controller navigation for the settings window itself. LB/RB cycle the
         // tab strip (which wraps at both ends).
-        // Focus changes drive the lease; the value is fixed for the window's life.
+        // Focus changes drive the lease; the opt-out is snapshotted once and stays
+        // fixed for this window's life. Turning the lease off on the Quick access
+        // page therefore takes effect at the NEXT surface open, not on this
+        // one: dropping the lease the moment the user pressed "Save changes"
+        // would hand the pad straight back to Steam's desktop profile, which swallows
+        // it from SDL system-wide, and the controller user would be stranded in a
+        // settings window they can no longer navigate. Same rule as
+        // OverlayController.AcquireSteamInputLease (docs\steam-input.md).
         if (_gameModeSurface)
         {
             // From the view model, which already loaded config.json for this

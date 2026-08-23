@@ -87,7 +87,7 @@ public partial class KeyboardWindow : Window
         }
         try
         {
-            var text = await clipboard.GetTextAsync();
+            var text = await clipboard.TryGetTextAsync();
             if (!_closePending && !string.IsNullOrEmpty(text))
             {
                 Keyboard.InsertExternalText(text);

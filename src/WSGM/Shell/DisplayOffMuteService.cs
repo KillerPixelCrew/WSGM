@@ -5,8 +5,9 @@ using WSGM.Interop;
 
 namespace WSGM.Shell;
 
-/// <summary>Mutes system audio while the screen is off and unmutes it when the screen
-/// comes back.
+/// <summary>Mutes system audio only while the screen is off and Steam is downloading.
+/// It restores immediately when the screen comes back, or ten seconds after the last
+/// active download stops.
 ///
 /// <para>The problem this solves: keep-awake deliberately lets the display time out
 /// while downloads continue (that is the whole point — Wi-Fi and Steam keep running on
@@ -61,7 +62,10 @@ public sealed class DisplayOffMuteService : IDisposable
 
     private readonly MessageWindow _window;
     private DispatcherTimer? _recovery;
+    private DispatcherTimer? _downloadCompletionRestore;
     private bool _enabled;
+    private bool _displayOff;
+    private bool _downloadActive;
     private bool _mutedByUs;
     private bool _restorePending;
     private bool _subscribed;
@@ -101,12 +105,32 @@ public sealed class DisplayOffMuteService : IDisposable
                 _subscribed = true;
             }
             _window.RegisterDisplayStateNotifications();
-            Log.Info("Mute on display off: enabled.");
+            Log.Info("Mute on display off: enabled for active Steam downloads.");
+            ReconcileMuteState();
             return;
         }
+        // Notifications were not observed while disabled, so retaining a previous
+        // dark value would let a later re-enable mute a display that has since woken.
+        _displayOff = false;
         _window.DeregisterDisplayStateNotifications();
+        StopDownloadCompletionRestore();
         Restore();
         Log.Info("Mute on display off: disabled.");
+    }
+
+    /// <summary>Applies the last usable activity answer from the shared Steam download
+    /// poller. A false transition while the screen remains dark starts the ten-second
+    /// restore grace; activity resuming cancels it.</summary>
+    /// <param name="active">Whether Steam reports an active download.</param>
+    public void SetDownloadActive(bool active)
+    {
+        if (active == _downloadActive)
+        {
+            return;
+        }
+        _downloadActive = active;
+        Log.Info($"Mute on display off: Steam downloads {(active ? "active" : "inactive")}.");
+        ReconcileMuteState();
     }
 
     private void OnDisplayStateChanged(int state, DisplayStateSource source)
@@ -127,24 +151,103 @@ public sealed class DisplayOffMuteService : IDisposable
         {
             return;
         }
-        if (DisplayMuteDecider.ActionFor(state) == DisplayMuteAction.Restore)
+        if (!DisplayMuteDecider.IsDisplayOff(state))
         {
-            Restore();
+            _displayOff = false;
+            ReconcileMuteState();
             return;
         }
         if (DisplayMuteDecider.MayReportDark(source))
         {
-            Mute();
+            _displayOff = true;
+            if (!_downloadActive)
+            {
+                Log.Info("Mute on display off: screen dark without an active Steam "
+                    + "download, leaving audio unchanged.");
+            }
+            ReconcileMuteState();
         }
     }
 
     private void OnSessionUnlocked()
     {
-        if (!_enabled || !_mutedByUs)
+        if (!_enabled)
         {
             return;
         }
-        Log.Info("Session unlocked while muted — restoring audio.");
+        _displayOff = false;
+        if (_mutedByUs)
+        {
+            Log.Info("Session unlocked while muted — restoring audio.");
+        }
+        ReconcileMuteState();
+    }
+
+    private void ReconcileMuteState()
+    {
+        var action = DisplayMuteDecider.Reconcile(
+            _enabled,
+            _displayOff,
+            _downloadActive,
+            _mutedByUs);
+        if (action != DisplayMuteAction.DelayRestore)
+        {
+            StopDownloadCompletionRestore();
+        }
+        if (_enabled && _displayOff && _downloadActive)
+        {
+            // A new download that begins during a failed or delayed restore owns the
+            // dark-screen condition again. Keep the mute and cancel recovery until
+            // the condition becomes false once more.
+            _restorePending = false;
+        }
+        switch (action)
+        {
+            case DisplayMuteAction.Mute:
+                Mute();
+                break;
+            case DisplayMuteAction.Restore:
+                Restore();
+                break;
+            case DisplayMuteAction.DelayRestore:
+                ScheduleDownloadCompletionRestore();
+                break;
+        }
+    }
+
+    private void ScheduleDownloadCompletionRestore()
+    {
+        if (_downloadCompletionRestore is null)
+        {
+            _downloadCompletionRestore = new DispatcherTimer
+            {
+                Interval = DisplayMuteDecider.DownloadCompletionRestoreDelay,
+            };
+            _downloadCompletionRestore.Tick += (_, _) => OnDownloadCompletionRestore();
+        }
+        if (_downloadCompletionRestore.IsEnabled)
+        {
+            return;
+        }
+        Log.Info("Mute on display off: downloads inactive, waiting 10 s before unmute.");
+        _downloadCompletionRestore.Start();
+    }
+
+    private void StopDownloadCompletionRestore()
+        => _downloadCompletionRestore?.Stop();
+
+    private void OnDownloadCompletionRestore()
+    {
+        StopDownloadCompletionRestore();
+        if (DisplayMuteDecider.Reconcile(
+                _enabled,
+                _displayOff,
+                _downloadActive,
+                _mutedByUs) != DisplayMuteAction.DelayRestore)
+        {
+            return;
+        }
+        Log.Info("Mute on display off: downloads remained inactive for 10 s, restoring audio.");
         Restore();
     }
 
@@ -154,8 +257,8 @@ public sealed class DisplayOffMuteService : IDisposable
         {
             return;
         }
-        // A screen going dark cancels a restore that never completed: the user is not
-        // looking at the device any more, so the pending attempt has nothing left to fix.
+        // Entering the complete dark+download condition cancels a restore that never
+        // completed: the mute is wanted again until either condition becomes false.
         _restorePending = false;
         if (!TryReadMuted(out var muted))
         {
@@ -264,6 +367,8 @@ public sealed class DisplayOffMuteService : IDisposable
             Log.Info("Mute on display off: user input while muted, restoring without a "
                 + "display-on notification.");
         }
+        _displayOff = false;
+        StopDownloadCompletionRestore();
         Restore();
     }
 
@@ -326,6 +431,8 @@ public sealed class DisplayOffMuteService : IDisposable
             _subscribed = false;
         }
         _window.DeregisterDisplayStateNotifications();
+        _displayOff = false;
+        StopDownloadCompletionRestore();
         Restore();
         _recovery?.Stop();
         _enabled = false;

@@ -211,4 +211,50 @@ public sealed class TrayProtocolTests
         Assert.Empty(vm.TrayIcons);
         Assert.False(vm.HasTrayIcons);
     }
+
+    // The relay guard: TrayHost.SendClick refuses to forward a callback message
+    // outside the application-defined range, because both the message and the
+    // target hwnd come off an attacker-reachable wire and the relay leaves WSGM's
+    // High IL where UIPI restricts nothing.
+    [Theory]
+    [InlineData(0u)] // NIF_MESSAGE never arrived
+    [InlineData(0x000Cu)] // WM_SETTEXT
+    [InlineData(0x0010u)] // WM_CLOSE
+    [InlineData(0x0012u)] // WM_QUIT
+    [InlineData(0x004Au)] // WM_COPYDATA
+    [InlineData(0x0112u)] // WM_SYSCOMMAND
+    [InlineData(0x03FFu)] // one below WM_USER
+    [InlineData(0x10000u)] // wider than a 16-bit message number
+    public void IsRelayableCallback_MessageOutsideTheApplicationRange_ReturnsFalse(uint callback)
+        => Assert.False(TrayProtocol.IsRelayableCallback(callback));
+
+    [Theory]
+    [InlineData(0x0400u)] // WM_USER itself
+    [InlineData(0x0800u)] // WinForms NotifyIcon: WM_USER + 1024
+    [InlineData(0x8065u)] // Qt QSystemTrayIcon: WM_APP + 101
+    [InlineData(0xBFFFu)] // top of the WM_APP range
+    [InlineData(0xC123u)] // RegisterWindowMessage range
+    [InlineData(0xFFFFu)] // highest window message
+    public void IsRelayableCallback_ApplicationDefinedMessage_ReturnsTrue(uint callback)
+        => Assert.True(TrayProtocol.IsRelayableCallback(callback));
+
+    [Fact]
+    public void Apply_AddWithNonRelayableCallback_StillRegistersTheIcon()
+    {
+        // The bound lives at the relay ONLY. Rejecting the registration would make
+        // shell32 report failure and put well-behaved apps into an add/reject loop,
+        // so the icon must still register (and keep its tooltip and callback value)
+        // even though its click will never be forwarded.
+        var table = new TrayIconTable();
+        var icon = Added(table, Blob(
+            TrayProtocol.NimAdd,
+            flags: TrayProtocol.NifMessage | TrayProtocol.NifTip,
+            callback: 0x0010, // WM_CLOSE
+            tip: "Hostile"));
+
+        Assert.Equal(0x0010u, icon.CallbackMessage);
+        Assert.Equal("Hostile", icon.Tip);
+        Assert.Single(table.Icons);
+        Assert.False(TrayProtocol.IsRelayableCallback(icon.CallbackMessage));
+    }
 }

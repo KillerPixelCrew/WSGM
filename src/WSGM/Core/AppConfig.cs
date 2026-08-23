@@ -596,10 +596,10 @@ public sealed class AppConfig
 
     /// <summary>Extra delay before Steam Big Picture is started at logon.</summary>
     public int SteamDelayMs { get; set; } = 0;
-    /// <summary>Mute system audio while the screen is off and restore it when the
-    /// screen comes back (see Shell\DisplayOffMuteService). Keep-awake deliberately
-    /// lets the display time out during downloads, and Steam plays a sound on every
-    /// completed download. Only a mute WSGM applied itself is undone.</summary>
+    /// <summary>Mute system audio only while the screen is off and Steam reports an
+    /// active download (see Shell\DisplayOffMuteService). Screen-off alone stays
+    /// audible; download completion restores after a short grace period, and display
+    /// wake restores immediately. Only a mute WSGM applied itself is undone.</summary>
     public bool MuteWhileDisplayOff { get; set; }
     /// <summary>Fullscreen "Please wait" cover at logon that hides startup-app
     /// window flashes until Steam Big Picture is on screen (see Shell\BootSplash).</summary>
@@ -627,6 +627,16 @@ public sealed class AppConfig
     /// surfaces (overlay/taskbar). Off = the lease is never acquired: Steam Input's
     /// desktop profile may take the controller while a WSGM panel is open, but
     /// nothing is ever injected into Steam.</summary>
+    /// <remarks>
+    /// Read when a surface opens, so turning it off takes effect at the NEXT surface
+    /// open — no restart, but not mid-surface either. A lease already applied for a
+    /// surface that is still on screen is deliberately never released early: the
+    /// release hands the controller back to Steam's desktop profile, which swallows
+    /// it from SDL system-wide, so the user who just turned this off from an open
+    /// Settings window would lose controller navigation on that very click. The lease
+    /// is scoped to the surface lifetime by specification — see docs\steam-input.md
+    /// and src\WSGM\Overlay\AGENTS.md.
+    /// </remarks>
     public bool SteamInputLeaseEnabled { get; set; } = true;
 
     /// <summary>Whether WSGM deploys its Steam Input shim into Steam's own install

@@ -3,8 +3,8 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Interactivity;
 using Avalonia.Input.Platform;
+using Avalonia.Interactivity;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Shell;
@@ -76,7 +76,7 @@ public partial class RadioWindow : Window
             try
             {
                 var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
-                var text = clipboard is null ? null : await clipboard.GetTextAsync();
+                var text = clipboard is null ? null : await clipboard.TryGetTextAsync();
                 if (!string.IsNullOrEmpty(text))
                 {
                     Keyboard.InsertExternalText(text);

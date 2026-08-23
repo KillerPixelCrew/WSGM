@@ -41,19 +41,30 @@ waiting to happen.
    stopped. The job is also what makes the stop-on-parent-exit path reach orphaned descendants.
    Lease failures fail **open** — log, tell the user, launch anyway — and so does an impossible
    de-elevation (UAC switched off leaves no limited token to hand out; the child tags that failure
-   and the parent launches the game as-is). An error out of `run_wrapped` means only that the target
-   NEVER STARTED, because that is what the caller does about it; a release handshake that fails
-   after the game exited returns the exit code instead, or the wrapper would start a finished game a
-   second time. It is still **reported**, through `WrappedRun.release` (ABI 3 added the `release`
-   output to `sil_client_run_wrapped`, which previously discarded it): blocking is lifted either
-   way, but a failed handshake means Steam was never asked to rediscover controllers, so
-   `WSGM.Launch` writes `Steam Input lease released, but Steam controller recovery did not run …` to
-   `launch.log` — the only surface that failure was ever diagnosable from. **Four device-verified
-   invariants make it actually work when Steam is elevated (each was a separate real failure,
-   2026-08-12):** (a) it MUST be a **console** subsystem exe (`<OutputType>Exe</OutputType>`, shows
-   a CLI window) — a windowless `WinExe` is treated by Steam as a game and gets Steam Input hooked
-   into it, dying before it logs; (b) the elevated parent's IPC pipe MUST grant the **User SID**
-   explicitly (`NamedPipeServerStreamAcl`
+   and the parent launches the game as-is). That fail-open is gated on the **parent's own** token,
+   never on the peer's report: the handshake pipe must grant the user SID (invariant 5b), so any
+   same-user process can connect first and send the tag. `Elevation.HasLinkedLimitedToken()` asks
+   whether this process has a linked limited token — `TOKEN_ELEVATION_TYPE == Full` means
+   de-elevation IS possible here, so the tag is refused and the wrapper returns 1 rather than
+   launching the game elevated. Only `Default` (UAC off, built-in Administrator, standard user) and
+   an unqueryable token still fail open, which is exactly the device case the fail-open exists for.
+   Reading the peer's token instead would race the genuine child, which exits milliseconds after
+   writing. **Accepted narrowing:** if the medium child's own token query fails on a UAC-enabled
+   machine, it sends the same tag and the game now does not start at all, where it previously
+   started elevated. The refusal line names the observed state so a pasted log distinguishes the
+   two. An error out of `run_wrapped` means only that the target NEVER STARTED, because that is what
+   the caller does about it; a release handshake that fails after the game exited returns the exit
+   code instead, or the wrapper would start a finished game a second time. It is still **reported**,
+   through `WrappedRun.release` (ABI 3 added the `release` output to `sil_client_run_wrapped`, which
+   previously discarded it): blocking is lifted either way, but a failed handshake means Steam was
+   never asked to rediscover controllers, so `WSGM.Launch` writes
+   `Steam Input lease released, but Steam controller recovery did not run …` to `launch.log` — the
+   only surface that failure was ever diagnosable from. **Four device-verified invariants make it
+   actually work when Steam is elevated (each was a separate real failure, 2026-08-12):** (a) it
+   MUST be a **console** subsystem exe (`<OutputType>Exe</OutputType>`, shows a CLI window) — a
+   windowless `WinExe` is treated by Steam as a game and gets Steam Input hooked into it, dying
+   before it logs; (b) the elevated parent's IPC pipe MUST grant the **User SID** explicitly
+   (`NamedPipeServerStreamAcl`
    - `WindowsIdentity.User`), NOT `PipeOptions.CurrentUserOnly` — an elevated server's
      CurrentUserOnly grants the token OWNER = `BUILTIN\Administrators`, deny-only in the child's
      filtered token, so the medium child's connect fails "Access is denied"; (c) the medium child

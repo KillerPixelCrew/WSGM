@@ -420,4 +420,49 @@ public sealed class LaunchWrapperTests
 
         Assert.Contains("mutually exclusive", error);
     }
+
+    // The failure text arrives over an unauthenticated named pipe, so the marker alone
+    // must never be able to make the ELEVATED parent start the command itself - that is
+    // exactly what --deelevate exists to prevent. A machine that reports a full split
+    // token could have produced a medium child, so the report is a lie there.
+    [Fact]
+    public void ShouldFailOpen_MarkerReportedWhileThisProcessHasASplitToken_RefusesToLaunch()
+        => Assert.False(WSGM.Launch.Program.ShouldFailOpen(
+            WSGM.Launch.Program.DisabledUacFailureMessage, hasLinkedLimitedToken: true));
+
+    // UAC off, and equally a built-in Administrator or a standard user: no linked
+    // limited token exists, so de-elevation really is impossible and the game must
+    // still start (the device case the fail-open was added for).
+    [Fact]
+    public void ShouldFailOpen_MarkerReportedWithoutALinkedLimitedToken_LaunchesTheGame()
+        => Assert.True(WSGM.Launch.Program.ShouldFailOpen(
+            WSGM.Launch.Program.DisabledUacFailureMessage, hasLinkedLimitedToken: false));
+
+    // An unqueryable token is not evidence of an attack; keep failing open so a
+    // token query that fails can never make every wrapped game unlaunchable.
+    [Fact]
+    public void ShouldFailOpen_MarkerReportedWithAnUnqueryableToken_LaunchesTheGame()
+        => Assert.True(WSGM.Launch.Program.ShouldFailOpen(
+            WSGM.Launch.Program.DisabledUacFailureMessage, hasLinkedLimitedToken: null));
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    [InlineData(null)]
+    public void ShouldFailOpen_OrdinaryFailureWithAnyTokenState_RefusesToLaunch(
+        bool? hasLinkedLimitedToken)
+        => Assert.False(WSGM.Launch.Program.ShouldFailOpen(
+            "Process.Start returned no process.", hasLinkedLimitedToken));
+
+    // A peer that embeds the marker in arbitrary text still gets nowhere while the
+    // parent's own token says de-elevation was available.
+    [Theory]
+    [InlineData("Access is denied. UAC appears to be disabled, honest.")]
+    [InlineData("UAC appears to be disabled")]
+    public void ShouldFailOpen_ForgedMarkerInSurroundingTextWithASplitToken_RefusesToLaunch(
+        string error)
+    {
+        Assert.Contains(WSGM.Launch.Program.NoMediumTokenMarker, error, StringComparison.Ordinal);
+        Assert.False(WSGM.Launch.Program.ShouldFailOpen(error, hasLinkedLimitedToken: true));
+    }
 }

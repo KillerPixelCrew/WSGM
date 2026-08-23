@@ -119,6 +119,153 @@ public sealed class SdFormatTests
         Assert.Equal("512 GB — USB", detail);
     }
 
+    // ---- re-verification before every destructive diskpart run ----
+
+    // The card can be swapped between the three diskpart runs, so each one re-checks
+    // the disk's identity. CompareIdentity is the whole decision: a real format is a
+    // device-only flow and is never automated.
+
+    [Fact]
+    public void CompareIdentity_SameCapacityAndBus_ReturnsSame()
+        => Assert.Equal(
+            SdFormatManager.TargetIdentity.Same,
+            SdFormatManager.CompareIdentity(
+                opened: true, systemDisk: false, removable: true,
+                size: 256_000_000_000L, busType: NativeStorage.BusTypeSd,
+                expectedSize: 256_000_000_000L, expectedBusType: NativeStorage.BusTypeSd));
+
+    [Fact]
+    public void CompareIdentity_BusTypeQueryFailed_ReturnsSame()
+        // -1 is TryGetDeviceDescriptor's failure sentinel, not a different bus.
+        => Assert.Equal(
+            SdFormatManager.TargetIdentity.Same,
+            SdFormatManager.CompareIdentity(
+                opened: true, systemDisk: false, removable: true,
+                size: 256_000_000_000L, busType: -1,
+                expectedSize: 256_000_000_000L, expectedBusType: NativeStorage.BusTypeSd));
+
+    [Fact]
+    public void EveryDestructiveDiskpartRunIsPrecededByAnIdentityReverification()
+        // The fix is PLACEMENT — one re-verification before each destructive run —
+        // and CompareIdentity tests cannot see placement. The format flow itself is
+        // device-only and is never automated, so this pins the ordered stage list
+        // FormatAsync indexes: deleting a guard means deleting its entry here.
+        => Assert.Equal(
+            ["clean/partition", "format", "assign"],
+            SdFormatManager.ReverifiedStages);
+
+    [Fact]
+    public void CompareIdentity_BusTypeUnknownAtPickTime_ReturnsSame()
+        // The sentinel tolerance is symmetric: a reader that did not answer at
+        // enumeration records -1 in the baseline too, and a fact we never had cannot
+        // contradict one we just read. Without this, an intermittent
+        // IOCTL_STORAGE_QUERY_PROPERTY aborts a healthy format after `clean`.
+        => Assert.Equal(
+            SdFormatManager.TargetIdentity.Same,
+            SdFormatManager.CompareIdentity(
+                opened: true, systemDisk: false, removable: true,
+                size: 256_000_000_000L, busType: NativeStorage.BusTypeSd,
+                expectedSize: 256_000_000_000L, expectedBusType: -1));
+
+    [Fact]
+    public void CompareIdentity_SizeUnknownAtPickTime_ReturnsSame()
+        => Assert.Equal(
+            SdFormatManager.TargetIdentity.Same,
+            SdFormatManager.CompareIdentity(
+                opened: true, systemDisk: false, removable: true,
+                size: 256_000_000_000L, busType: NativeStorage.BusTypeSd,
+                expectedSize: 0L, expectedBusType: NativeStorage.BusTypeSd));
+
+    [Fact]
+    public void CompareIdentity_BothSizesKnownAndDifferent_StillReturnsChanged()
+        // The tolerance must not swallow a real swap: two known, differing capacities
+        // remain the one discriminator a card reader actually gives us.
+        => Assert.Equal(
+            SdFormatManager.TargetIdentity.Changed,
+            SdFormatManager.CompareIdentity(
+                opened: true, systemDisk: false, removable: true,
+                size: 128_000_000_000L, busType: NativeStorage.BusTypeSd,
+                expectedSize: 256_000_000_000L, expectedBusType: NativeStorage.BusTypeSd));
+
+    [Fact]
+    public void CompareIdentity_DiskHandleCouldNotBeOpened_ReturnsUnreadable()
+        => Assert.Equal(
+            SdFormatManager.TargetIdentity.Unreadable,
+            SdFormatManager.CompareIdentity(
+                opened: false, systemDisk: false, removable: false,
+                size: 0L, busType: -1,
+                expectedSize: 256_000_000_000L, expectedBusType: NativeStorage.BusTypeSd));
+
+    [Fact]
+    public void CompareIdentity_OpenedButSizeQueryFailed_ReturnsUnreadable()
+    {
+        // The false-abort case that matters most: a reader whose media is not ready
+        // answers the open but reports size 0 and classifies as non-removable. That
+        // must NOT abort — the existing waits and retries are what rescue it.
+        var identity = SdFormatManager.CompareIdentity(
+            opened: true, systemDisk: false, removable: false,
+            size: 0L, busType: -1,
+            expectedSize: 256_000_000_000L, expectedBusType: NativeStorage.BusTypeSd);
+
+        Assert.Equal(SdFormatManager.TargetIdentity.Unreadable, identity);
+    }
+
+    [Fact]
+    public void CompareIdentity_NegativeSize_ReturnsUnreadable()
+        => Assert.Equal(
+            SdFormatManager.TargetIdentity.Unreadable,
+            SdFormatManager.CompareIdentity(
+                opened: true, systemDisk: false, removable: true,
+                size: -1L, busType: NativeStorage.BusTypeSd,
+                expectedSize: 256_000_000_000L, expectedBusType: NativeStorage.BusTypeSd));
+
+    [Fact]
+    public void CompareIdentity_DifferentCapacity_ReturnsChanged()
+        => Assert.Equal(
+            SdFormatManager.TargetIdentity.Changed,
+            SdFormatManager.CompareIdentity(
+                opened: true, systemDisk: false, removable: true,
+                size: 512_000_000_000L, busType: NativeStorage.BusTypeSd,
+                expectedSize: 256_000_000_000L, expectedBusType: NativeStorage.BusTypeSd));
+
+    [Fact]
+    public void CompareIdentity_DifferentBusType_ReturnsChanged()
+        => Assert.Equal(
+            SdFormatManager.TargetIdentity.Changed,
+            SdFormatManager.CompareIdentity(
+                opened: true, systemDisk: false, removable: true,
+                size: 256_000_000_000L, busType: NativeStorage.BusTypeUsb,
+                expectedSize: 256_000_000_000L, expectedBusType: NativeStorage.BusTypeSd));
+
+    [Fact]
+    public void CompareIdentity_NoLongerRemovableMedia_ReturnsChanged()
+        => Assert.Equal(
+            SdFormatManager.TargetIdentity.Changed,
+            SdFormatManager.CompareIdentity(
+                opened: true, systemDisk: false, removable: false,
+                size: 256_000_000_000L, busType: NativeStorage.BusTypeSd,
+                expectedSize: 256_000_000_000L, expectedBusType: NativeStorage.BusTypeSd));
+
+    [Fact]
+    public void CompareIdentity_SystemDisk_ReturnsChanged()
+        => Assert.Equal(
+            SdFormatManager.TargetIdentity.Changed,
+            SdFormatManager.CompareIdentity(
+                opened: true, systemDisk: true, removable: true,
+                size: 256_000_000_000L, busType: NativeStorage.BusTypeSd,
+                expectedSize: 256_000_000_000L, expectedBusType: NativeStorage.BusTypeSd));
+
+    [Fact]
+    public void CompareIdentity_SystemDiskThatCannotBeRead_ReturnsChanged()
+        // Ordering: the system-disk check runs first and unconditionally, so it wins
+        // over the unreadable case rather than being masked by it.
+        => Assert.Equal(
+            SdFormatManager.TargetIdentity.Changed,
+            SdFormatManager.CompareIdentity(
+                opened: false, systemDisk: true, removable: false,
+                size: 0L, busType: -1,
+                expectedSize: 256_000_000_000L, expectedBusType: NativeStorage.BusTypeSd));
+
     // ---- add-library path resolution ----
 
     [Theory]

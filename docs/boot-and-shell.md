@@ -91,6 +91,18 @@ coordinator, used by both `ShellSession` boot and the overlay's buttons); `Overl
 the UI owner (lease lifecycle, overlay window) and surfaces `SessionModes.SteamStartFailed`
 warnings.
 
+**The strongest current evidence for the recurring Steam startup hang is boot-context CEF mutation,
+not the resident input shim** (device-observed repeatedly 2026-08-22). WSGM's direct-boot Steam
+start could wedge while a manual start with the same deployed shim succeeded. Failed boot PID
+12064's native trace shows the proxy forwarding table ready and rediscovery complete in 2 ms, the
+control pipe listening, and zero bootstrap fallback calls — the same shape as successful starts.
+WSGM then drove the still-headless CEF session and began replacing the card library before
+`WindowFinder` ever observed Big Picture; that window never appeared. Automatic boot CEF mutations
+now require the process-owned Big Picture window, while card detection starts immediately and defers
+only the live Steam change. Device re-verification of that boundary is still required. Keep the
+per-process trace (`%LOCALAPPDATA%\WSGM\steam-input-gate-<pid>.log`) as the control for future
+reports; do not resume proxy-timing changes unless a failing trace differs.
+
 7. **Big Picture's UI (steamwebhelper/CEF) suspends rendering while fully occluded** — a BP intro
    video that initializes under an opaque fullscreen cover stays black even after the cover leaves
    (same behavior BP shows under a game). The boot splash therefore begins its fade **immediately**
@@ -133,3 +145,39 @@ elevated, and unelevated apps' `Shell_NotifyIcon` WM_COPYDATA is silently droppe
 replacement shell runs elevated, so this gate is WSGM-specific and its device verification status
 must be tracked via the `Tray host created (… WM_COPYDATA filter …)` / `Tray icon Added/Rejected`
 log lines.
+
+A third rule guards the OUTBOUND side: (c) **a registered callback message is relayed only when it
+lies in `WM_USER..0xFFFF`** — `TrayProtocol.IsRelayableCallback`, enforced in `TrayHost.SendClick`
+immediately after the existing "registered no callback message" drop and before the `IsWindow`
+check. The tray wire is attacker-reachable by design: the UIPI allowance in (b) exists precisely so
+a Medium-IL process can push WM_COPYDATA into WSGM's High-IL `Shell_TrayWnd`, the sender's callback
+HWND is taken verbatim off that wire, and the relay itself (`SendNotifyMessageW`) travels outbound
+from High IL, where UIPI restricts nothing. Without the bound a Medium-IL process could register an
+icon naming an ELEVATED window with `uCallbackMessage` = `WM_CLOSE` or `WM_SYSCOMMAND` and have the
+tray deliver it on the next click. Three parts of the shape are deliberate:
+
+- **The filter is on the message, never on the target's integrity level.** WSGM itself launches
+  Handheld Companion / RTSS / MSI Afterburner elevated (`Core\KnownStartupApps.cs`), and `TrayHost`
+  documents WinForms-hosted tray menus as device-verified consumers — an IL-based filter would kill
+  tray clicks for exactly the apps the handheld depends on.
+- **Registration is untouched.** `TrayProtocol.TryParse`, `TrayIconTable.Apply` and the WM_COPYDATA
+  return value are byte-identical; a rejected NIM_ADD reads to shell32 as failure and well-behaved
+  apps then re-add in a loop. An icon with a non-relayable callback still registers, still renders,
+  and still shows its tooltip — only its click is dropped, and the drop is logged ONCE per tray host
+  (a per-click `Log.Warn` would push the boot/takeover/lease lines out of the capped log, which is
+  the same rule that keeps tray logging to Added/Removed).
+- **The lower bound is `WM_USER` (0x0400), not `WM_APP`.** WinForms `NotifyIcon` registers WM_USER +
+  1024 and Qt's `QSystemTrayIcon` uses WM_APP + 101; a tighter bound would silently break real
+  applications.
+
+Two honest caveats belong with this, because the guard is a mitigation and not a fix. First, **no
+supported Win32 API identifies the sender of a WM_COPYDATA**, so WSGM cannot authenticate the
+registering process at all — bounding the message value is the whole of the defence. The related
+reading that WM_COPYDATA's `wParam` (which WSGM's WndProc ignores; it forwards only `lParam`) would
+carry the same untrusted handle anyway comes from ReactOS/Wine sources, NOT from anything verified
+against live shell32 — treat it as informed inference, not as established behaviour. Second, the
+residual is NOT closed: an attacker who registers an icon can still make WSGM deliver ANY message in
+`WM_USER..0xFFFF` to any window it names, including the `RegisterWindowMessage` range 0xC000..0xFFFF
+that real applications use for private IPC, and on a version-0/3 icon the accompanying `wParam` is
+the wire `uid` — a fully attacker-chosen 32-bit value. The values stay bounded (`Notify` composes
+them), so there is no pointer primitive, but a targeted private-IPC message remains reachable.

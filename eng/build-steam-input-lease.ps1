@@ -41,6 +41,69 @@ if ($Validate) {
 cargo build --manifest-path $manifest --workspace --release
 if ($LASTEXITCODE -ne 0) { throw "Steam Input Lease release build failed" }
 
+$release = if ($env:CARGO_BUILD_TARGET) {
+    Join-Path $library "target\$($env:CARGO_BUILD_TARGET)\release"
+} else {
+    Join-Path $library "target\release"
+}
+
+if ($Validate) {
+    # The same DLL serves as an XInput proxy and the name-resolved DirectInput
+    # fallback. Its explicit export map is load-bearing: rustc's automatic
+    # ordinals once placed DirectInput8Create and DllRegisterServer at XInput's
+    # undocumented 104 and 109 slots, so a dynamic ordinal lookup could call an
+    # incompatible signature during Steam startup.
+    $gate = Join-Path $release "steam_input_gate.dll"
+    $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (-not (Test-Path -LiteralPath $vswhere)) {
+        throw "Visual Studio locator not found: $vswhere"
+    }
+    $visualStudio = & $vswhere -latest -products * `
+        -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+        -property installationPath
+    if (-not $visualStudio) { throw "Visual Studio C++ build tools not found" }
+    $devCmd = Join-Path $visualStudio.Trim() "Common7\Tools\VsDevCmd.bat"
+    if (-not (Test-Path -LiteralPath $devCmd)) {
+        throw "Visual Studio developer command script not found: $devCmd"
+    }
+    $dumpCommand = "call `"$devCmd`" -no_logo -arch=x64 -host_arch=x64 >nul && dumpbin.exe /nologo /exports `"$gate`""
+    $exportText = (& $env:ComSpec /d /s /c $dumpCommand) -join [Environment]::NewLine
+    if ($LASTEXITCODE -ne 0) { throw "Steam Input gate export inspection failed" }
+
+    $expectedNamedExports = [ordered]@{
+        DllMain = 1
+        XInputGetState = 2
+        XInputSetState = 3
+        XInputGetCapabilities = 4
+        XInputEnable = 5
+        XInputGetBatteryInformation = 7
+        XInputGetKeystroke = 8
+        XInputGetAudioDeviceIds = 10
+        DirectInput8Create = 200
+        DllCanUnloadNow = 201
+        DllGetClassObject = 202
+        DllRegisterServer = 203
+        DllUnregisterServer = 204
+        GetdfDIJoystick = 205
+        WsgmSteamInputGateProxy = 206
+    }
+    foreach ($entry in $expectedNamedExports.GetEnumerator()) {
+        $name = [Regex]::Escape([string]$entry.Key)
+        $ordinal = [int]$entry.Value
+        if ($exportText -notmatch "(?m)^\s*$ordinal\s+[0-9A-F]+\s+[0-9A-F]+\s+$name(?:\s|$)") {
+            throw "Steam Input gate export $($entry.Key) is not at ordinal $ordinal"
+        }
+    }
+    foreach ($ordinal in @(100, 101, 102, 103, 108)) {
+        if ($exportText -notmatch "(?m)^\s*$ordinal\s+[0-9A-F]+\s+\[NONAME\]") {
+            throw "Steam Input gate is missing ordinal-only XInput export $ordinal"
+        }
+    }
+    if ($exportText -match "(?m)^\s*(104|109)\s+") {
+        throw "Steam Input gate must leave undocumented XInput ordinals 104 and 109 empty"
+    }
+}
+
 # Repopulating in place would let an artifact that is no longer produced (a
 # renamed or dropped DLL) survive in the staging directory, get copied beside the
 # AOT executable by the csproj wildcards and ship in the installer. Start empty.
@@ -65,11 +128,6 @@ New-Item -ItemType Directory -Force -Path $staging | Out-Null
 # The gate is injected into steam.exe, the FFI library is what the managed
 # binding loads, and the CLI is the wrapper users paste into Steam launch
 # options. All three must ship together: the CLI resolves the gate beside itself.
-$release = if ($env:CARGO_BUILD_TARGET) {
-    Join-Path $library "target\$($env:CARGO_BUILD_TARGET)\release"
-} else {
-    Join-Path $library "target\release"
-}
 foreach ($name in @("steam_input_gate.dll", "steam_input_lease_ffi.dll", "steam-input-lease.exe")) {
     $source = Join-Path $release $name
     if (-not (Test-Path $source)) { throw "Steam Input Lease did not produce $name" }

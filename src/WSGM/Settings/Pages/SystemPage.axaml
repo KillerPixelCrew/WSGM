@@ -61,11 +61,14 @@
                     <Border Classes="section-header">
                         <TextBlock Text="POWER" />
                     </Border>
-                    <Border Classes="setting-row alt">
+                    <!-- Gated on the CEF master switch: muting only ever engages while Steam
+                         reports an active download, and that answer comes from the CEF download
+                         poll. With Steam integration off the row would read "on" and do nothing. -->
+                    <Border Classes="setting-row alt" IsVisible="{Binding CefEnabled}">
                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                             <StackPanel VerticalAlignment="Center" Spacing="1">
-                                <TextBlock Text="Mute while the screen is off" Classes="setting-title" />
-                                <TextBlock Text="Keep Awake lets downloads continue with the screen dark — this silences the sounds Steam plays when they finish, and restores the volume when the screen comes back. A mute you set yourself is left alone." Classes="caption" TextWrapping="Wrap" />
+                                <TextBlock Text="Mute screen-off downloads" Classes="setting-title" />
+                                <TextBlock Text="Mute only while the screen is dark and Steam is actively downloading. Screen-off alone stays audible; audio returns 10 seconds after downloads stop or immediately when the display wakes. A mute you set yourself is left alone." Classes="caption" TextWrapping="Wrap" />
                             </StackPanel>
                             <ToggleSwitch Grid.Column="1" IsChecked="{Binding MuteWhileDisplayOff}" VerticalAlignment="Center" />
                         </Grid>

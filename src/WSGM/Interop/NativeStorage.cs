@@ -364,10 +364,14 @@ internal static unsafe partial class NativeStorage
     /// <param name="devInst">The devnode.</param>
     internal static string GetDeviceInstanceId(uint devInst)
     {
-        // CM_Get_Device_IDW; capped at MAX_DEVICE_ID_LEN (200).
+        // CM_Get_Device_IDW; capped at MAX_DEVICE_ID_LEN (200). Decode bounded:
+        // `new string(char*)` scans for a NUL with no end, so an id that exactly
+        // fills the buffer would read past the stack allocation. The bounded read
+        // returns the byte-identical string whenever a NUL is present, so the row
+        // key, the eject log line and the format-target id are unchanged.
         var buffer = stackalloc char[200];
         return CM_Get_Device_IDW(devInst, buffer, 200, 0) == CrSuccess
-            ? new string(buffer)
+            ? ReadBoundedString(buffer, 200)
             : "";
     }
 

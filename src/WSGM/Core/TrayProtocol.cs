@@ -62,6 +62,36 @@ public static class TrayProtocol
     /// <summary>NIS_SHAREDICON state bit (hIcon belongs to another registration).</summary>
     public const uint NisSharedIcon = 0x02;
 
+    /// <summary>WM_USER — the first message value Windows reserves for an
+    /// application's own use. NOTIFYICONDATA.uCallbackMessage is documented as
+    /// application-defined, and every real tray implementation allocates it from
+    /// this range or above: WinForms NotifyIcon uses WM_USER + 1024, Qt's
+    /// QSystemTrayIcon uses WM_APP + 101 (WM_APP is 0x8000), and apps wanting a
+    /// process-unique value call RegisterWindowMessage, which returns 0xC000..0xFFFF.</summary>
+    public const uint WmUser = 0x0400;
+
+    /// <summary>The largest window message value (message numbers are 16-bit).</summary>
+    public const uint MaxWindowMessage = 0xFFFF;
+
+    /// <summary>Whether a registered uCallbackMessage may be RELAYED to its owner
+    /// window. The callback message arrives over an attacker-reachable wire — any
+    /// Medium-IL process can register an icon naming a foreign HWND (the wire HWND
+    /// is stored verbatim), and the relay runs outbound from WSGM's High IL where
+    /// UIPI imposes no restriction — so a system-defined callback below WM_USER
+    /// would let a caller drive WM_CLOSE or WM_SYSCOMMAND into elevated UI.
+    /// Refusing those costs nothing real: no tray implementation registers a
+    /// system message as its callback (see the range note on <see cref="WmUser"/>).
+    ///
+    /// This is a decision helper for the RELAY only, and registration deliberately
+    /// does not consult it: rejecting a NIM_ADD makes shell32 report failure to the
+    /// caller and well-behaved apps then re-add in a loop (see
+    /// <see cref="TrayChange.Rejected"/>). An icon whose callback is not relayable
+    /// must still register, still render, and still keep its tooltip — only the
+    /// click relay is refused.</summary>
+    /// <param name="callbackMessage">The registered uCallbackMessage value.</param>
+    public static bool IsRelayableCallback(uint callbackMessage)
+        => callbackMessage is >= WmUser and <= MaxWindowMessage;
+
     // Wire offsets. Header: signature 0, message 4, NOTIFYICONDATA32 at 8.
     private const int NidOffset = 8;
     private const int MinimumNidSize = 952; // v3 shape, ends after guidItem

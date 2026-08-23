@@ -58,7 +58,11 @@ waiting to happen.
    is by content id and cannot see a registration the previous card left under its own id.
    `SteamLibraryVdf.NormalizePath` and `SteamCdp.NormalizePathJs` must stay equivalent — a mismatch
    silently skips the purge. **Card swaps are reconciled on the volume notification, not by polling
-   (`Shell\CardVolumeMonitor.cs`, `Core\CardLibraryDecision.cs`).** The signal is a
+   (`Shell\CardVolumeMonitor.cs`, `Core\CardLibraryDecision.cs`).** The monitor must start for BOTH
+   ways game mode becomes active: the initial direct/service boot and a later desktop-to-game
+   transition. Initial boot does not raise `SessionModes.GameModeEntered`; relying on that event
+   alone left the monitor absent for the whole boot session (device log, 2026-08-22: Safe Eject
+   succeeded with no card-volume notification or reconcile). The signal is a
    `RegisterDeviceNotification` subscription to **`GUID_DEVINTERFACE_VOLUME`** on the process
    message-only window. It must be that and not the broadcast `DBT_DEVTYP_VOLUME` message, which
    Windows sends only to TOP-LEVEL windows and which a `HWND_MESSAGE` window therefore never
@@ -69,10 +73,32 @@ waiting to happen.
    is `cardContentId` (from the card's own marker, the identity that travels with the card) against
    the ids registered for that path in `libraryfolders.vdf` — Steam's live folder API exposes no
    content id at all, which is why the file is the source. Gated on the CEF master switch and off in
-   `--overlay-test`. `SteamCollections` remains only as the read/filter bridge and one-time cleanup
-   for collection IDs created by pre-injection builds. New tabs never create collections. CEF
-   unreachability must save the desired configuration but fail open with a retryable warning; it
-   must not replace the last successfully injected definitions.
+   `--overlay-test`. **A running Steam process and a reachable SharedJSContext are NOT proof that a
+   cold-start UI is ready for autonomous mutation** (device-observed 2026-08-22). On failed boot PID
+   12064, the input proxy had completely initialized in 2 ms with zero fallback calls, CEF accepted
+   the download-sort injection, and the card monitor began replacing `D:\SteamLibrary` before a Big
+   Picture window existed; that boot never produced the window. Manual Steam starts with the same
+   proxy produced it. `SteamUiReadiness` therefore gates automatic card reconciliation, tab and
+   card-manifest sync, Wi-Fi feed, download-state polling, and download-sort injection on the
+   process-owned `SDL_app` Big Picture window. Card-volume notification and scanning still start
+   immediately so an already-present card and removals are not missed, but live Add/Remove is
+   deferred and retried until the window exists. Desktop download polling and manual/overlay-driven
+   operations remain immediate because they are not acting on a half-built game-mode session.
+   `SteamCollections` remains only as the read/filter bridge and one-time cleanup for collection IDs
+   created by pre-injection builds. New tabs never create collections. CEF unreachability must save
+   the desired configuration but fail open with a retryable warning; it must not replace the last
+   successfully injected definitions.
+
+   **`nFolderIndex` is a STABLE ID, not an array position (live-measured 2026-08-23 against this
+   machine's Steam).** Removing an install folder does not renumber the ones after it: removing
+   index 2 of `[0,1,2,3]` left `0,1,3`, `libraryfolders.vdf` persisted the non-contiguous keys, and
+   removing an index that is already gone is a harmless no-op. Steam's own store agrees —
+   `steamui/chunk~2dcc5aaf7.js` has
+   `GetInstallFolder(e){return this.m_InstallFolders.find(t=>t.nFolderIndex==e)}` while exposing
+   array position separately as `findIndex`. `SteamCdp`'s purge and remove loops therefore stay as
+   written: iterate ONE `GetInstallFolders()` snapshot and remove each match in order. No descending
+   sort, and no re-fetch between removals — the index-shift concern that suggests them was measured
+   and disproven.
 
 9. **Custom filter tabs are INJECTED into Steam's tab strip — not collections (device-verified).**
    Collections render under the "Collections" tab, never as top-strip tabs; that was the wrong model
@@ -99,12 +125,16 @@ waiting to happen.
    WSGM's own card model). Card tabs and genre tabs use the same injection. It is **reactive**:
    `LibraryTabManager.SyncAllAsync` re-injects after every builder change (no manual "sync" button);
    interactive reordering uses the cheap `SteamLibraryTabs.PushOrderAsync` (order + hidden set only,
-   no filter re-evaluation), debounced from the Tab Order UI. The two things that shift on a major
-   Steam UI update — the dispatcher slot name and the `Library_FilteredByHeader` marker — are the
-   accepted fragility (kill switch `window.__wsgm.disableTabs()`; a Steam restart also recovers).
-   The builder UI is `Overlay\LibraryTabsView.cs` (self-drawing sub-view like `PanelFormat`; extend
-   `AnySubView`). Prototype any change against live Steam via `tools/WsgmLibTest`
-   (`run-file.mjs tabs-prod.js`) BEFORE editing the C#.
+   no filter re-evaluation), debounced from the Tab Order UI. The boot sync waits for Big Picture
+   plus `webpackChunksteamui`, `collectionStore`, and `appStore`. A reachable but failed filter
+   evaluation retries the FULL tab sync even if the independent visible-page badge push succeeded;
+   treating that badge success as completion was why custom tabs only appeared after opening WSGM's
+   sidebar and triggering a later runtime sync (device-observed 2026-08-22). The two things that
+   shift on a major Steam UI update — the dispatcher slot name and the `Library_FilteredByHeader`
+   marker — are the accepted fragility (kill switch `window.__wsgm.disableTabs()`; a Steam restart
+   also recovers). The builder UI is `Overlay\LibraryTabsView.cs` (self-drawing sub-view like
+   `PanelFormat`; extend `AnySubView`). Prototype any change against live Steam via
+   `tools/WsgmLibTest` (`run-file.mjs tabs-prod.js`) BEFORE editing the C#.
 
 10. **Steam-page bridge (the VISIBLE window, not SharedJSContext).** `Core\SteamPageBridge.cs` reads
     the current game and injects the "On: <card>" badge into the **visible** Big-Picture/library
@@ -170,8 +200,18 @@ waiting to happen.
     the "original" and Remove cannot restore the wrapper itself — and re-applying an already-wrapped
     game keeps the first snapshot rather than recording WSGM's own values.
 
-    The Tools tab's custom launch action is deliberately different from those fixes: it uses no
-    WSGM wrapper and replaces the active launch fields with Steam-native syntax. A real title gets
+    A user prefix ahead of `%command%` keeps running at Steam's own integrity level, in front of the
+    wrapper, and that is ACCEPTED: it runs there whether or not WSGM applies a fix, and applying one
+    strictly REDUCES the elevated surface by moving the game itself to medium. The prefix is
+    therefore never stripped, reordered, escaped or refused — doing so would revert 0751f86 and
+    break `-dx11`/`-nolauncher` and profiler/RTSS shims. It is only reported:
+    `LaunchWrapperCommand.PreservedPrefix` strips control characters and caps the length for a
+    single `Log.Info` emitted BEFORE the write (`Log` interpolates its message raw, and a
+    launch-option value is user text), and the string handed to `SetAppLaunchOptions` is
+    byte-identical either way.
+
+    The Tools tab's custom launch action is deliberately different from those fixes: it uses no WSGM
+    wrapper and replaces the active launch fields with Steam-native syntax. A real title gets
     `"selected.exe" [arguments] %command%`; CMD/BAT and PS1 selections prefix that placeholder with
     an explicit `cmd.exe` or Windows PowerShell invocation. A non-Steam shortcut gets the selected
     EXE (or script host) in `Exe` and only the script plus custom arguments in Launch Arguments —

@@ -25,6 +25,11 @@ public sealed class OverlayController : IDisposable
     private readonly GamepadService _gamepad = new();
     private readonly GamepadChordWatcher _chordWatcher;
     private TouchSwipeMonitor? _touchSwipes;
+
+    /// <summary>What tap watching and gamepad navigation were set to when a modal
+    /// system dialog took the screen, so closing it restores exactly that.</summary>
+    private bool _dialogPriorWatchTaps;
+    private bool _dialogPriorNavigation;
     private OverlayWindow? _overlay;
     private OverlayViewModel? _overlayViewModel;
     private GamepadNavigation? _navigation;
@@ -430,9 +435,19 @@ public sealed class OverlayController : IDisposable
     private void AcquireSteamInputLease()
     {
         _leaseReleased = false;
-        // User opt-out: never touch Steam at all. Applies live via the config
-        // watcher (_config is replaced wholesale on reload). Controller input in
-        // the open panel then depends on what Steam's desktop profile leaves us.
+        // User opt-out: never touch Steam at all. The config watcher replaces
+        // _config wholesale on reload, so a change is picked up without a restart —
+        // but it is read HERE, at the top of an open, so it takes effect at the NEXT
+        // surface open, not on the surface already on screen. A lease already applied
+        // is deliberately NOT released when the opt-out arrives mid-surface: the
+        // release hands the pad back to Steam's desktop profile, which per invariant 1
+        // swallows it from SDL system-wide, so a controller user who turned this off
+        // from the open Settings window would lose navigation on the very click that
+        // saved it. The lease is scoped to the surface lifetime by specification
+        // (docs\steam-input.md, Overlay\AGENTS.md): acquire before a surface opens,
+        // release only after the last one closes. Controller input in a panel opened
+        // with the opt-out active then depends on what Steam's desktop profile
+        // leaves us.
         if (!_config.SteamInputLeaseEnabled)
         {
             Log.Info("Steam Input lease disabled in settings — surface opens without blocking Steam Input.");
@@ -751,6 +766,30 @@ public sealed class OverlayController : IDisposable
             // the handed-off Steam Input lease, else Steam's desktop profile grabs the
             // pad over Settings.
             Avalonia.Threading.Dispatcher.UIThread.Post(settings.Show);
+        };
+        // A modal system dialog (the custom launch action's file picker) is its own
+        // window outside the bar's rectangle. Tap-outside dismissal is raw hit
+        // testing, so every touch in that dialog would otherwise close the bar and
+        // cancel the flow; the gamepad would likewise still be driving the bar
+        // hidden behind it. Same suspension the Settings handoff performs, but
+        // reversed when the dialog closes because the bar stays up underneath.
+        _overlay.SystemDialogActive += active =>
+        {
+            if (active)
+            {
+                _dialogPriorWatchTaps = _touchSwipes?.WatchTaps ?? false;
+                _dialogPriorNavigation = _navigation?.IsEnabled ?? false;
+            }
+            if (_touchSwipes is not null)
+            {
+                // Restore what was armed rather than assuming it: the bar is not
+                // the only surface that owns tap watching.
+                _touchSwipes.WatchTaps = !active && _dialogPriorWatchTaps && _overlay is not null;
+            }
+            if (_navigation is not null)
+            {
+                _navigation.IsEnabled = !active && _dialogPriorNavigation;
+            }
         };
         // Dismiss never refocuses anything: Windows hands the foreground back to
         // the previous window on close. An explicit refocus-on-dismiss once yanked

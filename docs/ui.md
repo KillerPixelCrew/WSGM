@@ -43,3 +43,27 @@ owned (marker held `FileShare.None`) for the life of the Settings window, so a s
 delete a first window's unsaved import. `SplashAssets` is a **two-phase transaction**: sidecars are
 promoted only after `ConfigStore.Save` succeeds, a failed promotion reports a failed save and keeps
 the previous path, and the picked path stays in the view model so a retry works.
+
+**Two accepted residuals of the `ImageHeader` decode bounds**
+(`Overlay\ArtworkView.LoadCurrentArtAsync`, the current-art preview for a Steam grid file — the same
+shape applies wherever `ImageHeader` guards a path-based decode). Both are known and deliberately
+not closed; do not "fix" them by rewriting the gate.
+
+- **The header handle is not the decode handle — an accepted TOCTOU.** `ImageHeader.TryReadSize`
+  opens its own `FileStream` (`FileShare.ReadWrite`), reads the header, and closes it; the caller
+  then opens a second stream with `File.OpenRead(path)` for `Bitmap.DecodeToWidth`. Nothing carries
+  the checked identity across, so same-user code can swap the file in between and get bytes decoded
+  that were never measured. Closing this would mean decoding from the already-open handle, which is
+  a real API change for every call site. It stays open because the grid directory lives under
+  Steam's `userdata`, which same-user medium code already owns outright (the accepted posture in
+  `decisions.md`), and because the worst case is bounded by `DecodeToWidth` plus the surrounding
+  `catch` — a failed preview, not a broken shell.
+- **WebP is outside `ImageHeader`'s scope, so a `.webp` grid file is bounded only by the 16 MB
+  cap.** `TryReadSize` parses PNG/JPEG/BMP only and reports "unknown" for everything else, while
+  `SteamArtwork.GridExtensions` accepts `webp` — so the webp branch falls through to
+  `CurrentArtMaxBytes` (16 MB, mirroring `SteamGridDb.DownloadImageAsync`), which bounds the ENCODED
+  size only. A small, well-formed webp can still declare a canvas far past `ImageHeader.MaxPixels`.
+  Accepted rather than solved: teaching `ImageHeader` the RIFF/VP8/VP8L/VP8X header chain is real
+  parsing surface for a preview thumbnail, and dropping webp instead would break previews for art
+  the user already has on disk. If a bound is ever wanted here, add the webp header case to
+  `ImageHeader` — never a second, format-specific check at the call site.

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 
 namespace WSGM.Core;
 
@@ -92,6 +93,54 @@ internal static class LaunchWrapperCommand
             original.AsSpan(0, placeholder),
             wrapper,
             original.AsSpan(placeholder + CommandPlaceholder.Length));
+    }
+
+    /// <summary>Reports the text a user placed AHEAD of their own <c>%command%</c>,
+    /// sanitized and bounded so it is safe to put in the log.</summary>
+    /// <param name="originalOptions">The user's own launch options, as
+    /// <see cref="OriginalLaunchOptions"/> recovered them.</param>
+    /// <returns>The prefix, control characters removed and length capped; an empty
+    /// string when the value is blank or does not position <c>%command%</c> itself.</returns>
+    /// <remarks>
+    /// <para>Diagnosability only — nothing here feeds <see cref="SteamLaunchOptions"/>,
+    /// whose output must stay byte-identical because Steam stores it verbatim. A
+    /// prefix is never stripped, reordered, escaped or refused: it is how
+    /// <c>-dx11</c>/<c>-nolauncher</c> shims, profilers and RTSS-style overlays keep
+    /// working, and it runs at Steam's own integrity level whether or not WSGM wraps
+    /// the game — applying a wrapper only ever REDUCES that, by moving the game
+    /// itself to medium.</para>
+    /// <para>Sanitized because <see cref="Log"/> interpolates its message raw: an
+    /// options string carrying a newline could otherwise forge whole log lines in the
+    /// only remote-diagnosis surface WSGM has. Control characters are dropped rather
+    /// than escaped, and the result is capped so one pathological value cannot bury a
+    /// pasted <c>wsgm.log</c>.</para>
+    /// </remarks>
+    internal static string PreservedPrefix(string? originalOptions)
+    {
+        if (string.IsNullOrWhiteSpace(originalOptions))
+        {
+            return "";
+        }
+        var placeholder = originalOptions.IndexOf(CommandPlaceholder, StringComparison.Ordinal);
+        if (placeholder <= 0)
+        {
+            return "";
+        }
+        var prefix = originalOptions[..placeholder].Trim();
+        var builder = new StringBuilder(Math.Min(prefix.Length, PrefixLogLimit));
+        foreach (var character in prefix)
+        {
+            if (char.IsControl(character))
+            {
+                continue;
+            }
+            if (builder.Length == PrefixLogLimit)
+            {
+                return builder.Append("...").ToString();
+            }
+            builder.Append(character);
+        }
+        return builder.ToString();
     }
 
     /// <summary>Recovers the launch options a real Steam title had before the wrapper
@@ -267,6 +316,10 @@ internal static class LaunchWrapperCommand
             }
         }
     }
+
+    // Long enough to identify the shim a user put in front of %command%, short
+    // enough that a pathological launch-option value cannot flood wsgm.log.
+    private const int PrefixLogLimit = 200;
 
     private const string DeelevateFlag = "--deelevate";
     private const string InputLeaseFlag = "--input-lease";

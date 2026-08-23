@@ -1,15 +1,23 @@
+using System;
 using WSGM.Interop;
 
 namespace WSGM.Core;
 
-/// <summary>What the display-off mute service should do with one display-state sample.</summary>
+/// <summary>What the display-off mute service should do after one policy input changes.</summary>
 internal enum DisplayMuteAction
 {
+    /// <summary>The current state already satisfies the policy.</summary>
+    NoChange,
+
     /// <summary>The screen went dark — mute if the user has not muted already.</summary>
     Mute,
 
     /// <summary>The screen is lit again — undo a mute this process applied.</summary>
     Restore,
+
+    /// <summary>The last download stopped while the screen remains dark — restore
+    /// after the completion grace period unless activity resumes.</summary>
+    DelayRestore,
 }
 
 /// <summary>Pure decision logic for <c>Shell\DisplayOffMuteService</c>. Kept separate so
@@ -17,6 +25,10 @@ internal enum DisplayMuteAction
 /// message window or an audio endpoint.</summary>
 internal static class DisplayMuteDecider
 {
+    /// <summary>Grace after the last active download before audio is restored while
+    /// the screen remains dark.</summary>
+    internal static readonly TimeSpan DownloadCompletionRestoreDelay = TimeSpan.FromSeconds(10);
+
     /// <summary>MONITOR_DISPLAY_STATE: the display is off.</summary>
     internal const int DisplayOff = 0;
 
@@ -26,17 +38,47 @@ internal static class DisplayMuteDecider
     /// <summary>MONITOR_DISPLAY_STATE: the display is dimmed (still lit).</summary>
     internal const int DisplayDimmed = 2;
 
-    /// <summary>Maps a MONITOR_DISPLAY_STATE value to the action to take.
+    /// <summary>Returns whether a MONITOR_DISPLAY_STATE value is the documented
+    /// display-off value.
     ///
-    /// <para>Only the documented "off" value mutes; <b>every other value restores</b>,
-    /// including "dimmed" and any value Windows may add later. The asymmetry is
-    /// deliberate and is the fail-safe direction: a dimmed screen is still lit in front
-    /// of the user, and a state this build does not recognise must never be the reason a
-    /// device stays silent.</para></summary>
+    /// <para>Every other value is treated as lit, including "dimmed" and any value
+    /// Windows may add later. The asymmetry is deliberate and fail-safe: a dimmed
+    /// screen is still in front of the user, and an unknown value must never be the
+    /// reason a device stays silent.</para></summary>
     /// <param name="state">The reported MONITOR_DISPLAY_STATE.</param>
-    /// <returns>The action for that state.</returns>
-    internal static DisplayMuteAction ActionFor(int state) =>
-        state == DisplayOff ? DisplayMuteAction.Mute : DisplayMuteAction.Restore;
+    /// <returns>True only for the documented off value.</returns>
+    internal static bool IsDisplayOff(int state) => state == DisplayOff;
+
+    /// <summary>Reconciles the feature setting, display state, Steam download state,
+    /// and ownership of the current mute. Muting requires every positive condition;
+    /// restoration is immediate when the display is lit or the setting is disabled,
+    /// but an idle transition while the display remains dark receives a grace period
+    /// so adjacent queue items do not flap the endpoint.</summary>
+    /// <param name="enabled">Whether the user enabled download-aware muting.</param>
+    /// <param name="displayOff">Whether this session's display is known to be dark.</param>
+    /// <param name="downloadActive">Whether Steam reports an active download.</param>
+    /// <param name="mutedByUs">Whether WSGM owns the current mute.</param>
+    /// <returns>The side effect the service should perform next.</returns>
+    internal static DisplayMuteAction Reconcile(
+        bool enabled,
+        bool displayOff,
+        bool downloadActive,
+        bool mutedByUs)
+    {
+        if (!mutedByUs)
+        {
+            return enabled && displayOff && downloadActive
+                ? DisplayMuteAction.Mute
+                : DisplayMuteAction.NoChange;
+        }
+        if (!enabled || !displayOff)
+        {
+            return DisplayMuteAction.Restore;
+        }
+        return downloadActive
+            ? DisplayMuteAction.NoChange
+            : DisplayMuteAction.DelayRestore;
+    }
 
     /// <summary>Whether a notification source may be believed when it says the screen went
     /// dark. Only <see cref="DisplayStateSource.Session"/> describes this session's own

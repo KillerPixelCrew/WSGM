@@ -6,26 +6,130 @@ namespace WSGM.Tests;
 public class DisplayMuteTests
 {
     [Fact]
-    public void ActionFor_DisplayOff_Mutes()
+    public void DownloadCompletionRestoreDelay_IsTenSeconds()
     {
-        Assert.Equal(DisplayMuteAction.Mute, DisplayMuteDecider.ActionFor(DisplayMuteDecider.DisplayOff));
+        Assert.Equal(
+            TimeSpan.FromSeconds(10),
+            DisplayMuteDecider.DownloadCompletionRestoreDelay);
+    }
+
+    [Fact]
+    public void Reconcile_DarkDisplayWithActiveDownload_Mutes()
+    {
+        var action = DisplayMuteDecider.Reconcile(
+            enabled: true,
+            displayOff: true,
+            downloadActive: true,
+            mutedByUs: false);
+
+        Assert.Equal(DisplayMuteAction.Mute, action);
+    }
+
+    [Fact]
+    public void Reconcile_DarkDisplayWithoutActiveDownload_DoesNothing()
+    {
+        var action = DisplayMuteDecider.Reconcile(
+            enabled: true,
+            displayOff: true,
+            downloadActive: false,
+            mutedByUs: false);
+
+        Assert.Equal(DisplayMuteAction.NoChange, action);
+    }
+
+    [Fact]
+    public void Reconcile_LitDisplayWithActiveDownload_DoesNothing()
+    {
+        var action = DisplayMuteDecider.Reconcile(
+            enabled: true,
+            displayOff: false,
+            downloadActive: true,
+            mutedByUs: false);
+
+        Assert.Equal(DisplayMuteAction.NoChange, action);
+    }
+
+    [Fact]
+    public void Reconcile_DisabledSettingWithDarkDownload_DoesNothing()
+    {
+        var action = DisplayMuteDecider.Reconcile(
+            enabled: false,
+            displayOff: true,
+            downloadActive: true,
+            mutedByUs: false);
+
+        Assert.Equal(DisplayMuteAction.NoChange, action);
+    }
+
+    [Fact]
+    public void Reconcile_LastDownloadFinishesWhileDark_DelaysRestore()
+    {
+        var action = DisplayMuteDecider.Reconcile(
+            enabled: true,
+            displayOff: true,
+            downloadActive: false,
+            mutedByUs: true);
+
+        Assert.Equal(DisplayMuteAction.DelayRestore, action);
+    }
+
+    [Fact]
+    public void Reconcile_DisplayReturnsWhileMuted_RestoresImmediately()
+    {
+        var action = DisplayMuteDecider.Reconcile(
+            enabled: true,
+            displayOff: false,
+            downloadActive: true,
+            mutedByUs: true);
+
+        Assert.Equal(DisplayMuteAction.Restore, action);
+    }
+
+    [Fact]
+    public void Reconcile_DownloadRestartsDuringDelayedRestore_KeepsMute()
+    {
+        var action = DisplayMuteDecider.Reconcile(
+            enabled: true,
+            displayOff: true,
+            downloadActive: true,
+            mutedByUs: true);
+
+        Assert.Equal(DisplayMuteAction.NoChange, action);
+    }
+
+    [Fact]
+    public void Reconcile_SettingDisabledWhileMuted_RestoresImmediately()
+    {
+        var action = DisplayMuteDecider.Reconcile(
+            enabled: false,
+            displayOff: true,
+            downloadActive: true,
+            mutedByUs: true);
+
+        Assert.Equal(DisplayMuteAction.Restore, action);
+    }
+
+    [Fact]
+    public void IsDisplayOff_Off_IsTrue()
+    {
+        Assert.True(DisplayMuteDecider.IsDisplayOff(DisplayMuteDecider.DisplayOff));
     }
 
     [Theory]
     [InlineData(DisplayMuteDecider.DisplayOn)]
     [InlineData(DisplayMuteDecider.DisplayDimmed)]
-    public void ActionFor_LitDisplay_Restores(int state)
+    public void IsDisplayOff_LitDisplay_IsFalse(int state)
     {
-        Assert.Equal(DisplayMuteAction.Restore, DisplayMuteDecider.ActionFor(state));
+        Assert.False(DisplayMuteDecider.IsDisplayOff(state));
     }
 
     [Theory]
     [InlineData(3)]
     [InlineData(99)]
     [InlineData(-1)]
-    public void ActionFor_UnknownState_RestoresRatherThanLeavingTheDeviceSilent(int state)
+    public void IsDisplayOff_UnknownState_IsFalseRatherThanLeavingTheDeviceSilent(int state)
     {
-        Assert.Equal(DisplayMuteAction.Restore, DisplayMuteDecider.ActionFor(state));
+        Assert.False(DisplayMuteDecider.IsDisplayOff(state));
     }
 
     [Fact]

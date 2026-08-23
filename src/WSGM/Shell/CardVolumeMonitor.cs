@@ -66,6 +66,7 @@ internal sealed class CardVolumeMonitor : IDisposable
 
     private Timer? _settle;
     private bool _disposed;
+    private bool _waitingForSteamUi;
 
     private CardVolumeMonitor(MessageWindow window, Func<bool> enabled, Func<Task> afterReconcile)
     {
@@ -178,13 +179,35 @@ internal sealed class CardVolumeMonitor : IDisposable
 
         foreach (var (libraryPath, cardContentId) in present)
         {
-            cancellationToken.ThrowIfCancellationRequested();
             var key = SteamLibraryVdf.NormalizePath(libraryPath);
             // Remembering the path while the card is HERE is the only way the
             // removal pass below can know it was a card at all: once the media is
             // out, the volume is gone and nothing can be asked whether it was
             // hot-pluggable. See RemoveDepartedCardsAsync.
             _knownCardPaths[key] = libraryPath;
+        }
+
+        if (!SteamUiReadiness.IsReady)
+        {
+            if (!_waitingForSteamUi)
+            {
+                _waitingForSteamUi = true;
+                Log.Info("Card volumes: card state captured; waiting for the Big Picture window "
+                    + "before changing Steam's library list.");
+            }
+            Schedule();
+            return false;
+        }
+        if (_waitingForSteamUi)
+        {
+            _waitingForSteamUi = false;
+            Log.Info("Card volumes: Big Picture is ready; resuming deferred library reconcile.");
+        }
+
+        foreach (var (libraryPath, cardContentId) in present)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var key = SteamLibraryVdf.NormalizePath(libraryPath);
             var ids = registered.TryGetValue(key, out var at) ? at : [];
             var action = CardLibraryDecision.Decide(cardContentId, ids);
             if (action == CardLibraryAction.None)

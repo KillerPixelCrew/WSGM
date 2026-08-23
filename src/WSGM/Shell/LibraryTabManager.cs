@@ -14,10 +14,10 @@ namespace WSGM.Shell;
 /// <param name="Success">Whether definitions and badges synchronized.</param>
 /// <param name="Reachable">Whether Steam's CEF target was reachable.</param>
 /// <param name="BadgesPushed">Whether the in-page badge observer + map reached the
-/// VISIBLE window. Distinct from Success: at boot SharedJSContext (tabs) is ready
-/// before the visible Big Picture window exists, so tabs can sync while the badge
-/// push has no target yet — a caller that ignores this leaves the badge missing
-/// until the next sync.</param>
+/// VISIBLE window. Distinct from Success because tabs live in SharedJSContext while
+/// the badge lives in the visible page; direct runtime callers can reach one without
+/// the other. The automatic boot path deliberately waits for Big Picture before
+/// touching either context.</param>
 public readonly record struct LibraryTabSyncResult(
     string Summary, bool Success, bool Reachable, bool BadgesPushed = false);
 
@@ -185,14 +185,15 @@ public sealed class LibraryTabManager
         }
     }
 
-    /// <summary>Polls (first probe after 3 s, then every 5 s) for Steam's library UI to
-    /// finish loading after a cold boot, then syncs once — so tabs appear without the
-    /// user opening the overlay.
+    /// <summary>Polls (first probe after 3 s, then every 5 s) for Steam's Big Picture
+    /// window and library stores to finish loading after a cold boot, then syncs — so
+    /// tabs appear without the user opening the overlay.
     /// Best-effort and self-limiting; falls back to the on-open sync if Steam never
     /// becomes reachable.</summary>
     /// <param name="cancellationToken">Cancels the wait.</param>
     public async Task SyncOnBootAsync(CancellationToken cancellationToken = default)
     {
+        var waitingForBigPicture = false;
         for (var attempt = 0; attempt < 30 && !cancellationToken.IsCancellationRequested; attempt++)
         {
             try
@@ -201,21 +202,42 @@ public sealed class LibraryTabManager
                 // the UI is ready immediately and the badge should not wait 8 s; on a
                 // cold boot the early probe just misses quietly and the loop retries.
                 await Task.Delay(attempt == 0 ? 3000 : 5000, cancellationToken).ConfigureAwait(false);
+                if (!SteamUiReadiness.IsReady)
+                {
+                    if (!waitingForBigPicture)
+                    {
+                        waitingForBigPicture = true;
+                        Log.Info("Library tabs (boot): waiting for the Big Picture window before CEF sync.");
+                    }
+                    continue;
+                }
+                if (waitingForBigPicture)
+                {
+                    waitingForBigPicture = false;
+                    Log.Info("Library tabs (boot): Big Picture is ready; probing its library stores.");
+                }
                 var probe = await SteamCef.EvaluateAsync(
-                    "JSON.stringify(!!window.webpackChunksteamui&&!!window.collectionStore)",
+                    "JSON.stringify(!!window.webpackChunksteamui&&!!window.collectionStore"
+                        + "&&!!window.appStore)",
                     TimeSpan.FromSeconds(4), cancellationToken).ConfigureAwait(false);
                 if (probe.Reachable && probe.Value == "true")
                 {
                     var result = await SyncAllDetailedAsync(cancellationToken).ConfigureAwait(false);
                     Log.Info($"Library tabs (boot): {result.Summary}");
-                    if (result.BadgesPushed)
+                    var action = LibraryTabBootSyncPolicy.Decide(result);
+                    if (action == LibraryTabBootAction.RetryFullSync)
+                    {
+                        // A half-initialized appStore can be reachable but reject a
+                        // filter. The badge targets another context, so its success
+                        // must never make us abandon the missing tabs.
+                        continue;
+                    }
+                    if (action == LibraryTabBootAction.Complete)
                     {
                         return;
                     }
-                    // Tabs live in SharedJSContext, which is up well before the
-                    // visible Big Picture window — so the badge push can miss while
-                    // the tab sync succeeds. Retry ONLY the badge (cheap: config
-                    // load + one evaluation) until the window exists; the full
+                    // The tabs succeeded but the visible-window badge did not. Retry
+                    // ONLY the badge (cheap: config load + one evaluation); the full
                     // filter evaluation must not re-run every 5 s.
                     for (; attempt < 30 && !cancellationToken.IsCancellationRequested; attempt++)
                     {

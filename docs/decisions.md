@@ -49,6 +49,36 @@ waiting to happen.
   (`ConsoleTool.System32`), reparse-point/ no-follow/no-overwrite checks before elevated file ops in
   user-writable dirs, DACL-scoping named kernel objects to the current user, and bounds/decode-size
   checks on parsed untrusted input.
+- **The update-exit event (`Local\WSGM.ExitForUpdate`) is an accepted same-user capability, and it
+  is neither availability-only nor harmless.** `Core\UpdateExitWatcher` creates it with an explicit
+  DACL granting this user's SID and `BUILTIN\Administrators` `EVENT_MODIFY_STATE | SYNCHRONIZE`
+  (`0x00100002`) plus a medium mandatory label, so any same-user medium process — not only the
+  elevated setup — can signal it. Two consequences are accepted, and a review must state them
+  correctly rather than downgrading them:
+  - **It is not availability-only.** The callback (`Program.Main`'s `UpdateExitWatcher.Start`
+    handler) runs `Steam.StopForUpdate()`, which activates `steam://exit` through
+    `AppLauncher.StartProtocol` → `Process.Start(… UseShellExecute = true)` (`Core\AppLauncher.cs`).
+    WSGM is normally elevated in game mode, so the shell resolves that protocol's **HKCU** handler
+    with WSGM's token. The HKCU hijack itself is already accepted above (same-user medium→high,
+    `%LOCALAPPDATA%`/HKCU are the attacker's own store); what the event adds is only _timing
+    control_ over when the pre-planted handler runs. Do not describe this path as a mere shutdown
+    request.
+  - **It does leave the session desktop-less.** The graceful path ends with `lifetime.Shutdown()`
+    and therefore **exit code 0**, while the logon service starts its Explorer fallback only on a
+    dirty exit (`WSGM.LogonService\SessionLauncher.Watch`:
+    `dirtyExit = !exitKnown || waitResult != WAIT_OBJECT_0 || exitCode != 0`). A signal delivered
+    outside a real update thus ends the shell with no Explorer behind it until the user signs out.
+    This is not a new capability — same-user medium code can already loop `taskkill` on the
+    unelevated Explorer — but the doc must not claim the fallback covers it.
+  - **The hardening that is kept is the cheap kind, and the grant must not be narrowed.** The medium
+    label keeps low-IL/sandboxed code from signalling at all, and the watcher's `ResetEvent` at
+    start drops a stale signal so a relaunched instance does not shut itself straight back down. Do
+    **not** tighten the DACL: the unelevated Settings instance needs `EVENT_MODIFY_STATE` for that
+    reset and for the `OpenEventW` fallback, and "one `SetEvent` releases every instance" is the
+    contract `StopRunningInstances` in `installer\WSGM.iss` depends on. The event name and the
+    `0x00100002` mask are a **cross-version** contract — during an upgrade the object is created by
+    the OLD build and the new installer only opens it by name — so drifting either one silently
+    breaks graceful update shutdown and leaves the injected Steam Input payload mapped.
 - **Never manage Windows device posture or automatic touch-keyboard policy:** game/desktop mode must
   not capture or write `ConvertibleSlateMode` or `TouchKeyboardTapInvoke`. Windows owns both. The
   legacy config fields and `LegacyPostureCleanup.Restore` exist only to undo values changed by older

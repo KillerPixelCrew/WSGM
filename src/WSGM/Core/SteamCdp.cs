@@ -264,6 +264,11 @@ public static class SteamCdp
             + (replaceExisting ? "const live=null;" : "const live=same.find(x=>x.bIsMounted);")
             // Everything at this path Steam has not mounted is a leftover, and so
             // is any surplus mounted duplicate beyond the one being kept.
+            // nFolderIndex is a STABLE ID, not an array position (live-measured
+            // 2026-08-23, invariant 8): removing one entry does not renumber the
+            // others, so removing several in one pass off a single GetInstallFolders
+            // snapshot is correct as written. No descending sort, and no re-fetch
+            // between removals.
             + "for(const f of same){if(f===live)continue;"
             + "try{await SteamClient.InstallFolder.RemoveInstallFolder(f.nFolderIndex);purged++;}catch(e){}}"
             + "const i=live?live.nFolderIndex:await SteamClient.InstallFolder.AddInstallFolder(path);"
@@ -300,6 +305,11 @@ public static class SteamCdp
             + "const same=folders.filter(x=>norm(x.strFolderPath)===norm(path));"
             + "if(!same.length)return JSON.stringify({ok:true,absent:true});"
             + "let removed=0;"
+            // Same reason as the purge in BuildAddExpression: nFolderIndex is a
+            // stable id, not a position. Steam's own store looks folders up with
+            // find(f=>f.nFolderIndex==e) and exposes array position separately, and
+            // removing index 2 of [0,1,2,3] leaves 0,1,3 (live-measured 2026-08-23,
+            // invariant 8). Iterating one snapshot in order is therefore correct.
             + "for(const f of same){await SteamClient.InstallFolder.RemoveInstallFolder(f.nFolderIndex);removed++;}"
             + "return JSON.stringify({ok:true,removed:removed});}catch(e){return JSON.stringify({ok:false,result:(e&&e.result),message:(e&&e.message)});}})()";
     }

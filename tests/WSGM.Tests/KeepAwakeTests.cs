@@ -139,6 +139,32 @@ public sealed class KeepAwakeTests
     public void IsActiveRequiresARealUnpausedState(string state, bool paused, bool expected)
         => Assert.Equal(expected, SteamDownloads.IsActive(state, paused));
 
+    [Fact]
+    public void ResolveActivity_ReachableIdleSnapshot_EndsKnownActivity()
+    {
+        var overview = new DownloadOverview(false, "None", false, 0, 0);
+
+        Assert.False(SteamDownloads.ResolveActivity(currentActive: true, steamAlive: true, overview));
+    }
+
+    [Fact]
+    public void ResolveActivity_UnreachableLiveClient_DoesNotInventDownloadCompletion()
+    {
+        Assert.True(SteamDownloads.ResolveActivity(
+            currentActive: true,
+            steamAlive: true,
+            overview: null));
+    }
+
+    [Fact]
+    public void ResolveActivity_DeadSteamClient_EndsKnownActivity()
+    {
+        Assert.False(SteamDownloads.ResolveActivity(
+            currentActive: true,
+            steamAlive: false,
+            overview: null));
+    }
+
     // ---- PowerTimeouts: preset cycling and labels ----
 
     [Theory]

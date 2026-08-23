@@ -22,6 +22,7 @@ public sealed class NetworkIndicatorService : IDisposable
 
     private readonly CancellationTokenSource _cts = new();
     private int _poked;
+    private bool _waitingForSteamUi;
 
     private NetworkIndicatorService()
     {
@@ -50,35 +51,54 @@ public sealed class NetworkIndicatorService : IDisposable
         {
             try
             {
-                var connected = false;
-                var ssid = "";
-                var signal = 0;
-                if (NativeRadio.WifiStatus(out var state, out var quality, out var name)
-                        == NativeRadio.Ok
-                    && state == 0 && !string.IsNullOrEmpty(name))
+                if (!SteamUiReadiness.IsReady)
                 {
-                    connected = true;
-                    ssid = name;
-                    signal = quality;
-                }
-
-                var tuple = (connected, ssid, connected ? SteamNetworkIndicator.MapStrength(signal) : 0);
-                var poked = Interlocked.Exchange(ref _poked, 0) == 1;
-                if (tuple != last || !lastOk || poked
-                    || DateTime.UtcNow - lastPush >= HealInterval)
-                {
-                    lastOk = await SteamNetworkIndicator.PushAsync(connected, ssid, signal, token)
-                        .ConfigureAwait(false);
-                    if (lastOk)
+                    if (!_waitingForSteamUi)
                     {
-                        if (tuple != last)
+                        _waitingForSteamUi = true;
+                        Log.Info("Network indicator: waiting for the Big Picture window.");
+                    }
+                }
+                else
+                {
+                    if (_waitingForSteamUi)
+                    {
+                        _waitingForSteamUi = false;
+                        Log.Info("Network indicator: Big Picture is ready; starting the feed.");
+                    }
+                    var connected = false;
+                    var ssid = "";
+                    var signal = 0;
+                    if (NativeRadio.WifiStatus(out var state, out var quality, out var name)
+                            == NativeRadio.Ok
+                        && state == 0 && !string.IsNullOrEmpty(name))
+                    {
+                        connected = true;
+                        ssid = name;
+                        signal = quality;
+                    }
+
+                    var tuple = (
+                        connected,
+                        ssid,
+                        connected ? SteamNetworkIndicator.MapStrength(signal) : 0);
+                    var poked = Interlocked.Exchange(ref _poked, 0) == 1;
+                    if (tuple != last || !lastOk || poked
+                        || DateTime.UtcNow - lastPush >= HealInterval)
+                    {
+                        lastOk = await SteamNetworkIndicator.PushAsync(connected, ssid, signal, token)
+                            .ConfigureAwait(false);
+                        if (lastOk)
                         {
-                            Log.Info(connected
-                                ? $"Network indicator: '{ssid}' at {signal}% (bars {tuple.Item3}/4)."
-                                : "Network indicator: not connected — cleared.");
+                            if (tuple != last)
+                            {
+                                Log.Info(connected
+                                    ? $"Network indicator: '{ssid}' at {signal}% (bars {tuple.Item3}/4)."
+                                    : "Network indicator: not connected — cleared.");
+                            }
+                            last = tuple;
+                            lastPush = DateTime.UtcNow;
                         }
-                        last = tuple;
-                        lastPush = DateTime.UtcNow;
                     }
                 }
             }
