@@ -1,6 +1,7 @@
 using System;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -46,6 +47,7 @@ public partial class KeyboardWindow : Window
         Input.MaxLength = maxLength;
         Keyboard.Target = Input;
         Keyboard.Accepted += (_, _) => Commit();
+        Keyboard.PasteRequested += OnPasteRequested;
         Win32Properties.AddWndProcHookCallback(this, WndProcHook);
 
         Opened += (_, _) =>
@@ -75,6 +77,27 @@ public partial class KeyboardWindow : Window
     private void OnAccept(object? sender, RoutedEventArgs e) => Commit();
 
     private void OnCancel(object? sender, RoutedEventArgs e) => DeferredClose();
+
+    private async void OnPasteRequested(object? sender, EventArgs e)
+    {
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (_closePending || clipboard is null)
+        {
+            return;
+        }
+        try
+        {
+            var text = await clipboard.GetTextAsync();
+            if (!_closePending && !string.IsNullOrEmpty(text))
+            {
+                Keyboard.InsertExternalText(text);
+            }
+        }
+        catch (Exception ex)
+        {
+            Core.Log.Warn($"Keyboard paste failed: {ex.Message}");
+        }
+    }
 
     private void Commit()
     {

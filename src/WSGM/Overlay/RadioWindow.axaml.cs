@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Input.Platform;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Shell;
@@ -70,6 +71,22 @@ public partial class RadioWindow : Window
         ShowTab(Tabs.SelectedIndex);
 
         Keyboard.Accepted += (_, _) => OnPromptAccept(this, new RoutedEventArgs());
+        Keyboard.PasteRequested += async (_, _) =>
+        {
+            try
+            {
+                var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+                var text = clipboard is null ? null : await clipboard.GetTextAsync();
+                if (!string.IsNullOrEmpty(text))
+                {
+                    Keyboard.InsertExternalText(text);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Radio keyboard paste failed: {ex.Message}");
+            }
+        };
         _radios.PairingRequested += OnPairingRequested;
         _radios.PropertyChanged += OnRadiosPropertyChanged;
         Opened += (_, _) => _radios.StartScanning();

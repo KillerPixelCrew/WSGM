@@ -134,11 +134,16 @@
                                       IconGeometry="{x:Static c:Icons.BlockedCircle}" />
                         <c:CardButton x:Name="BothFixesButton" Click="OnApplyBothWrappers"
                                       IconGeometry="{x:Static c:Icons.Rocket}" />
+                        <c:CardButton x:Name="CustomLaunchButton" Click="OnPickCustomLaunchAction"
+                                      IsVisible="{Binding ConfigureLaunchOptionsLive}"
+                                      IconGeometry="{x:Static c:Icons.FolderPlus}"
+                                      Title="Replace launch action"
+                                      Description="Run an EXE, CMD, BAT, or PowerShell script" />
                         <c:CardButton x:Name="RemoveFixesButton" Click="OnRemoveLaunchWrappers"
                                       IsVisible="{Binding ShowRemoveLaunchWrapper}"
                                       IconGeometry="{x:Static c:Icons.Close}"
-                                      Title="Remove launch fixes"
-                                      Description="Restore the game's original launch settings" />
+                                      Title="Restore original launch action"
+                                      Description="Remove WSGM changes and restore the original" />
                     </StackPanel>
 
                     <!-- Format flow lives in-place (a Popup/Flyout would be

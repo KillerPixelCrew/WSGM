@@ -165,6 +165,43 @@ public static class SteamLaunchConfig
         return Interpret(result, "Applied. Launch the game from Steam as usual.");
     }
 
+    /// <summary>Replaces a game's launch action using Steam's native fields.</summary>
+    /// <param name="appId">The Steam app id or generated shortcut id.</param>
+    /// <param name="isShortcut">Whether the app is a non-Steam shortcut.</param>
+    /// <param name="path">The selected executable or script.</param>
+    /// <param name="arguments">Verbatim custom arguments for the selected action.</param>
+    /// <param name="cancellationToken">Cancels the Steam operation.</param>
+    /// <returns>Whether Steam accepted the native launch fields.</returns>
+    public static async Task<LaunchConfigResult> ApplyCustomAsync(
+        long appId, bool isShortcut, string path, string arguments,
+        CancellationToken cancellationToken = default)
+    {
+        var fields = SteamCustomLaunchCommand.Build(path, arguments);
+        string expression;
+        if (isShortcut)
+        {
+            expression =
+                "(async()=>{try{const app=" + Unsigned(appId) + ";" +
+                "await SteamClient.Apps.SetShortcutExe(app," +
+                SteamCef.JsString(fields.ShortcutTarget) + ");" +
+                "await SteamClient.Apps.SetShortcutLaunchOptions(app," +
+                SteamCef.JsString(fields.ShortcutArguments) + ");" + SettleJs +
+                "return JSON.stringify({ok:true});}" +
+                "catch(e){return JSON.stringify({ok:false,err:String((e&&e.message)||e)});}})()";
+        }
+        else
+        {
+            expression =
+                "(async()=>{try{await SteamClient.Apps.SetAppLaunchOptions(" +
+                Unsigned(appId) + "," + SteamCef.JsString(fields.LaunchOptions) + ");" +
+                SettleJs + "return JSON.stringify({ok:true});}" +
+                "catch(e){return JSON.stringify({ok:false,err:String((e&&e.message)||e)});}})()";
+        }
+        var result = await SteamCef.EvaluateAsync(expression, Budget, cancellationToken)
+            .ConfigureAwait(false);
+        return Interpret(result, "Applied. Launch the game from Steam as usual.");
+    }
+
     /// <summary>Restores the launch configuration a game had before WSGM changed it.</summary>
     /// <param name="snapshot">What was recorded when the wrapper was applied.</param>
     /// <param name="cancellationToken">Cancels the operation.</param>
