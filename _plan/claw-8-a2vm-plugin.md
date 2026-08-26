@@ -29,8 +29,10 @@ Asynchronous initialization means only that hardware work does not block WSGM st
 - There is no general input mapper and no gyro-to-mouse or gyro-to-stick mapping. Only OEM controls may be reassigned.
 - Every user-facing device control lives in the WSGM overlay. Settings contains only WSGM ownership and startup configuration.
 - The right-front Quick Settings button opens Steam's native QAM by default.
-- While WSGM owns the Claw OEM-button path, it blocks the confirmed firmware `Win+G` side effect without disabling `i8042prt`, the ACPI keyboard device, or the volume keys.
+- While the Claw plugin owns OEM-button capture and suppression, it blocks the confirmed firmware `Win+G` side effect without disabling `i8042prt`, the ACPI keyboard device, or the volume keys; WSGM maps the resulting logical control to QAM.
 - MSI WMI and the controller's vendor HID protocol are the A2VM transports. PawnIO/direct EC access is not needed for this plugin unless future hardware evidence proves otherwise.
+- The Claw plugin owns every MSI WMI, vendor HID, power, fan, lighting, controller, motion, rumble, OEM-input, validation, rollback, and recovery implementation. WSGM exposes semantic capabilities and UI but no Claw hardware backend.
+- The exact `MS-1T52` definition composes reusable MSI implementation modules; it never inherits another Claw model's limits or firmware policy.
 - Unknown board IDs, unknown controller firmware, failed prerequisite reads, and ownership conflicts degrade capabilities; they never trigger guessed hardware writes.
 
 ## Scope and non-goals
@@ -61,13 +63,18 @@ Asynchronous initialization means only that hardware work does not block WSGM st
 
 ## Evidence and confidence model
 
-Implementation work must keep three confidence levels visible in code and diagnostics:
+Implementation work uses the evidence lifecycle defined by Device Lab:
 
-| Level | Meaning | Write policy |
+| State | Meaning | Write policy |
 | --- | --- | --- |
-| Confirmed | Corroborated by independent implementations or captured on the target unit | May ship behind normal validation and rollback |
-| Reference | Present in a mature reference implementation but not independently proven on this exact unit | Probe first; ship only after an A2VM hardware test |
-| Experimental | Conflicting, incomplete, or inferred | Read-only diagnostics until resolved |
+| Candidate | Suggested by a reference, similarity match, schema, or one observation | No generated or runtime write |
+| Correlated | Repeatedly associated with the expected action but not yet causally proven | No generated or runtime write |
+| Corroborated | Supported by repeated A/B/revert evidence or independent sources | Eligible only for an explicit bounded compatibility trial |
+| Hardware verified | Reproduced on the exact target by a reviewed bounded Device Lab trial or the Claw plugin, with readback and verified restoration | Eligible for implementation and acceptance testing |
+| Retail approved | Reviewed against supported firmware, lifecycle, failure, and safety gates | May ship |
+| Rejected | Disproven, unsafe, incompatible, or superseded | Must not be selected |
+
+Provenance is recorded separately from evidence state: official documentation, independently captured hardware evidence, another open-source implementation, HC behavioral reference, or inference. A mature reference does not automatically make a claim hardware verified on `MS-1T52`.
 
 The first hardware bring-up records the user's exact SMBIOS data, controller `bcdDevice`, HID descriptors, report descriptors, PnP/container IDs, MSI WMI provider version, BIOS/EC/controller firmware versions, motion-sensor identity, WMI event timing, and current hardware state. That capture becomes the first golden fixture for the plugin.
 
@@ -114,11 +121,25 @@ The exact 2.0 package schema remains a core-platform decision, but the Claw pack
       "usb": [{ "vid": "0DB0", "pids": ["1901", "1902", "1903", "1904"] }]
     }
   ],
-  "permissions": [
-    "msi-wmi",
-    "hid:0DB0:1901-1904",
-    "windows-sensors",
-    "interactive-keyboard-hook"
+  "resources": [
+    { "id": "msi-acpi", "kind": "wmi", "access": "read-write" },
+    { "id": "claw-mcu", "kind": "hid", "access": "read-write" },
+    { "id": "physical-controller", "kind": "controller", "access": "exclusive-when-managed" },
+    { "id": "motion", "kind": "windows-sensor", "access": "read" },
+    { "id": "oem-chord", "kind": "interactive-keyboard-hook", "access": "suppress" }
+  ],
+  "riskDeclarations": [
+    "hardware-power-writes",
+    "custom-fan-control",
+    "controller-reenumeration",
+    "device-persistent-lighting-possible",
+    "global-keyboard-suppression"
+  ],
+  "dependencies": [{ "id": "msi-wmi-provider", "kind": "oem-installed", "required": true }],
+  "implementationModules": [
+    { "id": "MsiWmiPlatform", "version": 1 },
+    { "id": "MsiClawMcu", "version": 2 },
+    { "id": "MsiClawA2VmPowerPolicy", "version": 1 }
   ],
   "capabilities": [
     "power-limits",
@@ -132,7 +153,7 @@ The exact 2.0 package schema remains a core-platform decision, but the Claw pack
 }
 ```
 
-The manifest is auditable metadata, not authorization by assertion. WSGM verifies that the package is trusted for every requested privileged transport.
+The manifest is auditable metadata, not authorization by assertion. Resource and risk declarations describe what the package intends to use; they cannot constrain direct user-mode access by arbitrary plugin code. WSGM verifies package trust and declarative install-time prerequisite metadata before activation. The Claw plugin authoritatively probes the MSI provider and runtime dependency health during activation and reports per-capability availability. No privileged helper is declared unless hardware testing proves one necessary and that exact Claw-specific component receives a separate review.
 
 ## Runtime architecture
 
@@ -140,23 +161,23 @@ WSGM's main executable remains NativeAOT. The Claw integration needs dynamic com
 
 ```mermaid
 flowchart LR
-    A["Overlay and Steam QAM"] <--> B["WSGM capability services"]
-    B <--> C["Private named pipe"]
-    C <--> D["DeviceHost and Claw plugin"]
+    A["Overlay and Steam QAM"] <--> B["WSGM semantic router"]
+    B <--> C["DeviceHost"]
+    C <--> D["Claw plugin modules"]
     D <--> E["WMI, HID, sensors, input"]
 ```
 
 ### Process boundary
 
-`WSGM.DeviceHost.exe` is a JIT-capable per-user, per-interactive-session sidecar. Each untrusted/community plugin runs in its own host process or an equivalent isolation boundary; it must not share secrets, handles, or an administrator-capable broker client with a publisher-trusted plugin. A host owns nonprivileged HID input, WinRT sensor subscriptions, lifecycle state, and its plugin state machine.
+`WSGM.DeviceHost.exe` is a JIT-capable, unelevated, per-user, per-interactive-session sidecar. Each plugin package runs in its own host process and receives no WSGM secrets, unrelated handles, or privilege-bearing client. The host loads the Claw package; the plugin owns WMI, HID, WinRT sensors, the interactive hook, every hardware state machine, and its recovery journal.
+
+Process separation provides crash and dependency isolation. It is not described as a security sandbox.
 
 The sidecar starts during WSGM startup when device integration is enabled and stays alive until WSGM exits or the user turns Device Integration off in Settings. Steam/Big Picture state, games starting/stopping, controller-management selection, individual resource conflicts, and plugin capability health are not host-lifetime decisions.
 
-Any WMI operation that proves to require elevation, and any elevation needed by the interactive input suppressor, must not grant arbitrary third-party plugin code unrestricted administrator access. The implementation should use a small signed `WSGM.DeviceBroker.exe` in the same interactive session, or an equivalently narrow broker boundary, with typed and capability-checked operations. The bundled Claw plugin is the first trusted client. Only WSGM-publisher-trusted packages can request privileged profiles in 2.0; community packages remain nonprivileged until a separately reviewed permission model exists.
+Normal MSI WMI, HID, sensor, and hook operations run inside the unelevated Claw host. If hardware testing proves that one operation requires privilege, the reviewed Claw package may add a separately signed, fixed-operation `WSGM.Claw.Helper.exe` in an administrator-protected location. That helper belongs exclusively to the Claw implementation. It independently verifies the exact board, firmware, operation, active owner, range, length, and rate and accepts no arbitrary WMI, HID, EC, IOCTL, keyboard, script, file, or shell request. Community plugins cannot use it.
 
-The broker independently verifies the exact board, declared capability, active owner, and fixed built-in operation/profile ID. It never accepts raw hook definitions, raw keyboard events, generic `SendInput`, arbitrary EC ports, arbitrary WMI execution, shell execution, or unrestricted file access. Its channel is established using a securely inherited handle or equivalently unforgeable per-process mechanism; a current-user ACL or user-readable token alone is insufficient protection from a local confused-deputy attack.
-
-The input hook cannot live in a Session 0 service. It must run on the logged-in user's desktop. If testing proves that a medium-integrity hook cannot reliably neutralize the chord over an elevated foreground process, only the narrow input-suppression portion runs elevated in the interactive broker. A proposed elevation mechanism is a consented, installer-created, highest-privilege per-user logon task that starts only the fixed broker binary; Phase M0 must threat-model and validate this before implementation. Secure desktop remains out of scope, and desktop/session notifications reset hook state.
+The input hook cannot live in a Session 0 service. It runs on the logged-in user's desktop. If testing proves that a medium-integrity hook cannot reliably neutralize the chord over an elevated foreground process, only the exact Claw suppression operation may move into the reviewed Claw helper. Phase M0 must threat-model and validate that path before implementation. Secure desktop remains out of scope, and desktop/session notifications reset hook state.
 
 ### IPC
 
@@ -175,24 +196,26 @@ The control pipe has:
 
 High-rate controller and IMU samples must not be serialized as JSON RPC. Use a fixed binary shared-memory state page or bounded ring buffer with sequence counters and an event signal. The named pipe remains the control, lifecycle, diagnostics, and low-rate event plane. Output rumble may use a bounded return ring or compact pipe messages if measurement shows that it is cheap enough.
 
-Steam CEF receives only allowlisted WSGM commands such as `SetTdp`, `SetFrameLimit`, or `SelectControllerTarget`. It never receives the device pipe, a plugin object, raw WMI/HID access, or the broker endpoint.
+Steam CEF receives only allowlisted WSGM commands such as `SetTdp`, `SetFrameLimit`, or `SelectControllerTarget`. It never receives the device pipe, a plugin object, raw WMI/HID access, or a plugin-helper endpoint.
 
 ### Transport split
 
-The plugin is decomposed into independently testable transports:
+The plugin is composed from independently testable implementation modules:
 
 | Component | Responsibility |
 | --- | --- |
-| `MsiWmiTransport` | Serialized 32-byte WMI transactions, status validation, power, fan tables/RPM, and scenario state; live temperature source remains separate/unresolved |
-| `MsiMcuTransport` | Serialized 64-byte vendor HID requests, ACK matching, profiles, mode switches, and RGB |
+| `MsiWmiPlatform` | Serialized 32-byte named WMI transactions and status validation |
+| `ClawA2VmPowerCapability` | Exact `MS-1T52` limits, scenario policy, ordering, readback, and rollback |
+| `ClawA2VmFanCapability` | Exact `MS-1T52` channels, tables, RPM, safety policy, and firmware release |
+| `MsiClawMcu` | Serialized 64-byte vendor HID requests, ACK matching, profiles, mode switches, and RGB framing |
+| `ClawA2VmLightingCapability` | Exact firmware/profile gate, physical zone layout, volatile/persistent policy, and rollback |
 | `ClawControllerSource` | DirectInput/XInput acquisition and normalized physical input |
-| `UiInputArbiter` | Selects managed physical input or the legacy SDL/Steam-lease fallback and prevents UI input from leaking into the virtual target |
 | `ClawRumbleSink` | Validated live motor output and stop-on-failure behavior |
 | `ClawMotionSource` | Windows gyrometer/accelerometer binding, timestamps, transforms, and calibration |
-| `ClawOemInputSource` | MSI WMI event codes, M1/M2 OEM events, deduplication, and action dispatch |
+| `ClawOemInputSource` | MSI WMI event codes, M1/M2 events, deduplication, and logical OEM-event publication |
 | `FirmwareChordSuppressor` | The narrowly scoped firmware `Win+G`/`Win+Tab` neutralizer |
 
-No transport performs UI work. No hook callback performs WMI, HID, IPC, logging, allocation-heavy work, or action dispatch.
+`UiInputArbiter` remains a WSGM-owned consumer of canonical plugin input. WSGM maps logical OEM events to allowlisted actions. No plugin module performs UI work, and no hook callback performs WMI, HID, IPC, logging, allocation-heavy work, or action dispatch.
 
 ## Lifecycle and ownership
 
@@ -213,16 +236,24 @@ No transport performs UI work. No hook callback performs WMI, HID, IPC, logging,
 
 Activation starts with WSGM, happens in the background, and is cancellable:
 
+Plugin-owned activation:
+
 1. Confirm the exact SMBIOS board and enumerate the controller container.
-2. Inspect controller firmware, WMI provider, BIOS/EC versions, sensors, and ownership conflicts per resource without writing.
-3. Open a crash-recovery journal and snapshot every state that WSGM may change.
+2. Inspect controller firmware, WMI provider, BIOS/EC versions, sensors, dependencies, and ownership conflicts per resource without writing.
+3. Open the Claw recovery journal and snapshot every hardware state the plugin may change.
 4. Start WMI OEM events and the motion source.
 5. If controller management is enabled, capture the original controller mode, switch to DirectInput only when needed, and await the expected remove/re-enumerate cycle by container identity.
-6. Create the selected HIDMaestro target and apply only WSGM-owned HidHide entries transactionally.
-7. Register the managed physical canonical-input source with `UiInputArbiter`; once healthy, WSGM surfaces no longer acquire a Steam Input lease.
-8. Start the firmware-chord suppressor only after OEM2 is ready to dispatch.
-9. Apply the selected WSGM hardware profile once, with readback.
-10. Publish capability readiness independently as each step completes.
+6. Start the firmware-chord suppressor only after the exact OEM2 logical event source is healthy.
+7. Validate and apply the selected semantic hardware profile once, with readback.
+8. Publish capability readiness independently as each resource becomes healthy.
+
+WSGM-owned orchestration:
+
+1. Consume the plugin's capability descriptors and canonical physical input.
+2. Create the selected HIDMaestro target.
+3. Apply only WSGM-owned HidHide entries transactionally using the exact identities reported by the plugin.
+4. Register the managed physical source with `UiInputArbiter`; once healthy, WSGM surfaces no longer acquire a Steam Input lease.
+5. Map logical OEM1/OEM2 events to the configured allowlisted overlay/QAM actions.
 
 WSGM's desktop UI and overlay remain responsive while these steps run. If the user enters Game Mode before activation finishes, Steam Big Picture is launched or foregrounded immediately and capability readiness continues in the same already-running host. A slow WMI provider, USB mode switch, missing sensor, or failed QAM patch cannot hold either WSGM startup or a mode transition open.
 
@@ -230,30 +261,35 @@ Desktop Mode to Game Mode and Game Mode to Desktop Mode are ordinary session-sta
 
 ### Deactivation and HC handoff
 
-Deactivation reverses only WSGM-owned resources and does not touch another manager:
+Deactivation reverses only resources owned by WSGM or the Claw plugin and does not touch another manager.
 
-1. Reject new device commands and cancel pending work.
-2. Unhook chord suppression and release only precisely tracked WSGM-injected down states, if any; never inject blanket Win/G/Tab releases.
-3. Stop rumble, motion samples, and controller acquisition.
-4. Remove the virtual target and only the HidHide entries WSGM owns.
-5. Restore the captured controller mode after handles close and await re-enumeration.
-6. Restore fan tables, custom/full-speed flags, shift/scenario state, and other temporary state from exact snapshots when safe.
-7. Close WMI/HID resources and event subscriptions.
-8. Mark the recovery journal clean and exit the device processes when no other plugin needs them.
+WSGM first rejects new semantic commands, establishes the SDL/Steam-lease fallback for any open WSGM surface, and neutralizes the virtual target. It keeps its HidHide entries in place while the plugin quiesces and restores the physical controller so the still-captured DirectInput device is not briefly exposed to games or Steam.
+
+The Claw plugin then:
+
+1. Cancels pending hardware work.
+2. Unhooks chord suppression and releases only precisely tracked plugin-injected down states, if any; it never injects blanket Win/G/Tab releases.
+3. Stops rumble, motion samples, and physical-controller acquisition.
+4. Restores the captured controller mode after handles close and awaits re-enumeration.
+5. Restores fan tables, custom/full-speed flags, shift/scenario state, and other temporary hardware state from exact snapshots when safe.
+6. Closes WMI/HID resources and event subscriptions.
+7. Verifies restoration and marks its recovery journal clean.
+
+After the plugin acknowledges that physical acquisition has ended and the original mode/PID is stable, WSGM removes its virtual target and only the HidHide entries it owns, then exits DeviceHost. A bounded-timeout path still honors the user's master toggle, but records the unverified handoff and never claims clean restoration.
 
 Full deactivation occurs only when WSGM exits or the user turns Device Integration off in Settings. Leaving Game Mode is not a deactivation trigger. Runtime plugin removal/update is not allowed while its device cycle is active.
 
-The supported full handoff to Handheld Companion is therefore the Settings master toggle: turning Device Integration off runs the complete cleanup above and then leaves the host stopped. Disabling only WSGM controller management releases the virtual controller/HidHide/controller resource but keeps the device cycle, power/fan/RGB state services, overlay controls, motion, and any WSGM-owned OEM path alive.
+The supported full handoff to Handheld Companion is therefore the Settings master toggle: turning Device Integration off runs the complete cleanup above and then leaves the host stopped. Disabling only WSGM controller management uses the same two-phase controller handoff—neutralize the virtual target while HidHide remains, release and restore the plugin's physical-controller resource, then remove WSGM's virtual target and HidHide state—while the device cycle, power/fan/RGB state services, overlay controls, motion, and plugin-owned OEM event and suppression path remain alive.
 
-If the master toggle is turned off while a WSGM surface is open, the UI input router first attempts to acquire the legacy Steam Input lease and establish its SDL fallback source. It then releases managed physical capture and stops the device host. If fallback cannot be established, the surface remains operable by keyboard/touch and shows a warning; it must never keep the device cycle alive contrary to the toggle.
+If the master toggle is turned off while a WSGM surface is open, the UI input router first attempts to acquire the legacy Steam Input lease and establish its SDL fallback source. The plugin then releases physical acquisition through the two-phase handoff; the router drops the managed canonical source, and WSGM stops DeviceHost. If fallback cannot be established, the surface remains operable by keyboard/touch and shows a warning; it must never keep the device cycle alive contrary to the toggle.
 
-If restoration cannot be verified, WSGM reports the exact item and keeps a recovery record for the next launch. It never substitutes a hard-coded "factory" value for a snapshot it failed to read.
+If restoration cannot be verified, the plugin keeps the exact item in its recovery journal and reports an indeterminate result. WSGM presents that state on the next launch. Neither side substitutes a hard-coded "factory" value for a snapshot the plugin failed to read.
 
 ### Suspend and resume
 
 On suspend or session lock, cancel pending device calls, stop rumble, quiesce input and IMU publication, unhook/reset firmware-chord state, and close volatile handles. Do not begin a long firmware transaction during the suspend deadline.
 
-On resume/unlock, rediscover by container ID, repeat firmware and provider gates, take fresh current-state reads, and reapply the desired state once. No fixed sleep is allowed. Every delay is a cancellable wait for a concrete event, ACK, interface arrival, or bounded retry.
+On resume/unlock, the plugin rediscovers by container ID, repeats firmware and provider gates, and publishes fresh current-state reads. WSGM reconciles those observations with its persisted desired state and issues any required semantic commands once; the plugin validates and applies each command. No fixed sleep is allowed. Every delay is a cancellable wait for a concrete event, ACK, interface arrival, or bounded retry.
 
 ### Conflicting software
 
@@ -265,7 +301,7 @@ Detect and report, but never terminate automatically:
 - Another WSGM host generation.
 - Another process holding the controller/configuration interface.
 
-Ownership is resource-specific: controller/HidHide, WMI power/fan, MCU/RGB, motion, and OEM suppression can each have a different owner. External controller management does not automatically disable WSGM's OEM/QAM path. Conversely, if HC's Win+G blocker is active, WSGM must not install a second blocker. A resource becomes Passive only after active competing writes, exclusive-access failure, or another demonstrated conflict—not from a process/service name alone. The overlay reports the conflict and points to the Device Integration master toggle in Settings for a complete HC handoff; WSGM never races another application's writes.
+Ownership is resource-specific: the plugin's physical-controller, WMI power/fan, MCU/RGB, motion, and OEM-suppression resources and WSGM's HidHide/virtual-target resource can each be active or passive independently. External controller management does not automatically disable the plugin-owned OEM event path or WSGM's QAM mapping. Conversely, if HC's Win+G blocker is active, the Claw plugin must not install a second blocker. A hardware resource becomes Passive only after active competing writes, exclusive-access failure, or another demonstrated conflict—not from a process/service name alone. The overlay reports the conflict and points to the Device Integration master toggle in Settings for a complete HC handoff; the plugin never races another application's hardware writes.
 
 ## MSI WMI transport
 
@@ -273,22 +309,22 @@ Ownership is resource-specific: controller/HidHide, WMI power/fan, MCU/RGB, moti
 
 The reviewed/tested Linux `msi-wmi-platform` patch series documents ACPI WMI GUID `ABBC0F6E-8EA1-11d1-00A0-C90629100000`, instance `0`, fixed 32-byte input/output buffers, and a nonzero returned status byte for success. Treat this low-level contract as Reference until captured through the Windows provider on the target A2VM. Relevant low-level method IDs are:
 
-| Method | ID |
-| --- | --- |
+| Method                     | ID     |
+| -------------------------- | ------ |
 | Get fan-curve temperatures | `0x0D` |
 | Set fan-curve temperatures | `0x0E` |
-| Get fan | `0x11` |
-| Set fan | `0x12` |
-| Get AP | `0x19` |
-| Set AP | `0x1A` |
-| Get data | `0x1B` |
-| Set data | `0x1C` |
+| Get fan                    | `0x11` |
+| Set fan                    | `0x12` |
+| Get AP                     | `0x19` |
+| Set AP                     | `0x1A` |
+| Get data                   | `0x1B` |
+| Set data                   | `0x1C` |
 
-The numeric methods above describe the ACPI WMI interface used by Linux. On Windows, HC calls named MOF-provider methods such as `Get_Data`, `Set_Data`, `Get_Fan`, and `Set_Fan` on an enumerated `MSI_ACPI` instance. WSGM validates the provider, instance, board, and interface version rather than hardcoding one instance path.
+The numeric methods above describe the ACPI WMI interface used by Linux. On Windows, HC calls named MOF-provider methods such as `Get_Data`, `Set_Data`, `Get_Fan`, and `Set_Fan` on an enumerated `MSI_ACPI` instance. The Claw plugin validates the provider, instance, board, and interface version rather than hardcoding one instance path.
 
 The ACPI method is treated as non-thread-safe. One FIFO owns every MSI WMI transaction, including reads. Each call has a short bounded timeout, checks returned length and status, and records the operation name—not sensitive raw memory—in diagnostics.
 
-Handheld Companion can install `msiapcfg.dll`, change `MofImagePath`, and restart an ACPI device to create its `MSI_ACPI` class. WSGM must not copy that runtime behavior. The installer first detects an official MSI provider. Redistribution or installation of MSI's DLL requires a provenance and redistribution-rights decision. If the provider is absent, WSGM leaves WMI-backed capabilities unavailable and explains how to install the supported MSI component; it does not modify the registry or restart ACPI during normal WSGM runtime.
+Handheld Companion can install `msiapcfg.dll`, change `MofImagePath`, and restart an ACPI device to create its `MSI_ACPI` class. WSGM must not copy that runtime behavior. The installer first detects an official MSI provider. Redistribution or installation of MSI's DLL requires a provenance and redistribution-rights decision. If the provider is absent, the Claw plugin reports its WMI-backed capabilities unavailable; WSGM presents that state and explains how to install the supported MSI component. Neither side modifies the registry or restarts ACPI during normal WSGM runtime.
 
 ## TDP and power limits
 
@@ -296,17 +332,17 @@ Handheld Companion can install `msiapcfg.dll`, change `MofImagePath`, and restar
 
 Use the A2VM-specific `MS-1T52` constraints:
 
-| Limit | WMI data address | Safe range | Purpose |
-| --- | --- | --- | --- |
-| SPL/PL1 | `0x50` | 8–30 W | Sustained package power and the normal TDP slider |
-| SPPT/PL2 | `0x51` | 8–37 W | Short boost ceiling |
-| FPPT/PL3 | `0x52` | Not exposed | Do not write on A2VM |
+| Limit    | WMI data address | Safe range  | Purpose                                           |
+| -------- | ---------------- | ----------- | ------------------------------------------------- |
+| SPL/PL1  | `0x50`           | 8–30 W      | Sustained package power and the normal TDP slider |
+| SPPT/PL2 | `0x51`           | 8–37 W      | Short boost ceiling                               |
+| FPPT/PL3 | `0x52`           | Not exposed | Do not write on A2VM                              |
 
-The payload is address byte zero followed by a little-endian 32-bit integer watt value. HC writes only the low byte because current values are below 256; WSGM encodes and validates the complete field.
+The payload is address byte zero followed by a little-endian 32-bit integer watt value. HC writes only the low byte because current values are below 256; the Claw power capability encodes and validates the complete field.
 
 ### UI behavior
 
-The native Steam QAM and the primary overlay TDP slider control PL1 from 8 to 30 W in 1 W steps. The overlay's advanced power section exposes PL2 with an explanation of short boost. The command service enforces:
+The native Steam QAM and the primary overlay TDP slider control PL1 from 8 to 30 W in 1 W steps. The overlay's advanced power section exposes PL2 with an explanation of short boost. The Claw power capability authoritatively enforces:
 
 - `8 <= PL1 <= 30`.
 - `8 <= PL2 <= 37`.
@@ -315,14 +351,14 @@ The native Steam QAM and the primary overlay TDP slider control PL1 from 8 to 30
 
 Planned WSGM presets, to be confirmed on the user's unit, are:
 
-| Preset | PL1 | PL2 |
-| --- | ---: | ---: |
-| Battery | 8 W | 9 W |
-| Balanced | 17 W | 18 W |
-| Performance | 30 W | 31 W |
+| Preset              |  PL1 |  PL2 |
+| ------------------- | ---: | ---: |
+| Battery             |  8 W |  9 W |
+| Balanced            | 17 W | 18 W |
+| Performance         | 30 W | 31 W |
 | Performance + boost | 30 W | 37 W |
 
-These are WSGM profiles informed by HC's current A2VM values; they are not claimed as immutable MSI factory profiles.
+These are WSGM-owned desired profiles informed by HC's current A2VM values; they are not claimed as immutable MSI factory profiles. The Claw plugin validates, orders, applies, reads back, and rolls back the resulting hardware operations.
 
 ### Transaction
 
@@ -351,18 +387,18 @@ The A2VM has two physical fan channels. MSI's protocol names them CPU/GPU, but C
 - Custom: firmware executes a WSGM-supplied curve.
 - Full speed: explicit temporary override with a prominent active indicator.
 
-WSGM does not implement a high-frequency software PWM loop. It edits the firmware's curve and lets firmware enforce it.
+`ClawA2VmFanCapability` does not implement a high-frequency software PWM loop. It edits the firmware's curve and lets firmware enforce it.
 
 Independent A2VM evidence supports this observed/reference six-point factory curve on multiple units; it is not assumed immutable on the user's firmware:
 
 | Point | Temperature | Factory duty shown by MSI-style UI |
-| --- | ---: | ---: |
-| 1 | 0 °C | 0% |
-| 2 | 50 °C | 40% |
-| 3 | 60 °C | 49% |
-| 4 | 70 °C | 58% |
-| 5 | 80 °C | 67% |
-| 6 | 88 °C | 75% |
+| ----- | ----------: | ---------------------------------: |
+| 1     |        0 °C |                                 0% |
+| 2     |       50 °C |                                40% |
+| 3     |       60 °C |                                49% |
+| 4     |       70 °C |                                58% |
+| 5     |       80 °C |                                67% |
+| 6     |       88 °C |                                75% |
 
 HC currently writes an eight-value table through an inconsistent 11-to-8 mapping and restores a contradictory hard-coded default. WSGM must not copy that abstraction. The bring-up tool reads the full left/right channel buffers before and after one MSI Center M curve edit to establish the exact `MS-1T52` byte layout and unit conversion.
 
@@ -390,18 +426,18 @@ Expose both fan RPM values, current mode, and the last verified curve. Independe
 
 The controller configuration protocol uses 64-byte reports. Confirmed framing and commands are:
 
-| Item | Value |
-| --- | --- |
-| Output prefix | `0F 00 00 3C` |
-| Output report ID | `0x0F` |
-| Input report ID | `0x10` |
-| Read profile / ACK | `0x04` / `0x05` |
-| Generic ACK | `0x06` |
-| Write profile | `0x21` |
-| Sync profile to ROM | `0x22` |
-| Switch controller mode | `0x24` |
-| Read mode / ACK | `0x26` / `0x27` |
-| Reset | `0x28` |
+| Item                   | Value           |
+| ---------------------- | --------------- |
+| Output prefix          | `0F 00 00 3C`   |
+| Output report ID       | `0x0F`          |
+| Input report ID        | `0x10`          |
+| Read profile / ACK     | `0x04` / `0x05` |
+| Generic ACK            | `0x06`          |
+| Write profile          | `0x21`          |
+| Sync profile to ROM    | `0x22`          |
+| Switch controller mode | `0x24`          |
+| Read mode / ACK        | `0x26` / `0x27` |
+| Reset                  | `0x28`          |
 
 One serialized state machine owns configuration requests. Match an address only when that response type actually carries one. For generic ACK commands, drain stale input, permit exactly one in flight, then verify through profile readback or device state. A 25 ms profile-ACK deadline from the accepted Linux implementation is the starting measurement, not a blind constant; Windows traces determine the final timeout and retry count.
 
@@ -415,31 +451,31 @@ Every MCU operation is lifecycle-tracked even when the protocol has no ordinary 
 
 The supported ownership modes are:
 
-| Firmware mode | Payload | WSGM use |
-| --- | ---: | --- |
-| XInput | `0x01` | Fallback/restore mode; standard controls and XInput rumble |
-| DirectInput | `0x02` | Preferred capture mode because it exposes M1/M2 |
-| Desktop | `0x04` | Never selected for gamepad ownership |
+| Firmware mode | Payload | WSGM use                                                   |
+| ------------- | ------: | ---------------------------------------------------------- |
+| XInput        |  `0x01` | Fallback/restore mode; standard controls and XInput rumble |
+| DirectInput   |  `0x02` | Preferred capture mode because it exposes M1/M2            |
+| Desktop       |  `0x04` | Never selected for gamepad ownership                       |
 
 Other HC enum values are not selected. Sources disagree on whether PID `0x1903` represents desktop or testing state; the plugin treats labels as untrusted until `Read mode` and descriptors agree. PID `0x1904` is diagnostic-only until confirmed on the unit.
 
-At activation, read and store the current mode. If controller management is enabled and M1/M2 are required, switch to DirectInput asynchronously, rebind by container ID, then create the virtual target. On deactivation, close input and HidHide handles before restoring the original mode.
+At activation, the Claw plugin reads and stores the current mode. If controller management is enabled and M1/M2 are required, it switches to DirectInput asynchronously, rebinds by container ID, and reports the physical source ready; WSGM subsequently creates the virtual target and applies HidHide. On deactivation, the plugin closes physical input handles and restores the original mode before WSGM removes HidHide.
 
 ### DirectInput mapping
 
 Initial mapping from HC, to be captured and tested with simultaneous inputs:
 
-| Physical control | DirectInput source | Canonical control |
-| --- | --- | --- |
-| X / A / B / Y | Buttons 0 / 1 / 2 / 3 | X / A / B / Y |
-| LB / RB | Buttons 4 / 5 | LB / RB |
-| LT / RT digital | Buttons 6 / 7 | Trigger click metadata only, if useful |
-| Back / Start | Buttons 8 / 9 | View / Menu |
-| L3 / R3 | Buttons 10 / 11 | Left / right stick click |
-| M1 / M2 | Buttons 15 / 16 | Rear paddle 1 / rear paddle 2 and OEM channel |
-| Left stick | X / Y | Left stick |
-| Right stick | Z / Rotation Z | Right stick |
-| LT / RT analog | Rotation X / Rotation Y | Left / right trigger |
+| Physical control | DirectInput source      | Canonical control                             |
+| ---------------- | ----------------------- | --------------------------------------------- |
+| X / A / B / Y    | Buttons 0 / 1 / 2 / 3   | X / A / B / Y                                 |
+| LB / RB          | Buttons 4 / 5           | LB / RB                                       |
+| LT / RT digital  | Buttons 6 / 7           | Trigger click metadata only, if useful        |
+| Back / Start     | Buttons 8 / 9           | View / Menu                                   |
+| L3 / R3          | Buttons 10 / 11         | Left / right stick click                      |
+| M1 / M2          | Buttons 15 / 16         | Rear paddle 1 / rear paddle 2 and OEM channel |
+| Left stick       | X / Y                   | Left stick                                    |
+| Right stick      | Z / Rotation Z          | Right stick                                   |
+| LT / RT analog   | Rotation X / Rotation Y | Left / right trigger                          |
 
 The bring-up matrix specifically tests stick movement plus M1/M2, multi-button rollover, trigger digital/analog duplication, guide-button behavior, dead zones, centers, ranges, and report loss. HC issue #1431 reports concurrent rear-button limitations, so parity with HC is not sufficient evidence.
 
@@ -451,7 +487,7 @@ M1/M2 default to the richest target's rear controls. When a selected target lack
 
 ### Rear-button profile memory
 
-WSGM must not rewrite M1/M2 profile memory on every launch. DirectInput should expose buttons 15/16 using the unit's existing profile.
+The Claw plugin must not rewrite M1/M2 profile memory on every launch. DirectInput should expose buttons 15/16 using the unit's existing profile.
 
 HC, HHD, and the accepted Linux implementation disagree about new-firmware DInput/XInput profile addresses, report lengths, and payload semantics. HC's DInput repair uses a two-byte payload, HHD uses a five-byte form, and XInput addresses may be one byte later. Therefore profile repair is a separate diagnostic operation:
 
@@ -472,13 +508,13 @@ This avoids HC's repeated writes, ROM synchronization, multi-second sleeps, and 
 
 ### HidHide transaction
 
-WSGM adds the DeviceHost/controller reader to the HidHide allowlist, records the physical instance entries it owns, creates the virtual target, verifies it, then hides the physical device. Failure at any point reverses only those changes. External HidHide entries and application lists remain untouched.
+WSGM adds DeviceHost to the HidHide allowlist and records the exact physical-instance entries it owns. During activation it first verifies that DeviceHost can still read the newly hidden physical source, then creates and verifies the virtual target before enabling normal routing. During deactivation it uses the reverse two-phase handoff defined above. Failure at any point reverses only WSGM's changes; external HidHide entries and application lists remain untouched.
 
 Target switching removes one virtual target before creating the next. It never exposes duplicate physical plus virtual input longer than the bounded transition requires.
 
 ### WSGM surface input and Steam Input lease policy
 
-The existing Steam Input lease solves a specific problem: Steam's desktop profile can capture the controller from SDL/XInput/DInput/HID, so WSGM temporarily blocks Steam while its overlay or taskbar reads that same controller. Once WSGM owns the physical Claw controller, that detour is unnecessary. DeviceHost can continuously read the original device because HidHide allowlists WSGM while hiding it from Steam, games, and other ordinary clients.
+The existing Steam Input lease solves a specific problem: Steam's desktop profile can capture the controller from SDL/XInput/DInput/HID, so WSGM temporarily blocks Steam while its overlay or taskbar reads that same controller. Once WSGM controller management is enabled and the Claw plugin owns physical acquisition, that detour is unnecessary. DeviceHost can continuously read the original device because HidHide allowlists it while hiding it from Steam, games, and other ordinary clients.
 
 `UiInputArbiter` therefore has two paths:
 
@@ -515,7 +551,7 @@ Switches are make-before-break where possible:
 
 - Managed source becoming ready while a WSGM surface is open: establish it, suppress currently held controls, begin local capture, then release the Steam Input lease.
 - Managed source failing while a surface is open: neutralize the virtual target, acquire the Steam lease, establish SDL input, then release local capture. If fallback fails, preserve keyboard/touch access and do not leak held input to the game.
-- Controller management turned off: establish the Steam/SDL fallback before releasing HidHide/controller ownership, while the device host continues for noncontroller capabilities.
+- Controller management turned off: establish the Steam/SDL fallback, ask the plugin to release physical acquisition, then remove WSGM's virtual target and HidHide entries while DeviceHost continues for noncontroller capabilities.
 - Device Integration turned off: establish fallback if possible, then stop the entire device cycle as required by the master toggle.
 
 #### Scope of the remaining Steam lease
@@ -554,7 +590,7 @@ The overlay includes a short left/right/both motor test with an automatic stop t
 
 ## Motion sensors
 
-MSI specifies a six-axis IMU. HC acquires it through `Windows.Devices.Sensors`, not through the controller's unused motion command. WSGM follows that proven route first.
+MSI specifies a six-axis IMU. HC acquires it through `Windows.Devices.Sensors`, not through the controller's unused motion command. `ClawMotionSource` follows that proven route first.
 
 ### Binding
 
@@ -598,7 +634,7 @@ No motion-to-stick or motion-to-mouse mapping exists. Deck and DS4 targets recei
 
 OEM assignments may target a bounded list of WSGM actions, the supported rear control of the current virtual target, or Disabled. No arbitrary executable, PowerShell, text macro, or unrestricted key sequence is accepted.
 
-After capture confirms it on this A2VM, WMI code 88 is the preferred OEM2 action source. If the MOF/provider event is absent, Raw Input may dispatch OEM2 only after it identifies the exact `ACPI\\MSNB1001` device and confirmed sequence. The low-level hook is suppression-only and never dispatches QAM because it cannot identify the source device. WMI and Raw Input actions are timestamped and deduplicated so one physical press toggles QAM exactly once.
+After capture confirms it on this A2VM, WMI code 88 is the preferred OEM2 action source. If the MOF/provider event is absent, Raw Input may publish the logical OEM2 event only after it identifies the exact `ACPI\\MSNB1001` device and confirmed sequence. The low-level hook is suppression-only and never publishes OEM2 because it cannot identify the source device. WMI and Raw Input events are timestamped and deduplicated; WSGM alone maps the resulting logical event to the QAM action so one physical press toggles QAM exactly once.
 
 ## Firmware `Win+G` and `Win+Tab` suppression
 
@@ -624,7 +660,7 @@ Use a small native `WH_KEYBOARD_LL` state machine derived from the proven behavi
 
 1. Install the hook on a dedicated message-loop thread only while this exact Claw plugin owns OEM input.
 2. Track noninjected LWin/RWin, G, Ctrl, Alt, Shift, other-key-down state, and—after hardware confirmation—Tab. Keys already held when the hook starts are marked preexisting and passed through until released. Suppress only the exact confirmed Win+G sequence with no other modifier/key down; do not swallow larger shortcuts such as Ctrl+Win+G.
-3. Tag every WSGM `SendInput` packet with an exact `dwExtraInfo` marker and pass tagged events without recursion.
+3. Tag every Claw suppressor/helper `SendInput` packet with an exact `dwExtraInfo` marker and pass tagged events without recursion.
 4. On qualifying physical G-down while a Windows key is down, call `SendInput` once with the proven PowerToys-style reserved `VK 0xFF` dummy down/up pair followed by synthetic key-up for each held Windows key. This is one ordered batch, not an atomic operation; never substitute a normal key such as F24.
 5. Only after the complete injection succeeds, suppress the G-down, its matching G-up, and the later physical Windows-key releases already synthesized.
 6. On zero or partial `SendInput`, use the returned accepted-prefix count to track every inserted dummy transition and every Windows key already released. Clean up only an unmatched injected down state, keep suppression armed for each physical Windows-key release already synthesized, and otherwise fail open without stranding a modifier.
@@ -659,11 +695,11 @@ Truly source-specific suppression would require a signed upper keyboard filter a
 
 Initial exact descriptors from HC, consistent with the old/new generation split in the Linux driver, are:
 
-| Controller `bcdDevice` | RGB profile base | Status |
-| --- | --- | --- |
-| `0x0211` | `0x01FA` | Old A2VM layout; hardware validation required |
-| `0x0217` | `0x024A` | New A2VM layout; hardware validation required |
-| `0x0219` | `0x024A` | New A2VM layout; hardware validation required |
+| Controller `bcdDevice` | RGB profile base | Status                                        |
+| ---------------------- | ---------------- | --------------------------------------------- |
+| `0x0211`               | `0x01FA`         | Old A2VM layout; hardware validation required |
+| `0x0217`               | `0x024A`         | New A2VM layout; hardware validation required |
+| `0x0219`               | `0x024A`         | New A2VM layout; hardware validation required |
 
 Linux uses a range-based capability rule for old/new firmware, while WSGM version one uses an exact tested whitelist. The substantive remaining disagreement concerns new-firmware M-key addresses, not these RGB bases.
 
@@ -686,7 +722,7 @@ HC's current "Ambilight" is a fixed two-color grouping, not screen-reactive ambi
 
 Profile writes begin with the confirmed `0F 00 00 3C 21` framing and include nine RGB triplets. Accepted Linux work constructs the named effects as one-to-eight frame patterns in the same profile/state structure and uses speed encoded as `20 - requestedSpeed`; they are not separate effect opcodes. Returned frame count is treated as untrusted until bounded and validated because some firmware returns garbage values.
 
-Lighting changes are coalesced and committed once when the user applies a setting. Dragging a color or brightness control updates the preview UI, not firmware on every pointer event. Hardware effects animate in the controller; WSGM does not stream frames.
+Lighting changes are coalesced and committed once when the user applies a setting. Dragging a color or brightness control updates the preview UI, not firmware on every pointer event. Hardware effects animate in the controller; the Claw lighting capability does not stream frames.
 
 Current references disagree on when RGB needs `Sync to ROM`: the accepted Linux sequence syncs after frame writes, while HC/HHD behavior suggests a volatile path may exist. M0 must capture both. If volatile apply is verified, it is the default. If persistence is required, the UI makes one clearly identified, coalesced commit after the final value settles. There are no startup rewrites or continuous ambilight writes. Readback/lifecycle verification is required and unknown firmware remains read-only.
 
@@ -781,7 +817,9 @@ These are acceptance targets, not reasons to hide measurements. Benchmarks recor
 
 ## Diagnostics and bring-up tooling
 
-The plugin includes a read-only-first diagnostic mode that can export:
+Claw bring-up uses the [device plugin system and developer tooling](./device-plugin-system-and-tooling.md). Device Lab first inventories the unit, ranks known MSI/Claw implementation modules, runs their dedicated safe compatibility probes, and generates the exact `MS-1T52` scaffold. Protocol analysis is used only for the remaining incompatible or inconclusive modules.
+
+The Claw plugin exposes a versioned read-only diagnostics surface that Device Lab can capture without stopping or recreating the process-long device lifecycle:
 
 - SMBIOS and exact board gate result.
 - USB container, interfaces, descriptors, report descriptors, endpoints, and `bcdDevice`.
@@ -791,29 +829,42 @@ The plugin includes a read-only-first diagnostic mode that can export:
 - Windows sensor DeviceIds, report intervals, units, axes, and timestamps.
 - WMI/Raw Input/hook timing for OEM buttons with actual text input redacted.
 - HID configuration request/ACK metadata with unique identifiers removed.
-- Current ownership, HidHide changes, virtual target, and recovery-journal status.
+- Current plugin-owned resource state and recovery-journal status.
 - Per-component CPU, sample rates, queue depth, timeouts, and dropped events.
+
+Device Lab combines that plugin stream with separate WSGM-owned HidHide, virtual-target, input-arbiter, desired-profile, and command-routing diagnostics.
 
 Write-capable probes require an explicit action, show the exact capability and rollback, and never combine unrelated experiments.
 
 ## Implementation milestones
 
-### M0: read-only hardware characterization
+### M0: hardware characterization and bounded compatibility
 
-- Build the exact `MS-1T52` detector and manifest.
+Read-only bootstrap:
+
+- Freeze the initial private-capture, sanitized-export, evidence, fixture, known-module, and scaffold schemas.
+- Register the known MSI WMI, MCU, controller, power-policy, fan, lighting, motion, and OEM-event candidates with exact provenance.
+- Bootstrap the reviewed MSI inventory and read-probe modules needed by the candidate engine.
+- Run the automatic MSI compatibility sweep and dedicated read probes on the reference unit.
+- Generate an initial compiling `MS-1T52` detector, manifest, evidence lock, and fail-closed scaffold; capabilities without implemented verified modules remain unavailable.
 - Capture controller interfaces/descriptors in every safe existing mode.
 - Identify `bcdDevice`, controller firmware, WMI provider, sensor IDs, and OEM event timing.
+
+Explicit bounded compatibility:
+
 - Capture MSI Center M before/after state for TDP, fan, and one lighting change.
 - Prove Windows-provider PL1/PL2 reads and readback; a working setter alone is insufficient.
 - Map every A2VM shift/scenario mode's PL1/PL2 ceilings on AC and battery.
 - Resolve the six-versus-eight fan-table discrepancy and all address differences.
+- Run each required power, fan, rumble, lighting, and controller-mode trial separately through Device Lab with verified restoration.
+- Regenerate the exact module composition and capability registrations only after the corresponding modules and evidence qualify.
 - Produce golden binary fixtures and sanitized traces.
 
 Exit gate: no unknown write layout remains in a capability scheduled for M1–M4.
 
 ### M1: lifecycle, ownership, and OEM safety
 
-- Implement DeviceHost/broker IPC and capability negotiation.
+- Implement unelevated per-plugin DeviceHost supervision, semantic IPC, state quality, capability negotiation, and any separately justified Claw-helper protocol.
 - Start device integration with WSGM in Desktop or Game Mode and keep one host generation across shell-mode transitions.
 - Implement detection, passive/conflict state, snapshots, recovery journal, suspend/resume, clean disable, and clean WSGM-exit teardown.
 - Implement WMI OEM1/OEM2 events and M1/M2 logical events.
@@ -831,10 +882,16 @@ Exit gate: AC/battery, error injection, conflict, and 100 suspend/resume cycles 
 
 ### M3: controller, rumble, and motion
 
+Plugin work:
+
 - Implement DirectInput/XInput capture and canonical mapping.
+- Implement transactional physical mode switching, M1/M2, physical rumble sink, sensor binding, calibration, and canonical native-motion publication.
+
+WSGM work:
+
 - Integrate HIDMaestro Steam Deck, Xbox 360, and DualShock 4 targets.
+- Implement HidHide transaction ownership and canonical output routing to the plugin.
 - Implement `IUiGamepadSource`, managed physical navigation, reference-counted local UI capture, virtual-target neutralization, and the SDL/Steam-lease fallback.
-- Implement transactional mode switching, HidHide ownership, M1/M2, rumble routing, sensor binding, calibration, and native motion pass-through.
 - Measure report rates and CPU; fix simultaneous rear-button/input behavior.
 
 Exit gate: managed surfaces use no Steam lease, UI input never leaks through the virtual target, fallback transitions are lossless, native QAM still receives virtual input, all target acceptance tests pass, output stops cleanly, 100 mode switches pass, and performance budgets hold.
@@ -851,8 +908,8 @@ Exit gate: no unknown-firmware writes, no redundant ROM syncs, and power-loss/re
 
 - Complete MSI Center/HC handoff testing.
 - Complete crash, forced termination, user switching, lock, hibernate, update, and rollback tests.
-- Audit installer prerequisites, provider redistribution, driver notices, plugin permissions, and third-party attribution.
-- Publish the diagnostic capture format and a contributor template for the next device plugin.
+- Audit installer prerequisites, provider redistribution, driver notices, resource/risk declarations, optional Claw helper, and third-party attribution.
+- Stabilize, version, and publish the capture/scaffold formats and contributor template created during M0.
 
 ## Acceptance matrix
 
@@ -908,11 +965,11 @@ Exit gate: no unknown-firmware writes, no redundant ROM syncs, and power-loss/re
 - Short Win+G and, only after target confirmation, the long Win+Tab sequence.
 - External-keyboard Win+G behavior documented as globally blocked while suppression owns the chord; Win+Tab remains normal unless the confirmed long-press blocker is enabled.
 - Key auto-repeat; both Windows keys held; Ctrl/Alt/Shift interleavings; another key pressed mid-transaction; hook activation while Win is already held; and tagged/untagged injected Win/G events from other applications.
-- Hook callback reentrancy, `SendInput` accepted-prefix counts from zero through the full batch, and broker/thread failure after every possible inserted packet.
+- Hook callback reentrancy, `SendInput` accepted-prefix counts from zero through the full batch, and Claw-helper/hook-thread failure after every possible inserted packet.
 - Win alone, Win+other keys, Alt+Tab, volume up/down/mute, and unrelated OEM controls remain normal.
 - Steam Big Picture, desktop, windowed, borderless, exclusive fullscreen, and elevated foreground applications.
 - Cold boot, lock/unlock, sleep, hibernate, resume, sign-out/in, user switch, helper crash/restart, and secure-desktop transitions.
-- Device integration off, or OEM-suppression ownership explicitly handed to HC: WSGM hook absent and native Win+G restored when no other manager blocks it.
+- Device integration off, or OEM-suppression ownership explicitly handed to HC: Claw suppression hook absent and native Win+G restored when no other manager blocks it.
 - After every suppressed firmware-chord case, LWin, RWin, G, and conditionally Tab are logically up; no Game Bar, Start menu, or applicable Task View flash remains.
 - Exactly one QAM toggle per physical OEM2 action.
 
