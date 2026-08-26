@@ -22,6 +22,7 @@ Asynchronous initialization means only that hardware work does not block WSGM st
 - Device integration is optional. When it is disabled, no Claw host, hook, sensor subscription, WMI watcher, HID handle, firmware write, virtual controller, or HidHide change remains active.
 - When device integration is enabled, its lifecycle spans the entire WSGM run. Entering or leaving Game Mode does not activate, deactivate, reset, or hand off the device.
 - The device lifecycle has exactly two terminal triggers: WSGM exits, or the user turns Device Integration off in Settings during the run.
+- The Steam Input lease subsystem remains a permanent WSGM capability. Managed device input changes when surface leases are acquired; it does not remove the lease implementation.
 - Controller management is independently optional beneath device integration. This permits WSGM hardware control with Handheld Companion or another application owning controller emulation.
 - HIDMaestro remains the WSGM virtual-controller backend. The Claw plugin emits canonical input and consumes canonical output; it never talks to HIDMaestro directly.
 - Initial virtual targets are Steam Deck Composite, Xbox 360, and DualShock 4.
@@ -185,6 +186,7 @@ The plugin is decomposed into independently testable transports:
 | `MsiWmiTransport` | Serialized 32-byte WMI transactions, status validation, power, fan tables/RPM, and scenario state; live temperature source remains separate/unresolved |
 | `MsiMcuTransport` | Serialized 64-byte vendor HID requests, ACK matching, profiles, mode switches, and RGB |
 | `ClawControllerSource` | DirectInput/XInput acquisition and normalized physical input |
+| `UiInputArbiter` | Selects managed physical input or the legacy SDL/Steam-lease fallback and prevents UI input from leaking into the virtual target |
 | `ClawRumbleSink` | Validated live motor output and stop-on-failure behavior |
 | `ClawMotionSource` | Windows gyrometer/accelerometer binding, timestamps, transforms, and calibration |
 | `ClawOemInputSource` | MSI WMI event codes, M1/M2 OEM events, deduplication, and action dispatch |
@@ -217,9 +219,10 @@ Activation starts with WSGM, happens in the background, and is cancellable:
 4. Start WMI OEM events and the motion source.
 5. If controller management is enabled, capture the original controller mode, switch to DirectInput only when needed, and await the expected remove/re-enumerate cycle by container identity.
 6. Create the selected HIDMaestro target and apply only WSGM-owned HidHide entries transactionally.
-7. Start the firmware-chord suppressor only after OEM2 is ready to dispatch.
-8. Apply the selected WSGM hardware profile once, with readback.
-9. Publish capability readiness independently as each step completes.
+7. Register the managed physical canonical-input source with `UiInputArbiter`; once healthy, WSGM surfaces no longer acquire a Steam Input lease.
+8. Start the firmware-chord suppressor only after OEM2 is ready to dispatch.
+9. Apply the selected WSGM hardware profile once, with readback.
+10. Publish capability readiness independently as each step completes.
 
 WSGM's desktop UI and overlay remain responsive while these steps run. If the user enters Game Mode before activation finishes, Steam Big Picture is launched or foregrounded immediately and capability readiness continues in the same already-running host. A slow WMI provider, USB mode switch, missing sensor, or failed QAM patch cannot hold either WSGM startup or a mode transition open.
 
@@ -241,6 +244,8 @@ Deactivation reverses only WSGM-owned resources and does not touch another manag
 Full deactivation occurs only when WSGM exits or the user turns Device Integration off in Settings. Leaving Game Mode is not a deactivation trigger. Runtime plugin removal/update is not allowed while its device cycle is active.
 
 The supported full handoff to Handheld Companion is therefore the Settings master toggle: turning Device Integration off runs the complete cleanup above and then leaves the host stopped. Disabling only WSGM controller management releases the virtual controller/HidHide/controller resource but keeps the device cycle, power/fan/RGB state services, overlay controls, motion, and any WSGM-owned OEM path alive.
+
+If the master toggle is turned off while a WSGM surface is open, the UI input router first attempts to acquire the legacy Steam Input lease and establish its SDL fallback source. It then releases managed physical capture and stops the device host. If fallback cannot be established, the surface remains operable by keyboard/touch and shows a warning; it must never keep the device cycle alive contrary to the toggle.
 
 If restoration cannot be verified, WSGM reports the exact item and keeps a recovery record for the next launch. It never substitutes a hard-coded "factory" value for a snapshot it failed to read.
 
@@ -470,6 +475,59 @@ This avoids HC's repeated writes, ROM synchronization, multi-second sleeps, and 
 WSGM adds the DeviceHost/controller reader to the HidHide allowlist, records the physical instance entries it owns, creates the virtual target, verifies it, then hides the physical device. Failure at any point reverses only those changes. External HidHide entries and application lists remain untouched.
 
 Target switching removes one virtual target before creating the next. It never exposes duplicate physical plus virtual input longer than the bounded transition requires.
+
+### WSGM surface input and Steam Input lease policy
+
+The existing Steam Input lease solves a specific problem: Steam's desktop profile can capture the controller from SDL/XInput/DInput/HID, so WSGM temporarily blocks Steam while its overlay or taskbar reads that same controller. Once WSGM owns the physical Claw controller, that detour is unnecessary. DeviceHost can continuously read the original device because HidHide allowlists WSGM while hiding it from Steam, games, and other ordinary clients.
+
+`UiInputArbiter` therefore has two paths:
+
+| Controller state | WSGM UI input source | Steam surface lease |
+| --- | --- | --- |
+| WSGM-managed physical source healthy and owned | Canonical physical state from DeviceHost | Never acquired for overlay/taskbar |
+| Controller management disabled or externally owned | Existing SDL source | Existing lease behavior, when enabled |
+| Unsupported/degraded managed source | SDL fallback after a safe handover | Existing lease behavior, when available |
+
+The decision is based on actual physical-input ownership and health, not merely the presence of a device plugin. TDP/RGB/fan management alone is not proof that WSGM can bypass the Steam lease.
+
+#### Local UI capture
+
+Reading the hidden physical controller is only half of the solution. During normal play its canonical state is forwarded to the selected HIDMaestro virtual target, which Steam or the game can see. When a WSGM-owned focus-taking surface opens, input intended for that surface must not continue into the game through the virtual controller.
+
+The arbiter uses a reference-counted local UI-capture claim for the overlay, taskbar, Settings controller navigation, and any future WSGM surface:
+
+1. Claim UI capture before the surface accepts controller input.
+2. Continue reading the physical controller directly.
+3. Publish one neutral state to the virtual target, stop forwarding gameplay controls, and stop active rumble.
+4. Suppress buttons already held when capture begins until their full release, so the chord/button that opened a surface cannot immediately activate a focused control.
+5. Route edge, repeat, chord, and full-state events from the canonical source into WSGM navigation.
+6. When the last WSGM surface closes, keep the virtual target neutral until all UI-used controls are released, then resume forwarding the current physical state on a clean boundary.
+
+This is a local WSGM input-capture lease, not a Steam Input lease. It requires no Steam hook installation, HID-handle revocation, Steam controller rescan, device re-enumeration, or layout change.
+
+Steam's native QAM is different: it is a Steam-owned surface and must continue receiving the HIDMaestro virtual controller. Opening native QAM does not claim local WSGM UI capture and does not acquire the Steam Input block lease.
+
+#### Source switching
+
+`GamepadService` should consume an `IUiGamepadSource` rather than owning SDL as its only source. Managed mode uses the DeviceHost canonical source and ignores the matching physical/virtual SDL devices to prevent duplicate presses. Fallback mode retains the current SDL behavior.
+
+Switches are make-before-break where possible:
+
+- Managed source becoming ready while a WSGM surface is open: establish it, suppress currently held controls, begin local capture, then release the Steam Input lease.
+- Managed source failing while a surface is open: neutralize the virtual target, acquire the Steam lease, establish SDL input, then release local capture. If fallback fails, preserve keyboard/touch access and do not leak held input to the game.
+- Controller management turned off: establish the Steam/SDL fallback before releasing HidHide/controller ownership, while the device host continues for noncontroller capabilities.
+- Device Integration turned off: establish fallback if possible, then stop the entire device cycle as required by the master toggle.
+
+#### Scope of the remaining Steam lease
+
+The Steam Input lease subsystem remains in WSGM permanently. It is still required for:
+
+- Unsupported devices and external controllers.
+- Device Integration or WSGM controller management being off.
+- A managed physical input source that is temporarily unavailable.
+- Existing per-game launch wrappers where Steam's desktop profile would otherwise capture the HIDMaestro virtual target from a non-Steam program.
+
+Per-game launch leases have a different consumer and lifetime from overlay/taskbar leases and remain supported regardless of managed-device availability. A specific launch may skip a lease only under its own established policy; managed surface input never becomes a reason to delete, uninstall, or globally disable the lease infrastructure.
 
 ## Rumble
 
@@ -775,10 +833,11 @@ Exit gate: AC/battery, error injection, conflict, and 100 suspend/resume cycles 
 
 - Implement DirectInput/XInput capture and canonical mapping.
 - Integrate HIDMaestro Steam Deck, Xbox 360, and DualShock 4 targets.
+- Implement `IUiGamepadSource`, managed physical navigation, reference-counted local UI capture, virtual-target neutralization, and the SDL/Steam-lease fallback.
 - Implement transactional mode switching, HidHide ownership, M1/M2, rumble routing, sensor binding, calibration, and native motion pass-through.
 - Measure report rates and CPU; fix simultaneous rear-button/input behavior.
 
-Exit gate: all target acceptance tests, clean output stop, 100 mode switches, and performance budgets pass.
+Exit gate: managed surfaces use no Steam lease, UI input never leaks through the virtual target, fallback transitions are lossless, native QAM still receives virtual input, all target acceptance tests pass, output stops cleanly, 100 mode switches pass, and performance budgets hold.
 
 ### M4: lighting and rare persistent profile operations
 
@@ -820,6 +879,19 @@ Exit gate: no unknown-firmware writes, no redundant ROM syncs, and power-loss/re
 - DualShock 4 acceptance by official PlayStation Remote Play.
 - Target change while Steam/game is open, player-slot behavior, duplicate-input absence, and HidHide rollback.
 - Controller unplug/reappear, helper crash, WSGM restart, Steam restart, suspend/resume, hibernate, and forced game exit.
+
+### WSGM UI input and Steam lease
+
+- Managed controller healthy: open/close overlay, taskbar, Settings, and overlapping/handover surfaces without acquiring a Steam Input lease.
+- While a WSGM surface owns local capture, every virtual target reports neutral gameplay controls and the background game/Steam UI receives no navigation press.
+- The opening chord and closing/back button remain suppressed until full release and never leak on either boundary.
+- Multiple WSGM surfaces reference-count local capture; closing one cannot resume virtual forwarding while another still owns it.
+- Steam native QAM receives the virtual controller normally and never claims WSGM local capture.
+- Managed source activation/failure, controller-management toggle, and Device Integration master toggle during an open surface follow the make-before-break/fallback rules.
+- Direct source plus SDL cannot emit duplicate navigation events from the physical and virtual representations of the same controller.
+- Unsupported/external controllers retain the current Steam lease and SDL behavior.
+- Per-game launch leases remain independent and continue to protect directly launched programs until their separate target matrix passes.
+- Logs and native status confirm zero Steam HID-handle revocation/recovery churn for managed overlay/taskbar opens.
 
 ### Rumble and motion
 
@@ -915,6 +987,6 @@ None of these questions permits a nearest-version write. They determine which ca
 
 ## Definition of done
 
-The Claw 8 AI+ A2VM plugin is complete when a user can control it from the WSGM overlay throughout the full WSGM run in Desktop or Game Mode; press the right-front button in Game Mode to open Steam's native QAM without triggering Game Bar; adjust TDP and common performance controls there; select Steam Deck/Xbox/DS4 presentation; receive rumble and native motion where supported; cross mode boundaries and suspend/resume repeatedly without reinitializing the device; and hand the device back to HC without stale hooks, hidden devices, stuck keys, unsafe fan state, or several-percent idle CPU use.
+The Claw 8 AI+ A2VM plugin is complete when a user can control it from the WSGM overlay throughout the full WSGM run in Desktop or Game Mode; navigate WSGM surfaces directly from the hidden physical controller without a Steam Input surface lease or input leaking into the virtual target; press the right-front button in Game Mode to open Steam's native QAM without triggering Game Bar; adjust TDP and common performance controls there; select Steam Deck/Xbox/DS4 presentation; receive rumble and native motion where supported; cross mode boundaries and suspend/resume repeatedly without reinitializing the device; and hand the device back to HC without stale hooks, hidden devices, stuck keys, unsafe fan state, or several-percent idle CPU use.
 
 Turning the entire device system off must return WSGM to its lightweight Steam-focused behavior and leave the Claw under its firmware or external manager's ownership.
