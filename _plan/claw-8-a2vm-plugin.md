@@ -12,12 +12,16 @@ This document defines the first complete WSGM 2.0 device plugin. It covers detec
 
 Handheld Companion is a behavioral and protocol reference, not the architecture to reproduce. Where possible, its findings have been checked against the accepted Linux `hid-msi` driver series, HHD, the Linux `msi-wmi-platform` work, ClawTweaks, and MSI's published device specification. Conflicts are called out instead of being silently resolved in favor of one implementation.
 
-The overriding product rule is unchanged: enabling this plugin must never delay entering Game Mode. WSGM launches or foregrounds Steam Big Picture immediately; device discovery, restoration, controller enumeration, and Steam QAM wiring continue in the background.
+Device ownership follows the WSGM process lifetime, not the current shell mode. When integration is enabled, the plugin starts asynchronously with WSGM and remains active across Desktop Mode, Game Mode, games, and transitions between them. The WSGM overlay is the complete device-control surface in both Desktop and Game Mode; Steam's native QAM is an additional Game Mode surface.
+
+Asynchronous initialization means only that hardware work does not block WSGM startup, its UI, or a Desktop/Game Mode transition. It does not mean initialization is deferred until Game Mode. If WSGM is launched on the desktop, the Claw is detected and controllable there immediately as each capability becomes ready.
 
 ## Locked product decisions
 
 - The plugin targets the Claw 8 AI+ A2VM board `MS-1T52`. It must not use the Claw A1M's limits or firmware offsets.
 - Device integration is optional. When it is disabled, no Claw host, hook, sensor subscription, WMI watcher, HID handle, firmware write, virtual controller, or HidHide change remains active.
+- When device integration is enabled, its lifecycle spans the entire WSGM run. Entering or leaving Game Mode does not activate, deactivate, reset, or hand off the device.
+- The device lifecycle has exactly two terminal triggers: WSGM exits, or the user turns Device Integration off in Settings during the run.
 - Controller management is independently optional beneath device integration. This permits WSGM hardware control with Handheld Companion or another application owning controller emulation.
 - HIDMaestro remains the WSGM virtual-controller backend. The Claw plugin emits canonical input and consumes canonical output; it never talks to HIDMaestro directly.
 - Initial virtual targets are Steam Deck Composite, Xbox 360, and DualShock 4.
@@ -145,6 +149,8 @@ flowchart LR
 
 `WSGM.DeviceHost.exe` is a JIT-capable per-user, per-interactive-session sidecar. Each untrusted/community plugin runs in its own host process or an equivalent isolation boundary; it must not share secrets, handles, or an administrator-capable broker client with a publisher-trusted plugin. A host owns nonprivileged HID input, WinRT sensor subscriptions, lifecycle state, and its plugin state machine.
 
+The sidecar starts during WSGM startup when device integration is enabled and stays alive until WSGM exits or the user turns Device Integration off in Settings. Steam/Big Picture state, games starting/stopping, controller-management selection, individual resource conflicts, and plugin capability health are not host-lifetime decisions.
+
 Any WMI operation that proves to require elevation, and any elevation needed by the interactive input suppressor, must not grant arbitrary third-party plugin code unrestricted administrator access. The implementation should use a small signed `WSGM.DeviceBroker.exe` in the same interactive session, or an equivalently narrow broker boundary, with typed and capability-checked operations. The bundled Claw plugin is the first trusted client. Only WSGM-publisher-trusted packages can request privileged profiles in 2.0; community packages remain nonprivileged until a separately reviewed permission model exists.
 
 The broker independently verifies the exact board, declared capability, active owner, and fixed built-in operation/profile ID. It never accepts raw hook definitions, raw keyboard events, generic `SendInput`, arbitrary EC ports, arbitrary WMI execution, shell execution, or unrestricted file access. Its channel is established using a securely inherited handle or equivalently unforgeable per-process mechanism; a current-user ACL or user-readable token alone is insufficient protection from a local confused-deputy attack.
@@ -203,7 +209,7 @@ No transport performs UI work. No hook callback performs WMI, HID, IPC, logging,
 
 ### Activation order
 
-Activation happens in the background and is cancellable:
+Activation starts with WSGM, happens in the background, and is cancellable:
 
 1. Confirm the exact SMBIOS board and enumerate the controller container.
 2. Inspect controller firmware, WMI provider, BIOS/EC versions, sensors, and ownership conflicts per resource without writing.
@@ -215,7 +221,9 @@ Activation happens in the background and is cancellable:
 8. Apply the selected WSGM hardware profile once, with readback.
 9. Publish capability readiness independently as each step completes.
 
-Steam Big Picture is already visible while these steps run. A slow WMI provider, USB mode switch, missing sensor, or failed QAM patch cannot hold the Game Mode transition open.
+WSGM's desktop UI and overlay remain responsive while these steps run. If the user enters Game Mode before activation finishes, Steam Big Picture is launched or foregrounded immediately and capability readiness continues in the same already-running host. A slow WMI provider, USB mode switch, missing sensor, or failed QAM patch cannot hold either WSGM startup or a mode transition open.
+
+Desktop Mode to Game Mode and Game Mode to Desktop Mode are ordinary session-state notifications. They may change which UI projection is visible and which per-application profile is selected, but they do not recreate the plugin, reopen every device, reset fans/RGB, switch controller mode, or rebuild the virtual controller.
 
 ### Deactivation and HC handoff
 
@@ -229,6 +237,10 @@ Deactivation reverses only WSGM-owned resources and does not touch another manag
 6. Restore fan tables, custom/full-speed flags, shift/scenario state, and other temporary state from exact snapshots when safe.
 7. Close WMI/HID resources and event subscriptions.
 8. Mark the recovery journal clean and exit the device processes when no other plugin needs them.
+
+Full deactivation occurs only when WSGM exits or the user turns Device Integration off in Settings. Leaving Game Mode is not a deactivation trigger. Runtime plugin removal/update is not allowed while its device cycle is active.
+
+The supported full handoff to Handheld Companion is therefore the Settings master toggle: turning Device Integration off runs the complete cleanup above and then leaves the host stopped. Disabling only WSGM controller management releases the virtual controller/HidHide/controller resource but keeps the device cycle, power/fan/RGB state services, overlay controls, motion, and any WSGM-owned OEM path alive.
 
 If restoration cannot be verified, WSGM reports the exact item and keeps a recovery record for the next launch. It never substitutes a hard-coded "factory" value for a snapshot it failed to read.
 
@@ -248,7 +260,7 @@ Detect and report, but never terminate automatically:
 - Another WSGM host generation.
 - Another process holding the controller/configuration interface.
 
-Ownership is resource-specific: controller/HidHide, WMI power/fan, MCU/RGB, motion, and OEM suppression can each have a different owner. External controller management does not automatically disable WSGM's OEM/QAM path. Conversely, if HC's Win+G blocker is active, WSGM must not install a second blocker. A resource becomes Passive only after active competing writes, exclusive-access failure, or another demonstrated conflict—not from a process/service name alone. The overlay offers a clear handoff action and WSGM never races another application's writes.
+Ownership is resource-specific: controller/HidHide, WMI power/fan, MCU/RGB, motion, and OEM suppression can each have a different owner. External controller management does not automatically disable WSGM's OEM/QAM path. Conversely, if HC's Win+G blocker is active, WSGM must not install a second blocker. A resource becomes Passive only after active competing writes, exclusive-access failure, or another demonstrated conflict—not from a process/service name alone. The overlay reports the conflict and points to the Device Integration master toggle in Settings for a complete HC handoff; WSGM never races another application's writes.
 
 ## MSI WMI transport
 
@@ -271,7 +283,7 @@ The numeric methods above describe the ACPI WMI interface used by Linux. On Wind
 
 The ACPI method is treated as non-thread-safe. One FIFO owns every MSI WMI transaction, including reads. Each call has a short bounded timeout, checks returned length and status, and records the operation name—not sensitive raw memory—in diagnostics.
 
-Handheld Companion can install `msiapcfg.dll`, change `MofImagePath`, and restart an ACPI device to create its `MSI_ACPI` class. WSGM must not copy that runtime behavior. The installer first detects an official MSI provider. Redistribution or installation of MSI's DLL requires a provenance and redistribution-rights decision. If the provider is absent, WSGM leaves WMI-backed capabilities unavailable and explains how to install the supported MSI component; it does not modify the registry or restart ACPI during Game Mode.
+Handheld Companion can install `msiapcfg.dll`, change `MofImagePath`, and restart an ACPI device to create its `MSI_ACPI` class. WSGM must not copy that runtime behavior. The installer first detects an official MSI provider. Redistribution or installation of MSI's DLL requires a provenance and redistribution-rights decision. If the provider is absent, WSGM leaves WMI-backed capabilities unavailable and explains how to install the supported MSI component; it does not modify the registry or restart ACPI during normal WSGM runtime.
 
 ## TDP and power limits
 
@@ -643,6 +655,8 @@ It does not contain TDP, fan, lighting, controller-target, calibration, or butto
 
 ### WSGM overlay Device destination
 
+This destination is available in Desktop Mode and Game Mode whenever device integration is enabled and the overlay can be opened. It remains the authoritative control surface even when Steam is not running or its QAM patch is unavailable.
+
 | Section | Controls |
 | --- | --- |
 | Overview | Device identity, ownership, capability health, profile, fan RPM, conflicts, and live temperatures only when a separate source is validated |
@@ -654,6 +668,8 @@ It does not contain TDP, fan, lighting, controller-target, calibration, or butto
 | Diagnostics | Firmware/descriptors, WMI/provider state, snapshots, last transactions, trace export |
 
 ### Native Steam QAM
+
+The native QAM is a Game Mode projection of the same long-lived device state. Opening, closing, injecting, or reconnecting the QAM never starts or stops the plugin.
 
 The native Steam QAM duplicates only high-frequency gameplay controls:
 
@@ -686,7 +702,7 @@ The recovery journal includes the device identity, host generation, captured sta
 - A removed/re-enumerated interface invalidates every previous handle and generation.
 - Rumble always has an explicit stop path.
 - Custom fan control has an exact restore path.
-- A critical transport error removes the affected capability without crashing WSGM or blocking Game Mode.
+- A critical transport error removes the affected capability without crashing WSGM, freezing the desktop overlay, or blocking a mode transition.
 - CEF, overlay, and QAM code cannot issue raw hardware operations.
 - Secrets, raw memory, full device paths containing unique IDs, and high-rate samples are redacted or opt-in in exported diagnostics.
 
@@ -740,11 +756,12 @@ Exit gate: no unknown write layout remains in a capability scheduled for M1–M4
 ### M1: lifecycle, ownership, and OEM safety
 
 - Implement DeviceHost/broker IPC and capability negotiation.
-- Implement detection, passive/conflict state, snapshots, recovery journal, suspend/resume, and clean disable.
+- Start device integration with WSGM in Desktop or Game Mode and keep one host generation across shell-mode transitions.
+- Implement detection, passive/conflict state, snapshots, recovery journal, suspend/resume, clean disable, and clean WSGM-exit teardown.
 - Implement WMI OEM1/OEM2 events and M1/M2 logical events.
 - Implement and validate the `Win+G` blocker, deduplication, QAM action, and volume-key preservation.
 
-Exit gate: plugin off leaves zero hooks/handles/writes; OEM2 toggles QAM once without Game Bar, stuck keys, or broken volume controls.
+Exit gate: Desktop Mode exposes complete device control without requiring Steam; mode transitions do not reinitialize hardware; plugin off/WSGM exit leaves zero hooks/handles/writes; OEM2 toggles QAM once without Game Bar, stuck keys, or broken volume controls.
 
 ### M2: power and thermals
 
@@ -835,11 +852,14 @@ Exit gate: no unknown-firmware writes, no redundant ROM syncs, and power-loss/re
 
 ### Coexistence and performance
 
+- Launch WSGM into Desktop Mode with Steam absent: the complete Device overlay works and hardware ownership remains healthy.
+- Start/stop Steam and enter/leave Game Mode repeatedly without changing the DeviceHost generation or replaying startup hardware writes.
 - HC active before WSGM, launched during WSGM ownership, and started after WSGM handoff.
 - MSI Center M active, inactive, updated, and service-only states.
 - Existing external HidHide configuration remains byte-for-byte/entry-for-entry intact outside WSGM ownership.
 - Idle and active CPU, wakeups, allocations, queue depth, report loss, end-to-end input latency, and one-hour soak.
 - Back to Game Mode remains immediate with WMI unavailable, controller re-enumerating, Steam CEF restarting, and device initialization failed.
+- Repeated Desktop Mode ↔ Game Mode transitions reuse the same DeviceHost generation, hardware handles where still valid, fan/RGB state, controller mode, virtual target, and OEM ownership.
 
 ## Hardware questions that must be closed on the reference unit
 
@@ -895,6 +915,6 @@ None of these questions permits a nearest-version write. They determine which ca
 
 ## Definition of done
 
-The Claw 8 AI+ A2VM plugin is complete when a user can enable it, press the right-front button to open Steam's native QAM without triggering Game Bar, adjust TDP and common performance controls there, use the WSGM overlay for full fan/RGB/controller/OEM control, select Steam Deck/Xbox/DS4 presentation, receive rumble and native motion where supported, suspend/resume repeatedly, and hand the device back to HC without stale hooks, hidden devices, stuck keys, unsafe fan state, or several-percent idle CPU use.
+The Claw 8 AI+ A2VM plugin is complete when a user can control it from the WSGM overlay throughout the full WSGM run in Desktop or Game Mode; press the right-front button in Game Mode to open Steam's native QAM without triggering Game Bar; adjust TDP and common performance controls there; select Steam Deck/Xbox/DS4 presentation; receive rumble and native motion where supported; cross mode boundaries and suspend/resume repeatedly without reinitializing the device; and hand the device back to HC without stale hooks, hidden devices, stuck keys, unsafe fan state, or several-percent idle CPU use.
 
 Turning the entire device system off must return WSGM to its lightweight Steam-focused behavior and leave the Claw under its firmware or external manager's ownership.
