@@ -176,12 +176,12 @@ public sealed class SessionModes
         }
     }
 
-    /// <summary>Game mode: desktop goes away, monitoring resumes, Big Picture comes
-    /// back (the protocol also boots Steam if it exited while on the desktop).
-    /// Returns immediately — the explorer shutdown can take seconds and runs off
-    /// the UI thread (a synchronous shutdown froze the overlay for its full
-    /// duration, device-observed 2026-08-07); the rest of the transition posts
-    /// back to the UI thread once explorer is gone.</summary>
+    /// <summary>Game mode: ask Steam to enter Big Picture immediately (the protocol
+    /// also boots it if it exited while on the desktop) while Explorer's bounded
+    /// orderly shutdown runs off the UI thread. Monitoring stays paused and
+    /// game-mode resources are not created until Explorer is verifiably gone; if
+    /// Explorer refuses to exit, Big Picture is closed again and desktop mode is
+    /// preserved. Returns immediately.</summary>
     public void EnterGameMode()
     {
         if (!TryBeginTransition("game-mode switch"))
@@ -189,8 +189,28 @@ public sealed class SessionModes
             return;
         }
         Log.Info("Entering game mode.");
+        if (_monitor is not null)
+        {
+            // Desktop mode already pauses it, but make the transition transactional:
+            // no Steam lifecycle edge may react until Explorer is confirmed gone.
+            _monitor.Paused = true;
+        }
         System.Threading.Tasks.Task.Run(() =>
         {
+            string? steamWarning;
+            try
+            {
+                // Fire exactly once before Explorer's linger/retry work. Steam can
+                // construct Big Picture during that wait; activating it again after
+                // the transition would interrupt its intro and steal focus again.
+                steamWarning = RequestBigPictureWhilePaused();
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Starting Steam Big Picture during game-mode transition failed", ex);
+                steamWarning = BigPictureStartFailedWarning;
+            }
+
             var exited = false;
             try
             {
@@ -200,11 +220,44 @@ public sealed class SessionModes
             {
                 Log.Error("Explorer exit failed", ex);
             }
+
+            // Decide once on the worker after the bounded exit finishes. Rolling
+            // Steam back and then re-checking Explorer on the UI thread could race
+            // a late process exit into committing game mode after BP was closed.
+            var preserveDesktop = false;
+            if (!exited)
+            {
+                try
+                {
+                    preserveDesktop = ExplorerControl.IsRunningInSession();
+                }
+                catch (Exception ex)
+                {
+                    // Failure cannot prove Explorer is absent. Preserve the usable
+                    // desktop instead of risking a tray-host collision.
+                    Log.Error("Checking Explorer state after its exit attempt failed", ex);
+                    preserveDesktop = true;
+                }
+            }
+            if (preserveDesktop)
+            {
+                try
+                {
+                    // The Big Picture request was speculative until Explorer left.
+                    // Undo it before the warning overlay reopens on the desktop.
+                    ExitBigPicture();
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("Rolling Steam back after Explorer exit failure failed", ex);
+                }
+            }
+
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
                 try
                 {
-                    if (!exited && ExplorerControl.IsRunningInSession())
+                    if (preserveDesktop)
                     {
                         // Fail open (era-proven UX): a half-removed desktop with a
                         // refused tray host is strictly worse than staying put.
@@ -218,7 +271,10 @@ public sealed class SessionModes
                     {
                         _monitor.Paused = false;
                     }
-                    StartOrFocusSteam();
+                    if (steamWarning is not null)
+                    {
+                        SteamStartFailed?.Invoke(steamWarning);
+                    }
                 }
                 finally
                 {
@@ -287,6 +343,19 @@ public sealed class SessionModes
         {
             EndHomeLaunch();
         }
+    }
+
+    /// <summary>Requests or focuses Big Picture without changing monitor state.
+    /// The serialized game-mode transition uses this while the monitor remains
+    /// paused, so it must not take the unrelated Home-button cooldown.</summary>
+    private string? RequestBigPictureWhilePaused()
+    {
+        if (_monitor?.IsAlive == true)
+        {
+            FocusSteam();
+            return null;
+        }
+        return StartBigPicture();
     }
 
     /// <summary>The one Steam start + warning flow (shared by boot and the overlay):

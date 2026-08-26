@@ -81,15 +81,18 @@ and "Close Steam" suppress auto-relaunch/overlay-pop reactions.
 `Overlay\OverlayController.cs`): everything is protocol URLs — start/focus =
 `steam://open/bigpicture` (boots Steam if needed, UIPI-proof), leave BP =
 `steam://close/bigpicture`, quit = `steam://exit`. Desktop mode = pause monitor + close BP + start
-explorer (de-elevated if WSGM is elevated — `Core\UnelevatedLauncher.cs` via scheduled task); game
-mode reverses it via `ExplorerControl.ExitExplorerAndWait` run OFF the UI thread (a synchronous exit
-froze the overlay for its full duration) with the transition completing on the UI thread;
-`SessionModes.TransitionInProgress` serializes transitions (the overlay ignores mode clicks while
-one runs) and failure keeps desktop mode (fail open, never a half game mode). The game/desktop mode
-transitions and the shared Steam start+warning flow live in `Shell\SessionModes` (session
-coordinator, used by both `ShellSession` boot and the overlay's buttons); `OverlayController` stays
-the UI owner (lease lifecycle, overlay window) and surfaces `SessionModes.SteamStartFailed`
-warnings.
+explorer (de-elevated if WSGM is elevated — `Core\UnelevatedLauncher.cs` via scheduled task). A
+runtime desktop-to-game switch requests Big Picture FIRST while keeping the monitor paused, then runs
+`ExplorerControl.ExitExplorerAndWait` off the UI thread. That overlaps Steam's UI startup with
+Explorer's bounded linger/retry instead of presenting the safety wait before Big Picture appears.
+Only after Explorer is verifiably gone does the UI thread apply game posture, recreate game-mode
+services/the tray host, and resume monitoring. If Explorer refuses to exit, the transition sends
+`steam://close/bigpicture` and preserves desktop mode. The direct logon boot remains stricter:
+Steam starts only after Explorer is gone. `SessionModes.TransitionInProgress` serializes
+transitions (the overlay ignores mode clicks while one runs). The game/desktop mode transitions and
+the shared Steam start+warning flow live in `Shell\SessionModes` (session coordinator, used by both
+`ShellSession` boot and the overlay's buttons); `OverlayController` stays the UI owner (lease
+lifecycle, overlay window) and surfaces `SessionModes.SteamStartFailed` warnings.
 
 **The strongest current evidence for the recurring Steam startup hang is boot-context CEF mutation,
 not the resident input shim** (device-observed repeatedly 2026-08-22). WSGM's direct-boot Steam
