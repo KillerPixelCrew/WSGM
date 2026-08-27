@@ -761,6 +761,8 @@ This destination is available in Desktop Mode and Game Mode whenever device inte
 | Lighting | Effect, groups/zones, colors, brightness, speed, apply/revert |
 | Diagnostics | Firmware/descriptors, WMI/provider state, snapshots, last transactions, trace export |
 
+The Controller section also reports and previews the physical handheld glyph profile used by Steam CEF and WSGM's own controller surfaces. `msi.claw` from the pinned Handheld Controller Glyphs catalog is the initial A2VM candidate, not an assumed match. It becomes the automatic default only after the full/left/right artwork, MSI Center and QAM front-button sides, and M1/M2 rear-button sides are verified on the A2VM. A mismatch creates a distinct `msi.claw-a2vm` profile instead of borrowing misleading artwork.
+
 ### Native Steam QAM
 
 The native QAM is a Game Mode projection of the same long-lived device state. Opening, closing, injecting, or reconnecting the QAM never starts or stops the plugin.
@@ -773,6 +775,8 @@ The native Steam QAM duplicates only high-frequency gameplay controls:
 - Virtual controller target.
 
 The right-front OEM2 button calls the allowlisted `SteamUiHost.ToggleQuickAccess` action. The WSGM overlay retains the same power and target controls plus all deeper Claw controls. Both surfaces observe one capability state and one command implementation.
+
+The independent Steam Input handheld-glyph CEF patch presents that right-front control with the MSI QAM glyph and the rear controls as M1/M2, matching the physical Claw rather than Valve's default Steam Deck or Xbox artwork. This presentation does not alter the firmware Win+G suppression path, logical OEM mapping, or HIDMaestro target. If its selector fingerprint becomes incompatible, only the glyph patch falls back to native Steam rendering.
 
 ## State, profiles, and persistence
 
@@ -1015,6 +1019,7 @@ None of these questions permits a nearest-version write. They determine which ca
 - HHD and every redistributed binary/driver/provider require their own license and notice review.
 - MSI's provider DLL is not redistributed until source/provenance and redistribution rights are established.
 - Keep an implementation evidence log linking each constant to an official source, independent project, hardware capture, or test fixture.
+- Supply physical controller artwork through WSGM's pinned Handheld Controller Glyphs catalog rather than the Claw plugin package. WSGM preserves the upstream MIT notice, asset inventory, and credited artwork provenance; the plugin selects only the reviewed profile ID.
 
 ## References
 
@@ -1029,6 +1034,10 @@ None of these questions permits a nearest-version write. They determine which ca
 - User-authored merged Win+G fix: https://github.com/Valkirie/HandheldCompanion/pull/1459
 - Win+G ACPI capture: https://github.com/Valkirie/HandheldCompanion/issues/1444
 - `i8042prt` volume-key regression: https://github.com/Valkirie/HandheldCompanion/issues/1453
+
+### WSGM presentation
+
+- Handheld controller glyph integration: [controller-glyph-integration.md](./controller-glyph-integration.md)
 
 ### Independent implementations and primary references
 

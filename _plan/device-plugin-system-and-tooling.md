@@ -152,6 +152,8 @@ Each descriptor contains stable metadata:
 - Volatile, device-persistent, or unknown persistence.
 - Whether activation, re-enumeration, restart, or reboot is required.
 
+Device-level display metadata may also select a reviewed WSGM-owned physical controller glyph profile by stable ID. The profile is presentation only: WSGM resolves it from its pinned catalog for Steam CEF and first-party surfaces. Plugins cannot supply CSS, JavaScript, XAML, SVG, URLs, or arbitrary artwork, and an unknown profile ID is ignored. Device Lab may recommend a glyph profile only from an exact known-device match; generated scaffolds leave it unset until the physical diagrams and OEM-button positions are visually verified.
+
 The separately versioned live capability state contains:
 
 - Availability and command-progress state.
@@ -941,8 +943,11 @@ Every generated project retains:
 
 Proprietary OEM DLLs, helpers, providers, or drivers are never redistributed without established rights.
 
+If a generated device definition selects a profile from Handheld Controller Glyphs, the evidence bundle records the exact WSGM catalog profile, upstream revision, asset hashes, and visual-verification status. That catalog is a WSGM dependency with its own attribution and update review; it is not copied into each plugin package.
+
 ## References
 
+- WSGM handheld controller glyph integration: [controller-glyph-integration.md](./controller-glyph-integration.md)
 - Handheld Companion audited revision: https://github.com/Valkirie/HandheldCompanion/tree/5c94abca83f8711ff5620906871b31a41c76bf05
 - Microsoft HID APIs: https://learn.microsoft.com/windows-hardware/drivers/hid/hid-api
 - Microsoft HID report guidance: https://learn.microsoft.com/windows-hardware/drivers/hid/obtaining-hid-reports
