@@ -329,6 +329,17 @@ public sealed class DeviceLabApplication(string? repositoryRoot, string probeHos
     public PluginPackageValidationReport Pack(string packageDirectory, string outputPath) =>
         PluginPackageWorkflow.Pack(packageDirectory, outputPath, Boundaries());
 
+    /// <summary>Imports reviewed glyph sources into deterministic WSGM-owned safe assets.</summary>
+    /// <param name="packageDirectory">Package source containing canonical profiles and notices.</param>
+    /// <param name="outputDirectory">New directory receiving generated package-layout files.</param>
+    /// <returns>Deterministic generation report that grants no package authority.</returns>
+    public GlyphPackageGenerationReport GenerateGlyphs(
+        string packageDirectory,
+        string outputDirectory) => GlyphPackageGenerationWorkflow.Generate(
+            packageDirectory,
+            outputDirectory,
+            Boundaries());
+
     private DeviceLabPathBoundaries Boundaries() => DeviceLabPathBoundaries.ForCurrentUser(_repositoryRoot);
 
     private static MachineInventory ReadInventory(string path)

@@ -52,6 +52,7 @@ internal static class Program
                 "correlate" => RunCorrelate(args.AsSpan(1)),
                 "fixture" => RunFixture(args.AsSpan(1)),
                 "plugin" => RunPlugin(args.AsSpan(1)),
+                "glyph" => RunGlyph(args.AsSpan(1)),
                 "validate" => RunValidate(args.AsSpan(1)),
                 "pack" => RunPack(args.AsSpan(1)),
                 _ => Unknown(args[0]),
@@ -397,6 +398,23 @@ internal static class Program
         return report.Valid ? Success : Failed;
     }
 
+    private static int RunGlyph(ReadOnlySpan<string> args)
+    {
+        if (args.Length < 4 || args[0] is not "import"
+            || Option(args[2..], "--out-dir", "-o") is not { } output)
+        {
+            return UsageError("glyph import requires <package-directory> --out-dir <new-directory>.");
+        }
+
+        GlyphPackageGenerationReport report = Application().GenerateGlyphs(args[1], output);
+        WriteJson(new
+        {
+            report,
+            output = report.Valid ? Path.GetFullPath(output) : null,
+        });
+        return report.Valid ? Success : Failed;
+    }
+
     private static int RunPack(ReadOnlySpan<string> args)
     {
         if (args.Length < 3 || Option(args[1..], "--out", "-o") is not { } output)
@@ -467,7 +485,7 @@ internal static class Program
 
     private static void WriteUsage(TextWriter writer)
     {
-        writer.WriteLine("wsgm-device doctor|inventory|candidates|probe|capture|inspect|diff|correlate|fixture|plugin|validate|pack");
+        writer.WriteLine("wsgm-device doctor|inventory|candidates|probe|capture|inspect|diff|correlate|fixture|plugin|glyph|validate|pack");
         writer.WriteLine("Use --help with repository documentation for exact options.");
         writer.WriteLine("All commands except 'probe run' are incapable of hardware mutation.");
     }

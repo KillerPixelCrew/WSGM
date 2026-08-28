@@ -378,6 +378,7 @@ internal sealed class MainWindow : Window
     {
         TextBox packageDirectory = PathInput();
         TextBox packageOutput = PathInput();
+        TextBox glyphOutput = PathInput();
         Button validate = new() { Content = "Validate offline" };
         validate.Click += async (_, _) =>
         {
@@ -391,12 +392,21 @@ internal sealed class MainWindow : Window
             string outputPath = packageOutput.Text!;
             await RunAsync(token => Task.Run<object?>(() => _application.Pack(packagePath, outputPath), token));
         };
+        Button generateGlyphs = new() { Content = "Import glyphs" };
+        generateGlyphs.Click += async (_, _) =>
+        {
+            string packagePath = packageDirectory.Text!;
+            string outputPath = glyphOutput.Text!;
+            await RunAsync(token => Task.Run<object?>(
+                () => _application.GenerateGlyphs(packagePath, outputPath), token));
+        };
         return Tab(
             "Validate & pack",
-            "Offline validation and packing grant no package trust, privilege, hardware verification, or retail support.",
+            "Offline validation, glyph import, and packing grant no package trust, privilege, hardware verification, or retail support.",
             Labeled("Package directory", packageDirectory),
             Labeled("New .wsgmpkg path", packageOutput),
-            Buttons(validate, pack));
+            Labeled("New glyph-generation directory", glyphOutput),
+            Buttons(validate, generateGlyphs, pack));
     }
 
     private async Task RunAsync(Func<CancellationToken, Task<object?>> operation)

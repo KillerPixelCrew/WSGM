@@ -6,6 +6,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using WSGM.Device.Contracts.Glyphs;
 using WSGM.Device.Contracts.Ipc;
 using WSGM.Device.Contracts.Packaging;
 using WSGM.DeviceLab.Core.Capture;
@@ -86,6 +87,10 @@ public static class PluginPackageWorkflow
         {
             return Report(null, null, null, [Issue("missing-root", "", "Package directory does not exist.")], EmptyHashes());
         }
+        if (IsLink(root))
+        {
+            return Report(null, null, null, [Issue("reparse-path", "", "Package root may not be a link or reparse point.")], EmptyHashes());
+        }
 
         string manifestPath = Path.Combine(root, ManifestPath);
         if (!File.Exists(manifestPath))
@@ -112,8 +117,7 @@ public static class PluginPackageWorkflow
         }
 
         Dictionary<string, string> hashes = new(StringComparer.Ordinal);
-        foreach (string path in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
-            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+        foreach (string path in EnumeratePackageFiles(root, issues))
         {
             string relative = Path.GetRelativePath(root, path).Replace('\\', '/');
             if (!CaptureBundleLayout.IsSafeRelativePath(relative)
@@ -146,6 +150,7 @@ public static class PluginPackageWorkflow
         ValidateEvidenceLock(root, manifest, hashes, issues);
         ValidateGeneratedBoundary(root, hashes, issues);
         ValidateUnreviewedPrivilegeRequests(manifest, hashes.Keys, issues);
+        ValidateGlyphProfiles(root, manifest, hashes, issues);
 
         return Report(
             manifest.Id,
@@ -333,6 +338,126 @@ public static class PluginPackageWorkflow
                 path,
                 "Developer packages cannot provision drivers, services, tasks, registry repair, or helper installation."));
         }
+    }
+
+    private static void ValidateGlyphProfiles(
+        string root,
+        PluginManifest manifest,
+        IReadOnlyDictionary<string, string> hashes,
+        ICollection<PluginPackageValidationIssue> issues)
+    {
+        GlyphPackageImportResult imported;
+        try
+        {
+            imported = GlyphPackageImporter.Import(
+                manifest,
+                new ImmutableGlyphPackageDirectorySource(root));
+        }
+        catch (InvalidDataException exception)
+        {
+            issues.Add(Issue("glyph-package-root", "glyphs", exception.Message));
+            return;
+        }
+
+        foreach (GlyphPackageImportError error in imported.Errors)
+        {
+            issues.Add(Issue(
+                $"glyph-{ToKebabCase(error.Code.ToString())}",
+                error.Path,
+                $"{error.ProfileId}: {error.Message}"));
+        }
+
+        if (!imported.IsValid)
+        {
+            return;
+        }
+
+        HashSet<string> expected = new(StringComparer.Ordinal);
+        foreach (GlyphProfilePackageReference reference in manifest.GlyphProfiles)
+        {
+            expected.Add(GlyphPackageLayout.ProfileManifest(reference.ManifestSha256));
+        }
+        foreach (ImportedGlyphProfile profile in imported.Profiles)
+        {
+            foreach (GlyphAssetLockEntry asset in profile.Manifest.Assets)
+            {
+                expected.Add(GlyphPackageLayout.Asset(asset.Sha256, asset.Format));
+                expected.Add(GlyphPackageLayout.GeneratedAsset(asset.Sha256, asset.Format));
+                expected.Add(GlyphPackageLayout.Notice(asset.Provenance.LicenseNoticeSha256));
+            }
+            expected.Add(GlyphPackageLayout.Notice(profile.Manifest.Provenance.LicenseNoticeSha256));
+        }
+
+        foreach (string path in hashes.Keys.Where(path => path.StartsWith("glyphs/", StringComparison.Ordinal))
+            .Except(expected, StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal))
+        {
+            issues.Add(Issue(
+                "glyph-unreferenced-file",
+                path,
+                "Glyph package output is not reachable from the canonical profile lock."));
+        }
+    }
+
+    internal static IReadOnlyList<string> EnumeratePackageFiles(
+        string root,
+        ICollection<PluginPackageValidationIssue> issues)
+    {
+        List<string> files = [];
+        Stack<string> pending = new();
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            string directory = pending.Pop();
+            foreach (string entry in Directory.EnumerateFileSystemEntries(directory)
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+            {
+                string relative = Path.GetRelativePath(root, entry).Replace('\\', '/');
+                if (IsLink(entry))
+                {
+                    issues.Add(Issue(
+                        "reparse-path",
+                        relative,
+                        "Package paths may not contain links or reparse points."));
+                    continue;
+                }
+
+                if (Directory.Exists(entry))
+                {
+                    pending.Push(entry);
+                }
+                else
+                {
+                    files.Add(entry);
+                }
+            }
+        }
+
+        return files.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    internal static bool IsLink(string path)
+    {
+        FileSystemInfo info = Directory.Exists(path)
+            ? new DirectoryInfo(path)
+            : new FileInfo(path);
+        return info.Exists && (info.LinkTarget is not null
+            || (info.Attributes & FileAttributes.ReparsePoint) != 0);
+    }
+
+    private static string ToKebabCase(string value)
+    {
+        StringBuilder builder = new(value.Length + 8);
+        for (int index = 0; index < value.Length; index++)
+        {
+            char character = value[index];
+            if (char.IsUpper(character) && index > 0)
+            {
+                builder.Append('-');
+            }
+            builder.Append(char.ToLowerInvariant(character));
+        }
+        return builder.ToString();
     }
 
     private static void CheckRequiredFile(
