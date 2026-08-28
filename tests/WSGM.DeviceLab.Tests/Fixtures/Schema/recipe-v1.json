@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "recipeId": "reference-hid-observation",
+  "displayName": "Reference HID observation",
+  "authority": "InertEvidence",
+  "steps": [
+    {
+      "stepId": "press-a",
+      "sourceId": "hid.input",
+      "kind": "HidInput",
+      "operatorPrompt": "Press and release A once.",
+      "durationMilliseconds": 1000
+    }
+  ]
+}

@@ -54,9 +54,9 @@ public class ProbeResultTests
     }
 
     [Fact]
-    public void AProbeThatFailedWithAnUnverifiedRestore_IsInconclusive()
+    public void AProbeThatFailedWithAnUnverifiedRestore_IsQuarantined()
     {
-        Assert.Equal(CompatibilityVerdict.Inconclusive, Result(
+        Assert.Equal(CompatibilityVerdict.Quarantined, Result(
             ProbeExecution.Disconnected, ProbeObservation.TopologyChanged,
             ProbeMutation.AppliedVerified, ProbeCleanup.RestoreUnverified).Verdict);
     }
@@ -98,6 +98,39 @@ public class ProbeResultTests
                 execution, ProbeObservation.Match,
                 ProbeMutation.AppliedUnverified, ProbeCleanup.RestoreFailed).Verdict);
         }
+    }
+
+    [Fact]
+    public void ResourceAssessment_DoesNotSpreadOneQuarantineToUnrelatedCapabilities()
+    {
+        IReadOnlyList<ResourceCompatibilityAssessment> assessments = ResourceCompatibility.Assess(
+        [
+            new ResourceProbeResult
+            {
+                ResourceId = "power",
+                ModuleId = "power-module",
+                Result = Result(
+                    ProbeExecution.Completed,
+                    ProbeObservation.Match,
+                    ProbeMutation.AppliedVerified,
+                    ProbeCleanup.RestoreUnverified),
+            },
+            new ResourceProbeResult
+            {
+                ResourceId = "lighting",
+                ModuleId = "lighting-module",
+                Result = Result(
+                    ProbeExecution.Completed,
+                    ProbeObservation.Match,
+                    ProbeMutation.None,
+                    ProbeCleanup.NotRequired),
+            },
+        ]);
+
+        Assert.Equal(CompatibilityVerdict.Compatible, assessments[0].Verdict);
+        Assert.Equal("lighting", assessments[0].ResourceId);
+        Assert.Equal(CompatibilityVerdict.Quarantined, assessments[1].Verdict);
+        Assert.Equal("power", assessments[1].ResourceId);
     }
 
     private static ProbeResult Result(

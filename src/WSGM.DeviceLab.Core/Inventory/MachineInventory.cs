@@ -22,11 +22,38 @@ public sealed record MachineInventory
     /// <summary>Processor identity, used only for matching catalog predicates.</summary>
     public ProcessorInventory? Processor { get; init; }
 
+    /// <summary>Display adapters, used only for matching catalog predicates.</summary>
+    public IReadOnlyList<GraphicsAdapterInventory> GraphicsAdapters { get; init; } = [];
+
     /// <summary>USB and HID endpoints present.</summary>
     public IReadOnlyList<UsbInterfaceInventory> UsbInterfaces { get; init; } = [];
 
     /// <summary>WMI classes found present, without any method being invoked.</summary>
     public IReadOnlyList<WmiClassInventory> WmiClasses { get; init; } = [];
+
+    /// <summary>Serial endpoints and passive framing observations; no bytes were transmitted.</summary>
+    public IReadOnlyList<SerialEndpointInventory> SerialEndpoints { get; init; } = [];
+
+    /// <summary>Sensor endpoints observed through passive PnP metadata.</summary>
+    public IReadOnlyList<SensorEndpointInventory> Sensors { get; init; } = [];
+
+    /// <summary>Independent controller/input backend views.</summary>
+    public IReadOnlyList<InputBackendInventory> InputBackends { get; init; } = [];
+
+    /// <summary>Relevant native binaries inspected as files without loading them.</summary>
+    public IReadOnlyList<NativeBinaryInventory> NativeBinaries { get; init; } = [];
+
+    /// <summary>Relevant processes observed without treating presence as resource ownership.</summary>
+    public IReadOnlyList<ProcessInventory> Processes { get; init; } = [];
+
+    /// <summary>Relevant Windows services observed without changing service state.</summary>
+    public IReadOnlyList<ServiceInventory> Services { get; init; } = [];
+
+    /// <summary>Relevant scheduled tasks observed without running or modifying them.</summary>
+    public IReadOnlyList<ScheduledTaskInventory> ScheduledTasks { get; init; } = [];
+
+    /// <summary>Potential or demonstrated ownership conflicts with their evidence level.</summary>
+    public IReadOnlyList<ResourceConflictInventory> ResourceConflicts { get; init; } = [];
 
     /// <summary>When the sweep ran, in UTC.</summary>
     public required DateTimeOffset CapturedAt { get; init; }
@@ -112,6 +139,9 @@ public sealed record UsbInterfaceInventory
 
     /// <summary>USB product ID, four uppercase hexadecimal digits.</summary>
     public string? ProductId { get; init; }
+
+    /// <summary>USB <c>bcdDevice</c> value from a <c>REV_</c> hardware ID.</summary>
+    public string? DeviceRelease { get; init; }
 
     /// <summary>Interface number of a composite device.</summary>
     public int? InterfaceNumber { get; init; }

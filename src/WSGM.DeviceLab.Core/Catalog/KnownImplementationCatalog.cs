@@ -6,6 +6,7 @@ using WSGM.Device.Contracts.Modules;
 using WSGM.Device.Contracts.Packaging;
 using WSGM.DeviceLab.Core.Evidence;
 using WSGM.DeviceLab.Core.Inventory;
+using WSGM.DeviceLab.Core.Probes;
 
 namespace WSGM.DeviceLab.Core.Catalog;
 
@@ -33,6 +34,13 @@ public sealed record CatalogEntry
 
     /// <summary>Claims backing this module's constants.</summary>
     public IReadOnlyList<EvidenceClaim> Claims { get; init; } = [];
+
+    /// <summary>Reviewed read probes that can discriminate or validate this module.</summary>
+    /// <remarks>
+    /// These are inert catalog descriptions. Matching never executes them or opens their endpoint;
+    /// execution requires the separate admission, preflight, hash, and disposable-host gates.
+    /// </remarks>
+    public IReadOnlyList<ReadProbeMetadata> ReadProbes { get; init; } = [];
 
     /// <summary>
     /// Values that are specific to the devices this module was verified on.
@@ -192,6 +200,7 @@ public static class InventorySnapshot
                 {
                     VendorId = i.VendorId!,
                     ProductId = i.ProductId!,
+                    DeviceRelease = i.DeviceRelease,
                     InterfaceNumber = i.InterfaceNumber,
                     LocationPath = i.LocationPath,
                 })],

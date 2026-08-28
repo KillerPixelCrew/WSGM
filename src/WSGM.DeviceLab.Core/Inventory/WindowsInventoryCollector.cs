@@ -42,10 +42,23 @@ public static partial class WindowsInventoryCollector
             SchemaVersion = CurrentSchemaVersion,
             Firmware = CollectFirmware(),
             Processor = CollectProcessor(),
+            GraphicsAdapters = CollectGraphicsAdapters(),
             UsbInterfaces = CollectUsbInterfaces(),
             WmiClasses = CollectWmiClasses(wmiClassesToProbe ?? []),
+            SerialEndpoints = CollectSerialEndpoints(),
+            Sensors = CollectSensors(),
+            InputBackends = CollectInputBackends(),
+            Processes = CollectRelevantProcesses(),
+            Services = CollectRelevantServices(),
+            ScheduledTasks = CollectRelevantScheduledTasks(),
             CapturedAt = capturedAt,
-        };
+        } is { } inventory
+            ? inventory with
+            {
+                NativeBinaries = CollectNativeBinaries(inventory.Processes, inventory.Services),
+                ResourceConflicts = DerivePresenceConflicts(inventory.Processes, inventory.Services),
+            }
+            : throw new InvalidOperationException();
     }
 
     private static FirmwareInventory CollectFirmware()
@@ -112,7 +125,7 @@ public static partial class WindowsInventoryCollector
         {
             using ManagementObjectSearcher searcher = new(
                 "root\\CIMV2",
-                "SELECT DeviceID, PNPClass, Status FROM Win32_PnPEntity "
+                "SELECT DeviceID, PNPClass, Status, HardwareID FROM Win32_PnPEntity "
                     + "WHERE DeviceID LIKE 'USB%' OR DeviceID LIKE 'HID%'");
 
             foreach (ManagementBaseObject entity in searcher.Get())
@@ -126,6 +139,8 @@ public static partial class WindowsInventoryCollector
                     }
 
                     Match ids = UsbIdentifiers().Match(instanceId);
+                    string? hardwareIds = TextList(entity, "HardwareID");
+                    Match release = hardwareIds is null ? Match.Empty : UsbRelease().Match(hardwareIds);
                     string? locationPath = DeviceProperties.ResolveLocationPath(instanceId);
 
                     interfaces.Add(new UsbInterfaceInventory
@@ -134,6 +149,7 @@ public static partial class WindowsInventoryCollector
                         DeviceClass = Text(entity, "PNPClass"),
                         VendorId = ids.Success ? ids.Groups["vid"].Value.ToUpperInvariant() : null,
                         ProductId = ids.Success ? ids.Groups["pid"].Value.ToUpperInvariant() : null,
+                        DeviceRelease = release.Success ? release.Groups["rev"].Value.ToUpperInvariant() : null,
                         InterfaceNumber = ParseInterfaceNumber(instanceId),
                         LocationPath = locationPath,
                         DeviceLevelLocationPath = DeviceProperties.ToDeviceLevelPath(locationPath),
@@ -283,6 +299,18 @@ public static partial class WindowsInventoryCollector
         }
     }
 
+    private static string? TextList(ManagementBaseObject source, string property)
+    {
+        try
+        {
+            return source[property] is string[] values ? string.Join(";", values) : Text(source, property);
+        }
+        catch (ManagementException)
+        {
+            return null;
+        }
+    }
+
     private static int? ParseInterfaceNumber(string instanceId)
     {
         Match match = InterfaceNumber().Match(instanceId);
@@ -296,6 +324,9 @@ public static partial class WindowsInventoryCollector
 
     [GeneratedRegex(@"&MI_(?<mi>[0-9A-Fa-f]{2})")]
     private static partial Regex InterfaceNumber();
+
+    [GeneratedRegex(@"&REV_(?<rev>[0-9A-Fa-f]{4})")]
+    private static partial Regex UsbRelease();
 
     [GeneratedRegex(@"Family\s+(?<family>\d+)\s+Model\s+(?<model>\d+)\s+Stepping\s+(?<stepping>\d+)")]
     private static partial Regex CpuDescription();

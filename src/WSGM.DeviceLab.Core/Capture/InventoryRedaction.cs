@@ -32,6 +32,10 @@ public static class InventoryRedaction
 
         MachineInventory shareable = inventory with
         {
+            GraphicsAdapters = [.. inventory.GraphicsAdapters.Select(adapter => adapter with
+            {
+                InstanceId = redactor.Redact(adapter.InstanceId),
+            })],
             UsbInterfaces = [.. inventory.UsbInterfaces.Select(i => i with
             {
                 InstanceId = redactor.Redact(i.InstanceId),
@@ -42,6 +46,42 @@ public static class InventoryRedaction
                 // compared across machines.
                 LocationPath = null,
                 DeviceLevelLocationPath = null,
+            })],
+            SerialEndpoints = [.. inventory.SerialEndpoints.Select(endpoint => endpoint with
+            {
+                InstanceId = redactor.Redact(endpoint.InstanceId),
+                LocationPath = null,
+            })],
+            Sensors = [.. inventory.Sensors.Select(sensor => sensor with
+            {
+                InstanceId = redactor.Redact(sensor.InstanceId),
+                AssociationId = sensor.AssociationId is null ? null : redactor.Redact(sensor.AssociationId),
+            })],
+            InputBackends = [.. inventory.InputBackends.Select(backend => backend with
+            {
+                Endpoints = [.. backend.Endpoints.Select(endpoint => endpoint with
+                {
+                    EndpointId = redactor.Redact(endpoint.EndpointId),
+                    InstanceId = endpoint.InstanceId is null ? null : redactor.Redact(endpoint.InstanceId),
+                })],
+            })],
+            NativeBinaries = [.. inventory.NativeBinaries.Select(binary => binary with
+            {
+                Path = binary.Name,
+            })],
+            Processes = [.. inventory.Processes.Select(process => process with
+            {
+                Path = null,
+                CommandLine = null,
+                LoadedModulePaths = [.. process.LoadedModulePaths.Select(System.IO.Path.GetFileName)],
+            })],
+            Services = [.. inventory.Services.Select(service => service with
+            {
+                PathName = null,
+            })],
+            ScheduledTasks = [.. inventory.ScheduledTasks.Select(task => task with
+            {
+                Path = redactor.Redact(task.Path),
             })],
         };
 

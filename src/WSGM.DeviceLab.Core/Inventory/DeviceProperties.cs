@@ -65,6 +65,30 @@ public static partial class DeviceProperties
         return null;
     }
 
+    /// <summary>Resolves the immediate parent PnP instance identifier without opening the device.</summary>
+    /// <param name="instanceId">Child PnP instance identifier.</param>
+    /// <returns>Parent instance identifier, or <see langword="null"/> when unavailable.</returns>
+    public static string? ResolveParentInstanceId(string instanceId)
+    {
+        if (CM_Locate_DevNodeW(out uint child, instanceId, CmLocateDevnodeNormal) != CrSuccess
+            || CM_Get_Parent(out uint parent, child, 0) != CrSuccess)
+        {
+            return null;
+        }
+
+        int characters = 0;
+        int result = CM_Get_Device_ID_Size(out characters, parent, 0);
+        if (result != CrSuccess || characters <= 0)
+        {
+            return null;
+        }
+
+        char[] buffer = new char[characters + 1];
+        return CM_Get_Device_IDW(parent, buffer, buffer.Length, 0) == CrSuccess
+            ? new string(buffer, 0, characters)
+            : null;
+    }
+
     /// <summary>
     /// Reduces an interface-level location path to the composite device it belongs to.
     /// </summary>
@@ -128,6 +152,16 @@ public static partial class DeviceProperties
 
     [LibraryImport("cfgmgr32.dll")]
     private static partial int CM_Get_Parent(out uint pdnDevInst, uint dnDevInst, int ulFlags);
+
+    [LibraryImport("cfgmgr32.dll")]
+    private static partial int CM_Get_Device_ID_Size(out int pulLen, uint dnDevInst, int ulFlags);
+
+    [LibraryImport("cfgmgr32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    private static partial int CM_Get_Device_IDW(
+        uint dnDevInst,
+        [Out] char[] buffer,
+        int bufferLength,
+        int ulFlags);
 
     [LibraryImport("cfgmgr32.dll")]
     private static partial int CM_Get_DevNode_PropertyW(

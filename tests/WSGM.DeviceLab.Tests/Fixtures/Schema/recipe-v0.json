@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 0,
+  "recipeId": "reference-hid-observation",
+  "name": "Reference HID observation",
+  "authority": "HardwareMutation",
+  "steps": [
+    {
+      "stepId": "press-a",
+      "sourceId": "hid.input",
+      "kind": "HidInput",
+      "operatorPrompt": "Press and release A once.",
+      "durationMilliseconds": 1000
+    }
+  ]
+}

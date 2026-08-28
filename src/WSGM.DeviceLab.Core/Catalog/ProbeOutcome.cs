@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json.Serialization;
 
 namespace WSGM.DeviceLab.Core.Catalog;
@@ -141,7 +144,7 @@ public sealed record ProbeResult
     {
         get
         {
-            if (Cleanup is ProbeCleanup.RestoreFailed)
+            if (Cleanup is ProbeCleanup.RestoreFailed or ProbeCleanup.RestoreUnverified)
             {
                 return CompatibilityVerdict.Quarantined;
             }
@@ -149,7 +152,8 @@ public sealed record ProbeResult
             if (Execution is not ProbeExecution.Completed)
             {
                 // A probe that changed something and then failed to run to completion cannot be
-                // dismissed as merely blocked - the device may not be as it was found.
+                // dismissed as merely blocked - the device may not be as it was found. Any
+                // unverified restore was already quarantined above.
                 return Mutation is ProbeMutation.AppliedUnverified
                     || Cleanup is ProbeCleanup.RestoreUnverified
                         ? CompatibilityVerdict.Inconclusive
@@ -164,4 +168,66 @@ public sealed record ProbeResult
             };
         }
     }
+}
+
+/// <summary>One probe result scoped to exactly one independently owned resource.</summary>
+public sealed record ResourceProbeResult
+{
+    /// <summary>Resource whose evidence changed.</summary>
+    public required string ResourceId { get; init; }
+
+    /// <summary>Module assessed on that resource.</summary>
+    public required string ModuleId { get; init; }
+
+    /// <summary>Independent probe dimensions.</summary>
+    public required ProbeResult Result { get; init; }
+}
+
+/// <summary>Final evidence verdict for one resource, independent of every other resource.</summary>
+public sealed record ResourceCompatibilityAssessment
+{
+    /// <summary>Resource assessed.</summary>
+    public required string ResourceId { get; init; }
+
+    /// <summary>Strictest supported verdict for that resource.</summary>
+    public required CompatibilityVerdict Verdict { get; init; }
+
+    /// <summary>Modules whose results contributed.</summary>
+    public IReadOnlyList<string> ModuleIds { get; init; } = [];
+}
+
+/// <summary>Derives only closed compatibility verdicts without spreading failure across resources.</summary>
+public static class ResourceCompatibility
+{
+    /// <summary>Assesses each named resource independently.</summary>
+    /// <param name="results">Resource-scoped probe results.</param>
+    /// <returns>Stable resource-ID ordered assessments.</returns>
+    public static IReadOnlyList<ResourceCompatibilityAssessment> Assess(
+        IReadOnlyList<ResourceProbeResult> results)
+    {
+        ArgumentNullException.ThrowIfNull(results);
+        return [.. results
+            .GroupBy(result => result.ResourceId, StringComparer.Ordinal)
+            .OrderBy(group => group.Key, StringComparer.Ordinal)
+            .Select(group => new ResourceCompatibilityAssessment
+            {
+                ResourceId = group.Key,
+                Verdict = group.Select(result => result.Result.Verdict)
+                    .OrderByDescending(Severity)
+                    .First(),
+                ModuleIds = [.. group.Select(result => result.ModuleId)
+                    .Distinct(StringComparer.Ordinal)
+                    .Order(StringComparer.Ordinal)],
+            })];
+    }
+
+    private static int Severity(CompatibilityVerdict verdict) => verdict switch
+    {
+        CompatibilityVerdict.Quarantined => 4,
+        CompatibilityVerdict.Incompatible => 3,
+        CompatibilityVerdict.Inconclusive => 2,
+        CompatibilityVerdict.Blocked => 1,
+        CompatibilityVerdict.Compatible => 0,
+        _ => int.MaxValue,
+    };
 }

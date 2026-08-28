@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 0,
+  "id": "reference-hid",
+  "sourceCaptureSha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "extractorVersion": "wsgm-device@2.0-test",
+  "replayPolicy": "Hardware",
+  "inputs": [],
+  "expectedOutputs": [],
+  "claimIds": []
+}
