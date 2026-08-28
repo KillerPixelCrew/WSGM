@@ -1517,7 +1517,7 @@
         },
         {
           "id": "release.packaging.traceability",
-          "title": "Validate deterministic implemented-surface coverage and reject generated traceability report drift",
+          "title": "Validate scoped agent ownership, deterministic implemented-surface coverage, and generated report drift",
           "requirements": [
             "INV-016",
             "INV-019",
@@ -1525,13 +1525,16 @@
           ],
           "tasks": [
             "P10-004",
+            "P10-005",
             "P10-006",
             "P10-008"
           ],
           "production": [
+            "eng/check-agent-guidance.ps1",
             "eng/update-traceability.ps1"
           ],
           "tests": [
+            "eng/check-agent-guidance.ps1",
             "eng/update-traceability.ps1"
           ],
           "evidence": [
