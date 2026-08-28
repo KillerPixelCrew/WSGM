@@ -12,7 +12,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $manifestPath = Join-Path $root "docs\2.0-traceability.manifest.json"
 $reportPath = Join-Path $root "docs\2.0-traceability.md"
-$planPath = Join-Path $root "_plan\implementation-todo.md"
+$requirementsPath = Join-Path $root "_plan\implementation-requirements.md"
 $utf8NoBom = [Text.UTF8Encoding]::new($false)
 $errors = [Collections.Generic.List[string]]::new()
 
@@ -131,7 +131,7 @@ if (-not (Test-Path -LiteralPath $manifestPath)) {
 }
 
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json -Depth 64
-$planText = Get-Content -LiteralPath $planPath -Raw
+$planText = Get-Content -LiteralPath $requirementsPath -Raw
 foreach ($property in @("schemaVersion", "release", "scope", "components", "capabilities")) {
     [void](Assert-RequiredProperty $manifest $property "Traceability manifest")
 }

@@ -257,8 +257,8 @@
           "evidence": [
             {
               "kind": "plan-status",
-              "path": "_plan/implementation-todo.md",
-              "note": "P1 records this pure contract slice complete while the remaining message-loop cases stay open."
+              "path": "_plan/implementation-requirements.md",
+              "note": "P1 records this contract slice and its production host-loop ordering cases complete."
             }
           ],
           "documentation": [
@@ -340,7 +340,7 @@
           "evidence": [
             {
               "kind": "plan-status",
-              "path": "_plan/implementation-todo.md",
+              "path": "_plan/implementation-requirements.md",
               "note": "P1 records the canonical input and ownership contracts complete."
             }
           ],
@@ -385,7 +385,7 @@
             },
             {
               "kind": "documented-device",
-              "path": "_plan/implementation-todo.md",
+              "path": "_plan/implementation-requirements.md",
               "note": "Records the measured shared-ring and pipe costs without extending test authority."
             }
           ],
@@ -430,7 +430,7 @@
           "evidence": [
             {
               "kind": "plan-status",
-              "path": "_plan/implementation-todo.md",
+              "path": "_plan/implementation-requirements.md",
               "note": "P1 records lifecycle and recovery semantics complete at the contract layer only."
             }
           ],
@@ -765,7 +765,7 @@
           "evidence": [
             {
               "kind": "plan-status",
-              "path": "_plan/implementation-todo.md",
+              "path": "_plan/implementation-requirements.md",
               "note": "P2 records the passive capture, correlation, and evidence slices complete."
             }
           ],
@@ -808,7 +808,7 @@
           "evidence": [
             {
               "kind": "documented-device",
-              "path": "_plan/implementation-todo.md",
+              "path": "_plan/implementation-requirements.md",
               "note": "Separately records reference-unit inventory observations; tests retain only offline authority."
             }
           ],
@@ -844,7 +844,7 @@
           "evidence": [
             {
               "kind": "plan-status",
-              "path": "_plan/implementation-todo.md",
+              "path": "_plan/implementation-requirements.md",
               "note": "P2 records deterministic candidate matching complete with negative fixtures."
             }
           ],
@@ -892,7 +892,7 @@
           "evidence": [
             {
               "kind": "plan-status",
-              "path": "_plan/implementation-todo.md",
+              "path": "_plan/implementation-requirements.md",
               "note": "Only the implemented probe supervision and transaction model are traced; the user-facing mutation command and concrete hardware trials remain excluded."
             }
           ],
@@ -930,7 +930,7 @@
           "evidence": [
             {
               "kind": "plan-status",
-              "path": "_plan/implementation-todo.md",
+              "path": "_plan/implementation-requirements.md",
               "note": "P2 records deterministic scaffold generation complete while the end-to-end CLI scaffold command remains open."
             }
           ],
@@ -1055,7 +1055,7 @@
           "evidence": [
             {
               "kind": "plan-status",
-              "path": "_plan/implementation-todo.md",
+              "path": "_plan/implementation-requirements.md",
               "note": "P2 records the implemented SDK slice while the Roslyn generator remains outside scope."
             }
           ],
@@ -1088,7 +1088,7 @@
           "evidence": [
             {
               "kind": "plan-status",
-              "path": "_plan/implementation-todo.md",
+              "path": "_plan/implementation-requirements.md",
               "note": "P2 records the semantic adapter and resource coordination slice complete."
             }
           ],
