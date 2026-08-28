@@ -1,0 +1,96 @@
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using WSGM.Device.Contracts.Capabilities;
+using WSGM.Device.Contracts.Input;
+using WSGM.Device.Contracts.Lifecycle;
+
+namespace WSGM.Device.Sdk.Plugin;
+
+/// <summary>
+/// Semantic publication surface DeviceHost gives to exactly one active plugin.
+/// </summary>
+/// <remarks>
+/// No method carries a raw transport, arbitrary operation, path, script, or executable. The plugin
+/// owns its implementation and publishes only the device-independent facts WSGM consumes.
+/// </remarks>
+public interface IPluginHostAdapter
+{
+    /// <summary>Host generation receiving publications.</summary>
+    long HostGeneration { get; }
+
+    /// <summary>Current device generation.</summary>
+    long DeviceGeneration { get; }
+
+    /// <summary>Publishes an immutable replacement descriptor set.</summary>
+    /// <param name="descriptors">Complete descriptor set.</param>
+    /// <param name="cancellationToken">Cancels publication.</param>
+    /// <returns>A task completing after DeviceHost accepted it.</returns>
+    ValueTask PublishDescriptorsAsync(
+        CapabilityDescriptorSet descriptors,
+        CancellationToken cancellationToken);
+
+    /// <summary>Publishes one capability observation.</summary>
+    /// <param name="state">Live semantic state.</param>
+    /// <param name="cancellationToken">Cancels publication.</param>
+    /// <returns>A task completing after DeviceHost accepted it.</returns>
+    ValueTask PublishCapabilityStateAsync(
+        CapabilityState state,
+        CancellationToken cancellationToken);
+
+    /// <summary>Publishes current state for one independently owned resource.</summary>
+    /// <param name="state">Resource state and structured reason.</param>
+    /// <param name="cancellationToken">Cancels publication.</param>
+    /// <returns>A task completing after DeviceHost accepted it.</returns>
+    ValueTask PublishResourceStateAsync(
+        PluginResourceState state,
+        CancellationToken cancellationToken);
+
+    /// <summary>Publishes exact physical identities WSGM may use for its HidHide transaction.</summary>
+    /// <param name="devices">Plugin-owned physical interfaces.</param>
+    /// <param name="cancellationToken">Cancels publication.</param>
+    /// <returns>A task completing after DeviceHost accepted them.</returns>
+    ValueTask PublishPhysicalDevicesAsync(
+        IReadOnlyList<PhysicalDeviceIdentity> devices,
+        CancellationToken cancellationToken);
+
+    /// <summary>Publishes one complete canonical controller sample.</summary>
+    /// <param name="sample">Normalized physical state.</param>
+    /// <param name="cancellationToken">Cancels publication.</param>
+    /// <returns>A task completing when the bounded state channel accepted it.</returns>
+    ValueTask PublishControllerSampleAsync(
+        CanonicalControllerSample sample,
+        CancellationToken cancellationToken);
+
+    /// <summary>Publishes the closed set of assignable OEM controls.</summary>
+    /// <param name="controls">Logical device controls.</param>
+    /// <param name="cancellationToken">Cancels publication.</param>
+    /// <returns>A task completing after DeviceHost accepted them.</returns>
+    ValueTask PublishOemControlsAsync(
+        IReadOnlyList<OemControlDescriptor> controls,
+        CancellationToken cancellationToken);
+
+    /// <summary>Publishes one deduplicated OEM-control event.</summary>
+    /// <param name="controlEvent">Logical event.</param>
+    /// <param name="cancellationToken">Cancels publication.</param>
+    /// <returns>A task completing after DeviceHost accepted it.</returns>
+    ValueTask PublishOemEventAsync(
+        OemControlEvent controlEvent,
+        CancellationToken cancellationToken);
+}
+
+/// <summary>One independently reported plugin resource state.</summary>
+public sealed record PluginResourceState
+{
+    /// <summary>Stable resource identifier from the device definition.</summary>
+    public required string ResourceId { get; init; }
+
+    /// <summary>Current ownership and health.</summary>
+    public required ResourceState State { get; init; }
+
+    /// <summary>Why the resource is passive, degraded, or faulted.</summary>
+    public CapabilityReason? Reason { get; init; }
+
+    /// <summary>Device generation this state describes.</summary>
+    public required long DeviceGeneration { get; init; }
+}

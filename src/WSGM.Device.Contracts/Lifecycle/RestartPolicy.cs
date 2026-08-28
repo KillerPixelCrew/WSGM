@@ -34,7 +34,7 @@ public sealed record RestartPolicy
     /// <summary>How far back faults are counted.</summary>
     public TimeSpan Window { get; init; } = TimeSpan.FromMinutes(5);
 
-    /// <summary>Delay before the first restart. Doubles for each subsequent one.</summary>
+    /// <summary>Delay before the first restart. Quadruples for each subsequent one.</summary>
     public TimeSpan InitialBackoff { get; init; } = TimeSpan.FromSeconds(1);
 
     /// <summary>Ceiling on the computed backoff.</summary>
@@ -62,9 +62,9 @@ public sealed record RestartPolicy
             return FaultResponse.Quarantine;
         }
 
-        // Exponential from the initial delay, capped. Computed in ticks rather than by repeated
-        // doubling so a large fault count cannot overflow before the cap applies.
-        double multiplier = Math.Pow(2, faultsInWindow);
+        // The frozen sequence is 1 s, 4 s, 16 s before quarantine. Computed in ticks rather than by
+        // repeated multiplication so a large fault count cannot overflow before the cap applies.
+        double multiplier = Math.Pow(4, faultsInWindow);
         double ticks = Math.Min(InitialBackoff.Ticks * multiplier, MaxBackoff.Ticks);
 
         backoff = TimeSpan.FromTicks((long)ticks);

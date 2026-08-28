@@ -80,6 +80,12 @@ public enum DeviceMessageType : ushort
     /// <summary>A step of the two-phase controller handoff.</summary>
     ControllerHandoff = 33,
 
+    /// <summary>The closed set of assignable logical OEM controls.</summary>
+    OemControls = 34,
+
+    /// <summary>Enable or release only physical-controller management while the cycle continues.</summary>
+    ControllerManagement = 35,
+
     // Diagnostics.
 
     /// <summary>A request for a read-only diagnostics snapshot.</summary>
@@ -90,6 +96,9 @@ public enum DeviceMessageType : ushort
 
     /// <summary>A structured error answering a specific request.</summary>
     Error = 50,
+
+    /// <summary>A bounded acknowledgment for a semantic request with no richer result.</summary>
+    OperationAck = 51,
 }
 
 /// <summary>What to do with a frame that cannot be handled.</summary>

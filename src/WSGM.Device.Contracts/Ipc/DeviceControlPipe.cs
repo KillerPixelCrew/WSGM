@@ -2,6 +2,7 @@ using System;
 using System.IO.Pipes;
 using System.Security.AccessControl;
 using System.Security.Principal;
+using System.Threading;
 
 namespace WSGM.Device.Contracts.Ipc;
 
@@ -117,7 +118,7 @@ public static class DeviceControlPipe
 public sealed class HandshakeVerifier
 {
     private readonly byte[] _expected;
-    private bool _consumed;
+    private int _consumed;
 
     /// <summary>Creates a verifier for one host launch.</summary>
     /// <param name="expected">The nonce WSGM generated and passed to the host.</param>
@@ -134,7 +135,7 @@ public sealed class HandshakeVerifier
     }
 
     /// <summary>Whether the nonce has already been accepted.</summary>
-    public bool IsConsumed => _consumed;
+    public bool IsConsumed => Volatile.Read(ref _consumed) != 0;
 
     /// <summary>
     /// Verifies a presented nonce and consumes it on success.
@@ -143,17 +144,11 @@ public sealed class HandshakeVerifier
     /// <returns><see langword="true"/> when it matched and had not been used.</returns>
     public bool Accept(ReadOnlySpan<byte> presented)
     {
-        if (_consumed)
-        {
-            return false;
-        }
-
         if (!ControlEndpoint.NonceMatches(presented, _expected))
         {
             return false;
         }
 
-        _consumed = true;
-        return true;
+        return Interlocked.CompareExchange(ref _consumed, 1, 0) == 0;
     }
 }

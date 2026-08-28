@@ -1,4 +1,7 @@
 using System;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace WSGM.DeviceHost;
 
@@ -24,34 +27,58 @@ internal static class Program
     /// </remarks>
     private const int ExitInvalidArguments = 64;
 
-    private static int Main(string[] args)
+    /// <summary>A package failed validation before any plugin code loaded.</summary>
+    private const int ExitInvalidPackage = 65;
+
+    /// <summary>The authenticated protocol or supervised runtime failed.</summary>
+    private const int ExitRuntimeFault = 70;
+
+    private static async Task<int> Main(string[] args)
     {
-        string? packagePath = null;
-        string? pipeName = null;
-
-        for (int i = 0; i < args.Length - 1; i++)
+        if (!HostArguments.TryParse(args, out HostArguments? arguments, out string error)
+            || arguments is null)
         {
-            switch (args[i])
-            {
-                case "--package":
-                    packagePath = args[++i];
-                    break;
-                case "--pipe":
-                    pipeName = args[++i];
-                    break;
-            }
-        }
-
-        if (string.IsNullOrWhiteSpace(packagePath) || string.IsNullOrWhiteSpace(pipeName))
-        {
-            Console.Error.WriteLine(
+            Console.Error.WriteLine(error + Environment.NewLine
+                +
                 "WSGM.DeviceHost is started by WSGM, not run directly. "
-                    + "Required: --package <path> --pipe <name>.");
+                    + "Required: --package, --package-id, --pipe, --nonce, --session, "
+                    + "--host-generation, and --trust-tier.");
             return ExitInvalidArguments;
         }
 
-        // P4.3 owns the supervised lifecycle: handshake on the control pipe, load the one package,
-        // negotiate the capability protocol, then run until the owner asks it to stop.
-        return ExitSuccess;
+        PluginPackageMetadata metadata;
+        try
+        {
+            metadata = PluginPackageLoader.ReadMetadata(arguments.PackagePath, arguments.PackageId);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+            or InvalidDataException or ArgumentException)
+        {
+            Console.Error.WriteLine($"DeviceHost package rejected: {ex.Message}");
+            return ExitInvalidPackage;
+        }
+
+        using CancellationTokenSource stopping = new();
+        Console.CancelKeyPress += (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            stopping.Cancel();
+        };
+
+        try
+        {
+            await using DeviceHostSession session = new(arguments, metadata);
+            await session.RunAsync(stopping.Token).ConfigureAwait(false);
+            return ExitSuccess;
+        }
+        catch (OperationCanceledException) when (stopping.IsCancellationRequested)
+        {
+            return ExitSuccess;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Console.Error.WriteLine($"DeviceHost runtime fault: {ex.GetType().Name}: {ex.Message}");
+            return ExitRuntimeFault;
+        }
     }
 }
