@@ -1,8 +1,9 @@
 # WSGM 2.0 end-to-end implementation TODO
 
-Status: execution in progress — `P0` and `P1` complete, `P2` underway  
+Status: paused at a documented safety checkpoint on 2026-08-28
 Branch: `2.0`  
 Design baseline commit: `38b18cddeecacf2313030b530693353471e93495`  
+Latest committed implementation slice: `8eec722` (`Add frametime AutoTDP implementation phase`)
 Initial reference device: MSI Claw 8 AI+ A2VM (`MS-1T52`)  
 **The development machine is now itself the reference unit** (`Win32_BaseBoard.Product` = `MS-1T52`,
 SKU `1T52.1`), so read-only device work, provider probing, and performance measurement run against
@@ -12,23 +13,75 @@ real hardware here. Shell takeover and hardware mutation remain off-limits local
 
 | Phase                                    | Done  | Notes                                                          |
 | ---------------------------------------- | ----- | -------------------------------------------------------------- |
-| `P0` baseline normalization              | 48/51 | Gate closed. Remaining: `P0-038`, `P0-039`, `P0-046` scheduled audits owned by `P6.1`, the Claw package, and `P10.5` |
-| `P1` semantic contracts                  | 57/58 | Contract frozen at protocol `1`, fingerprint `wsgm-device-v1`. Remaining: `P1-024` serialization and cancellation tests, which need the host loop in `P4.3` |
-| `P2` Device Lab                          | 69/120 | Schemas, preflight, inventory, matching, passive capture, probe/trial safety, resource assessment, and deterministic fail-closed scaffold generation landed; concrete device profiles/trials and command workflows are next |
-| `P3`–`P10`                               | 0     | Not started                                                     |
+| `P0` baseline normalization              | 49/51 | Remaining external audits: `P0-038` and `P0-039`; the repository trust-boundary review for `P0-046` is recorded in `docs/device-security.md` |
+| `P1` semantic contracts                  | 58/58 | Contract frozen at protocol `1`, fingerprint `wsgm-device-v1`; the final ordering/idempotency host-loop tests landed in `448f408` |
+| `P2` Device Lab                          | 75/120 | Passive inventory, failure fixtures, deterministic scaffold/package workflows, GUI/CLI foundations, and plugin-owned glyph-package generation are in-tree |
+| `P3`–`P6` device/controller runtime      | source checkpoint | Large production slices exist and remain subject to the unchecked hardware, mutation, dependency, and full-matrix gates below |
+| `P7`–`P8` Steam UI/RTSS/glyphs/AutoTDP   | source checkpoint | Persistent CEF, native QAM, shared RTSS controls, and fail-closed glyph foundations exist; TypeScript, telemetry, AutoTDP, active glyph delivery, and release matrices remain |
+| `P9` final overlay                       | partial | Navigation and shared capability projections exist; complete destination content, physical-profile preview, parity, and handheld acceptance remain |
+| `P10` integration/release                | partial | Traceability, ownership checks, security record, staging foundations, and shutdown work exist; final verification/build/installer/manual matrices have not run |
+
+### Stop checkpoint — 2026-08-28
+
+No full verification, NativeAOT release build, installer copy, or final hardware matrix was run at
+this checkpoint. Resume from the exact state below; do not infer completion from source presence.
+
+**Committed safety slices:**
+
+- `4cb017f` integrates the production device/controller/CEF foundations, first-party Claw package,
+  build graph, component staging, and broad fixture coverage.
+- `2e07bb2` adds shared RTSS state, native QAM semantic components, physical-glyph import/runtime,
+  overlay navigation foundations, and their focused tests.
+- `9ebb07b`, `70032e4`, and `cbdf27e` add deterministic traceability, scoped-agent checks, and the
+  repository trust-boundary review.
+- `448f408`, `fc70dd5`, and `8ad9553` close the remaining protocol-host ordering/idempotency test
+  gap, expand passive Device Lab inventory/failure fixtures, and add deterministic plugin-owned
+  glyph-package generation.
+- `8eec722` preserves the newly added frametime-driven AutoTDP phase without claiming its software,
+  replay, hardware, or release gates complete.
+
+**Uncommitted checkpoint work to resume as separate reviewed slices:**
+
+- **Shutdown/update handoff (`P10-030`–`P10-033`, partial):** bounded normal/update/logoff/uninstall
+  coordination, independent session-notification ownership, four explicit installer result events,
+  old-build fallback, and pure tests are present. Finish the result-channel documentation, review
+  the shared-event strongest-result semantics, then compile and validate Inno syntax before marking
+  any of these complete.
+- **Physical glyph selection and Steam route identity (`P8-043`, `P8-051`–`P8-058`, partial):** the
+  session selection row, independent route patch, nine live structural probes, route exclusions,
+  unchanged-DOM proof, and focused fixtures exist. The Device page still lacks the full graphical
+  preview/selector and the complete supported-route/control matrix remains open.
+- **Glyph delivery tiers (`P8-059`–`P8-068`, fail-closed checkpoint):** four independent tier
+  lifecycles and fixtures exist. Stable/structural semantic resolvers are implemented, while inline
+  mappings and capability hiding remain deliberately impossible to enable without exact positive
+  evidence. Every production tier starts disabled; no accepted A2VM plugin-owned profile/assets or
+  active Steam rendering path exists yet.
+- **TypeScript asset pipeline (`P7-043`, partial):**
+  `src/WSGM/Core/SteamUiAssets/Source/NativeQamBootstrap.ts` is only a typed source seed. There is no
+  deterministic generator, locked dependency graph, minifier, manifest, static security/schema
+  gates, drift check, or verification integration yet. The embedded JavaScript and its pinned hash
+  remain unchanged.
+- **User-owned unrelated edit:** preserve
+  `native/SteamInput/crates/steam-input-recovery/src/lib.rs`; it is not part of these 2.0 slices.
+
+**Next safe order:** finish and commit the shutdown result documentation; finish the deterministic
+TypeScript pipeline; implement `P7.11` verified performance metrics before any `P7.12` AutoTDP
+orchestration; then complete active glyph delivery and final overlay destinations. Only after all
+source slices are reconciled should the final `eng/verify.ps1 -Fix`, `build.ps1`, `Z:\` installer
+copy/hash, live Steam matrix, and explicitly attended hardware gates run.
 
 ### What exists in the tree
 
 | Project                        | State                                                                 |
 | ------------------------------ | --------------------------------------------------------------------- |
-| `WSGM.Device.Contracts`        | Frozen contract: package manifest, identity, capabilities, lifecycle, canonical input, IPC wire format, ACL'd pipe, shared-memory ring. Referenced by `WSGM.csproj`, so the AOT publish proves it stays AOT-safe |
-| `WSGM.DeviceLab.Core`          | Claim ledger, evidence lock with semantic diffing, catalog and candidate matcher, machine inventory, capture redaction, versioned capture/event/analysis/fixture/scaffold schemas, deterministic `.wsgmcap` writer |
-| `WSGM.DeviceLab.Cli`           | `wsgm-device inventory [--out <path>] [--shareable]`, with the output-path policy enforced |
-| `WSGM.DeviceHost`              | Entry point and argument gate only; supervised lifecycle is `P4.3`     |
-| `WSGM.Device.ProbeHost`        | Entry point and argument gate only; probe execution is `P2.6`          |
-| `WSGM.Device.Sdk`              | Semantic plugin lifecycle and host adapter, mandatory command revalidation, independent resource coordination, deterministic core templates, analyzer seam, fixture runner, and TestKit. Glyph authoring and the Roslyn generator remain in `P2-011`/`P8` |
-| `plugins/WSGM.Device.Msi.Claw8A2Vm` | Project and ownership rules only; implementation is `P5`          |
-| `WSGM.DeviceLab` GUI, `WSGM.Device.Sdk.Generators` | Deliberately not created yet — each is its own design task, in `P2-013` and `P2-011` |
+| `WSGM.Device.Contracts`        | Frozen protocol-1 contracts for package identity, capabilities, lifecycle, canonical input, glyphs, IPC, authenticated pipe, and shared-memory ring; host-loop ordering/idempotency fixtures are present |
+| `WSGM.DeviceLab.Core`          | Deterministic inventory/matching/capture/redaction/evidence/scaffold/package engine, passive Windows views, failure fixtures, semantic diffs, and plugin-owned glyph-package generation |
+| `WSGM.DeviceLab.Cli` / GUI     | CLI and Avalonia workflow shells exist for safe inventory, analysis, generation, validation, and packaging; the complete Hardware Owner and Plugin Developer guided flows remain open |
+| `WSGM.DeviceHost`              | Authenticated host session, package-local loading, command/state transport, generations, supervision, restart/quarantine, recovery journal, and focused tests are present; full lifecycle/manual matrices remain open |
+| `WSGM.Device.ProbeHost`        | Bounded probe-host foundation exists; all live mutation remains restricted to the attended reviewed trial path |
+| `WSGM.Device.Sdk`              | Semantic plugin lifecycle/adapter, command revalidation, resource coordination, deterministic templates, analyzer/TestKit, and declarative glyph authoring are present |
+| `plugins/WSGM.Device.Msi.Claw8A2Vm` | Substantial first-party transport/capability/lifecycle implementation and fixtures exist; unchecked M0 evidence, attended writes, firmware matrices, and release gates remain authoritative |
+| Main `WSGM` runtime            | Device coordinator/host client, managed-controller/HidHide foundations, persistent CEF patch host, native QAM, shared RTSS controls, physical glyph runtime, navigation foundation, and partial shutdown handoff are present |
 
 Guards in place: `DeviceBoundaryTests` (reference direction), `eng/check-aot-isolation.ps1` (copied
 binaries), `eng/check-no-live-data-paths.ps1` (live data directory). Each was verified against a
@@ -75,13 +128,14 @@ Baseline reality at the design commit — kept for context; see **Progress** abo
   yet. *(Superseded: the device platform projects, contracts, and Device Lab engine now exist.)*
 - The solution contained the NativeAOT `WSGM`, `WSGM.Launch`, and `WSGM.LogonService` projects plus
   the existing xUnit project; DeviceHost, SDK, Device Lab, plugin, HIDMaestro, HidHide, RTSS, and
-  glyph catalog projects were all new work. *(Superseded for the first four; HIDMaestro, HidHide,
-  and RTSS remain untouched. The glyph catalog moved to the plugin package under `P0-052`.)*
+  glyph catalog projects were all new work. *(Superseded: each now has source foundations; the
+  glyph catalog moved to plugin-owned validated packages under `P0-052`, and unchecked release
+  gates still distinguish source presence from accepted runtime behavior.)*
 - Reusable foundations include the current one-shot validated Steam CEF path, SDL gamepad service,
   owner-scoped Steam Input lease, `ShellSession`, `ConfigStore`, `GlyphIcon`, and existing overlay.
-- The current shell lifetime is not an awaited hardware-cleanup boundary, standalone Settings
-  processes may coexist, and `--overlay-test` must remain hardware-free; authority and shutdown are
-  explicit blocking decisions below.
+- The baseline shell lifetime was not an awaited hardware-cleanup boundary. *(Superseded in part:
+  authority is implemented and bounded shutdown/update result work is in the uncommitted checkpoint;
+  compile, installer, failure, and hardware restoration validation remain.)*
 - Existing shell/session and Steam Input behavior is device-verified and must be preserved while the
   new device lifecycle remains asynchronous and independent from Desktop/Game Mode transitions.
 
@@ -311,7 +365,7 @@ respectively. **Gate 0 is closed; `P1` may start.**
 - [x] **P0-045 · DECISION** Define the audited dependency catalog fields: version, hash, signer,
       license, architecture, install owner, health check, ACL, upgrade, rollback, and removal
       behavior.
-- [ ] **P0-046 · RELEASE-GATE** Review the full accepted security posture against
+- [x] **P0-046 · RELEASE-GATE** Review the full accepted security posture against
       `docs/decisions.md`; document concrete trust boundaries without replacing WSGM's deliberate
       elevation, injection, native-code, or shell mechanisms with generic policy advice.
 
@@ -405,9 +459,9 @@ exercise a message loop that does not exist until `P4.3`.
       readback unless the plugin explicitly provides qualifying evidence.
 - [x] **P1-023 · SOFTWARE** Require the plugin to revalidate identity, firmware, ownership, range,
       relationship, and current state on every hardware command.
-- [ ] **P1-024 · SOFTWARE** *(stale-state, out-of-order delta, duplicate command, timeout, and
-      indeterminate-result coverage landed with `P1.2`/`P1.5`; serialization and cancellation tests
-      wait for the host in `P4.3`.)* Add exhaustive serialization, version negotiation, stale-state,
+- [x] **P1-024 · SOFTWARE** *(serialization, cancellation, stale-state, out-of-order delta,
+      duplicate command, timeout, and indeterminate-result coverage now spans the contracts and
+      production host-loop seams.)* Add exhaustive serialization, version negotiation, stale-state,
       out-of-order delta, duplicate command, timeout, cancellation, and indeterminate-result tests.
 
 ### P1.3 Lifecycle, resource ownership, recovery, and diagnostics contracts
@@ -624,19 +678,19 @@ pending its Avalonia wiring.
       hashes, report descriptors, input/output/feature report lengths, and endpoint roles.
 - [x] **P2-030 · SOFTWARE** Implement WMI namespace, class, instance, event, method-signature,
       qualifier, provider-version, and buffer-shape inventory without invoking unknown methods.
-- [ ] **P2-031 · SOFTWARE** Implement COM endpoint and passive framing-candidate inventory without
+- [x] **P2-031 · SOFTWARE** Implement COM endpoint and passive framing-candidate inventory without
       transmitting unknown serial data.
-- [ ] **P2-032 · SOFTWARE** Implement WinRT/controller sensor inventory with device association,
+- [x] **P2-032 · SOFTWARE** Implement WinRT/controller sensor inventory with device association,
       supported intervals, units, and current accessibility.
-- [ ] **P2-033 · SOFTWARE** Implement XInput, DirectInput, SDL, Raw Input, and raw-HID views without
+- [x] **P2-033 · SOFTWARE** Implement XInput, DirectInput, SDL, Raw Input, and raw-HID views without
       starting a candidate plugin lifecycle.
-- [ ] **P2-034 · SOFTWARE** Inventory native DLL name, version, architecture, hash, signer, and
+- [x] **P2-034 · SOFTWARE** Inventory native DLL name, version, architecture, hash, signer, and
       exports without loading or invoking unknown exports.
-- [ ] **P2-035 · SOFTWARE** Inventory relevant processes, services, tasks, loaded providers,
+- [x] **P2-035 · SOFTWARE** Inventory relevant processes, services, tasks, loaded providers,
       exclusive access, and demonstrated ownership conflicts.
 - [x] **P2-036 · SOFTWARE** Persist unique identifiers only in the private capture and replace them
       with stable session-local tokens in every shareable view.
-- [ ] **P2-037 · SOFTWARE** Add disconnected, access-denied, multi-sensor, detachable, malformed
+- [x] **P2-037 · SOFTWARE** Add disconnected, access-denied, multi-sensor, detachable, malformed
       descriptor, and topology-change inventory fixtures.
 
 ### P2.4 Stage 2 deterministic candidate matching
@@ -2280,6 +2334,11 @@ coordinator state machine owned by `P4.7`; it does not create a second handoff p
 
 ### P7.5 Embedded TypeScript/React asset pipeline
 
+> **Checkpoint:** `NativeQamBootstrap.ts` is a typed source seed only. The checked-in JavaScript
+> bundle remains the runtime authority and still matches its existing pinned hash. `P7-043` and
+> `P7-044` are partial; no task in this subsection is complete until the reproducible generator,
+> dependency lock, manifest, static gates, drift check, and verification wiring land atomically.
+
 - [ ] **P7-043 · SOFTWARE** Create a repository-owned TypeScript/React source project for injected
       UI modules with locked dependencies, reproducible install, lint, typecheck, tests, and bundle
       build.
@@ -2414,6 +2473,10 @@ coordinator state machine owned by `P4.7`; it does not create a second handoff p
 
 ### P7.11 Shared performance telemetry and profile projection
 
+> **Checkpoint:** not started. Existing `PerformanceService` owns RTSS profile controls and a coarse
+> telemetry-health flag; it is not the versioned metric/frametime stream required here. Finish this
+> subsection before constructing the AutoTDP session controller.
+
 - [ ] **P7-097 · SOFTWARE** Define versioned performance metric descriptors/state with stable metric
       ID, source, unit, range, timestamp, freshness, quality, generation, and unavailable reason.
 - [ ] **P7-098 · SOFTWARE** Implement verified RTSS frame/performance metrics and plugin-provided
@@ -2445,6 +2508,11 @@ This is a separate post-telemetry stage. Production AutoTDP power writes cannot 
 replay work may proceed earlier against fixtures. AutoTDP minimizes commanded watt-time only among
 power levels that satisfy its frametime-reliability contract; CPU/GPU utilization is never a policy
 input.
+
+> **Checkpoint:** backlog/design only. No AutoTDP production code, persisted model, replay harness,
+> UI projection, or hardware write exists. Read-only inspection confirmed that the installed RTSS
+> SDK exposes foreground-process frametime ring data, but no reader was added to WSGM. `P7-125`,
+> `P7-132`, and `P7-133` remain attended hardware work and `P7-134` remains a closed release gate.
 
 - [ ] **P7-106 · SOFTWARE** Create one session-owned AutoTDP controller in `Shell`, independent of
       overlay, native QAM, RTSS-adapter, and device-plugin lifetimes; every UI surface projects the
@@ -2708,6 +2776,12 @@ proceed in parallel.
 
 ### P8.6 Steam glyph patch identity, scope, and fingerprints
 
+> **Checkpoint:** implementation and live-probe work is present but uncommitted and not compiled.
+> The independent handheld-route patch, nine structural fingerprints, exclusion gates, unchanged-DOM
+> proof, clean namespace removal, and source fixtures exist. Keep every checkbox open until that
+> slice is reviewed/committed and the full supported-route matrix is separated from the narrower
+> live evidence already captured in `docs/steam-cef.md`.
+
 - [ ] **P8-051 · SOFTWARE** Implement independent `SteamInputHandheldGlyphPatch` identity/version,
       catalog version, selector version, kill switch, diagnostics, and removal lifecycle.
 - [ ] **P8-052 · LIVE-STEAM** Capture current Windows Steam Input configuration/layout routes and
@@ -2726,6 +2800,12 @@ proceed in parallel.
       approved Steam controller routes before adding asset delivery.
 
 ### P8.7 Independently healthy Steam mapping tiers
+
+> **Checkpoint:** fail-closed source checkpoint, uncommitted and uncompiled. Four independent tier
+> lifecycles and isolation fixtures exist. Stable resource and structural image resolvers are
+> partial; inline mapping has no audited Valve-path map; capability hiding has no positive exact
+> control-set fingerprint; actual route rendering/result verification is absent. All tiers start
+> disabled, so native Valve rendering remains the only production outcome.
 
 - [ ] **P8-059 · SOFTWARE** Implement stable `/steaminputglyphs/...` resource mapping as its own
       tier using only WSGM catalog semantic mappings and hash-locked assets.
@@ -3131,12 +3211,12 @@ proceed in parallel.
       files.
 - [ ] **P10-003 · SOFTWARE** Keep requirement/task IDs in commit and pull-request descriptions and
       update this checklist only with evidence links, not estimates or compile-only claims.
-- [ ] **P10-004 · SOFTWARE** Add a generated traceability report mapping every shipped
+- [x] **P10-004 · SOFTWARE** Add a generated traceability report mapping every shipped
       capability/operation to design requirement, task, contract, code owner, tests, evidence, and
       documentation.
-- [ ] **P10-005 · SOFTWARE** Validate all new directories have correct scoped ownership rules and
+- [x] **P10-005 · SOFTWARE** Validate all new directories have correct scoped ownership rules and
       `CLAUDE.md` symlink convention before merging their first implementation.
-- [ ] **P10-006 · SOFTWARE** Keep generated files deterministic, reviewable, marked, and separate
+- [x] **P10-006 · SOFTWARE** Keep generated files deterministic, reviewable, marked, and separate
       from handwritten code; fail verification on drift or uncommitted regeneration.
 - [ ] **P10-007 · SOFTWARE** Keep live Steam/hardware evidence out of ordinary unit-test authority
       and store only sanitized, consented, provenance-locked fixtures in the repository.
@@ -3200,6 +3280,12 @@ proceed in parallel.
 
 ### P10.4 Graceful shutdown, update, rollback, downgrade, and uninstall
 
+> **Checkpoint:** `P10-030`–`P10-033` are partial and uncommitted. The tree contains bounded
+> reason-aware shutdown, session-logoff observation, device-before-CEF/RTSS cleanup ordering, update
+> and uninstall request events, four optional result events (`Clean`, `Unverified`, `TimedOut`,
+> `Failed`), strongest-result installer aggregation, old-build fallback, and pure source tests.
+> Finish the result-channel documentation and compile/Inno validation before checking these items.
+
 - [ ] **P10-030 · SOFTWARE** Implement one bounded async shutdown coordinator rooted by the
       authoritative process and invoked by normal desktop-lifetime exit, update exit, logoff, and
       stop.
@@ -3238,7 +3324,7 @@ proceed in parallel.
 
 ### P10.5 Security and trust review
 
-- [ ] **P10-043 · SOFTWARE** Threat-model package discovery, signature/trust, DeviceHost launch/IPC,
+- [x] **P10-043 · SOFTWARE** Threat-model package discovery, signature/trust, DeviceHost launch/IPC,
       high-rate memory, dependencies, helpers, Device Lab, captures, CEF bridge/assets, and update
       paths.
 - [ ] **P10-044 · SOFTWARE** Prove the main WSGM process exposes no generic raw hardware broker and
@@ -3262,7 +3348,7 @@ proceed in parallel.
       device/plugin/file/shell authority, or open an unauthenticated general local endpoint.
 - [ ] **P10-051 · SOFTWARE** Review default logs/support bundles for secrets, serials, unique paths,
       raw memory, captures, high-rate samples, account/game data, and user content.
-- [ ] **P10-052 · SOFTWARE** Document that per-plugin process isolation reduces crash/dependency
+- [x] **P10-052 · SOFTWARE** Document that per-plugin process isolation reduces crash/dependency
       blast radius but is not a security sandbox for deliberately malicious same-user code.
 - [ ] **P10-053 · RELEASE-GATE** Close all high/critical threat findings and explicitly accept,
       document, or defer lower risks before signing a retail build.
