@@ -102,6 +102,7 @@ re-verification is grounds for refusing a change on its own.
 | `docs\power-and-display.md` | Display profiles and HDR, mute-while-screen-off, keep-awake and wake-lock reporting |
 | `docs\ui.md` | Themes, shared controls, Settings layout, the splash engine |
 | `docs\decisions.md` | Standing decisions, accepted security posture, and approaches that are deliberately not taken |
+| `_plan\2.0-decisions.md` | The authoritative answer for every WSGM 2.0 `P0` decision; supersedes conflicting prose in the `_plan\` design documents |
 
 Each module also has its own `AGENTS.md` (`src\WSGM\Core\`, `Shell\`, `Overlay\`, ...) carrying
 the rules for that directory. Those load when you work in the directory, which is exactly when they
@@ -117,7 +118,15 @@ dotnet build src\WSGM\WSGM.csproj          # build (output is localized German: 
                                             # (needs .NET 10 SDK, VS C++ build tools, Inno Setup 6)
 src\WSGM\bin\...\WSGM.exe --settings        # safe to run locally: settings window only
 src\WSGM\bin\...\WSGM.exe --overlay-test    # safe to run locally: overlay + activation surfaces, no apps started
+wsgm-device doctor|inventory|candidates     # safe: read-only device observation
+wsgm-device inspect|diff|correlate <file>   # safe: offline analysis of an existing capture
+wsgm-device validate offline|pack <plugin>  # safe: no hardware, no trust granted
 ```
+
+**Never run unattended**, in addition to `--shell`, `--boot`, and `WSGM.LogonService.exe --install`:
+`wsgm-device probe run` (the single hardware-mutation path), `wsgm-device validate hardware`,
+`wsgm-device capture run` against live hardware, any DeviceHost lifecycle command, and any plugin
+activation. `probe run` requires a local interactive maintainer by design — there is no `--yes`.
 
 ## The Steam Input Lease library (`native\SteamInput`)
 
@@ -202,11 +211,20 @@ process below; they must never be triggered by unattended tests.
   doing, not by imagining. (`tools/WsgmLibTest/` — `cdp-eval.mjs raw`, `run-file.mjs <file>` — is the
   live probe harness; Steam BPM on the dev box is a CEF test rig even though WSGM itself never runs
   there.)
-- **No controller hardware locally.** Real testing happens on a user's MSI Claw via pasted logs from
-  `%LOCALAPPDATA%\WSGM\wsgm.log`. Every input/focus feature must log enough to be diagnosed remotely
-  (`Gamepad added:`, `Controller input:`, `Gamepad nav:`, `Steam Input lease acquired/released`,
-  `Explorer is running unelevated/ELEVATED`). Preserve and extend these lines; they are the only
-  test harness.
+- **Check what machine you are on before deferring hardware work.** The development machine is now
+  itself an **MSI Claw 8 AI+ A2VM** (`Win32_BaseBoard.Product` = `MS-1T52`, SKU `1T52.1`), so device
+  enumeration, WMI provider reads, HID descriptor capture, controller-mode observation, and
+  performance measurement on the real target all run here. `Get-CimInstance Win32_BaseBoard` settles
+  it in one command. Deferring something as "needs hardware" without running that check has already
+  cost real work once.
+- **Shell takeover and destructive flows are still not local.** `--shell`, `--boot`, hardware
+  mutation, and plugin lifecycle remain off-limits on this machine regardless of what hardware it
+  has; being the reference unit makes read-only observation possible, not mutation safe.
+- **Remote diagnosis still matters.** Other users' Claws are reachable only through pasted logs from
+  `%LOCALAPPDATA%\WSGM\wsgm.log`, so every input/focus feature must log enough to be diagnosed
+  remotely (`Gamepad added:`, `Controller input:`, `Gamepad nav:`,
+  `Steam Input lease acquired/released`, `Explorer is running unelevated/ELEVATED`). Preserve and
+  extend these lines.
 - NativeAOT (`PublishAot=true`, `BuiltInComInteropSupport=false`): P/Invoke via `LibraryImport` with
   blittable types only, **no COM interop**, no reflection-dependent packages. `ppy.SDL3-CS` is used
   precisely because it is plain-DllImport. The Rust radio helper and the native volume helper own
@@ -248,6 +266,11 @@ on Avalonia windows or controls.
 | `WSGM.LogonService` | SYSTEM launch/watchdog boundary | shared boot manifest, Win32 | Avalonia or user-profile writes |
 | `WSGM.Launch` | per-game wrapper: medium-integrity child lifetime, Steam Input lease | scheduled-task launcher, `SteamInterop` mirror | shell/session UI, launch-option writing |
 | `native\*` | OS APIs unavailable to NativeAOT WSGM | Rust/C++ and C ABI | managed business logic |
+| `WSGM.Device.Contracts` | semantic capability/lifecycle/IPC contracts, glyph schema and normalizer | BCL only | device-specific addresses, methods, or raw buffers |
+| `WSGM.DeviceHost` | one plugin package per process, supervised lifecycle | `Contracts`, `Sdk`, WMI/WinRT | privilege escalation for unreviewed packages |
+| `WSGM.Device.Sdk` | what a plugin links: host adapter, capability registration, glyph authoring | `Contracts` | Steam selectors, CDP, patch apply/verify |
+| `WSGM.DeviceLab.*` | inventory, matching, capture, evidence, scaffold, packaging | `Contracts` | restarting the production device lifecycle |
+| `plugins\*` | every hardware transport, protocol, layout, policy for one device | `Sdk` | UI code, HIDMaestro, HidHide, the Steam Input lease |
 
 ## Application lifetime and state flow
 

@@ -1,9 +1,54 @@
 # WSGM 2.0 end-to-end implementation TODO
 
-Status: execution backlog  
+Status: execution in progress — `P0` and `P1` complete, `P2` underway  
 Branch: `2.0`  
 Design baseline commit: `38b18cddeecacf2313030b530693353471e93495`  
-Initial reference device: MSI Claw 8 AI+ A2VM (`MS-1T52`)
+Initial reference device: MSI Claw 8 AI+ A2VM (`MS-1T52`)  
+**The development machine is now itself the reference unit** (`Win32_BaseBoard.Product` = `MS-1T52`,
+SKU `1T52.1`), so read-only device work, provider probing, and performance measurement run against
+real hardware here. Shell takeover and hardware mutation remain off-limits locally regardless.
+
+## Progress
+
+| Phase                                    | Done  | Notes                                                          |
+| ---------------------------------------- | ----- | -------------------------------------------------------------- |
+| `P0` baseline normalization              | 48/51 | Gate closed. Remaining: `P0-038`, `P0-039`, `P0-046` scheduled audits owned by `P6.1`, the Claw package, and `P10.5` |
+| `P1` semantic contracts                  | 57/58 | Contract frozen at protocol `1`, fingerprint `wsgm-device-v1`. Remaining: `P1-024` serialization and cancellation tests, which need the host loop in `P4.3` |
+| `P2` Device Lab                          | 20/120 | `P2.1` schemas, `P2.3` inventory, and `P2.4` matching landed; capture, probes, trials, and scaffold generation are next |
+| `P3`–`P10`                               | 0     | Not started                                                     |
+
+### What exists in the tree
+
+| Project                        | State                                                                 |
+| ------------------------------ | --------------------------------------------------------------------- |
+| `WSGM.Device.Contracts`        | Frozen contract: package manifest, identity, capabilities, lifecycle, canonical input, IPC wire format, ACL'd pipe, shared-memory ring. Referenced by `WSGM.csproj`, so the AOT publish proves it stays AOT-safe |
+| `WSGM.DeviceLab.Core`          | Claim ledger, evidence lock with semantic diffing, catalog and candidate matcher, machine inventory, capture redaction |
+| `WSGM.DeviceLab.Cli`           | `wsgm-device inventory [--out <path>] [--shareable]`, with the output-path policy enforced |
+| `WSGM.DeviceHost`              | Entry point and argument gate only; supervised lifecycle is `P4.3`     |
+| `WSGM.Device.ProbeHost`        | Entry point and argument gate only; probe execution is `P2.6`          |
+| `WSGM.Device.Sdk`              | Project and boundaries only; contents are `P2.1`                       |
+| `plugins/WSGM.Device.Msi.Claw8A2Vm` | Project and ownership rules only; implementation is `P5`          |
+| `WSGM.DeviceLab` GUI, `WSGM.Device.Sdk.Generators` | Deliberately not created yet — each is its own design task, in `P2-013` and `P2-011` |
+
+Guards in place: `DeviceBoundaryTests` (reference direction), `eng/check-aot-isolation.ps1` (copied
+binaries), `eng/check-no-live-data-paths.ps1` (live data directory). Each was verified against a
+planted violation, not merely run.
+
+### Measured on the reference unit
+
+Recorded here because the numbers, not the design, decided these:
+
+- **Shared ring 42 ns/op versus framed named pipe 15,266 ns/op** for a 64-byte sample — 0.001% versus
+  0.382% of one core at 250 Hz, and 0 versus 163 bytes allocated per sample. The ring is the
+  high-rate path; the pipe stays the control plane. The first ring implementation measured 2478 ns
+  because `MemoryMappedViewAccessor` copies a byte at a time.
+- **`MSI_ACPI` schema reads unelevated; only instance enumeration is denied.** 38 method signatures
+  are readable from a medium-integrity process. Capability *detection* therefore works de-elevated,
+  which is what lets an untrusted package report the right unavailability reason.
+- **HID interfaces carry no `LocationPaths`**; it first appears two links up the parent chain, and
+  the interface-level form `…#USBMI(n)` is not established as stable across a controller mode switch.
+
+Both `claw-8-a2vm-plugin.md` corrections are recorded in that document.
 
 ## Purpose and use
 
@@ -14,19 +59,24 @@ This is the ordered implementation backlog for all requirements in:
 - [`claw-8-a2vm-plugin.md`](./claw-8-a2vm-plugin.md)
 - [`controller-glyph-integration.md`](./controller-glyph-integration.md)
 
+Every resolved `P0` blocking decision has one authoritative answer in
+[`2.0-decisions.md`](./2.0-decisions.md). That record supersedes conflicting prose in the four source
+plans; the corrections it lists must be applied to those plans as their decisions are consumed.
+
 It is intentionally finer-grained than the milestone lists in those documents. A checkbox is
 complete only when its implementation, automated coverage, diagnostics, documentation, and
 applicable live or hardware evidence are complete. A compiling spike, successful fixture replay,
 successful hardware trial, trusted package, and retail-approved feature are separate states and must
 never be collapsed.
 
-Baseline reality at the design commit:
+Baseline reality at the design commit — kept for context; see **Progress** above for current state:
 
-- Branch `2.0` differs from `master` only by the four source plans; no 2.0 production code exists
-  yet.
-- The solution contains the NativeAOT `WSGM`, `WSGM.Launch`, and `WSGM.LogonService` projects plus
+- Branch `2.0` differed from `master` only by the four source plans; no 2.0 production code existed
+  yet. *(Superseded: the device platform projects, contracts, and Device Lab engine now exist.)*
+- The solution contained the NativeAOT `WSGM`, `WSGM.Launch`, and `WSGM.LogonService` projects plus
   the existing xUnit project; DeviceHost, SDK, Device Lab, plugin, HIDMaestro, HidHide, RTSS, and
-  glyph catalog projects are all new work.
+  glyph catalog projects were all new work. *(Superseded for the first four; HIDMaestro, HidHide,
+  and RTSS remain untouched. The glyph catalog moved to the plugin package under `P0-052`.)*
 - Reusable foundations include the current one-shot validated Steam CEF path, SDL gamepad service,
   owner-scoped Steam Input lease, `ShellSession`, `ConfigStore`, `GlyphIcon`, and existing overlay.
 - The current shell lifetime is not an awaited hardware-cleanup boundary, standalone Settings
@@ -61,6 +111,12 @@ Unless a task says otherwise, every implementation slice must:
 
 ## Non-negotiable product invariants
 
+These stay unchecked until the running product demonstrates them. They are properties of the shipped
+system, not tasks: `INV-001` is only true once Device Integration can actually be turned off in a
+build that has it, and no amount of contract work establishes that. Several are already *encoded* —
+`INV-009` in the glyph schema, `INV-013` in the OEM action vocabulary, `INV-019` in the command
+admission rules — but encoding a rule is not evidence the product obeys it.
+
 - [ ] **INV-001** Keep Game Mode, Big Picture, shell/session transitions, storage, artwork,
       launch-fix, and the existing overlay usable with Device Integration off.
 - [ ] **INV-002** Make Device Integration optional and controller management its optional child;
@@ -75,10 +131,16 @@ Unless a task says otherwise, every implementation slice must:
       readback, rollback, and recovery mechanism; keep WSGM at semantic contracts and orchestration.
 - [ ] **INV-007** Do not add a generic WSGM AMD/Intel power backend, EC/PawnIO service, raw
       WMI/HID/IOCTL/ACPI/MMIO/MSR/serial proxy, or shared privileged hardware broker.
-- [ ] **INV-008** Run one selected plugin package per unelevated DeviceHost process; describe this
-      as crash/dependency isolation, not a malware sandbox.
-- [ ] **INV-009** Never let a device plugin supply XAML, HTML, CSS, JavaScript, SVG, URLs, arbitrary
-      artwork, arbitrary commands, or an arbitrary privileged operation.
+- [ ] **INV-008** Run one selected plugin package per DeviceHost process; describe this as
+      crash/dependency isolation, not a malware sandbox. Privilege is a trust-tiered spawn decision —
+      reviewed first-party packages inherit WSGM's existing elevation (verified 2026-08-27: MSI WMI
+      returns `WBEM_E_ACCESS_DENIED` unelevated, so power/fan/thermal/EC/battery cannot work without
+      it); untrusted packages spawn de-elevated and lose privilege-dependent capabilities.
+- [ ] **INV-009** Never let a device plugin supply XAML, HTML, CSS, JavaScript, URLs, arbitrary
+      commands, or an arbitrary privileged operation. A plugin **may** supply controller artwork and
+      a declarative control map, but only as schema-validated, size-bounded, hash-pinned data that
+      WSGM parses, normalizes, and re-emits from its own model before any surface consumes it
+      (amended by `P0-052`).
 - [ ] **INV-010** Keep all active handheld controls in the overlay; keep only WSGM ownership,
       startup, integration, logging, and update policy in Settings.
 - [ ] **INV-011** Never start, stop, kill, reconfigure, or silently race Handheld Companion, MSI
@@ -106,8 +168,8 @@ Unless a task says otherwise, every implementation slice must:
 
 | Order | Gate                    | Can proceed when                                                                                        |
 | ----: | ----------------------- | ------------------------------------------------------------------------------------------------------- |
-|     0 | Baseline normalization  | All blocking decisions in `P0` are recorded and contradictions have one authoritative answer            |
-|     1 | Contract freeze         | Semantic, lifecycle, package, IPC, input/output, evidence, and patch contracts pass compatibility tests |
+|     0 | Baseline normalization  | **PASSED.** All blocking decisions recorded in [`2.0-decisions.md`](./2.0-decisions.md)                 |
+|     1 | Contract freeze         | **PASSED.** Protocol `1` / fingerprint `wsgm-device-v1` frozen; compatibility policy in `src\WSGM.Device.Contracts\COMPATIBILITY.md` |
 |     2 | Safe bring-up           | Device Lab can inventory, match, probe reads, scaffold, and run one separately authorized bounded trial |
 |     3 | Phase 0 proof + A2VM M0 | Hardware questions/writes and mandatory HID/QAM/RTSS/glyph experiments have reviewed evidence           |
 |     4 | Device runtime          | One DeviceHost generation survives the full WSGM run and cleanly hands hardware back                    |
@@ -123,99 +185,104 @@ controller, QAM, and RTSS contracts stabilize.
 
 ## P0 — normalize the baseline before implementation
 
+Answers for every checked item below are recorded in [`2.0-decisions.md`](./2.0-decisions.md) under
+the same ID, and the `P0.2` repository layout is implemented. What remains unchecked is `P0-038`,
+`P0-039`, and `P0-046` — scheduled audits owned by `P6.1`, the Claw package, and `P10.5`
+respectively. **Gate 0 is closed; `P1` may start.**
+
 ### P0.1 Resolve cross-document behavior and sequencing
 
-- [ ] **P0-001 · DECISION** Record one authoritative controller activation transaction, including
+- [x] **P0-001 · DECISION** Record one authoritative controller activation transaction, including
       whether the virtual target is created before HidHide is applied or the physical device is
       hidden before target creation; define rollback for every intermediate state.
-- [ ] **P0-002 · DECISION** Decide whether HidHide is mandatory, default-on, or configurable
+- [x] **P0-002 · DECISION** Decide whether HidHide is mandatory, default-on, or configurable
       whenever WSGM controller management is active; update every dependent acceptance case
       consistently.
-- [ ] **P0-003 · DECISION** Split the early provisional capability-control surface required by Claw
+- [x] **P0-003 · DECISION** Split the early provisional capability-control surface required by Claw
       M1/M2 from the design's final Phase 4 overlay redesign; define what may ship temporarily and
       what is removed.
-- [ ] **P0-004 · DECISION** Define which OEM sources and actions survive when controller management
+- [x] **P0-004 · DECISION** Define which OEM sources and actions survive when controller management
       is off, especially M1/M2 if DirectInput acquisition is released to an external manager.
-- [ ] **P0-005 · DECISION** Preserve the physical handheld profile when only WSGM virtual-controller
+- [x] **P0-005 · DECISION** Preserve the physical handheld profile when only WSGM virtual-controller
       management is off, then define presentation/input-prompt authority when an external or
       unmanaged controller is active so that controller is never mislabeled as the handheld.
-- [ ] **P0-006 · DECISION** Define how the Win+G suppressor satisfies elevated-foreground
+- [x] **P0-006 · DECISION** Define how the Win+G suppressor satisfies elevated-foreground
       acceptance: prove the medium-integrity path, approve the fixed-operation helper, or narrow the
       release claim.
-- [ ] **P0-007 · DECISION** Define how genuinely new developer-authored mutation trials are
+- [x] **P0-007 · DECISION** Define how genuinely new developer-authored mutation trials are
       proposed, reviewed, hash-pinned, installed, and promoted before `probe run` may execute them.
-- [ ] **P0-008 · DECISION** Resolve native QAM first-milestone scope for performance profile and
+- [x] **P0-008 · DECISION** Resolve native QAM first-milestone scope for performance profile and
       performance data: interactive control, read-only projection, or explicitly deferred.
-- [ ] **P0-009 · DECISION** Decide whether RTSS frame-limit/performance-overlay controls remain
+- [x] **P0-009 · DECISION** Decide whether RTSS frame-limit/performance-overlay controls remain
       usable with Device Integration off and, if so, which non-Device surface owns them.
-- [ ] **P0-010 · DECISION** Define selected-plugin cardinality and tie-breaking across multiple
+- [x] **P0-010 · DECISION** Define selected-plugin cardinality and tie-breaking across multiple
       physical handhelds, multiple matching packages, detachable devices, and stale devices.
-- [ ] **P0-011 · DECISION** Define how immutable capability descriptors are replaced when firmware,
+- [x] **P0-011 · DECISION** Define how immutable capability descriptors are replaced when firmware,
       AC/DC state, endpoint generation, or availability changes their ranges or operations.
-- [ ] **P0-012 · DECISION** Keep captured hardware state restoration-only and outside desired-state
+- [x] **P0-012 · DECISION** Keep captured hardware state restoration-only and outside desired-state
       precedence; separately freeze global defaults, AC/DC policy, selected hardware profile,
       per-application override, and active UI request, plus persistent-versus-temporary restore
       rules.
-- [ ] **P0-013 · DECISION** Define the safest full-deactivation timeout topology, follow-up retries,
+- [x] **P0-013 · DECISION** Define the safest full-deactivation timeout topology, follow-up retries,
       warning state, recovery-journal entry, and next-start reconciliation.
-- [ ] **P0-014 · DECISION** Define plugin update/remove/defer UX while its process-long device cycle
+- [x] **P0-014 · DECISION** Define plugin update/remove/defer UX while its process-long device cycle
       is active; do not silently restart the host as an update mechanism.
-- [ ] **P0-015 · DECISION** Define quarantine behavior: retained desired state, fallback input,
+- [x] **P0-015 · DECISION** Define quarantine behavior: retained desired state, fallback input,
       visible Device page state, manual retry, cooldown, and reset conditions.
-- [ ] **P0-016 · DECISION** Define exact global/per-application controller-target matching,
+- [x] **P0-016 · DECISION** Define exact global/per-application controller-target matching,
       precedence, process identity, unknown-app fallback, and when a live target switch occurs.
-- [ ] **P0-017 · DECISION** Define glyph selection precedence and persistence for `Automatic`,
+- [x] **P0-017 · DECISION** Define glyph selection precedence and persistence for `Automatic`,
       `Native Steam glyphs`, and a reviewed manual diagnostic override.
-- [ ] **P0-018 · DECISION** Define the testable threshold for declaring a Valve component genuinely
+- [x] **P0-018 · DECISION** Define the testable threshold for declaring a Valve component genuinely
       removed before authorizing a WSGM-rendered replacement.
-- [ ] **P0-019 · DECISION** Define how audited plugin dependencies are installed, repaired, updated,
+- [x] **P0-019 · DECISION** Define how audited plugin dependencies are installed, repaired, updated,
       removed, and verified without granting runtime installation authority to a plugin.
-- [ ] **P0-020 · DECISION** Define the release fallback if HIDMaestro misses a mandatory gate: delay
+- [x] **P0-020 · DECISION** Define the release fallback if HIDMaestro misses a mandatory gate: delay
       controller management, ship Device Integration without it, or revisit the backend decision.
-- [ ] **P0-021 · DECISION** Define the first WSGM 2.0 release boundary and explicitly classify
+- [x] **P0-021 · DECISION** Define the first WSGM 2.0 release boundary and explicitly classify
       DualSense and validated optional Claw capabilities as later work where applicable.
-- [ ] **P0-022 · DECISION** Separate Device diagnostics from general WSGM diagnostics/logging with
+- [x] **P0-022 · DECISION** Separate Device diagnostics from general WSGM diagnostics/logging with
       an explicit field/action ownership list.
-- [ ] **P0-023 · DECISION** Freeze the allowlisted OEM action vocabulary and which actions are legal
+- [x] **P0-023 · DECISION** Freeze the allowlisted OEM action vocabulary and which actions are legal
       for front buttons versus rear controls on targets without paddles.
-- [ ] **P0-024 · DECISION** Define make-before-break source-switch state transfer, held-control
+- [x] **P0-024 · DECISION** Define make-before-break source-switch state transfer, held-control
       suppression, neutralization, and failure behavior between canonical and SDL input.
-- [ ] **P0-025 · DECISION** Define how WSGM knows the restored physical controller is available for
+- [x] **P0-025 · DECISION** Define how WSGM knows the restored physical controller is available for
       an external owner without assuming that Handheld Companion actually acquired it.
 
 ### P0.2 Freeze implementation boundaries and repository layout
 
-- [ ] **P0-026 · SOFTWARE** Choose names and locations for the NativeAOT-safe semantic contracts,
+- [x] **P0-026 · SOFTWARE** Choose names and locations for the NativeAOT-safe semantic contracts,
       JIT DeviceHost, Device Plugin SDK, Device Lab GUI, `wsgm-device` CLI, probe host, reference
       plugin, catalog, fixtures, and generated projects.
-- [ ] **P0-027 · SOFTWARE** Add the selected projects to `WSGM.slnx` with dependency direction tests
+- [x] **P0-027 · SOFTWARE** Add the selected projects to `WSGM.slnx` with dependency direction tests
       that prevent WSGM Core from referencing plugin/runtime hardware assemblies.
-- [ ] **P0-028 · SOFTWARE** Add directory-level `AGENTS.md` files for new ownership boundaries,
+- [x] **P0-028 · SOFTWARE** Add directory-level `AGENTS.md` files for new ownership boundaries,
       including the explicit exception that the Claw keyboard suppressor lives in its plugin host
       and not in WSGM's general `Input` module.
-- [ ] **P0-029 · SOFTWARE** Add build configurations that keep WSGM NativeAOT while allowing the
+- [x] **P0-029 · SOFTWARE** Add build configurations that keep WSGM NativeAOT while allowing the
       DeviceHost, Device Lab, SDK tooling, WMI, and WinRT sensor code to remain JIT-capable.
-- [ ] **P0-030 · SOFTWARE** Add solution/build checks that no plugin, analyzer, generator, WMI
+- [x] **P0-030 · SOFTWARE** Add solution/build checks that no plugin, analyzer, generator, WMI
       library, WinRT sensor library, or reflection-heavy tooling is copied into or loaded by the
       WSGM process.
-- [ ] **P0-031 · SOFTWARE** Define generated-artifact directories and gitignore rules; never
+- [x] **P0-031 · SOFTWARE** Define generated-artifact directories and gitignore rules; never
       hand-copy native/driver binaries into generated staging directories.
-- [ ] **P0-032 · SOFTWARE** Define test projects for contracts, host supervision, Device Lab,
+- [x] **P0-032 · SOFTWARE** Define test projects for contracts, host supervision, Device Lab,
       generators, Claw fixtures, HIDMaestro adapter, Steam UI patches, glyph import, and UI view
       models.
-- [ ] **P0-033 · SOFTWARE** Add CI jobs/caches for the new .NET, TypeScript, generator,
+- [x] **P0-033 · SOFTWARE** Add CI jobs/caches for the new .NET, TypeScript, generator,
       native-driver, and fixture validation steps, each with timeouts and minimal permissions.
-- [ ] **P0-034 · SOFTWARE** Add a repository script that validates no generated test/probe path
+- [x] **P0-034 · SOFTWARE** Add a repository script that validates no generated test/probe path
       points at the real `%LOCALAPPDATA%\WSGM` directory.
-- [ ] **P0-035 · SOFTWARE** Document safe local commands and explicitly prohibit unattended
+- [x] **P0-035 · SOFTWARE** Document safe local commands and explicitly prohibit unattended
       `--shell`, `--boot`, plugin lifecycle, hardware mutation, and Device Lab trial execution.
 
 ### P0.3 Legal, trust, dependency, and release policy gates
 
-- [ ] **P0-036 · LEGAL** Audit the current WSGM license, contributor ownership, and ability to
+- [x] **P0-036 · LEGAL** Audit the current WSGM license, contributor ownership, and ability to
       relicense; record the final license decision before copying any incompatible implementation
       code.
-- [ ] **P0-037 · LEGAL** Classify each Handheld Companion, Linux `hid-msi`, HHD, ClawTweaks, VIIPER,
+- [x] **P0-037 · LEGAL** Classify each Handheld Companion, Linux `hid-msi`, HHD, ClawTweaks, VIIPER,
       HIDMaestro, usbip-win2, HidHide, MSI provider, RTSS, and glyph input as fact, behavioral
       reference, copied code, dependency, binary, or independently captured evidence.
 - [ ] **P0-038 · LEGAL** Audit HIDMaestro MIT and usbip-win2 BSD-2-Clause packaging, driver, notice,
@@ -223,18 +290,24 @@ controller, QAM, and RTSS contracts stabilize.
 - [ ] **P0-039 · LEGAL** Audit Handheld Controller Glyphs commit
       `46792aadf3b104efec1c5240ba414d2c0bf84127`, its MIT notice, and credited source-artwork
       provenance.
-- [ ] **P0-040 · LEGAL** Establish whether and how the official MSI WMI provider may be detected,
-      installed, and redistributed; keep capabilities unavailable until this is resolved.
-- [ ] **P0-041 · LEGAL** Define license/provenance metadata required in catalogs, evidence locks,
+- [x] **P0-040 · LEGAL** ~~Establish whether and how the official MSI WMI provider may be detected,
+      installed, and redistributed~~ **Resolved 2026-08-27.** WSGM redistributes nothing. `msiapcfg.dll`
+      is MSI-signed (`CN="Micro-Star International CO., LTD."`, Authenticode `Valid`) and is a
+      resource-only MOF DLL. The functional prerequisite is the **Intel chipset drivers**, not MSI
+      Center M — HC operates with MSI Center M fully uninstalled. The plugin detects the provider and
+      reports WMI-backed capabilities unavailable when absent. Not a redistribution-rights gate.
+      Remaining detail: whether `MofImagePath` registration is part of the OEM image or created by a
+      tool, which affects prerequisite wording only.
+- [x] **P0-041 · LEGAL** Define license/provenance metadata required in catalogs, evidence locks,
       generated projects, packages, installer entries, and third-party notices.
-- [ ] **P0-042 · DECISION** Freeze package trust tiers (`WSGM-reviewed`, `Signed external`,
+- [x] **P0-042 · DECISION** Freeze package trust tiers (`WSGM-reviewed`, `Signed external`,
       `Sideloaded community`, `Developer`) and their install, enable, warning, update, revocation,
       and promotion behavior.
-- [ ] **P0-043 · DECISION** Freeze publisher identity, signature verification, key rotation,
+- [x] **P0-043 · DECISION** Freeze publisher identity, signature verification, key rotation,
       downgrade, revocation, package rollback, and compromised-publisher handling.
-- [ ] **P0-044 · DECISION** Freeze the reviewed privileged-helper policy, fixed-operation review
+- [x] **P0-044 · DECISION** Freeze the reviewed privileged-helper policy, fixed-operation review
       checklist, signer/hash requirements, protected install location, ACLs, and uninstall behavior.
-- [ ] **P0-045 · DECISION** Define the audited dependency catalog fields: version, hash, signer,
+- [x] **P0-045 · DECISION** Define the audited dependency catalog fields: version, hash, signer,
       license, architecture, install owner, health check, ACL, upgrade, rollback, and removal
       behavior.
 - [ ] **P0-046 · RELEASE-GATE** Review the full accepted security posture against
@@ -243,200 +316,244 @@ controller, QAM, and RTSS contracts stabilize.
 
 ### P0.4 Runtime authority, shutdown, and remaining boundary decisions
 
-- [ ] **P0-047 · DECISION** Define the one authoritative per-user/session owner of the device cycle
+- [x] **P0-047 · DECISION** Define the one authoritative per-user/session owner of the device cycle
       when shell, standalone Settings, and other WSGM processes may coexist; specify discovery,
       election, connection, takeover prevention, and what “WSGM exits” means across those processes.
-- [ ] **P0-048 · DECISION** Preserve `--settings` and `--overlay-test` safety: decide which mode may
+- [x] **P0-048 · DECISION** Preserve `--settings` and `--overlay-test` safety: decide which mode may
       connect read-only to an existing device owner, and prove neither mode independently acquires
       or mutates hardware, launches apps, changes HidHide, or starts a duplicate DeviceHost.
-- [ ] **P0-049 · DECISION** Freeze bounded asynchronous shutdown ownership and deadlines for normal
+- [x] **P0-049 · DECISION** Freeze bounded asynchronous shutdown ownership and deadlines for normal
       exit, update exit, uninstall, logoff, service/session stop, crash, and forced timeout before
       any production hardware write; define exactly what the installer may do after graceful cleanup
       fails.
-- [ ] **P0-050 · LEGAL** Prohibit redistribution of any proprietary OEM DLL, provider, driver,
+- [x] **P0-050 · LEGAL** Prohibit redistribution of any proprietary OEM DLL, provider, driver,
       helper, firmware, or asset without documented rights; model externally installed prerequisites
       separately from redistributable reviewed components.
-- [ ] **P0-051 · DECISION** Define the user-visible OEM2 behavior when Steam is absent, starting,
+- [x] **P0-051 · DECISION** Define the user-visible OEM2 behavior when Steam is absent, starting,
       outside Big Picture, on Desktop, or has an unhealthy QAM fingerprint: no-op, WSGM overlay
       fallback, or another single immediate bounded action, with no queued replay or duplicate
       transition.
 
 ## P1 — semantic contracts and protocol foundation
 
+**Complete, 57/58.** The contract is frozen at protocol version `1`, schema fingerprint
+`wsgm-device-v1`, and lives in `src\WSGM.Device.Contracts`. It is referenced by `WSGM.csproj`, so the
+NativeAOT publish is the standing proof that it stays AOT-safe — no trim or AOT warning originates
+from it. The compatibility, deprecation, and extension policy is in that project's
+`COMPATIBILITY.md`.
+
+Only `P1-024` remains open, and honestly so: its stale-state, out-of-order delta, duplicate command,
+timeout, and indeterminate-result coverage all landed, but the serialization and cancellation cases
+exercise a message loop that does not exist until `P4.3`.
+
 ### P1.1 Package, identity, device-definition, and module contracts
 
-- [ ] **P1-001 · SOFTWARE** Define the versioned `plugin.wsgm.json` schema with stable package ID,
+- [x] **P1-001 · SOFTWARE** Define the versioned `plugin.wsgm.json` schema with stable package ID,
       API range, publisher, executable entry, devices, resources, risks, dependencies,
       implementation modules, and declared capabilities.
-- [ ] **P1-002 · SOFTWARE** Define bounded string/list/object sizes and reject duplicate IDs,
+- [x] **P1-002 · SOFTWARE** Define bounded string/list/object sizes and reject duplicate IDs,
       unknown critical fields, path traversal, invalid versions, and unsupported schema versions.
-- [ ] **P1-003 · SOFTWARE** Define exact normalized identity fields for SMBIOS manufacturer,
+- [x] **P1-003 · SOFTWARE** Define exact normalized identity fields for SMBIOS manufacturer,
       product, board, revision, CPU family, BIOS/EC/MCU firmware, PnP topology, descriptors, and
       report shapes.
-- [ ] **P1-004 · SOFTWARE** Define required, excluded, optional, and weighted identity observations;
+- [x] **P1-004 · SOFTWARE** Define required, excluded, optional, and weighted identity observations;
       preserve marketing names as weak display evidence only.
-- [ ] **P1-005 · SOFTWARE** Define one logical handheld and its resource/endpoint graph, including
+- [x] **P1-005 · SOFTWARE** Define one logical handheld and its resource/endpoint graph, including
       detachable endpoints and topology/device generations.
-- [ ] **P1-006 · SOFTWARE** Define device definitions as exact identity/firmware gates plus pinned
+- [x] **P1-006 · SOFTWARE** Define device definitions as exact identity/firmware gates plus pinned
       composition; prohibit policy inheritance from a monolithic older-device class.
-- [ ] **P1-007 · SOFTWARE** Define implementation-module metadata for transport, protocol, layout,
+- [x] **P1-007 · SOFTWARE** Define implementation-module metadata for transport, protocol, layout,
       policy, capability, dependencies, conflicts, safety, recovery, evidence, and license
       provenance.
-- [ ] **P1-008 · SOFTWARE** Enforce that reusing a transport/protocol cannot import another model's
+- [x] **P1-008 · SOFTWARE** Enforce that reusing a transport/protocol cannot import another model's
       ranges, offsets, persistence assumptions, or firmware policy.
-- [ ] **P1-009 · SOFTWARE** Add manifest/schema fixtures for valid, malformed, oversized, unknown,
+- [x] **P1-009 · SOFTWARE** Add manifest/schema fixtures for valid, malformed, oversized, unknown,
       forward-compatible, and incompatible packages.
-- [ ] **P1-010 · SOFTWARE** Add source-generated serialization and deterministic canonicalization
+- [x] **P1-010 · SOFTWARE** Add source-generated serialization and deterministic canonicalization
       for all NativeAOT-visible package/identity contracts.
 
 ### P1.2 Capability descriptors, state, commands, and desired-state projection
 
-- [ ] **P1-011 · SOFTWARE** Define stable capability and instance IDs plus semantic roles for power,
+- [x] **P1-011 · SOFTWARE** Define stable capability and instance IDs plus semantic roles for power,
       scenario, fan, charge, lighting, telemetry, controller, motion, output, OEM, generic toggle,
       range, choice, action, and read-only values.
-- [ ] **P1-012 · SOFTWARE** Define WSGM-owned localized display-schema keys plus a length-bounded,
+- [x] **P1-012 · SOFTWARE** Define WSGM-owned localized display-schema keys plus a length-bounded,
       escaped, untrusted plain-text fallback for reviewed device-specific names; plugins may never
       supply markup, formatting, localization resources, or executable presentation content.
-- [ ] **P1-013 · SOFTWARE** Define immutable descriptor fields for read/write/action support, min,
+- [x] **P1-013 · SOFTWARE** Define immutable descriptor fields for read/write/action support, min,
       max, step, unit, AC/DC availability, mutual exclusion, persistence, and activation,
       re-enumeration, restart, or reboot requirements.
-- [ ] **P1-014 · SOFTWARE** Define descriptor generation/replacement and consumer invalidation rules
+- [x] **P1-014 · SOFTWARE** Define descriptor generation/replacement and consumer invalidation rules
       from the result of `P0-011`.
-- [ ] **P1-015 · SOFTWARE** Define live capability availability, command progress, observed/applied
+- [x] **P1-015 · SOFTWARE** Define live capability availability, command progress, observed/applied
       value, state quality, observation time, host generation, device generation, and structured
       reason.
-- [ ] **P1-016 · SOFTWARE** Implement exact hardware-state qualities: `Unknown`, `Observed`,
+- [x] **P1-016 · SOFTWARE** Implement exact hardware-state qualities: `Unknown`, `Observed`,
       `Verified`, `Stale`, and `Faulted`.
-- [ ] **P1-017 · SOFTWARE** Implement exact command outcomes: `Accepted`, `AppliedUnverified`,
+- [x] **P1-017 · SOFTWARE** Implement exact command outcomes: `Accepted`, `AppliedUnverified`,
       `AppliedVerified`, `Rejected`, `TimedOut`, and `Indeterminate`.
-- [ ] **P1-018 · SOFTWARE** Define command IDs, idempotency keys, expected descriptor/device
+- [x] **P1-018 · SOFTWARE** Define command IDs, idempotency keys, expected descriptor/device
       generation, deadline, cancellation, validation error, readback evidence, and rollback result.
-- [ ] **P1-019 · SOFTWARE** Define structured unavailable/degraded/conflict/prerequisite/unsupported
+- [x] **P1-019 · SOFTWARE** Define structured unavailable/degraded/conflict/prerequisite/unsupported
       reason taxonomy with safe user text and diagnostic detail.
-- [ ] **P1-020 · SOFTWARE** Implement WSGM's projection of authoritative desired value, profile
+- [x] **P1-020 · SOFTWARE** Implement WSGM's projection of authoritative desired value, profile
       source, pending request, UI progress, and last observed plugin state.
-- [ ] **P1-021 · SOFTWARE** Define per-capability freshness policy and ensure disconnect, generation
+- [x] **P1-021 · SOFTWARE** Define per-capability freshness policy and ensure disconnect, generation
       change, or expiry marks state stale and disables affected commands.
-- [ ] **P1-022 · SOFTWARE** Ensure a successful IPC reply is never presented as verified hardware
+- [x] **P1-022 · SOFTWARE** Ensure a successful IPC reply is never presented as verified hardware
       readback unless the plugin explicitly provides qualifying evidence.
-- [ ] **P1-023 · SOFTWARE** Require the plugin to revalidate identity, firmware, ownership, range,
+- [x] **P1-023 · SOFTWARE** Require the plugin to revalidate identity, firmware, ownership, range,
       relationship, and current state on every hardware command.
-- [ ] **P1-024 · SOFTWARE** Add exhaustive serialization, version negotiation, stale-state,
+- [ ] **P1-024 · SOFTWARE** *(stale-state, out-of-order delta, duplicate command, timeout, and
+      indeterminate-result coverage landed with `P1.2`/`P1.5`; serialization and cancellation tests
+      wait for the host in `P4.3`.)* Add exhaustive serialization, version negotiation, stale-state,
       out-of-order delta, duplicate command, timeout, cancellation, and indeterminate-result tests.
 
 ### P1.3 Lifecycle, resource ownership, recovery, and diagnostics contracts
 
-- [ ] **P1-025 · SOFTWARE** Define lifecycle states and messages for detect, activate, capability
+- [x] **P1-025 · SOFTWARE** Define lifecycle states and messages for detect, activate, capability
       publication, suspend, resume, deactivate, release, fault, restart, and quarantine.
-- [ ] **P1-026 · SOFTWARE** Define per-resource states so controller, power, fan, lighting, motion,
+- [x] **P1-026 · SOFTWARE** Define per-resource states so controller, power, fan, lighting, motion,
       OEM, and telemetry can become active/passive/degraded independently.
-- [ ] **P1-027 · SOFTWARE** Define resource-lease acquisition, conflict, ordering, cancellation,
+- [x] **P1-027 · SOFTWARE** Define resource-lease acquisition, conflict, ordering, cancellation,
       release, and experiment-lease contracts without exposing raw transports over production IPC.
-- [ ] **P1-028 · SOFTWARE** Define snapshot and recovery-journal schema with identity, firmware,
+- [x] **P1-028 · SOFTWARE** Define snapshot and recovery-journal schema with identity, firmware,
       host/device generation, original state, planned mutation, applied mutation, cleanup status,
       and atomic sequence number.
-- [ ] **P1-029 · SOFTWARE** Define journal location, ACL, atomic replace, corruption handling,
+- [x] **P1-029 · SOFTWARE** Define journal location, ACL, atomic replace, corruption handling,
       compatibility migration, retention, and startup reconciliation.
-- [ ] **P1-030 · SOFTWARE** Define controller two-phase handoff messages for neutralized, physical
+- [x] **P1-030 · SOFTWARE** Define controller two-phase handoff messages for neutralized, physical
       acquisition stopped, original mode restored, topology verified/unverified, and WSGM cleanup
       done.
-- [ ] **P1-031 · SOFTWARE** Define suspend/lock deadlines and ensure no long firmware operation can
+- [x] **P1-031 · SOFTWARE** Define suspend/lock deadlines and ensure no long firmware operation can
       begin once quiescence starts.
-- [ ] **P1-032 · SOFTWARE** Define hotplug/re-enumeration continuation by container identity and
-      invalidate every handle/state from the previous generation.
-- [ ] **P1-033 · SOFTWARE** Define crash restart/backoff/quarantine parameters and manual recovery
+- [x] **P1-032 · SOFTWARE** Define hotplug/re-enumeration continuation by **physical USB location**
+      (`DEVPKEY_Device_LocationPaths`, or parent hub + address) and invalidate every handle/state from
+      the previous generation. **Not** container identity: verified 2026-08-27 that the A2VM reports
+      the null container GUID on every relevant device, and its USB `iSerialNumber` exists only in
+      XInput mode — location paths were byte-identical across a full mode-switch cycle and are the
+      only stable anchor.
+- [x] **P1-033 · SOFTWARE** Define crash restart/backoff/quarantine parameters and manual recovery
       messages from `P0-015`.
-- [ ] **P1-034 · SOFTWARE** Define versioned read-only DeviceHost diagnostics and a bounded,
+- [x] **P1-034 · SOFTWARE** Define versioned read-only DeviceHost diagnostics and a bounded,
       plugin-owned diagnostic-session contract for Device Lab.
-- [ ] **P1-035 · SOFTWARE** Define sanitized logging fields for package, host, device, resource,
+- [x] **P1-035 · SOFTWARE** Define sanitized logging fields for package, host, device, resource,
       operation, generation, duration, queue depth, timeout, and result.
-- [ ] **P1-036 · SOFTWARE** Add lifecycle model tests for full WSGM run, Desktop/Game transitions,
+- [x] **P1-036 · SOFTWARE** Add lifecycle model tests for full WSGM run, Desktop/Game transitions,
       controller-only disable, full disable, crash, restart, quarantine, suspend, hotplug, and
       timeout.
 
 ### P1.4 Canonical controller, OEM, output, and UI-input contracts
 
-- [ ] **P1-037 · SOFTWARE** Define canonical standard buttons, D-pad, sticks, triggers, rear
+- [x] **P1-037 · SOFTWARE** Define canonical standard buttons, D-pad, sticks, triggers, rear
       paddles, gyro, accelerometer, touchpads, touch contacts, and stick-touch state without
       assuming a target.
-- [ ] **P1-038 · SOFTWARE** Define neutral state, sequence, timestamp, device generation,
+- [x] **P1-038 · SOFTWARE** Define neutral state, sequence, timestamp, device generation,
       report-loss, discontinuity, calibration, and sample-quality fields.
-- [ ] **P1-039 · SOFTWARE** Define logical OEM controls as a separate channel with stable ID,
+- [x] **P1-039 · SOFTWARE** Define logical OEM controls as a separate channel with stable ID,
       required display-name metadata under `P1-012`, type, source generation, timestamp,
       deduplication ID, and allowed routing class.
-- [ ] **P1-040 · SOFTWARE** Define virtual-output/haptic return state separately, including target
+- [x] **P1-040 · SOFTWARE** Define virtual-output/haptic return state separately, including target
       generation, motor/channel semantics, stop, rate, and unsupported-degradation behavior.
-- [ ] **P1-041 · SOFTWARE** Define stable physical device identities and topology data WSGM needs
+- [x] **P1-041 · SOFTWARE** Define stable physical device identities and topology data WSGM needs
       for HidHide without exposing plugin raw hardware operations.
-- [ ] **P1-042 · SOFTWARE** Define the WSGM-owned controller backend interface so plugins never call
+- [x] **P1-042 · SOFTWARE** Define the WSGM-owned controller backend interface so plugins never call
       HIDMaestro and a future backend can replace it.
-- [ ] **P1-043 · SOFTWARE** Define `IUiGamepadSource` semantics for full state, edges, repeat,
+- [x] **P1-043 · SOFTWARE** Define `IUiGamepadSource` semantics for full state, edges, repeat,
       chords, source health, source generation, held-state suppression, and duplicate filtering.
-- [ ] **P1-044 · SOFTWARE** Define reference-counted local UI capture ownership, nested/handover
+- [x] **P1-044 · SOFTWARE** Define reference-counted local UI capture ownership, nested/handover
       surfaces, neutralization, release boundary, and failure behavior.
-- [ ] **P1-045 · SOFTWARE** Define output-router ownership and mandatory zero-output triggers for UI
+- [x] **P1-045 · SOFTWARE** Define output-router ownership and mandatory zero-output triggers for UI
       capture, target removal, game exit, suspend, disconnect, plugin disable, and fault.
-- [ ] **P1-046 · SOFTWARE** Add pure mapping/normalization tests for richest state, unsupported
+- [x] **P1-046 · SOFTWARE** Add pure mapping/normalization tests for richest state, unsupported
       fields, target consumption, OEM mutual exclusion, neutralization, and no synthetic gyro
       mappings.
 
 ### P1.5 IPC and process boundary
 
-- [ ] **P1-047 · DECISION** Freeze the bounded binary wire format, protocol-version negotiation,
+**[HW 2026-08-27] Measured on the reference unit** (`MS-1T52`, Core Ultra 7 258V, 8 cores), 64-byte
+samples, 200,000 iterations each:
+
+| Path                        | Cost      | Share of one core @250 Hz | Allocation | Gen0 |
+| --------------------------- | --------- | ------------------------- | ---------- | ---- |
+| Shared-memory ring          | 42 ns/op  | 0.001 %                   | 0 B/op     | 0    |
+| Framed named pipe           | 15266 ns/op | 0.382 %                 | 163 B/op   | 7    |
+
+The ring is the high-rate path and the pipe stays the control plane, by a factor of 363. The pipe's
+164 bytes per sample matter as much as its latency: at 250 Hz that is ~41 KB/s of garbage inside a
+resident shell that deliberately runs with background GC off and `ConserveMemory=9`.
+
+The first ring implementation measured 2478 ns/op because `MemoryMappedViewAccessor` copies a byte at
+a time; moving to a mapped pointer and a span copy took it to 42 ns. Recorded because the number, not
+the design, is what found that.
+
+- [x] **P1-047 · DECISION** Freeze the bounded binary wire format, protocol-version negotiation,
       compatibility window, schema fingerprints, and unknown-message behavior.
-- [ ] **P1-048 · SOFTWARE** Implement per-session named-pipe naming, current-user SID ACL, endpoint
+- [x] **P1-048 · SOFTWARE** Implement per-session named-pipe naming, current-user SID ACL, endpoint
       authentication material, handshake, package identity binding, and replay resistance.
-- [ ] **P1-049 · SOFTWARE** Implement request IDs, responses, notifications, cancellation,
+- [x] **P1-049 · SOFTWARE** Implement request IDs, responses, notifications, cancellation,
       deadlines, idempotency, bounded payloads, and backpressure on the control plane.
-- [ ] **P1-050 · SOFTWARE** Implement a fixed binary shared-memory state page or bounded ring buffer
+- [x] **P1-050 · SOFTWARE** Implement a fixed binary shared-memory state page or bounded ring buffer
       for high-rate controller/IMU data with sequence counters, generation, event signal, overflow,
       and reader recovery.
-- [ ] **P1-051 · SOFTWARE** Measure pipe versus return-ring cost and choose a bounded rumble/output
+- [x] **P1-051 · SOFTWARE** Measure pipe versus return-ring cost and choose a bounded rumble/output
       channel without perceptible latency.
-- [ ] **P1-052 · SOFTWARE** Reject generic execute, shell, file, WMI, HID, EC, IOCTL, script, path,
+- [x] **P1-052 · SOFTWARE** Reject generic execute, shell, file, WMI, HID, EC, IOCTL, script, path,
       helper, and raw-buffer operations at the protocol/schema boundary.
-- [ ] **P1-053 · SOFTWARE** Add fuzz/property tests for malformed lengths, oversized fields, unknown
+- [x] **P1-053 · SOFTWARE** Add fuzz/property tests for malformed lengths, oversized fields, unknown
       versions, truncation, reordering, stale generations, producer death, slow readers, and
       cancellation.
-- [ ] **P1-054 · SOFTWARE** Prove the shared contract library and WSGM client survive NativeAOT
+- [x] **P1-054 · SOFTWARE** Prove the shared contract library and WSGM client survive NativeAOT
       publish without COM, runtime reflection, dynamic loading, or non-blittable native interop.
 
 ### P1.6 Contract freeze gate
 
-- [ ] **P1-055 · RELEASE-GATE** Review every public contract with meaningful XML documentation and
+- [x] **P1-055 · RELEASE-GATE** Review every public contract with meaningful XML documentation and
       executable compatibility tests.
-- [ ] **P1-056 · RELEASE-GATE** Verify the contract exposes semantic capabilities only and contains
+- [x] **P1-056 · RELEASE-GATE** Verify the contract exposes semantic capabilities only and contains
       no device-specific address, MSI method, raw buffer, or privileged operation.
-- [ ] **P1-057 · RELEASE-GATE** Version and freeze the first runtime contract targeted by
+- [x] **P1-057 · RELEASE-GATE** Version and freeze the first runtime contract targeted by
       DeviceHost, scaffold, validator, packer, Claw plugin, WSGM client, and fixtures.
-- [ ] **P1-058 · RELEASE-GATE** Record backward/forward compatibility, deprecation, and extension
+- [x] **P1-058 · RELEASE-GATE** Record backward/forward compatibility, deprecation, and extension
       policy for package, capability, state, capture, catalog, evidence, fixture, and patch schemas.
 
 ## P2 — Device Lab, known implementations, evidence, and scaffolding
 
+**In progress, 20/120.** Landed: the claim ledger and its state ladder, the three independent
+candidate outputs, probe result dimensions, the evidence lock with semantic diffing, the machine
+inventory, deterministic candidate matching with its negative cases, capture redaction, and a working
+`wsgm-device inventory`. Next: `P2.2` preflight, `P2.5` capture, `P2.6` read probes, `P2.7` the
+bounded trial runner, and `P2.8` scaffold generation.
+
+Two subsections are deliberately untouched pending their own design work: `P2-011` (the SDK contents,
+which needs the Roslyn analyzer and generator packaging decided) and `P2-013` (the GUI shell, which
+needs Avalonia wiring). Their projects exist with ownership rules; their contents do not.
+
 ### P2.1 D0 schemas and developer surfaces
 
-- [ ] **P2-001 · SOFTWARE** Define the versioned known-implementation catalog schema for identity,
+- [x] **P2-001 · SOFTWARE** Define the versioned known-implementation catalog schema for identity,
       candidate predicates, firmware, endpoint roles, transport, protocol, layout, capabilities,
       safety, probes, recovery, evidence, dependencies, conflicts, and licensing.
-- [ ] **P2-002 · SOFTWARE** Define three independent candidate outputs: reuse rank, a separately
+- [x] **P2-002 · SOFTWARE** Define three independent candidate outputs: reuse rank, a separately
       derived candidate evidence grade, and write eligibility; never derive one from similarity or
       automatically promote evidence grade into write eligibility.
-- [ ] **P2-003 · SOFTWARE** Define exact claim states (`Candidate`, `Correlated`, `Corroborated`,
+- [x] **P2-003 · SOFTWARE** Define exact claim states (`Candidate`, `Correlated`, `Corroborated`,
       `HardwareVerified`, `RetailApproved`, `Rejected`) separately from candidate evidence grade,
       provenance, package trust, and runtime write eligibility.
-- [ ] **P2-004 · SOFTWARE** Define compatibility execution, observation, mutation, cleanup, and
+- [x] **P2-004 · SOFTWARE** Define compatibility execution, observation, mutation, cleanup, and
       derived verdict enums exactly as described in the tooling design.
-- [ ] **P2-005 · SOFTWARE** Define private capture, sanitized `.wsgmcap`, observe-only recipe,
+- [ ] **P2-005 · SOFTWARE** *(claim ledger, redaction, and hash schemas landed; the `.wsgmcap`
+      bundle and stream/analysis schemas follow with capture in `P2.5`.)* Define private capture,
+      sanitized `.wsgmcap`, observe-only recipe,
       stream event, analysis result, claim ledger, redaction, blob, and hash schemas.
 - [ ] **P2-006 · SOFTWARE** Require each event to carry source/step IDs, local/global sequence, QPC
       receipt time, optional source time, clock segment, device generation, payload length, exact
       payload bytes where permitted, and loss/discontinuity/timeout/access state.
-- [ ] **P2-007 · SOFTWARE** Require each claim to carry a stable claim ID, scope,
+- [x] **P2-007 · SOFTWARE** Require each claim to carry a stable claim ID, scope,
       transport/endpoint, selector, offset, mask, width, endian, scale, unit, range, meaning,
       evidence, counterexamples, repetition, restoration, analyzer, provenance, limitations, and
       supersession.
-- [ ] **P2-008 · SOFTWARE** Define deterministic `evidence.lock.json` canonicalization that pins
+- [x] **P2-008 · SOFTWARE** Define deterministic `evidence.lock.json` canonicalization that pins
       accepted claim and module versions and requires a semantic diff for any constant change.
 - [ ] **P2-009 · SOFTWARE** Define plain reviewable fixture directories, fixture metadata, expected
       semantic outputs, simulator-only replay, and explicit prohibition on hardware writes.
@@ -444,7 +561,7 @@ controller, QAM, and RTSS contracts stabilize.
       runtime API, module locks, evidence locks, and generated-file ownership markers.
 - [ ] **P2-011 · SOFTWARE** Create the Device Plugin SDK with contracts, host adapter, templates,
       analyzers, generator support, fixture helpers, and TestKit.
-- [ ] **P2-012 · SOFTWARE** Create the `wsgm-device` CLI command router with consistent structured
+- [x] **P2-012 · SOFTWARE** Create the `wsgm-device` CLI command router with consistent structured
       output, exit codes, cancellation, explicit output directory, and no implicit live config
       access.
 - [ ] **P2-013 · SOFTWARE** Create the Device Lab GUI shell with Hardware Owner and Plugin Developer
@@ -481,15 +598,15 @@ controller, QAM, and RTSS contracts stabilize.
 
 ### P2.3 Stage 1 automatic inventory
 
-- [ ] **P2-026 · SOFTWARE** Implement normalized SMBIOS manufacturer, product, model, baseboard,
+- [x] **P2-026 · SOFTWARE** Implement normalized SMBIOS manufacturer, product, model, baseboard,
       revision, BIOS, EC, and firmware inventory.
-- [ ] **P2-027 · SOFTWARE** Implement CPU/GPU family and exact identity inventory used only for
+- [x] **P2-027 · SOFTWARE** Implement CPU/GPU family and exact identity inventory used only for
       matching catalog predicates.
-- [ ] **P2-028 · SOFTWARE** Implement full PnP/container topology capture with interface arrival and
+- [x] **P2-028 · SOFTWARE** Implement full PnP/container topology capture with interface arrival and
       removal generations.
-- [ ] **P2-029 · SOFTWARE** Implement USB/HID VID, PID, MI, `bcdDevice`, usage, caps, descriptor
+- [x] **P2-029 · SOFTWARE** Implement USB/HID VID, PID, MI, `bcdDevice`, usage, caps, descriptor
       hashes, report descriptors, input/output/feature report lengths, and endpoint roles.
-- [ ] **P2-030 · SOFTWARE** Implement WMI namespace, class, instance, event, method-signature,
+- [x] **P2-030 · SOFTWARE** Implement WMI namespace, class, instance, event, method-signature,
       qualifier, provider-version, and buffer-shape inventory without invoking unknown methods.
 - [ ] **P2-031 · SOFTWARE** Implement COM endpoint and passive framing-candidate inventory without
       transmitting unknown serial data.
@@ -501,29 +618,29 @@ controller, QAM, and RTSS contracts stabilize.
       exports without loading or invoking unknown exports.
 - [ ] **P2-035 · SOFTWARE** Inventory relevant processes, services, tasks, loaded providers,
       exclusive access, and demonstrated ownership conflicts.
-- [ ] **P2-036 · SOFTWARE** Persist unique identifiers only in the private capture and replace them
+- [x] **P2-036 · SOFTWARE** Persist unique identifiers only in the private capture and replace them
       with stable session-local tokens in every shareable view.
 - [ ] **P2-037 · SOFTWARE** Add disconnected, access-denied, multi-sensor, detachable, malformed
       descriptor, and topology-change inventory fixtures.
 
 ### P2.4 Stage 2 deterministic candidate matching
 
-- [ ] **P2-038 · SOFTWARE** Normalize one inventory into independent transport, protocol, layout,
+- [x] **P2-038 · SOFTWARE** Normalize one inventory into independent transport, protocol, layout,
       policy, and capability observations.
-- [ ] **P2-039 · SOFTWARE** Apply hard constraints before scoring and reject wrong report length,
+- [x] **P2-039 · SOFTWARE** Apply hard constraints before scoring and reject wrong report length,
       excluded firmware, absent required WMI method, CPU mismatch, descriptor mismatch, or missing
       endpoint.
-- [ ] **P2-040 · SOFTWARE** Produce a human-readable explanation for every hard rejection and every
+- [x] **P2-040 · SOFTWARE** Produce a human-readable explanation for every hard rejection and every
       positive/negative weighted observation.
-- [ ] **P2-041 · SOFTWARE** Rank remaining modules independently by reusable unit and show precisely
+- [x] **P2-041 · SOFTWARE** Rank remaining modules independently by reusable unit and show precisely
       what each would reuse.
-- [ ] **P2-042 · SOFTWARE** List device-specific values that must not be inherited from every
+- [x] **P2-042 · SOFTWARE** List device-specific values that must not be inherited from every
       candidate, especially ranges, offsets, tables, persistence, and recovery policy.
 - [ ] **P2-043 · SOFTWARE** Select the next safest discriminating read probe for ambiguous
       candidates without opening a device handle during offline matching.
-- [ ] **P2-044 · SOFTWARE** Make candidate output deterministic across input ordering and prove that
+- [x] **P2-044 · SOFTWARE** Make candidate output deterministic across input ordering and prove that
       a high rank may remain read-only/inconclusive.
-- [ ] **P2-045 · SOFTWARE** Add negative matching cases for A1M `MS-1T41`, 7-inch A2VM `MS-1T42`,
+- [x] **P2-045 · SOFTWARE** Add negative matching cases for A1M `MS-1T41`, 7-inch A2VM `MS-1T42`,
       unrelated MSI PCs, spoofed VID/PID, wrong firmware, missing provider, and altered report
       shapes.
 
@@ -595,7 +712,8 @@ controller, QAM, and RTSS contracts stabilize.
 - [ ] **P2-072 · DESTRUCTIVE-RISK** Implement the one-zone low-brightness RGB trial only for an
       exact profile already proven volatile.
 - [ ] **P2-073 · DESTRUCTIVE-RISK** Implement controller-mode trial continuation across PnP
-      re-enumeration and restore original mode/PID by container identity.
+      re-enumeration and restore original mode/PID by physical USB location (see `P1-032`; container
+      identity is unusable on the A2VM).
 - [ ] **P2-074 · DESTRUCTIVE-RISK** Exclude EEPROM/ROM/UEFI writes, firmware flashing,
       provider/registry repair, driver restart/install, charge persistence, blind bus scans, unknown
       IOCTL/HID/ACPI/MMIO/MSR/raw port, physical memory, test certificates, and test-signing from
@@ -1047,8 +1165,9 @@ belong to later backlog phases.
 
 ### P4.3 DeviceHost executable and supervision
 
-- [ ] **P4-014 · SOFTWARE** Build `WSGM.DeviceHost.exe` as a JIT-capable, unelevated, per-user,
-      per-session host that loads exactly one validated package.
+- [ ] **P4-014 · SOFTWARE** Build `WSGM.DeviceHost.exe` as a JIT-capable, per-user, per-session host
+      that loads exactly one validated package, with privilege selected per trust tier at spawn (see
+      `INV-008`) rather than fixed unelevated.
 - [ ] **P4-015 · SOFTWARE** Establish deterministic DLL/native dependency resolution scoped to the
       package; remove current-directory and uncontrolled search-order ambiguity.
 - [ ] **P4-016 · SOFTWARE** Start DeviceHost with the authenticated named-pipe handshake, package
@@ -1126,9 +1245,9 @@ belong to later backlog phases.
       transitions; never use them to reset hardware or recreate the host/virtual target.
 - [ ] **P4-045 · SOFTWARE** Implement suspend/lock quiescence: reject/stop new writes, cancel calls,
       stop output, quiesce input/IMU, reset hooks, close volatile handles, and meet the deadline.
-- [ ] **P4-046 · SOFTWARE** Implement resume/unlock rediscovery by container, fresh
-      identity/firmware/provider gates, new generation, state reads, and one desired-state
-      reconciliation.
+- [ ] **P4-046 · SOFTWARE** Implement resume/unlock rediscovery by physical USB location (see
+      `P1-032`), fresh identity/firmware/provider gates, new generation, state reads, and one
+      desired-state reconciliation.
 - [ ] **P4-047 · SOFTWARE** Implement hotplug/re-enumeration with exact endpoint invalidation and no
       fixed sleeps; await concrete PnP/interface/ACK events under bounded deadlines.
 - [ ] **P4-048 · SOFTWARE** Detect resource-specific conflicts from actual access/writes/ownership
@@ -2305,6 +2424,14 @@ coordinator state machine owned by `P4.7`; it does not create a second handoff p
 
 ## P8 — physical handheld glyph catalog and rendering
 
+> **Superseded in part by `P0-052`.** Glyph artwork, the semantic control map, asset provenance, and
+> per-device visual verification are now owned by the device plugin package, not by WSGM. `P8.1`,
+> `P8.2`, `P8.3`, and `P8.11` below are obsolete as WSGM work: `P8.1`/`P8.3`/`P8.11` move into the
+> owning plugin package (for the A2VM, the first-party Claw package), and `P8.2` is replaced by a
+> WSGM-owned schema, SVG normalizer, and pack-time/load-time validator. `P8.4`–`P8.10` stand, reading
+> "the active plugin's validated profile" wherever they say "the WSGM catalog". These sections are
+> rewritten when `P8` starts; they are left in place until then so nothing is silently dropped.
+
 ### P8.1 Upstream pin, provenance, and immutable inventory
 
 - [ ] **P8-001 · LEGAL** Fetch exactly Handheld Controller Glyphs commit
@@ -2976,8 +3103,10 @@ proceed in parallel.
 - [ ] **P10-044 · SOFTWARE** Prove the main WSGM process exposes no generic raw hardware broker and
       a plugin cannot request arbitrary WMI/HID/IOCTL/ACPI/MMIO/MSR/serial/registry/file/shell
       authority.
-- [ ] **P10-045 · SOFTWARE** Prove DeviceHost runs unelevated with current-user/session pipe ACLs,
-      authenticated launch, bounded messages, no inheritable unrelated handles, and job containment.
+- [ ] **P10-045 · SOFTWARE** Prove DeviceHost runs at its trust tier's intended privilege — untrusted
+      packages genuinely de-elevated, reviewed packages elevated only by deliberate spawn — with
+      current-user/session pipe ACLs, authenticated launch, bounded messages, no inheritable unrelated
+      handles, and job containment.
 - [ ] **P10-046 · SOFTWARE** Fuzz IPC/control/data schemas, manifest/catalog/evidence parsing,
       capture import, generator input, CEF bridge payloads, asset import, and recovery journals.
 - [ ] **P10-047 · SOFTWARE** Validate package traversal/symlink/native search attacks, tampered

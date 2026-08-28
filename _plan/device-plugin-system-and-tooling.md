@@ -227,7 +227,15 @@ Modules are version-pinned dependencies of the generated plugin. WSGM core never
 
 ### Per-plugin host
 
-Each selected plugin package runs in its own unelevated `WSGM.DeviceHost.exe` process.
+Each selected plugin package runs in its own `WSGM.DeviceHost.exe` process.
+
+**Privilege is decided per trust tier at spawn.** Hardware verification on the MSI Claw A2VM
+(2026-08-27) showed the OEM WMI provider returns `WBEM_E_ACCESS_DENIED` from a medium-integrity
+process, so an unconditionally unelevated host cannot serve power, fan, thermal, EC or battery
+capabilities at all. WSGM already runs elevated and de-elevates what does not need privilege, so:
+reviewed first-party packages inherit that elevation directly; signed-external, sideloaded and
+developer packages are spawned de-elevated and simply do not receive privilege-dependent
+capabilities. No broker, helper executable, or generic privileged channel is introduced.
 
 The host:
 
