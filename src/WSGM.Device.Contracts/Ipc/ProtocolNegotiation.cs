@@ -27,7 +27,7 @@ public static class DeviceProtocol
     /// is compared during the handshake, and a mismatch refuses the connection rather than letting
     /// two peers misread each other's payloads.
     /// </remarks>
-    public const string SchemaFingerprint = "wsgm-device-v1";
+    public const string SchemaFingerprint = "wsgm-device-v2";
 
     /// <summary>
     /// Picks the version two peers should use.

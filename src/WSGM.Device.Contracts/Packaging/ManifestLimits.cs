@@ -51,6 +51,9 @@ public static class ManifestLimits
     /// <summary>Maximum number of risk declarations in one package.</summary>
     public const int MaxRiskDeclarations = 32;
 
+    /// <summary>Maximum number of hash-pinned physical glyph profiles in one package.</summary>
+    public const int MaxGlyphProfiles = 32;
+
     /// <summary>Highest weight an optional identity observation may carry.</summary>
     /// <remarks>
     /// Weights only order candidates within a package that already passed every hard constraint.

@@ -58,6 +58,12 @@ public enum ManifestValidationCode
 
     /// <summary>A hexadecimal identifier was not four uppercase hexadecimal digits.</summary>
     InvalidHexIdentifier,
+
+    /// <summary>A lowercase SHA-256 content hash was malformed.</summary>
+    InvalidContentHash,
+
+    /// <summary>A field was used with an older manifest schema that does not define it.</summary>
+    FieldRequiresNewerSchema,
 }
 
 /// <summary>

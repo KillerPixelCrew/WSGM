@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -162,6 +163,8 @@ public static class ConfigStore
         config.StartupApps ??= [];
         config.DeviceIntegration ??= new DeviceIntegrationConfig();
         NormalizeDeviceIntegration(config.DeviceIntegration);
+        config.Performance ??= new PerformanceConfig();
+        NormalizePerformance(config.Performance);
         config.Cef ??= new CefConfig();
         config.Hotkey ??= new HotkeyConfig();
         config.GamepadChord ??= new GamepadChordConfig();
@@ -345,6 +348,34 @@ public static class ConfigStore
                 || string.IsNullOrWhiteSpace(target.ApplicationId)
                 || !Enum.IsDefined(target.Target));
         }
+    }
+
+    private static void NormalizePerformance(PerformanceConfig performance)
+    {
+        performance.Applications ??= [];
+        performance.Applications.RemoveAll(static application => application is null
+            || string.IsNullOrWhiteSpace(application.ApplicationId)
+            || string.IsNullOrWhiteSpace(application.RtssProfileName));
+        HashSet<string> identities = new(StringComparer.Ordinal);
+        performance.Applications.RemoveAll(application =>
+            !identities.Add(application.ApplicationId.Trim()));
+        foreach (PerformanceApplicationConfig application in performance.Applications)
+        {
+            application.ApplicationId = application.ApplicationId.Trim();
+            application.RtssProfileName = application.RtssProfileName.Trim();
+            if (application.RtssProfileName.Length > 128
+                || !string.Equals(
+                    Path.GetFileName(application.RtssProfileName),
+                    application.RtssProfileName,
+                    StringComparison.Ordinal)
+                || !application.RtssProfileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            {
+                application.RtssProfileName = string.Empty;
+            }
+        }
+
+        performance.Applications.RemoveAll(static application =>
+            string.IsNullOrWhiteSpace(application.RtssProfileName));
     }
 
     private static void NormalizeDisplayMode(DisplayModeValues mode)

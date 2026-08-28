@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "id": "wsgm.device.example.future",
   "version": "1.0.0",
   "displayName": "A package written against a newer schema",

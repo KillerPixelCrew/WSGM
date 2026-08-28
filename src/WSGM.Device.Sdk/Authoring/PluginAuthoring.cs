@@ -58,8 +58,10 @@ public sealed record PluginSourceGenerationRequest
 
 /// <summary>Creates the deterministic, ownership-marked core plugin template.</summary>
 /// <remarks>
-/// Glyph authoring files are intentionally absent until the P8 schema and normalizer are frozen.
-/// The template contains no Steam selector, CDP operation, patch application, or raw hardware API.
+/// Glyph artwork is deliberately absent from the generic scaffold: authors add reviewed bytes
+/// explicitly through <see cref="GlyphProfileBuilder"/>, and an empty scaffold therefore cannot
+/// advertise an automatic physical profile. The template contains no Steam selector, CDP operation,
+/// patch application, or raw hardware API.
 /// </remarks>
 public static class PluginProjectTemplate
 {

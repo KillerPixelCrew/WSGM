@@ -22,7 +22,7 @@ namespace WSGM.Overlay;
 /// <summary>The fullscreen, controller-friendly overlay window.</summary>
 public partial class OverlayWindow : Window
 {
-    /// <summary>Raised when a Tools sub-view is torn down so auxiliary peer windows close too.</summary>
+    /// <summary>Raised when a nested page is torn down so auxiliary peer windows close too.</summary>
     public event Action? SubViewClosed;
     private bool _confirmRestart;
     private bool _confirmShutdown;
@@ -77,13 +77,17 @@ public partial class OverlayWindow : Window
     /// would close whatever panel is on screen by then.</summary>
     private bool _closed;
     private readonly CancellationTokenSource _deviceLifetime = new();
+    private readonly OverlayNavigation _navigation = new();
+    private static readonly OverlayFocusMemory FocusMemory = new();
     private IDeviceOverlaySource? _deviceBridge;
+    private IPerformanceOverlaySource? _performanceSource;
+    private IDisposable? _performanceObservation;
 
     private Shell.SdFormatManager? _format;
     private FormatTargetEntry? _pendingTarget;
 
     /// <summary>Whether the in-place Format/Add-library sub-view is showing. While
-    /// it is, LB/RB tab switching is suppressed and B cancels the sub-view rather
+    /// it is, LB/RB destination switching is suppressed and B cancels the sub-view rather
     /// than closing the overlay.</summary>
     internal bool InFormatSubView { get; private set; }
 
@@ -101,7 +105,7 @@ public partial class OverlayWindow : Window
     internal bool InLaunchWrapperSubView { get; private set; }
 
     /// <summary>Whether the wake-lock holder list sub-view is showing. It belongs to
-    /// the Power tab, so leaving it restores that panel rather than Tools.</summary>
+    /// System, so leaving it restores that destination rather than Steam.</summary>
     internal bool InWakeLockSubView { get; private set; }
 
     /// <summary>The launch fix waiting on the user to pick a game, and the button
@@ -112,13 +116,13 @@ public partial class OverlayWindow : Window
     /// look like a fresh overlay summons and discard the active workflow.</summary>
     internal bool KeyboardOwnsFocus { get; set; }
 
-    /// <summary>Whether any in-place Tools sub-view owns the surface.</summary>
+    /// <summary>Whether any nested page owns the surface.</summary>
     private bool AnySubView
         => InFormatSubView || InLibraryTabsSubView || InCardManagerSubView || InArtworkSubView
            || InLaunchWrapperSubView || InWakeLockSubView;
 
     /// <summary>Gives the overlay the shared removable-storage format manager so
-    /// its Tools sub-view can drive it. Called by the controller right after
+    /// its Steam storage page can drive it. Called by the controller right after
     /// construction (the manager outlives the window).</summary>
     /// <param name="format">The controller-owned format manager.</param>
     internal void AttachFormatManager(Shell.SdFormatManager format)
@@ -139,7 +143,6 @@ public partial class OverlayWindow : Window
         {
             _deviceBridge.Changed -= OnDeviceChanged;
         }
-
         _deviceBridge = bridge;
         if (_deviceBridge is not null)
         {
@@ -149,16 +152,52 @@ public partial class OverlayWindow : Window
         RefreshDevicePanel();
     }
 
+    /// <summary>Attaches the shared performance projection without transferring its lifetime.</summary>
+    internal void AttachPerformanceSource(IPerformanceOverlaySource? source)
+    {
+        if (ReferenceEquals(_performanceSource, source))
+        {
+            return;
+        }
+
+        if (_performanceSource is not null)
+        {
+            _performanceSource.Changed -= OnPerformanceChanged;
+        }
+        _performanceObservation?.Dispose();
+        _performanceObservation = null;
+
+        _performanceSource = source;
+        if (_performanceSource is not null)
+        {
+            try
+            {
+                _performanceSource.Changed += OnPerformanceChanged;
+                _performanceObservation = _performanceSource.AcquireObservation();
+            }
+            catch (Exception ex)
+            {
+                _performanceSource.Changed -= OnPerformanceChanged;
+                _performanceSource = null;
+                Log.Warn($"Performance overlay observation could not start: {ex.Message}");
+            }
+        }
+
+        RefreshPerformancePanel();
+    }
+
     /// <summary>Moves focus to Device when integration is enabled; otherwise leaves the current tab.</summary>
     internal void SelectDeviceDestination()
     {
         if (_deviceBridge?.Snapshot().Visible is true)
         {
-            Tabs.SelectedIndex = 3;
+            SelectDestination(OverlayDestination.Device);
         }
     }
 
     private void OnDeviceChanged() => Dispatcher.UIThread.Post(RefreshDevicePanel);
+
+    private void OnPerformanceChanged() => Dispatcher.UIThread.Post(RefreshPerformancePanel);
 
     private void RefreshDevicePanel()
     {
@@ -188,21 +227,33 @@ public partial class OverlayWindow : Window
             return;
         }
 
-        CardButton? restoreFocus = null;
+        DescriptorStatusRow? restoreFocus = null;
+        DeviceOverlaySection? currentSection = null;
         foreach (DeviceOverlayCapability capability in snapshot.Capabilities)
         {
+            if (capability.Section != currentSection)
+            {
+                TextBlock heading = new()
+                {
+                    Text = DeviceSectionLabel(capability.Section),
+                    Margin = new Thickness(2, currentSection is null ? 2 : 8, 2, 2),
+                };
+                heading.Classes.Add("eyebrow");
+                DeviceCapabilityList.Children.Add(heading);
+                currentSection = capability.Section;
+            }
+
             string key = capability.InstanceId is { Length: > 0 }
                 ? $"{capability.CapabilityId}#{capability.InstanceId}"
                 : capability.CapabilityId;
-            CardButton button = new()
-            {
-                Tag = key,
-                IconGeometry = Icons.Gear,
-                Title = capability.Title,
-                Description = capability.Description,
-                TrailingText = capability.TrailingText,
-                IsEnabled = capability.CanInvoke,
-            };
+            DescriptorStatusRow button = new();
+            button.Apply(new DescriptorRow(
+                key,
+                capability.Title,
+                capability.Description,
+                capability.TrailingText,
+                capability.CanInvoke,
+                DeviceStatusFor(capability)));
             button.Click += async (_, _) =>
             {
                 IDeviceOverlaySource? bridge = _deviceBridge;
@@ -241,33 +292,155 @@ public partial class OverlayWindow : Window
         restoreFocus?.Focus(NavigationMethod.Directional);
     }
 
-    private void ConfigureTabs(bool showDevice)
+    private void RefreshPerformancePanel()
     {
-        int count = Tabs.Tabs?.Count ?? 0;
-        int expected = showDevice ? 4 : 3;
-        if (count == expected)
+        if (_closed)
         {
             return;
         }
 
-        Tabs.Tabs = showDevice
-            ? new List<TabStripItem>
-            {
-                new("Session", Icons.Play, 0),
-                new("Tools", Icons.Wrench, 1),
-                new("Power", Icons.Power, 2),
-                new("Device", Icons.SteamLike, 3),
-            }
-            : new List<TabStripItem>
-            {
-                new("Session", Icons.Play, 0),
-                new("Tools", Icons.Wrench, 1),
-                new("Power", Icons.Power, 2),
-            };
-        if (!showDevice && Tabs.SelectedIndex == 3)
+        PlacePerformanceSection(_navigation.IsVisible(OverlayDestination.Device));
+        PerformanceOverlaySnapshot? snapshot = _performanceSource?.Snapshot();
+        PerformanceSection.IsVisible = snapshot?.Visible is true;
+        PerformanceRows.Children.Clear();
+        if (snapshot is not { Visible: true })
         {
-            Tabs.SelectedIndex = 0;
+            PerformanceStatus.Text = string.Empty;
+            return;
         }
+
+        PerformanceStatus.Text = snapshot.Status;
+        string? focusedKey = CurrentSemanticFocusKey();
+        DescriptorStatusRow? restoreFocus = null;
+        foreach (DescriptorRow descriptor in snapshot.Rows)
+        {
+            DescriptorStatusRow button = new();
+            DescriptorRow presentation = descriptor with { Id = $"performance.{descriptor.Id}" };
+            button.Apply(presentation);
+            button.Click += async (_, _) =>
+            {
+                IPerformanceOverlaySource? source = _performanceSource;
+                if (source is null || _closed || !descriptor.CanInvoke)
+                {
+                    return;
+                }
+
+                button.IsEnabled = false;
+                try
+                {
+                    await source.InvokeAsync(descriptor, _deviceLifetime.Token);
+                }
+                catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested)
+                {
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"Performance overlay command failed: {descriptor.Id}, {ex.Message}");
+                }
+                finally
+                {
+                    if (!_closed)
+                    {
+                        button.IsEnabled = descriptor.CanInvoke;
+                    }
+                }
+            };
+            PerformanceRows.Children.Add(button);
+            if (string.Equals(presentation.Id, focusedKey, StringComparison.Ordinal))
+            {
+                restoreFocus = button;
+            }
+        }
+        restoreFocus?.Focus(NavigationMethod.Directional);
+    }
+
+    private void PlacePerformanceSection(bool deviceVisible)
+    {
+        StackPanel target = deviceVisible ? PanelDevice : PanelSystem;
+        int targetIndex = deviceVisible ? 2 : 3;
+        if (target.Children.Contains(PerformanceSection))
+        {
+            return;
+        }
+
+        PanelDevice.Children.Remove(PerformanceSection);
+        PanelSystem.Children.Remove(PerformanceSection);
+        target.Children.Insert(Math.Min(targetIndex, target.Children.Count), PerformanceSection);
+    }
+
+    private static DescriptorStatus DeviceStatusFor(DeviceOverlayCapability capability)
+        => capability.Status switch
+        {
+            DeviceOverlayStatus.Available => DescriptorStatus.Available,
+            DeviceOverlayStatus.Warning => DescriptorStatus.Warning,
+            DeviceOverlayStatus.Faulted => DescriptorStatus.Faulted,
+            DeviceOverlayStatus.Stale => DescriptorStatus.Stale,
+            DeviceOverlayStatus.ExternallyOwned => DescriptorStatus.ExternallyOwned,
+            DeviceOverlayStatus.Unsupported => DescriptorStatus.Unsupported,
+            DeviceOverlayStatus.Progress => DescriptorStatus.Progress,
+            _ => DescriptorStatus.None,
+        };
+
+    private static string DeviceSectionLabel(DeviceOverlaySection section) => section switch
+    {
+        DeviceOverlaySection.Overview => "OVERVIEW AND PROFILES",
+        DeviceOverlaySection.PowerAndThermals => "POWER AND THERMALS",
+        DeviceOverlaySection.ControllerAndMotion => "CONTROLLER AND MOTION",
+        DeviceOverlaySection.OemAndLighting => "OEM CONTROLS AND LIGHTING",
+        DeviceOverlaySection.Diagnostics => "DIAGNOSTICS AND RECOVERY",
+        _ => "DEVICE",
+    };
+
+    private void ConfigureTabs(bool showDevice)
+    {
+        OverlayDestination previous = _navigation.Destination;
+        bool visibilityChanged = _navigation.SetDeviceVisible(showDevice);
+        if (!visibilityChanged && Tabs.Tabs is not null)
+        {
+            return;
+        }
+
+        if (previous == OverlayDestination.Device && !showDevice)
+        {
+            RememberDestinationState(previous);
+            _lastDestination = OverlayDestination.Home;
+        }
+
+        PlacePerformanceSection(showDevice);
+
+        Tabs.Tabs = _navigation.VisibleDestinations.Select(CreateDestinationTab).ToList();
+        int selectedIndex = DestinationIndex(_navigation.Destination);
+        // Rebuilding a dynamic strip can change the meaning of an unchanged numeric
+        // index (System 2 becomes Device 2). Force one descriptor-based selection.
+        Tabs.SelectedIndex = -1;
+        Tabs.SelectedIndex = selectedIndex;
+        ShowDestination(_navigation.Destination, restoreFocus: false);
+    }
+
+    private static TabStripItem CreateDestinationTab(OverlayDestination destination) => destination switch
+    {
+        OverlayDestination.Home => new TabStripItem("Home", Icons.Play, (int)destination),
+        OverlayDestination.Steam => new TabStripItem("Steam", Icons.SteamLike, (int)destination),
+        OverlayDestination.Device => new TabStripItem("Device", Icons.Gear, (int)destination),
+        OverlayDestination.System => new TabStripItem("System", Icons.Power, (int)destination),
+        _ => throw new ArgumentOutOfRangeException(nameof(destination)),
+    };
+
+    private int DestinationIndex(OverlayDestination destination)
+    {
+        IReadOnlyList<TabStripItem>? tabs = Tabs.Tabs;
+        if (tabs is null)
+        {
+            return 0;
+        }
+        for (int i = 0; i < tabs.Count; i++)
+        {
+            if (tabs[i].Tag == (int)destination)
+            {
+                return i;
+            }
+        }
+        return 0;
     }
 
     // The library name the confirm step will format with. Held here rather than in a
@@ -297,15 +470,14 @@ public partial class OverlayWindow : Window
     }
 
     /// <summary>The control gamepad navigation should land on when the panel opens
-    /// or when focus tracking is lost: the ACTIVE tab's first row — HomeAppButton
-    /// is invisible on the Tools/Power tabs and focusing it would fall through to
+    /// or when focus tracking is lost: the active destination's first row — HomeAppButton
+    /// is invisible on other destinations and focusing it would fall through to
     /// the header close button.</summary>
     internal InputElement DefaultFocusTarget
     {
         get
         {
-            // The Tools sub-views live inside the Tools tab; focus lands there while
-            // one is open, not on the tab's ordinary rows.
+            // Nested pages retain focus ownership while one is open.
             if (AnySubView)
             {
                 var host = InLibraryTabsSubView ? (Control)LibraryTabsHost
@@ -323,12 +495,12 @@ public partial class OverlayWindow : Window
                     }
                 }
             }
-            var panel = Tabs.SelectedIndex switch
+            var panel = _navigation.Destination switch
             {
-                1 => (Control)PanelTools,
-                2 => PanelPower,
-                3 => PanelDevice,
-                _ => PanelSession,
+                OverlayDestination.Steam => (Control)PanelSteam,
+                OverlayDestination.Device => PanelDevice,
+                OverlayDestination.System => PanelSystem,
+                _ => PanelHome,
             };
             foreach (var visual in panel.GetVisualDescendants())
             {
@@ -342,10 +514,9 @@ public partial class OverlayWindow : Window
         }
     }
 
-    // The tab the user last selected, restored on the next open. Static because the
-    // overlay window is recreated per open; deliberately not persisted to config —
-    // a tab switch must not cost a disk write.
-    private static int _lastSelectedTab;
+    // The destination the user last selected, restored on the next open. Static because
+    // the overlay window is recreated per open; deliberately not persisted to config.
+    private static OverlayDestination _lastDestination = OverlayDestination.Home;
 
     private readonly double _uiScale;
 
@@ -359,33 +530,12 @@ public partial class OverlayWindow : Window
         InitializeComponent();
         DataContext = viewModel;
 
-        Tabs.Tabs = new List<TabStripItem>
-        {
-            new("Session", Icons.Play, 0),
-            new("Tools", Icons.Wrench, 1),
-            new("Power", Icons.Power, 2),
-        };
+        ConfigureTabs(showDevice: false);
         Tabs.SelectionChanged += OnTabSelectionChanged;
-        // The panel reopens on the tab the user last had selected (static: the
+        // The panel reopens on the destination the user last had selected (static: the
         // window is recreated per open). Activated covers both the fresh open and a
-        // re-summon of a still-open panel (hotkey/swipe while browsing another tab).
-        // Any open sub-view is torn down with it.
-        Activated += (_, _) =>
-        {
-            if (KeyboardOwnsFocus)
-            {
-                return;
-            }
-            LeaveFormatSubView();
-            LeaveLibraryTabsSubView();
-            LeaveCardManagerSubView();
-            LeaveArtworkSubView();
-            LeaveLaunchWrapperSubView();
-            LeaveWakeLockSubView();
-            Tabs.SelectedIndex = _lastSelectedTab < (Tabs.Tabs?.Count ?? 0)
-                ? _lastSelectedTab
-                : 0;
-        };
+        // re-summon of a still-open panel. Any nested page is torn down with it.
+        Activated += OnActivated;
 
         LibraryTabsHost.CloseRequested += LeaveLibraryTabsSubView;
         CardManagerHost.CloseRequested += LeaveCardManagerSubView;
@@ -399,18 +549,7 @@ public partial class OverlayWindow : Window
 
         KeyDown += OnKeyDown;
         Opened += OnOpened;
-        Closed += (_, _) =>
-        {
-            _closed = true;
-            _deviceLifetime.Cancel();
-            if (_deviceBridge is not null)
-            {
-                _deviceBridge.Changed -= OnDeviceChanged;
-            }
-            StopSlide();
-            ResetConfirms();
-            _deviceLifetime.Dispose();
-        };
+        Closed += OnClosed;
 
         // The overlay takes focus Game-Bar-style: the game stops receiving input
         // while the panel is open. Viable because the Steam Input lease keeps the pad
@@ -450,13 +589,61 @@ public partial class OverlayWindow : Window
     private void OnOpened(object? sender, EventArgs e)
     {
         DockToRightEdge();
-        HomeAppButton.Focus(NavigationMethod.Directional);
+        SelectDestination(_lastDestination);
+        RestoreDestinationState(focus: true);
         MaybeAutoSyncTabs();
     }
 
-    /// <summary>Selects the previous tab (LB), wrapping from the first to the
-    /// last. Suppressed while the Format sub-view owns the surface — a bumper
-    /// press must not switch tabs out from under it.</summary>
+    private void OnActivated(object? sender, EventArgs e)
+    {
+        if (KeyboardOwnsFocus)
+        {
+            return;
+        }
+
+        LeaveAllNestedPages();
+        SelectDestination(_lastDestination);
+    }
+
+    private void OnClosed(object? sender, EventArgs e)
+    {
+        RememberDestinationState(_navigation.Destination);
+        _closed = true;
+        _deviceLifetime.Cancel();
+        if (_deviceBridge is not null)
+        {
+            _deviceBridge.Changed -= OnDeviceChanged;
+        }
+        if (_performanceSource is not null)
+        {
+            _performanceSource.Changed -= OnPerformanceChanged;
+        }
+        _performanceObservation?.Dispose();
+        _performanceObservation = null;
+
+        // These page controls are window-owned. Detach every cross-control callback and
+        // invalidate asynchronous artwork loads at the same lifetime boundary.
+        Tabs.SelectionChanged -= OnTabSelectionChanged;
+        LibraryTabsHost.CloseRequested -= LeaveLibraryTabsSubView;
+        CardManagerHost.CloseRequested -= LeaveCardManagerSubView;
+        CardManagerHost.FormatRequested -= OnFormatFromCardManager;
+        ArtworkHost.CloseRequested -= LeaveArtworkSubView;
+        ArtworkHost.Close();
+        LaunchWrapperHost.CloseRequested -= LeaveLaunchWrapperSubView;
+        LaunchWrapperHost.Picked -= OnLaunchFixGamePicked;
+        LaunchWrapperHost.CustomPicked -= OnCustomLaunchGamePicked;
+        WakeLockHost.CloseRequested -= LeaveWakeLockSubView;
+        KeyDown -= OnKeyDown;
+        Opened -= OnOpened;
+        Activated -= OnActivated;
+        Closed -= OnClosed;
+        StopSlide();
+        ResetConfirms();
+        _deviceLifetime.Dispose();
+    }
+
+    /// <summary>Selects the previous destination (LB), wrapping from the first to the
+    /// last. Suppressed while a nested page owns the surface.</summary>
     internal void SelectPreviousTab()
     {
         if (!AnySubView)
@@ -465,7 +652,7 @@ public partial class OverlayWindow : Window
         }
     }
 
-    /// <summary>Selects the next tab (RB). Suppressed while a Tools sub-view is open.</summary>
+    /// <summary>Selects the next destination (RB). Suppressed while a nested page is open.</summary>
     internal void SelectNextTab()
     {
         if (!AnySubView)
@@ -474,89 +661,192 @@ public partial class OverlayWindow : Window
         }
     }
 
-    /// <summary>The controller's Back/B action consults this first: when the
-    /// Format sub-view is open, Back returns to the Tools list instead of
-    /// closing the whole overlay. A format already running keeps running — only
-    /// the view resets. Returns true when it handled the press.</summary>
+    /// <summary>Handles Back/B in strict dialog, nested-page, destination-root order.
+    /// Returns false only when Home is already at its root and the controller should
+    /// close the overlay. A format already running keeps running when its page closes.</summary>
     internal bool TryCancelSubView()
     {
-        if (InLibraryTabsSubView)
+        bool confirmationOpen = _confirmCloseLauncher || _confirmRestart || _confirmShutdown;
+        switch (_navigation.BackAction(popupOpen: false, dialogOpen: confirmationOpen))
         {
-            // The builder handles Back internally (popping a level); at its root it
-            // raises CloseRequested, which leaves the sub-view.
-            return LibraryTabsHost.Back();
+            case OverlayBackAction.CloseDialog:
+                ResetConfirms();
+                return true;
+            case OverlayBackAction.LeaveNestedPage:
+                if (InLibraryTabsSubView)
+                {
+                    // The builder handles its deeper levels; at its root it raises
+                    // CloseRequested, which pops this window's page entry.
+                    return LibraryTabsHost.Back();
+                }
+                if (InCardManagerSubView)
+                {
+                    return CardManagerHost.Back();
+                }
+                if (InArtworkSubView)
+                {
+                    return ArtworkHost.Back();
+                }
+                if (InLaunchWrapperSubView)
+                {
+                    return LaunchWrapperHost.Back();
+                }
+                if (InWakeLockSubView)
+                {
+                    return WakeLockHost.Back();
+                }
+                if (InFormatSubView)
+                {
+                    LeaveFormatSubViewToOrigin();
+                    return true;
+                }
+                _navigation.Pop();
+                return true;
+            case OverlayBackAction.ReturnHome:
+                SelectDestination(OverlayDestination.Home);
+                return true;
+            case OverlayBackAction.ClosePopup:
+                return true;
+            default:
+                return false;
         }
-        if (InCardManagerSubView)
-        {
-            return CardManagerHost.Back();
-        }
-        if (InArtworkSubView)
-        {
-            return ArtworkHost.Back();
-        }
-        if (InLaunchWrapperSubView)
-        {
-            return LaunchWrapperHost.Back();
-        }
-        if (InWakeLockSubView)
-        {
-            return WakeLockHost.Back();
-        }
-        if (!InFormatSubView)
-        {
-            return false;
-        }
-        LeaveFormatSubViewToOrigin();
-        return true;
     }
 
-    /// <summary>One selection path for touch, mouse and the LB/RB shoulder buttons:
-    /// the TabStrip owns the index, this toggles the three always-alive panels'
-    /// visibility and lands controller focus on the new tab's first row (mirrors
-    /// SettingsWindow — without it the next D-pad press would fall back to the
-    /// window's first focusable, the close button).</summary>
+    /// <summary>One selection path for touch, mouse and LB/RB: the strip carries stable
+    /// destination IDs, while this window owns page visibility and semantic focus.</summary>
     private void OnTabSelectionChanged(object? sender, TabStripSelectionChangedEventArgs e)
     {
-        // Switching tabs (touch or click can still do it) leaves any open
-        // sub-view; the format run, if one is going, continues in the manager.
-        if (InFormatSubView)
+        if (e.SelectedItem is null
+            || !Enum.IsDefined((OverlayDestination)e.SelectedItem.Tag))
         {
-            LeaveFormatSubView();
+            return;
         }
-        if (InLibraryTabsSubView)
-        {
-            LeaveLibraryTabsSubView();
-        }
-        if (InCardManagerSubView)
-        {
-            LeaveCardManagerSubView();
-        }
-        if (InArtworkSubView)
-        {
-            LeaveArtworkSubView();
-        }
-        if (InLaunchWrapperSubView)
-        {
-            LeaveLaunchWrapperSubView();
-        }
-        if (InWakeLockSubView)
-        {
-            LeaveWakeLockSubView();
-        }
-        _lastSelectedTab = e.NewIndex;
-        PanelSession.IsVisible = e.NewIndex == 0;
-        PanelTools.IsVisible = e.NewIndex == 1;
-        PanelPower.IsVisible = e.NewIndex == 2;
-        PanelDevice.IsVisible = e.NewIndex == 3 && _deviceBridge?.Snapshot().Visible is true;
 
-        var panel = e.NewIndex switch
+        OverlayDestination destination = (OverlayDestination)e.SelectedItem.Tag;
+        RememberDestinationState(_navigation.Destination);
+        LeaveAllNestedPages();
+        if (!_navigation.Select(destination))
         {
-            0 => (Control)PanelSession,
-            1 => PanelTools,
-            2 => PanelPower,
-            _ => PanelDevice,
-        };
-        FocusFirstControl(panel);
+            return;
+        }
+
+        _lastDestination = destination;
+        ShowDestination(destination, restoreFocus: true);
+    }
+
+    private void SelectDestination(OverlayDestination destination)
+    {
+        if (!_navigation.IsVisible(destination))
+        {
+            destination = OverlayDestination.Home;
+        }
+
+        int index = DestinationIndex(destination);
+        if (Tabs.SelectedIndex != index)
+        {
+            Tabs.SelectedIndex = index;
+            return;
+        }
+
+        RememberDestinationState(_navigation.Destination);
+        LeaveAllNestedPages();
+        _navigation.Select(destination);
+        _lastDestination = destination;
+        ShowDestination(destination, restoreFocus: true);
+    }
+
+    private void ShowDestination(OverlayDestination destination, bool restoreFocus)
+    {
+        PanelHome.IsVisible = destination == OverlayDestination.Home;
+        PanelSteam.IsVisible = destination == OverlayDestination.Steam;
+        PanelDevice.IsVisible = destination == OverlayDestination.Device
+            && _deviceBridge?.Snapshot().Visible is true;
+        PanelSystem.IsVisible = destination == OverlayDestination.System;
+        RestoreDestinationState(restoreFocus);
+    }
+
+    private Control DestinationPanel() => _navigation.Destination switch
+    {
+        OverlayDestination.Steam => PanelSteam,
+        OverlayDestination.Device => PanelDevice,
+        OverlayDestination.System => PanelSystem,
+        _ => PanelHome,
+    };
+
+    private void RememberDestinationState(OverlayDestination destination)
+    {
+        OverlayFocusState previous = FocusMemory.Recall(destination);
+        string? semanticKey = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement()
+            is Control { Tag: string key }
+            ? key
+            : previous.SemanticKey;
+        FocusMemory.Remember(destination, semanticKey, ContentScroller.Offset.Y);
+    }
+
+    private string? CurrentSemanticFocusKey()
+        => TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement()
+            is Control { Tag: string key }
+            ? key
+            : null;
+
+    private void RestoreRootFocus(string? semanticKey)
+    {
+        OverlayFocusState state = FocusMemory.Recall(_navigation.Destination);
+        FocusMemory.Remember(
+            _navigation.Destination,
+            semanticKey ?? state.SemanticKey,
+            state.ScrollOffset);
+        RestoreDestinationState(focus: true);
+    }
+
+    private void RestoreDestinationState(bool focus)
+    {
+        OverlayFocusState state = FocusMemory.Recall(_navigation.Destination);
+        ContentScroller.Offset = new Vector(0, state.ScrollOffset);
+        if (!focus)
+        {
+            return;
+        }
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_closed || AnySubView)
+            {
+                return;
+            }
+
+            Control panel = DestinationPanel();
+            if (state.SemanticKey is not null)
+            {
+                foreach (var visual in panel.GetVisualDescendants())
+                {
+                    if (visual is Control
+                        {
+                            Tag: string key,
+                            Focusable: true,
+                            IsEffectivelyEnabled: true,
+                            IsEffectivelyVisible: true,
+                        } target
+                        && string.Equals(key, state.SemanticKey, StringComparison.Ordinal))
+                    {
+                        target.Focus(NavigationMethod.Directional);
+                        return;
+                    }
+                }
+            }
+
+            FocusFirstControl(panel);
+        });
+    }
+
+    private void LeaveAllNestedPages()
+    {
+        LeaveFormatSubView();
+        LeaveLibraryTabsSubView();
+        LeaveCardManagerSubView();
+        LeaveArtworkSubView();
+        LeaveLaunchWrapperSubView();
+        LeaveWakeLockSubView();
     }
 
     private static void FocusFirstControl(Control panel)
@@ -652,7 +942,11 @@ public partial class OverlayWindow : Window
     {
         if (e.Key == Key.Escape)
         {
-            Dismissed?.Invoke();
+            if (!TryCancelSubView())
+            {
+                Dismissed?.Invoke();
+            }
+            e.Handled = true;
         }
     }
 
@@ -1061,8 +1355,12 @@ public partial class OverlayWindow : Window
 
     private void EnterWakeLockSubView()
     {
+        if (!_navigation.Push(OverlayPage.SystemWakeLocks, CurrentSemanticFocusKey()))
+        {
+            return;
+        }
         InWakeLockSubView = true;
-        PanelPower.IsVisible = false;
+        PanelSystem.IsVisible = false;
         WakeLockHost.IsVisible = true;
         FocusFirstControl(WakeLockHost);
     }
@@ -1074,21 +1372,24 @@ public partial class OverlayWindow : Window
             return;
         }
         InWakeLockSubView = false;
+        string? returnFocusKey = _navigation.Pop();
         SubViewClosed?.Invoke();
         WakeLockHost.IsVisible = false;
-        // Unlike the Tools sub-views this one belongs to the Power tab, so it is
-        // that panel that comes back.
-        PanelPower.IsVisible = Tabs.SelectedIndex == 2;
-        if (PanelPower.IsVisible)
+        PanelSystem.IsVisible = _navigation.Destination == OverlayDestination.System;
+        if (PanelSystem.IsVisible)
         {
-            FocusFirstControl(PanelPower);
+            RestoreRootFocus(returnFocusKey);
         }
     }
 
     private void EnterLaunchWrapperSubView()
     {
+        if (!_navigation.Push(OverlayPage.SteamLaunchConfiguration, CurrentSemanticFocusKey()))
+        {
+            return;
+        }
         InLaunchWrapperSubView = true;
-        PanelTools.IsVisible = false;
+        PanelSteam.IsVisible = false;
         LaunchWrapperHost.IsVisible = true;
         FocusFirstControl(LaunchWrapperHost);
     }
@@ -1100,6 +1401,7 @@ public partial class OverlayWindow : Window
             return;
         }
         InLaunchWrapperSubView = false;
+        string? returnFocusKey = _navigation.Pop();
         _pendingLaunchFix = null;
         // Clears the "Asking Steam…" title left on whichever button opened the
         // picker. A pick re-writes it moments later with the real outcome.
@@ -1109,10 +1411,10 @@ public partial class OverlayWindow : Window
         }
         SubViewClosed?.Invoke();
         LaunchWrapperHost.IsVisible = false;
-        PanelTools.IsVisible = Tabs.SelectedIndex == 1;
-        if (PanelTools.IsVisible)
+        PanelSteam.IsVisible = _navigation.Destination == OverlayDestination.Steam;
+        if (PanelSteam.IsVisible)
         {
-            FocusFirstControl(PanelTools);
+            RestoreRootFocus(returnFocusKey);
         }
     }
 
@@ -1208,7 +1510,7 @@ public partial class OverlayWindow : Window
     }
 
     /// <summary>Format picked from inside the Card Manager: hand the surface over to
-    /// the format panel. Both are Tools sub-views, so the old one must be left first
+    /// the format panel. Both are Steam nested pages, so the old one must be left first
     /// or two would claim the surface at once.</summary>
     private void OnFormatFromCardManager()
     {
@@ -1220,7 +1522,7 @@ public partial class OverlayWindow : Window
     }
 
     /// <summary>Whether leaving the format panel should land back in the Card Manager
-    /// rather than the Tools list, because that is where the user opened it from.</summary>
+    /// rather than the Steam root, because that is where the user opened it from.</summary>
     private bool _formatReturnsToCards;
 
     /// <summary>Cancel/Back out of the format panel, returning to whichever surface
@@ -1238,8 +1540,12 @@ public partial class OverlayWindow : Window
 
     private void EnterCardManagerSubView()
     {
+        if (!_navigation.Push(OverlayPage.SteamCardManager, CurrentSemanticFocusKey()))
+        {
+            return;
+        }
         InCardManagerSubView = true;
-        PanelTools.IsVisible = false;
+        PanelSteam.IsVisible = false;
         CardManagerHost.IsVisible = true;
         FocusFirstControl(CardManagerHost);
     }
@@ -1251,19 +1557,24 @@ public partial class OverlayWindow : Window
             return;
         }
         InCardManagerSubView = false;
+        string? returnFocusKey = _navigation.Pop();
         SubViewClosed?.Invoke();
         CardManagerHost.IsVisible = false;
-        PanelTools.IsVisible = Tabs.SelectedIndex == 1;
-        if (PanelTools.IsVisible)
+        PanelSteam.IsVisible = _navigation.Destination == OverlayDestination.Steam;
+        if (PanelSteam.IsVisible)
         {
-            FocusFirstControl(PanelTools);
+            RestoreRootFocus(returnFocusKey);
         }
     }
 
     private void EnterLibraryTabsSubView()
     {
+        if (!_navigation.Push(OverlayPage.SteamLibraryTabs, CurrentSemanticFocusKey()))
+        {
+            return;
+        }
         InLibraryTabsSubView = true;
-        PanelTools.IsVisible = false;
+        PanelSteam.IsVisible = false;
         LibraryTabsHost.IsVisible = true;
         FocusFirstControl(LibraryTabsHost);
     }
@@ -1275,12 +1586,13 @@ public partial class OverlayWindow : Window
             return;
         }
         InLibraryTabsSubView = false;
+        string? returnFocusKey = _navigation.Pop();
         SubViewClosed?.Invoke();
         LibraryTabsHost.IsVisible = false;
-        PanelTools.IsVisible = Tabs.SelectedIndex == 1;
-        if (PanelTools.IsVisible)
+        PanelSteam.IsVisible = _navigation.Destination == OverlayDestination.Steam;
+        if (PanelSteam.IsVisible)
         {
-            FocusFirstControl(PanelTools);
+            RestoreRootFocus(returnFocusKey);
         }
     }
 
@@ -1293,8 +1605,12 @@ public partial class OverlayWindow : Window
 
     private void EnterArtworkSubView()
     {
+        if (!_navigation.Push(OverlayPage.SteamArtwork, CurrentSemanticFocusKey()))
+        {
+            return;
+        }
         InArtworkSubView = true;
-        PanelTools.IsVisible = false;
+        PanelSteam.IsVisible = false;
         ArtworkHost.IsVisible = true;
         FocusFirstControl(ArtworkHost);
     }
@@ -1306,13 +1622,14 @@ public partial class OverlayWindow : Window
             return;
         }
         InArtworkSubView = false;
+        string? returnFocusKey = _navigation.Pop();
         SubViewClosed?.Invoke();
         ArtworkHost.Close();
         ArtworkHost.IsVisible = false;
-        PanelTools.IsVisible = Tabs.SelectedIndex == 1;
-        if (PanelTools.IsVisible)
+        PanelSteam.IsVisible = _navigation.Destination == OverlayDestination.Steam;
+        if (PanelSteam.IsVisible)
         {
-            FocusFirstControl(PanelTools);
+            RestoreRootFocus(returnFocusKey);
         }
     }
 
@@ -1380,8 +1697,12 @@ public partial class OverlayWindow : Window
 
     private void EnterFormatSubView()
     {
+        if (!_navigation.Push(OverlayPage.SteamStorageFormat, CurrentSemanticFocusKey()))
+        {
+            return;
+        }
         InFormatSubView = true;
-        PanelTools.IsVisible = false;
+        PanelSteam.IsVisible = false;
         PanelFormat.IsVisible = true;
         FocusFirstControl(PanelFormat);
     }
@@ -1393,6 +1714,7 @@ public partial class OverlayWindow : Window
             return;
         }
         InFormatSubView = false;
+        string? returnFocusKey = _navigation.Pop();
         _pendingTarget = null;
         _formatReturnsToCards = false;
         // Close the format-name peer keyboard on the way out, matching the other
@@ -1400,10 +1722,10 @@ public partial class OverlayWindow : Window
         // and keep writing back to the now-hidden name field.
         SubViewClosed?.Invoke();
         PanelFormat.IsVisible = false;
-        PanelTools.IsVisible = Tabs.SelectedIndex == 1;
-        if (PanelTools.IsVisible)
+        PanelSteam.IsVisible = _navigation.Destination == OverlayDestination.Steam;
+        if (PanelSteam.IsVisible)
         {
-            FocusFirstControl(PanelTools);
+            RestoreRootFocus(returnFocusKey);
         }
     }
 
@@ -1422,6 +1744,13 @@ public partial class OverlayWindow : Window
         if (e.Source is Control control && control is not ScrollViewer)
         {
             control.BringIntoView();
+            if (!AnySubView && control.Tag is string semanticKey)
+            {
+                FocusMemory.Remember(
+                    _navigation.Destination,
+                    semanticKey,
+                    ContentScroller.Offset.Y);
+            }
         }
     }
 

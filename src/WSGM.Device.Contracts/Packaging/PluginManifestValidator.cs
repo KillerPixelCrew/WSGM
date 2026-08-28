@@ -19,7 +19,7 @@ public static class PluginManifestValidator
     public const int MinSupportedSchemaVersion = 1;
 
     /// <summary>Highest manifest schema version this build understands.</summary>
-    public const int MaxSupportedSchemaVersion = 1;
+    public const int MaxSupportedSchemaVersion = 2;
 
     /// <summary>
     /// Returns every rule violation in <paramref name="manifest"/>. An empty result means the
@@ -59,6 +59,15 @@ public static class PluginManifestValidator
         ValidateCount(errors, "dependencies", manifest.Dependencies.Count, ManifestLimits.MaxDependencies);
         ValidateCount(errors, "riskDeclarations", manifest.RiskDeclarations.Count,
             ManifestLimits.MaxRiskDeclarations);
+        IReadOnlyList<GlyphProfilePackageReference> glyphProfiles = manifest.GlyphProfiles ?? [];
+        ValidateCount(errors, "glyphProfiles", glyphProfiles.Count,
+            ManifestLimits.MaxGlyphProfiles);
+
+        if (manifest.SchemaVersion < 2 && glyphProfiles.Count > 0)
+        {
+            Add(errors, "glyphProfiles", ManifestValidationCode.FieldRequiresNewerSchema,
+                "Physical glyph profiles require package manifest schema version 2.");
+        }
 
         if (manifest.Devices.Count == 0)
         {
@@ -67,6 +76,26 @@ public static class PluginManifestValidator
         }
 
         ValidateProvenance(errors, "provenance", manifest.Provenance);
+
+        HashSet<string> glyphProfileIds = NewIdSet();
+        for (int i = 0; i < glyphProfiles.Count; i++)
+        {
+            string path = $"glyphProfiles[{i}]";
+            GlyphProfilePackageReference profile = glyphProfiles[i];
+            if (profile is null)
+            {
+                Add(errors, path, ManifestValidationCode.MissingField,
+                    "Glyph profile reference is required.");
+                continue;
+            }
+            ValidateIdentifier(errors, $"{path}.profileId", profile.ProfileId);
+            ValidateContentHash(errors, $"{path}.manifestSha256", profile.ManifestSha256);
+            if (!glyphProfileIds.Add(profile.ProfileId))
+            {
+                Add(errors, $"{path}.profileId", ManifestValidationCode.DuplicateIdentifier,
+                    $"Glyph profile ID '{profile.ProfileId}' is used more than once.");
+            }
+        }
 
         HashSet<string> deviceIds = NewIdSet();
         for (int i = 0; i < manifest.Devices.Count; i++)
@@ -80,7 +109,7 @@ public static class PluginManifestValidator
                     $"Device definition ID '{device.Id}' is used more than once.");
             }
 
-            ValidateDevice(errors, path, device);
+            ValidateDevice(errors, path, device, manifest.SchemaVersion, glyphProfileIds);
         }
 
         HashSet<string> dependencyIds = NewIdSet();
@@ -103,7 +132,9 @@ public static class PluginManifestValidator
     private static void ValidateDevice(
         List<ManifestValidationError> errors,
         string path,
-        DeviceDefinition device)
+        DeviceDefinition device,
+        int schemaVersion,
+        HashSet<string> glyphProfileIds)
     {
         ValidateIdentifier(errors, $"{path}.id", device.Id);
         ValidateDisplayText(errors, $"{path}.displayName", device.DisplayName);
@@ -116,6 +147,22 @@ public static class PluginManifestValidator
         ValidateCount(errors, $"{path}.modules", device.Modules.Count, ManifestLimits.MaxModules);
         ValidateCount(errors, $"{path}.capabilities", device.Capabilities.Count,
             ManifestLimits.MaxCapabilities);
+
+        if (device.GlyphProfileId is { Length: > 0 } glyphProfileId)
+        {
+            ValidateIdentifier(errors, $"{path}.glyphProfileId", glyphProfileId);
+            if (schemaVersion < 2)
+            {
+                Add(errors, $"{path}.glyphProfileId",
+                    ManifestValidationCode.FieldRequiresNewerSchema,
+                    "An exact-device glyph profile requires package manifest schema version 2.");
+            }
+            else if (!glyphProfileIds.Contains(glyphProfileId))
+            {
+                Add(errors, $"{path}.glyphProfileId", ManifestValidationCode.UnresolvedReference,
+                    $"Device references undeclared glyph profile '{glyphProfileId}'.");
+            }
+        }
 
         HashSet<string> endpointIds = NewIdSet();
         for (int i = 0; i < device.UsbEndpoints.Count; i++)
@@ -358,6 +405,31 @@ public static class PluginManifestValidator
         {
             Add(errors, path, ManifestValidationCode.InvalidHexIdentifier,
                 $"'{value}' must be exactly four uppercase hexadecimal digits, for example '0DB0'.");
+        }
+    }
+
+    private static void ValidateContentHash(
+        List<ManifestValidationError> errors,
+        string path,
+        string value)
+    {
+        bool valid = value is { Length: 64 };
+        if (valid)
+        {
+            foreach (char character in value)
+            {
+                if (!((character is >= '0' and <= '9') || (character is >= 'a' and <= 'f')))
+                {
+                    valid = false;
+                    break;
+                }
+            }
+        }
+
+        if (!valid)
+        {
+            Add(errors, path, ManifestValidationCode.InvalidContentHash,
+                "Content hash must be exactly 64 lowercase hexadecimal characters.");
         }
     }
 

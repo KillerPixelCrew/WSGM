@@ -1,6 +1,10 @@
 # Device contract compatibility policy
 
-Frozen at protocol version `1`, schema fingerprint `wsgm-device-v1`.
+Frozen at protocol version `1`, schema fingerprint `wsgm-device-v2`.
+
+Fingerprint `wsgm-device-v2` adds the plugin-owned physical-glyph profile schema, strict asset
+normalizer, and package-manifest schema version `2`. The device wire protocol remains version `1`;
+the fingerprint moves because the shared contract assembly gained public shapes, as required below.
 
 Everything in `WSGM.Device.Contracts` is consumed by two sides that ship separately: WSGM itself,
 and plugin packages built against a released SDK. A published plugin keeps running against a WSGM

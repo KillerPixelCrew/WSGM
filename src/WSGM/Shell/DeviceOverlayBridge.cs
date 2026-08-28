@@ -10,10 +10,35 @@ using WSGM.Device.Contracts.Lifecycle;
 
 namespace WSGM.Shell;
 
-/// <summary>One presentation-only semantic capability row for the provisional Device surface.</summary>
+/// <summary>Stable final-overlay section selected from a semantic capability role.</summary>
+internal enum DeviceOverlaySection
+{
+    Overview,
+    PowerAndThermals,
+    ControllerAndMotion,
+    OemAndLighting,
+    Diagnostics,
+}
+
+/// <summary>Structured capability health rendered without parsing diagnostic prose.</summary>
+internal enum DeviceOverlayStatus
+{
+    None,
+    Available,
+    Warning,
+    Faulted,
+    Stale,
+    ExternallyOwned,
+    Unsupported,
+    Progress,
+}
+
+/// <summary>One presentation-only semantic capability row for the final Device destination.</summary>
 internal sealed record DeviceOverlayCapability(
     string CapabilityId,
     string? InstanceId,
+    DeviceOverlaySection Section,
+    DeviceOverlayStatus Status,
     string Title,
     string Description,
     string TrailingText,
@@ -45,6 +70,9 @@ internal interface IDeviceOverlaySource : IDisposable
 internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 {
     private readonly DeviceCoordinator _coordinator;
+    private readonly object _retryGate = new();
+    private Timer? _retryTimer;
+    private DateTimeOffset? _scheduledRetryAt;
     private bool _disposed;
 
     internal DeviceOverlayBridge(DeviceCoordinator coordinator)
@@ -66,12 +94,48 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             .Take(128)
             .Select(ToOverlayCapability)
             .ToList();
+        DateTimeOffset? retryAt = _coordinator.ManualRetryAvailableAt;
+        ScheduleRetryRefresh(retryAt);
+        if (retryAt is not null)
+        {
+            bool available = DateTimeOffset.UtcNow >= retryAt.Value;
+            capabilities.Add(new DeviceOverlayCapability(
+                "wsgm.device.retry",
+                null,
+                DeviceOverlaySection.Diagnostics,
+                available ? DeviceOverlayStatus.Warning : DeviceOverlayStatus.Progress,
+                "Retry device integration",
+                available
+                    ? "Starts one manual recovery attempt for the quarantined package"
+                    : $"Retry available at {retryAt.Value.ToLocalTime():t}",
+                available ? "READY" : "WAIT",
+                available,
+                null));
+        }
+
+        foreach (DevicePackageCandidate rejected in _coordinator.Candidates
+            .Where(candidate => !candidate.Eligible)
+            .Take(16))
+        {
+            capabilities.Add(new DeviceOverlayCapability(
+                $"wsgm.package.rejected.{rejected.Manifest?.Id ?? "unknown"}",
+                rejected.Manifest?.Version,
+                DeviceOverlaySection.Diagnostics,
+                DeviceOverlayStatus.Unsupported,
+                rejected.Manifest?.Id ?? "Rejected device package",
+                rejected.Detail ?? "Package did not pass activation policy.",
+                rejected.RejectionCode ?? "REJECTED",
+                false,
+                null));
+        }
         DevicePackageCandidate? staged = _coordinator.StagedPackageUpdate;
         if (staged?.Manifest is { } stagedManifest)
         {
             capabilities.Insert(0, new DeviceOverlayCapability(
                 "wsgm.package.apply-update",
                 null,
+                DeviceOverlaySection.Diagnostics,
+                DeviceOverlayStatus.Available,
                 "Apply staged device update",
                 "Runs full device deactivation, then starts the verified replacement",
                 stagedManifest.Version,
@@ -85,12 +149,21 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             capabilities.Insert(staged is null ? 0 : 1, new DeviceOverlayCapability(
                 "wsgm.package.rollback",
                 null,
+                DeviceOverlaySection.Diagnostics,
+                DeviceOverlayStatus.Warning,
                 "Roll back device package",
                 "Runs full device deactivation and pins the retained previous version",
                 rollbackManifest.Version,
                 CanInvoke: true,
                 NextValue: null));
         }
+
+        capabilities = capabilities
+            .Select((capability, index) => (Capability: capability, Index: index))
+            .OrderBy(item => item.Capability.Section)
+            .ThenBy(item => item.Index)
+            .Select(item => item.Capability)
+            .ToList();
         string detail = package is null
             ? state is DeviceCycleState.Detected or DeviceCycleState.Passive
                 ? "No compatible verified device package is active."
@@ -125,6 +198,12 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             return;
         }
 
+        if (capability.CapabilityId is "wsgm.device.retry")
+        {
+            await _coordinator.RetryAfterQuarantineAsync(cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         await _coordinator.ExecuteCapabilityAsync(
             capability.CapabilityId,
             capability.InstanceId,
@@ -141,6 +220,12 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         }
 
         _disposed = true;
+        lock (_retryGate)
+        {
+            _retryTimer?.Dispose();
+            _retryTimer = null;
+            _scheduledRetryAt = null;
+        }
         _coordinator.StateChanged -= OnStateChanged;
         _coordinator.CapabilityViewsChanged -= OnCapabilityViewsChanged;
         _coordinator.ConfigurationChanged -= OnConfigurationChanged;
@@ -151,6 +236,43 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     private void OnCapabilityViewsChanged(IReadOnlyList<DeviceCapabilityView> _) => Changed?.Invoke();
 
     private void OnConfigurationChanged() => Changed?.Invoke();
+
+    private void ScheduleRetryRefresh(DateTimeOffset? retryAt)
+    {
+        lock (_retryGate)
+        {
+            if (_disposed || _scheduledRetryAt == retryAt)
+            {
+                return;
+            }
+
+            _retryTimer?.Dispose();
+            _retryTimer = null;
+            _scheduledRetryAt = retryAt;
+            if (retryAt is null || retryAt <= DateTimeOffset.UtcNow)
+            {
+                return;
+            }
+
+            TimeSpan due = retryAt.Value - DateTimeOffset.UtcNow;
+            _retryTimer = new Timer(_ =>
+            {
+                bool notify;
+                lock (_retryGate)
+                {
+                    _retryTimer?.Dispose();
+                    _retryTimer = null;
+                    _scheduledRetryAt = null;
+                    notify = !_disposed;
+                }
+
+                if (notify)
+                {
+                    Changed?.Invoke();
+                }
+            }, null, due, Timeout.InfiniteTimeSpan);
+        }
+    }
 
     private static DeviceOverlayCapability ToOverlayCapability(DeviceCapabilityView view)
     {
@@ -179,11 +301,78 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         return new DeviceOverlayCapability(
             descriptor.CapabilityId,
             descriptor.InstanceId,
+            SectionFor(descriptor.Role),
+            StatusFor(projection),
             DisplayLabel(descriptor.Display),
             description,
             FormatValue(displayed, descriptor.Unit),
             canInvoke,
             descriptor.SupportsAction ? null : next);
+    }
+
+    private static DeviceOverlaySection SectionFor(CapabilityRole role) => role switch
+    {
+        CapabilityRole.ScenarioMode => DeviceOverlaySection.Overview,
+        CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit
+            or CapabilityRole.PowerFastLimit or CapabilityRole.PowerPeakLimit
+            or CapabilityRole.FanMode or CapabilityRole.FanDuty
+            or CapabilityRole.FanTargetRpm or CapabilityRole.FanCurve
+            or CapabilityRole.FanMeasuredRpm or CapabilityRole.ChargeLimit
+            or CapabilityRole.ChargeProtectionMode or CapabilityRole.ChargeBypass
+            or CapabilityRole.Telemetry => DeviceOverlaySection.PowerAndThermals,
+        CapabilityRole.ControllerSource or CapabilityRole.MotionSource
+            or CapabilityRole.HapticSink => DeviceOverlaySection.ControllerAndMotion,
+        CapabilityRole.OemControl or CapabilityRole.LightingPower
+            or CapabilityRole.LightingBrightness or CapabilityRole.LightingZoneColor
+            or CapabilityRole.LightingEffect or CapabilityRole.LightingEffectSpeed
+            or CapabilityRole.GenericToggle or CapabilityRole.GenericRange
+            or CapabilityRole.GenericChoice or CapabilityRole.GenericAction
+            or CapabilityRole.GenericReadOnly => DeviceOverlaySection.OemAndLighting,
+        _ => DeviceOverlaySection.Overview,
+    };
+
+    private static DeviceOverlayStatus StatusFor(CapabilityProjection projection)
+    {
+        if (projection.Progress is CommandProgress.Pending)
+        {
+            return DeviceOverlayStatus.Progress;
+        }
+
+        if (projection.Progress is CommandProgress.Failed
+            || projection.State.Quality is HardwareStateQuality.Faulted
+            || projection.State.Reason?.Code is CapabilityReasonCode.TransportFaulted)
+        {
+            return DeviceOverlayStatus.Faulted;
+        }
+
+        if (projection.Progress is CommandProgress.Uncertain || projection.DesiredValueOutOfRange)
+        {
+            return DeviceOverlayStatus.Warning;
+        }
+
+        if (projection.State.Quality is HardwareStateQuality.Stale
+            || projection.State.Reason?.Code is CapabilityReasonCode.GenerationChanged
+                or CapabilityReasonCode.ObservationExpired)
+        {
+            return DeviceOverlayStatus.Stale;
+        }
+
+        if (projection.State.Reason?.Code is CapabilityReasonCode.ResourceConflict
+            or CapabilityReasonCode.ResourceReleased)
+        {
+            return DeviceOverlayStatus.ExternallyOwned;
+        }
+
+        if (projection.State.Reason?.Code is CapabilityReasonCode.Unsupported
+            or CapabilityReasonCode.FirmwareNotVerified
+            or CapabilityReasonCode.PrerequisiteMissing)
+        {
+            return DeviceOverlayStatus.Unsupported;
+        }
+
+        return projection.State.Available
+            ? DeviceOverlayStatus.Available
+            : DeviceOverlayStatus.Warning;
     }
 
     private static CapabilityValue? NextValue(
@@ -336,6 +525,8 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 new DeviceOverlayCapability(
                     "preview.power.tdp",
                     null,
+                    DeviceOverlaySection.PowerAndThermals,
+                    DeviceOverlayStatus.Available,
                     "TDP",
                     "Verified readback · resets on device power loss",
                     $"{_tdp} W",
@@ -348,6 +539,8 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 new DeviceOverlayCapability(
                     "preview.fan.mode",
                     null,
+                    DeviceOverlaySection.PowerAndThermals,
+                    DeviceOverlayStatus.Available,
                     "Fan mode",
                     "Observed · stored on device",
                     fanModes[_fanMode],
@@ -360,6 +553,8 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 new DeviceOverlayCapability(
                     "preview.lighting",
                     null,
+                    DeviceOverlaySection.OemAndLighting,
+                    DeviceOverlayStatus.Available,
                     "Lighting",
                     "Verified readback · stored on device",
                     _lighting ? "ON" : "OFF",
@@ -372,6 +567,8 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 new DeviceOverlayCapability(
                     "preview.temperature.cpu",
                     null,
+                    DeviceOverlaySection.PowerAndThermals,
+                    DeviceOverlayStatus.Available,
                     "CPU temperature",
                     "Observed · read only",
                     "54 °C",
@@ -380,6 +577,8 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 new DeviceOverlayCapability(
                     "preview.rumble",
                     null,
+                    DeviceOverlaySection.ControllerAndMotion,
+                    DeviceOverlayStatus.Available,
                     "Rumble",
                     "Short bounded preview action",
                     "RUN",

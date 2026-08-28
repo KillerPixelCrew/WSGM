@@ -113,11 +113,10 @@ public sealed record DevicePackageDiscoveryOptions
     /// <summary>Builds production roots without creating them.</summary>
     public static DevicePackageDiscoveryOptions Production(bool developerMode)
     {
-        string baseDirectory = AppContext.BaseDirectory;
         string localRoot = Path.Combine(Log.Directory, "DevicePlugins");
         return new DevicePackageDiscoveryOptions
         {
-            ReviewedRoot = Path.Combine(baseDirectory, "DevicePlugins", "reviewed"),
+            ReviewedRoot = DeviceInstallationPaths.ReviewedPackageRoot,
             SignedExternalRoot = Path.Combine(localRoot, "signed"),
             CommunityRoot = Path.Combine(localRoot, "community"),
             DeveloperRoot = Path.Combine(localRoot, "developer"),

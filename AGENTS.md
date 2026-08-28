@@ -97,6 +97,7 @@ re-verification is grounds for refusing a change on its own.
 | `docs\steam-input.md` | The Steam Input lease, the proxy DLL, hook installation, controller blocking |
 | `docs\elevation.md` | Self-elevation, de-elevation, the scheduled-task mechanism, `WSGM.Launch` |
 | `docs\steam-cef.md` | Anything driving Steam over its CEF port: library folders, injected tabs, the page badge, launch options, download-queue sorting |
+| `docs\rtss.md` | RTSS discovery/profile control, shared frame-limit state, and overlay/QAM performance projections |
 | `docs\sd-cards.md` | Card formatting, card libraries, card identity and the card manager |
 | `docs\overlay-and-input.md` | The quick-access panel, taskbar surfaces, SDL/gamepad ownership, touch and raw input |
 | `docs\power-and-display.md` | Display profiles and HDR, mute-while-screen-off, keep-awake and wake-lock reporting |

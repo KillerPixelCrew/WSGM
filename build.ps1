@@ -114,6 +114,7 @@ Write-Host "== Publishing isolated device components ==" -ForegroundColor Cyan
     -RuntimeIdentifier win-x64 `
     -Version $version `
     -NoRestore
+& "$root\eng\prepare-reviewed-packages.ps1" -OutputRoot "$root\publish"
 & "$root\eng\assert-component-staging.ps1" -OutputRoot "$root\publish"
 
 $iscc = @(

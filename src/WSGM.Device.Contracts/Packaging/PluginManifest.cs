@@ -49,6 +49,13 @@ public sealed record PluginManifest
     /// <summary>Classes of hardware risk the package declares, for review and user disclosure.</summary>
     public IReadOnlyList<RiskDeclaration> RiskDeclarations { get; init; } = [];
 
+    /// <summary>Hash-pinned physical glyph profiles carried by a schema-version 2 package.</summary>
+    /// <remarks>
+    /// The package layout is fixed by WSGM from the manifest hash. No plugin-supplied path or URL is
+    /// represented here, and the referenced profile repeats the hash lock for every artwork asset.
+    /// </remarks>
+    public IReadOnlyList<GlyphProfilePackageReference> GlyphProfiles { get; init; } = [];
+
     /// <summary>Source and licensing provenance for the package and its bundled assets.</summary>
     public required PackageProvenance Provenance { get; init; }
 }
@@ -84,6 +91,24 @@ public sealed record DeviceDefinition
 
     /// <summary>Semantic capability IDs this device definition may publish.</summary>
     public IReadOnlyList<string> Capabilities { get; init; } = [];
+
+    /// <summary>Package glyph profile verified for this exact device definition.</summary>
+    /// <remarks>
+    /// This is a stable identifier only. Automatic selection additionally requires the loaded
+    /// profile to be <c>ExactDeviceVerified</c> for this definition; a missing, unverified, or
+    /// mismatched profile fails open to native Steam glyphs.
+    /// </remarks>
+    public string? GlyphProfileId { get; init; }
+}
+
+/// <summary>A package-owned physical glyph profile addressed by immutable manifest hash.</summary>
+public sealed record GlyphProfilePackageReference
+{
+    /// <summary>Stable package-scoped profile identifier.</summary>
+    public required string ProfileId { get; init; }
+
+    /// <summary>SHA-256 of the canonical profile manifest bytes.</summary>
+    public required string ManifestSha256 { get; init; }
 }
 
 /// <summary>

@@ -141,6 +141,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         DeviceControllerTargetIndex = (int)_config.DeviceIntegration.ControllerTarget;
         DeviceGlyphSelectionIndex = (int)_config.DeviceIntegration.GlyphSelection;
         DeviceDiagnosticLevelIndex = (int)_config.DeviceIntegration.DiagnosticLevel;
+        PerformanceEnabled = _config.Performance.Enabled;
         CefEnabled = _config.Cef.Enabled;
         CefLibraryTabs = _config.Cef.LibraryTabs;
         CefCardManager = _config.Cef.CardManager;
@@ -504,7 +505,15 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private bool _cefNativeQuickAccess = true;
     private bool _cefDownloadKeepAwake = true;
     private bool _cefDownloadQueueSort = true;
+    private bool _performanceEnabled;
     private bool _muteWhileDisplayOff;
+
+    /// <summary>Gets or sets the shared RTSS performance integration master switch.</summary>
+    public bool PerformanceEnabled
+    {
+        get => _performanceEnabled;
+        set { _performanceEnabled = value; Raise(nameof(PerformanceEnabled)); }
+    }
 
     /// <summary>Gets or sets the master Steam CEF integration switch. Off closes the
     /// debug port, injects nothing, and hides the sub-toggles below and the overlay
@@ -1181,6 +1190,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             DeviceDiagnosticLevelIndex,
             0,
             Enum.GetValues<DeviceDiagnosticLevel>().Length - 1);
+        config.Performance.Enabled = PerformanceEnabled;
         if (QuickSetupAnswered)
         {
             // Stamped only on a save that actually persists the answer, so a failed

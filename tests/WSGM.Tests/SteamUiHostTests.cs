@@ -123,6 +123,240 @@ public sealed class SteamUiAssetTests
         Assert.DoesNotContain("filesystem", source, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("performanceProfile", source, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void NativeQamComponentsUseValveFieldsWithoutPlatformOrDeviceSpoofing()
+    {
+        var source = SteamUiAssetCatalog.LoadNativeQamBootstrap();
+
+        Assert.Contains("DialogSlider_Container", source, StringComparison.Ordinal);
+        Assert.Contains("DropDownField", source, StringComparison.Ordinal);
+        Assert.Contains("PanelSectionRow", source, StringComparison.Ordinal);
+        Assert.Contains("LocalizeString", source, StringComparison.Ordinal);
+        Assert.Contains("wsgm.native-qam.tdp", source, StringComparison.Ordinal);
+        Assert.Contains("wsgm.native-qam.frame-limit", source, StringComparison.Ordinal);
+        Assert.Contains("wsgm.native-qam.overlay-level", source, StringComparison.Ordinal);
+        Assert.Contains("wsgm.native-qam.controller-target", source, StringComparison.Ordinal);
+        Assert.Contains("setPrimaryLimit", source, StringComparison.Ordinal);
+        Assert.Contains("setFrameLimit", source, StringComparison.Ordinal);
+        Assert.Contains("setOverlayLevel", source, StringComparison.Ordinal);
+        Assert.Contains("setControllerTarget", source, StringComparison.Ordinal);
+        Assert.Contains("persistence: \"automatic\"", source, StringComparison.Ordinal);
+        Assert.Contains("latestStates.set(envelope.patchId, envelope.payload)", source,
+            StringComparison.Ordinal);
+        Assert.Contains("callback(latestStates.get(patchId))", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("force_deck_perf_tab", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("IS_STEAMOS =", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("PLATFORM =", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("SteamClient.SteamOSManager", source, StringComparison.Ordinal);
+    }
+}
+
+public sealed class NativeQamComponentPatchTests
+{
+    [Fact]
+    public async Task TdpPatchRequiresEveryUniqueStructuralMatchBeforeInstall()
+    {
+        await using var transport = new NativeQamComponentTransport
+        {
+            TdpAvailabilityCount = 2,
+        };
+        await using var manager = new SteamUiPatchManager(transport);
+        manager.Register(new NativeQamTdpPatch());
+
+        await manager.SynchronizeAsync();
+
+        SteamUiPatchSnapshot snapshot = Assert.Single(manager.GetSnapshots());
+        Assert.Equal(SteamUiPatchState.Incompatible, snapshot.State);
+        Assert.Equal(0, transport.InstallCount);
+    }
+
+    [Fact]
+    public async Task PerformancePatchRequiresUniqueNativeActionModuleBeforeInstall()
+    {
+        await using var transport = new NativeQamComponentTransport
+        {
+            PerformanceActionsCount = 2,
+        };
+        await using var manager = new SteamUiPatchManager(transport);
+        manager.Register(new NativeQamOverlayLevelPatch());
+
+        await manager.SynchronizeAsync();
+
+        SteamUiPatchSnapshot snapshot = Assert.Single(manager.GetSnapshots());
+        Assert.Equal(SteamUiPatchState.Incompatible, snapshot.State);
+        Assert.Equal(0, transport.InstallCount);
+    }
+
+    [Fact]
+    public async Task NativeQamComponentsHaveIndependentVerifiedIdentities()
+    {
+        await using var transport = new NativeQamComponentTransport();
+        await using var manager = new SteamUiPatchManager(transport);
+        manager.Register(new NativeQamTdpPatch());
+        manager.Register(new NativeQamFrameLimitPatch());
+        manager.Register(new NativeQamOverlayLevelPatch());
+        manager.Register(new NativeQamControllerTargetPatch());
+
+        await manager.SynchronizeAsync();
+
+        IReadOnlyDictionary<string, SteamUiPatchSnapshot> snapshots = manager.GetSnapshots()
+            .ToDictionary(snapshot => snapshot.Id);
+        Assert.Equal(SteamUiPatchState.Verified, snapshots["wsgm.native-qam.tdp"].State);
+        Assert.Equal(
+            SteamUiPatchState.Verified,
+            snapshots["wsgm.native-qam.frame-limit"].State);
+        Assert.Equal(
+            SteamUiPatchState.Verified,
+            snapshots["wsgm.native-qam.overlay-level"].State);
+        Assert.Equal(
+            SteamUiPatchState.Verified,
+            snapshots["wsgm.native-qam.controller-target"].State);
+        Assert.Equal(4, transport.InstallCount);
+        Assert.Equal(4, snapshots.Values.Select(snapshot => snapshot.Fingerprint).Distinct().Count());
+    }
+
+    [Fact]
+    public async Task DisablingTdpLeavesControllerTargetRegistered()
+    {
+        await using var transport = new NativeQamComponentTransport();
+        await using var manager = new SteamUiPatchManager(transport);
+        manager.Register(new NativeQamTdpPatch());
+        manager.Register(new NativeQamControllerTargetPatch());
+        await manager.SynchronizeAsync();
+
+        manager.SetPatchEnabled("wsgm.native-qam.tdp", false);
+        await manager.SynchronizeAsync();
+
+        IReadOnlyDictionary<string, SteamUiPatchSnapshot> snapshots = manager.GetSnapshots()
+            .ToDictionary(snapshot => snapshot.Id);
+        Assert.Equal(SteamUiPatchState.Disabled, snapshots["wsgm.native-qam.tdp"].State);
+        Assert.Equal(
+            SteamUiPatchState.Verified,
+            snapshots["wsgm.native-qam.controller-target"].State);
+        Assert.Contains("tdp", transport.RemovedKinds);
+        Assert.DoesNotContain("controllerTarget", transport.RemovedKinds);
+    }
+
+    [Fact]
+    public async Task DisablingFrameLimitLeavesOverlayLevelRegistered()
+    {
+        await using var transport = new NativeQamComponentTransport();
+        await using var manager = new SteamUiPatchManager(transport);
+        manager.Register(new NativeQamFrameLimitPatch());
+        manager.Register(new NativeQamOverlayLevelPatch());
+        await manager.SynchronizeAsync();
+
+        manager.SetPatchEnabled("wsgm.native-qam.frame-limit", false);
+        await manager.SynchronizeAsync();
+
+        IReadOnlyDictionary<string, SteamUiPatchSnapshot> snapshots = manager.GetSnapshots()
+            .ToDictionary(snapshot => snapshot.Id);
+        Assert.Equal(
+            SteamUiPatchState.Disabled,
+            snapshots["wsgm.native-qam.frame-limit"].State);
+        Assert.Equal(
+            SteamUiPatchState.Verified,
+            snapshots["wsgm.native-qam.overlay-level"].State);
+        Assert.Contains("frameLimit", transport.RemovedKinds);
+        Assert.DoesNotContain("overlayLevel", transport.RemovedKinds);
+    }
+
+    private sealed class NativeQamComponentTransport : ISteamUiTransport
+    {
+        public event EventHandler<SteamUiNotification>? NotificationReceived;
+
+        public event EventHandler<SteamUiTransportSnapshot>? GenerationChanged;
+
+        internal int TdpAvailabilityCount { get; init; } = 1;
+
+        internal int PerformanceActionsCount { get; init; } = 1;
+
+        internal int InstallCount { get; private set; }
+
+        internal List<string> RemovedKinds { get; } = [];
+
+        public ValueTask<IAsyncDisposable> SubscribeAsync(
+            SteamUiTargetRole role,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<IAsyncDisposable>(new Lease());
+
+        public Task<SteamUiEvaluationResult> EvaluateAsync(
+            SteamUiTargetRole role,
+            string expression,
+            TimeSpan timeout,
+            CancellationToken cancellationToken = default)
+        {
+            string value;
+            if (expression.Contains("wsgm_native_tdp_probe_", StringComparison.Ordinal))
+            {
+                value = $$"""
+                    {"tdpAvailability":{{TdpAvailabilityCount}},"tdpPresentation":1,"performanceRoot":1,"nativeFields":1,"nativeLayout":1,"localization":1,"react":1}
+                    """;
+            }
+            else if (expression.Contains(
+                "wsgm_native_controller_target_probe_",
+                StringComparison.Ordinal))
+            {
+                value = """
+                    {"controllerPresentation":1,"performanceRoot":1,"nativeFields":1,"nativeLayout":1,"localization":1,"react":1}
+                    """;
+            }
+            else if (expression.Contains("wsgm_native_frame_limit_probe_", StringComparison.Ordinal)
+                || expression.Contains("wsgm_native_overlay_level_probe_", StringComparison.Ordinal))
+            {
+                value = $$"""
+                    {"performanceActions":{{PerformanceActionsCount}},"performanceRoot":1,"nativeFields":1,"nativeLayout":1,"localization":1,"react":1}
+                    """;
+            }
+            else if (expression.Contains("nativeComponents.install", StringComparison.Ordinal))
+            {
+                InstallCount++;
+                value = "{\"ok\":true}";
+            }
+            else if (expression.Contains("nativeComponents.remove", StringComparison.Ordinal))
+            {
+                string kind = expression.Contains("controllerTarget", StringComparison.Ordinal)
+                    ? "controllerTarget"
+                    : expression.Contains("frameLimit", StringComparison.Ordinal)
+                        ? "frameLimit"
+                        : expression.Contains("overlayLevel", StringComparison.Ordinal)
+                            ? "overlayLevel"
+                            : "tdp";
+                RemovedKinds.Add(kind);
+                value = "{\"ok\":true}";
+            }
+            else
+            {
+                value = "{\"ok\":true}";
+            }
+
+            return Task.FromResult(new SteamUiEvaluationResult(
+                true,
+                value,
+                null,
+                new(1, 1, 1, 1, 1, 1)));
+        }
+
+        public IReadOnlyList<SteamUiTransportSnapshot> GetSnapshots() =>
+        [
+            new(
+                SteamUiTargetRole.SharedJsContext,
+                SteamUiTransportHealth.Ready,
+                new(1, 1, 1, 1, 1, 1),
+                "fixture-target",
+                null,
+                0,
+                1),
+        ];
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        private sealed class Lease : IAsyncDisposable
+        {
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+    }
 }
 
 public sealed class SteamUiCdpConnectionTests

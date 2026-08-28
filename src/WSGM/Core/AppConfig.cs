@@ -531,11 +531,46 @@ public sealed class NativeTabConfig
     public string Title { get; set; } = "";
 }
 
+/// <summary>Persistent shared RTSS policy projected into overlay and native QAM.</summary>
+public sealed class PerformanceConfig
+{
+    /// <summary>Whether WSGM may observe and change supported RTSS profile properties.</summary>
+    public bool Enabled { get; set; }
+
+    /// <summary>Global RTSS frame limit; zero disables limiting.</summary>
+    public int? FrameLimit { get; set; }
+
+    /// <summary>Global performance-overlay level when the adapter advertises a verified mapping.</summary>
+    public int? OverlayLevel { get; set; }
+
+    /// <summary>Per-application overrides keyed by WSGM's canonical application identity.</summary>
+    public List<PerformanceApplicationConfig> Applications { get; set; } = [];
+}
+
+/// <summary>One persistent RTSS application-profile override.</summary>
+public sealed class PerformanceApplicationConfig
+{
+    /// <summary>Canonical WSGM application identity.</summary>
+    public string ApplicationId { get; set; } = string.Empty;
+
+    /// <summary>Exact executable profile name understood by RTSS.</summary>
+    public string RtssProfileName { get; set; } = string.Empty;
+
+    /// <summary>Application frame-limit override, or null to inherit global policy.</summary>
+    public int? FrameLimit { get; set; }
+
+    /// <summary>Application overlay-level override, or null to inherit global policy.</summary>
+    public int? OverlayLevel { get; set; }
+}
+
 /// <summary>Persisted user settings and exact Windows-state snapshots for WSGM.</summary>
 public sealed class AppConfig
 {
     /// <summary>Optional device-plugin platform, ownership, and desired-state settings.</summary>
     public DeviceIntegrationConfig DeviceIntegration { get; set; } = new();
+
+    /// <summary>Optional RTSS policy, independent from Device Integration.</summary>
+    public PerformanceConfig Performance { get; set; } = new();
 
     /// <summary>Restart Steam automatically when it exits. Steam itself is located
     /// via the registry (see Core.Steam) — there is nothing else to configure.</summary>
@@ -830,6 +865,8 @@ public sealed class CefConfig
 [JsonSerializable(typeof(DeviceIntegrationConfig))]
 [JsonSerializable(typeof(DeviceDesiredProfile))]
 [JsonSerializable(typeof(DeviceCapabilityPreference))]
+[JsonSerializable(typeof(PerformanceConfig))]
+[JsonSerializable(typeof(PerformanceApplicationConfig))]
 [JsonSerializable(typeof(FilterNode))]
 [JsonSourceGenerationOptions(WriteIndented = true, UseStringEnumConverter = true)]
 public partial class ConfigJsonContext : JsonSerializerContext

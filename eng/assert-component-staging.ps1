@@ -72,6 +72,7 @@ $secretPattern = '(?i)(?:password|passwd|api[_-]?key|access[_-]?token|client[_-]
 foreach ($packageRoot in $packageRoots) {
     Require-File ([IO.Path]::GetRelativePath($outputFull, (Join-Path $packageRoot.FullName "plugin.wsgm.json")))
     Require-File ([IO.Path]::GetRelativePath($outputFull, (Join-Path $packageRoot.FullName "package-files.wsgm.json")))
+    Require-File ([IO.Path]::GetRelativePath($outputFull, (Join-Path $packageRoot.FullName "installed.wsgm.json")))
 
     $manifest = Get-Content -LiteralPath (Join-Path $packageRoot.FullName "plugin.wsgm.json") -Raw |
         ConvertFrom-Json -Depth 32
@@ -112,7 +113,9 @@ foreach ($packageRoot in $packageRoots) {
 
     $hashRecord = Get-Content -LiteralPath (Join-Path $packageRoot.FullName "package-files.wsgm.json") `
         -Raw | ConvertFrom-Json -Depth 16
-    $actualFiles = @($files | Where-Object { $_.Name -cne "package-files.wsgm.json" } | ForEach-Object {
+    $actualFiles = @($files | Where-Object {
+        $_.Name -notin @("package-files.wsgm.json", "installed.wsgm.json")
+    } | ForEach-Object {
         [IO.Path]::GetRelativePath($packageRoot.FullName, $_.FullName).Replace("\", "/")
     } | Sort-Object)
     $recordedFiles = @($hashRecord.files | ForEach-Object { [string]$_.path } | Sort-Object)
@@ -124,6 +127,31 @@ foreach ($packageRoot in $packageRoots) {
         $actualHash = (Get-FileHash -LiteralPath $filePath -Algorithm SHA256).Hash
         if ($actualHash -cne [string]$entry.sha256) {
             throw "Plugin package hash mismatch: $($entry.path)"
+        }
+    }
+
+    $installRecord = Get-Content -LiteralPath (Join-Path $packageRoot.FullName "installed.wsgm.json") `
+        -Raw | ConvertFrom-Json -Depth 32
+    if ([int]$installRecord.schemaVersion -ne 1 -or
+        [string]$installRecord.packageId -cne [string]$manifest.id -or
+        [string]$installRecord.version -cne [string]$manifest.version -or
+        [int]$installRecord.trustTier -ne 0) {
+        throw "Reviewed install grant identity is invalid: $($packageRoot.FullName)"
+    }
+    $grantedFiles = @($installRecord.fileHashes.psobject.Properties.Name | Sort-Object)
+    $installedFiles = @($files | Where-Object { $_.Name -cne "installed.wsgm.json" } |
+        ForEach-Object {
+            [IO.Path]::GetRelativePath($packageRoot.FullName, $_.FullName).Replace("\", "/")
+        } | Sort-Object)
+    if (Compare-Object -ReferenceObject $installedFiles -DifferenceObject $grantedFiles) {
+        throw "Reviewed install grant does not cover its exact file set: $($packageRoot.FullName)"
+    }
+    foreach ($property in $installRecord.fileHashes.psobject.Properties) {
+        $actualHash = (Get-FileHash `
+            -LiteralPath (Join-Path $packageRoot.FullName $property.Name) `
+            -Algorithm SHA256).Hash
+        if ($actualHash -cne [string]$property.Value) {
+            throw "Reviewed install grant hash mismatch: $($property.Name)"
         }
     }
 }

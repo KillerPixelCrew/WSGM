@@ -43,7 +43,7 @@ internal sealed class DeviceHostProcess : IDisposable
         string stateEventName)
     {
         ArgumentNullException.ThrowIfNull(candidate);
-        string hostDirectory = Path.Combine(AppContext.BaseDirectory, "DeviceHost");
+        string hostDirectory = DeviceInstallationPaths.DeviceHostRoot;
         string executable = Path.Combine(hostDirectory, "WSGM.DeviceHost.exe");
         if (!File.Exists(executable))
         {

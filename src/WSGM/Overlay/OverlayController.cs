@@ -22,6 +22,7 @@ public sealed class OverlayController : IDisposable
     private readonly SessionModes _modes;
     private readonly KeepAwakeService? _keepAwake;
     private readonly IDeviceOverlaySource? _device;
+    private readonly IPerformanceOverlaySource? _performance;
     private readonly HotkeyService _hotkey;
     private readonly GamepadService _gamepad = new();
     private readonly GamepadChordWatcher _chordWatcher;
@@ -64,13 +65,15 @@ public sealed class OverlayController : IDisposable
     }
 
     internal OverlayController(AppConfig config, SteamMonitor? monitor, SessionModes modes,
-        KeepAwakeService? keepAwake, bool previewOnly, IDeviceOverlaySource? device)
+        KeepAwakeService? keepAwake, bool previewOnly, IDeviceOverlaySource? device,
+        IPerformanceOverlaySource? performance = null)
     {
         _config = config;
         _monitor = monitor;
         _modes = modes;
         _keepAwake = keepAwake;
         _device = device;
+        _performance = performance;
         _previewOnly = previewOnly;
         if (_keepAwake is not null)
         {
@@ -239,8 +242,7 @@ public sealed class OverlayController : IDisposable
         });
     }
 
-    /// <summary>The overlay's Back/B action: cancel an open Tools sub-view first
-    /// (a format keeps running), otherwise close the overlay.</summary>
+    /// <summary>Routes Back/B through dialog, nested-page, destination-root, then close priority.</summary>
     private void OnOverlayBack()
     {
         if (_overlay?.TryCancelSubView() == true)
@@ -695,6 +697,7 @@ public sealed class OverlayController : IDisposable
         _overlayViewModel = vm;
         _overlay = new OverlayWindow(vm, UiScale());
         _overlay.AttachDeviceBridge(_device);
+        _overlay.AttachPerformanceSource(_performance);
         _overlay.HomeAppRequested += () => { _suppressFocusRestore = true; CloseOverlay(); _modes.StartOrFocusSteam(); };
         _overlay.DesktopRequested += () =>
         {

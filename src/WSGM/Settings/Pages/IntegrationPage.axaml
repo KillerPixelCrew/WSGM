@@ -55,6 +55,19 @@
                         <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefSdFormat}" VerticalAlignment="Center" />
                     </Grid>
                 </Border>
+
+                <Border Classes="section-header">
+                    <TextBlock Text="PERFORMANCE" />
+                </Border>
+                <Border Classes="setting-row alt">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel VerticalAlignment="Center" Spacing="1">
+                            <TextBlock Text="RTSS performance controls" Classes="setting-title" />
+                            <TextBlock Text="Use the verified RTSS profile API for the shared frame limiter in the overlay and native Quick Access. RTSS remains optional and independently installed." Classes="caption" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding PerformanceEnabled}" VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
             </StackPanel>
 
             <StackPanel Grid.Column="2" IsVisible="{Binding CefEnabled}">

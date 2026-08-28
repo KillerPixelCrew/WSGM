@@ -6,7 +6,9 @@
     prior &&
     prior.version === config.version &&
     prior.contextGeneration === config.contextGeneration &&
-    prior.documentGeneration === config.documentGeneration
+    prior.documentGeneration === config.documentGeneration &&
+    prior.nativeComponents &&
+    typeof prior.nativeComponents.install === "function"
   ) {
     return JSON.stringify({ ok: true, reused: true, version: prior.version });
   }
@@ -14,6 +16,8 @@
 
   const pending = new Map();
   const subscribers = new Map();
+  const latestStates = new Map();
+  const nativeComponents = createNativeComponentHost();
   let nextSequence = 0;
   let disposed = false;
 
@@ -66,6 +70,7 @@
     let set = subscribers.get(patchId);
     if (!set) subscribers.set(patchId, (set = new Set()));
     set.add(callback);
+    if (latestStates.has(patchId)) callback(latestStates.get(patchId));
     return () => set.delete(callback);
   };
   const deliver = (envelope) => {
@@ -87,8 +92,10 @@
       return true;
     }
     if (envelope.type === "state") {
+      if (!Object.hasOwn(config.allowed, envelope.patchId)) return false;
+      latestStates.set(envelope.patchId, envelope.payload);
       const set = subscribers.get(envelope.patchId);
-      if (!set) return false;
+      if (!set) return true;
       for (const callback of [...set]) {
         try {
           callback(envelope.payload);
@@ -101,12 +108,14 @@
   const dispose = (reason) => {
     if (disposed) return;
     disposed = true;
+    nativeComponents.dispose();
     for (const item of pending.values()) {
       clearTimeout(item.timer);
       item.reject(new Error(reason || "WSGM bridge disposed"));
     }
     pending.clear();
     subscribers.clear();
+    latestStates.clear();
   };
 
   const bridge = Object.freeze({
@@ -117,6 +126,11 @@
     subscribe,
     deliver,
     dispose,
+    nativeComponents: Object.freeze({
+      install: nativeComponents.install,
+      remove: nativeComponents.remove,
+      status: nativeComponents.status,
+    }),
   });
   Object.defineProperty(window, config.namespace, {
     value: bridge,
@@ -125,4 +139,633 @@
     writable: false,
   });
   return JSON.stringify({ ok: true, reused: false, version: config.version });
+
+  function createNativeComponentHost() {
+    const registrations = new Map();
+    const listeners = new Set();
+    const actionGenerations = new Map();
+    let runtime;
+    let controlRuntime;
+    let tdpControl;
+    let frameLimitControl;
+    let overlayLevelControl;
+    let controllerControl;
+    let performanceRoot;
+    let originalUseMemo;
+    let patchedUseMemo;
+    let disposedHost = false;
+
+    const definitions = Object.freeze({
+      tdp: Object.freeze({
+        patchId: "wsgm.native-qam.tdp",
+        command: "setPrimaryLimit",
+      }),
+      frameLimit: Object.freeze({
+        patchId: "wsgm.native-qam.frame-limit",
+        command: "setFrameLimit",
+      }),
+      overlayLevel: Object.freeze({
+        patchId: "wsgm.native-qam.overlay-level",
+        command: "setOverlayLevel",
+      }),
+      controllerTarget: Object.freeze({
+        patchId: "wsgm.native-qam.controller-target",
+        command: "setControllerTarget",
+      }),
+    });
+
+    const nextActionGeneration = (patchId) => {
+      const next = (actionGenerations.get(patchId) || 0) + 1;
+      actionGenerations.set(patchId, next);
+      return next;
+    };
+    const notify = () => {
+      for (const listener of [...listeners]) {
+        try {
+          listener();
+        } catch {}
+      }
+    };
+    const subscribeHost = (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    };
+    const uniqueFactory = (requiredTokens) => {
+      const matches = Object.entries(runtime.m).filter(([, factory]) => {
+        const source = String(factory);
+        return requiredTokens.every((token) => source.includes(token));
+      });
+      return matches.length === 1 ? matches[0] : null;
+    };
+    const uniqueFunction = (exports, requiredTokens) => {
+      const matches = Object.values(exports).filter(
+        (value) =>
+          typeof value === "function" &&
+          requiredTokens.every((token) => String(value).includes(token)),
+      );
+      return matches.length === 1 ? matches[0] : null;
+    };
+    const uniqueObject = (exports, predicate) => {
+      const matches = Object.values(exports).filter(
+        (value) => value && typeof value === "object" && predicate(value),
+      );
+      return matches.length === 1 ? matches[0] : null;
+    };
+    const getRuntime = () => {
+      let found;
+      window.webpackChunksteamui.push([
+        ["wsgm_native_components_" + Date.now()],
+        {},
+        (value) => {
+          found = value;
+        },
+      ]);
+      return found;
+    };
+    const createControlRuntime = () => {
+      const reactFactory = uniqueFactory([
+        "react.transitional.element",
+        "useState",
+        "cloneElement",
+        "createElement",
+      ]);
+      const fieldsFactory = uniqueFactory([
+        "DialogSlider_Container",
+        "DropDownField",
+        "SliderField",
+      ]);
+      const layoutFactory = uniqueFactory([
+        "PanelSectionTitle",
+        "PanelSectionRow",
+        "spinner",
+      ]);
+      const localizationFactory = uniqueFactory([
+        "Attempting to localize token",
+        "Unable to find localization token",
+        "LocalizeString",
+      ]);
+      if (!reactFactory || !fieldsFactory || !layoutFactory || !localizationFactory) return null;
+
+      const react = runtime(reactFactory[0]);
+      const fields = runtime(fieldsFactory[0]);
+      const layout = runtime(layoutFactory[0]);
+      const localization = runtime(localizationFactory[0]);
+      const slider = uniqueFunction(fields, [
+        "onChangeComplete",
+        "notchCount",
+        "valueSuffix",
+        "explainerTitle",
+      ]);
+      const dropdown = uniqueFunction(fields, [
+        "contextMenuPositionOptions",
+        "childrenContainerWidth",
+        "menuLabel",
+      ]);
+      const section = uniqueFunction(layout, ["PanelSectionTitle", "spinner"]);
+      const row = uniqueObject(
+        layout,
+        (value) => value.$$typeof && typeof value.render === "function",
+      );
+      const localize = uniqueFunction(localization, [
+        "LocalizeString(e)",
+        "void 0===r?e",
+      ]);
+      if (!slider || !dropdown || !section || !row || !localize) return null;
+      return { react, slider, dropdown, section, row, localize };
+    };
+    const normalizeText = (value) =>
+      typeof value === "string" ? value.slice(0, 240) : "";
+    const normalizeTdpState = (value) => {
+      if (!value || typeof value !== "object" || typeof value.available !== "boolean") return null;
+      if (!value.available) {
+        return Object.freeze({
+          available: false,
+          minimumWatts: null,
+          maximumWatts: null,
+          stepWatts: null,
+          desiredWatts: null,
+          observedWatts: null,
+          progress: normalizeText(value.progress),
+          statusText: normalizeText(value.statusText),
+        });
+      }
+      const min = Number(value.minimumWatts);
+      const max = Number(value.maximumWatts);
+      const step = Number(value.stepWatts);
+      const desired = typeof value.desiredWatts === "number" ? value.desiredWatts : null;
+      const observed = typeof value.observedWatts === "number" ? value.observedWatts : null;
+      if (
+        !Number.isInteger(min) ||
+        !Number.isInteger(max) ||
+        !Number.isInteger(step) ||
+        min < 1 ||
+        max > 200 ||
+        min >= max ||
+        step < 1 ||
+        step > max - min ||
+        (desired !== null && (!Number.isInteger(desired) || desired < min || desired > max)) ||
+        (observed !== null && (!Number.isInteger(observed) || observed < min || observed > max))
+      )
+        return null;
+      return Object.freeze({
+        available: value.available,
+        minimumWatts: min,
+        maximumWatts: max,
+        stepWatts: step,
+        desiredWatts: desired,
+        observedWatts: observed,
+        progress: normalizeText(value.progress),
+        statusText: normalizeText(value.statusText),
+      });
+    };
+    const normalizeControllerState = (value) => {
+      if (!value || typeof value !== "object" || typeof value.available !== "boolean") return null;
+      if (!Array.isArray(value.targets) || value.targets.length > 8) return null;
+      const targets = [];
+      const ids = new Set();
+      for (const item of value.targets) {
+        if (!item || typeof item !== "object") return null;
+        const id = normalizeText(item.id);
+        const label = normalizeText(item.label);
+        if (!/^[a-z0-9._-]{1,64}$/.test(id) || !label || ids.has(id)) return null;
+        ids.add(id);
+        targets.push(Object.freeze({ id, label, available: item.available !== false }));
+      }
+      const selectedTarget = normalizeText(value.selectedTarget);
+      const observedTarget = normalizeText(value.observedTarget);
+      if (
+        (selectedTarget && !ids.has(selectedTarget)) ||
+        (observedTarget && !ids.has(observedTarget))
+      )
+        return null;
+      return Object.freeze({
+        available: value.available,
+        targets: Object.freeze(targets),
+        selectedTarget,
+        observedTarget,
+        progress: normalizeText(value.progress),
+        statusText: normalizeText(value.statusText),
+        applicationRestartRequired: value.applicationRestartRequired === true,
+      });
+    };
+    const validEnum = (value, allowed) =>
+      typeof value === "string" && allowed.includes(value) ? value : null;
+    const normalizePerformanceCommon = (value) => {
+      if (!value || typeof value !== "object" || typeof value.available !== "boolean") return null;
+      const readbackQuality = validEnum(value.readbackQuality, [
+        "unavailable",
+        "verified",
+        "applied-unverified",
+        "stale",
+      ]);
+      const policyLayer = validEnum(value.policyLayer, ["none", "global", "application"]);
+      const adapterAvailability = validEnum(value.adapterAvailability, [
+        "unknown",
+        "not-installed",
+        "not-running",
+        "incompatible",
+        "adapter-unavailable",
+        "ready",
+        "degraded",
+      ]);
+      const progress = validEnum(value.progress, [
+        "idle",
+        "queued",
+        "applying",
+        "succeeded-verified",
+        "applied-unverified",
+        "rejected",
+        "timed-out",
+        "indeterminate",
+        "failed",
+        "external-change",
+      ]);
+      if (!readbackQuality || !policyLayer || !adapterAvailability || !progress) return null;
+      return Object.freeze({
+        available: value.available,
+        supportsReadback: value.supportsReadback === true,
+        readbackQuality,
+        policyLayer,
+        applicationTargetAvailable: value.applicationTargetAvailable === true,
+        targetProfile: normalizeText(value.targetProfile),
+        adapterAvailability,
+        progress,
+        fault: normalizeText(value.fault),
+        statusText: normalizeText(value.statusText),
+      });
+    };
+    const normalizeFrameLimitState = (value) => {
+      const common = normalizePerformanceCommon(value);
+      if (!common) return null;
+      const minimumFps = value.minimumFps === null ? null : Number(value.minimumFps);
+      const maximumFps = value.maximumFps === null ? null : Number(value.maximumFps);
+      const desiredFps = value.desiredFps === null ? null : Number(value.desiredFps);
+      const observedFps = value.observedFps === null ? null : Number(value.observedFps);
+      if (
+        (minimumFps === null) !== (maximumFps === null) ||
+        (minimumFps !== null &&
+          (!Number.isInteger(minimumFps) ||
+            !Number.isInteger(maximumFps) ||
+            minimumFps < 0 ||
+            maximumFps < minimumFps ||
+            maximumFps > 1000)) ||
+        (desiredFps !== null &&
+          (!Number.isInteger(desiredFps) ||
+            minimumFps === null ||
+            desiredFps < minimumFps ||
+            desiredFps > maximumFps)) ||
+        (observedFps !== null &&
+          (!Number.isInteger(observedFps) ||
+            minimumFps === null ||
+            observedFps < minimumFps ||
+            observedFps > maximumFps)) ||
+        (common.available && minimumFps === null)
+      )
+        return null;
+      return Object.freeze({ ...common, minimumFps, maximumFps, desiredFps, observedFps });
+    };
+    const normalizeOverlayLevelState = (value) => {
+      const common = normalizePerformanceCommon(value);
+      if (!common || !Array.isArray(value.levels) || value.levels.length > 5) return null;
+      const levels = [];
+      for (const item of value.levels) {
+        const level = Number(item);
+        if (!Number.isInteger(level) || level < 0 || level > 4 || levels.includes(level)) return null;
+        levels.push(level);
+      }
+      levels.sort((left, right) => left - right);
+      const desiredLevel = value.desiredLevel === null ? null : Number(value.desiredLevel);
+      const observedLevel = value.observedLevel === null ? null : Number(value.observedLevel);
+      if (
+        (desiredLevel !== null &&
+          (!Number.isInteger(desiredLevel) || !levels.includes(desiredLevel))) ||
+        (observedLevel !== null &&
+          (!Number.isInteger(observedLevel) || !levels.includes(observedLevel))) ||
+        (common.available && levels.length === 0)
+      )
+        return null;
+      return Object.freeze({
+        ...common,
+        levels: Object.freeze(levels),
+        desiredLevel,
+        observedLevel,
+      });
+    };
+    const useSemanticState = (controlRuntime, kind, normalize) => {
+      const definition = definitions[kind];
+      const [state, setState] = controlRuntime.react.useState(null);
+      controlRuntime.react.useEffect(
+        () => subscribe(definition.patchId, (value) => setState(normalize(value))),
+        [],
+      );
+      return state;
+    };
+    const isBusy = (progress) =>
+      progress === "queued" || progress === "applying" || progress === "replacing";
+    const createTdpControl = (controlRuntime) =>
+      function WsgmNativeTdpControl() {
+        const state = useSemanticState(controlRuntime, "tdp", normalizeTdpState);
+        if (!state || !state.available) return null;
+        const value = state.observedWatts ?? state.desiredWatts;
+        if (value === null) return null;
+        const definition = definitions.tdp;
+        const setValue = (watts) => {
+          if (!Number.isInteger(watts) || watts < state.minimumWatts || watts > state.maximumWatts)
+            return;
+          void request(
+            definition.patchId,
+            definition.command,
+            { watts },
+            nextActionGeneration(definition.patchId),
+          ).catch(() => {});
+        };
+        return controlRuntime.react.createElement(controlRuntime.slider, {
+          label: controlRuntime.localize("#QuickAccess_Tab_Perf_TDPLimitEnabled"),
+          explainer: controlRuntime.localize("#QuickAccess_Tab_Perf_TDPLimit_Explainer"),
+          explainerTitle: controlRuntime.localize("#QuickAccess_Tab_Perf_TDPLimitEnabled"),
+          valueSuffix: controlRuntime.localize("#QuickAccess_Tab_Perf_TDPLimitUnits"),
+          min: state.minimumWatts,
+          max: state.maximumWatts,
+          step: state.stepWatts,
+          value,
+          showValue: true,
+          showBookendLabels: true,
+          disabled: isBusy(state.progress),
+          description: state.statusText || undefined,
+          onChange: () => {},
+          onChangeComplete: setValue,
+        });
+      };
+    const createControllerControl = (controlRuntime) =>
+      function WsgmNativeControllerTargetControl() {
+        const state = useSemanticState(
+          controlRuntime,
+          "controllerTarget",
+          normalizeControllerState,
+        );
+        if (!state || !state.available) return null;
+        const options = state.targets
+          .filter((target) => target.available)
+          .map((target) => ({ data: target.id, label: target.label }));
+        const selected = state.observedTarget || state.selectedTarget;
+        if (!options.some((option) => option.data === selected)) return null;
+        const definition = definitions.controllerTarget;
+        const setTarget = (option) => {
+          if (!option || !options.some((candidate) => candidate.data === option.data)) return;
+          void request(
+            definition.patchId,
+            definition.command,
+            { target: option.data },
+            nextActionGeneration(definition.patchId),
+          ).catch(() => {});
+        };
+        const restart = state.applicationRestartRequired ? " Restart the application to rebind." : "";
+        return controlRuntime.react.createElement(controlRuntime.dropdown, {
+          label: controlRuntime.localize("#QuickAccess_Tab_Settings_Section_Controller_Title"),
+          rgOptions: options,
+          selectedOption: selected,
+          onChange: setTarget,
+          disabled: isBusy(state.progress) || options.length < 2,
+          description: (state.statusText || "") + restart || undefined,
+          layout: "below",
+        });
+      };
+    const createFrameLimitControl = (controlRuntime) =>
+      function WsgmNativeFrameLimitControl() {
+        const state = useSemanticState(
+          controlRuntime,
+          "frameLimit",
+          normalizeFrameLimitState,
+        );
+        if (!state || !state.available) return null;
+        const value = state.observedFps ?? state.desiredFps;
+        if (value === null) return null;
+        const definition = definitions.frameLimit;
+        const setValue = (nextValue) => {
+          if (
+            !Number.isInteger(nextValue) ||
+            nextValue < state.minimumFps ||
+            nextValue > state.maximumFps
+          )
+            return;
+          void request(
+            definition.patchId,
+            definition.command,
+            { value: nextValue, persistence: "automatic" },
+            nextActionGeneration(definition.patchId),
+          ).catch(() => {});
+        };
+        return controlRuntime.react.createElement(controlRuntime.slider, {
+          label: controlRuntime.localize("#QuickAccess_Tab_Perf_FramerateLimit"),
+          min: state.minimumFps,
+          max: state.maximumFps,
+          step: 1,
+          value,
+          valueSuffix: " FPS",
+          showValue: true,
+          showBookendLabels: true,
+          disabled: isBusy(state.progress),
+          description: state.fault || state.statusText || undefined,
+          onChange: () => {},
+          onChangeComplete: setValue,
+        });
+      };
+    const createOverlayLevelControl = (controlRuntime) =>
+      function WsgmNativeOverlayLevelControl() {
+        const state = useSemanticState(
+          controlRuntime,
+          "overlayLevel",
+          normalizeOverlayLevelState,
+        );
+        if (!state || !state.available) return null;
+        const selected = state.observedLevel ?? state.desiredLevel;
+        if (selected === null || !state.levels.includes(selected)) return null;
+        const options = state.levels.map((level) => ({
+          data: level,
+          label: level === 0 ? "Off" : level === 1 ? "On" : String(level),
+        }));
+        const definition = definitions.overlayLevel;
+        const setValue = (option) => {
+          if (!option || !state.levels.includes(option.data)) return;
+          void request(
+            definition.patchId,
+            definition.command,
+            { value: option.data, persistence: "automatic" },
+            nextActionGeneration(definition.patchId),
+          ).catch(() => {});
+        };
+        return controlRuntime.react.createElement(controlRuntime.dropdown, {
+          label: controlRuntime.localize("#QuickAccess_Tab_Perf_PerfOverlayLevel"),
+          rgOptions: options,
+          selectedOption: selected,
+          onChange: setValue,
+          disabled: isBusy(state.progress) || options.length < 2,
+          description: state.fault || state.statusText || undefined,
+          layout: "below",
+        });
+      };
+    const appendControls = (controlRuntime, tree) => {
+      const controls = [];
+      if (registrations.has("tdp")) {
+        controls.push(
+          controlRuntime.react.createElement(
+            controlRuntime.row,
+            { key: "wsgm-native-qam-tdp" },
+            controlRuntime.react.createElement(tdpControl),
+          ),
+        );
+      }
+      if (registrations.has("frameLimit")) {
+        controls.push(
+          controlRuntime.react.createElement(
+            controlRuntime.row,
+            { key: "wsgm-native-qam-frame-limit" },
+            controlRuntime.react.createElement(frameLimitControl),
+          ),
+        );
+      }
+      if (registrations.has("overlayLevel")) {
+        controls.push(
+          controlRuntime.react.createElement(
+            controlRuntime.row,
+            { key: "wsgm-native-qam-overlay-level" },
+            controlRuntime.react.createElement(overlayLevelControl),
+          ),
+        );
+      }
+      if (registrations.has("controllerTarget")) {
+        controls.push(
+          controlRuntime.react.createElement(
+            controlRuntime.row,
+            { key: "wsgm-native-qam-controller-target" },
+            controlRuntime.react.createElement(controllerControl),
+          ),
+        );
+      }
+      if (!controls.length) return tree;
+      let inserted = false;
+      const visit = (element, depth) => {
+        if (inserted || depth > 8 || !controlRuntime.react.isValidElement(element)) return element;
+        if (element.type === controlRuntime.section) {
+          inserted = true;
+          const children = controlRuntime.react.Children.toArray(element.props.children);
+          return controlRuntime.react.cloneElement(element, {}, ...children, ...controls);
+        }
+        const children = controlRuntime.react.Children.toArray(element.props.children);
+        if (!children.length) return element;
+        let changed = false;
+        const next = children.map((child) => {
+          const replacement = visit(child, depth + 1);
+          changed ||= replacement !== child;
+          return replacement;
+        });
+        return changed ? controlRuntime.react.cloneElement(element, {}, ...next) : element;
+      };
+      return visit(tree, 0);
+    };
+    const ensurePatched = () => {
+      if (
+        controlRuntime &&
+        performanceRoot &&
+        patchedUseMemo &&
+        controlRuntime.react.useMemo === patchedUseMemo
+      )
+        return true;
+      runtime = getRuntime();
+      if (!runtime || !runtime.m) return false;
+      const performanceFactory = uniqueFactory([
+        "#QuickAccess_Tab_Perf_Common_Settings",
+        "#QuickAccess_Tab_Perf_BatteryTimeRemaining",
+        "TS.ON_FRAME",
+      ]);
+      controlRuntime = createControlRuntime();
+      if (!performanceFactory || !controlRuntime) return false;
+      performanceRoot = uniqueFunction(runtime(performanceFactory[0]), [
+        "TS.ON_FRAME",
+        "return",
+      ]);
+      if (!performanceRoot) return false;
+      tdpControl = createTdpControl(controlRuntime);
+      frameLimitControl = createFrameLimitControl(controlRuntime);
+      overlayLevelControl = createOverlayLevelControl(controlRuntime);
+      controllerControl = createControllerControl(controlRuntime);
+      function WsgmNativeQamPerformanceRoot(props) {
+        const [, setRevision] = controlRuntime.react.useState(0);
+        controlRuntime.react.useEffect(
+          () => subscribeHost(() => setRevision((value) => value + 1)),
+          [],
+        );
+        return appendControls(controlRuntime, performanceRoot(props));
+      }
+      originalUseMemo = controlRuntime.react.useMemo;
+      patchedUseMemo = function WsgmNativeQamUseMemo(factory, dependencies) {
+        const value = originalUseMemo(factory, dependencies);
+        if (!Array.isArray(value)) return value;
+        const matches = value.filter(
+          (item) =>
+            item &&
+            typeof item === "object" &&
+            controlRuntime.react.isValidElement(item.panel) &&
+            item.panel.type === performanceRoot,
+        );
+        if (matches.length !== 1) return value;
+        return value.map((item) => {
+          if (item !== matches[0]) return item;
+          const panel = controlRuntime.react.createElement(WsgmNativeQamPerformanceRoot, {
+            ...item.panel.props,
+            key: item.panel.key ?? "wsgm-native-qam-performance-root",
+          });
+          return { ...item, panel };
+        });
+      };
+      controlRuntime.react.useMemo = patchedUseMemo;
+      return controlRuntime.react.useMemo === patchedUseMemo;
+    };
+    const install = (kind) => {
+      if (disposedHost || !Object.hasOwn(definitions, kind))
+        return { ok: false, error: "component is not allowlisted" };
+      if (!ensurePatched())
+        return { ok: false, error: "native performance root was already initialized or incompatible" };
+      registrations.set(kind, definitions[kind].patchId);
+      notify();
+      return { ok: true, kind, registered: true, hostVersion: 1 };
+    };
+    const remove = (kind) => {
+      if (!Object.hasOwn(definitions, kind)) return { ok: true, absent: true };
+      registrations.delete(kind);
+      actionGenerations.delete(definitions[kind].patchId);
+      notify();
+      if (
+        !registrations.size &&
+        controlRuntime &&
+        originalUseMemo &&
+        controlRuntime.react.useMemo === patchedUseMemo
+      ) {
+        controlRuntime.react.useMemo = originalUseMemo;
+      }
+      return { ok: true, kind, registered: false };
+    };
+    const status = (kind) => ({
+      ok: Object.hasOwn(definitions, kind),
+      kind,
+      registered: registrations.has(kind),
+      hostVersion: 1,
+      performanceRootWrapped:
+        !!controlRuntime && !!patchedUseMemo && controlRuntime.react.useMemo === patchedUseMemo,
+    });
+    const disposeHostResources = () => {
+      disposedHost = true;
+      registrations.clear();
+      actionGenerations.clear();
+      notify();
+      listeners.clear();
+      if (
+        controlRuntime &&
+        originalUseMemo &&
+        controlRuntime.react.useMemo === patchedUseMemo
+      )
+        controlRuntime.react.useMemo = originalUseMemo;
+    };
+    return { install, remove, status, dispose: disposeHostResources };
+  }
 })()

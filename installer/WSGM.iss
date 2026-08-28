@@ -16,6 +16,9 @@
 #define AppURL "https://github.com/NightHammer1000/WSGM"
 #define PublishRoot "..\publish"
 #define AppPublishDir "..\publish\App"
+#define DeviceHostPublishDir "..\publish\DeviceHost"
+#define DevicePackagesPublishDir "..\publish\Packages"
+#define DeviceToolsPublishDir "..\publish\Tools"
 
 [Setup]
 ; New product identity (renamed from OpenFSE) — a fresh AppId so the old OpenFSE
@@ -54,6 +57,19 @@ MinVersion=10.0.22000
 Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "german"; MessagesFile: "compiler:Languages\German.isl"
 
+[Types]
+; Core-only is first and therefore the unattended/default choice. Installing the
+; Device Integration bytes is still inert: config defaults off and no DeviceHost
+; starts until the user explicitly enables the feature in WSGM Settings.
+Name: "core"; Description: "Core WSGM"
+Name: "full"; Description: "Core WSGM + Device Integration"
+Name: "custom"; Description: "Custom"; Flags: iscustom
+
+[Components]
+Name: "core"; Description: "Core WSGM"; Types: core full custom; Flags: fixed
+Name: "device"; Description: "Device Integration runtime and reviewed device packages (remains disabled until enabled in WSGM Settings)"; Types: full
+Name: "devicelab"; Description: "Device Lab and offline device-development tools"; Types: custom
+
 [CustomMessages]
 english.SteamMissing=Steam was not found on this PC.%n%nWSGM is Steam-exclusive and boots straight into Steam Big Picture. Install Steam from steampowered.com, sign in once, and then run this setup again.
 german.SteamMissing=Steam wurde auf diesem PC nicht gefunden.%n%nWSGM funktioniert ausschließlich mit Steam und startet direkt in Steam Big Picture. Installiere Steam von steampowered.com, melde dich einmal an und führe dieses Setup danach erneut aus.
@@ -77,6 +93,13 @@ Source: "{#AppPublishDir}\SteamInputLease-*.txt"; DestDir: "{app}"; Flags: ignor
 Source: "{#AppPublishDir}\SteamInputLease-*.md"; DestDir: "{app}"; Flags: ignoreversion
 ; Third-party license texts for managed packages (src\WSGM\Licenses\).
 Source: "{#AppPublishDir}\LoadingIndicators.Avalonia-UNLICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
+; Reviewed DeviceHost and plugin packages are administrator-protected. Runtime
+; discovery never trusts a user-writable copy for the WSGM-reviewed tier.
+Source: "{#DeviceHostPublishDir}\*"; DestDir: "{autopf}\WSGM\DeviceHost"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: device
+Source: "{#DevicePackagesPublishDir}\*"; DestDir: "{autopf}\WSGM\DevicePlugins\reviewed"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: device
+; Device Lab never owns the production cycle and remains an explicit custom
+; component. Its probe-host mutation commands still require interactive consent.
+Source: "{#DeviceToolsPublishDir}\*"; DestDir: "{app}\Tools"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: devicelab
 
 [Icons]
 Name: "{userprograms}\{#AppName}"; Filename: "{app}\WSGM.exe"; Comment: "WSGM settings"
@@ -130,6 +153,11 @@ Type: files; Name: "{app}\WSGM.Deelevate.exe"
 Type: files; Name: "{app}\steam-input-lease.exe"
 
 [Code]
+type
+  TSystemTime = record
+    Year, Month, DayOfWeek, Day, Hour, Minute, Second, Milliseconds: Word;
+  end;
+
 var
   WasShell: Boolean;
   WasRunning: Boolean;
@@ -201,6 +229,56 @@ function SetEvent(hEvent: THandle): BOOL;
   external 'SetEvent@kernel32.dll stdcall';
 function CloseHandleK(hObject: THandle): BOOL;
   external 'CloseHandle@kernel32.dll stdcall';
+procedure GetSystemTime(var SystemTime: TSystemTime);
+  external 'GetSystemTime@kernel32.dll stdcall';
+
+// The build writes a deterministic epoch into each installer-owned package
+// grant. Installation replaces only that excluded metadata field; every payload
+// hash remains the exact value generated after signing.
+procedure StampReviewedPackageRecords(const Directory: String);
+var
+  FindRec: TFindRec;
+  Path, Content, InstalledAt: String;
+  SystemTime: TSystemTime;
+begin
+  if not DirExists(Directory) then Exit;
+  GetSystemTime(SystemTime);
+  InstalledAt := Format('%.4d-%.2d-%.2dT%.2d:%.2d:%.2d.%.3dZ',
+    [SystemTime.Year, SystemTime.Month, SystemTime.Day, SystemTime.Hour,
+     SystemTime.Minute, SystemTime.Second, SystemTime.Milliseconds]);
+  if FindFirst(AddBackslash(Directory) + '*', FindRec) then
+  begin
+    try
+      repeat
+        if (FindRec.Name <> '.') and (FindRec.Name <> '..') then
+        begin
+          Path := AddBackslash(Directory) + FindRec.Name;
+          if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+            StampReviewedPackageRecords(Path)
+          else if CompareText(FindRec.Name, 'installed.wsgm.json') = 0 then
+          begin
+            if not LoadStringFromFile(Path, Content) then
+              RaiseException('Could not read reviewed package install grant: ' + Path);
+            if StringChangeEx(Content,
+                '1970-01-01T00:00:00+00:00', InstalledAt, True) <> 1 then
+              RaiseException('Reviewed package install grant timestamp marker is invalid: ' + Path);
+            if not SaveStringToFile(Path, Content, False) then
+              RaiseException('Could not stamp reviewed package install grant: ' + Path);
+          end;
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if (CurStep = ssPostInstall) and WizardIsComponentSelected('device') then
+    StampReviewedPackageRecords(
+      ExpandConstant('{autopf}\WSGM\DevicePlugins\reviewed'));
+end;
 
 // WSGM is almost certainly running during an update (it IS the shell), and it
 // may be ELEVATED. This setup is itself elevated (PrivilegesRequired=admin), so

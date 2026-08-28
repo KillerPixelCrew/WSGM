@@ -18,7 +18,7 @@ public class ContractFreezeTests
         // every published plugin target these exact values.
         Assert.Equal(1, DeviceProtocol.MinSupportedVersion);
         Assert.Equal(1, DeviceProtocol.MaxSupportedVersion);
-        Assert.Equal("wsgm-device-v1", DeviceProtocol.SchemaFingerprint);
+        Assert.Equal("wsgm-device-v2", DeviceProtocol.SchemaFingerprint);
     }
 
     [Fact]

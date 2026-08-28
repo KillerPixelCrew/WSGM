@@ -30,6 +30,12 @@ Runtime discovery reads only the administrator and current-user package roots de
 file-hash, signature/trust, and entry-point checks before it is eligible. Developer packages are
 inspection-only and never become production write authority merely because Developer Mode is on.
 
+The installer keeps the reviewed host and reviewed package roots under `%ProgramFiles%\WSGM`.
+User-writable copies beside the per-user NativeAOT application are never candidates for the
+`WSGM-reviewed` tier. A signed release grant pins the entry assembly's Authenticode subject,
+thumbprint, and every package-file hash. Unsigned local installer builds leave the bundled grant
+disabled, so packaging can be exercised without silently granting reviewed runtime trust.
+
 An active package is pinned by exact ID and version for the current device identity. Updates are
 verified and staged offline. Applying a staged version or rolling back performs full deactivation
 first and starts a new device cycle; a package is never swapped inside a live host.

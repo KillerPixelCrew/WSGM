@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Device.Contracts.Capabilities;
+using WSGM.Device.Contracts.Glyphs;
 using WSGM.Device.Contracts.Identity;
 using WSGM.Device.Contracts.Ipc;
 using WSGM.Device.Contracts.Lifecycle;
@@ -28,6 +30,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private readonly DeviceOemActionRouter _oemActions = new();
     private readonly DeviceCoordinatorDiagnosticsServer _diagnostics;
     private readonly DeviceProfileStore _profiles = new();
+    private readonly PhysicalGlyphCatalog _physicalGlyphs = new();
     private AppConfig _config;
     private DeviceIdentitySnapshot? _identity;
     private DeviceHostClient? _client;
@@ -62,6 +65,11 @@ public sealed class DeviceCoordinator : IAsyncDisposable
 
     /// <summary>The retained prior package version offered after a failed replacement activation.</summary>
     internal DevicePackageCandidate? RollbackPackage => FindAdjacentPackageVersion(newer: false);
+
+    /// <summary>When a quarantined package may be retried under the frozen cooldown policy.</summary>
+    internal DateTimeOffset? ManualRetryAvailableAt => State is DeviceCycleState.Quarantined
+        ? _lastManualRetry + RestartPolicy.Default.ManualRetryCooldown
+        : null;
 
     /// <summary>Current selected package, including any diagnostic rejection.</summary>
     public DevicePackageCandidate? SelectedPackage { get; private set; }
@@ -148,6 +156,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                     DeviceDeactivationReason.Updating,
                     DeactivationBudget.Normal,
                     cancellationToken).ConfigureAwait(false);
+                _physicalGlyphs.ReplacePackageProfiles([]);
                 return;
             }
 
@@ -423,6 +432,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         await _profiles.DisposeAsync().ConfigureAwait(false);
         await _capabilities.DisposeAsync().ConfigureAwait(false);
         _oemActions.Dispose();
+        _physicalGlyphs.Dispose();
         _lifetime.Dispose();
         _transitionGate.Dispose();
         _packageGate.Dispose();
@@ -473,6 +483,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 identityKey,
                 StringComparison.Ordinal));
         SelectedPackage = DevicePackagePolicy.Select(Candidates, explicitPackage, out string? refusal);
+        _physicalGlyphs.ReplacePackageProfiles([]);
         if (SelectedPackage is null)
         {
             SetState(DeviceCycleState.Passive);
@@ -516,6 +527,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 controllerManagement,
                 [],
                 cancellationToken).ConfigureAwait(false);
+            LoadPhysicalGlyphProfiles(SelectedPackage);
             SetState(activation.State);
             Log.Info(
                 $"Device cycle active: package={SelectedPackage.Manifest?.Id}, "
@@ -740,6 +752,15 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     internal IReadOnlyList<DeviceCapabilityView> CapabilitySnapshot() =>
         _capabilities.Snapshot(DateTimeOffset.UtcNow);
 
+    /// <summary>Resolves the current persisted mode against only the active package's safe profiles.</summary>
+    internal PhysicalGlyphSelectionResult PhysicalGlyphSelectionSnapshot() =>
+        _physicalGlyphs.SelectProfile(
+            _config.DeviceIntegration.Enabled,
+            MapGlyphSelection(_config.DeviceIntegration.GlyphSelection),
+            SelectedPackage?.MatchedDevice?.Id,
+            SelectedPackage?.MatchedDevice?.GlyphProfileId,
+            _config.DeviceIntegration.ManualGlyphProfileId);
+
     /// <summary>Routes one semantic capability command through current validation and serialization.</summary>
     internal Task<CapabilityCommandResult> ExecuteCapabilityAsync(
         string capabilityId,
@@ -810,6 +831,41 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private static bool EffectiveControllerManagement(AppConfig config)
         => config.DeviceIntegration.ControllerManagementEnabled
             && DeviceFeatureAvailability.ControllerManagement;
+
+    private void LoadPhysicalGlyphProfiles(DevicePackageCandidate package)
+    {
+        try
+        {
+            GlyphPackageImportResult imported = DeviceGlyphPackageLoader.Load(package);
+            _physicalGlyphs.ReplacePackageProfiles(imported.Profiles);
+            foreach (GlyphPackageImportError error in imported.Errors)
+            {
+                Log.Warn(
+                    $"Device glyph profile rejected: profile={error.ProfileId}, code={error.Code}, "
+                        + $"path={error.Path}, detail={error.Message}");
+            }
+
+            Log.Info(
+                $"Device glyph catalog: package={package.Manifest?.Id}, "
+                    + $"profiles={imported.Profiles.Count}, rejected={imported.Errors.Count}.");
+        }
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException
+            or InvalidDataException)
+        {
+            _physicalGlyphs.ReplacePackageProfiles([]);
+            Log.Warn($"Device glyph catalog unavailable: {exception.Message}");
+        }
+    }
+
+    internal static PhysicalGlyphSelectionMode MapGlyphSelection(DeviceGlyphSelection selection) =>
+        selection switch
+        {
+            DeviceGlyphSelection.Automatic => PhysicalGlyphSelectionMode.Automatic,
+            DeviceGlyphSelection.NativeSteam => PhysicalGlyphSelectionMode.NativeSteam,
+            DeviceGlyphSelection.ManualReviewedProfile => PhysicalGlyphSelectionMode.ManualReviewed,
+            _ => PhysicalGlyphSelectionMode.Automatic,
+        };
 
     private Task<IReadOnlyList<DevicePackageCandidate>> DiscoverPackagesAsync(
         DeviceIdentitySnapshot identity,

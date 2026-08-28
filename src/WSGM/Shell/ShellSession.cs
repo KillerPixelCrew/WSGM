@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
@@ -66,6 +68,11 @@ public sealed class ShellSession : IAsyncDisposable
     private readonly object _configDebounceGate = new();
     private DeviceCoordinator? _deviceCoordinator;
     private IDeviceOverlaySource? _deviceOverlay;
+    private PerformanceService? _performance;
+    private PerformanceOverlayBridge? _performanceOverlay;
+    private PersistentSteamUiTransport? _steamUiTransport;
+    private RunningApplicationMonitor? _runningApplications;
+    private RunningApplicationPerformanceCoordinator? _runningApplicationPerformance;
     private SteamUiSessionHost? _steamUi;
     private bool _disposed;
 
@@ -104,6 +111,21 @@ public sealed class ShellSession : IAsyncDisposable
             _deviceOverlay = new SimulatedDeviceOverlaySource();
         }
 
+        _performance = new PerformanceService(
+            _overlayTestOnly ? new SimulatedRtssAdapter() : new RtssNativeAdapter(),
+            _overlayTestOnly ? PersistSimulatedPerformancePolicyAsync : PersistPerformancePolicyAsync,
+            BuildPerformancePolicy(_config, forceEnabled: _overlayTestOnly));
+        _performanceOverlay = new PerformanceOverlayBridge(_performance);
+        if (!_overlayTestOnly)
+        {
+            _steamUiTransport = new PersistentSteamUiTransport();
+            _runningApplications = new RunningApplicationMonitor(
+                new SteamRunningApplicationProbe(_steamUiTransport));
+            _runningApplicationPerformance = new RunningApplicationPerformanceCoordinator(
+                _runningApplications,
+                _performance.SetTargetAsync);
+        }
+
         _monitor = new SteamMonitor();
         _modes = new SessionModes(_config, _monitor);
         // Session-lifetime on purpose (survives desktop trips): a Steam download must
@@ -126,7 +148,8 @@ public sealed class ShellSession : IAsyncDisposable
             _modes,
             _keepAwake,
             previewOnly: _overlayTestOnly,
-            device: _deviceOverlay);
+            device: _deviceOverlay,
+            performance: _performanceOverlay);
         _deviceCoordinator?.ConfigureOemActions(new DeviceOemActionServices
         {
             ToggleOverlayAsync = cancellationToken => RunUiActionAsync(() =>
@@ -169,16 +192,21 @@ public sealed class ShellSession : IAsyncDisposable
             }, cancellationToken),
             ToggleOnScreenKeyboardAsync = static _ => Task.FromResult(false),
             CyclePerformanceProfileAsync = static _ => Task.FromResult(false),
-            CyclePerformanceOverlayLevelAsync = static _ => Task.FromResult(false),
+            CyclePerformanceOverlayLevelAsync = CyclePerformanceOverlayLevelAsync,
             SetRearButtonAsync = static (_, _) => Task.FromResult(false),
         });
         if (!_overlayTestOnly)
         {
-            _steamUi = new SteamUiSessionHost(cancellationToken => RunUiActionAsync(() =>
+            _steamUi = new SteamUiSessionHost(
+                _steamUiTransport
+                    ?? throw new InvalidOperationException("Steam UI transport was not created."),
+                cancellationToken => RunUiActionAsync(() =>
             {
                 _overlay?.ToggleOverlay();
                 return _overlay is not null;
-            }, cancellationToken));
+            }, cancellationToken),
+                _deviceCoordinator,
+                _performance);
             _steamUi.Apply(_config.Cef.Enabled && _config.Cef.NativeQuickAccess);
         }
 
@@ -983,6 +1011,7 @@ public sealed class ShellSession : IAsyncDisposable
                         // drift onto different AppConfig objects.
                         _config = config;
                         ApplyDeviceConfig(config);
+                        ApplyPerformanceConfig(config);
                         ApplyCefMasterSwitch(config.Cef.Enabled);
                         if (config.Cef.Enabled)
                         {
@@ -1050,6 +1079,43 @@ public sealed class ShellSession : IAsyncDisposable
         return await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(action);
     }
 
+    private async Task<bool> CyclePerformanceOverlayLevelAsync(
+        CancellationToken cancellationToken)
+    {
+        PerformanceService? performance = _performance;
+        if (performance is null || !performance.Enabled)
+        {
+            return false;
+        }
+
+        PerformanceState state = performance.Current;
+        RtssCapabilities? capabilities = state.Probe.Capabilities;
+        if (state.Probe.Availability != RtssAvailability.Ready
+            || capabilities is null
+            || !capabilities.Supports(PerformanceControl.OverlayLevel))
+        {
+            return false;
+        }
+
+        int current = state.Observed.OverlayLevel ?? state.Desired.OverlayLevel ?? int.MinValue;
+        int[] levels = [.. capabilities.OverlayLevels.Order()];
+        if (levels.Length == 0)
+        {
+            return false;
+        }
+
+        int next = levels.FirstOrDefault(value => value > current, levels[0]);
+        PerformanceCommandState result = await performance.SetAsync(
+            PerformanceControl.OverlayLevel,
+            next,
+            PerformancePersistenceTarget.Automatic,
+            "oem-action",
+            Guid.NewGuid().ToString("N"),
+            cancellationToken).ConfigureAwait(false);
+        return result.Phase is PerformanceCommandPhase.SucceededVerified
+            or PerformanceCommandPhase.AppliedUnverified;
+    }
+
     /// <summary>Runs bounded device cleanup before the application lifetime ends.</summary>
     public async ValueTask DisposeAsync()
     {
@@ -1069,6 +1135,20 @@ public sealed class ShellSession : IAsyncDisposable
 
         _configWatcher?.Dispose();
         _configWatcher = null;
+        _overlay?.Dispose();
+        _overlay = null;
+        _performanceOverlay?.Dispose();
+        _performanceOverlay = null;
+        if (_runningApplicationPerformance is not null)
+        {
+            await _runningApplicationPerformance.DisposeAsync().ConfigureAwait(false);
+            _runningApplicationPerformance = null;
+        }
+        if (_runningApplications is not null)
+        {
+            await _runningApplications.DisposeAsync().ConfigureAwait(false);
+            _runningApplications = null;
+        }
         await _cefMasterGate.WaitAsync().ConfigureAwait(false);
         try
         {
@@ -1081,6 +1161,16 @@ public sealed class ShellSession : IAsyncDisposable
         finally
         {
             _cefMasterGate.Release();
+        }
+        if (_steamUiTransport is not null)
+        {
+            await _steamUiTransport.DisposeAsync().ConfigureAwait(false);
+            _steamUiTransport = null;
+        }
+        if (_performance is not null)
+        {
+            await _performance.DisposeAsync().ConfigureAwait(false);
+            _performance = null;
         }
         _deviceOverlay?.Dispose();
         _deviceOverlay = null;
@@ -1100,6 +1190,87 @@ public sealed class ShellSession : IAsyncDisposable
         }
 
         _ = ObserveDeviceConfigAsync(coordinator, config);
+    }
+
+    private void ApplyPerformanceConfig(AppConfig config)
+    {
+        PerformanceService? performance = _performance;
+        if (performance is null)
+        {
+            return;
+        }
+
+        _ = ObservePerformanceConfigAsync(
+            performance,
+            BuildPerformancePolicy(config, forceEnabled: _overlayTestOnly));
+    }
+
+    private static async Task ObservePerformanceConfigAsync(
+        PerformanceService performance,
+        PerformancePolicy policy)
+    {
+        try
+        {
+            await performance.UpdatePolicyAsync(policy).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("RTSS performance config apply failed", ex);
+        }
+    }
+
+    private static PerformancePolicy BuildPerformancePolicy(
+        AppConfig config,
+        bool forceEnabled)
+    {
+        List<PerformanceApplicationPolicy> applications = [];
+        foreach (PerformanceApplicationConfig application in config.Performance.Applications)
+        {
+            applications.Add(new PerformanceApplicationPolicy(
+                application.ApplicationId,
+                application.RtssProfileName,
+                new PerformanceValues(application.FrameLimit, application.OverlayLevel)));
+        }
+
+        return new PerformancePolicy(
+            new PerformanceValues(
+                config.Performance.FrameLimit,
+                config.Performance.OverlayLevel),
+            applications,
+            forceEnabled || config.Performance.Enabled);
+    }
+
+    private static Task PersistPerformancePolicyAsync(
+        PerformancePolicy policy,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ConfigStore.Mutate(config =>
+        {
+            config.Performance.Enabled = policy.Enabled;
+            config.Performance.FrameLimit = policy.Global.FrameLimit;
+            config.Performance.OverlayLevel = policy.Global.OverlayLevel;
+            config.Performance.Applications.Clear();
+            foreach (PerformanceApplicationPolicy application in policy.Applications)
+            {
+                config.Performance.Applications.Add(new PerformanceApplicationConfig
+                {
+                    ApplicationId = application.ApplicationId,
+                    RtssProfileName = application.RtssProfileName,
+                    FrameLimit = application.Values.FrameLimit,
+                    OverlayLevel = application.Values.OverlayLevel,
+                });
+            }
+        });
+        return Task.CompletedTask;
+    }
+
+    private static Task PersistSimulatedPerformancePolicyAsync(
+        PerformancePolicy policy,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.CompletedTask;
     }
 
     private static async Task ObserveDeviceConfigAsync(
