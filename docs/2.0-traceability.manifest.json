@@ -1,0 +1,2272 @@
+{
+  "schemaVersion": 1,
+  "release": "2.0",
+  "scope": "This report covers production capabilities and operations that are implemented in the current WSGM 2.0 tree. It does not promote unchecked plan items, hardware-only claims, legal gates, the incomplete Device Lab GUI shell, or unverified runtime behavior to shipped status.",
+  "components": [
+    {
+      "path": "native/Radio/Cargo.toml",
+      "disposition": "covered"
+    },
+    {
+      "path": "native/SteamInput/Cargo.toml",
+      "disposition": "covered"
+    },
+    {
+      "path": "plugins/WSGM.Device.Msi.Claw8A2Vm/WSGM.Device.Msi.Claw8A2Vm.csproj",
+      "disposition": "covered"
+    },
+    {
+      "path": "src/WSGM.Device.Contracts/WSGM.Device.Contracts.csproj",
+      "disposition": "covered"
+    },
+    {
+      "path": "src/WSGM.Device.ProbeHost/WSGM.Device.ProbeHost.csproj",
+      "disposition": "covered"
+    },
+    {
+      "path": "src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj",
+      "disposition": "covered"
+    },
+    {
+      "path": "src/WSGM.DeviceHost/WSGM.DeviceHost.csproj",
+      "disposition": "covered"
+    },
+    {
+      "path": "src/WSGM.DeviceLab.Cli/WSGM.DeviceLab.Cli.csproj",
+      "disposition": "covered"
+    },
+    {
+      "path": "src/WSGM.DeviceLab.Core/WSGM.DeviceLab.Core.csproj",
+      "disposition": "covered"
+    },
+    {
+      "path": "src/WSGM.DeviceLab.Gui/WSGM.DeviceLab.Gui.csproj",
+      "disposition": "excluded",
+      "reason": "The current project is only an incomplete GUI shell and is neither a shipped nor an implemented Device Lab operation."
+    },
+    {
+      "path": "src/WSGM.Launch/WSGM.Launch.csproj",
+      "disposition": "covered"
+    },
+    {
+      "path": "src/WSGM.LogonService/WSGM.LogonService.csproj",
+      "disposition": "covered"
+    },
+    {
+      "path": "src/WSGM/WSGM.csproj",
+      "disposition": "covered"
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "configuration.settings",
+      "title": "Durable configuration and Settings",
+      "owner": "src/WSGM/Settings",
+      "operations": [
+        {
+          "id": "configuration.settings.load-save-reload",
+          "title": "Normalize, atomically save, and live-reload user configuration without sharing mutable config instances",
+          "requirements": [
+            "INV-001",
+            "INV-002",
+            "INV-016",
+            "INV-019"
+          ],
+          "tasks": [
+            "P4-032",
+            "P4-033",
+            "P4-034",
+            "P4-040",
+            "P9-078",
+            "P9-079",
+            "P9-083"
+          ],
+          "production": [
+            "src/WSGM/Core/AppConfig.cs",
+            "src/WSGM/Core/ConfigStore.cs",
+            "src/WSGM/Core/DeviceConfiguration.cs",
+            "src/WSGM/Settings/SettingsViewModel.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/ConfigurationTests.cs",
+            "tests/WSGM.Tests/ViewModelTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "source-review",
+              "path": "docs/device-integration.md",
+              "note": "Documents the optional Device Integration settings boundary and live coordinator ownership."
+            }
+          ],
+          "documentation": [
+            "docs/device-integration.md",
+            "docs/ui.md"
+          ]
+        },
+        {
+          "id": "configuration.settings.splash-assets",
+          "title": "Import bounded splash assets transactionally and render editable splash themes and presets",
+          "requirements": [
+            "INV-001",
+            "INV-016",
+            "INV-019"
+          ],
+          "tasks": [
+            "P9-002",
+            "P9-034"
+          ],
+          "production": [
+            "src/WSGM/Core/SplashAssets.cs",
+            "src/WSGM/Core/SplashTheme.cs",
+            "src/WSGM/Shell/SplashPresets.cs",
+            "src/WSGM/Shell/SplashStyle.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/SplashAssetsTests.cs",
+            "tests/WSGM.Tests/SplashPresetsTests.cs",
+            "tests/WSGM.Tests/SplashThemeTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "source-review",
+              "path": "docs/ui.md",
+              "note": "Documents the implemented two-phase import and rendering boundary."
+            }
+          ],
+          "documentation": [
+            "docs/ui.md"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "controller.management",
+      "title": "Managed controller ownership",
+      "owner": "src/WSGM/Input",
+      "operations": [
+        {
+          "id": "controller.management.backend",
+          "title": "Create, neutralize, route, and release a managed virtual controller through the reviewed backend boundary",
+          "requirements": [
+            "INV-006",
+            "INV-012",
+            "INV-014",
+            "INV-018",
+            "INV-019"
+          ],
+          "tasks": [
+            "P1-042",
+            "P1-045",
+            "P4-052",
+            "P6-006"
+          ],
+          "production": [
+            "src/WSGM/Input/HidMaestroProductionBackend.cs",
+            "src/WSGM/Input/ManagedControllerBackend.cs",
+            "src/WSGM/Input/ManagedControllerRouter.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/ManagedControllerBackendTests.cs",
+            "tests/WSGM.Tests/RegressionCoverageTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "source-review",
+              "path": "docs/device-integration.md",
+              "note": "Documents the implemented controller boundary and fail-open degradation behavior."
+            }
+          ],
+          "documentation": [
+            "docs/device-integration.md",
+            "docs/steam-input.md"
+          ]
+        },
+        {
+          "id": "controller.management.hidhide",
+          "title": "Own and restore only WSGM HidHide entries with controller-management opt-out",
+          "requirements": [
+            "INV-002",
+            "INV-011",
+            "INV-018",
+            "INV-019"
+          ],
+          "tasks": [
+            "P4-058",
+            "P4-059",
+            "P6-053",
+            "P6-057"
+          ],
+          "production": [
+            "src/WSGM/Shell/ControllerReleaseOrdering.cs",
+            "src/WSGM/Shell/HidHideOwnership.cs",
+            "src/WSGM/Shell/WindowsHidHideAdapter.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/ControllerReleaseOrderingTests.cs",
+            "tests/WSGM.Tests/HidHideOwnershipTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "source-review",
+              "path": "docs/device-integration.md",
+              "note": "Records the implemented ownership and handoff ordering without claiming hardware acceptance."
+            }
+          ],
+          "documentation": [
+            "docs/device-integration.md"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "device.contracts",
+      "title": "Semantic device contracts",
+      "owner": "src/WSGM.Device.Contracts",
+      "operations": [
+        {
+          "id": "device.contracts.capabilities",
+          "title": "Describe semantic capabilities, state quality, desired-state projection, and admitted commands",
+          "requirements": [
+            "INV-006",
+            "INV-013",
+            "INV-016",
+            "INV-019"
+          ],
+          "tasks": [
+            "P1-011",
+            "P1-013",
+            "P1-015",
+            "P1-016",
+            "P1-017",
+            "P1-018",
+            "P1-020",
+            "P1-021",
+            "P1-022",
+            "P1-023"
+          ],
+          "production": [
+            "src/WSGM.Device.Contracts/Capabilities/CapabilityDescriptor.cs",
+            "src/WSGM.Device.Contracts/Capabilities/CapabilityProjection.cs",
+            "src/WSGM.Device.Contracts/Capabilities/CapabilityStateTracker.cs",
+            "src/WSGM.Device.Contracts/Capabilities/CommandAdmission.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Device.Contracts.Tests/CapabilityStateTrackerTests.cs",
+            "tests/WSGM.Device.Contracts.Tests/CommandAdmissionTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "plan-status",
+              "path": "_plan/implementation-todo.md",
+              "note": "P1 records this pure contract slice complete while the remaining message-loop cases stay open."
+            }
+          ],
+          "documentation": [
+            "src/WSGM.Device.Contracts/COMPATIBILITY.md"
+          ]
+        },
+        {
+          "id": "device.contracts.identity-package",
+          "title": "Validate bounded plugin packages, exact device identity, and pinned module composition",
+          "requirements": [
+            "INV-006",
+            "INV-008",
+            "INV-019",
+            "INV-020"
+          ],
+          "tasks": [
+            "P1-001",
+            "P1-002",
+            "P1-003",
+            "P1-004",
+            "P1-006",
+            "P1-007",
+            "P1-008",
+            "P1-009",
+            "P1-010"
+          ],
+          "production": [
+            "src/WSGM.Device.Contracts/Identity/IdentityMatcher.cs",
+            "src/WSGM.Device.Contracts/Modules/ModuleCompositionValidator.cs",
+            "src/WSGM.Device.Contracts/Packaging/PluginManifestReader.cs",
+            "src/WSGM.Device.Contracts/Packaging/PluginManifestValidator.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Device.Contracts.Tests/IdentityMatcherTests.cs",
+            "tests/WSGM.Device.Contracts.Tests/ModuleCompositionValidatorTests.cs",
+            "tests/WSGM.Device.Contracts.Tests/PluginManifestValidatorTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "contract",
+              "path": "src/WSGM.Device.Contracts/COMPATIBILITY.md",
+              "note": "Freezes the implemented schema and compatibility boundary."
+            }
+          ],
+          "documentation": [
+            "src/WSGM.Device.Contracts/COMPATIBILITY.md"
+          ]
+        },
+        {
+          "id": "device.contracts.input",
+          "title": "Carry canonical controller, OEM, UI-capture, output, and physical-device identity state",
+          "requirements": [
+            "INV-013",
+            "INV-014",
+            "INV-019"
+          ],
+          "tasks": [
+            "P1-037",
+            "P1-038",
+            "P1-039",
+            "P1-040",
+            "P1-041",
+            "P1-043",
+            "P1-044",
+            "P1-045",
+            "P1-046"
+          ],
+          "production": [
+            "src/WSGM.Device.Contracts/Input/CanonicalControllerState.cs",
+            "src/WSGM.Device.Contracts/Input/OemControls.cs",
+            "src/WSGM.Device.Contracts/Input/SourceSwitch.cs",
+            "src/WSGM.Device.Contracts/Input/UiCapture.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Device.Contracts.Tests/InputArbitrationTests.cs",
+            "tests/WSGM.Device.Contracts.Tests/OemControlTests.cs",
+            "tests/WSGM.Device.Contracts.Tests/OutputRoutingTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "plan-status",
+              "path": "_plan/implementation-todo.md",
+              "note": "P1 records the canonical input and ownership contracts complete."
+            }
+          ],
+          "documentation": [
+            "docs/device-integration.md"
+          ]
+        },
+        {
+          "id": "device.contracts.ipc",
+          "title": "Negotiate bounded authenticated control IPC and high-rate shared state",
+          "requirements": [
+            "INV-008",
+            "INV-016",
+            "INV-017",
+            "INV-019"
+          ],
+          "tasks": [
+            "P1-047",
+            "P1-048",
+            "P1-049",
+            "P1-050",
+            "P1-051",
+            "P1-052",
+            "P1-053",
+            "P1-054"
+          ],
+          "production": [
+            "src/WSGM.Device.Contracts/Ipc/DeviceControlPipe.cs",
+            "src/WSGM.Device.Contracts/Ipc/ProtocolNegotiation.cs",
+            "src/WSGM.Device.Contracts/Ipc/SharedStateRing.cs",
+            "src/WSGM.Device.Contracts/Ipc/WireFormat.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Device.Contracts.Tests/IpcTransportTests.cs",
+            "tests/WSGM.Device.Contracts.Tests/WireFormatTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "contract",
+              "path": "src/WSGM.Device.Contracts/COMPATIBILITY.md",
+              "note": "Records protocol 1 and the frozen schema fingerprint."
+            },
+            {
+              "kind": "documented-device",
+              "path": "_plan/implementation-todo.md",
+              "note": "Records the measured shared-ring and pipe costs without extending test authority."
+            }
+          ],
+          "documentation": [
+            "docs/device-integration.md",
+            "src/WSGM.Device.Contracts/COMPATIBILITY.md"
+          ]
+        },
+        {
+          "id": "device.contracts.lifecycle",
+          "title": "Model device cycles, independent resources, recovery journals, and controller handoff",
+          "requirements": [
+            "INV-003",
+            "INV-004",
+            "INV-005",
+            "INV-016",
+            "INV-018",
+            "INV-019"
+          ],
+          "tasks": [
+            "P1-025",
+            "P1-026",
+            "P1-027",
+            "P1-028",
+            "P1-029",
+            "P1-030",
+            "P1-031",
+            "P1-032",
+            "P1-033",
+            "P1-036"
+          ],
+          "production": [
+            "src/WSGM.Device.Contracts/Lifecycle/ControllerHandoff.cs",
+            "src/WSGM.Device.Contracts/Lifecycle/DeviceLifecycle.cs",
+            "src/WSGM.Device.Contracts/Lifecycle/RecoveryJournal.cs",
+            "src/WSGM.Device.Contracts/Lifecycle/RestartPolicy.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Device.Contracts.Tests/DeviceCycleTransitionTests.cs",
+            "tests/WSGM.Device.Contracts.Tests/LifecycleTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "plan-status",
+              "path": "_plan/implementation-todo.md",
+              "note": "P1 records lifecycle and recovery semantics complete at the contract layer only."
+            }
+          ],
+          "documentation": [
+            "docs/device-integration.md",
+            "src/WSGM.Device.Contracts/COMPATIBILITY.md"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "device.coordinator",
+      "title": "WSGM device coordination",
+      "owner": "src/WSGM/Shell",
+      "operations": [
+        {
+          "id": "device.coordinator.capability-routing",
+          "title": "Project host descriptors and state into independent UI-observable capabilities",
+          "requirements": [
+            "INV-006",
+            "INV-010",
+            "INV-016",
+            "INV-019"
+          ],
+          "tasks": [
+            "P4-024",
+            "P4-025",
+            "P4-028",
+            "P4-029",
+            "P4-030"
+          ],
+          "production": [
+            "src/WSGM/Shell/DeviceCapabilityRouter.cs",
+            "src/WSGM/Shell/DeviceOverlayBridge.cs",
+            "src/WSGM/Shell/DeviceProfileStore.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/DeviceOverlayProjectionTests.cs",
+            "tests/WSGM.Tests/DevicePlatformPolicyTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "source-review",
+              "path": "docs/device-integration.md",
+              "note": "Documents current coordinator state and capability degradation semantics."
+            }
+          ],
+          "documentation": [
+            "docs/device-integration.md"
+          ]
+        },
+        {
+          "id": "device.coordinator.lifecycle",
+          "title": "Discover a reviewed package and supervise one asynchronous DeviceHost generation",
+          "requirements": [
+            "INV-002",
+            "INV-003",
+            "INV-004",
+            "INV-005",
+            "INV-008",
+            "INV-016"
+          ],
+          "tasks": [
+            "P4-007",
+            "P4-008",
+            "P4-009",
+            "P4-010",
+            "P4-016",
+            "P4-017",
+            "P4-020",
+            "P4-041"
+          ],
+          "production": [
+            "src/WSGM/Shell/DeviceCoordinator.cs",
+            "src/WSGM/Shell/DeviceHostClient.cs",
+            "src/WSGM/Shell/DeviceHostProcess.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/DeviceBoundaryTests.cs",
+            "tests/WSGM.Tests/DevicePlatformPolicyTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "source-review",
+              "path": "docs/device-integration.md",
+              "note": "Describes the current session-owned topology and explicit optional boundary."
+            }
+          ],
+          "documentation": [
+            "docs/device-integration.md"
+          ]
+        },
+        {
+          "id": "device.coordinator.oem-actions",
+          "title": "Route deduplicated logical OEM actions only to WSGM-owned allowlisted services",
+          "requirements": [
+            "INV-010",
+            "INV-013",
+            "INV-015",
+            "INV-019"
+          ],
+          "tasks": [
+            "P4-081",
+            "P4-084",
+            "P4-085",
+            "P4-086"
+          ],
+          "production": [
+            "src/WSGM/Shell/DeviceOemActionRouter.cs",
+            "src/WSGM/Shell/NativeQamSemanticServices.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/NativeQamSemanticServicesTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "source-review",
+              "path": "docs/device-integration.md",
+              "note": "Records the typed OEM action boundary without claiming live button acceptance."
+            }
+          ],
+          "documentation": [
+            "docs/device-integration.md",
+            "docs/steam-cef.md"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "device.glyphs",
+      "title": "Declarative physical glyph pipeline",
+      "owner": "src/WSGM.Device.Contracts/Glyphs",
+      "operations": [
+        {
+          "id": "device.glyphs.import",
+          "title": "Validate, hash-pin, normalize, and package declarative glyph profiles and assets",
+          "requirements": [
+            "INV-009",
+            "INV-014",
+            "INV-019",
+            "INV-020"
+          ],
+          "tasks": [
+            "P8-031",
+            "P8-032",
+            "P8-033",
+            "P8-034",
+            "P8-036",
+            "P8-038"
+          ],
+          "production": [
+            "src/WSGM.Device.Contracts/Glyphs/GlyphAssetImporter.cs",
+            "src/WSGM.Device.Contracts/Glyphs/GlyphPackageImporter.cs",
+            "src/WSGM.Device.Sdk/Authoring/GlyphProfileBuilder.cs",
+            "src/WSGM.DeviceLab.Core/Packaging/GlyphPackageGenerationWorkflow.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Device.Contracts.Tests/GlyphPackageImporterTests.cs",
+            "tests/WSGM.Device.Sdk.Generators.Tests/GlyphProfileBuilderTests.cs",
+            "tests/WSGM.DeviceLab.Tests/GlyphPackageWorkflowTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "source-review",
+              "path": "plugins/WSGM.Device.Msi.Claw8A2Vm/PROVENANCE.md",
+              "note": "Records the package-local asset provenance boundary; it is not visual hardware acceptance."
+            }
+          ],
+          "documentation": [
+            "docs/device-integration.md",
+            "plugins/WSGM.Device.Msi.Claw8A2Vm/PROVENANCE.md"
+          ]
+        },
+        {
+          "id": "device.glyphs.presentation",
+          "title": "Resolve physical presentation independently and fail back to generic/native glyphs",
+          "requirements": [
+            "INV-009",
+            "INV-014",
+            "INV-016",
+            "INV-019"
+          ],
+          "tasks": [
+            "P8-040",
+            "P8-041",
+            "P8-045",
+            "P8-047",
+            "P8-089",
+            "P8-092",
+            "P8-093"
+          ],
+          "production": [
+            "src/WSGM/Controls/PhysicalGlyphService.cs",
+            "src/WSGM/Core/DeviceGlyphPackageLoader.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/PhysicalGlyphServiceTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "source-review",
+              "path": "docs/device-integration.md",
+              "note": "Documents independent physical-profile presentation and fail-open behavior."
+            }
+          ],
+          "documentation": [
+            "docs/device-integration.md"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "device.host",
+      "title": "Per-package DeviceHost runtime",
+      "owner": "src/WSGM.DeviceHost",
+      "operations": [
+        {
+          "id": "device.host.handshake-load",
+          "title": "Authenticate the session, validate the selected package, and load one plugin with package-local resolution",
+          "requirements": [
+            "INV-006",
+            "INV-008",
+            "INV-016",
+            "INV-019"
+          ],
+          "tasks": [
+            "P4-014",
+            "P4-015",
+            "P4-016",
+            "P4-018",
+            "P4-019"
+          ],
+          "production": [
+            "src/WSGM.DeviceHost/DeviceHostSession.cs",
+            "src/WSGM.DeviceHost/HostHandshakeValidator.cs",
+            "src/WSGM.DeviceHost/PluginPackageLoader.cs"
+          ],
+          "tests": [
+            "tests/WSGM.DeviceHost.Tests/HandshakeTests.cs",
+            "tests/WSGM.DeviceHost.Tests/PluginPackageLoaderTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "source-review",
+              "path": "docs/device-integration.md",
+              "note": "Documents the implemented host topology without claiming retail isolation or hardware acceptance."
+            }
+          ],
+          "documentation": [
+            "docs/device-integration.md"
+          ]
+        },
+        {
+          "id": "device.host.lifecycle-recovery",
+          "title": "Run lifecycle IPC, bounded shared-state transport, restart policy, and durable recovery journal storage",
+          "requirements": [
+            "INV-003",
+            "INV-005",
+            "INV-016",
+            "INV-017",
+            "INV-018",
+            "INV-019"
+          ],
+          "tasks": [
+            "P4-020",
+            "P4-021",
+            "P4-027",
+            "P4-061",
+            "P4-062",
+            "P4-064"
+          ],
+          "production": [
+            "src/WSGM.DeviceHost/DeviceHostSession.cs",
+            "src/WSGM.DeviceHost/HostWireSender.cs",
+            "src/WSGM.DeviceHost/RecoveryJournalStore.cs"
+          ],
+          "tests": [
+            "tests/WSGM.DeviceHost.Tests/DeviceFrameStreamTests.cs",
+            "tests/WSGM.DeviceHost.Tests/RecoveryJournalStoreTests.cs",
+            "tests/WSGM.DeviceHost.Tests/RestartPolicyTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "source-review",
+              "path": "docs/device-integration.md",
+              "note": "Records the runtime and recovery implementation boundary."
+            }
+          ],
+          "documentation": [
+            "docs/device-integration.md"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "device.lab",
+      "title": "Device Lab safe discovery and evidence tooling",
+      "owner": "src/WSGM.DeviceLab.Core",
+      "operations": [
+        {
+          "id": "device.lab.capture-evidence",
+          "title": "Create bounded private/shareable captures, correlate passive observations, and maintain immutable evidence claims",
+          "requirements": [
+            "INV-011",
+            "INV-017",
+            "INV-019",
+            "INV-020"
+          ],
+          "tasks": [
+            "P2-005",
+            "P2-006",
+            "P2-007",
+            "P2-008",
+            "P2-036",
+            "P2-046",
+            "P2-047",
+            "P2-048",
+            "P2-049",
+            "P2-050",
+            "P2-052"
+          ],
+          "production": [
+            "src/WSGM.DeviceLab.Core/Capture/CaptureBundle.cs",
+            "src/WSGM.DeviceLab.Core/Capture/PassiveCorrelation.cs",
+            "src/WSGM.DeviceLab.Core/Evidence/EvidenceLock.cs"
+          ],
+          "tests": [
+            "tests/WSGM.DeviceLab.Tests/CaptureSchemaTests.cs",
+            "tests/WSGM.DeviceLab.Tests/EvidenceLockTests.cs",
+            "tests/WSGM.DeviceLab.Tests/PassiveCaptureTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "plan-status",
+              "path": "_plan/implementation-todo.md",
+              "note": "P2 records the passive capture, correlation, and evidence slices complete."
+            }
+          ],
+          "documentation": [
+            "_plan/device-plugin-system-and-tooling.md"
+          ]
+        },
+        {
+          "id": "device.lab.cli-preflight-inventory",
+          "title": "Route safe CLI commands, reject unsafe output targets, and collect read-only machine inventory",
+          "requirements": [
+            "INV-011",
+            "INV-017",
+            "INV-019"
+          ],
+          "tasks": [
+            "P2-012",
+            "P2-016",
+            "P2-017",
+            "P2-018",
+            "P2-019",
+            "P2-020",
+            "P2-026",
+            "P2-027",
+            "P2-028",
+            "P2-029",
+            "P2-030"
+          ],
+          "production": [
+            "src/WSGM.DeviceLab.Cli/Program.cs",
+            "src/WSGM.DeviceLab.Core/Application/DeviceLabApplication.cs",
+            "src/WSGM.DeviceLab.Core/Inventory/WindowsInventoryCollector.cs",
+            "src/WSGM.DeviceLab.Core/Preflight/OutputPathPolicy.cs"
+          ],
+          "tests": [
+            "tests/WSGM.DeviceLab.Tests/InventoryTests.cs",
+            "tests/WSGM.DeviceLab.Tests/PreflightTests.cs",
+            "tests/WSGM.DeviceLab.Tests/SafetyPreflightTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "documented-device",
+              "path": "_plan/implementation-todo.md",
+              "note": "Separately records reference-unit inventory observations; tests retain only offline authority."
+            }
+          ],
+          "documentation": [
+            "_plan/device-plugin-system-and-tooling.md"
+          ]
+        },
+        {
+          "id": "device.lab.matching",
+          "title": "Normalize inventory, reject hard mismatches, rank reusable modules independently, and recommend bounded reads",
+          "requirements": [
+            "INV-006",
+            "INV-019"
+          ],
+          "tasks": [
+            "P2-038",
+            "P2-039",
+            "P2-040",
+            "P2-041",
+            "P2-042",
+            "P2-043",
+            "P2-044",
+            "P2-045"
+          ],
+          "production": [
+            "src/WSGM.DeviceLab.Core/Catalog/CandidateAssessment.cs",
+            "src/WSGM.DeviceLab.Core/Catalog/KnownImplementationCatalog.cs"
+          ],
+          "tests": [
+            "tests/WSGM.DeviceLab.Tests/CandidateGradingTests.cs",
+            "tests/WSGM.DeviceLab.Tests/CandidateMatcherTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "plan-status",
+              "path": "_plan/implementation-todo.md",
+              "note": "P2 records deterministic candidate matching complete with negative fixtures."
+            }
+          ],
+          "documentation": [
+            "_plan/device-plugin-system-and-tooling.md"
+          ]
+        },
+        {
+          "id": "device.lab.probe-trial",
+          "title": "Supervise reviewed read probes and model one separately authorized bounded mutation transaction",
+          "requirements": [
+            "INV-011",
+            "INV-017",
+            "INV-018",
+            "INV-019"
+          ],
+          "tasks": [
+            "P2-014",
+            "P2-053",
+            "P2-054",
+            "P2-055",
+            "P2-056",
+            "P2-057",
+            "P2-059",
+            "P2-060",
+            "P2-063",
+            "P2-064",
+            "P2-065",
+            "P2-066",
+            "P2-067",
+            "P2-068",
+            "P2-074",
+            "P2-075"
+          ],
+          "production": [
+            "src/WSGM.Device.ProbeHost/Program.cs",
+            "src/WSGM.Device.ProbeHost/ReadProbeProfiles.cs",
+            "src/WSGM.DeviceLab.Core/Probes/ProbeHostSupervisor.cs",
+            "src/WSGM.DeviceLab.Core/Trials/BoundedMutationTrialRunner.cs"
+          ],
+          "tests": [
+            "tests/WSGM.DeviceLab.Tests/MutationTrialTests.cs",
+            "tests/WSGM.DeviceLab.Tests/ReadProbeTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "plan-status",
+              "path": "_plan/implementation-todo.md",
+              "note": "Only the implemented probe supervision and transaction model are traced; the user-facing mutation command and concrete hardware trials remain excluded."
+            }
+          ],
+          "documentation": [
+            "_plan/2.0-decisions.md",
+            "_plan/device-plugin-system-and-tooling.md"
+          ]
+        },
+        {
+          "id": "device.lab.scaffold-package",
+          "title": "Generate fail-closed evidence-linked scaffolds and validate/package reviewed developer output",
+          "requirements": [
+            "INV-006",
+            "INV-019",
+            "INV-020"
+          ],
+          "tasks": [
+            "P2-079",
+            "P2-080",
+            "P2-081",
+            "P2-082",
+            "P2-083",
+            "P2-084",
+            "P2-085",
+            "P2-086"
+          ],
+          "production": [
+            "src/WSGM.DeviceLab.Core/Packaging/PluginPackageWorkflow.cs",
+            "src/WSGM.DeviceLab.Core/Scaffolding/ScaffoldGenerator.cs"
+          ],
+          "tests": [
+            "tests/WSGM.DeviceLab.Tests/ScaffoldGeneratorTests.cs",
+            "tests/WSGM.DeviceLab.Tests/SchemaCompatibilityTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "plan-status",
+              "path": "_plan/implementation-todo.md",
+              "note": "P2 records deterministic scaffold generation complete while the end-to-end CLI scaffold command remains open."
+            }
+          ],
+          "documentation": [
+            "_plan/device-plugin-system-and-tooling.md"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "device.msi-claw",
+      "title": "MSI Claw 8 AI+ A2VM plugin",
+      "owner": "plugins/WSGM.Device.Msi.Claw8A2Vm",
+      "operations": [
+        {
+          "id": "device.msi-claw.detect-capabilities",
+          "title": "Match exact A2VM identity and publish firmware-gated semantic capabilities",
+          "requirements": [
+            "INV-006",
+            "INV-007",
+            "INV-008",
+            "INV-019"
+          ],
+          "tasks": [
+            "P5-001",
+            "P5-002",
+            "P5-003",
+            "P5-005",
+            "P5-006",
+            "P5-007"
+          ],
+          "production": [
+            "plugins/WSGM.Device.Msi.Claw8A2Vm/Claw8A2VmPlugin.cs",
+            "plugins/WSGM.Device.Msi.Claw8A2Vm/ClawCapabilities.cs",
+            "plugins/WSGM.Device.Msi.Claw8A2Vm/plugin.wsgm.json"
+          ],
+          "tests": [
+            "tests/WSGM.Device.Msi.Claw8A2Vm.Tests/ClawPluginTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "contract",
+              "path": "plugins/WSGM.Device.Msi.Claw8A2Vm/evidence.lock.json",
+              "note": "Pins the package evidence claims without treating them as unrecorded retail approval."
+            },
+            {
+              "kind": "documented-device",
+              "path": "plugins/WSGM.Device.Msi.Claw8A2Vm/PROVENANCE.md",
+              "note": "Records exact source and device provenance boundaries."
+            }
+          ],
+          "documentation": [
+            "plugins/WSGM.Device.Msi.Claw8A2Vm/PROVENANCE.md"
+          ]
+        },
+        {
+          "id": "device.msi-claw.hardware-lifecycle",
+          "title": "Own MSI WMI, HID, motion, resource leases, and recovery through plugin-local transports",
+          "requirements": [
+            "INV-006",
+            "INV-007",
+            "INV-018",
+            "INV-019"
+          ],
+          "tasks": [
+            "P5-005",
+            "P5-006"
+          ],
+          "production": [
+            "plugins/WSGM.Device.Msi.Claw8A2Vm/ClawHardware.cs",
+            "plugins/WSGM.Device.Msi.Claw8A2Vm/ClawRecoveryJournal.cs",
+            "plugins/WSGM.Device.Msi.Claw8A2Vm/ClawResources.cs",
+            "plugins/WSGM.Device.Msi.Claw8A2Vm/MsiWmiPlatform.cs",
+            "plugins/WSGM.Device.Msi.Claw8A2Vm/WindowsHidTransports.cs",
+            "plugins/WSGM.Device.Msi.Claw8A2Vm/WindowsMotionSource.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Device.Msi.Claw8A2Vm.Tests/ClawPluginTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "documented-device",
+              "path": "plugins/WSGM.Device.Msi.Claw8A2Vm/PROVENANCE.md",
+              "note": "Documents transport provenance; hardware release gates remain outside this implemented trace."
+            }
+          ],
+          "documentation": [
+            "plugins/WSGM.Device.Msi.Claw8A2Vm/PROVENANCE.md",
+            "plugins/WSGM.Device.Msi.Claw8A2Vm/THIRD_PARTY_NOTICES.md"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "device.sdk",
+      "title": "Device plugin SDK",
+      "owner": "src/WSGM.Device.Sdk",
+      "operations": [
+        {
+          "id": "device.sdk.author-test",
+          "title": "Author deterministic manifests/glyph profiles and exercise plugins with the offline TestKit",
+          "requirements": [
+            "INV-006",
+            "INV-009",
+            "INV-019",
+            "INV-020"
+          ],
+          "tasks": [
+            "P2-011",
+            "P8-031",
+            "P8-034"
+          ],
+          "production": [
+            "src/WSGM.Device.Sdk/Authoring/GlyphProfileBuilder.cs",
+            "src/WSGM.Device.Sdk/Authoring/PluginAuthoring.cs",
+            "src/WSGM.Device.Sdk/Testing/PluginTestKit.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Device.Sdk.Generators.Tests/GlyphProfileBuilderTests.cs",
+            "tests/WSGM.Device.Sdk.Generators.Tests/PluginAuthoringTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "plan-status",
+              "path": "_plan/implementation-todo.md",
+              "note": "P2 records the implemented SDK slice while the Roslyn generator remains outside scope."
+            }
+          ],
+          "documentation": [
+            "_plan/device-plugin-system-and-tooling.md"
+          ]
+        },
+        {
+          "id": "device.sdk.host-adapter",
+          "title": "Register semantic capabilities, coordinate independent resources, and revalidate every command",
+          "requirements": [
+            "INV-006",
+            "INV-016",
+            "INV-019"
+          ],
+          "tasks": [
+            "P1-023",
+            "P1-027",
+            "P2-011"
+          ],
+          "production": [
+            "src/WSGM.Device.Sdk/Capabilities/CapabilityRegistry.cs",
+            "src/WSGM.Device.Sdk/Lifecycle/PluginResourceCoordinator.cs",
+            "src/WSGM.Device.Sdk/Plugin/PluginHostAdapter.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Device.Sdk.Generators.Tests/CapabilityRegistryTests.cs",
+            "tests/WSGM.Device.Sdk.Generators.Tests/PluginResourceCoordinatorTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "plan-status",
+              "path": "_plan/implementation-todo.md",
+              "note": "P2 records the semantic adapter and resource coordination slice complete."
+            }
+          ],
+          "documentation": [
+            "_plan/device-plugin-system-and-tooling.md"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "display.power",
+      "title": "Display, wake-lock, and power management",
+      "owner": "src/WSGM/Shell",
+      "operations": [
+        {
+          "id": "display.power.display-profiles",
+          "title": "Apply display scale/HDR profiles and expose bounded idle-timeout configuration",
+          "requirements": [
+            "INV-001",
+            "INV-016",
+            "INV-019"
+          ],
+          "tasks": [
+            "P9-041",
+            "P9-042"
+          ],
+          "production": [
+            "src/WSGM/Core/DisplayHdr.cs",
+            "src/WSGM/Core/DisplayProfiles.cs",
+            "src/WSGM/Core/DisplayScale.cs",
+            "src/WSGM/Core/PowerTimeouts.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/CoreUtilityTests.cs",
+            "tests/WSGM.Tests/ViewModelTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "documented-device",
+              "path": "docs/power-and-display.md",
+              "note": "Records the device-settled display-profile and idle-timeout behavior."
+            }
+          ],
+          "documentation": [
+            "docs/power-and-display.md"
+          ]
+        },
+        {
+          "id": "display.power.system-actions",
+          "title": "Expose typed power/session actions and current system status without blocking the overlay",
+          "requirements": [
+            "INV-001",
+            "INV-010",
+            "INV-016"
+          ],
+          "tasks": [
+            "P9-041",
+            "P9-042"
+          ],
+          "production": [
+            "src/WSGM/Core/PowerActions.cs",
+            "src/WSGM/Shell/SystemStatus.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/SystemStatusTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "source-review",
+              "path": "docs/power-and-display.md",
+              "note": "Documents the implemented Power destination semantics and privilege boundary."
+            }
+          ],
+          "documentation": [
+            "docs/power-and-display.md"
+          ]
+        },
+        {
+          "id": "display.power.wake-mute",
+          "title": "Hold wake requests for downloads/manual policy and safely mute only during confirmed screen-off intervals",
+          "requirements": [
+            "INV-001",
+            "INV-016",
+            "INV-017",
+            "INV-019"
+          ],
+          "tasks": [
+            "P9-041",
+            "P9-042",
+            "P9-087"
+          ],
+          "production": [
+            "src/WSGM/Core/DisplayMuteDecider.cs",
+            "src/WSGM/Core/KeepAwakeDecider.cs",
+            "src/WSGM/Shell/DisplayOffMuteService.cs",
+            "src/WSGM/Shell/KeepAwakeService.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/DisplayMuteTests.cs",
+            "tests/WSGM.Tests/KeepAwakeTests.cs",
+            "tests/WSGM.Tests/PowerRequestListTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "documented-device",
+              "path": "docs/power-and-display.md",
+              "note": "Records observed Windows notification asymmetry and the recovery timers required by the implementation."
+            }
+          ],
+          "documentation": [
+            "docs/power-and-display.md"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "native.radio",
+      "title": "Native radio and audio helper",
+      "owner": "native/Radio",
+      "operations": [
+        {
+          "id": "native.radio.control",
+          "title": "Expose bounded Wi-Fi, Bluetooth, pairing, consent, and audio operations through a flat NativeAOT-safe ABI",
+          "requirements": [
+            "INV-001",
+            "INV-016",
+            "INV-019"
+          ],
+          "tasks": [
+            "P9-041",
+            "P9-042"
+          ],
+          "production": [
+            "native/Radio/crates/radio-core/src/lib.rs",
+            "native/Radio/crates/radio-ffi/src/lib.rs",
+            "src/WSGM/Shell/RadioManager.cs"
+          ],
+          "tests": [
+            "native/Radio/crates/radio-core/src/lib.rs",
+            "tests/WSGM.Tests/RadioManagerTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "source-review",
+              "path": "docs/overlay-and-input.md",
+              "note": "Records the existing overlay radio surface and native ownership boundary."
+            }
+          ],
+          "documentation": [
+            "docs/overlay-and-input.md"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "overlay.navigation",
+      "title": "Capability-driven overlay navigation",
+      "owner": "src/WSGM/Overlay",
+      "operations": [
+        {
+          "id": "overlay.navigation.action-surfaces",
+          "title": "Preserve session, Steam, storage, power, radio, launch, and system actions behind focused overlay surfaces",
+          "requirements": [
+            "INV-001",
+            "INV-010",
+            "INV-016"
+          ],
+          "tasks": [
+            "P9-002",
+            "P9-031",
+            "P9-036",
+            "P9-041",
+            "P9-092"
+          ],
+          "production": [
+            "src/WSGM/Overlay/OverlayController.cs",
+            "src/WSGM/Overlay/OverlaySubView.cs",
+            "src/WSGM/Overlay/OverlayViewModel.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/RegressionCoverageTests.cs",
+            "tests/WSGM.Tests/ViewModelTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "documented-device",
+              "path": "docs/overlay-and-input.md",
+              "note": "Records focus restoration, controller navigation, and overlay action ownership constraints."
+            }
+          ],
+          "documentation": [
+            "docs/overlay-and-input.md",
+            "docs/ui.md"
+          ]
+        },
+        {
+          "id": "overlay.navigation.destinations",
+          "title": "Navigate bounded Home, Steam, Device, and System destinations with capability-driven Device visibility",
+          "requirements": [
+            "INV-001",
+            "INV-002",
+            "INV-010",
+            "INV-016"
+          ],
+          "tasks": [
+            "P4-069",
+            "P9-010",
+            "P9-012",
+            "P9-014",
+            "P9-015",
+            "P9-016"
+          ],
+          "production": [
+            "src/WSGM/Overlay/OverlayNavigation.cs",
+            "src/WSGM/Overlay/OverlayWindow.axaml",
+            "src/WSGM/Overlay/OverlayWindow.axaml.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/OverlayNavigationTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "source-review",
+              "path": "docs/overlay-and-input.md",
+              "note": "Documents overlay focus and input safety; final handheld UX acceptance is not claimed."
+            }
+          ],
+          "documentation": [
+            "docs/overlay-and-input.md",
+            "docs/ui.md"
+          ]
+        },
+        {
+          "id": "overlay.navigation.semantic-rows",
+          "title": "Present reusable descriptor status and shared performance rows without owning hardware policy",
+          "requirements": [
+            "INV-006",
+            "INV-010",
+            "INV-016"
+          ],
+          "tasks": [
+            "P9-021",
+            "P9-022",
+            "P9-023",
+            "P9-095",
+            "P9-096"
+          ],
+          "production": [
+            "src/WSGM/Overlay/DescriptorStatusRow.cs",
+            "src/WSGM/Overlay/PerformanceOverlayProjection.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/PerformanceOverlayBridgeTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "source-review",
+              "path": "docs/device-integration.md",
+              "note": "Records the semantic UI ownership boundary."
+            }
+          ],
+          "documentation": [
+            "docs/device-integration.md",
+            "docs/rtss.md",
+            "docs/ui.md"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "performance.rtss",
+      "title": "Shared performance and RTSS projection",
+      "owner": "src/WSGM/Core",
+      "operations": [
+        {
+          "id": "performance.rtss.discovery-control",
+          "title": "Discover a supported RTSS 7.3+ installation and apply bounded frame/overlay settings without repair or download",
+          "requirements": [
+            "INV-016",
+            "INV-018",
+            "INV-019",
+            "INV-020"
+          ],
+          "tasks": [
+            "P7-064",
+            "P7-065",
+            "P7-067",
+            "P7-068",
+            "P7-070",
+            "P7-071",
+            "P7-072"
+          ],
+          "production": [
+            "src/WSGM/Core/PerformanceService.cs",
+            "src/WSGM/Core/RtssDiscovery.cs",
+            "src/WSGM/Core/RtssModels.cs",
+            "src/WSGM/Core/RtssNativeAdapter.cs",
+            "src/WSGM/Interop/RtssProfileApi.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/RtssPerformanceServiceTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "documented-device",
+              "path": "docs/rtss.md",
+              "note": "Records read-only reference-device evidence and the deliberately narrow implemented support boundary."
+            }
+          ],
+          "documentation": [
+            "docs/rtss.md"
+          ]
+        },
+        {
+          "id": "performance.rtss.running-target",
+          "title": "Select a canonical Steam AppID target on start/exit and use only truthful direct-shortcut RTSS profile names",
+          "requirements": [
+            "INV-016",
+            "INV-017",
+            "INV-019"
+          ],
+          "tasks": [
+            "P0-016",
+            "P7-065",
+            "P7-066",
+            "P7-069",
+            "P7-070",
+            "P7-100"
+          ],
+          "production": [
+            "src/WSGM/Shell/RunningApplicationPerformanceCoordinator.cs",
+            "src/WSGM/Shell/RunningApplicationTarget.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/RunningApplicationPerformanceCoordinatorTests.cs",
+            "tests/WSGM.Tests/RunningApplicationTargetTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "documented-live",
+              "path": "docs/rtss.md",
+              "note": "Documents that Steam exposes AppID lifetime but not truthful executables for ordinary Steam titles."
+            }
+          ],
+          "documentation": [
+            "docs/rtss.md",
+            "docs/steam-cef.md"
+          ]
+        },
+        {
+          "id": "performance.rtss.shared-projection",
+          "title": "Project one immutable performance snapshot to overlay and native QAM consumers",
+          "requirements": [
+            "INV-010",
+            "INV-016",
+            "INV-017"
+          ],
+          "tasks": [
+            "P7-075",
+            "P7-080",
+            "P7-099",
+            "P7-100",
+            "P7-102"
+          ],
+          "production": [
+            "src/WSGM/Shell/PerformanceOverlayBridge.cs",
+            "src/WSGM/Shell/SteamUiSessionHost.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/PerformanceOverlayBridgeTests.cs",
+            "tests/WSGM.Tests/SteamUiHostTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "source-review",
+              "path": "docs/rtss.md",
+              "note": "Defines the implemented shared-service boundary; live QAM/RTSS acceptance remains a separate gate."
+            }
+          ],
+          "documentation": [
+            "docs/rtss.md",
+            "docs/steam-cef.md"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "release.packaging",
+      "title": "Deterministic component staging and release manifests",
+      "owner": "eng",
+      "operations": [
+        {
+          "id": "release.packaging.stage-assert",
+          "title": "Stage isolated executable/plugin components and assert the build graph and package boundaries",
+          "requirements": [
+            "INV-008",
+            "INV-016",
+            "INV-020"
+          ],
+          "tasks": [
+            "P10-009",
+            "P10-010",
+            "P10-011",
+            "P10-012",
+            "P10-014",
+            "P10-015"
+          ],
+          "production": [
+            "eng/assert-build-graph.ps1",
+            "eng/assert-component-staging.ps1",
+            "eng/stage-device-components.ps1"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/DeviceBoundaryTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "source-review",
+              "path": "docs/device-integration.md",
+              "note": "Documents the component/package topology; this trace does not claim an installer run."
+            }
+          ],
+          "documentation": [
+            "docs/device-integration.md"
+          ]
+        },
+        {
+          "id": "release.packaging.traceability",
+          "title": "Validate deterministic implemented-surface coverage and reject generated traceability report drift",
+          "requirements": [
+            "INV-016",
+            "INV-019",
+            "INV-020"
+          ],
+          "tasks": [
+            "P10-004",
+            "P10-006",
+            "P10-008"
+          ],
+          "production": [
+            "eng/update-traceability.ps1"
+          ],
+          "tests": [
+            "eng/update-traceability.ps1"
+          ],
+          "evidence": [
+            {
+              "kind": "source-review",
+              "path": "docs/2.0-traceability.manifest.json",
+              "note": "Handwritten review surface validated against the current repository; compatibility tests remain in the normal verification suite."
+            }
+          ],
+          "documentation": [
+            "docs/2.0-traceability.manifest.json"
+          ]
+        },
+        {
+          "id": "release.packaging.write-manifests",
+          "title": "Write deterministic component/release hashes and install reviewed package metadata",
+          "requirements": [
+            "INV-018",
+            "INV-019",
+            "INV-020"
+          ],
+          "tasks": [
+            "P10-013",
+            "P10-015"
+          ],
+          "production": [
+            "eng/prepare-reviewed-packages.ps1",
+            "eng/write-artifact-manifests.ps1"
+          ],
+          "tests": [
+            "tests/WSGM.Device.Contracts.Tests/PluginManifestValidatorTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "source-review",
+              "path": "docs/device-integration.md",
+              "note": "Records the offline reviewed-package boundary; no signing or retail-release claim is inferred."
+            }
+          ],
+          "documentation": [
+            "docs/device-integration.md",
+            "src/WSGM.Device.Contracts/COMPATIBILITY.md"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "session.shell",
+      "title": "Boot and shell session lifecycle",
+      "owner": "src/WSGM/Shell",
+      "operations": [
+        {
+          "id": "session.shell.logon-takeover",
+          "title": "Launch the selected user's boot flow from the SYSTEM service and fail back to unelevated Explorer",
+          "requirements": [
+            "INV-001",
+            "INV-016",
+            "INV-018",
+            "INV-019"
+          ],
+          "tasks": [
+            "P0-025",
+            "P10-010"
+          ],
+          "production": [
+            "src/WSGM.LogonService/LogonDecision.cs",
+            "src/WSGM.LogonService/ServiceHost.cs",
+            "src/WSGM.LogonService/SessionLauncher.cs",
+            "src/WSGM/Core/BootManifest.cs",
+            "src/WSGM/Shell/ExplorerReadiness.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/BootManifestTests.cs",
+            "tests/WSGM.Tests/ExplorerReadinessTests.cs",
+            "tests/WSGM.Tests/LogonDecisionTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "documented-device",
+              "path": "docs/boot-and-shell.md",
+              "note": "Records the device-settled boot and Explorer recovery sequence."
+            }
+          ],
+          "documentation": [
+            "docs/boot-and-shell.md",
+            "docs/decisions.md"
+          ]
+        },
+        {
+          "id": "session.shell.splash",
+          "title": "Cover Explorer preparation and Steam startup with a cancellable recovery-first boot splash",
+          "requirements": [
+            "INV-001",
+            "INV-016",
+            "INV-019"
+          ],
+          "tasks": [
+            "P9-002",
+            "P9-034"
+          ],
+          "production": [
+            "src/WSGM/Shell/BootSplash.cs",
+            "src/WSGM/Shell/BootSplashWindow.axaml.cs",
+            "src/WSGM/Shell/BootTakeoverCancellation.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/BootTakeoverCancellationTests.cs",
+            "tests/WSGM.Tests/SplashStyleTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "documented-device",
+              "path": "docs/boot-and-shell.md",
+              "note": "Records the device-verified Explorer readiness barrier and splash dismissal sequence."
+            }
+          ],
+          "documentation": [
+            "docs/boot-and-shell.md",
+            "docs/ui.md"
+          ]
+        },
+        {
+          "id": "session.shell.taskbar-tray",
+          "title": "Provide taskbar activation, tray icon projection, and orderly ownership across mode transitions",
+          "requirements": [
+            "INV-001",
+            "INV-010",
+            "INV-016",
+            "INV-018"
+          ],
+          "tasks": [
+            "P9-002",
+            "P9-005",
+            "P9-031"
+          ],
+          "production": [
+            "src/WSGM/Core/TrayProtocol.cs",
+            "src/WSGM/Overlay/TaskbarViewModel.cs",
+            "src/WSGM/Overlay/TaskbarWindow.axaml.cs",
+            "src/WSGM/Shell/TrayHost.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/TaskbarTests.cs",
+            "tests/WSGM.Tests/TrayProtocolTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "documented-device",
+              "path": "docs/boot-and-shell.md",
+              "note": "Records the implemented tray protocol and transition ownership rules."
+            }
+          ],
+          "documentation": [
+            "docs/boot-and-shell.md"
+          ]
+        },
+        {
+          "id": "session.shell.transitions",
+          "title": "Own one resident shell session, bounded process shutdown, and serialized Desktop/Game mode transitions",
+          "requirements": [
+            "INV-001",
+            "INV-003",
+            "INV-004",
+            "INV-016"
+          ],
+          "tasks": [
+            "P4-003",
+            "P4-043",
+            "P4-044",
+            "P9-031",
+            "P9-032"
+          ],
+          "production": [
+            "src/WSGM/App.axaml.cs",
+            "src/WSGM/Core/ApplicationShutdown.cs",
+            "src/WSGM/Core/UpdateExitWatcher.cs",
+            "src/WSGM/Interop/MessageWindow.cs",
+            "src/WSGM/Program.cs",
+            "src/WSGM/Shell/SessionModes.cs",
+            "src/WSGM/Shell/ShellSession.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/ApplicationShutdownTests.cs",
+            "tests/WSGM.Tests/BootTakeoverCancellationTests.cs",
+            "tests/WSGM.Tests/ModeSelectionTests.cs",
+            "tests/WSGM.Tests/UpdateExitWatcherTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "documented-device",
+              "path": "docs/boot-and-shell.md",
+              "note": "Records device-verified transition sequencing and recovery gates."
+            }
+          ],
+          "documentation": [
+            "docs/boot-and-shell.md",
+            "docs/device-integration.md"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "steam.input",
+      "title": "Steam Input lease and local gamepad ownership",
+      "owner": "native/SteamInput",
+      "operations": [
+        {
+          "id": "steam.input.gate",
+          "title": "Inject a fail-open Steam Input gate and coordinate owner-scoped acquire/release",
+          "requirements": [
+            "INV-001",
+            "INV-012",
+            "INV-016",
+            "INV-018",
+            "INV-019"
+          ],
+          "tasks": [
+            "P0-001",
+            "P0-002",
+            "P6-102",
+            "P6-103",
+            "P6-104"
+          ],
+          "production": [
+            "native/SteamInput/crates/steam-input-gate/src/lib.rs",
+            "native/SteamInput/crates/steam-input-lease/src/lib.rs",
+            "src/WSGM/Core/SteamInputBlocker.cs",
+            "src/WSGM/Core/SteamInputShim.cs"
+          ],
+          "tests": [
+            "native/SteamInput/crates/steam-input-lease/src/lib.rs",
+            "tests/WSGM.Tests/SteamInputShimTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "documented-device",
+              "path": "docs/steam-input.md",
+              "note": "Records device-verified input visibility and measured lease behavior."
+            }
+          ],
+          "documentation": [
+            "docs/steam-input.md"
+          ]
+        },
+        {
+          "id": "steam.input.local-source",
+          "title": "Acquire one SDL gamepad source for focused local surfaces with bounded navigation and chords",
+          "requirements": [
+            "INV-012",
+            "INV-014",
+            "INV-016",
+            "INV-017"
+          ],
+          "tasks": [
+            "P1-043",
+            "P1-044",
+            "P6-102",
+            "P9-086"
+          ],
+          "production": [
+            "src/WSGM/Input/GamepadNavigation.cs",
+            "src/WSGM/Input/GamepadService.cs",
+            "src/WSGM/Input/SdlGamepads.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/InputTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "documented-device",
+              "path": "docs/overlay-and-input.md",
+              "note": "Records the device-verified SDL and overlay focus ownership constraints."
+            }
+          ],
+          "documentation": [
+            "docs/overlay-and-input.md",
+            "docs/steam-input.md"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "steam.library",
+      "title": "Steam library, storage, artwork, and launch configuration",
+      "owner": "src/WSGM/Core",
+      "operations": [
+        {
+          "id": "steam.library.artwork-launch",
+          "title": "Resolve artwork and compose per-game launch configuration without replacing user options",
+          "requirements": [
+            "INV-001",
+            "INV-012",
+            "INV-016",
+            "INV-018"
+          ],
+          "tasks": [
+            "P9-036",
+            "P9-037",
+            "P9-038"
+          ],
+          "production": [
+            "src/WSGM/Core/SteamArtwork.cs",
+            "src/WSGM/Core/SteamGridDb.cs",
+            "src/WSGM/Core/SteamLaunchConfig.cs",
+            "src/WSGM/Overlay/ArtworkView.cs",
+            "src/WSGM/Overlay/LaunchWrapperView.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/LaunchWrapperTests.cs",
+            "tests/WSGM.Tests/SteamCustomLaunchCommandTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "documented-live",
+              "path": "docs/steam-cef.md",
+              "note": "Records live Steam launch-option and artwork API behavior."
+            }
+          ],
+          "documentation": [
+            "docs/steam-cef.md"
+          ]
+        },
+        {
+          "id": "steam.library.downloads",
+          "title": "Observe downloads and apply the explicitly requested queue order through the verified Steam store action",
+          "requirements": [
+            "INV-001",
+            "INV-016",
+            "INV-018",
+            "INV-019"
+          ],
+          "tasks": [
+            "P7-038",
+            "P7-039",
+            "P9-036",
+            "P9-037"
+          ],
+          "production": [
+            "src/WSGM/Core/SteamDownloadSort.cs",
+            "src/WSGM/Core/SteamDownloads.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/LibraryTabBootSyncPolicyTests.cs",
+            "tests/WSGM.Tests/RegressionCoverageTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "documented-live",
+              "path": "docs/steam-cef.md",
+              "note": "Records the live-verified queue store and scheduled-entry semantics."
+            }
+          ],
+          "documentation": [
+            "docs/steam-cef.md"
+          ]
+        },
+        {
+          "id": "steam.library.tabs-badges",
+          "title": "Inject reactive library filter tabs and a visible-page storage badge with independent cleanup",
+          "requirements": [
+            "INV-001",
+            "INV-015",
+            "INV-016",
+            "INV-018",
+            "INV-019"
+          ],
+          "tasks": [
+            "P7-037",
+            "P7-038",
+            "P7-040",
+            "P9-036",
+            "P9-037"
+          ],
+          "production": [
+            "src/WSGM/Core/LibraryFilter.cs",
+            "src/WSGM/Core/SteamLibraryTabs.cs",
+            "src/WSGM/Core/SteamPageBridge.cs",
+            "src/WSGM/Shell/LibraryTabManager.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/LibraryFilterTests.cs",
+            "tests/WSGM.Tests/LibraryTabBootSyncPolicyTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "documented-live",
+              "path": "docs/steam-cef.md",
+              "note": "Records the device/live-verified library-tab and visible-page mechanisms."
+            }
+          ],
+          "documentation": [
+            "docs/steam-cef.md"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "steam.ui",
+      "title": "Persistent Steam UI integration",
+      "owner": "src/WSGM/Core",
+      "operations": [
+        {
+          "id": "steam.ui.native-qam",
+          "title": "Apply isolated semantic native-QAM component patches and fail open on mismatch or context loss",
+          "requirements": [
+            "INV-015",
+            "INV-016",
+            "INV-018",
+            "INV-019"
+          ],
+          "tasks": [
+            "P7-031",
+            "P7-032",
+            "P7-033",
+            "P7-034",
+            "P7-035",
+            "P7-036",
+            "P7-052",
+            "P7-053",
+            "P7-056",
+            "P7-057",
+            "P7-058",
+            "P7-059",
+            "P7-061"
+          ],
+          "production": [
+            "src/WSGM/Core/NativeQamComponentPatches.cs",
+            "src/WSGM/Core/SteamUiPatchManager.cs",
+            "src/WSGM/Shell/NativeQamSemanticServices.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/NativeQamSemanticServicesTests.cs",
+            "tests/WSGM.Tests/SteamUiHostTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "documented-live",
+              "path": "docs/steam-cef.md",
+              "note": "Records current live Steam component/store observations and the positive-probe boundary."
+            }
+          ],
+          "documentation": [
+            "docs/steam-cef.md"
+          ]
+        },
+        {
+          "id": "steam.ui.patch-host",
+          "title": "Share one bounded loopback CDP transport, reconnect by target generation, and isolate patch lifecycle",
+          "requirements": [
+            "INV-015",
+            "INV-016",
+            "INV-017",
+            "INV-018",
+            "INV-019"
+          ],
+          "tasks": [
+            "P7-010",
+            "P7-011",
+            "P7-012",
+            "P7-013",
+            "P7-014",
+            "P7-015",
+            "P7-016",
+            "P7-018",
+            "P7-027",
+            "P7-031",
+            "P7-040"
+          ],
+          "production": [
+            "src/WSGM/Core/PersistentSteamUiTransport.cs",
+            "src/WSGM/Core/SteamUiCdpConnection.cs",
+            "src/WSGM/Core/SteamUiPatchManager.cs",
+            "src/WSGM/Shell/SteamUiSessionHost.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/NativeTcpTests.cs",
+            "tests/WSGM.Tests/SteamUiHostTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "documented-live",
+              "path": "docs/steam-cef.md",
+              "note": "Records the validated loopback owner checks and live Steam target behavior."
+            }
+          ],
+          "documentation": [
+            "docs/steam-cef.md"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "storage.cards",
+      "title": "Removable storage and Steam card libraries",
+      "owner": "src/WSGM/Shell",
+      "operations": [
+        {
+          "id": "storage.cards.format-eject",
+          "title": "List/eject removable drives and execute the reviewed SD formatting workflow with explicit confirmation",
+          "requirements": [
+            "INV-001",
+            "INV-010",
+            "INV-016",
+            "INV-019"
+          ],
+          "tasks": [
+            "P9-002",
+            "P9-036",
+            "P9-037"
+          ],
+          "production": [
+            "src/WSGM/Overlay/CardManagerView.cs",
+            "src/WSGM/Shell/RemovableDriveManager.cs",
+            "src/WSGM/Shell/SdFormatManager.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/RemovableDriveTests.cs",
+            "tests/WSGM.Tests/SdFormatTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "documented-device",
+              "path": "docs/sd-cards.md",
+              "note": "Records the device-settled format/eject surface and safety boundary."
+            }
+          ],
+          "documentation": [
+            "docs/sd-cards.md"
+          ]
+        },
+        {
+          "id": "storage.cards.library-lifecycle",
+          "title": "Track card arrival/removal and reconcile one Steam library without losing user libraries",
+          "requirements": [
+            "INV-001",
+            "INV-016",
+            "INV-018",
+            "INV-019"
+          ],
+          "tasks": [
+            "P7-038",
+            "P7-039",
+            "P9-036",
+            "P9-037"
+          ],
+          "production": [
+            "src/WSGM/Core/CardLibraryDecision.cs",
+            "src/WSGM/Shell/CardVolumeMonitor.cs",
+            "src/WSGM/Shell/GameModeCardServicePolicy.cs",
+            "src/WSGM/Shell/SteamLibraryVdf.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/CardLibraryDecisionTests.cs",
+            "tests/WSGM.Tests/GameModeCardServicePolicyTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "documented-device",
+              "path": "docs/steam-cef.md",
+              "note": "Records the device-verified registration and library-preservation failure modes."
+            }
+          ],
+          "documentation": [
+            "docs/sd-cards.md",
+            "docs/steam-cef.md"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "system.audio",
+      "title": "System audio and volume feedback",
+      "owner": "src/WSGM/Shell",
+      "operations": [
+        {
+          "id": "system.audio.volume",
+          "title": "Apply physical volume/mute commands and show non-interrupting bounded feedback",
+          "requirements": [
+            "INV-001",
+            "INV-010",
+            "INV-016",
+            "INV-019"
+          ],
+          "tasks": [
+            "P9-002",
+            "P9-041",
+            "P9-042"
+          ],
+          "production": [
+            "src/WSGM/Shell/AudioManager.cs",
+            "src/WSGM/Shell/VolumeButtonService.cs",
+            "src/WSGM/Shell/VolumeFeedback.cs",
+            "src/WSGM/Shell/VolumeOsdVisibility.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/AudioManagerTests.cs",
+            "tests/WSGM.Tests/VolumeAppCommandsTests.cs",
+            "tests/WSGM.Tests/VolumeOsdVisibilityTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "source-review",
+              "path": "docs/decisions.md",
+              "note": "Records the accepted non-activating volume OSD behavior."
+            }
+          ],
+          "documentation": [
+            "docs/decisions.md",
+            "docs/power-and-display.md"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "system.tools",
+      "title": "Local system tools",
+      "owner": "src/WSGM/Overlay",
+      "operations": [
+        {
+          "id": "system.tools.keyboard",
+          "title": "Show a focused on-screen keyboard and return text/input ownership safely",
+          "requirements": [
+            "INV-001",
+            "INV-010",
+            "INV-016"
+          ],
+          "tasks": [
+            "P9-002",
+            "P9-041",
+            "P9-042"
+          ],
+          "production": [
+            "src/WSGM/Controls/OnScreenKeyboard.cs",
+            "src/WSGM/Core/KeyboardService.cs",
+            "src/WSGM/Overlay/KeyboardWindow.axaml.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/OnScreenKeyboardTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "source-review",
+              "path": "docs/overlay-and-input.md",
+              "note": "Documents focused transient-surface and input ownership constraints."
+            }
+          ],
+          "documentation": [
+            "docs/overlay-and-input.md"
+          ]
+        },
+        {
+          "id": "system.tools.process-launch",
+          "title": "Launch approved user tools and configured startup applications off the UI thread",
+          "requirements": [
+            "INV-001",
+            "INV-010",
+            "INV-016",
+            "INV-019"
+          ],
+          "tasks": [
+            "P9-002",
+            "P9-041",
+            "P9-042"
+          ],
+          "production": [
+            "src/WSGM/Core/AppLauncher.cs",
+            "src/WSGM/Core/KnownStartupApps.cs",
+            "src/WSGM/Shell/StartupAppWatcher.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/RegressionCoverageTests.cs",
+            "tests/WSGM.Tests/ViewModelTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "source-review",
+              "path": "docs/boot-and-shell.md",
+              "note": "Documents startup-app and session ownership without claiming external tool success."
+            }
+          ],
+          "documentation": [
+            "docs/boot-and-shell.md",
+            "docs/overlay-and-input.md"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wrapper.launch",
+      "title": "Per-game launch wrapper",
+      "owner": "src/WSGM.Launch",
+      "operations": [
+        {
+          "id": "wrapper.launch.deelevate-lease",
+          "title": "Launch a medium-integrity game with optional independent Steam Input lease and bounded parent/child lifetime",
+          "requirements": [
+            "INV-001",
+            "INV-012",
+            "INV-016",
+            "INV-019"
+          ],
+          "tasks": [
+            "P6-103",
+            "P9-038",
+            "P10-010"
+          ],
+          "production": [
+            "src/WSGM.Launch/JobObject.cs",
+            "src/WSGM.Launch/Program.cs",
+            "src/WSGM.Launch/ScheduledTaskLauncher.cs",
+            "src/WSGM.Launch/SteamInputLeaseHost.cs",
+            "src/WSGM/Core/SteamLaunchConfig.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Tests/LaunchWrapperTests.cs",
+            "tests/WSGM.Tests/UnelevatedLauncherTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "documented-device",
+              "path": "docs/elevation.md",
+              "note": "Records the device-settled scheduled-task and wrapper behavior."
+            },
+            {
+              "kind": "documented-live",
+              "path": "docs/steam-cef.md",
+              "note": "Records live Steam launch-option shape and real-title versus shortcut behavior."
+            }
+          ],
+          "documentation": [
+            "docs/elevation.md",
+            "docs/steam-cef.md"
+          ]
+        }
+      ]
+    }
+  ]
+}

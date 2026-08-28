@@ -1,5 +1,6 @@
 # C# is formatted by dotnet format; generated and binary output is never formatted.
 AGENTS.md
+docs/2.0-traceability.md
 # Every CLAUDE.md is a symlink to the AGENTS.md beside it. Prettier resolves the
 # link and sees a separate path, so excluding only AGENTS.md left all 17 of them
 # failing format:check against content that is deliberately not Prettier-formatted.

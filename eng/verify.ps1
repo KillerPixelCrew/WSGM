@@ -38,6 +38,10 @@ try {
     npm run steam-assets:verify
     if ($LASTEXITCODE -ne 0) { throw "Steam UI asset drift check failed" }
 
+    # The handwritten capability manifest is the review surface. Its lightweight
+    # validator also renders in memory and rejects a stale generated report.
+    & "$PSScriptRoot\update-traceability.ps1" -Check
+
     & "$PSScriptRoot\assert-build-graph.ps1"
 
     # Cheap source scan, before anything is built: a test or probe that can resolve the real
