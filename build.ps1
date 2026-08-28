@@ -84,6 +84,11 @@ if (-not (Test-Path "$root\publish\WSGM.Radio.dll")) { throw "Radio helper was n
 if (-not (Test-Path "$root\publish\WSGM.Launch.exe")) { throw "Launch wrapper was not produced" }
 if (-not (Test-Path "$root\publish\WSGM.LogonService.exe")) { throw "Logon service was not produced" }
 
+# The AOT/JIT split only holds if nothing from the device platform is staged beside WSGM.exe.
+# A wrong ProjectReference is caught by DeviceBoundaryTests; a binary that arrives by copy has no
+# compile-time symptom at all, so it is checked here against the finished publish layout.
+& "$root\eng\check-aot-isolation.ps1" -OutputDirectory "$root\publish"
+
 $iscc = @(
     "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
     "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"

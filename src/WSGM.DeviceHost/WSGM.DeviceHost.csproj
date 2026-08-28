@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <AssemblyName>WSGM.DeviceHost</AssemblyName>
+    <RootNamespace>WSGM.DeviceHost</RootNamespace>
+    <!-- Deliberately JIT: this process exists so the plugin can use
+         System.Management/WMI, WinRT sensors, and an interactive keyboard hook,
+         none of which the NativeAOT WSGM executable may carry. Publishing it
+         beside WSGM.exe is a build failure (eng/check-aot-isolation.ps1). -->
+    <SelfContained>false</SelfContained>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\WSGM.Device.Contracts\WSGM.Device.Contracts.csproj" />
+    <ProjectReference Include="..\WSGM.Device.Sdk\WSGM.Device.Sdk.csproj" />
+  </ItemGroup>
+</Project>

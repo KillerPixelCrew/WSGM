@@ -39,6 +39,17 @@ jobs:
         shell: pwsh
         run: rustup component add clippy
 
+      # The device platform took the solution from four projects to ten, so a cold
+      # NuGet restore is now a meaningful part of the run. Keyed on the project
+      # files because this repository pins versions in the csproj rather than in a
+      # packages.lock.json, which is what setup-dotnet's own caching would need.
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
+          restore-keys: ${{ runner.os }}-nuget-
+
       # Both Rust workspaces are built by verify.ps1, so both target directories
       # are cached and both lockfiles are part of the key.
       - name: Cache Rust build output

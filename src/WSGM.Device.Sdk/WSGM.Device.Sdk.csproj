@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>WSGM.Device.Sdk</RootNamespace>
+    <!-- JIT by design: plugins need System.Management/WMI, WinRT sensors and an
+         interactive hook, none of which the AOT executable may carry. This
+         assembly must never be copied beside WSGM.exe (eng/check-aot-isolation.ps1). -->
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\WSGM.Device.Contracts\WSGM.Device.Contracts.csproj" />
+  </ItemGroup>
+</Project>

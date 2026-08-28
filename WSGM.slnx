@@ -1,10 +1,21 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/WSGM.Device.Contracts/WSGM.Device.Contracts.csproj" />
+    <Project Path="src/WSGM.Device.ProbeHost/WSGM.Device.ProbeHost.csproj" />
+    <Project Path="src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj" />
+    <Project Path="src/WSGM.DeviceHost/WSGM.DeviceHost.csproj" />
+    <Project Path="src/WSGM.DeviceLab.Cli/WSGM.DeviceLab.Cli.csproj" />
+    <Project Path="src/WSGM.DeviceLab.Core/WSGM.DeviceLab.Core.csproj" />
     <Project Path="src/WSGM.Launch/WSGM.Launch.csproj" />
     <Project Path="src/WSGM.LogonService/WSGM.LogonService.csproj" />
     <Project Path="src/WSGM/WSGM.csproj" />
   </Folder>
+  <Folder Name="/plugins/">
+    <Project Path="plugins/WSGM.Device.Msi.Claw8A2Vm/WSGM.Device.Msi.Claw8A2Vm.csproj" />
+  </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/WSGM.Device.Contracts.Tests/WSGM.Device.Contracts.Tests.csproj" />
+    <Project Path="tests/WSGM.DeviceLab.Tests/WSGM.DeviceLab.Tests.csproj" />
     <Project Path="tests/WSGM.Tests/WSGM.Tests.csproj" />
   </Folder>
 </Solution>

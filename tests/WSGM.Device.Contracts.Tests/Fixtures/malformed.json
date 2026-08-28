@@ -1,0 +1,5 @@
+{
+  "schemaVersion": 1,
+  "id": "wsgm.device.example.malformed",
+  "version": "1.0.0",
+  "displayName": "Truncated mid-document"

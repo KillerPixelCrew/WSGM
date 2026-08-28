@@ -31,6 +31,10 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Prettier check failed" }
     }
 
+    # Cheap source scan, before anything is built: a test or probe that can resolve the real
+    # %LOCALAPPDATA%\WSGM directory is a defect regardless of whether it compiles.
+    & "$PSScriptRoot\check-no-live-data-paths.ps1"
+
     # The vendored Rust libraries are validated and built before the .NET build,
     # which needs their staged output present. -Validate adds each library's own
     # gates (clippy as errors, unit tests) so a change there fails here rather than

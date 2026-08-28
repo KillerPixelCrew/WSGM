@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>WSGM.Device.Contracts</RootNamespace>
+    <!-- The only new project the NativeAOT WSGM executable may reference. Every
+         rule below exists to keep that true: the AOT publish of WSGM.csproj is the
+         compatibility proof, and a trim/AOT warning originating here fails it. -->
+    <IsAotCompatible>true</IsAotCompatible>
+    <!-- The shared state ring copies samples through a mapped pointer. Measured on the
+         reference handheld, the MemoryMappedViewAccessor byte API cost 2478 ns per
+         64-byte sample against 95 ns for a span copy over the raw pointer - on the
+         path that carries every controller and IMU report. Unsafe is the opposite of
+         a NativeAOT problem; reflection would be. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Contracts are shared between the AOT host and JIT plugin side, so they
+         must serialize through the source generator and never through reflection. -->
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+</Project>

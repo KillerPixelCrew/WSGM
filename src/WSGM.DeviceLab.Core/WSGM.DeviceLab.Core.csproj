@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>WSGM.DeviceLab.Core</RootNamespace>
+    <!-- LibraryImport generates unsafe marshalling stubs for the cfgmgr32 device-property
+         calls in Inventory\DeviceProperties.cs. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Inventory, candidate matching, capture, evidence, and scaffold generation.
+         The GUI and the CLI are both thin shells over this assembly so a Device Lab
+         workflow cannot exist in one surface and not the other. -->
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- WMI. Reflection-heavy and JIT-only, which is exactly why inventory lives here and not in
+         WSGM: the AOT executable may never load this, and check-aot-isolation.ps1 fails the build if
+         it reaches the publish output. -->
+    <PackageReference Include="System.Management" Version="10.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\WSGM.Device.Contracts\WSGM.Device.Contracts.csproj" />
+  </ItemGroup>
+</Project>

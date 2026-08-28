@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "wsgm.device.example.unknown-member",
+  "version": "1.0.0",
+  "displayName": "Declares a field this schema version does not define",
+  "publisher": "Example",
+  "minApiVersion": 1,
+  "maxApiVersion": 1,
+  "entryPoint": "Example.dll",
+  "grantsElevation": true,
+  "devices": [
+    {
+      "id": "example",
+      "displayName": "Example device",
+      "identity": [
+        { "signal": "SmbiosBaseboardProduct", "strength": "Required", "values": ["EX-0001"] }
+      ],
+      "usbEndpoints": [],
+      "resources": [],
+      "modules": [],
+      "capabilities": []
+    }
+  ],
+  "dependencies": [],
+  "riskDeclarations": [],
+  "provenance": {
+    "source": "Example",
+    "license": "MIT",
+    "provenanceClass": "IndependentCapture"
+  }
+}

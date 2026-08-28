@@ -79,6 +79,13 @@
          the Avalonia we ship. See its csproj for the full reasoning. -->
     <ProjectReference
         Include="..\..\third_party\LoadingIndicators.Avalonia\LoadingIndicators.Avalonia\LoadingIndicators.Avalonia.csproj" />
+    <!-- The semantic device contracts, and the ONLY device-platform project this
+         executable may reference. DeviceHost, the SDK, Device Lab and every plugin
+         stay JIT and out of this image; DeviceBoundaryTests fails the build if one
+         of them is referenced, and eng\check-aot-isolation.ps1 fails it if one is
+         copied here without a reference. This project's IsAotCompatible analyzers
+         mean the AOT publish below is what proves the contracts stay AOT-safe. -->
+    <ProjectReference Include="..\WSGM.Device.Contracts\WSGM.Device.Contracts.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- 1-9: how hard the GC works to keep the heap small; 9 = maximum. Reads

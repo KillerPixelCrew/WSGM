@@ -1,0 +1,46 @@
+# plugins
+
+Device plugin packages. Each directory here is a separate deployable artifact with its own manifest,
+evidence lock, trust tier, and licensing provenance — that is why plugins live at the repository top
+level rather than under `src\`.
+
+**Nothing in the solution may add a `ProjectReference` to a plugin.** A plugin is loaded at runtime
+by `WSGM.DeviceHost` from its package directory. The dependency-direction test in
+`tests\WSGM.Tests` fails the build if a reference appears.
+
+## What a plugin owns
+
+Every hardware transport, protocol, layout, and command sequence for its device; identity and
+firmware detection; power, fan, lighting, charge, and telemetry implementation; physical controller
+acquisition, normalization, mode changes, and re-enumeration; rumble and output encoding; OEM button
+sources and device-specific suppression; validation, ordering, readback, rollback, and its recovery
+journal; its own controller artwork and glyph control map; and its declared dependencies.
+
+## What a plugin never does
+
+- Call HIDMaestro, own WSGM's Steam Input lease, or touch HidHide.
+- Supply XAML, HTML, CSS, JavaScript, URLs, Steam selectors, patch logic, arbitrary commands, or any
+  executable content. Artwork and the control map are **data**, validated and re-emitted by WSGM
+  before any surface sees them (`P0-052`).
+- Install, repair, register, or restart a dependency at runtime. Declare it; a missing dependency
+  makes the affected capability unavailable, and nothing more.
+- Perform UI work, or dispatch an action from a hook callback.
+- Write to hardware when the exact prerequisite read failed, or select a firmware address by
+  numerical proximity to a known one.
+
+## Rules that apply to every package
+
+- **Fail closed on identity.** An unknown board, unknown firmware descriptor, or failed prerequisite
+  read degrades the capability. It never selects the nearest known layout.
+- Revalidate identity, firmware, ownership, range, relationship, and current state on **every**
+  hardware command. A value the package advertised earlier is not a permission slip.
+- One serializer, cancellation, bounded retries, and circuit breaking per transport. No unbounded
+  `Sleep` — every wait observes an ACK, a PnP event, a WMI event, or a deadline.
+- Snapshot before you change, journal atomically around every ownership-changing transaction, and
+  never substitute a hard-coded "factory" value for a snapshot that failed to read.
+- Ownership is per resource. A controller conflict must not disable fan, lighting, power, charge, or
+  OEM-event capabilities.
+- Detect conflicting OEM software and report it; never terminate or reconfigure it. Process presence
+  alone is not ownership — only demonstrated competing writes or exclusive-access failure is.
+- Record the provenance and license of every constant, module, and bundled asset. Protocol facts
+  learned from another implementation are free to use; its code and structured tables are not.

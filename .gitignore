@@ -20,6 +20,11 @@
 /src/WSGM/Native/SteamInputLease/
 /src/WSGM/Native/Radio/
 
+# Device Lab generated output: scaffolded projects, extracted fixtures, capture
+# bundles, and catalog build products. Regenerated from evidence, never committed
+# as generated artifacts - the evidence lock and the reviewed source are tracked.
+/catalog/generated/
+
 # The vendored Rust library's own build output.
 /native/SteamInput/target/
 /native/Radio/target/

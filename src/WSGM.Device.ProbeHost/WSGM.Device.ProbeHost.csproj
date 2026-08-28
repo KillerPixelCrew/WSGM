@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <AssemblyName>WSGM.Device.ProbeHost</AssemblyName>
+    <RootNamespace>WSGM.Device.ProbeHost</RootNamespace>
+    <SelfContained>false</SelfContained>
+    <!-- Disposable, one probe per process. Kept separate from WSGM.DeviceHost so a
+         probe's typed, profile-scoped interfaces can never appear in production
+         DeviceHost IPC: they are not in the same assembly to begin with. -->
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\WSGM.Device.Contracts\WSGM.Device.Contracts.csproj" />
+  </ItemGroup>
+</Project>
