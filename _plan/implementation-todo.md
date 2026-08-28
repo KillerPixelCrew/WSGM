@@ -175,13 +175,14 @@ admission rules — but encoding a rule is not evidence the product obeys it.
 |     4 | Device runtime          | One DeviceHost generation survives the full WSGM run and cleanly hands hardware back                    |
 |     5 | Controller runtime      | HIDMaestro, HidHide, UI capture, output routing, and fallback pass the complete target matrix           |
 |     6 | Steam UI                | Persistent patch host, native QAM, RTSS, and glyph tiers are asynchronous, isolated, and verified       |
-|     7 | Final overlay           | Capability-driven navigation and the complete Device destination pass handheld UX validation            |
-|     8 | Retail release          | Packaging, coexistence, recovery, performance, legal, installer, and update gates all pass              |
+|     7 | AutoTDP                 | Frametime telemetry, floorless scene adaptation, bounded power control, and replay/hardware gates pass  |
+|     8 | Final overlay           | Capability-driven navigation and the complete Device destination pass handheld UX validation            |
+|     9 | Retail release          | Packaging, coexistence, recovery, performance, legal, installer, and update gates all pass              |
 
 Device Lab contracts and read-only work can proceed in parallel with controller/CEF experiments
 after the shared schemas are frozen. The production Claw write capabilities cannot start before
 their M0 trial evidence. The final information architecture cannot be locked before capability,
-controller, QAM, and RTSS contracts stabilize.
+controller, QAM, RTSS, and AutoTDP contracts stabilize.
 
 ## P0 — normalize the baseline before implementation
 
@@ -2436,6 +2437,131 @@ coordinator state machine owned by `P4.7`; it does not create a second handoff p
       sources without blocking or stale display.
 - [ ] **P7-105 · RELEASE-GATE** Meet numeric sampling/propagation/CPU/memory budgets and ship only
       metrics and profile interactions whose source, units, freshness, and behavior are verified.
+
+### P7.12 Frametime-driven AutoTDP
+
+This is a separate post-telemetry stage. Production AutoTDP power writes cannot begin before the
+`P5-062` power-setter gate and `P7-105` performance-service gate pass. Pure policy, model, and
+replay work may proceed earlier against fixtures. AutoTDP minimizes commanded watt-time only among
+power levels that satisfy its frametime-reliability contract; CPU/GPU utilization is never a policy
+input.
+
+- [ ] **P7-106 · SOFTWARE** Create one session-owned AutoTDP controller in `Shell`, independent of
+      overlay, native QAM, RTSS-adapter, and device-plugin lifetimes; every UI surface projects the
+      same state and invokes the same command path.
+- [ ] **P7-107 · SOFTWARE** Freeze the lexicographic objective: first satisfy target cadence,
+      frametime-tail, deadline-miss-fraction, and consecutive-miss limits, then select the lowest
+      sustainable PL1 and minimize redundant writes; never trade frame reliability for a weighted
+      energy score.
+- [ ] **P7-108 · SOFTWARE** Define canonical frametime windows from the verified performance stream
+      with median, slow-frame tail, dispersion, deadline-miss fraction, longest miss run, timestamp,
+      target/process/device generation, and quality; CPU/GPU utilization cannot influence
+      calibration, scene classification, confidence, or commands.
+- [ ] **P7-109 · SOFTWARE** Reject stale, pre-write, loading/transition, focus-loss, suspended,
+      discontinuous, or non-stationary windows; tag isolated hitches separately from sustained
+      power-responsive lag, clear the local window after every successful PL1 write, and require a
+      complete settled replacement window before the next normal decision.
+- [ ] **P7-110 · SOFTWARE** Define a versioned per-device/per-application calibration model over the
+      supported discrete PL1 grid, storing raw accepted samples, robust frametime center/tail,
+      uncertainty, measured coverage, and capped/censored status rather than a persisted wattage
+      baseline or floor.
+- [ ] **P7-111 · SOFTWARE** Implement an explicit assisted calibration in a stable representative
+      gameplay scene with bounded descending probes, repeated settled measurements, stationarity
+      checks, early abort below playable cadence, and 1 W refinement around response knees and the
+      target-holding region.
+- [ ] **P7-112 · SOFTWARE** Robustly reject or remeasure outliers before applying
+      confidence-weighted monotone/isotonic smoothing; retain the source points, treat cap-bound
+      observations as one-sided constraints, forbid optimistic extrapolation, and keep 4PL fitting
+      diagnostic-only unless later evidence proves it safer than the discrete model on the complete
+      replay corpus.
+- [ ] **P7-113 · SOFTWARE** Model live scene heaviness as a transient multiplicative frametime
+      factor with explicit uncertainty, free to rise above the gameplay calibration in heavy scenes
+      and fall below it in menus; never clamp the predicted PL1 to a calibrated gameplay requirement
+      or persist the scene factor.
+- [ ] **P7-114 · SOFTWARE** Update scene scale only from valid uncapped post-write windows, detect
+      shape/model mismatch from inconsistent normalized responses at different PL1 values, and
+      demote prediction to bounded model-free control whenever scale, curve, cap, or confidence
+      assumptions fail.
+- [ ] **P7-115 · SOFTWARE** Implement the controller as a pure deterministic state machine covering
+      waiting, settling, tracking, downward probe, capped-content probe, recovery, unreachable,
+      manual-override, paused, and faulted states; the session orchestrator owns timers,
+      subscriptions, writes, cancellation, and disposal.
+- [ ] **P7-116 · SOFTWARE** Provide a floorless model-free fallback that raises PL1 quickly on
+      sustained deadline misses, lowers it through verified one-step probes after stable windows,
+      restores the last-known-good value immediately on a failed probe, and exponentially backs off
+      repeated failures without making any result persistent.
+- [ ] **P7-117 · SOFTWARE** Treat stable target-capped and lower-cadence menu/cutscene observations
+      as censored: use bounded causal power probes to distinguish spare headroom from a deficit,
+      descend toward the hardware minimum while preserving the observed cadence, and never chase a
+      content cap with maximum PL1.
+- [ ] **P7-118 · SOFTWARE** Detect harder-scene frametime deterioration with bounded short-window
+      evidence, bypass ordinary downward-probe/coalescing delay for one recovery command, and keep a
+      decaying session-only recent-hard-scene jump target that accelerates recovery but never acts
+      as the current minimum or a persisted floor.
+- [ ] **P7-119 · SOFTWARE** At maximum PL1 with a sustained missed target, report temporarily
+      unreachable instead of accumulating demand; permit non-inferiority probes that reclaim watts
+      when a lower PL1 does not worsen the best attainable frametime, and leave the state when the
+      target becomes attainable again.
+- [ ] **P7-120 · DECISION** Freeze the dynamic-resolution policy explicitly: because frametime-only
+      control cannot observe silent image-quality reductions, choose and expose either quality-
+      preserving fallback on dead causal response or an opt-in maximum-savings behavior; never infer
+      this choice from CPU/GPU utilization.
+- [ ] **P7-121 · SOFTWARE** Replace the unexplained `0.95` multiplier with dimensioned frametime
+      guard, live/model uncertainty, actuator quantization, and a verified downward probe; derive
+      every margin from trace/device evidence rather than one scene or a unitless percentage.
+- [ ] **P7-122 · SOFTWARE** Factor one neutral primary-power-limit arbiter over
+      `power.primary-limit` so manual overlay/QAM edits, profiles, calibration, and AutoTDP cannot
+      race; define explicit ownership, manual pause/resume, command origin, and deterministic
+      restore to the underlying persistent desired value.
+- [ ] **P7-123 · SOFTWARE** Add a dynamic-control lease that captures the original power transaction
+      once, maintains one bounded recoverable ownership record, coalesces/no-ops equivalent writes,
+      permits only one command in flight, and restores/reconciles once; never rewrite and flush the
+      ordinary crash journal at control-loop cadence.
+- [ ] **P7-124 · SOFTWARE** Measure and enforce settling time, normal minimum write interval,
+      consecutive-decision confirmation, maximum normal step, panic bypass, recovery hold, and
+      probe-backoff budgets; publish no guessed cadence and never queue stale decisions behind an
+      in-flight hardware command.
+- [ ] **P7-125 · HARDWARE · DESTRUCTIVE-RISK** Characterize PL2 as a possible transition reserve by
+      measuring whether verified low-PL1/high-PL2 settings preserve frametime for longer than
+      telemetry detection plus command and settling latency, while recording actual duration,
+      thermals, power, firmware/scenario interaction, and exact restoration.
+- [ ] **P7-126 · SOFTWARE** Use PL2 headroom only on devices/firmware that pass `P7-125`; otherwise
+      expose an honest cadence-first transient reserve and a separately explicit maximum-savings
+      policy because absolute-minimum menu PL1 and zero misses on an unobservable abrupt scene
+      change cannot both be guaranteed.
+- [ ] **P7-127 · SOFTWARE** Persist only accepted model/configuration data through source-generated
+      JSON and atomic/coalesced config mutation, keyed by stable device identity, canonical
+      application identity, relevant display/target/power context, and algorithm version; keep live
+      windows, scene factors, brackets, jump targets, generations, and probe history in RAM only.
+- [ ] **P7-128 · SOFTWARE** Project target, calibration readiness, current PL1, scene/control state,
+      confidence, cap/unreachable/manual status, and actionable diagnostics into shared overlay/QAM
+      state; manual TDP input must pause AutoTDP rather than start a hidden tug-of-war.
+- [ ] **P7-129 · SOFTWARE** Emit bounded diagnostic traces containing window statistics, validity
+      reason, target budget, model prediction/confidence, transient scene scale, state transition,
+      requested/applied/readback PL1, command generation, and failure/recovery outcome without using
+      CPU/GPU utilization as explanatory evidence.
+- [ ] **P7-130 · SOFTWARE** Add deterministic unit/property tests for frametime aggregation,
+      post-write causality, outlier/stationarity handling, monotone/censored calibration,
+      scene-scale confidence, model mismatch, state transitions, caps, unreachable targets, manual
+      ownership, command failure, cancellation, generation change, restore, and disposal.
+- [ ] **P7-131 · SOFTWARE** Build a replay/simulation harness covering constant/capped, smooth,
+      steep-knee, outlier, scaled and shape-changing scenes, loading hitches, thermal drift, dynamic
+      resolution, long menus, abrupt menu-to-heavy-game transitions, and RTSS/device restart;
+      compare maximum miss run, frametime-tail overshoot, recovery frames, watt-seconds, excess
+      watt-seconds versus an offline oracle, writes per minute, and menu savings in that priority
+      order.
+- [ ] **P7-132 · HARDWARE** Validate calibration and continuous adaptation on the reference A2VM
+      across representative games, targets, display modes, AC/DC states, engine caps, menus,
+      cutscenes, loading, suspend/resume, external manual edits, and repeated light/heavy scene
+      transitions; record every tuned constant from evidence rather than shipping initial guesses.
+- [ ] **P7-133 · HARDWARE** Run bounded long-duration and transition soaks with AutoTDP enabled,
+      measuring frame reliability, watt-time savings, PL1/PL2 writes, WMI/storage activity,
+      thermals, command failures, recovery, handles, CPU/memory overhead, and exact disable/exit
+      restoration.
+- [ ] **P7-134 · RELEASE-GATE** Ship no AutoTDP control until replay, hardware, transition-reserve,
+      ownership, recovery, resource, UI, and diagnostics gates prove that heavy scenes never create
+      a persistent floor, menus can reach their verified low-power point, and energy savings occur
+      only after the frametime-reliability contract passes.
 
 ## P8 — physical handheld glyph catalog and rendering
 
