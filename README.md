@@ -140,7 +140,15 @@ tested on real handheld hardware before release.
 
 ## License
 
-MIT with one addition ([full text](LICENSE)): **device manufacturers (OEMs/ODMs), system
-integrators, and resellers need prior written permission to preinstall or bundle WSGM on devices
-they sell** — in whole, in part, modified, forked, or as code inside their own preinstalled
-software. Permission requests: git@kpc.bz. For everyone else, nothing changes from ordinary MIT.
+Copyright (C) 2026 NightHammer1000.
+
+WSGM is free software: you can redistribute it and/or modify it under the terms of the **GNU General
+Public License as published by the Free Software Foundation, either version 3 of the License, or (at
+your option) any later version** ([full text](LICENSE)).
+
+WSGM is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the
+implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
+License for more details.
+
+Bundled third-party components keep their own licenses; their notices ship beside the executable and
+with the installer.
