@@ -1481,6 +1481,50 @@
       "owner": "eng",
       "operations": [
         {
+          "id": "release.packaging.security-review",
+          "title": "Enforce and document package, process, IPC, helper, Device Lab, CEF, update, and privacy trust boundaries",
+          "requirements": [
+            "INV-008",
+            "INV-016",
+            "INV-017",
+            "INV-018",
+            "INV-019"
+          ],
+          "tasks": [
+            "P10-043",
+            "P10-044",
+            "P10-045",
+            "P10-049",
+            "P10-050",
+            "P10-051",
+            "P10-052"
+          ],
+          "production": [
+            "eng/assert-build-graph.ps1",
+            "eng/check-no-live-data-paths.ps1",
+            "src/WSGM.Device.Contracts/Ipc/WireFormat.cs",
+            "src/WSGM.DeviceHost/PluginPackageLoader.cs",
+            "src/WSGM/Shell/DeviceHostProcess.cs"
+          ],
+          "tests": [
+            "tests/WSGM.Device.Contracts.Tests/WireFormatTests.cs",
+            "tests/WSGM.DeviceHost.Tests/HandshakeTests.cs",
+            "tests/WSGM.DeviceHost.Tests/PluginPackageLoaderTests.cs",
+            "tests/WSGM.Tests/DeviceBoundaryTests.cs"
+          ],
+          "evidence": [
+            {
+              "kind": "source-review",
+              "path": "docs/device-security.md",
+              "note": "Records the implemented trust boundaries and residual risks without claiming fuzz, hardware, or release review closure."
+            }
+          ],
+          "documentation": [
+            "docs/decisions.md",
+            "docs/device-security.md"
+          ]
+        },
+        {
           "id": "release.packaging.stage-assert",
           "title": "Stage isolated executable/plugin components and assert the build graph and package boundaries",
           "requirements": [
