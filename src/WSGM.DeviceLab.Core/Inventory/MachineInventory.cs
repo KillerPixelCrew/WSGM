@@ -52,8 +52,14 @@ public sealed record MachineInventory
     /// <summary>Relevant scheduled tasks observed without running or modifying them.</summary>
     public IReadOnlyList<ScheduledTaskInventory> ScheduledTasks { get; init; } = [];
 
+    /// <summary>Relevant registered or loaded providers without activation.</summary>
+    public IReadOnlyList<ProviderInventory> Providers { get; init; } = [];
+
     /// <summary>Potential or demonstrated ownership conflicts with their evidence level.</summary>
     public IReadOnlyList<ResourceConflictInventory> ResourceConflicts { get; init; } = [];
+
+    /// <summary>Bounded passive topology generations for baseline and imported change fixtures.</summary>
+    public IReadOnlyList<TopologyGenerationInventory> TopologyGenerations { get; init; } = [];
 
     /// <summary>When the sweep ran, in UTC.</summary>
     public required DateTimeOffset CapturedAt { get; init; }

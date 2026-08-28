@@ -48,6 +48,16 @@ public class RedactionTests
     }
 
     [Fact]
+    public void AGenericPciInstance_KeepsHardwareIdentityAndLosesEnumerationIdentity()
+    {
+        string redacted = new CaptureRedactor()
+            .Redact(@"PCI\VEN_8086&DEV_7D55&SUBSYS_00000000\3&11583659&0&A0");
+
+        Assert.Contains("VEN_8086&DEV_7D55", redacted, StringComparison.Ordinal);
+        Assert.DoesNotContain("11583659", redacted, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TheSameDeviceKeepsTheSameTokenAcrossEvents()
     {
         // A developer reading a shared capture still has to be able to follow one device through a

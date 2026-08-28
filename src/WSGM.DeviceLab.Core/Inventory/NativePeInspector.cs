@@ -11,40 +11,95 @@ namespace WSGM.DeviceLab.Core.Inventory;
 
 internal static class NativePeInspector
 {
-    private const int MaximumExports = 4096;
     private const int MaximumExportNameBytes = 1024;
 
-    public static bool TryInspect(string path, out NativeBinaryInventory? inventory)
+    public static NativeBinaryInventory Inspect(string path)
     {
-        inventory = null;
+        string resolved;
         try
         {
-            string resolved = Path.GetFullPath(path);
-            using FileStream stream = new(resolved, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            resolved = Path.GetFullPath(path);
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException
+            or System.Security.SecurityException)
+        {
+            return Unavailable(path, InventoryAccess.Malformed);
+        }
+
+        try
+        {
+            using FileStream stream = new(resolved, FileMode.Open, FileAccess.Read, FileShare.Read);
+            if (stream.Length is <= 0 or > InventoryLimits.MaximumNativeBinaryBytes)
+            {
+                return Unavailable(resolved, InventoryAccess.Malformed, stream.Length);
+            }
             using PEReader pe = new(stream, PEStreamOptions.LeaveOpen);
             if (pe.PEHeaders.PEHeader is null)
             {
-                return false;
+                return Unavailable(resolved, InventoryAccess.Malformed, stream.Length);
             }
 
             (BinarySignatureState signature, string? signer) = ReadSigner(resolved);
-            inventory = new NativeBinaryInventory
+            IReadOnlyList<string> exports = ReadExports(pe);
+            string sha256 = Hash(stream);
+            return new NativeBinaryInventory
             {
+                Access = InventoryAccess.Available,
                 Path = resolved,
                 Name = Path.GetFileName(resolved),
+                FileBytes = stream.Length,
                 Version = EmptyToNull(FileVersionInfo.GetVersionInfo(resolved).FileVersion),
                 Architecture = pe.PEHeaders.CoffHeader.Machine.ToString(),
-                Sha256 = Hash(stream),
+                Sha256 = sha256,
                 Signature = signature,
                 SignerSubject = signer,
-                Exports = ReadExports(pe),
+                Exports = exports,
             };
-            return true;
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
-            or BadImageFormatException or CryptographicException or ArgumentException)
+        catch (UnauthorizedAccessException)
         {
-            return false;
+            return Unavailable(resolved, InventoryAccess.AccessDenied);
+        }
+        catch (IOException exception) when (IsSharingViolation(exception))
+        {
+            return Unavailable(resolved, InventoryAccess.ExclusiveAccessDenied);
+        }
+        catch (IOException)
+        {
+            return Unavailable(resolved, InventoryAccess.Disconnected);
+        }
+        catch (Exception exception) when (exception is BadImageFormatException
+            or CryptographicException or ArgumentException or InvalidOperationException
+            or OverflowException or System.ComponentModel.Win32Exception)
+        {
+            return Unavailable(resolved, InventoryAccess.Malformed);
+        }
+    }
+
+    private static NativeBinaryInventory Unavailable(
+        string path,
+        InventoryAccess access,
+        long fileBytes = 0) => new()
+    {
+        Access = access,
+        Path = path,
+        Name = SafeFileName(path),
+        FileBytes = fileBytes,
+        Signature = BinarySignatureState.Unknown,
+    };
+
+    private static bool IsSharingViolation(IOException exception) =>
+        (exception.HResult & 0xFFFF) is 32 or 33;
+
+    private static string SafeFileName(string path)
+    {
+        try
+        {
+            return Path.GetFileName(path);
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException)
+        {
+            return "invalid-native-path";
         }
     }
 
@@ -90,7 +145,7 @@ internal static class NativePeInspector
         _ = table.ReadUInt32();
         uint namePointerRva = table.ReadUInt32();
         _ = table.ReadUInt32();
-        if (nameCount > MaximumExports || namePointerRva == 0)
+        if (nameCount > InventoryLimits.MaximumNativeExports || namePointerRva == 0)
         {
             return [];
         }

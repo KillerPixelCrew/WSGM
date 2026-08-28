@@ -78,7 +78,9 @@ public static partial class DeviceProperties
 
         int characters = 0;
         int result = CM_Get_Device_ID_Size(out characters, parent, 0);
-        if (result != CrSuccess || characters <= 0)
+        if (result != CrSuccess
+            || characters <= 0
+            || characters > InventoryLimits.MaximumTextCharacters)
         {
             return null;
         }
@@ -124,7 +126,9 @@ public static partial class DeviceProperties
 
         // An absent property reports success with a zero size rather than an error, so the size is
         // the presence test and a non-buffer-small result means there is nothing to read.
-        if (result != CrBufferSmall || size == 0)
+        if (result != CrBufferSmall
+            || size <= 0
+            || size > InventoryLimits.MaximumTextCharacters * sizeof(char))
         {
             return null;
         }

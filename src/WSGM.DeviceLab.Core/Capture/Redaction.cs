@@ -32,6 +32,9 @@ public enum RedactionCategory
 
     /// <summary>A hardware or network address.</summary>
     NetworkAddress,
+
+    /// <summary>A process, API endpoint, or other identifier meaningful only within this session.</summary>
+    SessionIdentifier,
 }
 
 /// <summary>
@@ -74,10 +77,18 @@ public sealed partial class CaptureRedactor
         result = ReplaceAll(result, ProfilePath(), RedactionCategory.ProfilePath, "PROFILE");
         result = ReplaceAll(result, MacAddress(), RedactionCategory.NetworkAddress, "MAC");
         result = RedactDeviceInstance(result);
+        result = RedactGenericPnpInstance(result);
         result = ReplaceAccountNames(result);
 
         return result;
     }
+
+    /// <summary>Replaces one opaque session-only identifier with a stable shareable token.</summary>
+    /// <param name="value">Private identifier.</param>
+    /// <returns>Stable token for this redactor instance, or an empty string.</returns>
+    public string TokenizeSessionIdentifier(string? value) => string.IsNullOrEmpty(value)
+        ? string.Empty
+        : TokenFor(value, RedactionCategory.SessionIdentifier, "SESSION");
 
     /// <summary>What was redacted, for the bundle's redaction manifest.</summary>
     /// <returns>One summary per category that had at least one occurrence.</returns>
@@ -104,6 +115,16 @@ public sealed partial class CaptureRedactor
     private string RedactDeviceInstance(string value)
     {
         return DeviceInstancePath().Replace(value, match =>
+        {
+            string prefix = match.Groups["prefix"].Value;
+            string token = TokenFor(match.Value, RedactionCategory.DeviceInstance, "DEV");
+            return $"{prefix}\\{token}";
+        });
+    }
+
+    private string RedactGenericPnpInstance(string value)
+    {
+        return GenericPnpInstancePath().Replace(value, match =>
         {
             string prefix = match.Groups["prefix"].Value;
             string token = TokenFor(match.Value, RedactionCategory.DeviceInstance, "DEV");
@@ -175,6 +196,11 @@ public sealed partial class CaptureRedactor
     /// </para>
     /// </remarks>
     [GeneratedRegex(
-        @"(?<prefix>VID_[0-9A-Fa-f]{4}&PID_[0-9A-Fa-f]{4}(?:&[A-Za-z0-9_]+)*)\\[^\\""\s]+")]
+        @"(?<prefix>VID_[0-9A-Fa-f]{4}&PID_[0-9A-Fa-f]{4}(?:&[A-Za-z0-9_]+)*)(?:\\|#)[^\\""#\s]+")]
     private static partial Regex DeviceInstancePath();
+
+    [GeneratedRegex(
+        @"(?<prefix>\b(?:PCI|ACPI|ROOT|BTHENUM|SWD|USBSTOR|USB|HID)\\[^\\""#\s]+)\\(?!\[DEV-)[^\\""#\s]+",
+        RegexOptions.IgnoreCase)]
+    private static partial Regex GenericPnpInstancePath();
 }

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Management;
 using System.Text.RegularExpressions;
 
@@ -37,7 +38,7 @@ public static partial class WindowsInventoryCollector
         DateTimeOffset capturedAt,
         IReadOnlyList<(string Namespace, string ClassName)>? wmiClassesToProbe = null)
     {
-        return new MachineInventory
+        MachineInventory collected = new()
         {
             SchemaVersion = CurrentSchemaVersion,
             Firmware = CollectFirmware(),
@@ -52,13 +53,29 @@ public static partial class WindowsInventoryCollector
             Services = CollectRelevantServices(),
             ScheduledTasks = CollectRelevantScheduledTasks(),
             CapturedAt = capturedAt,
-        } is { } inventory
-            ? inventory with
-            {
-                NativeBinaries = CollectNativeBinaries(inventory.Processes, inventory.Services),
-                ResourceConflicts = DerivePresenceConflicts(inventory.Processes, inventory.Services),
-            }
-            : throw new InvalidOperationException();
+        };
+        collected = collected with
+        {
+            NativeBinaries = CollectNativeBinaries(collected.Processes, collected.Services),
+            Providers = CollectRelevantProviders(collected.Processes),
+            TopologyGenerations = collected.UsbInterfaces.Select(endpoint =>
+                new TopologyGenerationInventory
+                {
+                    Generation = 1,
+                    Change = TopologyChangeKind.Baseline,
+                    InstanceId = endpoint.InstanceId,
+                    AssociationId = endpoint.DeviceLevelLocationPath,
+                    Present = endpoint.Present,
+                }).ToArray(),
+        };
+        collected = collected with
+        {
+            ResourceConflicts = DeriveResourceConflicts(
+                collected.Processes,
+                collected.Services,
+                collected.NativeBinaries),
+        };
+        return MachineInventoryNormalizer.Normalize(collected);
     }
 
     private static FirmwareInventory CollectFirmware()
@@ -291,7 +308,14 @@ public static partial class WindowsInventoryCollector
         {
             object? value = source[property];
             string? text = value?.ToString()?.Trim();
-            return string.IsNullOrEmpty(text) ? null : text;
+            if (string.IsNullOrEmpty(text))
+            {
+                return null;
+            }
+
+            return text.Length <= InventoryLimits.MaximumTextCharacters
+                ? text
+                : text[..InventoryLimits.MaximumTextCharacters];
         }
         catch (ManagementException)
         {
@@ -303,7 +327,15 @@ public static partial class WindowsInventoryCollector
     {
         try
         {
-            return source[property] is string[] values ? string.Join(";", values) : Text(source, property);
+            if (source[property] is not string[] values)
+            {
+                return Text(source, property);
+            }
+
+            string joined = string.Join(";", values.Take(64));
+            return joined.Length <= InventoryLimits.MaximumTextCharacters
+                ? joined
+                : joined[..InventoryLimits.MaximumTextCharacters];
         }
         catch (ManagementException)
         {

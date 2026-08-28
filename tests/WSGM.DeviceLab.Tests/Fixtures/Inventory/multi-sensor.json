@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "firmware": {},
+  "sensors": [
+    {
+      "instanceId": "HID\\VID_1234&PID_2000&MI_03\\ACCEL",
+      "name": "Controller accelerometer",
+      "kind": "accelerometer",
+      "associationId": "controller:physical-a",
+      "api": 2,
+      "associationEvidence": "controller-parent",
+      "minimumReportIntervalMilliseconds": 4,
+      "supportedReportIntervalsMilliseconds": [16, 4, 8, 4],
+      "unit": "g",
+      "access": 0
+    },
+    {
+      "instanceId": "HID\\VID_1234&PID_2000&MI_04\\GYRO",
+      "name": "Controller gyrometer",
+      "kind": "gyrometer",
+      "associationId": "controller:physical-a",
+      "api": 2,
+      "associationEvidence": "controller-parent",
+      "minimumReportIntervalMilliseconds": 4,
+      "supportedReportIntervalsMilliseconds": [8, 4, 16],
+      "unit": "degrees-per-second",
+      "access": 0
+    }
+  ],
+  "capturedAt": "2026-08-28T00:00:00+00:00"
+}

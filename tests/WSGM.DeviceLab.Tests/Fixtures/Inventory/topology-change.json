@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "firmware": {},
+  "topologyGenerations": [
+    {
+      "generation": 3,
+      "change": 1,
+      "instanceId": "USB\\VID_1234&PID_5001\\NEW",
+      "associationId": "PCIROOT(0)#USBROOT(0)#USB(2)",
+      "present": true
+    },
+    {
+      "generation": 1,
+      "change": 0,
+      "instanceId": "USB\\VID_1234&PID_5000\\OLD",
+      "associationId": "PCIROOT(0)#USBROOT(0)#USB(2)",
+      "present": true
+    },
+    {
+      "generation": 2,
+      "change": 2,
+      "instanceId": "USB\\VID_1234&PID_5000\\OLD",
+      "associationId": "PCIROOT(0)#USBROOT(0)#USB(2)",
+      "present": false
+    }
+  ],
+  "capturedAt": "2026-08-28T00:00:00+00:00"
+}

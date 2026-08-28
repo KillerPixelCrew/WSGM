@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "firmware": {},
+  "serialEndpoints": [
+    {
+      "instanceId": "USB\\VID_1234&PID_1000\\DETACHED",
+      "portName": "COM7",
+      "name": "Detached diagnostic UART",
+      "present": false,
+      "access": 2
+    }
+  ],
+  "sensors": [
+    {
+      "instanceId": "winrt:accelerometer",
+      "kind": "accelerometer",
+      "api": 1,
+      "access": 2
+    }
+  ],
+  "capturedAt": "2026-08-28T00:00:00+00:00"
+}

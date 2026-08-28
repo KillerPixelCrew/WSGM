@@ -25,6 +25,7 @@
     <ProjectReference Include="../../src/WSGM.DeviceLab.Core/WSGM.DeviceLab.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <None Update="Fixtures\Inventory\*.json" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Fixtures\Schema\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

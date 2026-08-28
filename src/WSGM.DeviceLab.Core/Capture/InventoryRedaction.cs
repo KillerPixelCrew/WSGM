@@ -29,6 +29,7 @@ public static class InventoryRedaction
         ArgumentNullException.ThrowIfNull(inventory);
 
         CaptureRedactor redactor = new();
+        inventory = MachineInventoryNormalizer.Normalize(inventory);
 
         MachineInventory shareable = inventory with
         {
@@ -39,53 +40,84 @@ public static class InventoryRedaction
             UsbInterfaces = [.. inventory.UsbInterfaces.Select(i => i with
             {
                 InstanceId = redactor.Redact(i.InstanceId),
-
-                // Both location paths describe which physical port this unit has the device plugged
-                // into. They are the continuation key at runtime and are meaningless to anyone else,
-                // so they are dropped rather than tokenized - a token would imply they could be
-                // compared across machines.
-                LocationPath = null,
-                DeviceLevelLocationPath = null,
+                LocationPath = Tokenize(redactor, i.LocationPath),
+                DeviceLevelLocationPath = Tokenize(redactor, i.DeviceLevelLocationPath),
             })],
             SerialEndpoints = [.. inventory.SerialEndpoints.Select(endpoint => endpoint with
             {
                 InstanceId = redactor.Redact(endpoint.InstanceId),
-                LocationPath = null,
+                Name = endpoint.Name is null ? null : redactor.Redact(endpoint.Name),
+                LocationPath = Tokenize(redactor, endpoint.LocationPath),
+                AssociationId = Tokenize(redactor, endpoint.AssociationId),
             })],
             Sensors = [.. inventory.Sensors.Select(sensor => sensor with
             {
                 InstanceId = redactor.Redact(sensor.InstanceId),
-                AssociationId = sensor.AssociationId is null ? null : redactor.Redact(sensor.AssociationId),
+                Name = sensor.Name is null ? null : redactor.Redact(sensor.Name),
+                AssociationId = Tokenize(redactor, sensor.AssociationId),
+                DeviceLevelLocationPath = Tokenize(redactor, sensor.DeviceLevelLocationPath),
             })],
             InputBackends = [.. inventory.InputBackends.Select(backend => backend with
             {
                 Endpoints = [.. backend.Endpoints.Select(endpoint => endpoint with
                 {
-                    EndpointId = redactor.Redact(endpoint.EndpointId),
+                    EndpointId = redactor.TokenizeSessionIdentifier(
+                        $"{backend.Backend}:{endpoint.EndpointId}"),
                     InstanceId = endpoint.InstanceId is null ? null : redactor.Redact(endpoint.InstanceId),
+                    Name = endpoint.Name is null ? null : redactor.Redact(endpoint.Name),
+                    AssociationId = Tokenize(redactor, endpoint.AssociationId),
                 })],
             })],
             NativeBinaries = [.. inventory.NativeBinaries.Select(binary => binary with
             {
-                Path = binary.Name,
+                Path = System.IO.Path.GetFileName(binary.Name) ?? string.Empty,
+                Name = System.IO.Path.GetFileName(binary.Name) ?? string.Empty,
             })],
             Processes = [.. inventory.Processes.Select(process => process with
             {
+                SessionToken = process.ProcessId is { } processId
+                    ? redactor.TokenizeSessionIdentifier($"process:{processId}")
+                    : Tokenize(redactor, process.SessionToken),
+                ProcessId = null,
                 Path = null,
                 CommandLine = null,
-                LoadedModulePaths = [.. process.LoadedModulePaths.Select(System.IO.Path.GetFileName)],
+                LoadedModulePaths = [.. process.LoadedModulePaths.Select(path =>
+                    System.IO.Path.GetFileName(path) ?? string.Empty)],
             })],
             Services = [.. inventory.Services.Select(service => service with
             {
+                ProcessToken = service.ProcessId is { } processId
+                    ? redactor.TokenizeSessionIdentifier($"process:{processId}")
+                    : Tokenize(redactor, service.ProcessToken),
+                ProcessId = null,
                 PathName = null,
             })],
             ScheduledTasks = [.. inventory.ScheduledTasks.Select(task => task with
             {
                 Path = redactor.Redact(task.Path),
             })],
+            Providers = [.. inventory.Providers.Select(provider => provider with
+            {
+                HostProcessToken = provider.HostProcessId is { } processId
+                    ? redactor.TokenizeSessionIdentifier($"process:{processId}")
+                    : Tokenize(redactor, provider.HostProcessToken),
+                HostProcessId = null,
+                ModulePath = provider.ModulePath is null
+                    ? null
+                    : System.IO.Path.GetFileName(provider.ModulePath),
+            })],
+            TopologyGenerations = [.. inventory.TopologyGenerations.Select(observation => observation with
+            {
+                InstanceId = redactor.Redact(observation.InstanceId),
+                AssociationId = Tokenize(redactor, observation.AssociationId),
+            })],
         };
 
         removed = redactor.Summarize();
         return shareable;
     }
+
+    private static string? Tokenize(CaptureRedactor redactor, string? value) => value is null
+        ? null
+        : redactor.TokenizeSessionIdentifier(value);
 }

@@ -2,6 +2,34 @@ using System.Collections.Generic;
 
 namespace WSGM.DeviceLab.Core.Inventory;
 
+/// <summary>Hard allocation and enumeration bounds for one automatic inventory sweep.</summary>
+public static class InventoryLimits
+{
+    /// <summary>Maximum text retained from any one machine observation.</summary>
+    public const int MaximumTextCharacters = 2048;
+
+    /// <summary>Maximum endpoints retained in one transport or API lane.</summary>
+    public const int MaximumEndpointsPerLane = 256;
+
+    /// <summary>Maximum independent backend/API projections in one inventory.</summary>
+    public const int MaximumInputBackendViews = 15;
+
+    /// <summary>Maximum relevant processes, services, tasks, providers, or binaries per lane.</summary>
+    public const int MaximumSystemEntriesPerLane = 512;
+
+    /// <summary>Maximum passive serial framing candidates per endpoint.</summary>
+    public const int MaximumFramingCandidates = 16;
+
+    /// <summary>Maximum supported sensor intervals retained per endpoint.</summary>
+    public const int MaximumSensorIntervals = 64;
+
+    /// <summary>Maximum native binary size hashed by automatic inventory.</summary>
+    public const long MaximumNativeBinaryBytes = 512L * 1024 * 1024;
+
+    /// <summary>Maximum export names retained from one native binary.</summary>
+    public const int MaximumNativeExports = 4096;
+}
+
 /// <summary>One display adapter identity used only for catalog matching.</summary>
 public sealed record GraphicsAdapterInventory
 {
@@ -35,6 +63,12 @@ public enum InventoryAccess
 
     /// <summary>The platform cannot expose this property without active probing.</summary>
     Unsupported,
+
+    /// <summary>The endpoint returned structurally invalid or excessive metadata.</summary>
+    Malformed,
+
+    /// <summary>A read-only open was rejected by an existing incompatible share or lease.</summary>
+    ExclusiveAccessDenied,
 }
 
 /// <summary>A serial-port framing value reported by the installed driver.</summary>
@@ -75,6 +109,12 @@ public sealed record SerialEndpointInventory
     /// <summary>Physical location when available.</summary>
     public string? LocationPath { get; init; }
 
+    /// <summary>Immediate PnP parent used only as passive association evidence.</summary>
+    public string? AssociationId { get; init; }
+
+    /// <summary>Whether the endpoint was present when enumerated.</summary>
+    public bool Present { get; init; }
+
     /// <summary>Whether passive metadata was accessible.</summary>
     public required InventoryAccess Access { get; init; }
 
@@ -97,14 +137,39 @@ public sealed record SensorEndpointInventory
     /// <summary>Parent or container association, private until redacted.</summary>
     public string? AssociationId { get; init; }
 
+    /// <summary>API or topology view that produced this observation.</summary>
+    public SensorApiKind Api { get; init; }
+
+    /// <summary>How the controller or parent association was established.</summary>
+    public string? AssociationEvidence { get; init; }
+
+    /// <summary>Composite-level physical location used to correlate detachable endpoints.</summary>
+    public string? DeviceLevelLocationPath { get; init; }
+
     /// <summary>Minimum supported report interval when passively published.</summary>
     public uint? MinimumReportIntervalMilliseconds { get; init; }
+
+    /// <summary>Other passively published supported intervals in deterministic order.</summary>
+    public IReadOnlyList<uint> SupportedReportIntervalsMilliseconds { get; init; } = [];
 
     /// <summary>Reported measurement unit, when published.</summary>
     public string? Unit { get; init; }
 
     /// <summary>Current metadata accessibility.</summary>
     public required InventoryAccess Access { get; init; }
+}
+
+/// <summary>Sensor API or association view.</summary>
+public enum SensorApiKind
+{
+    /// <summary>Passive PnP sensor or HID-sensor metadata.</summary>
+    Pnp,
+
+    /// <summary>Windows Runtime sensor projection.</summary>
+    WinRt,
+
+    /// <summary>Sensor endpoint associated with a controller topology.</summary>
+    Controller,
 }
 
 /// <summary>Supported independent input views.</summary>
@@ -141,6 +206,36 @@ public sealed record InputEndpointInventory
     /// <summary>Backend-specific device type.</summary>
     public string? DeviceType { get; init; }
 
+    /// <summary>Backend-local metadata accessibility.</summary>
+    public InventoryAccess Access { get; init; } = InventoryAccess.Available;
+
+    /// <summary>USB vendor identifier when the backend exposes or correlates it.</summary>
+    public string? VendorId { get; init; }
+
+    /// <summary>USB product identifier when the backend exposes or correlates it.</summary>
+    public string? ProductId { get; init; }
+
+    /// <summary>Composite-level location association when passively available.</summary>
+    public string? AssociationId { get; init; }
+
+    /// <summary>Whether the endpoint may detach within the same logical device generation.</summary>
+    public bool Detachable { get; init; }
+
+    /// <summary>Whether passive HID descriptor metadata was structurally available.</summary>
+    public InventoryAccess DescriptorAccess { get; init; } = InventoryAccess.Unsupported;
+
+    /// <summary>SHA-256 of the report descriptor when an earlier passive observation supplied it.</summary>
+    public string? ReportDescriptorSha256 { get; init; }
+
+    /// <summary>Maximum input report length published by the passive descriptor view.</summary>
+    public int? InputReportBytes { get; init; }
+
+    /// <summary>Maximum output report length published by the passive descriptor view.</summary>
+    public int? OutputReportBytes { get; init; }
+
+    /// <summary>Maximum feature report length published by the passive descriptor view.</summary>
+    public int? FeatureReportBytes { get; init; }
+
     /// <summary>Whether the endpoint was connected at enumeration time.</summary>
     public bool Connected { get; init; }
 }
@@ -154,11 +249,30 @@ public sealed record InputBackendInventory
     /// <summary>Whether safe enumeration was available.</summary>
     public required InventoryAccess Access { get; init; }
 
+    /// <summary>Whether this is a live API enumeration, compatibility projection, or runtime check.</summary>
+    public InputBackendViewKind View { get; init; }
+
+    /// <summary>Whether the backend runtime itself was present without implying endpoint access.</summary>
+    public bool RuntimeAvailable { get; init; }
+
     /// <summary>Observed endpoints in deterministic order.</summary>
     public IReadOnlyList<InputEndpointInventory> Endpoints { get; init; } = [];
 
     /// <summary>Explicit limit of this view.</summary>
     public string? Limitation { get; init; }
+}
+
+/// <summary>How an input-backend view was obtained.</summary>
+public enum InputBackendViewKind
+{
+    /// <summary>The read-only API enumerated its own endpoints.</summary>
+    LiveApi,
+
+    /// <summary>PnP metadata was projected into a compatibility view without acquiring devices.</summary>
+    PassiveCompatibility,
+
+    /// <summary>Only runtime file availability was checked; no subsystem was initialized.</summary>
+    RuntimeOnly,
 }
 
 /// <summary>Signature observation for a native file.</summary>
@@ -177,11 +291,17 @@ public enum BinarySignatureState
 /// <summary>Native PE metadata read from disk without loading the binary.</summary>
 public sealed record NativeBinaryInventory
 {
+    /// <summary>Whether file metadata, signature, hash, and PE shape were accessible.</summary>
+    public InventoryAccess Access { get; init; }
+
     /// <summary>Absolute file path; private captures only.</summary>
     public required string Path { get; init; }
 
     /// <summary>File name.</summary>
     public required string Name { get; init; }
+
+    /// <summary>Exact file length included in the bounded inspection.</summary>
+    public long FileBytes { get; init; }
 
     /// <summary>File version resource.</summary>
     public string? Version { get; init; }
@@ -206,10 +326,16 @@ public sealed record NativeBinaryInventory
 public sealed record ProcessInventory
 {
     /// <summary>Session-local process identifier.</summary>
-    public required int ProcessId { get; init; }
+    public int? ProcessId { get; init; }
+
+    /// <summary>Shareable session-local token replacing the private process ID.</summary>
+    public string? SessionToken { get; init; }
 
     /// <summary>Executable name.</summary>
     public required string Name { get; init; }
+
+    /// <summary>Whether path, command-line, and module metadata were accessible.</summary>
+    public InventoryAccess Access { get; init; }
 
     /// <summary>Executable path when accessible; private captures only.</summary>
     public string? Path { get; init; }
@@ -227,6 +353,9 @@ public sealed record ServiceInventory
     /// <summary>Service name.</summary>
     public required string Name { get; init; }
 
+    /// <summary>Whether service configuration metadata was accessible.</summary>
+    public InventoryAccess Access { get; init; }
+
     /// <summary>Display name.</summary>
     public string? DisplayName { get; init; }
 
@@ -238,6 +367,9 @@ public sealed record ServiceInventory
 
     /// <summary>Process ID when running.</summary>
     public int? ProcessId { get; init; }
+
+    /// <summary>Shareable token correlating a running service with its process.</summary>
+    public string? ProcessToken { get; init; }
 }
 
 /// <summary>Relevant scheduled-task observation.</summary>
@@ -246,11 +378,42 @@ public sealed record ScheduledTaskInventory
     /// <summary>Task path and name.</summary>
     public required string Path { get; init; }
 
+    /// <summary>Whether task metadata was accessible.</summary>
+    public InventoryAccess Access { get; init; }
+
     /// <summary>Observed task state.</summary>
     public string? State { get; init; }
 
     /// <summary>Whether the task is enabled.</summary>
     public bool? Enabled { get; init; }
+}
+
+/// <summary>One configured or loaded provider observed without activating it.</summary>
+public sealed record ProviderInventory
+{
+    /// <summary>Provider kind, such as WMI registration or loaded native module.</summary>
+    public required string Kind { get; init; }
+
+    /// <summary>Provider or module name.</summary>
+    public required string Name { get; init; }
+
+    /// <summary>Namespace or host context when published.</summary>
+    public string? Context { get; init; }
+
+    /// <summary>Private host process ID when reported.</summary>
+    public int? HostProcessId { get; init; }
+
+    /// <summary>Shareable session-local host-process token.</summary>
+    public string? HostProcessToken { get; init; }
+
+    /// <summary>Provider module path when already loaded and accessible.</summary>
+    public string? ModulePath { get; init; }
+
+    /// <summary>Whether the provider was observed loaded rather than merely registered.</summary>
+    public bool Loaded { get; init; }
+
+    /// <summary>Current metadata accessibility.</summary>
+    public required InventoryAccess Access { get; init; }
 }
 
 /// <summary>Strength of evidence that another owner conflicts with a resource.</summary>
@@ -280,4 +443,39 @@ public sealed record ResourceConflictInventory
 
     /// <summary>Whether the evidence proves current ownership.</summary>
     public bool Demonstrated => Evidence is not ConflictEvidenceKind.PresenceOnly;
+}
+
+/// <summary>One bounded PnP topology observation tied to a monotonic device generation.</summary>
+public sealed record TopologyGenerationInventory
+{
+    /// <summary>Monotonic generation within this inventory or imported fixture.</summary>
+    public required long Generation { get; init; }
+
+    /// <summary>Baseline, arrival, removal, or metadata-change observation.</summary>
+    public required TopologyChangeKind Change { get; init; }
+
+    /// <summary>Private device instance identity.</summary>
+    public required string InstanceId { get; init; }
+
+    /// <summary>Composite-level location continuing across detachable re-enumeration.</summary>
+    public string? AssociationId { get; init; }
+
+    /// <summary>Whether the endpoint was present after this observation.</summary>
+    public bool Present { get; init; }
+}
+
+/// <summary>Kind of passive PnP topology observation.</summary>
+public enum TopologyChangeKind
+{
+    /// <summary>Initial sweep state.</summary>
+    Baseline,
+
+    /// <summary>An endpoint arrived.</summary>
+    Arrival,
+
+    /// <summary>An endpoint was removed.</summary>
+    Removal,
+
+    /// <summary>Metadata changed without treating it as a new physical association.</summary>
+    Changed,
 }
