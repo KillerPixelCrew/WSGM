@@ -6,7 +6,9 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <AssemblyName>WSGM.Device.ProbeHost</AssemblyName>
     <RootNamespace>WSGM.Device.ProbeHost</RootNamespace>
-    <SelfContained>false</SelfContained>
+    <SelfContained>true</SelfContained>
+    <PublishAot>false</PublishAot>
+    <PublishSingleFile>false</PublishSingleFile>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Disposable, one probe per process. Kept separate from WSGM.DeviceHost so a
          probe's typed, profile-scoped interfaces can never appear in production

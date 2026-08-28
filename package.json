@@ -2,7 +2,8 @@
   "private": true,
   "scripts": {
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "steam-assets:verify": "node eng/verify-steam-assets.mjs"
   },
   "devDependencies": {
     "prettier": "3.9.6"

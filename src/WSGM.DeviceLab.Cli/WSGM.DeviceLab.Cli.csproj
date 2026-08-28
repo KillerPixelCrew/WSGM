@@ -8,7 +8,9 @@
          naming convention so it sorts with its siblings in the solution. -->
     <AssemblyName>wsgm-device</AssemblyName>
     <RootNamespace>WSGM.DeviceLab.Cli</RootNamespace>
-    <SelfContained>false</SelfContained>
+    <SelfContained>true</SelfContained>
+    <PublishAot>false</PublishAot>
+    <PublishSingleFile>false</PublishSingleFile>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\WSGM.DeviceLab.Core\WSGM.DeviceLab.Core.csproj" />

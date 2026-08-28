@@ -9,7 +9,7 @@ namespace WSGM.Shell;
 
 /// <summary>Shell-mode orchestrator: starts startup apps and the home app, arms the
 /// overlay (hotkey + edge swipes + home-exit), stays resident for the session.</summary>
-public sealed class ShellSession
+public sealed class ShellSession : IAsyncDisposable
 {
     // Replaced wholesale on every reload (see Reload) so this stays the same
     // instance the overlay, SessionModes and DisplayScale's saved-scale snapshot
@@ -64,6 +64,10 @@ public sealed class ShellSession
     private System.IO.FileSystemWatcher? _configWatcher;
     private System.Threading.Timer? _configDebounce;
     private readonly object _configDebounceGate = new();
+    private DeviceCoordinator? _deviceCoordinator;
+    private IDeviceOverlaySource? _deviceOverlay;
+    private SteamUiSessionHost? _steamUi;
+    private bool _disposed;
 
     /// <summary>Creates the shell session without performing any Windows state changes.</summary>
     /// <param name="config">The configuration to apply when the session starts.</param>
@@ -85,6 +89,21 @@ public sealed class ShellSession
     /// <summary>Starts the shell's startup applications, home application, and overlay services.</summary>
     public void Start()
     {
+        // The resident shell is the sole device-cycle authority. Overlay test deliberately never
+        // creates this object, opens its IPC, discovers packages, or starts DeviceHost.
+        if (!_overlayTestOnly)
+        {
+            _deviceCoordinator = DeviceCoordinator.TryStart(_config);
+            if (_deviceCoordinator is not null)
+            {
+                _deviceOverlay = new DeviceOverlayBridge(_deviceCoordinator);
+            }
+        }
+        else
+        {
+            _deviceOverlay = new SimulatedDeviceOverlaySource();
+        }
+
         _monitor = new SteamMonitor();
         _modes = new SessionModes(_config, _monitor);
         // Session-lifetime on purpose (survives desktop trips): a Steam download must
@@ -101,7 +120,67 @@ public sealed class ShellSession
         _keepAwake.DownloadActivityChanged += OnDownloadActivityChanged;
         // --overlay-test shares the Settings preview's exposure: it has no boot takeover
         // and no watchdog behind it, so the mode row must not offer a real transition.
-        _overlay = new OverlayController(_config, _monitor, _modes, _keepAwake, previewOnly: _overlayTestOnly);
+        _overlay = new OverlayController(
+            _config,
+            _monitor,
+            _modes,
+            _keepAwake,
+            previewOnly: _overlayTestOnly,
+            device: _deviceOverlay);
+        _deviceCoordinator?.ConfigureOemActions(new DeviceOemActionServices
+        {
+            ToggleOverlayAsync = cancellationToken => RunUiActionAsync(() =>
+            {
+                _overlay?.ToggleOverlay();
+                return _overlay is not null;
+            }, cancellationToken),
+            ToggleSteamQuickAccessAsync = cancellationToken => RunUiActionAsync(() =>
+                _monitor?.IsAlive is true
+                && Steam.IsBigPictureVisible
+                && Steam.TrySendBigPictureShortcut(BigPictureShortcut.QuickAccess),
+                cancellationToken),
+            ToggleDevicePageAsync = cancellationToken => RunUiActionAsync(() =>
+            {
+                _overlay?.ShowDevicePage();
+                return _overlay is not null;
+            }, cancellationToken),
+            ToggleTaskbarAsync = cancellationToken => RunUiActionAsync(() =>
+            {
+                _overlay?.ToggleTaskbar();
+                return _overlay is not null;
+            }, cancellationToken),
+            ToggleDesktopGameModeAsync = cancellationToken => RunUiActionAsync(() =>
+            {
+                if (_modes is null)
+                {
+                    return false;
+                }
+
+                if (ExplorerControl.IsRunningInSession())
+                {
+                    _modes.EnterGameMode();
+                }
+                else
+                {
+                    _modes.EnterDesktopMode();
+                }
+
+                return true;
+            }, cancellationToken),
+            ToggleOnScreenKeyboardAsync = static _ => Task.FromResult(false),
+            CyclePerformanceProfileAsync = static _ => Task.FromResult(false),
+            CyclePerformanceOverlayLevelAsync = static _ => Task.FromResult(false),
+            SetRearButtonAsync = static (_, _) => Task.FromResult(false),
+        });
+        if (!_overlayTestOnly)
+        {
+            _steamUi = new SteamUiSessionHost(cancellationToken => RunUiActionAsync(() =>
+            {
+                _overlay?.ToggleOverlay();
+                return _overlay is not null;
+            }, cancellationToken));
+            _steamUi.Apply(_config.Cef.Enabled && _config.Cef.NativeQuickAccess);
+        }
 
         // The tray host must never coexist with explorer's taskbar (Z-order war
         // over FindWindow — see TrayHost): gone before explorer starts, back
@@ -656,16 +735,6 @@ public sealed class ShellSession
         KickDownloadSort();
     }
 
-    /// <summary>Mirrors the master CEF switch, retracting anything WSGM already
-    /// injected on the way down. Ordering is load-bearing: the switch fails every
-    /// evaluation closed, including WSGM's own retractions, so flipping it first
-    /// would strand the injected tabs, badges and Wi-Fi AP in Steam until the client
-    /// restarted — with the desktop-trip cleanup dead for the same reason. Both
-    /// directions run through <c>_cefMasterGate</c> and re-read the field (the
-    /// wanted state) once they own it, so a flip landing inside a retraction's
-    /// three round-trips cannot leave the choke point closed while the field —
-    /// and the equality guard that would have repaired it — say enabled.</summary>
-    /// <param name="enabled">The reloaded <c>Cef.Enabled</c> value.</param>
     /// <summary>Applies a Steam Input Management change that arrived through a
     /// config reload.</summary>
     /// <remarks>
@@ -684,6 +753,16 @@ public sealed class ShellSession
         _ = System.Threading.Tasks.Task.Run(() => SteamInputShim.Reconcile("settings-change"));
     }
 
+    /// <summary>Mirrors the master CEF switch, retracting anything WSGM already
+    /// injected on the way down. Ordering is load-bearing: the switch fails every
+    /// evaluation closed, including WSGM's own retractions, so flipping it first
+    /// would strand the injected tabs, badges and Wi-Fi AP in Steam until the client
+    /// restarted — with the desktop-trip cleanup dead for the same reason. Both
+    /// directions run through <c>_cefMasterGate</c> and re-read the field (the
+    /// wanted state) once they own it, so a flip landing inside a retraction's
+    /// three round-trips cannot leave the choke point closed while the field —
+    /// and the equality guard that would have repaired it — say enabled.</summary>
+    /// <param name="enabled">The reloaded <c>Cef.Enabled</c> value.</param>
     private void ApplyCefMasterSwitch(bool enabled)
     {
         if (_cefMasterEnabled == enabled)
@@ -735,14 +814,29 @@ public sealed class ShellSession
             await _cefMasterGate.WaitAsync().ConfigureAwait(false);
             try
             {
-                await SteamPageBridge.DisableBadgeAsync().ConfigureAwait(false);
-                await SteamLibraryTabs.DisableAsync().ConfigureAwait(false);
-                await SteamNetworkIndicator.DisableAsync().ConfigureAwait(false);
-                await SteamDownloadSort.DisableAsync().ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Retracting injected Steam UI failed: {ex.Message}");
+                if (_steamUi is not null)
+                {
+                    try
+                    {
+                        await _steamUi.DisableAsync().ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warn($"Retracting the native Steam UI patch failed: {ex.Message}");
+                    }
+                }
+
+                try
+                {
+                    await SteamPageBridge.DisableBadgeAsync().ConfigureAwait(false);
+                    await SteamLibraryTabs.DisableAsync().ConfigureAwait(false);
+                    await SteamNetworkIndicator.DisableAsync().ConfigureAwait(false);
+                    await SteamDownloadSort.DisableAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"Retracting legacy injected Steam UI failed: {ex.Message}");
+                }
             }
             finally
             {
@@ -888,7 +982,12 @@ public sealed class ShellSession
                         // callback and DisplayScale's saved-scale snapshot must not
                         // drift onto different AppConfig objects.
                         _config = config;
+                        ApplyDeviceConfig(config);
                         ApplyCefMasterSwitch(config.Cef.Enabled);
+                        if (config.Cef.Enabled)
+                        {
+                            _steamUi?.Apply(config.Cef.NativeQuickAccess);
+                        }
                         ApplySteamInputManagement(config.SteamInputManagementEnabled);
                         ApplyNetworkIndicator(config.Cef.Enabled && config.Cef.WifiIndicator);
                         ApplyDownloadSort(config.Cef.Enabled && config.Cef.DownloadQueueSort);
@@ -940,6 +1039,80 @@ public sealed class ShellSession
         catch (Exception ex)
         {
             Log.Warn($"Config watcher not available: {ex.Message}");
+        }
+    }
+
+    private static async Task<bool> RunUiActionAsync(
+        Func<bool> action,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(action);
+    }
+
+    /// <summary>Runs bounded device cleanup before the application lifetime ends.</summary>
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _tabBootSyncCancellation.Cancel();
+        _downloadSortCancellation.Cancel();
+        lock (_configDebounceGate)
+        {
+            _configDebounce?.Dispose();
+            _configDebounce = null;
+        }
+
+        _configWatcher?.Dispose();
+        _configWatcher = null;
+        await _cefMasterGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_steamUi is not null)
+            {
+                await _steamUi.DisposeAsync().ConfigureAwait(false);
+                _steamUi = null;
+            }
+        }
+        finally
+        {
+            _cefMasterGate.Release();
+        }
+        _deviceOverlay?.Dispose();
+        _deviceOverlay = null;
+        if (_deviceCoordinator is not null)
+        {
+            await _deviceCoordinator.DisposeAsync().ConfigureAwait(false);
+            _deviceCoordinator = null;
+        }
+    }
+
+    private void ApplyDeviceConfig(AppConfig config)
+    {
+        DeviceCoordinator? coordinator = _deviceCoordinator;
+        if (coordinator is null)
+        {
+            return;
+        }
+
+        _ = ObserveDeviceConfigAsync(coordinator, config);
+    }
+
+    private static async Task ObserveDeviceConfigAsync(
+        DeviceCoordinator coordinator,
+        AppConfig config)
+    {
+        try
+        {
+            await coordinator.ApplyConfigAsync(config).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Device cycle config apply failed", ex);
         }
     }
 

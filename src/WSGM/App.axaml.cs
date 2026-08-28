@@ -13,6 +13,8 @@ public class App : Application
     // Deliberate root for the headless shell session — without it the session
     // (and its config watcher) would survive only via incidental GC reachability.
     private ShellSession? _session;
+    private bool _shutdownInProgress;
+    private bool _sessionStopped;
 
     /// <inheritdoc />
     public override void Initialize()
@@ -30,6 +32,7 @@ public class App : Application
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            desktop.ShutdownRequested += OnShutdownRequested;
             switch (Program.Mode)
             {
                 case RunMode.Shell:
@@ -56,5 +59,36 @@ public class App : Application
             }
         }
         base.OnFrameworkInitializationCompleted();
+    }
+
+    private async void OnShutdownRequested(
+        object? sender,
+        ShutdownRequestedEventArgs eventArgs)
+    {
+        if (_session is null || _sessionStopped)
+        {
+            return;
+        }
+
+        eventArgs.Cancel = true;
+        if (_shutdownInProgress)
+        {
+            return;
+        }
+
+        _shutdownInProgress = true;
+        try
+        {
+            await _session.DisposeAsync();
+        }
+        finally
+        {
+            _sessionStopped = true;
+            _shutdownInProgress = false;
+            if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+            {
+                desktop.Shutdown();
+            }
+        }
     }
 }

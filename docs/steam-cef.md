@@ -283,3 +283,34 @@ sync (`LibraryTabManager`), and the Wi-Fi indicator's and download sort's start 
 fields, not the boot-time `_config`, so their toggles apply without a re-logon. The overlay's
 per-feature button visibility is recomputed on config reload as well, so a disabled feature loses
 its entry point immediately.
+
+## Persistent Steam UI host and native Quick Access
+
+WSGM 2.0 adds one process-owned persistent transport beside the proven one-shot paths. It reuses the
+same loopback listener ownership, target URL/origin, and Steam process validation; it does not open a
+new local listener or weaken the accepted port-8080 posture. Connections are reference-counted by
+allowlisted target role and carry browser, target, session, frame, execution-context, and document
+generations. Requests, notifications, payloads, outstanding work, deadlines, reconnect attempts,
+and diagnostics are bounded. A lost target or context advances its generation, invalidates stale
+work, and reconnects asynchronously without delaying Steam launch or a shell transition.
+
+`SteamUiPatchManager` is the only persistent patch scheduler. Each patch has an independent stable
+ID/version, target role, resource key, bounds, positive unique fingerprint, apply, functional
+verification, owned-resource removal, health, and kill switch. Conflicting resource keys serialize;
+one incompatible or degraded patch does not disable another. Disabling the CEF master first removes
+the persistent patches and bridge, then retracts the legacy resident features, and only then closes
+the evaluation choke point.
+
+The native-QAM bootstrap is embedded, hash-locked repository JavaScript. Live probing on 2026-08-28
+found exactly one current SharedJSContext module for each of the TDP availability gate, TDP
+component, performance actions, and read-only performance-profile projection. Module build IDs are
+deliberately not selectors. The first patch uses that four-part structural fingerprint and installs
+only a collision-resistant versioned Runtime binding/namespace; it does not globally spoof SteamOS,
+Steam Deck identity, or mutate unrelated performance, storage, update, shutdown, or device gates.
+
+Injected code can request only the compiled patch/command vocabulary. The managed bridge validates
+schema, patch ID, command, payload size, monotonic request/action generations, current execution
+context/document, and replay before dispatch. There is no generic evaluation, filesystem, shell,
+device, plugin, or privileged-operation endpoint. Unsupported semantic services fail closed. On
+generation replacement or disable, pending calls are rejected and WSGM removes only its binding and
+namespace. `Cef.NativeQuickAccess` is an independent kill switch under the existing CEF master.

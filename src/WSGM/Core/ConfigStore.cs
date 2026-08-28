@@ -160,6 +160,8 @@ public static class ConfigStore
             config.DisplayManagement = DisplayManagementMode.DpiOnly;
         }
         config.StartupApps ??= [];
+        config.DeviceIntegration ??= new DeviceIntegrationConfig();
+        NormalizeDeviceIntegration(config.DeviceIntegration);
         config.Cef ??= new CefConfig();
         config.Hotkey ??= new HotkeyConfig();
         config.GamepadChord ??= new GamepadChordConfig();
@@ -268,6 +270,81 @@ public static class ConfigStore
         config.Splash ??= new SplashConfig();
         NormalizeSplash(config.Splash);
         return config;
+    }
+
+    private static void NormalizeDeviceIntegration(DeviceIntegrationConfig device)
+    {
+        if (!Enum.IsDefined(device.UpdatePolicy))
+        {
+            device.UpdatePolicy = DevicePluginUpdatePolicy.Notify;
+        }
+
+        if (!Enum.IsDefined(device.ControllerTarget))
+        {
+            device.ControllerTarget = ManagedControllerTarget.SteamDeckComposite;
+        }
+
+        if (!Enum.IsDefined(device.GlyphSelection))
+        {
+            device.GlyphSelection = DeviceGlyphSelection.Automatic;
+        }
+
+        if (!Enum.IsDefined(device.DiagnosticLevel))
+        {
+            device.DiagnosticLevel = DeviceDiagnosticLevel.Standard;
+        }
+
+        device.ManualGlyphProfileId = string.IsNullOrWhiteSpace(device.ManualGlyphProfileId)
+            ? null
+            : device.ManualGlyphProfileId.Trim();
+        device.PackageSelections ??= [];
+        device.Profiles ??= [];
+        device.PackageSelections.RemoveAll(static selection => selection is null
+            || string.IsNullOrWhiteSpace(selection.DeviceIdentityKey)
+            || string.IsNullOrWhiteSpace(selection.PackageId));
+        foreach (DevicePackageSelection selection in device.PackageSelections)
+        {
+            selection.DeviceIdentityKey = selection.DeviceIdentityKey.Trim();
+            selection.PackageId = selection.PackageId.Trim();
+            selection.Version = string.IsNullOrWhiteSpace(selection.Version)
+                ? null
+                : selection.Version.Trim();
+        }
+
+        device.Profiles.RemoveAll(static profile => profile is null
+            || string.IsNullOrWhiteSpace(profile.DeviceIdentityKey));
+        foreach (DeviceDesiredProfile profile in device.Profiles)
+        {
+            profile.DeviceIdentityKey = profile.DeviceIdentityKey.Trim();
+            profile.SelectedHardwareProfileId = string.IsNullOrWhiteSpace(profile.SelectedHardwareProfileId)
+                ? null
+                : profile.SelectedHardwareProfileId.Trim();
+            profile.Capabilities ??= [];
+            profile.OemAssignments ??= [];
+            profile.ControllerTargets ??= [];
+            profile.Capabilities.RemoveAll(static capability => capability is null
+                || string.IsNullOrWhiteSpace(capability.CapabilityId));
+            foreach (DeviceCapabilityPreference capability in profile.Capabilities)
+            {
+                capability.CapabilityId = capability.CapabilityId.Trim();
+                capability.InstanceId = string.IsNullOrWhiteSpace(capability.InstanceId)
+                    ? null
+                    : capability.InstanceId.Trim();
+                capability.HardwareProfiles ??= [];
+                capability.ApplicationOverrides ??= [];
+                capability.HardwareProfiles.RemoveAll(static value => value is null
+                    || string.IsNullOrWhiteSpace(value.ProfileId));
+                capability.ApplicationOverrides.RemoveAll(static value => value is null
+                    || string.IsNullOrWhiteSpace(value.ApplicationId));
+            }
+
+            profile.OemAssignments.RemoveAll(static assignment => assignment is null
+                || string.IsNullOrWhiteSpace(assignment.ControlId)
+                || !Enum.IsDefined(assignment.Action));
+            profile.ControllerTargets.RemoveAll(static target => target is null
+                || string.IsNullOrWhiteSpace(target.ApplicationId)
+                || !Enum.IsDefined(target.Target));
+        }
     }
 
     private static void NormalizeDisplayMode(DisplayModeValues mode)

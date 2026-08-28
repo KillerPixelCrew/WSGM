@@ -10,7 +10,12 @@
          System.Management/WMI, WinRT sensors, and an interactive keyboard hook,
          none of which the NativeAOT WSGM executable may carry. Publishing it
          beside WSGM.exe is a build failure (eng/check-aot-isolation.ps1). -->
-    <SelfContained>false</SelfContained>
+    <!-- Self-contained still means JIT here: the runtime is package-local, while
+         PublishAot=false preserves reflection/WMI/plugin loading. Retail device
+         integration must not depend on a machine-wide .NET installation. -->
+    <SelfContained>true</SelfContained>
+    <PublishAot>false</PublishAot>
+    <PublishSingleFile>false</PublishSingleFile>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\WSGM.Device.Contracts\WSGM.Device.Contracts.csproj" />

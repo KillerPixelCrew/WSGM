@@ -108,6 +108,17 @@ public enum OemPressKind
     Long,
 }
 
+/// <summary>The physical edge represented by an OEM event.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<OemControlEdge>))]
+public enum OemControlEdge
+{
+    /// <summary>The control became pressed.</summary>
+    Pressed,
+
+    /// <summary>The control was released and any held-state guard may reset.</summary>
+    Released,
+}
+
 /// <summary>One published OEM control event.</summary>
 /// <param name="ControlId">The control that was pressed.</param>
 /// <param name="Press">Which press duration was observed.</param>
@@ -116,6 +127,7 @@ public enum OemPressKind
 /// <param name="DeduplicationId">
 /// Identifier that is equal across every source reporting the same physical press.
 /// </param>
+/// <param name="Edge">Whether this event represents the press or release edge.</param>
 /// <remarks>
 /// The deduplication ID exists because one press can legitimately arrive twice: a vendor event
 /// channel and a raw-input path may both see it. Without a shared identifier WSGM would toggle the
@@ -126,7 +138,8 @@ public sealed record OemControlEvent(
     OemPressKind Press,
     long SourceGeneration,
     DateTimeOffset Timestamp,
-    string DeduplicationId);
+    string DeduplicationId,
+    OemControlEdge Edge = OemControlEdge.Pressed);
 
 /// <summary>
 /// Decides which OEM actions may be bound to a control.

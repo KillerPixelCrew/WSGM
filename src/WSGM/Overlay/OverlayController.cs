@@ -21,6 +21,7 @@ public sealed class OverlayController : IDisposable
     private readonly SteamMonitor? _monitor;
     private readonly SessionModes _modes;
     private readonly KeepAwakeService? _keepAwake;
+    private readonly IDeviceOverlaySource? _device;
     private readonly HotkeyService _hotkey;
     private readonly GamepadService _gamepad = new();
     private readonly GamepadChordWatcher _chordWatcher;
@@ -58,11 +59,18 @@ public sealed class OverlayController : IDisposable
     /// one press would exit Explorer and strand the user with no shell.</param>
     public OverlayController(AppConfig config, SteamMonitor? monitor, SessionModes modes,
         KeepAwakeService? keepAwake = null, bool previewOnly = false)
+        : this(config, monitor, modes, keepAwake, previewOnly, device: null)
+    {
+    }
+
+    internal OverlayController(AppConfig config, SteamMonitor? monitor, SessionModes modes,
+        KeepAwakeService? keepAwake, bool previewOnly, IDeviceOverlaySource? device)
     {
         _config = config;
         _monitor = monitor;
         _modes = modes;
         _keepAwake = keepAwake;
+        _device = device;
         _previewOnly = previewOnly;
         if (_keepAwake is not null)
         {
@@ -686,6 +694,7 @@ public sealed class OverlayController : IDisposable
 
         _overlayViewModel = vm;
         _overlay = new OverlayWindow(vm, UiScale());
+        _overlay.AttachDeviceBridge(_device);
         _overlay.HomeAppRequested += () => { _suppressFocusRestore = true; CloseOverlay(); _modes.StartOrFocusSteam(); };
         _overlay.DesktopRequested += () =>
         {
@@ -896,6 +905,27 @@ public sealed class OverlayController : IDisposable
         }
     }
 
+    /// <summary>Opens or closes the primary overlay exactly once.</summary>
+    public void ToggleOverlay()
+    {
+        if (_overlay is null)
+        {
+            ShowOverlay();
+        }
+        else
+        {
+            CloseOverlay();
+        }
+    }
+
+    /// <summary>Opens the overlay at the device destination when available.</summary>
+    /// <remarks>The provisional device destination is selected by the surface as it is composed.</remarks>
+    public void ShowDevicePage()
+    {
+        ShowOverlay();
+        _overlay?.SelectDeviceDestination();
+    }
+
     /// <summary>Tap-outside dismissal via the raw-input observer, for whichever
     /// surface is open. Deliberately NOT implemented as dismiss-on-deactivate: the
     /// window-switching actions hand the foreground to another window while the
@@ -1077,6 +1107,19 @@ public sealed class OverlayController : IDisposable
         if (_touchSwipes is not null)
         {
             _touchSwipes.WatchTaps = true;
+        }
+    }
+
+    /// <summary>Opens or closes the WSGM taskbar exactly once.</summary>
+    public void ToggleTaskbar()
+    {
+        if (_taskbar is null)
+        {
+            ShowTaskbar();
+        }
+        else
+        {
+            CloseTaskbar();
         }
     }
 

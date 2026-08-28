@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Contracts.Capabilities;
 using WSGM.Device.Contracts.Input;
+using WSGM.Device.Contracts.Lifecycle;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Plugin;
 
@@ -87,6 +88,7 @@ public sealed class TestPluginHostAdapter : IPluginHostAdapter
     private readonly List<CanonicalControllerSample> _controllerSamples = [];
     private readonly List<IReadOnlyList<OemControlDescriptor>> _oemControlSets = [];
     private readonly List<OemControlEvent> _oemEvents = [];
+    private readonly List<RecoveryJournalEntry> _journalEntries = [];
 
     /// <summary>Creates a host simulator for fixed generations.</summary>
     /// <param name="hostGeneration">Host generation exposed to the plugin.</param>
@@ -134,6 +136,9 @@ public sealed class TestPluginHostAdapter : IPluginHostAdapter
 
     /// <summary>OEM-control events in publication order.</summary>
     public IReadOnlyList<OemControlEvent> OemEvents => Snapshot(_oemEvents);
+
+    /// <summary>Durable recovery-entry replacements requested by the plugin.</summary>
+    public IReadOnlyList<RecoveryJournalEntry> JournalEntries => Snapshot(_journalEntries);
 
     /// <inheritdoc />
     public ValueTask PublishDescriptorsAsync(
@@ -188,6 +193,12 @@ public sealed class TestPluginHostAdapter : IPluginHostAdapter
         OemControlEvent controlEvent,
         CancellationToken cancellationToken) =>
         RecordAsync(_oemEvents, controlEvent, cancellationToken);
+
+    /// <inheritdoc />
+    public ValueTask PersistRecoveryJournalEntryAsync(
+        RecoveryJournalEntry entry,
+        CancellationToken cancellationToken) =>
+        RecordAsync(_journalEntries, entry, cancellationToken);
 
     private ValueTask RecordAsync<T>(
         List<T> target,

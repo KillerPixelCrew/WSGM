@@ -42,7 +42,10 @@ public static class SelfElevation
 
         var elevatedStartupApps = config.StartupApps.Any(a => a.Enabled && a.Elevated);
         var elevatedSteam = Steam.RequiresElevatedShell;
-        var wantsElevation = elevatedStartupApps || elevatedSteam;
+        // Reviewed first-party DeviceHost inherits WSGM's token. The selected package is not loaded
+        // until after elevation and trust validation, while unreviewed tiers are explicitly launched
+        // with the interactive shell's medium-integrity token by DeviceHostProcess.
+        var wantsElevation = elevatedStartupApps || elevatedSteam || config.DeviceIntegration.Enabled;
         if (!wantsElevation ||
             ElevationCheck.IsCurrentProcessElevated() != false)
         {

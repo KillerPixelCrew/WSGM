@@ -18,7 +18,8 @@ try {
         # fails format:check in CI with no visible cause.
         if (-not (Test-Path "node_modules") -or
             (Get-Item "package-lock.json").LastWriteTimeUtc -gt (Get-Item "node_modules").LastWriteTimeUtc) {
-            npm ci
+            npm ci --ignore-scripts --prefer-offline --no-audit --no-fund `
+                --fetch-retries=2 --fetch-timeout=30000
             if ($LASTEXITCODE -ne 0) { throw "npm ci failed" }
         }
 
@@ -30,6 +31,14 @@ try {
         }
         if ($LASTEXITCODE -ne 0) { throw "Prettier check failed" }
     }
+
+    # Repository-owned Steam UI assets use only Node built-ins for their drift
+    # check, so this remains available in offline release builds and when the
+    # caller deliberately skips Prettier.
+    npm run steam-assets:verify
+    if ($LASTEXITCODE -ne 0) { throw "Steam UI asset drift check failed" }
+
+    & "$PSScriptRoot\assert-build-graph.ps1"
 
     # Cheap source scan, before anything is built: a test or probe that can resolve the real
     # %LOCALAPPDATA%\WSGM directory is a defect regardless of whether it compiles.

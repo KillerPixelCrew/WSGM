@@ -82,13 +82,22 @@
                 <Border Classes="setting-row alt">
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                         <StackPanel VerticalAlignment="Center" Spacing="1">
+                            <TextBlock Text="Native Quick Access bridge" Classes="setting-title" />
+                            <TextBlock Text="Use the fingerprint-gated persistent Steam UI host. An incompatible Steam build stays untouched." Classes="caption" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefNativeQuickAccess}" VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+                <Border Classes="setting-row">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel VerticalAlignment="Center" Spacing="1">
                             <TextBlock Text="Keep awake during downloads" Classes="setting-title" />
                             <TextBlock Text="Hold a wake lock while Steam downloads, so standby cannot interrupt them." Classes="caption" TextWrapping="Wrap" />
                         </StackPanel>
                         <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefDownloadKeepAwake}" VerticalAlignment="Center" />
                     </Grid>
                 </Border>
-                <Border Classes="setting-row">
+                <Border Classes="setting-row alt">
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                         <StackPanel VerticalAlignment="Center" Spacing="1">
                             <TextBlock Text="Download queue sorting" Classes="setting-title" />

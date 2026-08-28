@@ -6,7 +6,9 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <AssemblyName>WSGM.DeviceLab</AssemblyName>
     <RootNamespace>WSGM.DeviceLab.Gui</RootNamespace>
-    <SelfContained>false</SelfContained>
+    <SelfContained>true</SelfContained>
+    <PublishAot>false</PublishAot>
+    <PublishSingleFile>false</PublishSingleFile>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="12.1.1" />

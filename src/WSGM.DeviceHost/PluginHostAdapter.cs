@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using WSGM.Device.Contracts.Capabilities;
 using WSGM.Device.Contracts.Input;
 using WSGM.Device.Contracts.Ipc;
+using WSGM.Device.Contracts.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.DeviceHost;
@@ -17,6 +18,7 @@ internal sealed class PluginHostAdapter : IPluginHostAdapter, IDisposable
     private readonly ushort _protocolVersion;
     private readonly SharedStateRing? _stateRing;
     private readonly EventWaitHandle? _stateEvent;
+    private readonly RecoveryJournalStore _journal;
     private readonly ConcurrentDictionary<string, DeviceResourceStateNotification> _resources =
         new(StringComparer.Ordinal);
     private long _descriptorGeneration;
@@ -29,12 +31,15 @@ internal sealed class PluginHostAdapter : IPluginHostAdapter, IDisposable
         long hostGeneration,
         long deviceGeneration,
         string? stateRingName,
-        string? stateEventName)
+        string? stateEventName,
+        RecoveryJournalStore journal)
     {
+        ArgumentNullException.ThrowIfNull(journal);
         _sender = sender;
         _protocolVersion = protocolVersion;
         HostGeneration = hostGeneration;
         DeviceGeneration = deviceGeneration;
+        _journal = journal;
         if (!string.IsNullOrWhiteSpace(stateRingName))
         {
             _stateRing = SharedStateRing.Open(
@@ -205,6 +210,19 @@ internal sealed class PluginHostAdapter : IPluginHostAdapter, IDisposable
             controlEvent,
             DeviceWireJsonContext.Default.OemControlEvent,
             _protocolVersion,
+            cancellationToken);
+    }
+
+    public ValueTask PersistRecoveryJournalEntryAsync(
+        RecoveryJournalEntry entry,
+        CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(entry);
+        return _journal.PersistAsync(
+            entry,
+            HostGeneration,
+            DeviceGeneration,
             cancellationToken);
     }
 

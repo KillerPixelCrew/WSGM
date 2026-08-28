@@ -29,6 +29,7 @@ internal sealed class DeviceHostSession : IAsyncDisposable
     private readonly ConcurrentDictionary<long, Task> _operations = new();
     private PluginPackageLoader? _package;
     private PluginHostAdapter? _adapter;
+    private RecoveryJournalStore? _journal;
     private DeviceFrameStream? _frames;
     private HostWireSender? _sender;
     private ushort _protocolVersion;
@@ -60,6 +61,7 @@ internal sealed class DeviceHostSession : IAsyncDisposable
         _sender = new HostWireSender(_frames);
         await HandshakeAsync(lifetime.Token).ConfigureAwait(false);
 
+        _journal = RecoveryJournalStore.Open(_metadata.PackageId);
         _package = PluginPackageLoader.LoadPlugin(_metadata);
         try
         {
@@ -120,11 +122,16 @@ internal sealed class DeviceHostSession : IAsyncDisposable
             command.Dispose();
         }
 
-        _adapter?.Dispose();
         if (_package is not null)
         {
             await _package.Plugin.DisposeAsync().ConfigureAwait(false);
             _package.Dispose();
+        }
+
+        _adapter?.Dispose();
+        if (_journal is not null)
+        {
+            await _journal.DisposeAsync().ConfigureAwait(false);
         }
 
         if (_frames is not null)
@@ -292,7 +299,9 @@ internal sealed class DeviceHostSession : IAsyncDisposable
                 HostGeneration = _arguments.HostGeneration,
             }, bounded.Token).ConfigureAwait(false);
             _deviceGeneration = request.DeviceGeneration;
-            _outstandingJournalEntries = request.OutstandingJournalEntries;
+            _outstandingJournalEntries = MergeOutstandingJournalEntries(
+                request.OutstandingJournalEntries,
+                Journal.Outstanding);
             if (!detection.Matched || string.IsNullOrWhiteSpace(detection.DeviceDefinitionId))
             {
                 _cycleState = DeviceCycleState.Passive;
@@ -316,14 +325,27 @@ internal sealed class DeviceHostSession : IAsyncDisposable
                 _arguments.HostGeneration,
                 _deviceGeneration,
                 _arguments.StateRingName,
-                _arguments.StateEventName);
+                _arguments.StateEventName,
+                Journal);
+            if (Journal.CorruptionQuarantined)
+            {
+                _cycleState = DeviceCycleState.Degraded;
+                await SendErrorAsync(
+                    frame.Header.RequestId,
+                    "recovery-journal-corrupt",
+                    "A corrupt recovery journal was quarantined; hardware writes remain blocked.",
+                    false,
+                    bounded.Token).ConfigureAwait(false);
+                return;
+            }
+
             await Plugin.ActivateAsync(new PluginActivationContext
             {
                 Host = _adapter,
                 HostGeneration = _arguments.HostGeneration,
                 DeviceGeneration = _deviceGeneration,
                 DeviceDefinitionId = _deviceDefinitionId,
-                OutstandingJournalEntries = request.OutstandingJournalEntries,
+                OutstandingJournalEntries = _outstandingJournalEntries,
                 ControllerManagementEnabled = request.ControllerManagementEnabled,
             }, bounded.Token).ConfigureAwait(false);
 
@@ -717,6 +739,19 @@ internal sealed class DeviceHostSession : IAsyncDisposable
         DeviceDeactivationReason.SessionEnding => PluginDeactivationReason.SessionEnding,
         _ => throw new InvalidDataException("Unknown deactivation reason."),
     };
+
+    private RecoveryJournalStore Journal => _journal
+        ?? throw new InvalidOperationException("Recovery journal is not initialized.");
+
+    private static IReadOnlyList<RecoveryJournalEntry> MergeOutstandingJournalEntries(
+        IReadOnlyList<RecoveryJournalEntry> coordinatorEntries,
+        IReadOnlyList<RecoveryJournalEntry> hostEntries) =>
+        coordinatorEntries.Concat(hostEntries)
+            .GroupBy(entry => $"{entry.PackageId}:{entry.Sequence}", StringComparer.Ordinal)
+            .Select(group => group.OrderByDescending(entry => entry.Status).First())
+            .OrderByDescending(entry => entry.Sequence)
+            .Take(1000)
+            .ToArray();
 
     private IDevicePlugin Plugin => _package?.Plugin
         ?? throw new InvalidOperationException("Plugin has not been loaded.");

@@ -29,6 +29,8 @@
   </PropertyGroup>
   <ItemGroup>
     <AvaloniaResource Include="Assets\**" />
+    <EmbeddedResource Include="Core\SteamUiAssets\*.js"
+                      LogicalName="WSGM.Core.SteamUiAssets.%(Filename)%(Extension)" />
   </ItemGroup>
   <ItemGroup>
     <!-- Steam Input Lease injects this gate into steam.exe while a WSGM input

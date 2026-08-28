@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "reviewedAtUtc": "2026-08-28T00:00:00Z",
+  "controllerManagementApproved": false,
+  "policy": "P0-020",
+  "approvalBlockers": [
+    "HIDMaestro 1.7.0's steam-deck-composite profile does not expose four distinct rear controls and stick-touch fields required by P6-016.",
+    "HIDMaestro stamps driver INF versions from the current date and locally generates/signs driver packages; exact signed driver reproduction has not been established.",
+    "The trusted WSGM ControllerHost and conditional installer component do not exist yet."
+  ],
+  "staging": {
+    "futurePublishRoot": "publish/ControllerHost",
+    "futureInstalledRoot": "ControllerHost",
+    "externalBinariesCheckedIn": false
+  },
+  "components": [
+    {
+      "id": "hidmaestro",
+      "repository": "https://github.com/hifihedgehog/HIDMaestro",
+      "tag": "v1.7.0",
+      "commit": "46054b862830fcec7bc98d72ccb7c4f0c0179fb1",
+      "version": "1.7.0",
+      "asset": "HIDMaestro-v1.7.0.zip",
+      "assetUrl": "https://github.com/hifihedgehog/HIDMaestro/releases/download/v1.7.0/HIDMaestro-v1.7.0.zip",
+      "assetSha256": "A146AB8A46D2E9CE1FB2EA269FF231830607876F6F4DB7BB13CE891EF33DEECE",
+      "sdkAssembly": "HIDMaestro.Core.dll",
+      "sdkAssemblyVersion": "1.7.0.0",
+      "sdkAssemblySha256": "BD42A99BCB260435CE25796C54A4B792F8A2CED6AB78659C0CF926011663938E",
+      "authenticode": "unsigned",
+      "license": "MIT",
+      "notice": "licenses/HIDMaestro-MIT.txt",
+      "architecture": "JIT-only trusted ControllerHost; forbidden beside the NativeAOT WSGM application"
+    },
+    {
+      "id": "usbip-win2",
+      "repository": "https://github.com/vadimgrn/usbip-win2",
+      "tag": "v.0.9.7.7",
+      "commit": "7c219953101cc5d0ec9a0bcb3eb87259cf72bedd",
+      "version": "0.9.7.7",
+      "asset": "USBip-0.9.7.7-x64.exe",
+      "assetUrl": "https://github.com/vadimgrn/usbip-win2/releases/download/v.0.9.7.7/USBip-0.9.7.7-x64.exe",
+      "assetSha256": "51620FA5F9F8BE5932BC9D786DEEE557CE06D5407A99CAB490DCFAC71F185FEA",
+      "signerSubject": "E=itsec@scheibling.se, CN=Cloudyne Systems (Scheibling Consulting AB), O=Cloudyne Systems (Scheibling Consulting AB), STREET=Fyrislundsgatan 29 a, L=Uppsala, S=Uppsala, C=SE, OID.1.3.6.1.4.1.311.60.2.1.3=SE, SERIALNUMBER=559171-6567, OID.2.5.4.15=Private Organization",
+      "signerThumbprint": "9AC56B6C76141395D74FFF6652818376E80B9C95",
+      "services": [
+        "usbip2_ude",
+        "usbip2_filter"
+      ],
+      "rootHardwareId": "ROOT\\USBIP_WIN2\\UDE",
+      "license": "BSD-2-Clause",
+      "notice": "licenses/usbip-win2-BSD-2-Clause.txt"
+    },
+    {
+      "id": "hidhide",
+      "repository": "https://github.com/nefarius/HidHide",
+      "tag": "v1.5.230.0",
+      "commit": "722d997ce75db58f5aa36e40ca920f99022c020a",
+      "version": "1.5.230.0",
+      "asset": "HidHide_1.5.230_x64.exe",
+      "assetUrl": "https://github.com/nefarius/HidHide/releases/download/v1.5.230.0/HidHide_1.5.230_x64.exe",
+      "assetSha256": "F4BBBCB82E6258641B887C74BC81C4C5F66E4AA811808DFC304347687B7605F6",
+      "signerSubject": "CN=Nefarius Software Solutions e.U., O=Nefarius Software Solutions e.U., L=Wels, C=AT, SERIALNUMBER=505039f, OID.2.5.4.15=Private Organization, OID.1.3.6.1.4.1.311.60.2.1.1=Wels, OID.1.3.6.1.4.1.311.60.2.1.2=Oberösterreich, OID.1.3.6.1.4.1.311.60.2.1.3=AT",
+      "signerThumbprint": "1F431092EC96A80B41AB5317F53AC02EA6F9B89B",
+      "service": "HidHide",
+      "rootHardwareId": "root\\HidHide",
+      "controlDevice": "\\\\.\\HidHide",
+      "interfaceGuid": "{0c320ff7-bd9b-42b6-bdaf-49feb9c91649}",
+      "license": "MIT",
+      "notice": "licenses/HidHide-MIT.txt"
+    }
+  ]
+}

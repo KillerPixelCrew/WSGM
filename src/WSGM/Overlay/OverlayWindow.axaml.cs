@@ -76,6 +76,8 @@ public partial class OverlayWindow : Window
     /// outlive the window they started on, and a dismissal raised from a dead window
     /// would close whatever panel is on screen by then.</summary>
     private bool _closed;
+    private readonly CancellationTokenSource _deviceLifetime = new();
+    private IDeviceOverlaySource? _deviceBridge;
 
     private Shell.SdFormatManager? _format;
     private FormatTargetEntry? _pendingTarget;
@@ -123,6 +125,149 @@ public partial class OverlayWindow : Window
     {
         _format = format;
         PanelFormat.DataContext = format;
+    }
+
+    /// <summary>Attaches the semantic coordinator projection used by the optional Device tab.</summary>
+    internal void AttachDeviceBridge(IDeviceOverlaySource? bridge)
+    {
+        if (ReferenceEquals(_deviceBridge, bridge))
+        {
+            return;
+        }
+
+        if (_deviceBridge is not null)
+        {
+            _deviceBridge.Changed -= OnDeviceChanged;
+        }
+
+        _deviceBridge = bridge;
+        if (_deviceBridge is not null)
+        {
+            _deviceBridge.Changed += OnDeviceChanged;
+        }
+
+        RefreshDevicePanel();
+    }
+
+    /// <summary>Moves focus to Device when integration is enabled; otherwise leaves the current tab.</summary>
+    internal void SelectDeviceDestination()
+    {
+        if (_deviceBridge?.Snapshot().Visible is true)
+        {
+            Tabs.SelectedIndex = 3;
+        }
+    }
+
+    private void OnDeviceChanged() => Dispatcher.UIThread.Post(RefreshDevicePanel);
+
+    private void RefreshDevicePanel()
+    {
+        if (_closed)
+        {
+            return;
+        }
+
+        DeviceOverlaySnapshot snapshot = _deviceBridge?.Snapshot()
+            ?? new DeviceOverlaySnapshot(false, "Device integration off", string.Empty, []);
+        ConfigureTabs(snapshot.Visible);
+        DeviceStatusTitle.Text = snapshot.Status;
+        DeviceStatusDetail.Text = snapshot.Detail;
+        string? focusedKey = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement()
+            is Control focused
+            ? focused.Tag as string
+            : null;
+        DeviceCapabilityList.Children.Clear();
+        if (snapshot.Capabilities.Count == 0)
+        {
+            DeviceCapabilityList.Children.Add(new TextBlock
+            {
+                Text = "No semantic capabilities are available yet.",
+                TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                Margin = new Thickness(2, 4),
+            });
+            return;
+        }
+
+        CardButton? restoreFocus = null;
+        foreach (DeviceOverlayCapability capability in snapshot.Capabilities)
+        {
+            string key = capability.InstanceId is { Length: > 0 }
+                ? $"{capability.CapabilityId}#{capability.InstanceId}"
+                : capability.CapabilityId;
+            CardButton button = new()
+            {
+                Tag = key,
+                IconGeometry = Icons.Gear,
+                Title = capability.Title,
+                Description = capability.Description,
+                TrailingText = capability.TrailingText,
+                IsEnabled = capability.CanInvoke,
+            };
+            button.Click += async (_, _) =>
+            {
+                IDeviceOverlaySource? bridge = _deviceBridge;
+                if (bridge is null || _closed)
+                {
+                    return;
+                }
+
+                button.IsEnabled = false;
+                try
+                {
+                    await bridge.InvokeAsync(capability, _deviceLifetime.Token);
+                }
+                catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested)
+                {
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"Device overlay command failed: {capability.CapabilityId}, {ex.Message}");
+                }
+                finally
+                {
+                    if (!_closed)
+                    {
+                        button.IsEnabled = capability.CanInvoke;
+                    }
+                }
+            };
+            DeviceCapabilityList.Children.Add(button);
+            if (string.Equals(key, focusedKey, StringComparison.Ordinal))
+            {
+                restoreFocus = button;
+            }
+        }
+
+        restoreFocus?.Focus(NavigationMethod.Directional);
+    }
+
+    private void ConfigureTabs(bool showDevice)
+    {
+        int count = Tabs.Tabs?.Count ?? 0;
+        int expected = showDevice ? 4 : 3;
+        if (count == expected)
+        {
+            return;
+        }
+
+        Tabs.Tabs = showDevice
+            ? new List<TabStripItem>
+            {
+                new("Session", Icons.Play, 0),
+                new("Tools", Icons.Wrench, 1),
+                new("Power", Icons.Power, 2),
+                new("Device", Icons.SteamLike, 3),
+            }
+            : new List<TabStripItem>
+            {
+                new("Session", Icons.Play, 0),
+                new("Tools", Icons.Wrench, 1),
+                new("Power", Icons.Power, 2),
+            };
+        if (!showDevice && Tabs.SelectedIndex == 3)
+        {
+            Tabs.SelectedIndex = 0;
+        }
     }
 
     // The library name the confirm step will format with. Held here rather than in a
@@ -182,6 +327,7 @@ public partial class OverlayWindow : Window
             {
                 1 => (Control)PanelTools,
                 2 => PanelPower,
+                3 => PanelDevice,
                 _ => PanelSession,
             };
             foreach (var visual in panel.GetVisualDescendants())
@@ -236,7 +382,9 @@ public partial class OverlayWindow : Window
             LeaveArtworkSubView();
             LeaveLaunchWrapperSubView();
             LeaveWakeLockSubView();
-            Tabs.SelectedIndex = _lastSelectedTab;
+            Tabs.SelectedIndex = _lastSelectedTab < (Tabs.Tabs?.Count ?? 0)
+                ? _lastSelectedTab
+                : 0;
         };
 
         LibraryTabsHost.CloseRequested += LeaveLibraryTabsSubView;
@@ -251,7 +399,18 @@ public partial class OverlayWindow : Window
 
         KeyDown += OnKeyDown;
         Opened += OnOpened;
-        Closed += (_, _) => { _closed = true; StopSlide(); ResetConfirms(); };
+        Closed += (_, _) =>
+        {
+            _closed = true;
+            _deviceLifetime.Cancel();
+            if (_deviceBridge is not null)
+            {
+                _deviceBridge.Changed -= OnDeviceChanged;
+            }
+            StopSlide();
+            ResetConfirms();
+            _deviceLifetime.Dispose();
+        };
 
         // The overlay takes focus Game-Bar-style: the game stops receiving input
         // while the panel is open. Viable because the Steam Input lease keeps the pad
@@ -388,12 +547,14 @@ public partial class OverlayWindow : Window
         PanelSession.IsVisible = e.NewIndex == 0;
         PanelTools.IsVisible = e.NewIndex == 1;
         PanelPower.IsVisible = e.NewIndex == 2;
+        PanelDevice.IsVisible = e.NewIndex == 3 && _deviceBridge?.Snapshot().Visible is true;
 
         var panel = e.NewIndex switch
         {
             0 => (Control)PanelSession,
             1 => PanelTools,
-            _ => PanelPower,
+            2 => PanelPower,
+            _ => PanelDevice,
         };
         FocusFirstControl(panel);
     }

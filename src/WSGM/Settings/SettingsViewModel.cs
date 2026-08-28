@@ -134,12 +134,20 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         DisplayManagementModeIndex = (int)_config.DisplayManagement;
         SteamInputLeaseEnabled = _config.SteamInputLeaseEnabled;
         SteamInputManagementEnabled = _config.SteamInputManagementEnabled;
+        DeviceIntegrationEnabled = _config.DeviceIntegration.Enabled;
+        DeviceControllerManagementEnabled = _config.DeviceIntegration.ControllerManagementEnabled;
+        DeviceDeveloperMode = _config.DeviceIntegration.DeveloperMode;
+        DeviceUpdatePolicyIndex = (int)_config.DeviceIntegration.UpdatePolicy;
+        DeviceControllerTargetIndex = (int)_config.DeviceIntegration.ControllerTarget;
+        DeviceGlyphSelectionIndex = (int)_config.DeviceIntegration.GlyphSelection;
+        DeviceDiagnosticLevelIndex = (int)_config.DeviceIntegration.DiagnosticLevel;
         CefEnabled = _config.Cef.Enabled;
         CefLibraryTabs = _config.Cef.LibraryTabs;
         CefCardManager = _config.Cef.CardManager;
         CefSdFormat = _config.Cef.SdFormat;
         CefArtwork = _config.Cef.Artwork;
         CefWifiIndicator = _config.Cef.WifiIndicator;
+        CefNativeQuickAccess = _config.Cef.NativeQuickAccess;
         CefDownloadKeepAwake = _config.Cef.DownloadKeepAwake;
         CefDownloadQueueSort = _config.Cef.DownloadQueueSort;
         MuteWhileDisplayOff = _config.MuteWhileDisplayOff;
@@ -358,6 +366,101 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     private bool _steamInputManagementEnabled = true;
 
+    private bool _deviceIntegrationEnabled;
+    private bool _deviceControllerManagementEnabled;
+    private bool _deviceDeveloperMode;
+    private int _deviceUpdatePolicyIndex = (int)DevicePluginUpdatePolicy.Notify;
+    private int _deviceControllerTargetIndex = (int)ManagedControllerTarget.SteamDeckComposite;
+    private int _deviceGlyphSelectionIndex = (int)DeviceGlyphSelection.Automatic;
+    private int _deviceDiagnosticLevelIndex = (int)DeviceDiagnosticLevel.Standard;
+    private string _deviceOwnerStatusText = "No running device coordinator detected.";
+
+    /// <summary>Gets or sets the optional production Device Integration master switch.</summary>
+    public bool DeviceIntegrationEnabled
+    {
+        get => _deviceIntegrationEnabled;
+        set
+        {
+            _deviceIntegrationEnabled = value;
+            Raise(nameof(DeviceIntegrationEnabled));
+        }
+    }
+
+    /// <summary>Whether controller management passed every mandatory release gate.</summary>
+    public bool DeviceControllerManagementAvailable =>
+        DeviceFeatureAvailability.ControllerManagement;
+
+    /// <summary>Gets or sets the remembered controller-management child preference.</summary>
+    public bool DeviceControllerManagementEnabled
+    {
+        get => _deviceControllerManagementEnabled;
+        set
+        {
+            _deviceControllerManagementEnabled = value;
+            Raise(nameof(DeviceControllerManagementEnabled));
+        }
+    }
+
+    /// <summary>Gets or sets whether Device Lab developer packages may be inspected.</summary>
+    public bool DeviceDeveloperMode
+    {
+        get => _deviceDeveloperMode;
+        set
+        {
+            _deviceDeveloperMode = value;
+            Raise(nameof(DeviceDeveloperMode));
+        }
+    }
+
+    /// <summary>Selected verified package update-policy index.</summary>
+    public int DeviceUpdatePolicyIndex
+    {
+        get => _deviceUpdatePolicyIndex;
+        set { _deviceUpdatePolicyIndex = value; Raise(nameof(DeviceUpdatePolicyIndex)); }
+    }
+
+    /// <summary>Selected global managed-controller target index.</summary>
+    public int DeviceControllerTargetIndex
+    {
+        get => _deviceControllerTargetIndex;
+        set { _deviceControllerTargetIndex = value; Raise(nameof(DeviceControllerTargetIndex)); }
+    }
+
+    /// <summary>Selected physical glyph-policy index.</summary>
+    public int DeviceGlyphSelectionIndex
+    {
+        get => _deviceGlyphSelectionIndex;
+        set { _deviceGlyphSelectionIndex = value; Raise(nameof(DeviceGlyphSelectionIndex)); }
+    }
+
+    /// <summary>Selected sanitized Device diagnostics level index.</summary>
+    public int DeviceDiagnosticLevelIndex
+    {
+        get => _deviceDiagnosticLevelIndex;
+        set { _deviceDiagnosticLevelIndex = value; Raise(nameof(DeviceDiagnosticLevelIndex)); }
+    }
+
+    /// <summary>Read-only status reported by the authoritative shell coordinator.</summary>
+    public string DeviceOwnerStatusText
+    {
+        get => _deviceOwnerStatusText;
+        private set { _deviceOwnerStatusText = value; Raise(nameof(DeviceOwnerStatusText)); }
+    }
+
+    /// <summary>Refreshes the read-only owner snapshot without creating a device cycle.</summary>
+    public async Task RefreshDeviceOwnerStatusAsync()
+    {
+        DeviceCoordinatorDiagnosticsSnapshot? snapshot =
+            await DeviceCoordinatorDiagnosticsClient.TryReadAsync(
+                (uint)System.Diagnostics.Process.GetCurrentProcess().SessionId,
+                TimeSpan.FromMilliseconds(750));
+        DeviceOwnerStatusText = snapshot is null
+            ? "No running device coordinator detected. Saved changes apply at the next shell start."
+            : $"{snapshot.State} · {snapshot.PackageId ?? "no package"} · "
+                + $"{snapshot.HealthyCapabilityCount}/{snapshot.CapabilityCount} healthy · "
+                + $"host {snapshot.HostGeneration}, device {snapshot.DeviceGeneration}";
+    }
+
     /// <summary>Gets whether first-run Quick Setup still has to be answered.</summary>
     public bool QuickSetupPending => QuickSetup.ShouldShow(_config);
 
@@ -398,6 +501,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private bool _cefSdFormat = true;
     private bool _cefArtwork = true;
     private bool _cefWifiIndicator = true;
+    private bool _cefNativeQuickAccess = true;
     private bool _cefDownloadKeepAwake = true;
     private bool _cefDownloadQueueSort = true;
     private bool _muteWhileDisplayOff;
@@ -421,6 +525,9 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     /// <summary>Gets or sets the Big Picture Wi-Fi indicator.</summary>
     public bool CefWifiIndicator { get => _cefWifiIndicator; set { _cefWifiIndicator = value; Raise(nameof(CefWifiIndicator)); } }
+
+    /// <summary>Gets or sets the fingerprint-gated native Steam Quick Access bootstrap.</summary>
+    public bool CefNativeQuickAccess { get => _cefNativeQuickAccess; set { _cefNativeQuickAccess = value; Raise(nameof(CefNativeQuickAccess)); } }
 
     /// <summary>Gets or sets the automatic download wake lock (keep the device awake
     /// while Steam reports an active download).</summary>
@@ -1055,6 +1162,25 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         }
         config.SteamInputLeaseEnabled = SteamInputLeaseEnabled;
         config.SteamInputManagementEnabled = SteamInputManagementEnabled;
+        config.DeviceIntegration.Enabled = DeviceIntegrationEnabled;
+        config.DeviceIntegration.ControllerManagementEnabled = DeviceControllerManagementEnabled;
+        config.DeviceIntegration.DeveloperMode = DeviceDeveloperMode;
+        config.DeviceIntegration.UpdatePolicy = (DevicePluginUpdatePolicy)Math.Clamp(
+            DeviceUpdatePolicyIndex,
+            0,
+            Enum.GetValues<DevicePluginUpdatePolicy>().Length - 1);
+        config.DeviceIntegration.ControllerTarget = (ManagedControllerTarget)Math.Clamp(
+            DeviceControllerTargetIndex,
+            0,
+            Enum.GetValues<ManagedControllerTarget>().Length - 1);
+        config.DeviceIntegration.GlyphSelection = (DeviceGlyphSelection)Math.Clamp(
+            DeviceGlyphSelectionIndex,
+            0,
+            Enum.GetValues<DeviceGlyphSelection>().Length - 1);
+        config.DeviceIntegration.DiagnosticLevel = (DeviceDiagnosticLevel)Math.Clamp(
+            DeviceDiagnosticLevelIndex,
+            0,
+            Enum.GetValues<DeviceDiagnosticLevel>().Length - 1);
         if (QuickSetupAnswered)
         {
             // Stamped only on a save that actually persists the answer, so a failed
@@ -1067,6 +1193,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.Cef.SdFormat = CefSdFormat;
         config.Cef.Artwork = CefArtwork;
         config.Cef.WifiIndicator = CefWifiIndicator;
+        config.Cef.NativeQuickAccess = CefNativeQuickAccess;
         config.Cef.DownloadKeepAwake = CefDownloadKeepAwake;
         config.Cef.DownloadQueueSort = CefDownloadQueueSort;
         config.MuteWhileDisplayOff = MuteWhileDisplayOff;

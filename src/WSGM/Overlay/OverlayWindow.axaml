@@ -250,6 +250,24 @@
                     <!-- Power-tab sub-view: everything currently holding a wake lock. -->
                     <ov:WakeLockHoldersView x:Name="WakeLockHost" IsVisible="False" />
 
+                    <!-- Phase-one Device destination. Every row is produced from the closed
+                         semantic descriptor vocabulary; packages cannot provide markup, styles,
+                         URLs, or arbitrary commands through this surface. -->
+                    <StackPanel x:Name="PanelDevice" Spacing="4" IsVisible="False">
+                        <TextBlock x:Name="DeviceStatusTitle"
+                                   Text="Device integration"
+                                   FontSize="16"
+                                   FontWeight="SemiBold"
+                                   Margin="2,0,2,0" />
+                        <TextBlock x:Name="DeviceStatusDetail"
+                                   Text="Waiting for coordinator state"
+                                   Classes="caption"
+                                   TextWrapping="Wrap"
+                                   Margin="2,0,2,6" />
+                        <TextBlock Text="AVAILABLE CONTROLS" Classes="eyebrow" Margin="2,2,2,2" />
+                        <StackPanel x:Name="DeviceCapabilityList" Spacing="4" />
+                    </StackPanel>
+
                     <StackPanel x:Name="PanelPower" Spacing="4" IsVisible="False">
                         <c:CardButton x:Name="KeepAwakeButton" Click="OnKeepAwakeToggle"
                                       IsVisible="{Binding ShowKeepAwake}"

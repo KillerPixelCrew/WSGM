@@ -101,6 +101,7 @@ re-verification is grounds for refusing a change on its own.
 | `docs\overlay-and-input.md` | The quick-access panel, taskbar surfaces, SDL/gamepad ownership, touch and raw input |
 | `docs\power-and-display.md` | Display profiles and HDR, mute-while-screen-off, keep-awake and wake-lock reporting |
 | `docs\ui.md` | Themes, shared controls, Settings layout, the splash engine |
+| `docs\device-integration.md` | Device packages, DeviceHost/coordinator lifecycle, semantic capabilities, recovery, and trust boundaries |
 | `docs\decisions.md` | Standing decisions, accepted security posture, and approaches that are deliberately not taken |
 | `_plan\2.0-decisions.md` | The authoritative answer for every WSGM 2.0 `P0` decision; supersedes conflicting prose in the `_plan\` design documents |
 

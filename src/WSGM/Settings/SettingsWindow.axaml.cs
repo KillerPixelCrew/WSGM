@@ -78,10 +78,11 @@ public partial class SettingsWindow : Window
             new("System", Icons.Monitor, 0),
             new("Steam", Icons.SteamLike, 1),
             new("Integration", Icons.Wrench, 2),
-            new("Startup", Icons.Rocket, 3),
-            new("Quick access", Icons.Panel, 4),
-            new("Display", Icons.Monitor, 5),
-            new("Appearance", Icons.Palette, 6),
+            new("Device setup", Icons.SteamLike, 3),
+            new("Startup", Icons.Rocket, 4),
+            new("Quick access", Icons.Panel, 5),
+            new("Display", Icons.Monitor, 6),
+            new("Appearance", Icons.Palette, 7),
         };
         Tabs.SelectionChanged += OnTabSelectionChanged;
 
@@ -141,6 +142,7 @@ public partial class SettingsWindow : Window
             // Opened (not the constructor) so a window that is built but never shown
             // cannot leave a session — and therefore a pinned directory — behind.
             SplashTheme.BeginImportSession();
+            _ = _viewModel.RefreshDeviceOwnerStatusAsync();
             MaybeShowQuickSetup();
         };
         Closed += (_, _) =>
@@ -194,10 +196,11 @@ public partial class SettingsWindow : Window
         PageSystem.IsVisible = e.NewIndex == 0;
         PageSteam.IsVisible = e.NewIndex == 1;
         PageIntegration.IsVisible = e.NewIndex == 2;
-        PageStartup.IsVisible = e.NewIndex == 3;
-        PageQuickAccess.IsVisible = e.NewIndex == 4;
-        PageDisplay.IsVisible = e.NewIndex == 5;
-        PageAppearance.IsVisible = e.NewIndex == 6;
+        PageDevice.IsVisible = e.NewIndex == 3;
+        PageStartup.IsVisible = e.NewIndex == 4;
+        PageQuickAccess.IsVisible = e.NewIndex == 5;
+        PageDisplay.IsVisible = e.NewIndex == 6;
+        PageAppearance.IsVisible = e.NewIndex == 7;
 
         // Land controller focus inside the newly shown page — without this the
         // next D-pad press falls back to the window's first focusable, which is
@@ -207,9 +210,10 @@ public partial class SettingsWindow : Window
             0 => (Control)PageSystem,
             1 => PageSteam,
             2 => PageIntegration,
-            3 => PageStartup,
-            4 => PageQuickAccess,
-            5 => PageDisplay,
+            3 => PageDevice,
+            4 => PageStartup,
+            5 => PageQuickAccess,
+            6 => PageDisplay,
             _ => PageAppearance,
         };
         FocusFirstControl(page);

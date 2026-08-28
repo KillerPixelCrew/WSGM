@@ -77,6 +77,14 @@ public interface IPluginHostAdapter
     ValueTask PublishOemEventAsync(
         OemControlEvent controlEvent,
         CancellationToken cancellationToken);
+
+    /// <summary>Atomically adds or advances one crash-recovery journal entry.</summary>
+    /// <param name="entry">The complete entry state to persist before the next hardware step.</param>
+    /// <param name="cancellationToken">Cancels persistence before hardware may be touched.</param>
+    /// <returns>A task completing only after the journal replacement is durable.</returns>
+    ValueTask PersistRecoveryJournalEntryAsync(
+        RecoveryJournalEntry entry,
+        CancellationToken cancellationToken);
 }
 
 /// <summary>One independently reported plugin resource state.</summary>

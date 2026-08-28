@@ -14,7 +14,8 @@
 #endif
 #define AppPublisher "NightHammer1000"
 #define AppURL "https://github.com/NightHammer1000/WSGM"
-#define PublishDir "..\publish"
+#define PublishRoot "..\publish"
+#define AppPublishDir "..\publish\App"
 
 [Setup]
 ; New product identity (renamed from OpenFSE) — a fresh AppId so the old OpenFSE
@@ -32,7 +33,7 @@ DisableDirPage=yes
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
 UsedUserAreasWarning=no
-OutputDir=..\publish
+OutputDir={#PublishRoot}
 OutputBaseFilename=WSGM-Setup-{#AppVersion}
 Compression=lzma2/max
 SolidCompression=yes
@@ -58,21 +59,24 @@ english.SteamMissing=Steam was not found on this PC.%n%nWSGM is Steam-exclusive 
 german.SteamMissing=Steam wurde auf diesem PC nicht gefunden.%n%nWSGM funktioniert ausschließlich mit Steam und startet direkt in Steam Big Picture. Installiere Steam von steampowered.com, melde dich einmal an und führe dieses Setup danach erneut aus.
 
 [Files]
-Source: "{#PublishDir}\WSGM.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#PublishDir}\WSGM.Launch.exe"; DestDir: "{app}"; Flags: ignoreversion
+; Only the NativeAOT app component is visible to this installer section. DeviceHost,
+; Device Lab, and plugin packages are staged in sibling component directories, so
+; the legacy DLL glob below cannot accidentally flatten JIT/plugin dependencies into {app}.
+Source: "{#AppPublishDir}\WSGM.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#AppPublishDir}\WSGM.Launch.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; SYSTEM service binary: Program Files only (admin-writable), never {app}. It
 ; launches the per-user WSGM.exe via the boot manifest — as that user, which is
 ; why the user-writable app path is not an escalation.
-Source: "{#PublishDir}\WSGM.LogonService.exe"; DestDir: "{autopf}\WSGM"; Flags: ignoreversion
+Source: "{#AppPublishDir}\WSGM.LogonService.exe"; DestDir: "{autopf}\WSGM"; Flags: ignoreversion
 ; Read-only radio diagnostic. Reports what the docs cannot settle for a given
 ; machine: whether radio control works with no shell running, and whether the
 ; Wi-Fi scan is blocked by the location-consent gate.
-Source: "{#PublishDir}\WSGM.RadioProbe.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#PublishDir}\*.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#PublishDir}\SteamInputLease-*.txt"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#PublishDir}\SteamInputLease-*.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#AppPublishDir}\WSGM.RadioProbe.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#AppPublishDir}\*.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#AppPublishDir}\SteamInputLease-*.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#AppPublishDir}\SteamInputLease-*.md"; DestDir: "{app}"; Flags: ignoreversion
 ; Third-party license texts for managed packages (src\WSGM\Licenses\).
-Source: "{#PublishDir}\LoadingIndicators.Avalonia-UNLICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#AppPublishDir}\LoadingIndicators.Avalonia-UNLICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{userprograms}\{#AppName}"; Filename: "{app}\WSGM.exe"; Comment: "WSGM settings"

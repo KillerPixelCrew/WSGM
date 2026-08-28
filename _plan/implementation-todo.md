@@ -14,7 +14,7 @@ real hardware here. Shell takeover and hardware mutation remain off-limits local
 | ---------------------------------------- | ----- | -------------------------------------------------------------- |
 | `P0` baseline normalization              | 48/51 | Gate closed. Remaining: `P0-038`, `P0-039`, `P0-046` scheduled audits owned by `P6.1`, the Claw package, and `P10.5` |
 | `P1` semantic contracts                  | 57/58 | Contract frozen at protocol `1`, fingerprint `wsgm-device-v1`. Remaining: `P1-024` serialization and cancellation tests, which need the host loop in `P4.3` |
-| `P2` Device Lab                          | 20/120 | `P2.1` schemas, `P2.3` inventory, and `P2.4` matching landed; capture, probes, trials, and scaffold generation are next |
+| `P2` Device Lab                          | 69/120 | Schemas, preflight, inventory, matching, passive capture, probe/trial safety, resource assessment, and deterministic fail-closed scaffold generation landed; concrete device profiles/trials and command workflows are next |
 | `P3`–`P10`                               | 0     | Not started                                                     |
 
 ### What exists in the tree
@@ -22,11 +22,11 @@ real hardware here. Shell takeover and hardware mutation remain off-limits local
 | Project                        | State                                                                 |
 | ------------------------------ | --------------------------------------------------------------------- |
 | `WSGM.Device.Contracts`        | Frozen contract: package manifest, identity, capabilities, lifecycle, canonical input, IPC wire format, ACL'd pipe, shared-memory ring. Referenced by `WSGM.csproj`, so the AOT publish proves it stays AOT-safe |
-| `WSGM.DeviceLab.Core`          | Claim ledger, evidence lock with semantic diffing, catalog and candidate matcher, machine inventory, capture redaction |
+| `WSGM.DeviceLab.Core`          | Claim ledger, evidence lock with semantic diffing, catalog and candidate matcher, machine inventory, capture redaction, versioned capture/event/analysis/fixture/scaffold schemas, deterministic `.wsgmcap` writer |
 | `WSGM.DeviceLab.Cli`           | `wsgm-device inventory [--out <path>] [--shareable]`, with the output-path policy enforced |
 | `WSGM.DeviceHost`              | Entry point and argument gate only; supervised lifecycle is `P4.3`     |
 | `WSGM.Device.ProbeHost`        | Entry point and argument gate only; probe execution is `P2.6`          |
-| `WSGM.Device.Sdk`              | Project and boundaries only; contents are `P2.1`                       |
+| `WSGM.Device.Sdk`              | Semantic plugin lifecycle and host adapter, mandatory command revalidation, independent resource coordination, deterministic core templates, analyzer seam, fixture runner, and TestKit. Glyph authoring and the Roslyn generator remain in `P2-011`/`P8` |
 | `plugins/WSGM.Device.Msi.Claw8A2Vm` | Project and ownership rules only; implementation is `P5`          |
 | `WSGM.DeviceLab` GUI, `WSGM.Device.Sdk.Generators` | Deliberately not created yet — each is its own design task, in `P2-013` and `P2-011` |
 
@@ -519,15 +519,29 @@ the design, is what found that.
 
 ## P2 — Device Lab, known implementations, evidence, and scaffolding
 
-**In progress, 20/120.** Landed: the claim ledger and its state ladder, the three independent
+**In progress, 69/120.** Landed: the claim ledger and its state ladder, the three independent
 candidate outputs, probe result dimensions, the evidence lock with semantic diffing, the machine
-inventory, deterministic candidate matching with its negative cases, capture redaction, and a working
-`wsgm-device inventory`. Next: `P2.2` preflight, `P2.5` capture, `P2.6` read probes, `P2.7` the
-bounded trial runner, and `P2.8` scaffold generation.
+inventory, deterministic candidate matching with its negative cases, capture redaction, the
+versioned capture/event/analysis/fixture/scaffold schemas, bounded compatibility readers with safe
+draft migrations, deterministic `.wsgmcap` writing, the shared `doctor`/output-path firewall,
+owner/resource/power/thermal/component preflight, bounded production diagnostics, imported-authority
+rejection, a working `wsgm-device inventory`, offline safest-probe selection, and exact/hash-pinned
+read-probe admission, validation, rate/deadline enforcement, disposable process supervision, guided
+operator markers, one QPC timeline with clock/generation segmentation, and loss-aware
+baseline/action/release correlation which retains raw links and states only correlation evidence,
+exact local-interactive trial review/state pinning, durable immutable recovery records, fail-closed
+crash-boundary simulation, and resource-independent assessment, plus deterministic exact-evidence
+scaffold generation with read-only manifests, verified-only parsers, explicit unavailable
+capabilities, separate generated and handwritten ownership, semantic regeneration review, generated
+offline fixtures, and a clean test verifier. Next: the device-specific `P2-058` getter profiles, the
+five concrete reviewed `P2.7` trials and their sole CLI door, and the remaining shared command
+workflows.
 
-Two subsections are deliberately untouched pending their own design work: `P2-011` (the SDK contents,
-which needs the Roslyn analyzer and generator packaging decided) and `P2-013` (the GUI shell, which
-needs Avalonia wiring). Their projects exist with ownership rules; their contents do not.
+`P2-011` is partially implemented: semantic lifecycle contracts, the host adapter, mandatory
+per-command revalidation, independent resource coordination, deterministic core templates, an
+analyzer seam, fixture helpers, and TestKit are present. It remains open for the P8-dependent glyph
+authoring surface and the separately packaged Roslyn analyzer/generator. `P2-013` remains untouched
+pending its Avalonia wiring.
 
 ### P2.1 D0 schemas and developer surfaces
 
@@ -542,11 +556,9 @@ needs Avalonia wiring). Their projects exist with ownership rules; their content
       provenance, package trust, and runtime write eligibility.
 - [x] **P2-004 · SOFTWARE** Define compatibility execution, observation, mutation, cleanup, and
       derived verdict enums exactly as described in the tooling design.
-- [ ] **P2-005 · SOFTWARE** *(claim ledger, redaction, and hash schemas landed; the `.wsgmcap`
-      bundle and stream/analysis schemas follow with capture in `P2.5`.)* Define private capture,
-      sanitized `.wsgmcap`, observe-only recipe,
+- [x] **P2-005 · SOFTWARE** Define private capture, sanitized `.wsgmcap`, observe-only recipe,
       stream event, analysis result, claim ledger, redaction, blob, and hash schemas.
-- [ ] **P2-006 · SOFTWARE** Require each event to carry source/step IDs, local/global sequence, QPC
+- [x] **P2-006 · SOFTWARE** Require each event to carry source/step IDs, local/global sequence, QPC
       receipt time, optional source time, clock segment, device generation, payload length, exact
       payload bytes where permitted, and loss/discontinuity/timeout/access state.
 - [x] **P2-007 · SOFTWARE** Require each claim to carry a stable claim ID, scope,
@@ -555,45 +567,48 @@ needs Avalonia wiring). Their projects exist with ownership rules; their content
       supersession.
 - [x] **P2-008 · SOFTWARE** Define deterministic `evidence.lock.json` canonicalization that pins
       accepted claim and module versions and requires a semantic diff for any constant change.
-- [ ] **P2-009 · SOFTWARE** Define plain reviewable fixture directories, fixture metadata, expected
+- [x] **P2-009 · SOFTWARE** Define plain reviewable fixture directories, fixture metadata, expected
       semantic outputs, simulator-only replay, and explicit prohibition on hardware writes.
-- [ ] **P2-010 · SOFTWARE** Define scaffold input/output schema, generator version, negotiated
+- [x] **P2-010 · SOFTWARE** Define scaffold input/output schema, generator version, negotiated
       runtime API, module locks, evidence locks, and generated-file ownership markers.
-- [ ] **P2-011 · SOFTWARE** Create the Device Plugin SDK with contracts, host adapter, templates,
-      analyzers, generator support, fixture helpers, and TestKit.
+- [ ] **P2-011 · SOFTWARE** *(semantic lifecycle, host adapter, mandatory command revalidation,
+      independent resource coordination, deterministic core templates, analyzer seam, fixture
+      helpers, and TestKit landed; P8 glyph authoring and the Roslyn analyzer/generator remain.)*
+      Create the Device Plugin SDK with contracts, host adapter, templates, analyzers, generator
+      support, fixture helpers, and TestKit.
 - [x] **P2-012 · SOFTWARE** Create the `wsgm-device` CLI command router with consistent structured
       output, exit codes, cancellation, explicit output directory, and no implicit live config
       access.
 - [ ] **P2-013 · SOFTWARE** Create the Device Lab GUI shell with Hardware Owner and Plugin Developer
       modes sharing the same command/application layer as the CLI.
-- [ ] **P2-014 · SOFTWARE** Create a disposable probe-host process whose typed profile-scoped APIs
+- [x] **P2-014 · SOFTWARE** Create a disposable probe-host process whose typed profile-scoped APIs
       are unavailable in production DeviceHost IPC.
-- [ ] **P2-015 · SOFTWARE** Add schema compatibility, deterministic serialization, migration,
+- [x] **P2-015 · SOFTWARE** Add schema compatibility, deterministic serialization, migration,
       malformed/oversized input, and cross-version golden tests.
 
 ### P2.2 Stage 0 preflight and safety firewall
 
-- [ ] **P2-016 · SOFTWARE** Implement `wsgm-device doctor` for environment, output path,
+- [x] **P2-016 · SOFTWARE** Implement `wsgm-device doctor` for environment, output path,
       architecture, required Windows APIs, permissions, runtime, and developer-mode health.
-- [ ] **P2-017 · SOFTWARE** Require an explicit output or temporary directory and reject the live
+- [x] **P2-017 · SOFTWARE** Require an explicit output or temporary directory and reject the live
       WSGM data directory, repository root, broad home paths, and unsafe overwrite targets.
-- [ ] **P2-018 · SOFTWARE** Inspect current Device Integration, active DeviceHost generation, and
+- [x] **P2-018 · SOFTWARE** Inspect current Device Integration, active DeviceHost generation, and
       per-resource ownership before any read session or trial.
-- [ ] **P2-019 · SOFTWARE** Inspect AC/battery and thermal prerequisites and expose catalog-specific
+- [x] **P2-019 · SOFTWARE** Inspect AC/battery and thermal prerequisites and expose catalog-specific
       reasons a probe/trial is blocked.
-- [ ] **P2-020 · SOFTWARE** Detect relevant OEM tools, services, drivers, providers, DLLs, helpers,
+- [x] **P2-020 · SOFTWARE** Detect relevant OEM tools, services, drivers, providers, DLLs, helpers,
       tasks, available event sources and access, and existing resource conflicts without treating
       process presence alone as ownership.
-- [ ] **P2-021 · SOFTWARE** Determine whether an observation or trial needs elevation or a reviewed
+- [x] **P2-021 · SOFTWARE** Determine whether an observation or trial needs elevation or a reviewed
       helper before opening a device resource.
-- [ ] **P2-022 · SOFTWARE** Define a distinct experiment lease and require orderly release by the
+- [x] **P2-022 · SOFTWARE** Define a distinct experiment lease and require orderly release by the
       production plugin before a direct Device Lab trial can acquire that resource.
-- [ ] **P2-023 · SOFTWARE** When production DeviceHost owns a resource, request only a bounded
+- [x] **P2-023 · SOFTWARE** When production DeviceHost owns a resource, request only a bounded
       read-only plugin diagnostic session; never stop, recreate, activate, or deactivate the
       process-long device cycle and never receive a raw transport.
-- [ ] **P2-024 · SOFTWARE** Prevent Device Lab from silently disabling Device Integration, racing
+- [x] **P2-024 · SOFTWARE** Prevent Device Lab from silently disabling Device Integration, racing
       the production plugin, or treating a resource-name/process-name match as authorization.
-- [ ] **P2-025 · SOFTWARE** Add tests proving imported captures, recipes, manifests, plugins,
+- [x] **P2-025 · SOFTWARE** Add tests proving imported captures, recipes, manifests, plugins,
       evidence locks, and acceptance manifests cannot authorize mutation.
 
 ### P2.3 Stage 1 automatic inventory
@@ -636,7 +651,7 @@ needs Avalonia wiring). Their projects exist with ownership rules; their content
       what each would reuse.
 - [x] **P2-042 · SOFTWARE** List device-specific values that must not be inherited from every
       candidate, especially ranges, offsets, tables, persistence, and recovery policy.
-- [ ] **P2-043 · SOFTWARE** Select the next safest discriminating read probe for ambiguous
+- [x] **P2-043 · SOFTWARE** Select the next safest discriminating read probe for ambiguous
       candidates without opening a device handle during offline matching.
 - [x] **P2-044 · SOFTWARE** Make candidate output deterministic across input ordering and prove that
       a high rank may remain read-only/inconclusive.
@@ -646,41 +661,41 @@ needs Avalonia wiring). Their projects exist with ownership rules; their content
 
 ### P2.5 Stage 3 passive capture and correlation
 
-- [ ] **P2-046 · SOFTWARE** Implement guided operator markers for button press/release, axes,
+- [x] **P2-046 · SOFTWARE** Implement guided operator markers for button press/release, axes,
       six-face motion, attach/detach, and one externally performed OEM-utility setting change.
-- [ ] **P2-047 · SOFTWARE** Build one QPC-aligned timeline for PnP, raw HID, device-identified Raw
+- [x] **P2-047 · SOFTWARE** Build one QPC-aligned timeline for PnP, raw HID, device-identified Raw
       Input, low-level hook observation, WMI events/activity, XInput, DirectInput, SDL, sensors,
       serial, plugin operations, optional telemetry, and operator markers.
-- [ ] **P2-048 · SOFTWARE** Segment clocks across suspend/resume and device generations; preserve
+- [x] **P2-048 · SOFTWARE** Segment clocks across suspend/resume and device generations; preserve
       loss, discontinuity, late-event, and access-denied evidence.
-- [ ] **P2-049 · SOFTWARE** Implement baseline/action/release comparisons and correlation scoring
+- [x] **P2-049 · SOFTWARE** Implement baseline/action/release comparisons and correlation scoring
       that labels correlation as evidence rather than causality.
-- [ ] **P2-050 · SOFTWARE** Keep raw observations alongside every derived interpretation and link a
+- [x] **P2-050 · SOFTWARE** Keep raw observations alongside every derived interpretation and link a
       selected derived value back to its supporting raw event IDs.
-- [ ] **P2-051 · SOFTWARE** Explicitly display platform limitations: user-mode HID output blindness,
+- [x] **P2-051 · SOFTWARE** Explicitly display platform limitations: user-mode HID output blindness,
       bounded/lossy USB ETW, incomplete WMI Activity, non-universal ETW, hook device ambiguity,
       unavailable generic ACPI/EC/SMBus/I2C, non-atomic snapshots, and non-causal timing.
-- [ ] **P2-052 · SOFTWARE** Add tests for event loss, reordered lanes, clock reset, duplicated
+- [x] **P2-052 · SOFTWARE** Add tests for event loss, reordered lanes, clock reset, duplicated
       operator markers, unrelated keyboard activity, and false-correlation resistance.
 
 ### P2.6 Stage 4 reviewed read probes
 
-- [ ] **P2-053 · SOFTWARE** Define named/versioned read-probe metadata with exact family/endpoint
+- [x] **P2-053 · SOFTWARE** Define named/versioned read-probe metadata with exact family/endpoint
       gate, hash, rate, timeout, expected response structure, cross-check, and evidence output.
-- [ ] **P2-054 · SOFTWARE** Allow automatic execution only for WSGM-reviewed, locally installed,
+- [x] **P2-054 · SOFTWARE** Allow automatic execution only for WSGM-reviewed, locally installed,
       hash-pinned probe code matched to the exact family and endpoint.
-- [ ] **P2-055 · SOFTWARE** Require an explicit Developer Mode action for signed-external,
+- [x] **P2-055 · SOFTWARE** Require an explicit Developer Mode action for signed-external,
       sideloaded, or developer probes even when they claim to be read-only.
-- [ ] **P2-056 · SOFTWARE** Run each probe in a disposable bounded host; never activate an older
+- [x] **P2-056 · SOFTWARE** Run each probe in a disposable bounded host; never activate an older
       plugin's normal lifecycle to test compatibility.
-- [ ] **P2-057 · SOFTWARE** Validate response type, length, status, range, timing, repetitions, and
+- [x] **P2-057 · SOFTWARE** Validate response type, length, status, range, timing, repetitions, and
       independent cross-check; reject a merely nonempty response.
 - [ ] **P2-058 · SOFTWARE** Implement safe version/status/current-value probe families for WMI,
       known HID feature reads, allowlisted EC reads, controller mode/profile, fan RPM, charge state,
       and native library version/exports.
-- [ ] **P2-059 · SOFTWARE** Rate-limit and deadline-bound even cataloged getter/register reads;
+- [x] **P2-059 · SOFTWARE** Rate-limit and deadline-bound even cataloged getter/register reads;
       never infer that a read is safe merely because it does not request a setter.
-- [ ] **P2-060 · SOFTWARE** Add probe-host crash, hang, access-denied, disconnect, malformed
+- [x] **P2-060 · SOFTWARE** Add probe-host crash, hang, access-denied, disconnect, malformed
       response, and hash-mismatch tests.
 
 ### P2.7 Stage 5 single bounded mutation path
@@ -690,18 +705,18 @@ needs Avalonia wiring). Their projects exist with ownership rules; their content
       `test all`.
 - [ ] **P2-062 · DESTRUCTIVE-RISK** Accept only a locally installed WSGM-reviewed trial ID and exact
       hash; never execute mutation instructions from imported files or a plugin package.
-- [ ] **P2-063 · DESTRUCTIVE-RISK** Require local interactive review of exact board/firmware gates,
+- [x] **P2-063 · DESTRUCTIVE-RISK** Require local interactive review of exact board/firmware gates,
       actions, maximum writes, effect, lease, rollback, emergency action, timeout, retry, and
       cooldown.
-- [ ] **P2-064 · DESTRUCTIVE-RISK** Expire authorization when preflight, device generation, module
+- [x] **P2-064 · DESTRUCTIVE-RISK** Expire authorization when preflight, device generation, module
       version, trial hash, target resource, or expected original state changes.
-- [ ] **P2-065 · DESTRUCTIVE-RISK** Durably record original state before mutation and reconcile a
+- [x] **P2-065 · DESTRUCTIVE-RISK** Durably record original state before mutation and reconcile a
       process death between snapshot, write, observation, rollback, and verification.
-- [ ] **P2-066 · DESTRUCTIVE-RISK** Acquire only the named resource and prohibit one trial from
+- [x] **P2-066 · DESTRUCTIVE-RISK** Acquire only the named resource and prohibit one trial from
       combining power, fan, rumble, RGB, controller mode, or another capability.
-- [ ] **P2-067 · DESTRUCTIVE-RISK** Require independent observation/readback and classify execution,
+- [x] **P2-067 · DESTRUCTIVE-RISK** Require independent observation/readback and classify execution,
       observation, mutation, and cleanup separately.
-- [ ] **P2-068 · DESTRUCTIVE-RISK** Quarantine only the affected resource after failed/unverified
+- [x] **P2-068 · DESTRUCTIVE-RISK** Quarantine only the affected resource after failed/unverified
       restoration and block write-capable generation from that evidence.
 - [ ] **P2-069 · DESTRUCTIVE-RISK** Implement the one-step temporary power-pair trial with exact
       pair restore and verified readback.
@@ -714,41 +729,41 @@ needs Avalonia wiring). Their projects exist with ownership rules; their content
 - [ ] **P2-073 · DESTRUCTIVE-RISK** Implement controller-mode trial continuation across PnP
       re-enumeration and restore original mode/PID by physical USB location (see `P1-032`; container
       identity is unusable on the A2VM).
-- [ ] **P2-074 · DESTRUCTIVE-RISK** Exclude EEPROM/ROM/UEFI writes, firmware flashing,
+- [x] **P2-074 · DESTRUCTIVE-RISK** Exclude EEPROM/ROM/UEFI writes, firmware flashing,
       provider/registry repair, driver restart/install, charge persistence, blind bus scans, unknown
       IOCTL/HID/ACPI/MMIO/MSR/raw port, physical memory, test certificates, and test-signing from
       all Device Lab mutation authority and `probe run` until a separately reviewed future pathway
       exists.
-- [ ] **P2-075 · SOFTWARE** Add a simulator/fault harness for cancellation or death after every
+- [x] **P2-075 · SOFTWARE** Add a simulator/fault harness for cancellation or death after every
       transactional step and prove the recorded result never overstates cleanup.
 
 ### P2.8 Stage 6 evidence assessment and Stage 7 scaffold generation
 
-- [ ] **P2-076 · SOFTWARE** Derive only `Compatible`, `Incompatible`, `Inconclusive`, `Blocked`, or
+- [x] **P2-076 · SOFTWARE** Derive only `Compatible`, `Incompatible`, `Inconclusive`, `Blocked`, or
       `Quarantined` from the independent assessment dimensions.
-- [ ] **P2-077 · SOFTWARE** Preserve capability/resource independence so one failed probe does not
+- [x] **P2-077 · SOFTWARE** Preserve capability/resource independence so one failed probe does not
       invalidate unrelated implementations.
 - [ ] **P2-078 · SOFTWARE** Implement `wsgm-device plugin scaffold --from <capture>` using only
       exact evidence-supported, version-pinned modules.
-- [ ] **P2-079 · SOFTWARE** Generate `plugin.wsgm.json`, `evidence.lock.json`, README, bring-up
+- [x] **P2-079 · SOFTWARE** Generate `plugin.wsgm.json`, `evidence.lock.json`, README, bring-up
       report, exact detector, resource graph, module composition, capability registrations,
       lifecycle/per-resource lease skeleton, and module-required recovery-journal fields.
-- [ ] **P2-080 · SOFTWARE** Generate positive/negative detection, unknown-firmware rejection,
+- [x] **P2-080 · SOFTWARE** Generate positive/negative detection, unknown-firmware rejection,
       endpoint binding, capture replay, capability snapshot, unavailable-reason, and semantic
       command-intent tests.
-- [ ] **P2-081 · SOFTWARE** Generate verified controller/button/sensor parsing only when the
+- [x] **P2-081 · SOFTWARE** Generate verified controller/button/sensor parsing only when the
       evidence qualifies; omit or explicitly mark unverified capabilities unavailable.
-- [ ] **P2-082 · SOFTWARE** Never generate another model's power limits, fan conversion, RGB
+- [x] **P2-082 · SOFTWARE** Never generate another model's power limits, fan conversion, RGB
       offsets, persistent writes, charge policy, firmware sync, unknown low-level access, untested
       rollback, or placeholder setters from similarity.
-- [ ] **P2-083 · SOFTWARE** Mark generated output `Scaffolded`/Developer, not `Supported`, and
+- [x] **P2-083 · SOFTWARE** Mark generated output `Scaffolded`/Developer, not `Supported`, and
       ensure generation grants no package trust, privilege, hardware verification, or retail
       approval.
-- [ ] **P2-084 · SOFTWARE** Keep `.g.cs` and handwritten files separate; regeneration must not
+- [x] **P2-084 · SOFTWARE** Keep `.g.cs` and handwritten files separate; regeneration must not
       overwrite developer code or silently accept changed golden output.
-- [ ] **P2-085 · SOFTWARE** Require explicit semantic review for fixture changes and allow a
+- [x] **P2-085 · SOFTWARE** Require explicit semantic review for fixture changes and allow a
       firmware resweep to downgrade/disable a previously compatible module.
-- [ ] **P2-086 · SOFTWARE** Compile every generated scaffold from a clean directory and run all
+- [x] **P2-086 · SOFTWARE** Compile every generated scaffold from a clean directory and run all
       offline fixtures immediately.
 
 ### P2.9 CLI completion, hardware validation, and packaging semantics

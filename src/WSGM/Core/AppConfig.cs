@@ -534,6 +534,9 @@ public sealed class NativeTabConfig
 /// <summary>Persisted user settings and exact Windows-state snapshots for WSGM.</summary>
 public sealed class AppConfig
 {
+    /// <summary>Optional device-plugin platform, ownership, and desired-state settings.</summary>
+    public DeviceIntegrationConfig DeviceIntegration { get; set; } = new();
+
     /// <summary>Restart Steam automatically when it exits. Steam itself is located
     /// via the registry (see Core.Steam) — there is nothing else to configure.</summary>
     public bool SteamAutoRelaunch { get; set; }
@@ -798,6 +801,11 @@ public sealed class CefConfig
     /// <summary>Big Picture header Wi-Fi indicator (feeds Steam's <c>SystemNetworkStore</c>).</summary>
     public bool WifiIndicator { get; set; } = true;
 
+    /// <summary>
+    /// Narrow, fingerprint-gated native Quick Access bootstrap over the persistent Steam UI host.
+    /// </summary>
+    public bool NativeQuickAccess { get; set; } = true;
+
     /// <summary>Automatic wake lock while the running Steam client reports an active
     /// download (polled over the CEF bridge), so the device finishes downloading
     /// instead of entering standby. The quick-access Power tab's manual Keep Awake
@@ -819,6 +827,9 @@ public sealed class CefConfig
 [JsonSerializable(typeof(CategoryTabConfig))]
 [JsonSerializable(typeof(CustomTabConfig))]
 [JsonSerializable(typeof(NativeTabConfig))]
+[JsonSerializable(typeof(DeviceIntegrationConfig))]
+[JsonSerializable(typeof(DeviceDesiredProfile))]
+[JsonSerializable(typeof(DeviceCapabilityPreference))]
 [JsonSerializable(typeof(FilterNode))]
 [JsonSourceGenerationOptions(WriteIndented = true, UseStringEnumConverter = true)]
 public partial class ConfigJsonContext : JsonSerializerContext
