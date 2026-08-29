@@ -117,15 +117,37 @@ internal static class DeviceOverlaySectionPages
                 capability.Status);
         }
 
-        // Glyph selection is WSGM's own control rather than a plugin capability, so it never appears
-        // in the capability list and has to be counted into its section explicitly.
+        // WSGM's own rows never appear in the capability list, so each has to be counted into its
+        // section explicitly. Without this a section holding only a direct row has a count of zero
+        // and is dropped from the menu, which makes the row unreachable — the case for AutoTDP on a
+        // device that publishes no power capability, and for the controller target on any device,
+        // since no plugin publishes one.
+        void AddDirectRow(DeviceOverlaySection section, DeviceOverlayStatus status)
+        {
+            counts[section] = counts.GetValueOrDefault(section) + 1;
+            statuses[section] = MoreSerious(
+                statuses.GetValueOrDefault(section, DeviceOverlayStatus.None),
+                status);
+        }
+
         if (snapshot.GlyphSelection is { } glyphs)
         {
-            counts[DeviceOverlaySection.Glyphs] =
-                counts.GetValueOrDefault(DeviceOverlaySection.Glyphs) + 1;
-            statuses[DeviceOverlaySection.Glyphs] = MoreSerious(
-                statuses.GetValueOrDefault(DeviceOverlaySection.Glyphs, DeviceOverlayStatus.None),
-                glyphs.Status);
+            AddDirectRow(DeviceOverlaySection.Glyphs, glyphs.Status);
+        }
+
+        if (snapshot.AutoTdp is { } autoTdp)
+        {
+            AddDirectRow(DeviceOverlaySection.PowerAndThermals, autoTdp.Status);
+        }
+
+        if (snapshot.Controller is { } controller)
+        {
+            AddDirectRow(DeviceOverlaySection.ControllerAndMotion, controller.Status);
+        }
+
+        if (snapshot.Recovery is { } recovery)
+        {
+            AddDirectRow(DeviceOverlaySection.Diagnostics, recovery.Status);
         }
 
         List<DeviceOverlaySectionEntry> entries = [];

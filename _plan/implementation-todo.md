@@ -735,8 +735,21 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       root renders one card per section that currently has something in it, carrying its row count
       and the most serious status inside it. A section a plugin publishes nothing for is absent
       rather than empty, and Back leaves a section page to its card.
-      Remaining: the page-specific surfaces that are richer than a capability-row list — profile
-      selection, glyph preview and input test, and diagnostics/recovery actions.
+      Controller and motion, and Diagnostics, now carry their own rows. The controller target is a
+      cycling row reading `ControllerManager` through the coordinator — it names the target in
+      effect, distinguishes ready from present, refuses to cycle into a backend that cannot come up,
+      and tells a running game that a change reaches it only on the next launch. Diagnostics carries
+      the one recovery action a faulted cycle has, with the cycle state beside it, and it is absent
+      while there is nothing to recover rather than always present and inert.
+      That retry used to be a synthesized `wsgm.device.retry` pseudo-capability with a branch inside
+      the capability invoke path. It is now a direct row like AutoTDP and glyph selection, so the
+      capability path has one meaning again and the Diagnostics count no longer includes a row no
+      plugin published.
+      Fixed while doing it: WSGM's own rows were not counted into their sections, so a section
+      holding only one of them had a count of zero and was dropped from the menu — which made the row
+      unreachable. That was already latent for AutoTDP on a device publishing no power capability,
+      and would have been immediate for the controller target, since no plugin publishes one.
+      Remaining: profile selection, and glyph preview and input test.
 - [ ] Bind every overlay and QAM control to the same direct runtime service. AutoTDP now has a
       surface: the Device → Power and thermals page carries a row beside the power limit it moves,
       reporting what AutoTDP is actually doing rather than merely that it is on — controlling with

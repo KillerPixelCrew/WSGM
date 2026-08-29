@@ -321,6 +321,49 @@ public partial class OverlayWindow : Window
             }
         }
 
+        // The controller target is WSGM's own setting, not a plugin capability, so it is placed on
+        // its page directly for the same reason AutoTDP and glyph selection are.
+        if (section is DeviceOverlaySection.ControllerAndMotion
+            && snapshot.Controller is { } controller)
+        {
+            const string controllerFocusKey = "device.controller-target";
+            DescriptorStatusRow row = new();
+            row.Apply(new DescriptorRow(
+                controllerFocusKey,
+                controller.Title,
+                controller.Description,
+                controller.TrailingText,
+                controller.CanCycle,
+                DeviceStatusFor(controller.Status)));
+            row.Click += (_, _) => InvokeControllerTargetCycle();
+            DeviceCapabilityList.Children.Add(row);
+            if (string.Equals(controllerFocusKey, focusedKey, StringComparison.Ordinal))
+            {
+                restoreFocus = row;
+            }
+        }
+
+        // Recovery is an action on the device cycle itself rather than on the device, so it is not a
+        // capability either. It appears only while there is something to recover.
+        if (section is DeviceOverlaySection.Diagnostics && snapshot.Recovery is { } recovery)
+        {
+            const string recoveryFocusKey = "device.retry";
+            DescriptorStatusRow row = new();
+            row.Apply(new DescriptorRow(
+                recoveryFocusKey,
+                recovery.Title,
+                recovery.Description,
+                recovery.TrailingText,
+                recovery.CanRetry,
+                DeviceStatusFor(recovery.Status)));
+            row.Click += (_, _) => InvokeDeviceCycleRetry();
+            DeviceCapabilityList.Children.Add(row);
+            if (string.Equals(recoveryFocusKey, focusedKey, StringComparison.Ordinal))
+            {
+                restoreFocus = row;
+            }
+        }
+
         // Glyph selection is WSGM's own control rather than a plugin capability, so it is placed
         // here explicitly rather than arriving through the capability list.
         if (section is DeviceOverlaySection.Glyphs && snapshot.GlyphSelection is { } glyphSelection)
@@ -338,6 +381,47 @@ public partial class OverlayWindow : Window
     }
 
     private void InvokeAutoTdpToggle() => _ = ToggleAutoTdpAsync();
+
+    private void InvokeControllerTargetCycle() => _ = RunDeviceCommandAsync(
+        "Controller target change",
+        (bridge, token) => bridge.CycleControllerTargetAsync(token));
+
+    private void InvokeDeviceCycleRetry() => _ = RunDeviceCommandAsync(
+        "Device integration retry",
+        (bridge, token) => bridge.RetryDeviceCycleAsync(token));
+
+    /// <summary>Runs one direct Device-surface command with the shared cancellation and logging.</summary>
+    /// <param name="description">What the command is, for the log line if it fails.</param>
+    /// <param name="command">The command to run against the current source.</param>
+    /// <returns>A task completing once the command has run or failed.</returns>
+    /// <remarks>
+    /// These commands are WSGM's own rather than plugin capabilities, so they do not go through the
+    /// capability invoke path. They still need its lifetime and failure handling: a device command
+    /// that throws must never take the overlay with it, and one that is cancelled by the overlay
+    /// closing is not a failure worth logging.
+    /// </remarks>
+    private async Task RunDeviceCommandAsync(
+        string description,
+        Func<IDeviceOverlaySource, CancellationToken, Task> command)
+    {
+        IDeviceOverlaySource? bridge = _deviceBridge;
+        if (bridge is null || _closed)
+        {
+            return;
+        }
+
+        try
+        {
+            await command(bridge, _deviceLifetime.Token);
+        }
+        catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"{description} failed: {ex.Message}");
+        }
+    }
 
     private async Task ToggleAutoTdpAsync()
     {

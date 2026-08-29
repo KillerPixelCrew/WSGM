@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Input;
 
 namespace WSGM.Shell;
 
@@ -90,6 +91,37 @@ internal sealed record DeviceOverlayAutoTdp(
     string TrailingText,
     bool CanToggle);
 
+/// <summary>The managed-controller row on the Controller and motion page.</summary>
+/// <param name="Status">How healthy controller management currently is.</param>
+/// <param name="Title">Row title.</param>
+/// <param name="Description">What it is doing, or why it is not.</param>
+/// <param name="TrailingText">The target in effect, or why there is none.</param>
+/// <param name="CanCycle">Whether selecting the row changes the target.</param>
+internal sealed record DeviceOverlayController(
+    DeviceOverlayStatus Status,
+    string Title,
+    string Description,
+    string TrailingText,
+    bool CanCycle);
+
+/// <summary>The one recovery action the Diagnostics page offers, when there is one.</summary>
+/// <remarks>
+/// Deliberately a single row rather than a panel of buttons. A faulted device cycle has exactly one
+/// user-facing remedy — try again — and everything else about recovery is automatic; offering more
+/// controls would imply choices that do not exist.
+/// </remarks>
+/// <param name="Status">How serious the current cycle state is.</param>
+/// <param name="Title">Row title.</param>
+/// <param name="Description">The cycle state, and when an automatic retry is due.</param>
+/// <param name="TrailingText">Short state label.</param>
+/// <param name="CanRetry">Whether a manual retry is available right now.</param>
+internal sealed record DeviceOverlayRecovery(
+    DeviceOverlayStatus Status,
+    string Title,
+    string Description,
+    string TrailingText,
+    bool CanRetry);
+
 /// <summary>Complete bounded Device-surface snapshot produced from coordinator-owned state.</summary>
 internal sealed record DeviceOverlaySnapshot(
     bool Visible,
@@ -97,7 +129,9 @@ internal sealed record DeviceOverlaySnapshot(
     string Detail,
     DeviceOverlayGlyphSelection? GlyphSelection,
     IReadOnlyList<DeviceOverlayCapability> Capabilities,
-    DeviceOverlayAutoTdp? AutoTdp = null);
+    DeviceOverlayAutoTdp? AutoTdp = null,
+    DeviceOverlayController? Controller = null,
+    DeviceOverlayRecovery? Recovery = null);
 
 /// <summary>Closed semantic source consumed by the Device overlay destination.</summary>
 internal interface IDeviceOverlaySource : IDisposable
@@ -116,6 +150,21 @@ internal interface IDeviceOverlaySource : IDisposable
     /// <param name="cancellationToken">Cancels the change.</param>
     /// <returns>A task completing once the new setting is persisted.</returns>
     Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Moves the global default controller target to the next one and persists it.</summary>
+    /// <param name="cancellationToken">Cancels the change.</param>
+    /// <returns>A task completing once the new target is persisted and applied.</returns>
+    /// <remarks>
+    /// Cycling rather than a picker, matching the glyph-selection row beside it. There are three
+    /// targets and a controller has one button; a menu would cost a page for a choice a user makes
+    /// once.
+    /// </remarks>
+    Task CycleControllerTargetAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Retries a faulted device cycle now instead of waiting for the automatic retry.</summary>
+    /// <param name="cancellationToken">Cancels the attempt.</param>
+    /// <returns>A task completing once the attempt has been made.</returns>
+    Task RetryDeviceCycleAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -156,22 +205,10 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             _coordinator.AutoTdpStatus);
         DateTimeOffset? retryAt = _coordinator.ManualRetryAvailableAt;
         ScheduleRetryRefresh(retryAt);
-        if (retryAt is not null)
-        {
-            bool available = DateTimeOffset.UtcNow >= retryAt.Value;
-            capabilities.Add(new DeviceOverlayCapability(
-                "wsgm.device.retry",
-                null,
-                DeviceOverlaySection.Diagnostics,
-                available ? DeviceOverlayStatus.Warning : DeviceOverlayStatus.Progress,
-                "Retry device integration",
-                available
-                    ? "Starts one manual recovery attempt for the faulted device cycle"
-                    : $"Retry available at {retryAt.Value.ToLocalTime():t}",
-                available ? "READY" : "WAIT",
-                available,
-                null));
-        }
+        DeviceOverlayRecovery? recovery = RecoveryView(state, retryAt, DateTimeOffset.UtcNow);
+        DeviceOverlayController? controller = ControllerView(
+            _coordinator.ControllerManagementEnabled,
+            _coordinator.ControllerStatus);
 
         if (package is { Valid: false })
         {
@@ -221,8 +258,106 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             detail,
             glyphSelection,
             capabilities,
-            autoTdp);
+            autoTdp,
+            controller,
+            recovery);
     }
+
+    /// <summary>Projects controller management into the Controller and motion page's own row.</summary>
+    /// <param name="enabled">Whether management may run at all.</param>
+    /// <param name="status">The manager's truthful state.</param>
+    /// <returns>The row, or null when management is off and there is nothing to show.</returns>
+    /// <remarks>
+    /// A direct row rather than a synthesized capability, like the AutoTDP and glyph rows: the target
+    /// is WSGM's own setting, so routing it through the plugin capability dispatch would mean a
+    /// second meaning for a capability id and a branch inside the one invoke path.
+    /// </remarks>
+    internal static DeviceOverlayController? ControllerView(
+        bool enabled,
+        ControllerManagerStatus status)
+    {
+        ArgumentNullException.ThrowIfNull(status);
+        if (!enabled)
+        {
+            // Off is a setting, not a fault, and the page has other rows. Saying nothing here is
+            // better than a permanently greyed control the user cannot act on from this page.
+            return null;
+        }
+
+        DeviceOverlayStatus health = status.State switch
+        {
+            ControllerManagementState.Active => DeviceOverlayStatus.Available,
+            ControllerManagementState.Idle => DeviceOverlayStatus.Stale,
+            ControllerManagementState.Faulted => DeviceOverlayStatus.Warning,
+            ControllerManagementState.Unavailable => DeviceOverlayStatus.Unsupported,
+            _ => DeviceOverlayStatus.None,
+        };
+        string trailing = status.Target is { } target ? TargetLabel(target) : "NONE";
+        string description = status.Detail;
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            description = status.State switch
+            {
+                ControllerManagementState.Active => "A virtual controller is present and receiving input",
+                ControllerManagementState.Idle => "Ready · no virtual controller is present yet",
+                _ => "Present the physical controller as a chosen virtual one",
+            };
+        }
+
+        if (status.ApplicationId is { Length: > 0 })
+        {
+            // A game holds the target it launched with, so the row has to say that a change will not
+            // reach the running one. Without this the control looks broken.
+            description += " · restart the running game to change its target";
+        }
+
+        return new DeviceOverlayController(
+            health,
+            "Controller target",
+            description,
+            trailing,
+            // Only when a change can actually take effect. Cycling into a target the backend cannot
+            // bring up would replace one broken state with another.
+            CanCycle: status.State is not ControllerManagementState.Unavailable);
+    }
+
+    /// <summary>Projects the device cycle's recoverable state into the Diagnostics page's own row.</summary>
+    /// <param name="state">The current cycle state.</param>
+    /// <param name="retryAvailableAt">When a manual retry becomes available, when one is pending.</param>
+    /// <param name="now">The current time.</param>
+    /// <returns>The row, or null when the cycle is healthy and there is nothing to recover.</returns>
+    /// <remarks>
+    /// Absent when healthy. A recovery control that is always present but almost always inert trains
+    /// a user to ignore it, which is the opposite of what it is for.
+    /// </remarks>
+    internal static DeviceOverlayRecovery? RecoveryView(
+        DeviceCycleState state,
+        DateTimeOffset? retryAvailableAt,
+        DateTimeOffset now)
+    {
+        if (retryAvailableAt is null)
+        {
+            return null;
+        }
+
+        bool available = now >= retryAvailableAt.Value;
+        return new DeviceOverlayRecovery(
+            available ? DeviceOverlayStatus.Warning : DeviceOverlayStatus.Progress,
+            "Retry device integration",
+            available
+                ? $"{LifecycleLabel(state)} · starts one manual recovery attempt"
+                : $"{LifecycleLabel(state)} · retry available at {retryAvailableAt.Value.ToLocalTime():t}",
+            available ? "READY" : "WAIT",
+            available);
+    }
+
+    private static string TargetLabel(ManagedControllerTarget target) => target switch
+    {
+        ManagedControllerTarget.SteamDeckComposite => "DECK",
+        ManagedControllerTarget.Xbox360 => "XBOX",
+        ManagedControllerTarget.DualShock4 => "DS4",
+        _ => "NONE",
+    };
 
     /// <summary>Projects AutoTDP's switch and live state into one row.</summary>
     /// <param name="enabled">The persisted setting.</param>
@@ -280,12 +415,6 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             return;
         }
 
-        if (capability.CapabilityId is "wsgm.device.retry")
-        {
-            await _coordinator.RetryAfterFaultAsync(cancellationToken).ConfigureAwait(false);
-            return;
-        }
-
         await _coordinator.ExecuteCapabilityAsync(
             capability.CapabilityId,
             capability.InstanceId,
@@ -299,6 +428,30 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 
     public Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default) =>
         _coordinator.ToggleAutoTdpAsync(cancellationToken);
+
+    public Task CycleControllerTargetAsync(CancellationToken cancellationToken = default) =>
+        _coordinator.SetControllerTargetAsync(
+            NextTarget(_coordinator.ControllerStatus.Target),
+            cancellationToken);
+
+    public Task RetryDeviceCycleAsync(CancellationToken cancellationToken = default) =>
+        _coordinator.RetryAfterFaultAsync(cancellationToken);
+
+    /// <summary>The next target in the cycle order.</summary>
+    /// <param name="current">The target in effect, or null when none is.</param>
+    /// <returns>The target the row moves to.</returns>
+    /// <remarks>
+    /// Steam Deck first from nothing, because it is the target that carries every control the
+    /// canonical model defines; the other two exist for compatibility with software that does not
+    /// understand it.
+    /// </remarks>
+    internal static ManagedControllerTarget NextTarget(ManagedControllerTarget? current) => current switch
+    {
+        ManagedControllerTarget.SteamDeckComposite => ManagedControllerTarget.Xbox360,
+        ManagedControllerTarget.Xbox360 => ManagedControllerTarget.DualShock4,
+        ManagedControllerTarget.DualShock4 => ManagedControllerTarget.SteamDeckComposite,
+        _ => ManagedControllerTarget.SteamDeckComposite,
+    };
 
     public void Dispose()
     {
@@ -654,6 +807,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
     private int _fanMode;
     private int _glyphSelection;
     private bool _autoTdp;
+    private ManagedControllerTarget _controllerTarget = ManagedControllerTarget.SteamDeckComposite;
 
     public event Action? Changed;
 
@@ -686,6 +840,21 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                         "steam:preview",
                         "Preview only; no power write is made.")
                     : null),
+            Controller: DeviceOverlayBridge.ControllerView(
+                enabled: true,
+                new ControllerManagerStatus(
+                    ControllerManagementState.Active,
+                    _controllerTarget,
+                    ControllerTargetSource.GlobalDefault,
+                    null,
+                    UiInputSource.ManagedCanonical,
+                    "Preview only; no virtual controller is created.")),
+            // The recovery row is deliberately shown in the preview even though nothing is faulted,
+            // because laying it out is exactly what --overlay-test is for. Pressing it does nothing.
+            Recovery: DeviceOverlayBridge.RecoveryView(
+                DeviceCycleState.Faulted,
+                DateTimeOffset.UtcNow.AddMinutes(-1),
+                DateTimeOffset.UtcNow),
             Capabilities:
             [
                 new DeviceOverlayCapability(
@@ -789,6 +958,28 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
         cancellationToken.ThrowIfCancellationRequested();
         _glyphSelection = (_glyphSelection + 1) % 3;
         Changed?.Invoke();
+        return Task.CompletedTask;
+    }
+
+    public Task CycleControllerTargetAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _controllerTarget = DeviceOverlayBridge.NextTarget(_controllerTarget);
+        Changed?.Invoke();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Preview-only: there is no device cycle to recover, so this reports and does nothing.</summary>
+    /// <param name="cancellationToken">Cancels the attempt.</param>
+    /// <returns>A completed task.</returns>
+    /// <remarks>
+    /// `--overlay-test` exists to lay out the surfaces without starting anything, so the recovery
+    /// row is rendered but must stay inert. It is deliberately not an exception: a preview that
+    /// threw when a control was pressed would be worse at its one job than one that does nothing.
+    /// </remarks>
+    public Task RetryDeviceCycleAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         return Task.CompletedTask;
     }
 
