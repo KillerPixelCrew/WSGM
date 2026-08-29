@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using WSGM.Core;
 using WSGM.Device.Sdk.Input;
 
 namespace WSGM.Shell;
@@ -407,6 +408,80 @@ internal sealed class HidHideOwnedDeltaManager
         _store = store;
     }
 
+    /// <summary>Makes WSGM able to read devices HidHide is hiding, before it needs to.</summary>
+    /// <param name="controllerManagementEnabled">Whether controller management may run at all.</param>
+    /// <param name="deviceHostApplication">The DeviceHost image path to allow.</param>
+    /// <param name="cancellationToken">Cancels the check.</param>
+    /// <returns>A description of what was found, for the log.</returns>
+    /// <remarks>
+    /// <see cref="StartAsync"/> allowlists DeviceHost too, but only as the first step of WSGM's own
+    /// hiding transaction — which is to say only once WSGM already knows which devices to hide. That
+    /// ordering assumes WSGM is the only thing using HidHide. When something else hid the controller
+    /// first, the plugin cannot see the device it is being asked to discover, discovery finds
+    /// nothing, and the allowlisting that would have fixed it never runs because it comes later.
+    /// <para>
+    /// Device-observed 2026-08-29: HandheldCompanion had hidden the Claw's pad in both modes with an
+    /// allowlist naming only itself. SDL reported no gamepad, the plugin's HID enumeration could not
+    /// see the pad it had just switched the device into, and nothing anywhere mentioned HidHide.
+    /// </para>
+    /// <para>
+    /// This adds nothing to the hidden set and takes nothing away from another owner: it only grants
+    /// WSGM's own process the ability to read. It is therefore safe before a transaction exists, and
+    /// it is idempotent, so the later transaction finds it present and records no delta.
+    /// </para>
+    /// </remarks>
+    internal async Task<string> EnsureReadableAsync(
+        bool controllerManagementEnabled,
+        string deviceHostApplication,
+        CancellationToken cancellationToken)
+    {
+        if (!controllerManagementEnabled || string.IsNullOrWhiteSpace(deviceHostApplication))
+        {
+            return "Controller management is off; HidHide was not consulted.";
+        }
+
+        await _transition.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            HidHideExactSnapshot snapshot = await _adapter.ReadAsync(cancellationToken)
+                .ConfigureAwait(false);
+            if (snapshot.Health is not HidHideHealthState.Ready)
+            {
+                return $"HidHide is not available ({snapshot.Health}); nothing to allow.";
+            }
+
+            if (!snapshot.Active || snapshot.Devices.Count == 0)
+            {
+                return "HidHide is hiding nothing; no allowance needed.";
+            }
+
+            if (Contains(snapshot.Applications, deviceHostApplication))
+            {
+                return $"HidHide hides {snapshot.Devices.Count} device(s); WSGM is already allowed.";
+            }
+
+            HidHideMutationResult mutation = await _adapter.TryMutateAsync(
+                snapshot,
+                new HidHideEntryMutation(
+                    HidHideMutationKind.Add,
+                    HidHideEntryKind.Application,
+                    deviceHostApplication),
+                cancellationToken).ConfigureAwait(false);
+            if (!mutation.Applied)
+            {
+                return "HidHide is hiding devices and WSGM could not add itself to its allowlist: "
+                    + mutation.Detail;
+            }
+
+            return $"HidHide hides {snapshot.Devices.Count} device(s) that WSGM does not own; "
+                + "added WSGM to its allowlist so the plugin can read them.";
+        }
+        finally
+        {
+            _transition.Release();
+        }
+    }
+
     internal async Task<HidHideActivationResult> StartAsync(
         bool controllerManagementEnabled,
         string deviceHostApplication,
@@ -426,7 +501,27 @@ internal sealed class HidHideOwnedDeltaManager
         {
             if (await _store.LoadAsync(cancellationToken).ConfigureAwait(false) is { } existing)
             {
-                return new(false, "A previous HidHide ownership ledger requires recovery.", existing);
+                // A ledger from a previous run, because this one has written none yet. It exists
+                // precisely for this case — WSGM died holding HidHide entries — so recovering it is
+                // the whole point of the file, not a reason to refuse.
+                //
+                // It used to refuse. CleanupAsync only accepts a matching transaction id and target
+                // generation, which a new session can never present, so an orphaned ledger blocked
+                // controller management permanently and nothing could ever clear it. One crash at
+                // the wrong moment cost the feature for good (device-observed 2026-08-29).
+                HidHideCleanupResult recovery = await CleanupUnderGateAsync(existing, cancellationToken)
+                    .ConfigureAwait(false);
+                if (!recovery.Verified)
+                {
+                    // Still refuse, but now because recovery itself could not put HidHide back, which
+                    // is a real reason to keep hands off rather than an artefact of the id check.
+                    return new(
+                        false,
+                        $"A previous HidHide ownership ledger could not be recovered: {recovery.Detail}",
+                        existing);
+                }
+
+                Log.Info("Recovered an orphaned HidHide ownership ledger from a previous session.");
             }
 
             HidHideExactSnapshot snapshot = await _adapter.ReadAsync(cancellationToken)
@@ -676,8 +771,65 @@ internal sealed class HidHideOwnedDeltaManager
             ? snapshot.Applications
             : snapshot.Devices;
 
-    private static bool Contains(IEnumerable<string> entries, string value) =>
-        entries.Contains(value, StringComparer.OrdinalIgnoreCase);
+    /// <summary>Whether HidHide already lists this entry, in whichever notation it stored it.</summary>
+    /// <param name="entries">Entries exactly as HidHide returned them.</param>
+    /// <param name="value">The entry WSGM is looking for.</param>
+    /// <returns>Whether it is present.</returns>
+    /// <remarks>
+    /// A plain string compare is not enough for applications. HidHide stores them as NT device
+    /// paths — <c>\Device\HarddiskVolume3\Program Files\…</c> — while WSGM knows its own executables
+    /// by drive letter, so the two never matched and WSGM added a second entry for a path that was
+    /// already there. Device-observed 2026-08-29: a ledger whose preexisting list already contained
+    /// <c>\Device\HarddiskVolume3\…\WSGM.DeviceHost.exe</c> recorded a delta adding
+    /// <c>C:\…\WSGM.DeviceHost.exe</c>.
+    /// <para>
+    /// That is not cosmetic. The allowlist grew on every activation, and cleanup matches what it
+    /// wrote, so the duplicate in the other notation would have been left behind on restore.
+    /// </para>
+    /// </remarks>
+    internal static bool Contains(IEnumerable<string> entries, string value)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        string normalized = NormalizePath(value);
+        return entries.Any(entry =>
+            string.Equals(entry, value, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(NormalizePath(entry), normalized, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Reduces an entry to a form both notations agree on.</summary>
+    /// <param name="value">A DOS path, an NT device path, or a device instance path.</param>
+    /// <returns>The comparable form.</returns>
+    /// <remarks>
+    /// Only the volume prefix differs between the two notations, so stripping it leaves the part
+    /// that identifies the file. Device instance paths carry no such prefix and pass through, which
+    /// is why the device list never had this problem.
+    /// </remarks>
+    internal static string NormalizePath(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        string path = value.Trim().Replace('/', '\\');
+
+        // \Device\HarddiskVolumeN\rest  ->  \rest
+        const string devicePrefix = @"\device\harddiskvolume";
+        if (path.StartsWith(devicePrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            int separator = path.IndexOf('\\', devicePrefix.Length);
+            return separator < 0 ? string.Empty : path[separator..];
+        }
+
+        // C:\rest  ->  \rest. Deliberately only a drive letter: a UNC path has no volume to strip
+        // and must keep its server and share, which are part of what identifies it.
+        if (path.Length >= 2 && path[1] == ':' && char.IsLetter(path[0]))
+        {
+            return path.Length == 2 ? string.Empty : path[2..];
+        }
+
+        return path;
+    }
 }
 
 [JsonSerializable(typeof(HidHideOwnershipLedger))]

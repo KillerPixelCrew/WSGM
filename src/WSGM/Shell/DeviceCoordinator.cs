@@ -751,6 +751,11 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             {
                 Log.Warn(DeviceFeatureAvailability.ControllerManagementDetail);
             }
+            // Before the plugin starts, because the plugin's first job is to find the physical
+            // controller and it cannot find one that HidHide is hiding from this process. Doing it
+            // afterwards is too late for the cycle that needed it.
+            await _controllers.EnsureHidHideReadableAsync(controllerManagement, cancellationToken)
+                .ConfigureAwait(false);
             DeviceLifecycleNotification activation = await client.StartAsync(
                 _identity,
                 cycleGeneration,

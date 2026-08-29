@@ -179,6 +179,95 @@ public sealed class HidHideOwnershipTests
         Assert.NotNull(store.Ledger);
     }
 
+    [Fact]
+    public async Task AnOrphanedLedgerIsRecoveredRatherThanBlockingForever()
+    {
+        // The ledger exists precisely for "WSGM died holding HidHide entries", so finding one from a
+        // previous run is the case it was written for. It used to refuse instead, and because
+        // cleanup only accepts a matching transaction id and generation — which a new session can
+        // never present — nothing could ever clear it. One crash cost controller management for
+        // good.
+        DeterministicFakeHidHideAdapter adapter = new(
+            applications: ["HC.exe"],
+            devices: ["HID\\PRE"]);
+        InMemoryHidHideOwnershipStore store = new();
+
+        // A first session hides a device and then vanishes, leaving its ledger behind.
+        HidHideOwnedDeltaManager crashed = new(adapter, store);
+        Assert.True((await crashed.StartAsync(
+            controllerManagementEnabled: true,
+            "DeviceHost.exe",
+            [Physical("HID\\OWN")],
+            1,
+            CancellationToken.None)).Activated);
+        Assert.NotNull(store.Ledger);
+
+        // A new session, with its own generation, finds it.
+        HidHideOwnedDeltaManager restarted = new(adapter, store);
+        HidHideActivationResult result = await restarted.StartAsync(
+            controllerManagementEnabled: true,
+            "DeviceHost.exe",
+            [Physical("HID\\OWN")],
+            2,
+            CancellationToken.None);
+
+        Assert.True(result.Activated);
+
+        // And the recovery actually restored the previous run's entry rather than stacking on it:
+        // the external device is still hidden exactly once, alongside this session's own.
+        HidHideExactSnapshot snapshot = await adapter.ReadAsync(CancellationToken.None);
+        Assert.Equal(["HID\\PRE", "HID\\OWN"], snapshot.Devices);
+    }
+
+    [Fact]
+    public async Task WsgmAllowsItselfBeforeItNeedsToReadDevicesSomethingElseHid()
+    {
+        // The ordering that mattered on real hardware: another tool had already hidden the pad, so
+        // the plugin could not see the device it was being asked to discover, and the allowlisting
+        // that would have fixed it only ran later as part of WSGM's own hiding transaction.
+        DeterministicFakeHidHideAdapter adapter = new(
+            applications: ["HC.exe"],
+            devices: ["HID\\SOMEONE-ELSES-PAD"]);
+        HidHideOwnedDeltaManager manager = new(adapter, new InMemoryHidHideOwnershipStore());
+
+        string detail = await manager.EnsureReadableAsync(
+            controllerManagementEnabled: true,
+            "DeviceHost.exe",
+            CancellationToken.None);
+
+        HidHideExactSnapshot snapshot = await adapter.ReadAsync(CancellationToken.None);
+        Assert.Contains("DeviceHost.exe", snapshot.Applications);
+        Assert.Contains("allowlist", detail, StringComparison.Ordinal);
+
+        // It grants WSGM sight; it must never hide anything or disturb another owner's entries.
+        Assert.Equal(["HID\\SOMEONE-ELSES-PAD"], snapshot.Devices);
+        Assert.Contains("HC.exe", snapshot.Applications);
+    }
+
+    [Fact]
+    public async Task NothingHiddenMeansNothingToAllow()
+    {
+        // The normal machine. WSGM must not add itself to an allowlist that is guarding nothing.
+        DeterministicFakeHidHideAdapter adapter = new();
+        HidHideOwnedDeltaManager manager = new(adapter, new InMemoryHidHideOwnershipStore());
+
+        await manager.EnsureReadableAsync(true, "DeviceHost.exe", CancellationToken.None);
+
+        Assert.Equal(0, adapter.MutationCount);
+    }
+
+    [Fact]
+    public async Task ManagementOffNeverConsultsHidHideForReadability()
+    {
+        DeterministicFakeHidHideAdapter adapter = new(devices: ["HID\\PRE"]);
+        HidHideOwnedDeltaManager manager = new(adapter, new InMemoryHidHideOwnershipStore());
+
+        await manager.EnsureReadableAsync(false, "DeviceHost.exe", CancellationToken.None);
+
+        Assert.Equal(0, adapter.ReadCount);
+        Assert.Equal(0, adapter.MutationCount);
+    }
+
     private static PhysicalDeviceIdentity Physical(string path) => new()
     {
         InstancePath = path,

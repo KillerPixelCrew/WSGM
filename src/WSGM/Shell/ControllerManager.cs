@@ -285,6 +285,34 @@ internal sealed class ControllerManager : IAsyncDisposable
         }
     }
 
+    /// <summary>Makes WSGM readable to HidHide before the plugin tries to find the controller.</summary>
+    /// <param name="controllerManagementEnabled">Whether management may run at all.</param>
+    /// <param name="cancellationToken">Cancels the check.</param>
+    /// <returns>A task completing once the check has run.</returns>
+    /// <remarks>
+    /// Called before the plugin's cycle starts, which is the only point that helps: once discovery
+    /// has run against a device it could not see, allowlisting WSGM afterwards changes nothing for
+    /// that cycle. Never fatal — the result is logged and the cycle continues, because a machine
+    /// with no HidHide at all is the normal one.
+    /// </remarks>
+    internal async Task EnsureHidHideReadableAsync(
+        bool controllerManagementEnabled,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            string detail = await _hidHide.EnsureReadableAsync(
+                controllerManagementEnabled,
+                _deviceHostApplication,
+                cancellationToken).ConfigureAwait(false);
+            Log.Info($"HidHide readability: {detail}");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log.Warn($"HidHide readability check failed: {ex.Message}");
+        }
+    }
+
     /// <summary>
     /// Forwards one canonical sample published by the plugin.
     /// </summary>
