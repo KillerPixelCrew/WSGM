@@ -499,11 +499,33 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       `ControllerReleaseOrdering.cs` is deleted; `Shell/ControllerMakeSafe.cs` states the sequence in
       the wire vocabulary and keeps the two orderings that matter (no target removal before the
       physical release concludes, no HidHide removal before the target is gone) as explicit guards.
-- [ ] Finish managed overlay/taskbar/Settings navigation, held-control suppression, target
+- [x] Finish managed overlay/taskbar/Settings navigation, held-control suppression, target
       neutralization, and make-before-break SDL/Steam-lease fallback. Held-control suppression,
-      target neutralization, and the source projection are implemented and tested in
-      `ControllerManager`; the overlay/taskbar/Settings surfaces still consume SDL directly and are
-      not yet switched onto `UiSampleReceived`/`ClaimUiAsync`.
+      target neutralization, and the source projection were already in `ControllerManager`; the
+      surfaces are now switched onto the managed stream.
+      The whole coupling every navigation surface had to `GamepadService` was one event, so the seam
+      is one interface. `Input/UiInputRouter` sits behind it and owns the swap: `CanonicalButtonSource`
+      turns samples into the press edges navigation acts on — SDL reports a press once and a
+      canonical stream reports a held button on every sample, so deriving edges centrally is what
+      makes the two interchangeable — and `SourceArbitration` decides when to switch.
+      SDL stays subscribed and running throughout rather than being stopped when the managed source
+      takes over. It is what the fallback returns to, and a source that has been stopped cannot be
+      shown healthy before the switch that needs it. The switch itself waits for the first managed
+      sample: switching on "a managed source exists" rather than "it is delivering" leaves a gap
+      where nothing delivers and the UI looks frozen.
+      A control held across the switch emits neither a press nor a release, because the user made
+      neither. It stays suppressed while the incoming source still reports it held, and clears once
+      observed up — or on `SourceSwitch.HeldControlTimeout`, for controls the incoming source cannot
+      see at all, which is not hypothetical: the managed source exposes rear paddles SDL never
+      reports. Coming back after a fallback resets the held state, so the first press afterwards is
+      not swallowed.
+      This is what lets WSGM's own UI be driven by the controls SDL cannot see on a handheld — the
+      rear paddles, Quick Access, and the trackpad clicks. The chord watcher deliberately stays on
+      raw SDL: the chord is what opens the overlay, so it has to keep working when the managed
+      source is not running.
+      With controller management off — every current release — the router forwards SDL unchanged,
+      so the device-verified path is untouched. Live handheld acceptance stays in the attended item
+      below.
 - [x] Complete physical rumble/haptic return and zero-output cleanup. The plugin now publishes
       `HapticCapabilities` alongside its physical identities, so `Shell/DeviceHostHapticSink.cs`
       reports what the device can actually drive rather than guessing; the Claw declares its two

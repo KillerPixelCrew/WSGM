@@ -67,7 +67,7 @@ public enum GamepadButtons : uint
 
 /// <summary>Polls all connected controllers through SDL3 on the UI thread while
 /// enabled. Emits edge-triggered button events with D-pad/stick auto-repeat.</summary>
-public sealed class GamepadService : IDisposable
+public sealed class GamepadService : IUiButtonSource, IDisposable
 {
     // Monotonic (Environment.TickCount64) rather than wall-clock deadlines: a
     // backward system-clock adjustment — w32time resyncing shortly after logon,

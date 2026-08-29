@@ -1526,6 +1526,19 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         remove => _controllers.PhysicalSampleObserved -= value;
     }
 
+    /// <summary>Samples the UI may act on while a WSGM surface holds capture.</summary>
+    /// <remarks>
+    /// Filtered by the manager: the controls a surface is already using are removed, so the chord
+    /// that opened the overlay cannot also activate whatever now has focus underneath it. This is
+    /// the stream WSGM's own navigation runs on, and it is the reason the UI can be driven by rear
+    /// paddles and a Quick Access button that SDL cannot see at all.
+    /// </remarks>
+    internal event Action<CanonicalControllerSample>? UiSampleReceived
+    {
+        add => _controllers.UiSampleReceived += value;
+        remove => _controllers.UiSampleReceived -= value;
+    }
+
     /// <summary>The current controller-management projection.</summary>
     internal ControllerManagerStatus ControllerStatus => _controllers.Snapshot();
 

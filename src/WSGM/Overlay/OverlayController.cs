@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using WSGM.Core;
+using WSGM.Device.Sdk.Input;
 using WSGM.Input;
 using WSGM.Interop;
 using WSGM.Settings;
@@ -25,6 +26,20 @@ public sealed class OverlayController : IDisposable
     private readonly IPerformanceOverlaySource? _performance;
     private readonly HotkeyService _hotkey;
     private readonly GamepadService _gamepad = new();
+
+    /// <summary>What every navigation surface here subscribes to.</summary>
+    /// <remarks>
+    /// The surfaces take the router rather than <see cref="GamepadService"/> so they see whichever
+    /// source is delivering. With controller management off this is SDL, exactly as before. With it
+    /// on, WSGM's own UI can finally be driven by the controls SDL cannot see on a handheld — the
+    /// rear paddles, Quick Access, and the trackpad clicks.
+    /// <para>
+    /// The chord watcher deliberately stays on the raw SDL service. The chord is what opens the
+    /// overlay, so it has to keep working when the managed source is not running, and it is the one
+    /// thing that must not change behaviour with the source.
+    /// </para>
+    /// </remarks>
+    private readonly UiInputRouter _uiInput;
     private readonly GamepadChordWatcher _chordWatcher;
     private TouchSwipeMonitor? _touchSwipes;
 
@@ -85,6 +100,8 @@ public sealed class OverlayController : IDisposable
         _hotkey = new HotkeyService(MessageWindow.Create());
         _hotkey.Pressed += ShowOverlay;
         _hotkey.Apply(config.Hotkey);
+
+        _uiInput = new UiInputRouter(_gamepad);
 
         // Controller chord: needs polling even with no WSGM window on screen.
         _chordWatcher = new GamepadChordWatcher(_gamepad, config.GamepadChord);
@@ -442,6 +459,23 @@ public sealed class OverlayController : IDisposable
     /// <summary>The lease is scoped to WSGM's focus-taking surfaces. It blocks
     /// Steam's controller access only while SDL needs direct input for the
     /// overlay or taskbar, then lets Steam rediscover the controller on release.</summary>
+    /// <summary>Feeds one canonical sample from the plugin into WSGM's own navigation.</summary>
+    /// <param name="sample">The sample, already filtered for UI consumption by the manager.</param>
+    /// <remarks>
+    /// The manager decides what the UI may see and what still belongs to the game; this only routes
+    /// what it was given. The first sample is what makes the managed source healthy and completes
+    /// the switch away from SDL.
+    /// </remarks>
+    public void SubmitCanonicalSample(CanonicalControllerSample sample) =>
+        _uiInput.Submit(sample);
+
+    /// <summary>Reports that controller management stopped delivering.</summary>
+    /// <remarks>
+    /// SDL is still subscribed and running throughout, so this is a fall back to something already
+    /// live rather than a start — the UI cannot be left with no source.
+    /// </remarks>
+    public void ManagedInputLost() => _uiInput.ManagedSourceLost();
+
     private void AcquireSteamInputLease()
     {
         _leaseReleased = false;
@@ -886,7 +920,7 @@ public sealed class OverlayController : IDisposable
         _overlay.SubViewClosed += CloseKeyboardNow;
 
         var overlay = _overlay;
-        _navigation = new GamepadNavigation(_gamepad, _overlay, OnOverlayBack,
+        _navigation = new GamepadNavigation(_uiInput, _overlay, OnOverlayBack,
             isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
             preferredFocus: () => overlay.DefaultFocusTarget,
             tabPrevious: () => _overlay?.SelectPreviousTab(),
@@ -1097,7 +1131,7 @@ public sealed class OverlayController : IDisposable
         _taskbar.AudioPanelRequested += ShowAudioPanel;
         _taskbar.EjectPanelRequested += ShowEjectPanel;
         _taskbar.Closed += (_, _) => OnTaskbarClosed();
-        _taskbarNavigation = new GamepadNavigation(_gamepad, _taskbar, CloseTaskbar,
+        _taskbarNavigation = new GamepadNavigation(_uiInput, _taskbar, CloseTaskbar,
             isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
             preferredFocus: () => _taskbar?.DefaultFocusTarget,
             secondary: focused => _taskbar?.RequestTrayContextMenu(focused));
@@ -1159,7 +1193,7 @@ public sealed class OverlayController : IDisposable
         window.SizeChanged += (_, _) => PositionKeyboardBesideOverlay(window, overlay);
         window.Show();
 
-        _keyboardNavigation = new GamepadNavigation(_gamepad, window, () => window.Close(),
+        _keyboardNavigation = new GamepadNavigation(_uiInput, window, () => window.Close(),
             isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
             onEdge: OnKeyboardEdge);
         // Focus is in the keyboard now; the sidebar's nav stands down until we cross back.
@@ -1353,7 +1387,7 @@ public sealed class OverlayController : IDisposable
         }
         // Its own navigation instance: the panel holds focus while it is open,
         // and B must close the panel rather than the bar behind it.
-        _radioNavigation = new GamepadNavigation(_gamepad, panel, () => panel.Close(),
+        _radioNavigation = new GamepadNavigation(_uiInput, panel, () => panel.Close(),
             isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
             tabPrevious: panel.SelectPreviousTab,
             tabNext: panel.SelectNextTab);
@@ -1445,7 +1479,7 @@ public sealed class OverlayController : IDisposable
         {
             _taskbarNavigation.IsEnabled = false;
         }
-        _audioNavigation = new GamepadNavigation(_gamepad, panel, () => panel.Close(),
+        _audioNavigation = new GamepadNavigation(_uiInput, panel, () => panel.Close(),
             isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
             preferredFocus: () => panel.DefaultFocusTarget);
         panel.Closed += (_, _) =>
@@ -1532,7 +1566,7 @@ public sealed class OverlayController : IDisposable
         {
             _taskbarNavigation.IsEnabled = false;
         }
-        _ejectNavigation = new GamepadNavigation(_gamepad, panel, () => panel.Close(),
+        _ejectNavigation = new GamepadNavigation(_uiInput, panel, () => panel.Close(),
             isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo);
         panel.Closed += (_, _) =>
         {
@@ -1872,6 +1906,9 @@ public sealed class OverlayController : IDisposable
         }
         _hotkey.Dispose();
         _chordWatcher.Dispose();
+
+        // Before the service it subscribes to, so the unsubscribe lands on a live object.
+        _uiInput.Dispose();
         _gamepad.Dispose();
         DisposeTouchEdges();
         StopTaskbarRefresh();

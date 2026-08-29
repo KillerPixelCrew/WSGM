@@ -28,7 +28,7 @@ public sealed class GamepadNavigation : IDisposable
     // reads on the device as "the controller went dead" with nothing in the log.
     private const long CrossSourceSuppressionMs = 250;
 
-    private readonly GamepadService _gamepad;
+    private readonly IUiButtonSource _gamepad;
     private readonly Window _window;
     private readonly Action _back;
     private readonly Func<bool>? _isNintendoLayout;
@@ -88,7 +88,7 @@ public sealed class GamepadNavigation : IDisposable
     /// Null leaves the button unhandled.</param>
     /// <param name="onEdge">Optional callback when a directional move finds no target in
     /// that direction (a window edge) — used to cross focus into an adjacent window.</param>
-    public GamepadNavigation(GamepadService gamepad, Window window, Action back,
+    public GamepadNavigation(IUiButtonSource gamepad, Window window, Action back,
         Func<bool>? isNintendoLayout = null, Func<InputElement?>? preferredFocus = null,
         Action<InputElement?>? secondary = null, Action? tabPrevious = null,
         Action? tabNext = null, Action<NavigationDirection>? onEdge = null)

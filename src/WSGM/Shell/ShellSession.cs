@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Device.Sdk.Ipc;
+using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Interop;
 using WSGM.Overlay;
 
@@ -268,6 +269,24 @@ public sealed class ShellSession : IAsyncDisposable
             previewOnly: _overlayTestOnly,
             device: _deviceOverlay,
             performance: _performanceOverlay);
+
+        // WSGM's own navigation runs on the managed canonical stream when one is delivering, and on
+        // SDL otherwise. Subscribed here rather than inside the overlay because this is where both
+        // objects exist: the coordinator owns the stream and the controller owns the surfaces.
+        // Nothing is unsubscribed on device teardown — the manager simply stops raising, and the
+        // router falls back to SDL, which never stopped running.
+        if (_deviceCoordinator is { } canonicalSource && _overlay is { } overlay)
+        {
+            canonicalSource.UiSampleReceived += overlay.SubmitCanonicalSample;
+            canonicalSource.StateChanged += state =>
+            {
+                if (state is not DeviceCycleState.Active)
+                {
+                    overlay.ManagedInputLost();
+                }
+            };
+        }
+
         _deviceCoordinator?.ConfigureOemActions(new DeviceOemActionServices
         {
             ToggleOverlayAsync = cancellationToken => RunUiActionAsync(() =>
