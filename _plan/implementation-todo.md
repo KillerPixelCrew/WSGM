@@ -414,6 +414,18 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
         placeholders carrying nothing, ~200 wasted completions/second, which PR #2 removes. Whether
         the controller endpoint should NAK when idle needs measurement against a real Steam claim, not
         an assumption: a real Deck appears to stream continuously.
+      - **The backend now works end to end against the real driver.** Every entry point the binding
+        uses returns success, and the attach is real rather than nominal: while attached Windows
+        enumerates `USB\VID_28DE&PID_1205` with the expected three interfaces, and teardown leaves no
+        `VID_28DE` device present. Verified on the reference Claw, 2026-08-29, unelevated.
+        Getting there needed a second WSGM patch. usbip-win2 0.9.7.8 appended a `serial` field to
+        `plugin_hardware`, taking the attach IOCTL's structure from 1100 to 1116 bytes; the driver
+        validates the size before acting and rejects the older shape VIIPER encodes with
+        `ERROR_INSUFFICIENT_BUFFER`, so every attach failed. The `usbip.exe` fallback cannot cover
+        for it either — the usbip-win2 installer leaves `%ProgramFiles%\USBip` off `PATH` entirely.
+        `0002-attach-plugin-hardware-layouts.patch` declares the newer structure and tries both known
+        sizes newest-first, so WSGM works on 0.9.7.7 and 0.9.7.8 alike. Full evidence, including the
+        IOCTL issued directly at each size, is in `third_party/controller/viiper/README.md`.
       Superseded HIDMaestro analysis, kept because it stays accurate and the component remains pinned
       as the alternative:
       - **Rear controls close without any upstream change.** `HMButton` already carries four paddles;

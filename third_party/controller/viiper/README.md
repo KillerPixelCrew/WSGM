@@ -26,6 +26,10 @@ patch.
 | Valkirie/VIIPER#2 | Placeholder mouse and keyboard endpoints stay pending | They carry no data, yet completed a transfer on every poll. That both wakes the system from standby and burns CPU for nothing. |
 | WSGM | Stale quaternion assertion | `9de6355` deliberately dropped the forced identity orientation quaternion, because a frozen identity made Steam ignore raw angular velocity and collapse gyro-to-stick to centre. The test still expected `0x4000` and was left failing, so the package had no green baseline to regress from. |
 
+`0002-attach-plugin-hardware-layouts.patch` is WSGM's own, and without it `viiper_device_attach`
+cannot succeed against usbip-win2 0.9.7.8. See the next section — it was found by running the call,
+not by reading the code.
+
 PR #2 needed adapting rather than applying verbatim: this branch replaced the inline `ctx.Done()`
 waits with `device.BlockUntilDeadline`, so the two endpoint cases collapse into one that blocks and
 returns no data.
@@ -51,12 +55,45 @@ Verified with Go 1.27.0 and WinLibs GCC on the reference Claw, 2026-08-29. `go b
 for the whole tree, `go test ./device/steamdeck/...` passes with the patch applied, and
 `eng\build-viiper.ps1 -Validate` runs the whole sequence end to end.
 
-**The binding is verified against the real library, not just compiled.** Driving it through the same
-entry points WSGM uses — `viiper_init`, `viiper_bus_create`, `viiper_device_add("steamdeck")`,
-`viiper_device_open_fast`, `viiper_device_set_input_fast` with a 64-byte Neptune frame,
-`viiper_device_remove`, `viiper_shutdown` — every call returned success. That covers everything short
-of `viiper_device_attach`, which needs the usbip-win2 driver installed and is therefore the first
-step once the installer work lands.
+**The binding is verified end to end against the real library and the real driver.** Every entry
+point WSGM uses — `viiper_init`, `viiper_bus_create`, `viiper_device_add("steamdeck")`,
+`viiper_device_attach`, `viiper_device_open_fast`, `viiper_device_set_input_fast` with a 64-byte
+Neptune frame, `viiper_device_remove`, `viiper_shutdown` — returns success, and the attach is real
+rather than nominal: while attached, Windows enumerates `USB\VID_28DE&PID_1205` as a composite
+device with the expected three interfaces (MI_00 keyboard, MI_01 mouse, MI_02 the vendor-defined
+controller), and after teardown no `VID_28DE` device is present. Verified on the reference Claw,
+2026-08-29, unelevated.
+
+## The attach ABI break, and why the pin is not optional
+
+`viiper_device_attach` failed on the first real attempt, and the reason is worth recording because
+the pinned version is what fixes it.
+
+VIIPER attaches by issuing usbip-win2's `IOCTL_PLUGIN_HARDWARE` against the driver's device
+interface, falling back to running `usbip.exe`. Both halves were broken here:
+
+- **usbip-win2 0.9.7.8 changed the IOCTL's structure.** `usbip::vhci::ioctl::plugin_hardware` gained
+  a trailing `char serial[SERIAL_BUFSZ]`, taking it from 1100 to 1116 bytes. The driver validates
+  the caller's `size` against its own `sizeof` and rejects a mismatch with
+  `ERROR_INSUFFICIENT_BUFFER` before doing anything. VIIPER encodes the 0.9.7.7 shape, so on
+  0.9.7.8 every attach is rejected on size alone. Confirmed against the installed driver by issuing
+  the IOCTL directly at both sizes: 1100 returned `122 ERROR_INSUFFICIENT_BUFFER`, 1116 got through
+  to `1225 ERROR_CONNECTION_REFUSED` — the expected answer when nothing is listening on the port.
+- **The `usbip.exe` fallback cannot save it.** The usbip-win2 installer does not put
+  `%ProgramFiles%\USBip` on `PATH`, on this machine in neither the user nor the machine variable, so
+  the fallback fails with `executable file not found in %PATH%`. It is not a fallback WSGM can rely
+  on, and the answer is not to start editing `PATH`.
+
+So the 0.9.7.7 pin has a functional reason on top of the open BSOD reports: it is the version
+VIIPER's ABI actually matches. `0002-attach-plugin-hardware-layouts.patch` makes the backend work on
+both, by declaring the newer structure and trying the two known sizes newest-first. That retry is
+safe rather than a repeated attach: a size rejection happens before the driver acts, is reported
+with its own specific error code, and any other failure stops immediately instead of being retried
+against a layout the driver has already refused.
+
+**Do not "simplify" that loop to a single size, and do not replace it with a version probe.** The
+driver's own rejection is the authority on which layout it wants; a version number read from
+somewhere else is a second source that can be wrong.
 
 Three packages fail on this branch **before** any WSGM patch and are the accepted baseline:
 `device/xboxelite2`, `device/xboxgip`, and `internal/server/api` (build failure). None is touched by
