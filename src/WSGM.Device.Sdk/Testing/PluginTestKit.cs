@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Input;
+using WSGM.Device.Sdk.Ipc;
 using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.Device.Sdk.Testing;
@@ -19,6 +20,7 @@ public sealed class TestPluginHostAdapter : IPluginHostAdapter
     private readonly List<CanonicalControllerSample> _controllerSamples = [];
     private readonly List<IReadOnlyList<OemControlDescriptor>> _oemControlSets = [];
     private readonly List<OemControlEvent> _oemEvents = [];
+    private readonly List<(DeviceTraceLevel Level, string Scope, string Message)> _traces = [];
 
     /// <summary>Creates an adapter for one cycle generation.</summary>
     /// <param name="cycleGeneration">Cycle generation exposed to the plugin.</param>
@@ -52,6 +54,15 @@ public sealed class TestPluginHostAdapter : IPluginHostAdapter
 
     /// <summary>OEM-control events in publication order.</summary>
     public IReadOnlyList<OemControlEvent> OemEvents => Snapshot(_oemEvents);
+
+    /// <summary>Trace lines in emission order.</summary>
+    /// <remarks>
+    /// Recorded rather than discarded so a plugin's diagnostics are testable like anything else it
+    /// publishes. A test that asserts a decision was traced is what keeps instrumentation from
+    /// being quietly deleted later.
+    /// </remarks>
+    public IReadOnlyList<(DeviceTraceLevel Level, string Scope, string Message)> Traces =>
+        Snapshot(_traces);
 
     /// <inheritdoc />
     public ValueTask PublishDescriptorsAsync(
@@ -102,6 +113,20 @@ public sealed class TestPluginHostAdapter : IPluginHostAdapter
         OemControlEvent controlEvent,
         CancellationToken cancellationToken) =>
         RecordAsync(_oemEvents, controlEvent, cancellationToken);
+
+    /// <inheritdoc />
+    public void Trace(DeviceTraceLevel level, string scope, string message)
+    {
+        if (string.IsNullOrEmpty(message))
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            _traces.Add((level, scope ?? string.Empty, message));
+        }
+    }
 
     private ValueTask RecordAsync<T>(
         List<T> target,

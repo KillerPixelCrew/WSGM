@@ -162,7 +162,10 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         _topSteamQuickAccessEnabled = gestures.TopEdgeSteamQuickAccess;
         _bandPx = Math.Max(MinimumBandPx, gestures.StripThickness);
         _tracking = false;
-        Log.Info(
+        // Re-applied on every config reload, which the shell does often, so this restated an
+        // unchanged gesture set 1,162 times in one session.
+        Log.Change(
+            "touch.edges",
             $"Touch edge swipes configured (bottom={_bottomEnabled}, right={_rightEnabled}, " +
             $"left-steam={_leftSteamMenuEnabled}, top-qam={_topSteamQuickAccessEnabled}, band={_bandPx}px).");
     }

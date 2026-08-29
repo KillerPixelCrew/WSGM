@@ -270,7 +270,12 @@ public sealed unsafe class TrayHost : IDisposable
         var change = _table.Apply(parsed, out var icon);
         if (change == TrayChange.Rejected)
         {
-            Log.Info($"Tray {Describe(parsed.Message)} rejected (hwnd 0x{parsed.Hwnd:X}, uid {parsed.Uid}).");
+            // Applications retry a rejected NIM_ADD on their own timer and never stop, so this was
+            // ~6,000 lines across a handful of windows in one session. Keyed per window and uid so
+            // a NEW application being rejected is still a new line.
+            Log.Change(
+                $"tray.rejected.{parsed.Hwnd:X}.{parsed.Uid}",
+                $"Tray {Describe(parsed.Message)} rejected (hwnd 0x{parsed.Hwnd:X}, uid {parsed.Uid}).");
             return 0;
         }
 

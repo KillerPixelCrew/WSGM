@@ -325,6 +325,25 @@ on Avalonia windows or controls.
   Model finite state with enums and pure decision functions instead of scattered boolean combinations.
 - Use `Log.Info/Warn/Error` with the operation and device-relevant state. Do not add Console output,
   reflection-based logging, or a second logging subsystem.
+- **Every branch that ends in "nothing happened" must log why.** An early return, a `catch` that
+  sets a flag, a refused navigation, a capability that stays unavailable, a mode switch that does
+  not happen — each is a bug report the user cannot write and a log the maintainer cannot read.
+  This is the repository's most expensive recurring defect, not a style preference: five separate
+  faults in one session were diagnosed only by adding instrumentation and rebuilding, because the
+  shipped code was silent exactly where it decided to do nothing.
+- **Log the decision, not just the failure.** A refusal needs the values it was decided from
+  (observed mode, both paths that had to match, the count that was zero), because a reason string
+  without them cannot be acted on remotely.
+- **Poll loops use `Log.Change(key, message)`**, never a bare `Log.Info` — it writes on transition
+  and counts the suppressed repeats. Unbounded repetition is the other half of the same defect: one
+  session logged 43,392 lines of which 22,000 were five messages restating an unchanged state, and
+  the work being diagnosed that day was buried under them. Give every outcome of one poll the same
+  key so transitions between them show.
+- **Plugins log through `PluginTrace.Info/Warn/Error/Failure`**, which reaches WSGM's log prefixed
+  `plugin/<scope>`. It is ambient and no-op until installed, deliberately, so instrumenting a
+  decision costs one statement — the async-only publication surface that preceded it is why the
+  Claw plugin shipped 5,972 lines with no diagnostics at all. Never trace from a sample or polling
+  loop; the controller reader runs at ~125 Hz.
 - Put Win32 constants, handles, ownership rules, and native marshalling at the `Interop` boundary.
   Callers should receive managed values/results, not raw pointers or unchecked handles.
 - Do not add packages that require runtime reflection, managed COM interop, or JIT-only behavior.

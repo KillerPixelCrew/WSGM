@@ -78,6 +78,9 @@ public partial class OverlayWindow : Window
     /// outlive the window they started on, and a dismissal raised from a dead window
     /// would close whatever panel is on screen by then.</summary>
     private bool _closed;
+
+    // Guards the Device render that ShowDestination performs, which re-enters it via ConfigureTabs.
+    private bool _showingDestination;
     private readonly CancellationTokenSource _deviceLifetime = new();
     private readonly OverlayNavigation _navigation = new();
     private static readonly OverlayFocusMemory FocusMemory = new();
@@ -266,10 +269,27 @@ public partial class OverlayWindow : Window
             return;
         }
 
-        DescriptorStatusRow? restoreFocus =
-            DeviceOverlaySectionPages.SectionFor(_navigation.Page) is { } section
-                ? RenderDeviceSection(snapshot, section, focusedKey)
-                : RenderDeviceSectionMenu(snapshot, focusedKey);
+        DeviceOverlaySection? openSection = DeviceOverlaySectionPages.SectionFor(_navigation.Page);
+        DescriptorStatusRow? restoreFocus = openSection is { } section
+            ? RenderDeviceSection(snapshot, section, focusedKey)
+            : RenderDeviceSectionMenu(snapshot, focusedKey);
+
+        // A Device page that renders nothing is indistinguishable from a device that published
+        // nothing, and the difference is the whole diagnosis. Reported on every render, not only
+        // the empty ones, because "16 capabilities arrived and 5 rows were drawn" is the line that
+        // separates a delivery problem from a rendering one — and an empty page with no line at
+        // all cannot even prove the render ran.
+        Log.Change(
+            "overlay.device.render",
+            $"Device page: page={_navigation.Page}, section={openSection?.ToString() ?? "menu"}, "
+                + $"rows={DeviceCapabilityList.Children.Count}, "
+                + $"capabilities={snapshot.Capabilities.Count}, "
+                + $"glyphSelection={snapshot.GlyphSelection is not null}, "
+                + $"autoTdp={snapshot.AutoTdp is not null}, "
+                + $"controller={snapshot.Controller is not null}, "
+                + $"profile={snapshot.Profile is not null}, "
+                + $"recovery={snapshot.Recovery is not null}",
+            DeviceCapabilityList.Children.Count == 0 ? "warn " : "info ");
 
         restoreFocus?.Focus(NavigationMethod.Directional);
     }
@@ -1293,6 +1313,31 @@ public partial class OverlayWindow : Window
         PanelDevice.IsVisible = destination == OverlayDestination.Device
             && _deviceBridge?.Snapshot().Visible is true;
         PanelSystem.IsVisible = destination == OverlayDestination.System;
+
+        // The Device rows are built once per render into a panel that survives destination changes,
+        // and until this call arriving here they were rebuilt only on attach and on a device-state
+        // event. Selecting the destination resets the navigation stack to the Device root, so
+        // without a render the panel kept rows belonging to whatever page was last drawn — showing
+        // a section's contents under the root heading, or nothing at all when the attach-time
+        // render had happened before the plugin published anything. The user reached an empty
+        // "DEVICE CONTROLS" this way while all 16 capabilities were live.
+        // RefreshDevicePanel calls ConfigureTabs, which calls back here. That terminates today only
+        // because ConfigureTabs returns early on the second pass; an explicit guard is what keeps a
+        // later change to either of them from turning this into a loop that hangs the UI thread.
+        if (PanelDevice.IsVisible && !_showingDestination)
+        {
+            _showingDestination = true;
+            try
+            {
+                RefreshDevicePanel();
+                RefreshPerformancePanel();
+            }
+            finally
+            {
+                _showingDestination = false;
+            }
+        }
+
         RestoreDestinationState(restoreFocus);
     }
 

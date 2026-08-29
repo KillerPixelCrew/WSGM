@@ -26,6 +26,7 @@ namespace WSGM.Device.Sdk.Ipc;
 [JsonSerializable(typeof(DeviceControllerManagementRequest))]
 [JsonSerializable(typeof(DeviceControllerHandoffResponse))]
 [JsonSerializable(typeof(DeviceDiagnosticsRequest))]
+[JsonSerializable(typeof(DeviceTraceMessage))]
 [JsonSerializable(typeof(DeviceOperationAck))]
 [JsonSerializable(typeof(DeviceProtocolError))]
 [JsonSerializable(typeof(CapabilityDescriptorSet))]

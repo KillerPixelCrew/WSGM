@@ -5,6 +5,7 @@ using System.IO;
 using System.IO.Pipes;
 using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading;
@@ -403,7 +404,13 @@ internal sealed class DeviceHostClient : IAsyncDisposable
             long missed = previous <= 0 ? 0 : Math.Max(0, sequence - previous - 1);
             if (missed > 0)
             {
-                Log.Warn($"Controller state ring skipped {missed} superseded samples.");
+                // The ring runs at the pad's report rate, so a steady skip rate logged 6,382 lines
+                // in one session while saying the same thing each time. The count is what matters
+                // and it is in the message, so a change in it still gets a line.
+                Log.Change(
+                    "controller.ring.skips",
+                    $"Controller state ring skipped {missed} superseded samples.",
+                    "warn ");
             }
 
             ControllerSampleReceived?.Invoke(sample);
@@ -757,10 +764,73 @@ internal sealed class DeviceHostClient : IAsyncDisposable
             case DeviceMessageType.OemEvent:
                 OemEventReceived?.Invoke(Deserialize(frame, DeviceWireJsonContext.Default.OemControlEvent));
                 break;
+            case DeviceMessageType.Trace:
+                WriteTrace(Deserialize(frame, DeviceWireJsonContext.Default.DeviceTraceMessage));
+                break;
             default:
                 Log.Warn($"DeviceHost notification ignored: type={(ushort)frame.Header.MessageType}.");
                 break;
         }
+    }
+
+    /// <summary>
+    /// Writes one host- or plugin-authored trace line into WSGM's log, marked as theirs.
+    /// </summary>
+    /// <remarks>
+    /// The <c>plugin/</c> prefix is not decoration. These lines are written by a package WSGM did
+    /// not author, so anyone reading a pasted log has to be able to tell a plugin's claim about the
+    /// hardware from WSGM's own observation of it. The scope and text are re-bounded here rather
+    /// than trusted from the wire, because the sender is the party being diagnosed.
+    /// </remarks>
+    private static void WriteTrace(DeviceTraceMessage trace)
+    {
+        string scope = Sanitize(trace.Scope, 32);
+        string message = Sanitize(trace.Message, DeviceTraceMessage.MaxMessageLength);
+        if (message.Length == 0)
+        {
+            return;
+        }
+
+        string line = $"plugin/{(scope.Length == 0 ? "plugin" : scope)}: {message}";
+        switch (trace.Level)
+        {
+            case DeviceTraceLevel.Error:
+                Log.Error(line);
+                break;
+            case DeviceTraceLevel.Warn:
+                Log.Warn(line);
+                break;
+            default:
+                Log.Info(line);
+                break;
+        }
+    }
+
+    /// <summary>Bounds untrusted trace text and keeps it to one line.</summary>
+    /// <remarks>
+    /// Newlines are the interesting case: a plugin that could emit them could forge whole log
+    /// entries, including ones that look like WSGM's own, which would make the log actively
+    /// misleading rather than merely noisy.
+    /// </remarks>
+    private static string Sanitize(string? value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        StringBuilder builder = new(Math.Min(value.Length, maxLength));
+        foreach (char c in value)
+        {
+            if (builder.Length == maxLength)
+            {
+                break;
+            }
+
+            builder.Append(char.IsControl(c) ? ' ' : c);
+        }
+
+        return builder.ToString().Trim();
     }
 
     private async Task<DeviceHostExit> MonitorAsync(CancellationToken cancellationToken)

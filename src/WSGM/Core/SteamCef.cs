@@ -250,11 +250,14 @@ public static class SteamCef
             }
         });
 
+    /// <summary>One Change key for every outcome of the CEF port probe.</summary>
+    private const string PortStateKey = "steam.cef.port";
+
     /// <summary>Decides whether the debug port is owned by Steam, given a listener table
     /// and a pid→process-name lookup. A loopback listener is preferred over a wildcard one
     /// so a 127.0.0.1 squatter cannot hide behind Steam's own <c>[::]</c>/<c>0.0.0.0</c> row.
     /// <para>A pure seam over the live check so the hardening is regression-testable.</para></summary>
-    /// <param name="listeners">The listener table, or null when it could not be read.</param>
+    /// <param name="listeners">The TCP listener table, or null when it could not be read.</param>
     /// <param name="processName">Resolves a pid to its process name, or null if it is gone.</param>
     /// <returns><see langword="true"/> only when a Steam process owns the port.</returns>
     internal static bool IsSteamPortOwner(IReadOnlyList<NativeTcp.Listener>? listeners,
@@ -264,8 +267,15 @@ public static class SteamCef
         {
             // A failed table read is NOT "nothing is listening" — reporting it as such
             // once sent the maintainer hunting a closed Steam port that was open.
-            Log.Warn($"Steam CEF: TCP listener table unavailable; "
-                + $"cannot verify the owner of port {DebugPort}.");
+            //
+            // All four outcomes of this probe share one Change key, so the log records every
+            // transition between them and none of the repeats. Splitting them across keys would
+            // put the poll back to one line every two seconds whenever the state alternated.
+            Log.Change(
+                PortStateKey,
+                $"Steam CEF: TCP listener table unavailable; "
+                    + $"cannot verify the owner of port {DebugPort}.",
+                "warn ");
             return false;
         }
         var candidates = listeners
@@ -274,7 +284,9 @@ public static class SteamCef
             .ToList();
         if (candidates.Count == 0)
         {
-            Log.Info($"Steam CEF: nothing is listening on port {DebugPort}.");
+            // Polled every two seconds for as long as Steam is not up. This one message was 8,044
+            // of one session's 43,392 log lines.
+            Log.Change(PortStateKey, $"Steam CEF: nothing is listening on port {DebugPort}.");
             return false;
         }
         foreach (var listener in candidates)
@@ -288,6 +300,11 @@ public static class SteamCef
             }
             if (name is "steamwebhelper" or "steam")
             {
+                // The success was silent, so a log could show the port failing for minutes and
+                // never show it recovering — the reader had to infer it from CEF work appearing.
+                Log.Change(
+                    PortStateKey,
+                    $"Steam CEF: port {DebugPort} owned by {name} (pid {listener.ProcessId}).");
                 return true;
             }
             // Decisive, not just logged: we connect to 127.0.0.1, and Windows routes
@@ -295,8 +312,11 @@ public static class SteamCef
             // above. If that one is not Steam, then Steam's own wildcard row further
             // down the list belongs to a socket our connect never reaches, and
             // continuing the scan would clear a squatter sitting in front of Steam.
-            Log.Warn($"Steam CEF: port {DebugPort} is owned by "
-                + $"{name} (pid {listener.ProcessId}), not Steam.");
+            Log.Change(
+                PortStateKey,
+                $"Steam CEF: port {DebugPort} is owned by "
+                    + $"{name} (pid {listener.ProcessId}), not Steam.",
+                "warn ");
             return false;
         }
         return false;

@@ -18,7 +18,13 @@ internal sealed class PluginHostAdapter : IPluginHostAdapter, IDisposable
     private readonly EventWaitHandle? _stateEvent;
     private long _descriptorGeneration;
     private long _stateSequence;
+    private int _tracesInFlight;
+    private long _tracesDropped;
     private bool _disposed;
+
+    // Deep enough that a burst during startup or a fault survives, shallow enough that a runaway
+    // plugin cannot make the log its outbox.
+    private const int MaxTracesInFlight = 64;
 
     public PluginHostAdapter(
         HostWireSender sender,
@@ -171,6 +177,69 @@ internal sealed class PluginHostAdapter : IPluginHostAdapter, IDisposable
             DeviceWireJsonContext.Default.OemControlEvent,
             _protocolVersion,
             cancellationToken);
+    }
+
+    /// <remarks>
+    /// Never throws and never blocks, because it is called from <c>catch</c> blocks and from
+    /// branches that are already handling a failure — the two places where a logging call that can
+    /// itself fail is worst. A trace that cannot be sent is dropped and counted, and the count
+    /// rides out on the next line that does get through, so the log says it lost lines rather than
+    /// quietly showing fewer.
+    /// </remarks>
+    /// <inheritdoc />
+    public void Trace(DeviceTraceLevel level, string scope, string message)
+    {
+        if (_disposed || string.IsNullOrEmpty(message))
+        {
+            return;
+        }
+
+        // A plugin misbehaving in a loop must not turn the pipe into its own backlog. Past the cap
+        // the line is dropped rather than queued, which keeps the control plane responsive.
+        if (Interlocked.Increment(ref _tracesInFlight) > MaxTracesInFlight)
+        {
+            Interlocked.Decrement(ref _tracesInFlight);
+            Interlocked.Increment(ref _tracesDropped);
+            return;
+        }
+
+        long dropped = Interlocked.Exchange(ref _tracesDropped, 0);
+        string text = dropped > 0
+            ? $"{message} (+{dropped} trace lines dropped)"
+            : message;
+        DeviceTraceMessage trace = new()
+        {
+            Level = level,
+            Scope = string.IsNullOrWhiteSpace(scope) ? "plugin" : scope,
+            Message = text.Length > DeviceTraceMessage.MaxMessageLength
+                ? text[..DeviceTraceMessage.MaxMessageLength]
+                : text,
+        };
+        _ = SendTraceAsync(trace);
+    }
+
+    private async Task SendTraceAsync(DeviceTraceMessage trace)
+    {
+        try
+        {
+            await _sender.SendAsync(
+                DeviceMessageType.Trace,
+                0,
+                FrameFlags.None,
+                trace,
+                DeviceWireJsonContext.Default.DeviceTraceMessage,
+                _protocolVersion,
+                CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // Losing a diagnostic must never be able to fault the cycle it was describing.
+            Interlocked.Increment(ref _tracesDropped);
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _tracesInFlight);
+        }
     }
 
     public void SetCycleGeneration(long cycleGeneration)

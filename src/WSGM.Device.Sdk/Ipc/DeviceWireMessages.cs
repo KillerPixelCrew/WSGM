@@ -190,6 +190,41 @@ public sealed record DeviceControllerHandoffResponse
 /// <summary>Empty read-only diagnostics request.</summary>
 public sealed record DeviceDiagnosticsRequest;
 
+/// <summary>How much a trace line matters.</summary>
+public enum DeviceTraceLevel
+{
+    /// <summary>A decision, observation, or state change on a normal path.</summary>
+    Info = 0,
+
+    /// <summary>Something degraded, was refused, or fell back.</summary>
+    Warn = 1,
+
+    /// <summary>A failure the plugin could not handle.</summary>
+    Error = 2,
+}
+
+/// <summary>One diagnostic line travelling from the device host to WSGM's log.</summary>
+public sealed record DeviceTraceMessage
+{
+    /// <summary>Severity of the line.</summary>
+    public required DeviceTraceLevel Level { get; init; }
+
+    /// <summary>
+    /// Subsystem that produced it, used as the log prefix, e.g. <c>controller</c> or <c>wmi</c>.
+    /// </summary>
+    public required string Scope { get; init; }
+
+    /// <summary>The line itself, already truncated to <see cref="MaxMessageLength"/>.</summary>
+    public required string Message { get; init; }
+
+    /// <summary>Longest trace message the host will forward.</summary>
+    /// <remarks>
+    /// A plugin is not trusted to bound its own output, and a log that a plugin can flood is a log
+    /// that cannot be read — the failure this whole channel exists to fix.
+    /// </remarks>
+    public const int MaxMessageLength = 1024;
+}
+
 /// <summary>Bounded acknowledgment for a semantic request with no richer result.</summary>
 public sealed record DeviceOperationAck
 {

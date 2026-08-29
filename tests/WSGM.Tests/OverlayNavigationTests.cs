@@ -143,4 +143,26 @@ public sealed class OverlayNavigationTests
             Assert.True(pushed, $"{page} is not reachable from any destination.");
         }
     }
+
+    [Fact]
+    public void SelectingADestinationResetsToItsRootPage()
+    {
+        // The Device panel's rows are built for whatever page the navigation is on, and the window
+        // rebuilds them when the destination is shown. That contract only holds if selecting a
+        // destination is guaranteed to land on its root: a Select that left a section page current
+        // would have the window render a section's rows under the root's heading. Reaching an empty
+        // "DEVICE CONTROLS" with sixteen live capabilities was the visible form of that mismatch.
+        OverlayNavigation navigation = new();
+        navigation.SetDeviceVisible(true);
+        Assert.True(navigation.Select(OverlayDestination.Device));
+        Assert.True(navigation.Push(OverlayPage.DevicePowerAndThermals, null));
+        Assert.Equal(OverlayPage.DevicePowerAndThermals, navigation.Page);
+
+        Assert.True(navigation.Select(OverlayDestination.Home));
+        Assert.True(navigation.Select(OverlayDestination.Device));
+
+        Assert.Equal(OverlayPage.Device, navigation.Page);
+        Assert.Equal(1, navigation.Depth);
+        Assert.Null(DeviceOverlaySectionPages.SectionFor(navigation.Page));
+    }
 }

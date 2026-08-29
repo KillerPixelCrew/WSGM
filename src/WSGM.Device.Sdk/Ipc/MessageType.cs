@@ -91,6 +91,21 @@ public enum DeviceMessageType : ushort
     /// <summary>A read-only diagnostics snapshot.</summary>
     DiagnosticsSnapshot = 41,
 
+    /// <summary>One human-readable diagnostic line from the host or the plugin.</summary>
+    /// <remarks>
+    /// This carries text to a log and nothing else — no path is opened, no operation is named, and
+    /// WSGM's only action on receipt is to write the string. It widens the surface by exactly the
+    /// amount a log line can, which is why it is a message rather than a general channel.
+    /// <para>
+    /// It exists because its absence was worse. Everything on <c>IPluginHostAdapter</c> was an
+    /// async publication of semantic state, so a plugin had no way to say what it had just decided,
+    /// and 5,972 lines of the Claw plugin logged nothing. Three separate device faults were
+    /// diagnosed by adding temporary instrumentation and rebuilding, because the shipped build
+    /// could not say why it had done nothing.
+    /// </para>
+    /// </remarks>
+    Trace = 42,
+
     /// <summary>A structured error answering a specific request.</summary>
     Error = 50,
 

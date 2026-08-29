@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using WSGM.Core;
 
 namespace WSGM.Overlay;
 
@@ -97,16 +98,22 @@ internal sealed class OverlayNavigation
         return true;
     }
 
+    // Every refusal below is a button press that visibly does nothing, which is the hardest kind of
+    // bug to diagnose from a pasted log and the easiest to log. The successful transitions are
+    // traced too: without them a refusal further along cannot be placed, because nothing else in
+    // the overlay records which page the user was actually on.
     internal bool Select(OverlayDestination destination)
     {
         if (!IsVisible(destination))
         {
+            Log.Warn($"Overlay nav: destination {destination} refused (not visible).");
             return false;
         }
 
         Destination = destination;
         _stack.Clear();
         _stack.Add(new OverlayRoute(destination, RootPage(destination), null));
+        Log.Info($"Overlay nav: destination {destination}, page {Page}.");
         return true;
     }
 
@@ -114,10 +121,13 @@ internal sealed class OverlayNavigation
     {
         if (_stack.Count >= MaximumDepth || DestinationFor(page) != Destination)
         {
+            Log.Warn($"Overlay nav: push {page} refused from {Destination}/{Page} "
+                + $"(depth={_stack.Count}, pageDestination={DestinationFor(page)}).");
             return false;
         }
 
         _stack.Add(new OverlayRoute(Destination, page, returnFocusKey));
+        Log.Info($"Overlay nav: pushed {page} (depth={_stack.Count}).");
         return true;
     }
 
@@ -130,6 +140,7 @@ internal sealed class OverlayNavigation
 
         string? returnFocusKey = _stack[^1].ReturnFocusKey;
         _stack.RemoveAt(_stack.Count - 1);
+        Log.Info($"Overlay nav: popped to {Page} (depth={_stack.Count}).");
         return returnFocusKey;
     }
 

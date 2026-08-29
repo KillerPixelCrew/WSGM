@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Input;
+using WSGM.Device.Sdk.Ipc;
 
 namespace WSGM.Device.Sdk.Plugin;
 
@@ -67,4 +68,22 @@ public interface IPluginHostAdapter
     ValueTask PublishOemEventAsync(
         OemControlEvent controlEvent,
         CancellationToken cancellationToken);
+
+    /// <summary>Writes one diagnostic line into WSGM's log.</summary>
+    /// <param name="level">How much the line matters.</param>
+    /// <param name="scope">Subsystem producing it, used as the log prefix.</param>
+    /// <param name="message">The line; truncated past <see cref="DeviceTraceMessage.MaxMessageLength"/>.</param>
+    /// <remarks>
+    /// Deliberately synchronous, void, and documented never to throw, unlike every publication on
+    /// this interface. That is the whole point: a plugin author instruments a decision only if
+    /// doing so costs one statement, and an <c>await</c> that can fail inside an <c>if</c> branch
+    /// or a <c>catch</c> is not one statement. The Claw plugin shipped 5,972 lines with no
+    /// diagnostics at all against the async-only surface this replaces.
+    /// <para>
+    /// Delivery is best-effort and unordered with respect to publications. Never make a control
+    /// decision depend on a trace, and never trace inside the controller sample loop — it runs at
+    /// ~125 Hz and would out-write everything else in the log.
+    /// </para>
+    /// </remarks>
+    void Trace(DeviceTraceLevel level, string scope, string message);
 }
