@@ -540,8 +540,18 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       diagnostic. The three copies had drifted: two discarded the page's own answer and reported only
       the caller's fallback text whenever the returned shape carried no `error` string, which is
       exactly the case a remote log needs. All patches now read the page's answer.
-- [ ] Retain existing CEF library/card/Wi-Fi/download behavior while completing native TDP, frame
+- [x] Retain existing CEF library/card/Wi-Fi/download behavior while completing native TDP, frame
       limit, RTSS overlay level, performance/profile, controller-target, and AutoTDP projections.
+      All six projections exist and are fed by real services. TDP, frame limit and overlay level
+      were already there; controller-target was written but wired to a hardwired unavailable
+      service, and AutoTDP had no native surface at all. Both now read their one owner through the
+      coordinator — `ControllerManager` and `DeviceIntegration.AutoTdpEnabled` — rather than
+      synthesizing a pseudo-capability, so the QAM control, the overlay row and the Settings
+      checkbox are the same setting reached three ways.
+      Nothing on the CEF library, card, Wi-Fi or download paths was touched: every one of these is a
+      separately registered `NativeQamComponentPatch` with its own structural probe and its own
+      enable switch, so a client whose shape does not match loses that one control and keeps the
+      rest, and the existing patches keep the ids, versions and fingerprints they had.
 - [x] Add a user-owned toggle that launches the complete Steam client unelevated, not only
       individual games or helper processes. Keep the current integrity-matched launch as the
       default, apply the choice consistently to cold start and restart paths, and log the selected
@@ -698,7 +708,27 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       overlay switch and the Settings checkbox are the same setting reached two ways. It is a direct
       command like glyph selection, not a synthesized pseudo-capability, so the capability invoke
       keeps one dispatch path.
-      Remaining: the native QAM projection of the same state, and the rest of the QAM controls.
+      The native QAM now carries the same state through the same owner. `NativeQamAutoTdpPatch`
+      renders a Valve `ToggleField` directly beneath the power-limit slider — beside the thing it
+      moves, so a user who sees the limit change on its own finds the explanation in the next row —
+      and it reports the settled watts while controlling rather than only that it is on. The switch
+      is `controlled`, so it shows the stored setting rather than its own click: a command that does
+      not land leaves it where the setting actually is. Turning it on or off routes through
+      `DeviceCoordinator.ToggleAutoTdpAsync`, the same method the overlay row and the Settings
+      checkbox use, so there is one owner and no copy of the value anywhere.
+      The controller-target control was already written in the injected script but was fed by a
+      hardwired unavailable service. It now has a real one: `ControllerManager` projected through
+      the coordinator, offering every target whenever management runs, distinguishing a target that
+      is selected from one that is actually up, and telling a running game it needs a restart before
+      a change reaches it.
+      Two things were found by probing the live client rather than reasoning about it. Steam's field
+      module does expose a `ToggleField`, and it is selectable by the same unique-marker rule the
+      slider and dropdown already use. And Steam's localizer **returns the token itself** for a
+      string it does not have — which is truthy, so the obvious `localize(token) || fallback` would
+      have rendered a raw `#QuickAccess_…` as the label of a WSGM feature Valve has no token for.
+      `localizeOr` treats a leading `#` as not-found, which also protects the existing Valve-token
+      calls if one is ever retired.
+      Remaining: the rest of the QAM controls.
 - [ ] Keep Settings limited to startup/integration/controller ownership/logging/update configuration
       and owner-process requests.
 - [ ] Validate controller, touch, keyboard, scaling, accessibility, themes, cancellation, disposal,

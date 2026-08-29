@@ -187,6 +187,66 @@ public sealed class NativeQamControllerTargetPatch : NativeQamComponentPatch
 }
 
 /// <summary>
+/// Adds WSGM's AutoTDP switch to the native QAM, beside the power limit it moves.
+/// </summary>
+/// <remarks>
+/// Placed with the TDP control rather than in a section of its own, because the two are one control
+/// surface: AutoTDP takes the slider over, and a user who sees the limit move on its own needs the
+/// explanation next to the thing that is moving. It therefore requires the same TDP presentation the
+/// power-limit patch does — with no native power limit there is nothing for AutoTDP to sit beside,
+/// and nothing for it to drive.
+/// </remarks>
+public sealed class NativeQamAutoTdpPatch : NativeQamComponentPatch
+{
+    private static readonly string[] RequiredCounts =
+    [
+        "tdpPresentation",
+        "performanceRoot",
+        "nativeFields",
+        "nativeLayout",
+        "localization",
+        "react",
+    ];
+
+    /// <inheritdoc />
+    public override string Id => "wsgm.native-qam.auto-tdp";
+
+    /// <inheritdoc />
+    public override int Version => 1;
+
+    /// <inheritdoc />
+    protected override string ComponentKind => "autoTdp";
+
+    /// <inheritdoc />
+    protected override string StructuralFingerprint =>
+        "native-qam-auto-tdp-v1:presentation+performance-root+valve-toggle";
+
+    /// <inheritdoc />
+    protected override IReadOnlyList<string> RequiredUniqueCounts => RequiredCounts;
+
+    /// <inheritdoc />
+    protected override string ProbeExpression => """
+        (()=>{try{
+          let req;
+          window.webpackChunksteamui.push([["wsgm_native_auto_tdp_probe_"+Date.now()],{},r=>req=r]);
+          if(!req||!req.m)return JSON.stringify({error:'webpack unavailable'});
+          const count=(tokens)=>Object.values(req.m).reduce((total,factory)=>{
+            const source=String(factory);
+            return total+(tokens.every(token=>source.includes(token))?1:0);
+          },0);
+          return JSON.stringify({
+            tdpPresentation:count(['#QuickAccess_Tab_Perf_TDPLimitEnabled','steamos_tdp_limit','showBookendLabels']),
+            performanceRoot:count(['#QuickAccess_Tab_Perf_Common_Settings','#QuickAccess_Tab_Perf_BatteryTimeRemaining','TS.ON_FRAME']),
+            nativeFields:count(['DialogSlider_Container','DropDownField','SliderField']),
+            nativeLayout:count(['PanelSectionTitle','PanelSectionRow','spinner']),
+            localization:count(['Attempting to localize token','Unable to find localization token','LocalizeString']),
+            react:count(['react.transitional.element','useState','cloneElement','createElement'])
+          });
+        }catch(error){return JSON.stringify({error:String(error)}); } })()
+        """;
+}
+
+/// <summary>
 /// Shared bounded lifecycle for one independently versioned native-QAM semantic component.
 /// </summary>
 public abstract class NativeQamComponentPatch : ISteamUiPatch

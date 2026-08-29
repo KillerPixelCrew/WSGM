@@ -170,6 +170,7 @@ interface Window {
     let runtime;
     let controlRuntime;
     let tdpControl;
+    let autoTdpControl;
     let frameLimitControl;
     let overlayLevelControl;
     let controllerControl;
@@ -182,6 +183,10 @@ interface Window {
       tdp: Object.freeze({
         patchId: "wsgm.native-qam.tdp",
         command: "setPrimaryLimit",
+      }),
+      autoTdp: Object.freeze({
+        patchId: "wsgm.native-qam.auto-tdp",
+        command: "setAutoTdp",
       }),
       frameLimit: Object.freeze({
         patchId: "wsgm.native-qam.frame-limit",
@@ -280,6 +285,11 @@ interface Window {
         "childrenContainerWidth",
         "menuLabel",
       ]);
+      // Steam's own ToggleField, from the same module as the slider and dropdown above. Selected by
+      // the two markers of its class body rather than by its export name, which is minified and
+      // changes with every client build. Live-verified 2026-08-29: exactly one export matches, and
+      // the provider that names the module's fields lists that same class as ToggleField.
+      const toggle = uniqueFunction(fields, ["OnToggleChange", "this.Toggle()"]);
       const section = uniqueFunction(layout, ["PanelSectionTitle", "spinner"]);
       const row = uniqueObject(
         layout,
@@ -287,9 +297,34 @@ interface Window {
       );
       const localize = uniqueFunction(localization, ["LocalizeString(e)", "void 0===r?e"]);
       if (!slider || !dropdown || !section || !row || !localize) return null;
-      return { react, slider, dropdown, section, row, localize };
+      // The toggle is deliberately not in that guard. It arrived after the other four, so a client
+      // whose toggle cannot be found still gets every control that does not need one, rather than
+      // losing the whole native surface.
+      return { react, slider, dropdown, toggle, section, row, localize };
     };
     const normalizeText = (value) => (typeof value === "string" ? value.slice(0, 240) : "");
+    const normalizeAutoTdpState = (value) => {
+      if (!value || typeof value !== "object" || typeof value.available !== "boolean") return null;
+      if (typeof value.enabled !== "boolean" || typeof value.controlling !== "boolean") return null;
+      // The watts figure is only ever a display detail beside the switch, so a value outside the
+      // range any power limit uses is dropped rather than rejecting the whole state and taking the
+      // switch away with it.
+      const watts =
+        typeof value.watts === "number" &&
+        Number.isInteger(value.watts) &&
+        value.watts >= 1 &&
+        value.watts <= 200
+          ? value.watts
+          : null;
+      return Object.freeze({
+        available: value.available,
+        enabled: value.enabled,
+        controlling: value.controlling,
+        watts,
+        progress: normalizeText(value.progress),
+        statusText: normalizeText(value.statusText),
+      });
+    };
     const normalizeTdpState = (value) => {
       if (!value || typeof value !== "object" || typeof value.available !== "boolean") return null;
       if (!value.available) {
@@ -484,6 +519,14 @@ interface Window {
     };
     const isBusy = (progress) =>
       progress === "queued" || progress === "applying" || progress === "replacing";
+    // Steam's localizer returns the token itself when it has no string for it, which is truthy and
+    // would render "#QuickAccess_..." as a label. Live-verified 2026-08-29: a known token localizes,
+    // an unknown one comes straight back. That matters for anything WSGM adds — Valve has no token
+    // for a WSGM feature — and it also protects the Valve-token calls if one is ever retired.
+    const localizeOr = (controlRuntime, token, fallback) => {
+      const text = controlRuntime.localize(token);
+      return typeof text === "string" && text.length > 0 && text[0] !== "#" ? text : fallback;
+    };
     const createTdpControl = (controlRuntime) =>
       function WsgmNativeTdpControl() {
         const state = useSemanticState(controlRuntime, "tdp", normalizeTdpState);
@@ -516,6 +559,38 @@ interface Window {
           description: state.statusText || undefined,
           onChange: () => {},
           onChangeComplete: setValue,
+        });
+      };
+    const createAutoTdpControl = (controlRuntime) =>
+      function WsgmNativeAutoTdpControl() {
+        const state = useSemanticState(controlRuntime, "autoTdp", normalizeAutoTdpState);
+        if (!state || !state.available || !controlRuntime.toggle) return null;
+        const definition = definitions.autoTdp;
+        const setEnabled = (enabled) => {
+          if (typeof enabled !== "boolean" || enabled === state.enabled) return;
+          void request(
+            definition.patchId,
+            definition.command,
+            { enabled },
+            nextActionGeneration(definition.patchId),
+          ).catch(() => {});
+        };
+        // While controlling, the watts AutoTDP settled on go in the description: a user watching the
+        // slider move needs to see that something is driving it, and what it decided.
+        const description =
+          state.controlling && state.watts !== null
+            ? state.watts + " W · " + state.statusText
+            : state.statusText;
+        return controlRuntime.react.createElement(controlRuntime.toggle, {
+          label: localizeOr(controlRuntime, "#QuickAccess_Tab_Perf_AutoTDP", "Automatic TDP"),
+          description: description || undefined,
+          checked: state.enabled,
+          // Controlled, so the switch shows the stored setting rather than its own click. A command
+          // that does not land leaves the switch where the setting actually is instead of showing a
+          // change that did not happen.
+          controlled: true,
+          disabled: isBusy(state.progress),
+          onChange: setEnabled,
         });
       };
     const createControllerControl = (controlRuntime) =>
@@ -632,6 +707,17 @@ interface Window {
           ),
         );
       }
+      // Straight after the power limit, because AutoTDP is what moves it. A user who sees the
+      // slider change on its own finds the explanation in the next row rather than hunting for it.
+      if (registrations.has("autoTdp")) {
+        controls.push(
+          controlRuntime.react.createElement(
+            controlRuntime.row,
+            { key: "wsgm-native-qam-auto-tdp" },
+            controlRuntime.react.createElement(autoTdpControl),
+          ),
+        );
+      }
       if (registrations.has("frameLimit")) {
         controls.push(
           controlRuntime.react.createElement(
@@ -700,6 +786,7 @@ interface Window {
       performanceRoot = uniqueFunction(runtime(performanceFactory[0]), ["TS.ON_FRAME", "return"]);
       if (!performanceRoot) return false;
       tdpControl = createTdpControl(controlRuntime);
+      autoTdpControl = createAutoTdpControl(controlRuntime);
       frameLimitControl = createFrameLimitControl(controlRuntime);
       overlayLevelControl = createOverlayLevelControl(controlRuntime);
       controllerControl = createControllerControl(controlRuntime);

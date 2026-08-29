@@ -17,6 +17,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private const string TdpPatchId = "wsgm.native-qam.tdp";
     private const string FrameLimitPatchId = "wsgm.native-qam.frame-limit";
     private const string OverlayLevelPatchId = "wsgm.native-qam.overlay-level";
+    private const string AutoTdpPatchId = "wsgm.native-qam.auto-tdp";
     private const string ControllerTargetPatchId = "wsgm.native-qam.controller-target";
     private const string GlyphStylePatchId = SteamInputGlyphStylePatch.PatchId;
     private readonly PersistentSteamUiTransport _transport;
@@ -30,6 +31,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly Func<CancellationToken, Task<bool>> _toggleQuickAccess;
     private readonly INativeQamTdpService _tdp;
     private readonly PerformanceServiceNativeQamAdapter _performance;
+    private readonly INativeQamAutoTdpService _autoTdp;
     private readonly INativeQamControllerTargetService _controllerTarget;
     private readonly SteamInputGlyphDeliveryState _glyphDeliveryState = new();
     private readonly SteamUiBridgeHost _bridge;
@@ -57,11 +59,17 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             ? new UnavailableNativeQamTdpService()
             : new DeviceCoordinatorNativeQamTdpService(deviceCoordinator);
         _performance = new PerformanceServiceNativeQamAdapter(performance);
-        _controllerTarget = new UnavailableNativeQamControllerTargetService();
+        _autoTdp = deviceCoordinator is null
+            ? new UnavailableNativeQamAutoTdpService()
+            : new DeviceCoordinatorNativeQamAutoTdpService(deviceCoordinator);
+        _controllerTarget = deviceCoordinator is null
+            ? new UnavailableNativeQamControllerTargetService()
+            : new DeviceCoordinatorNativeQamControllerTargetService(deviceCoordinator);
         _bridge = new SteamUiBridgeHost(_transport);
         _patches = new SteamUiPatchManager(_transport);
         _patches.Register(new NativeQamBootstrapPatch(_bridge));
         _patches.Register(new NativeQamTdpPatch());
+        _patches.Register(new NativeQamAutoTdpPatch());
         _patches.Register(new NativeQamFrameLimitPatch());
         _patches.Register(new NativeQamOverlayLevelPatch());
         _patches.Register(new NativeQamControllerTargetPatch());
@@ -72,6 +80,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _bridge.RequestReceived += OnRequestReceived;
         _transport.GenerationChanged += OnGenerationChanged;
         _tdp.StateChanged += OnSemanticStateChanged;
+        _autoTdp.StateChanged += OnSemanticStateChanged;
         _performance.StateChanged += OnSemanticStateChanged;
         _controllerTarget.StateChanged += OnSemanticStateChanged;
         _synchronization = Task.Run(SynchronizeLoopAsync);
@@ -226,6 +235,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                     NativeQamSemanticJsonContext.Default.NativeQamTdpState);
                 await _bridge.PublishStateAsync(TdpPatchId, tdp, _shutdown.Token)
                     .ConfigureAwait(false);
+                JsonElement autoTdp = JsonSerializer.SerializeToElement(
+                    _autoTdp.Current,
+                    NativeQamSemanticJsonContext.Default.NativeQamAutoTdpState);
+                await _bridge.PublishStateAsync(AutoTdpPatchId, autoTdp, _shutdown.Token)
+                    .ConfigureAwait(false);
                 JsonElement frameLimit = JsonSerializer.SerializeToElement(
                     _performance.FrameLimit,
                     NativeQamSemanticJsonContext.Default.NativeQamFrameLimitState);
@@ -274,6 +288,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     {
         _patches.SetPatchEnabled(BootstrapPatchId, bootstrap);
         _patches.SetPatchEnabled(TdpPatchId, components);
+        _patches.SetPatchEnabled(AutoTdpPatchId, components);
         _patches.SetPatchEnabled(FrameLimitPatchId, components);
         _patches.SetPatchEnabled(OverlayLevelPatchId, components);
         _patches.SetPatchEnabled(ControllerTargetPatchId, components);
@@ -443,6 +458,21 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                     error = result.Error;
                 }
             }
+            else if (request.PatchId == AutoTdpPatchId && request.Command == "setAutoTdp")
+            {
+                if (!TryReadEnabledPayload(request.Payload, out bool wanted))
+                {
+                    error = "The AutoTDP payload is invalid.";
+                }
+                else
+                {
+                    NativeQamCommandResult result = await _autoTdp.SetEnabledAsync(
+                        wanted,
+                        requestCancellation.Token).ConfigureAwait(false);
+                    succeeded = result.Succeeded;
+                    error = result.Error;
+                }
+            }
             else if (request.PatchId == ControllerTargetPatchId
                 && request.Command == "setControllerTarget")
             {
@@ -584,6 +614,40 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         return propertyCount == 1;
     }
 
+    /// <summary>Reads the one boolean an AutoTDP request may carry.</summary>
+    /// <param name="payload">The request payload.</param>
+    /// <param name="enabled">Receives the requested state.</param>
+    /// <returns>Whether the payload was exactly one boolean named <c>enabled</c>.</returns>
+    /// <remarks>
+    /// Exact rather than lenient, matching the target payload beside it. The page is WSGM's own
+    /// script, so anything else arriving here is either a defect or something that is not WSGM,
+    /// and neither should reach a setting.
+    /// </remarks>
+    private static bool TryReadEnabledPayload(JsonElement payload, out bool enabled)
+    {
+        enabled = false;
+        if (payload.ValueKind != JsonValueKind.Object
+            || !payload.TryGetProperty("enabled", out JsonElement property)
+            || property.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        {
+            return false;
+        }
+
+        int propertyCount = 0;
+        foreach (JsonProperty ignored in payload.EnumerateObject())
+        {
+            propertyCount++;
+        }
+
+        if (propertyCount != 1)
+        {
+            return false;
+        }
+
+        enabled = property.GetBoolean();
+        return true;
+    }
+
     private static bool TryReadTargetPayload(JsonElement payload, out string target)
     {
         target = string.Empty;
@@ -681,6 +745,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _bridge.RequestReceived -= OnRequestReceived;
         _tdp.StateChanged -= OnSemanticStateChanged;
         _performance.StateChanged -= OnSemanticStateChanged;
+        _autoTdp.StateChanged -= OnSemanticStateChanged;
         _controllerTarget.StateChanged -= OnSemanticStateChanged;
         _enabled = false;
         ReleasePerformanceObservation();
@@ -710,6 +775,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
         await _patches.DisposeAsync().ConfigureAwait(false);
         await _bridge.DisposeAsync().ConfigureAwait(false);
+        _autoTdp.Dispose();
         _controllerTarget.Dispose();
         _performance.Dispose();
         _tdp.Dispose();

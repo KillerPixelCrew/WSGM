@@ -52,6 +52,27 @@ internal sealed record NativeQamTdpState(
     string Progress,
     string StatusText);
 
+/// <summary>AutoTDP as Steam's own menu renders it.</summary>
+/// <remarks>
+/// Deliberately more than a boolean. A switch that only says "on" leaves a user watching the power
+/// limit move with no way to tell control from a fault, so the state carries what AutoTDP is
+/// actually doing: the watts it settled on, whether it is controlling, waiting, paused or unable to
+/// run, and why.
+/// </remarks>
+/// <param name="Available">Whether the switch may be operated at all.</param>
+/// <param name="Enabled">The stored setting, which is what the switch shows.</param>
+/// <param name="Controlling">Whether AutoTDP is currently moving the power limit.</param>
+/// <param name="Watts">The limit AutoTDP settled on, when it has one.</param>
+/// <param name="Progress">Command progress in the shared vocabulary.</param>
+/// <param name="StatusText">One line describing what it is doing, or why it cannot.</param>
+internal sealed record NativeQamAutoTdpState(
+    bool Available,
+    bool Enabled,
+    bool Controlling,
+    int? Watts,
+    string Progress,
+    string StatusText);
+
 internal sealed record NativeQamControllerTargetOption(
     string Id,
     string Label,
@@ -66,6 +87,24 @@ internal sealed record NativeQamControllerTargetState(
     string StatusText,
     bool ApplicationRestartRequired);
 
+/// <summary>Shared shaping for the text these projections hand to Steam's page.</summary>
+internal static class NativeQamText
+{
+    /// <summary>Longest status text a projection sends.</summary>
+    /// <remarks>
+    /// Bounded because the text can carry a plugin's or a driver's own message, which is untrusted
+    /// length. The page has one line for it, so a longer one would only push the control off screen.
+    /// </remarks>
+    private const int MaximumLength = 240;
+
+    /// <summary>Normalizes an optional detail into bounded, renderable text.</summary>
+    /// <param name="value">The detail, which may be null, blank, or arbitrarily long.</param>
+    /// <returns>The empty string for nothing to say, otherwise the text within the bound.</returns>
+    internal static string Bound(string? value) => string.IsNullOrWhiteSpace(value)
+        ? string.Empty
+        : value.Length <= MaximumLength ? value : value[..MaximumLength];
+}
+
 internal interface INativeQamTdpService : IDisposable
 {
     event Action? StateChanged;
@@ -75,6 +114,15 @@ internal interface INativeQamTdpService : IDisposable
     Task<NativeQamCommandResult> SetPrimaryLimitAsync(
         int watts,
         CancellationToken cancellationToken);
+}
+
+internal interface INativeQamAutoTdpService : IDisposable
+{
+    event Action? StateChanged;
+
+    NativeQamAutoTdpState Current { get; }
+
+    Task<NativeQamCommandResult> SetEnabledAsync(bool enabled, CancellationToken cancellationToken);
 }
 
 internal interface INativeQamControllerTargetService : IDisposable
@@ -316,9 +364,7 @@ internal sealed class PerformanceServiceNativeQamAdapter : IDisposable
         _ => "unknown",
     };
 
-    private static string Bound(string? value) => string.IsNullOrWhiteSpace(value)
-        ? string.Empty
-        : value.Length <= 240 ? value : value[..240];
+    private static string Bound(string? value) => NativeQamText.Bound(value);
 }
 
 internal sealed class DeviceCoordinatorNativeQamTdpService : INativeQamTdpService
@@ -506,9 +552,7 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : INativeQamTdpServic
         _ => "The primary power-limit command did not complete.",
     };
 
-    private static string Bound(string? value) => string.IsNullOrWhiteSpace(value)
-        ? string.Empty
-        : value.Length <= 240 ? value : value[..240];
+    private static string Bound(string? value) => NativeQamText.Bound(value);
 
     internal sealed record TdpProjection(NativeQamTdpState State, string? InstanceId);
 }
@@ -544,6 +588,318 @@ internal sealed class UnavailableNativeQamTdpService : INativeQamTdpService
     }
 }
 
+/// <summary>
+/// Projects WSGM's AutoTDP into Steam's native quick-access menu, beside the limit it moves.
+/// </summary>
+/// <remarks>
+/// AutoTDP is a WSGM setting driving a plugin capability, not a capability of its own, so this reads
+/// the coordinator directly rather than looking for a descriptor. One owner: this switch, the
+/// overlay's Power and thermals row, and the Settings checkbox all move
+/// <c>DeviceIntegration.AutoTdpEnabled</c> through the same method, and none of them holds a copy.
+/// </remarks>
+internal sealed class DeviceCoordinatorNativeQamAutoTdpService : INativeQamAutoTdpService
+{
+    private readonly DeviceCoordinator _coordinator;
+    private bool _disposed;
+
+    /// <summary>Creates the projection over a running coordinator.</summary>
+    /// <param name="coordinator">The coordinator owning the AutoTDP setting and status.</param>
+    internal DeviceCoordinatorNativeQamAutoTdpService(DeviceCoordinator coordinator)
+    {
+        _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
+        _coordinator.ConfigurationChanged += OnChanged;
+        _coordinator.CapabilityViewsChanged += OnCapabilityViewsChanged;
+    }
+
+    /// <inheritdoc/>
+    public event Action? StateChanged;
+
+    /// <inheritdoc/>
+    public NativeQamAutoTdpState Current => Project(
+        _coordinator.AutoTdpEnabled,
+        _coordinator.AutoTdpStatus,
+        DeviceCoordinatorNativeQamTdpService.Project(_coordinator.CapabilitySnapshot())
+            .State.Available);
+
+    /// <inheritdoc/>
+    public async Task<NativeQamCommandResult> SetEnabledAsync(
+        bool enabled,
+        CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        NativeQamAutoTdpState state = Current;
+        if (!state.Available)
+        {
+            return new NativeQamCommandResult(false, state.StatusText);
+        }
+
+        if (state.Enabled == enabled)
+        {
+            // Idempotent rather than an error: the page and the store can disagree for one frame
+            // after a change made somewhere else, and re-sending the value it already has is the
+            // harmless way that resolves.
+            return new NativeQamCommandResult(true, null);
+        }
+
+        await _coordinator.ToggleAutoTdpAsync(cancellationToken).ConfigureAwait(false);
+        return new NativeQamCommandResult(true, null);
+    }
+
+    /// <inheritdoc/>
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _coordinator.ConfigurationChanged -= OnChanged;
+        _coordinator.CapabilityViewsChanged -= OnCapabilityViewsChanged;
+    }
+
+    /// <summary>Projects the stored setting and live status into the menu's vocabulary.</summary>
+    /// <param name="enabled">The stored setting.</param>
+    /// <param name="status">The running service's state, or null when it is not running.</param>
+    /// <param name="powerLimitAvailable">Whether a primary power limit exists to drive.</param>
+    /// <returns>The state the menu renders.</returns>
+    internal static NativeQamAutoTdpState Project(
+        bool enabled,
+        AutoTdpStatus? status,
+        bool powerLimitAvailable)
+    {
+        // Without a power limit there is nothing to control, so the switch is not offered rather
+        // than offered and then silently ineffective.
+        if (!powerLimitAvailable)
+        {
+            return new NativeQamAutoTdpState(
+                false,
+                enabled,
+                false,
+                null,
+                string.Empty,
+                NativeQamText.Bound("No primary power limit is available to control."));
+        }
+
+        if (status is null)
+        {
+            return new NativeQamAutoTdpState(
+                true,
+                enabled,
+                false,
+                null,
+                enabled ? "applying" : string.Empty,
+                NativeQamText.Bound(enabled ? "Starting." : string.Empty));
+        }
+
+        bool controlling = status.State is AutoTdpState.Controlling;
+        return new NativeQamAutoTdpState(
+            // Unavailable is the one state where the switch must not be operable: it means AutoTDP
+            // cannot run on this device however the setting is left.
+            status.State is not AutoTdpState.Unavailable,
+            enabled,
+            controlling,
+            status.Watts,
+            status.State switch
+            {
+                AutoTdpState.Controlling => "completed",
+                AutoTdpState.Unavailable => "failed",
+                _ => string.Empty,
+            },
+            NativeQamText.Bound(status.Detail));
+    }
+
+    private void OnCapabilityViewsChanged(IReadOnlyList<DeviceCapabilityView> views) => OnChanged();
+
+    private void OnChanged() => StateChanged?.Invoke();
+}
+
+internal sealed class UnavailableNativeQamAutoTdpService : INativeQamAutoTdpService
+{
+    public event Action? StateChanged
+    {
+        add { }
+        remove { }
+    }
+
+    public NativeQamAutoTdpState Current { get; } = new(
+        false,
+        false,
+        false,
+        null,
+        string.Empty,
+        "Device Integration is not active in this session.");
+
+    public Task<NativeQamCommandResult> SetEnabledAsync(
+        bool enabled,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(new NativeQamCommandResult(false, Current.StatusText));
+    }
+
+    public void Dispose()
+    {
+    }
+}
+
+/// <summary>
+/// Projects WSGM's own controller management into Steam's native quick-access menu.
+/// </summary>
+/// <remarks>
+/// The controller target is WSGM's setting, not a plugin capability, so this reads
+/// <see cref="ControllerManager"/> through the coordinator instead of looking for a capability
+/// descriptor. That keeps one owner: the QAM control and the overlay's controller page move the same
+/// stored default through the same method, and neither holds a copy of the target.
+/// </remarks>
+internal sealed class DeviceCoordinatorNativeQamControllerTargetService
+    : INativeQamControllerTargetService
+{
+    private readonly DeviceCoordinator _coordinator;
+    private bool _disposed;
+
+    /// <summary>Creates the projection over a running coordinator.</summary>
+    /// <param name="coordinator">The coordinator owning controller management.</param>
+    internal DeviceCoordinatorNativeQamControllerTargetService(DeviceCoordinator coordinator)
+    {
+        _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
+        _coordinator.ControllerStatusChanged += OnControllerStatusChanged;
+    }
+
+    /// <inheritdoc/>
+    public event Action? StateChanged;
+
+    /// <inheritdoc/>
+    public NativeQamControllerTargetState Current => Project(
+        _coordinator.ControllerManagementEnabled,
+        _coordinator.ControllerStatus,
+        _coordinator.InstalledPackage is not null);
+
+    /// <inheritdoc/>
+    public async Task<NativeQamCommandResult> SetTargetAsync(
+        string target,
+        CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        NativeQamControllerTargetState state = Current;
+        if (!state.Available)
+        {
+            return new NativeQamCommandResult(false, state.StatusText);
+        }
+
+        if (!TryParseTarget(target, out ManagedControllerTarget parsed))
+        {
+            return new NativeQamCommandResult(false, $"'{target}' is not a controller target.");
+        }
+
+        ControllerManagerStatus status = await _coordinator
+            .SetControllerTargetAsync(parsed, cancellationToken)
+            .ConfigureAwait(false);
+
+        // Truthful rather than optimistic: the setting is stored either way, but a manager that
+        // could not bring the new target up is not a success the menu should show as one.
+        bool succeeded = status.State is not
+            (ControllerManagementState.Faulted or ControllerManagementState.Unavailable);
+        return new NativeQamCommandResult(succeeded, succeeded ? null : status.Detail);
+    }
+
+    /// <inheritdoc/>
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _coordinator.ControllerStatusChanged -= OnControllerStatusChanged;
+    }
+
+    /// <summary>Projects controller state into the menu's closed vocabulary.</summary>
+    /// <param name="enabled">Whether controller management may run at all.</param>
+    /// <param name="status">The manager's current truthful state.</param>
+    /// <param name="packageInstalled">Whether a device package is installed.</param>
+    /// <returns>The state the menu renders.</returns>
+    internal static NativeQamControllerTargetState Project(
+        bool enabled,
+        ControllerManagerStatus status,
+        bool packageInstalled)
+    {
+        ArgumentNullException.ThrowIfNull(status);
+        if (!enabled)
+        {
+            return new NativeQamControllerTargetState(
+                false,
+                Array.Empty<NativeQamControllerTargetOption>(),
+                string.Empty,
+                string.Empty,
+                string.Empty,
+                NativeQamText.Bound(status.Detail),
+                false);
+        }
+
+        // Every target is offered whenever management runs. They are WSGM's own virtual devices, not
+        // hardware, so which ones exist does not depend on the machine — only on whether the backend
+        // came up at all, which Available already says.
+        NativeQamControllerTargetOption[] targets =
+        [
+            new(nameof(ManagedControllerTarget.SteamDeckComposite), "Steam Deck", true),
+            new(nameof(ManagedControllerTarget.Xbox360), "Xbox 360", true),
+            new(nameof(ManagedControllerTarget.DualShock4), "DualShock 4", true),
+        ];
+
+        bool available = status.State is
+            ControllerManagementState.Idle or ControllerManagementState.Active;
+        string selected = status.Target is { } target ? target.ToString() : string.Empty;
+
+        // Observed is what a target actually exists for right now, which is only true while Active.
+        // Reporting the selection back as if it were observed would hide a target that was chosen
+        // but never came up.
+        string observed = status.State is ControllerManagementState.Active ? selected : string.Empty;
+        string detail = status.Detail;
+        if (available && string.IsNullOrWhiteSpace(detail) && !packageInstalled)
+        {
+            detail = "No device package is installed, so no physical controller is being captured.";
+        }
+
+        return new NativeQamControllerTargetState(
+            available,
+            targets,
+            selected,
+            observed,
+            ProgressFor(status.State),
+            NativeQamText.Bound(detail),
+            // A running game holds the target it was launched with, so a change reaches it only on
+            // the next launch. Saying so is the difference between a control that looks broken and
+            // one the user understands.
+            ApplicationRestartRequired: status.ApplicationId is not null);
+    }
+
+    /// <summary>Maps a stored target name back onto the enumeration.</summary>
+    /// <param name="target">The name the menu sent.</param>
+    /// <param name="parsed">Receives the parsed target.</param>
+    /// <returns>Whether the name named a target.</returns>
+    /// <remarks>
+    /// Ordinal and case-sensitive on purpose: the menu is sent these names from
+    /// <see cref="Project"/>, so anything else is a caller defect rather than user input to be
+    /// forgiving about.
+    /// </remarks>
+    internal static bool TryParseTarget(string target, out ManagedControllerTarget parsed) =>
+        Enum.TryParse(target, ignoreCase: false, out parsed)
+            && Enum.IsDefined(parsed);
+
+    private static string ProgressFor(ControllerManagementState state) => state switch
+    {
+        ControllerManagementState.Active => "completed",
+        ControllerManagementState.Idle => string.Empty,
+        ControllerManagementState.Faulted => "failed",
+        _ => string.Empty,
+    };
+
+    private void OnControllerStatusChanged(ControllerManagerStatus status) =>
+        StateChanged?.Invoke();
+}
+
 internal sealed class UnavailableNativeQamControllerTargetService
     : INativeQamControllerTargetService
 {
@@ -577,6 +933,7 @@ internal sealed class UnavailableNativeQamControllerTargetService
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(NativeQamTdpState))]
+[JsonSerializable(typeof(NativeQamAutoTdpState))]
 [JsonSerializable(typeof(NativeQamControllerTargetState))]
 [JsonSerializable(typeof(NativeQamFrameLimitState))]
 [JsonSerializable(typeof(NativeQamOverlayLevelState))]

@@ -1503,6 +1503,60 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         }
     }
 
+    /// <summary>Raised whenever controller management's truthful state changes.</summary>
+    /// <remarks>
+    /// Forwarded rather than exposing <see cref="ControllerManager"/> itself: the manager is the one
+    /// owner of WSGM's controller half, and a consumer that could reach it directly would be able to
+    /// order its steps out of sequence.
+    /// </remarks>
+    internal event Action<ControllerManagerStatus>? ControllerStatusChanged
+    {
+        add => _controllers.StatusChanged += value;
+        remove => _controllers.StatusChanged -= value;
+    }
+
+    /// <summary>The current controller-management projection.</summary>
+    internal ControllerManagerStatus ControllerStatus => _controllers.Snapshot();
+
+    /// <summary>Whether controller management may run in this build and configuration.</summary>
+    internal bool ControllerManagementEnabled =>
+        EffectiveControllerManagement(_config) && _config.DeviceIntegration.Enabled;
+
+    /// <summary>Changes the global default managed-controller target and persists the choice.</summary>
+    /// <param name="target">The target to make the global default.</param>
+    /// <param name="cancellationToken">Cancels the change.</param>
+    /// <returns>The controller state after the change was applied.</returns>
+    /// <remarks>
+    /// The stored setting is changed and then the manager is asked to re-resolve, in that order, so
+    /// the persisted value and the running target cannot disagree if the apply fails — the setting
+    /// is what the next reload and the Settings checkbox both read. Per-application overrides are
+    /// deliberately untouched: this is the global default, and silently clearing an override the
+    /// user set for one game would be a surprising side effect of changing the default.
+    /// </remarks>
+    internal async Task<ControllerManagerStatus> SetControllerTargetAsync(
+        ManagedControllerTarget target,
+        CancellationToken cancellationToken = default)
+    {
+        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            AppConfig persisted = await Task.Run(
+                () => ConfigStore.Mutate(config => config.DeviceIntegration.ControllerTarget = target),
+                cancellationToken).ConfigureAwait(false);
+            _config = persisted;
+            ConfigurationChanged?.Invoke();
+            Log.Info($"Controller target set to {target} from the Device surface.");
+            return await _controllers.ApplySelectionAsync(
+                ControllerSelection.From(persisted.DeviceIntegration),
+                _runningApplicationId,
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _transitionGate.Release();
+        }
+    }
+
     /// <summary>Routes one semantic capability command through current validation and serialization.</summary>
     internal Task<CapabilityCommandResult> ExecuteCapabilityAsync(
         string capabilityId,
