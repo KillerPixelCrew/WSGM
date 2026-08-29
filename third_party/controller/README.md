@@ -202,6 +202,30 @@ or unhealthy HidHide makes controller management unavailable without changing gl
 The production adapter performs exact compare-before-write and exact readback and never toggles the
 global active or inverse flags.
 
+**WSGM is not the only thing that uses HidHide, and it assumed it was** (device-observed on the
+reference Claw, 2026-08-29). `HidHideOwnedDeltaManager` adds DeviceHost to HidHide's application
+allowlist, but only as the first step of WSGM's *own* hiding transaction — that is, only once
+controller management is already activating. That ordering cannot survive a machine where something
+else hid the controller first.
+
+On this unit HandheldCompanion had done exactly that. Its leftover configuration blocked
+`HID\VID_0DB0&PID_1901&IG_00\…` and `HID\VID_0DB0&PID_1902&MI_00&COL01\…` — the pad in both modes —
+with an allowlist naming only HandheldCompanion and HidHide's own tools. The effect on WSGM was
+total and silent: SDL reported no gamepad at all, the plugin's HID enumeration could not see the
+DirectInput pad it had just switched the device into, controller acquisition failed with
+`PrerequisiteMissing`, and nothing anywhere said the word HidHide. Adding DeviceHost and WSGM to the
+allowlist made the pad visible again immediately.
+
+The pad itself was never the problem, and this is worth recording so it is not re-diagnosed: in
+DirectInput mode it enumerates as `1902/0001:0005 in64 out32`, it streams while idle at roughly
+125 Hz, and its first report arrives about a millisecond after opening — measured with the exact
+`GENERIC_READ | GENERIC_WRITE` overlapped open the plugin uses.
+
+So two things are needed here. WSGM must register itself with HidHide *before* it needs to read a
+device rather than as part of hiding one; and a controller it cannot find must be able to say that
+HidHide is hiding it, because "no exact interface identity was available" sent the diagnosis in
+entirely the wrong direction.
+
 ## Notices
 
 The reviewed licenses permit redistribution subject to their notice conditions. The exact upstream

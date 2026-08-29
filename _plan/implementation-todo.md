@@ -663,6 +663,28 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       The `RTSSSharedMemoryV2` layout was confirmed against a live RTSS 2.21 on the reference Claw on
       2026-08-29 rather than copied from a header; the offsets and the tick-based mean are recorded in
       `docs/rtss.md`.
+- [ ] **Replace WSGM's hand-rolled RTSS interop with `RTSSSharedMemoryNET`** — the library
+      HandheldCompanion uses. There was never a decision to hand-roll this; it is an omission, and
+      two of the three RTSS defects found on 2026-08-29 were in code the library already owns.
+      What it replaces: `Core/RtssFrametimeReader.cs` (the `RTSSSharedMemoryV2` read) and
+      `Core/RtssProfileApi.cs` (the `RTSSHooks64.dll` profile P/Invokes). Both are WSGM
+      re-implementations of that library's whole subject.
+      What it does **not** replace, so keep it: `Core/RtssDiscovery.cs`. Verifying that the
+      registered installation is a genuine, signed, correctly-versioned RTSS under a protected root
+      is WSGM's own trust question, not something the library answers — and it is where the
+      expired-certificate bug actually lived.
+      Two things to settle before committing to it, in this order:
+      - **NativeAOT.** WSGM forbids reflection-dependent packages and the AOT publish is the
+        compatibility proof. The library looks like plain P/Invoke over blittable structs, which
+        would be fine, but that has to be proven by publishing rather than by reading.
+      - **How to consume it.** It is not on NuGet; HandheldCompanion vendors the source. So this
+        follows the `native/` precedent — a pinned revision in `third_party/` built from source with
+        its licence retained — rather than a package reference. Record the pin the same way
+        `third_party/controller/` does.
+      Keep the seams that already exist. `IFrametimeSource` and `IRtssAdapter` are what let the
+      overlay, QAM and AutoTDP stay unaware of any of this, and they are what make the swap a
+      contained change rather than a rewrite: the library goes behind them, and
+      `SimulatedRtssAdapter` keeps `--overlay-test` working with no RTSS at all.
 - [x] Implement one deterministic AutoTDP controller: fast rise on sustained misses, settled
       one-step descent, last-good restore, cap/menu handling, transient heavy-scene recovery,
       per-app/context learning, manual pause, one in-flight write, and exact stop restore.
