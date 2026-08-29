@@ -96,6 +96,25 @@ internal static class SteamGlyphCss
     /// </remarks>
     internal const string ControlSectionClass = "_1KA4m3xP2X5TGmO81UKYgL";
 
+    /// <summary>Token Steam puts in the id of every binding row, naming the input it belongs to.</summary>
+    /// <remarks>
+    /// The one build-independent hook in this whole surface, and the reason the reference theme was
+    /// worth reading rather than reimplementing: it is Valve's own input enum, spelled out in an
+    /// element id — "modeid-7-input-unknown EControllerModeInput ( 55 )-binding-0" — where every
+    /// other handle here is a class name that Steam's build rehashes. Unlike the reference, WSGM
+    /// does not pair it with a hardcoded number per control, because the row carries the glyph for
+    /// its own input and that identifies it just as precisely.
+    /// </remarks>
+    internal const string BindingRowIdToken = "EControllerModeInput";
+
+    /// <summary>Steam's readable class for one control group in the binding editor.</summary>
+    /// <remarks>
+    /// Not generated, so unlike <see cref="ControlSectionClass"/> a CSS-module rebuild cannot rename
+    /// it. The editor groups controls under this rather than under the overview's hashed class,
+    /// which is why hiding worked on the overview and left the trackpads sitting in the editor.
+    /// </remarks>
+    internal const string DialogSectionClass = "DialogControlsSection";
+
     /// <summary>
     /// Valve glyph resources that identify a control's row for hiding.
     /// </summary>
@@ -110,16 +129,26 @@ internal static class SteamGlyphCss
         // sd_ltrackpad_swipe, shared_m1, shared_l5 and shared_r5 — none of which this build draws —
         // so every hide rule matched nothing and a device with no trackpads and one pair of back
         // buttons still showed both trackpad sections and four back buttons.
+        // Both pads, every mode. The binding editor draws glyphs the overview never does — swipe,
+        // click and ring — so a list built from one page misses the other: sd_ltrackpad_swipe.svg
+        // was dropped as stale when only the overview had been looked at, and it is exactly what
+        // the editor uses.
         (GlyphControlId.LeftTrackpad, "/steaminputglyphs/sd_ltrackpad_up.svg"),
         (GlyphControlId.LeftTrackpad, "/steaminputglyphs/sd_ltrackpad_down.svg"),
         (GlyphControlId.LeftTrackpad, "/steaminputglyphs/sd_ltrackpad_left.svg"),
         (GlyphControlId.LeftTrackpad, "/steaminputglyphs/sd_ltrackpad_right.svg"),
         (GlyphControlId.LeftTrackpad, "/steaminputglyphs/sd_ltrackpad_click.svg"),
+        (GlyphControlId.LeftTrackpad, "/steaminputglyphs/sd_ltrackpad_ring.svg"),
+        (GlyphControlId.LeftTrackpad, "/steaminputglyphs/sd_ltrackpad_swipe.svg"),
+        (GlyphControlId.LeftTrackpad, "/steaminputglyphs/sd_ltrackpad_touch.svg"),
         (GlyphControlId.RightTrackpad, "/steaminputglyphs/sd_rtrackpad_up.svg"),
         (GlyphControlId.RightTrackpad, "/steaminputglyphs/sd_rtrackpad_down.svg"),
         (GlyphControlId.RightTrackpad, "/steaminputglyphs/sd_rtrackpad_left.svg"),
         (GlyphControlId.RightTrackpad, "/steaminputglyphs/sd_rtrackpad_right.svg"),
         (GlyphControlId.RightTrackpad, "/steaminputglyphs/sd_rtrackpad_click.svg"),
+        (GlyphControlId.RightTrackpad, "/steaminputglyphs/sd_rtrackpad_ring.svg"),
+        (GlyphControlId.RightTrackpad, "/steaminputglyphs/sd_rtrackpad_swipe.svg"),
+        (GlyphControlId.RightTrackpad, "/steaminputglyphs/sd_rtrackpad_touch.svg"),
         (GlyphControlId.RearM1, "/steaminputglyphs/sd_l4.svg"),
         (GlyphControlId.RearM2, "/steaminputglyphs/sd_r4.svg"),
         (GlyphControlId.RearLeft2, "/steaminputglyphs/sd_l5.svg"),
@@ -256,8 +285,24 @@ internal static class SteamGlyphCss
         // the trackpad sections nor the back-button rows as Steam actually builds them.
         string[] selectors = RowGlyphs
             .Where(row => absent.Contains(row.Control))
-            .Select(row =>
-                $".{ControlSectionClass}:has(img[src=\"{Attribute(row.ValvePath)}\"])")
+            .SelectMany(row => new[]
+            {
+                $".{ControlSectionClass}:has(img[src=\"{Attribute(row.ValvePath)}\"])",
+
+                // And the control's binding rows, which live outside that section. Steam gives each
+                // one an id containing its own input enum — "EControllerModeInput ( 55 )-binding-0"
+                // — and, measured on the reference Claw, the row also carries the glyph for that
+                // input. Matching the stable token together with the glyph means WSGM never needs
+                // the enum's numbering: the reference theme hardcodes one number per control, which
+                // is a table someone has to keep, and this is the same hook without it.
+                $"[id*=\"{BindingRowIdToken}\"]:has(img[src=\"{Attribute(row.ValvePath)}\"])",
+
+                // And the binding editor's own grouping, which uses readable class names rather
+                // than generated ones — the same family as Panel and Focusable. Worth preferring
+                // wherever Steam offers it: this is the only anchor here that a CSS-module rebuild
+                // cannot rename.
+                $".{DialogSectionClass}:has(img[src=\"{Attribute(row.ValvePath)}\"])",
+            })
             .Distinct(StringComparer.Ordinal)
             .ToArray();
         if (selectors.Length == 0)

@@ -718,11 +718,18 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       Declaring absence explicitly was the previous model and it fails the way every
       allowlist-by-omission fails: the entry nobody remembered to add is the one that shows up on
       screen. The Claw profile lists no absent controls at all now.
-      Still worth taking from the reference rather than reinventing: it keys binding sub-rows off
-      `div[id*="EControllerModeInput ( 55 )-binding-"]` — Valve's own input enum inside an element
-      id, **stable across Steam builds**, unlike every hashed class this work had to chase — and it
-      gates hiding behind `@container style(--hiding-enabled: 1)` so it is a toggle rather than a
-      policy. Neither is adopted yet.
+      **Binding sub-rows are hidden too**, through the one build-independent hook in this whole
+      surface: Steam spells its own input enum into each row's id —
+      `modeid-7-input-unknown EControllerModeInput ( 55 )-binding-0` — where every other handle here
+      is a class the build rehashes. The reference pairs that token with a hardcoded number per
+      control; WSGM does not need to, because the row also carries the glyph for its own input, so
+      `[id*="EControllerModeInput"]:has(img[src="<valve glyph>"])` identifies it just as precisely
+      and works for any control on any device with no table to maintain. Measured on the reference
+      Claw: 55 -> `sd_l5.svg`, 56 -> `sd_r5.svg`, 57 -> `sd_l4.svg`, 58 -> `sd_r4.svg`,
+      51 -> `sd_button_view.svg`, 52 -> `sd_button_menu.svg`. Section rules alone could not reach
+      these — on the binding editor the section selectors match nothing at all.
+      Not adopted: the reference's `@container style(--hiding-enabled: 1)` gate, which makes hiding
+      a user toggle rather than a policy. WSGM hides whenever a profile is active.
 - [x] **Map the Claw's OEM buttons onto the virtual target's Steam and Quick Access buttons, in the
       plugin.** They are physical controller buttons and belong in the controller sample.
       `CanonicalButtons.Guide` and `CanonicalButtons.QuickAccess` both existed and
