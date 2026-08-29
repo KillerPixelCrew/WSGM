@@ -707,8 +707,26 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
 
 ### S10 — Finish the overlay without duplicating services
 
-- [ ] Complete Home, Steam, Device, and System navigation with Back/focus/scroll restoration.
-- [ ] Migrate every existing Home/Steam/System action to its page without reimplementing its service.
+- [x] Complete Home, Steam, Device, and System navigation with Back/focus/scroll restoration.
+      `OverlayNavigation` owns four destinations, a bounded eight-deep page stack that refuses a page
+      belonging to another destination, and one Back decision — popup, dialog, nested page, home,
+      close — in that order. `OverlayFocusMemory` keeps the semantic key and scroll offset per
+      destination without retaining a control, and each nested route carries the focus key it was
+      entered from, which `Pop` hands back.
+      One real gap fixed: the fallback branch of `LeaveNestedPage` popped bare, where every other pop
+      site restores focus from the returned key. It is reached by a nested page none of the named
+      branches claims — one added later, or a sub-view flag out of step with the stack — and left the
+      user at the top of the page they came back to.
+      Tests now pin the invariants the completion rests on rather than only the behaviours that
+      already had coverage: a pop hands back the key it was pushed with, a pop at a root is a no-op
+      that leaves the stack readable, and every destination has a root page while every page in the
+      enum is reachable from some destination — so a page added without being routed fails there
+      rather than when a user navigates to it.
+- [x] Migrate every existing Home/Steam/System action to its page without reimplementing its service.
+      Every action lives on its destination panel with a stable semantic `Tag` that is what focus
+      memory stores, and each handler calls the owning service rather than restating it — the shared
+      performance projection is reparented between System and Device rather than duplicated, and its
+      source keeps RTSS lifetime and state while the window only observes and invokes rows.
 - [ ] Complete Device Overview, Profiles, Power/Thermals, Controller/Motion, OEM,
       Lighting/Features, Glyph Preview/Input Test, and Diagnostics/Recovery. The eight sections now
       exist as navigable pages rather than headings in one scrolling list: `DeviceOverlaySection`

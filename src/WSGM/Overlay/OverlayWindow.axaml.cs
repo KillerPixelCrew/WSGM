@@ -883,7 +883,13 @@ public partial class OverlayWindow : Window
                     LeaveDeviceSection(leaving);
                     return true;
                 }
-                _navigation.Pop();
+
+                // Every branch above owns its own return focus. This is the fallback for a nested
+                // page none of them claimed — a page added later, or a sub-view flag that went out
+                // of step with the stack — and it has to restore focus like the rest of them.
+                // Popping bare would leave the user at the top of the page they came back to, with
+                // no indication of where they had been.
+                RestoreRootFocus(_navigation.Pop());
                 return true;
             case OverlayBackAction.ReturnHome:
                 SelectDestination(OverlayDestination.Home);

@@ -83,4 +83,64 @@ public sealed class OverlayNavigationTests
             new OverlayFocusState(null, 0),
             memory.Recall(OverlayDestination.Home));
     }
+
+    [Fact]
+    public void LeavingANestedPageHandsBackTheKeyItWasEnteredFrom()
+    {
+        // This is the whole of focus restoration for a nested page: the caller stores where it was
+        // on the way in, and Pop is what gives it back. A pop that discarded it would drop the user
+        // at the top of the page they returned to.
+        OverlayNavigation navigation = new();
+        navigation.Select(OverlayDestination.Steam);
+        Assert.True(navigation.Push(OverlayPage.SteamCardManager, "steam.cards"));
+
+        Assert.Equal("steam.cards", navigation.Pop());
+        Assert.Equal(OverlayPage.Steam, navigation.Page);
+    }
+
+    [Fact]
+    public void PoppingARootReturnsNothingAndLeavesTheDestinationIntact()
+    {
+        // Back at a destination root is not a pop — it is ReturnHome or CloseOverlay — so this must
+        // stay a no-op rather than emptying the stack and leaving Page with nothing to read.
+        OverlayNavigation navigation = new();
+        navigation.Select(OverlayDestination.System);
+
+        Assert.Null(navigation.Pop());
+        Assert.Equal(1, navigation.Depth);
+        Assert.Equal(OverlayPage.System, navigation.Page);
+    }
+
+    [Fact]
+    public void EveryDestinationHasARootPageAndEveryPageHasADestination()
+    {
+        // Both maps are exhaustive switches that throw on an unhandled value, so a page added to the
+        // enum without being routed fails here rather than at the moment a user navigates to it.
+        OverlayNavigation navigation = new();
+        navigation.SetDeviceVisible(true);
+        foreach (OverlayDestination destination in Enum.GetValues<OverlayDestination>())
+        {
+            Assert.True(navigation.Select(destination));
+            Assert.Equal(1, navigation.Depth);
+        }
+
+        foreach (OverlayPage page in Enum.GetValues<OverlayPage>())
+        {
+            // Select the destination this page belongs to, then prove the page is reachable from it.
+            // Push refuses a page whose destination is not current, so a successful push for every
+            // page is exactly the statement that every page is routed.
+            bool pushed = false;
+            foreach (OverlayDestination destination in Enum.GetValues<OverlayDestination>())
+            {
+                navigation.Select(destination);
+                if (navigation.Page == page || navigation.Push(page, null))
+                {
+                    pushed = true;
+                    break;
+                }
+            }
+
+            Assert.True(pushed, $"{page} is not reachable from any destination.");
+        }
+    }
 }
