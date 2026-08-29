@@ -491,7 +491,12 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       device involved; the 20 controller tests are written as trace shapes (sustained miss, settled
       descent, rejected probe, capped menu, transient heavy scene, telemetry gap, context change).
 - [ ] Validate live Steam context churn, focus/navigation, RTSS external edits/restart, AutoTDP
-      games/menus/scenes/suspend/manual override, performance, and cleanup.
+      games/menus/scenes/suspend/manual override, performance, and cleanup. Partly done on the
+      reference Claw on 2026-08-29: the shipping `RtssFrametimeReader` opens the live
+      `RTSSSharedMemoryV2` mapping from its own process and correctly reports no samples with nothing
+      hooked, and the layout is now an executable specification. Still needs a rendering game for a
+      real frametime read, and the whole AutoTDP loop needs power writes, which are hardware mutation
+      and stay attended.
 
 ### S9 — Complete physical glyphs as static plugin data
 
@@ -530,9 +535,16 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       method** — Valve resource names, selectors, stylesheet shape, injection — and **the plugin owns
       the glyphs**, with every emitted image coming from its imported profile as a data URI. WSGM
       ships no handheld artwork and no per-device stylesheet.
-      Remaining: visual acceptance on the reference unit, and re-verifying the two generated Steam
-      class names (`InlineLogoContainerClass`, `ControlRowClass`) after a Steam client update — the
-      patch probe already fails closed when either disappears.
+      Live-verified on the reference Claw on 2026-08-29 against the running client: both
+      build-coupled classes are present in this Steam build, the full install/verify/remove cycle
+      runs, all five emitted rule shapes parse (including both `:has()` selectors carrying the long
+      Steam-logo `d` attribute), the controller-image custom property resolves, and removal leaves no
+      owned node and touches no `.css-loader-style` node. That run also settled the probe design: the
+      classes match zero live elements unless a controller settings view is open, so compatibility is
+      read from the parsed stylesheets rather than from the DOM.
+      Remaining: visual acceptance with a real plugin profile on a controller settings screen
+      (artwork, orientation, scale), and re-verifying the two class names after a Steam client
+      update — the probe already fails closed when either disappears.
 - [x] Wire the dead activation path: `SteamUiSessionHost.ApplyGlyphDeliveryProfile` has zero
       callers, so tier enablement never leaves Disabled and every delivery patch is inert. Drive it
       from `DeviceCoordinator` when the active glyph profile loads or changes.

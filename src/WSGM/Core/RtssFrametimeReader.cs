@@ -27,6 +27,29 @@ internal interface IFrametimeSource
     IReadOnlyList<RtssFrametimeSample> ReadLive();
 }
 
+/// <summary>Random access to the mapped RTSS region.</summary>
+/// <remarks>
+/// A seam over the memory-mapped view, so the layout below can be exercised against a synthetic
+/// region. Without it the parsing is only reachable when RTSS happens to be running with a hooked
+/// application, which is exactly when a test cannot rely on it.
+/// </remarks>
+internal interface IRtssRegion
+{
+    /// <summary>Bytes available in the mapped region.</summary>
+    long Capacity { get; }
+
+    /// <summary>Reads one little-endian unsigned 32-bit value.</summary>
+    /// <param name="offset">Byte offset into the region.</param>
+    /// <returns>The value.</returns>
+    uint ReadUInt32(long offset);
+
+    /// <summary>Reads a run of bytes.</summary>
+    /// <param name="offset">Byte offset into the region.</param>
+    /// <param name="buffer">Destination buffer.</param>
+    /// <param name="count">Number of bytes to read.</param>
+    void ReadBytes(long offset, byte[] buffer, int count);
+}
+
 /// <summary>
 /// Reads frametimes from RTSS's own shared memory.
 /// </summary>
@@ -112,24 +135,50 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
 
     private IReadOnlyList<RtssFrametimeSample> ReadLiveCore()
     {
-        MemoryMappedViewAccessor view = _view!;
-        if (view.ReadUInt32(0) != Signature || view.ReadUInt32(HeaderVersionOffset) < MinimumVersion)
+        IReadOnlyList<RtssFrametimeSample> live = Parse(
+            new AccessorRegion(_view!),
+            Environment.TickCount64,
+            out bool incompatible);
+        if (incompatible)
         {
             Close();
+        }
+
+        return live;
+    }
+
+    /// <summary>
+    /// Parses the RTSS application table out of a mapped region.
+    /// </summary>
+    /// <param name="region">The mapped region.</param>
+    /// <param name="nowTicks">Current <see cref="Environment.TickCount64"/>.</param>
+    /// <param name="incompatible">Set when the region is not an RTSS mapping this build understands.</param>
+    /// <returns>Applications currently delivering frames.</returns>
+    internal static IReadOnlyList<RtssFrametimeSample> Parse(
+        IRtssRegion region,
+        long nowTicks,
+        out bool incompatible)
+    {
+        ArgumentNullException.ThrowIfNull(region);
+        incompatible = false;
+        if (region.ReadUInt32(0) != Signature
+            || region.ReadUInt32(HeaderVersionOffset) < MinimumVersion)
+        {
+            incompatible = true;
             return [];
         }
 
-        uint entrySize = view.ReadUInt32(HeaderAppEntrySizeOffset);
-        uint arrayOffset = view.ReadUInt32(HeaderAppArrOffsetOffset);
-        uint arraySize = view.ReadUInt32(HeaderAppArrSizeOffset);
+        uint entrySize = region.ReadUInt32(HeaderAppEntrySizeOffset);
+        uint arrayOffset = region.ReadUInt32(HeaderAppArrOffsetOffset);
+        uint arraySize = region.ReadUInt32(HeaderAppArrSizeOffset);
         if (entrySize < MinimumEntrySize || arraySize == 0)
         {
             return [];
         }
 
-        long capacity = view.Capacity;
+        long capacity = region.Capacity;
         int count = (int)Math.Min(arraySize, MaximumEntries);
-        long now = Environment.TickCount64;
+        long now = nowTicks;
         List<RtssFrametimeSample> live = [];
         byte[] name = new byte[EntryNameLength];
         for (int index = 0; index < count; index++)
@@ -140,10 +189,10 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
                 break;
             }
 
-            uint processId = view.ReadUInt32(entry);
-            uint time0 = view.ReadUInt32(entry + EntryTime0Offset);
-            uint time1 = view.ReadUInt32(entry + EntryTime1Offset);
-            uint frames = view.ReadUInt32(entry + EntryFramesOffset);
+            uint processId = region.ReadUInt32(entry);
+            uint time0 = region.ReadUInt32(entry + EntryTime0Offset);
+            uint time1 = region.ReadUInt32(entry + EntryTime1Offset);
+            uint frames = region.ReadUInt32(entry + EntryFramesOffset);
             if (processId == 0 || frames == 0 || time1 == 0 || time1 <= time0)
             {
                 continue;
@@ -158,7 +207,7 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
                 continue;
             }
 
-            view.ReadArray(entry + EntryNameOffset, name, 0, EntryNameLength);
+            region.ReadBytes(entry + EntryNameOffset, name, EntryNameLength);
             live.Add(new RtssFrametimeSample(
                 processId,
                 DecodeName(name),
@@ -174,6 +223,16 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
     {
         int length = Array.IndexOf(name, (byte)0);
         return Encoding.ASCII.GetString(name, 0, length < 0 ? name.Length : length);
+    }
+
+    private sealed class AccessorRegion(MemoryMappedViewAccessor view) : IRtssRegion
+    {
+        public long Capacity => view.Capacity;
+
+        public uint ReadUInt32(long offset) => view.ReadUInt32(offset);
+
+        public void ReadBytes(long offset, byte[] buffer, int count) =>
+            view.ReadArray(offset, buffer, 0, count);
     }
 
     private bool TryOpen()

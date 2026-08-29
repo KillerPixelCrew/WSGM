@@ -90,6 +90,27 @@ is. The patch probe checks both before installing anything, so a Steam rebuild t
 disables glyph delivery and keeps native Valve rendering instead of installing rules that match
 nothing.
 
+**Live-verified 2026-08-29 on the reference Claw against the running client
+(Chrome/126.0.6478.183).** The full install/verify/remove cycle was exercised with a stylesheet in
+the exact shape the emitter produces:
+
+- Both build-coupled classes are present in this build — `_2mL2HfT5AkDXRi1YBnRWKa` in 8 rules and
+  `_3Jfd85nK4bKoNf_gCSTX6U` in 1 — found by scanning `document.styleSheets`.
+- All five rules parsed, none silently dropped: both `:has()` selectors carrying the full Steam-logo
+  `d` attribute, the grouped `img[src=…]` overrides, the `:root` block, and the row-hiding rule.
+- The controller-image custom property resolved to its data URI through `getComputedStyle`.
+- Removal left no owned node behind and touched no `.css-loader-style` node.
+
+**Probe the stylesheets, not the DOM.** At the moment of the check the classes matched **zero live
+elements** and there were **zero** `/steaminputglyphs/` images on screen, because those nodes exist
+only while a controller settings or configurator view is open. A compatibility probe that looked for
+live elements would therefore report the patch incompatible whenever the user happens not to be on
+that screen, which is almost always. WSGM's probe reads the parsed CSS rules instead, which is why
+it gives the same answer regardless of what the user is looking at.
+
+What this does not yet cover is visual acceptance: correct artwork, orientation, and scale with a
+real plugin profile on a controller settings screen. That remains the attended item.
+
 The tier payload builder accepts only already-imported reviewed profiles, resolves Valve resource
 names through WSGM's compiled semantic map, and re-emits only the importer's hash-checked SVG/PNG
 bytes as bounded data references. It never accepts a plugin path, URL, stylesheet, selector, or

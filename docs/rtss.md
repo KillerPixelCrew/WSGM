@@ -76,6 +76,19 @@ their low 32 bits so a 49.7-day wrap cannot produce a huge age, and an absent, t
 unexpected-version mapping simply yields no samples. RTSS running elevated while WSGM is not is one
 of those cases and is not an error.
 
+The parsing sits behind an `IRtssRegion` seam so the layout is exercised as an executable
+specification (`RtssFrametimeReaderTests`), including the measured 1 fps case above. That seam earns
+its place: the live path only produces data while RTSS happens to have a rendering application
+hooked, so without it the parsing would be untestable in exactly the situation a test runs in.
+
+**Verification status on the reference Claw, 2026-08-29.** The layout, the tick base, and the
+frames/interval mean are device-verified as described above. The shipping reader was then run
+against the live RTSS from its own process: it opens the mapping (signature `RTSS`,
+`dwVersion 0x00020015`, 5,578,752 bytes) and returns no samples while RTSS has nothing hooked — the
+correct answer, and confirmation that an empty result is not masking a failed open. **A frametime
+read from an actually rendering game has not been performed yet**; RTSS only creates an application
+entry once a hooked 3D application draws, so that step needs a game running and remains attended.
+
 `AutoTdpController` holds the whole control policy and is pure: every input is an argument, every
 decision is a return value, and `AutoTdpReplay` runs a recorded trace through it with no device
 involved. That is the regression harness for this feature — an oscillation reported from a handheld
