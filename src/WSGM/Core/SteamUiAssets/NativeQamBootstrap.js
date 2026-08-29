@@ -529,6 +529,32 @@
     };
     const isBusy = (progress) =>
       progress === "queued" || progress === "applying" || progress === "replacing";
+    /// Lets a controlled slider follow the user's input before the hardware confirms it.
+    ///
+    /// These sliders are controlled by the observed hardware value, so with a no-op onChange the
+    /// handle snapped back to that value on every render: dragging did nothing at all, and a single
+    /// press moved exactly one step because only onChangeComplete ever committed. The echo holds
+    /// what the user is pointing at until the release, then clears so the observed value governs
+    /// again — including when the device refuses the write and the handle must spring back to what
+    /// the hardware really is.
+    const useEchoedValue = (controlRuntime, observed) => {
+      const [echo, setEcho] = controlRuntime.react.useState(null);
+      const [echoOf, setEchoOf] = controlRuntime.react.useState(observed);
+      // A new observation supersedes an echo taken against the previous one; without this the
+      // handle would keep showing a value the hardware had already moved away from.
+      if (echoOf !== observed) {
+        setEchoOf(observed);
+        if (echo !== null) setEcho(null);
+      }
+      return {
+        value: echo ?? observed,
+        onChange: (next) => setEcho(typeof next === "number" ? next : null),
+        onChangeComplete: (next, commit) => {
+          setEcho(null);
+          commit(next);
+        },
+      };
+    };
     // Steam's localizer returns the token itself when it has no string for it, which is truthy and
     // would render "#QuickAccess_..." as a label. Live-verified 2026-08-29: a known token localizes,
     // an unknown one comes straight back.
@@ -538,17 +564,32 @@
     // the rows finally rendering on the reference Claw, "#QuickAccess_Tab_Perf_FramerateLimit" and
     // "#QuickAccess_Tab_Perf_PerfOverlayLevel" both came back raw and were shown to the user as
     // their token text. A bare localize() call here is a bug waiting for the next missing string.
+    // Steam's localizer does not return a string. It returns a React element wrapping one, so
+    // `typeof text === "string"` was false for every token and every WSGM label fell back to its
+    // English default while Steam's own rows beside them were in the user's language. The element
+    // is what should be handed to the field — only the "#" test needs the text inside it.
+    const textOf = (value) => {
+      if (typeof value === "string") return value;
+      return value && typeof value === "object" && typeof value.props?.children === "string"
+        ? value.props.children
+        : null;
+    };
     const localizeOr = (controlRuntime, token, fallback) => {
-      const text = controlRuntime.localize(token);
-      return typeof text === "string" && text.length > 0 && text[0] !== "#" ? text : fallback;
+      const localized = controlRuntime.localize(token);
+      const text = textOf(localized);
+      return text && text.length > 0 && text[0] !== "#" ? localized : fallback;
     };
     const createTdpControl = (controlRuntime) =>
       function WsgmNativeTdpControl() {
         const state = useSemanticState(controlRuntime, "tdp", normalizeTdpState);
+        // Both hooks run before any early return: a control that renders nothing until its state
+        // arrives would otherwise change its hook count the moment it does, which React treats as a
+        // fatal error and would take the whole panel down with it.
+        const value = state ? (state.observedWatts ?? state.desiredWatts) : null;
+        const echoed = useEchoedValue(controlRuntime, value);
         if (!state) return note("tdp", "no state");
         if (!state.available)
           return note("tdp", "unavailable: " + (state.statusText || "no reason"));
-        const value = state.observedWatts ?? state.desiredWatts;
         if (value === null) return note("tdp", "no observed or desired watts");
         renderOutcomes.tdp = "rendered";
         const definition = definitions.tdp;
@@ -578,13 +619,13 @@
           min: state.minimumWatts,
           max: state.maximumWatts,
           step: state.stepWatts,
-          value,
+          value: echoed.value,
           showValue: true,
           showBookendLabels: true,
           disabled: isBusy(state.progress),
           description: state.statusText || undefined,
-          onChange: () => {},
-          onChangeComplete: setValue,
+          onChange: echoed.onChange,
+          onChangeComplete: (next) => echoed.onChangeComplete(next, setValue),
         });
       };
     const createAutoTdpControl = (controlRuntime) =>
@@ -675,10 +716,11 @@
     const createFrameLimitControl = (controlRuntime) =>
       function WsgmNativeFrameLimitControl() {
         const state = useSemanticState(controlRuntime, "frameLimit", normalizeFrameLimitState);
+        const value = state ? (state.observedFps ?? state.desiredFps) : null;
+        const echoed = useEchoedValue(controlRuntime, value);
         if (!state) return note("frameLimit", "no state");
         if (!state.available)
           return note("frameLimit", "unavailable: " + (state.statusText || "no reason"));
-        const value = state.observedFps ?? state.desiredFps;
         if (value === null) return note("frameLimit", "no observed or desired fps");
         renderOutcomes.frameLimit = "rendered";
         const definition = definitions.frameLimit;
@@ -705,14 +747,14 @@
           min: state.minimumFps,
           max: state.maximumFps,
           step: 1,
-          value,
+          value: echoed.value,
           valueSuffix: " FPS",
           showValue: true,
           showBookendLabels: true,
           disabled: isBusy(state.progress),
           description: state.fault || state.statusText || undefined,
-          onChange: () => {},
-          onChangeComplete: setValue,
+          onChange: echoed.onChange,
+          onChangeComplete: (next) => echoed.onChangeComplete(next, setValue),
         });
       };
     const createOverlayLevelControl = (controlRuntime) =>
@@ -766,8 +808,10 @@
     /// Removes the native rows whose label matches one of the tokens above.
     const hideNativeRows = (controlRuntime, element, labels, depth) => {
       if (depth > 10 || !controlRuntime.react.isValidElement(element)) return element;
-      const label = element.props && element.props.label;
-      if (typeof label === "string" && labels.includes(label)) {
+      // Compared as text on both sides, because a label is a localiser element rather than a
+      // string. Matching on the raw prop found nothing at all.
+      const label = textOf(element.props && element.props.label);
+      if (label !== null && labels.includes(label)) {
         lastHidden++;
         return null;
       }
@@ -791,7 +835,7 @@
     const withNativeRowsHidden = (controlRuntime, tree) => {
       const inner = tree && tree.type;
       if (typeof inner !== "function") return tree;
-      const labels = NativeFpsTokens.map((token) => controlRuntime.localize(token)).filter(
+      const labels = NativeFpsTokens.map((token) => textOf(controlRuntime.localize(token))).filter(
         (text) => typeof text === "string" && text.length > 0 && text[0] !== "#",
       );
       if (!labels.length) return tree;
