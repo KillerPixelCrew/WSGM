@@ -805,15 +805,44 @@
     ];
     let filteredNative = null;
     let lastHidden = 0;
+    // Wrappers that carry the filter into a component's own render output, cached against the
+    // component so React keeps seeing one stable type per original and never remounts the subtree.
+    const descendCache = new WeakMap();
     /// Removes the native rows whose label matches one of the tokens above.
+    ///
+    /// Descends through RENDERED output, not just props.children. The rows sit about ten levels
+    /// inside Steam's panel behind component elements, and a component's children do not exist
+    /// until React renders it — so a walk over props.children alone reaches nothing, which is why
+    /// the filter previously ran and hid zero rows. Each function component met on the way down is
+    /// replaced by a wrapper that renders the original and filters what it returns, which is the
+    /// same mechanism Decky's createReactTreePatcher uses to reach into this panel.
     const hideNativeRows = (controlRuntime, element, labels, depth) => {
-      if (depth > 10 || !controlRuntime.react.isValidElement(element)) return element;
-      // Compared as text on both sides, because a label is a localiser element rather than a
-      // string. Matching on the raw prop found nothing at all.
+      if (depth > 12 || !controlRuntime.react.isValidElement(element)) return element;
+      // Compared as text on both sides: a label is sometimes a localiser element and sometimes a
+      // plain string, and matching the raw prop found nothing at all.
       const label = textOf(element.props && element.props.label);
       if (label !== null && labels.includes(label)) {
         lastHidden++;
         return null;
+      }
+      const type = element.type;
+      if (typeof type === "function" && !type.prototype?.isReactComponent) {
+        // A plain function component: render it through a wrapper so its output is filtered too.
+        // Class components, memo and forwardRef objects are left alone — they cannot be called
+        // directly, and wrapping them would change identity for refs.
+        let wrapper = descendCache.get(type);
+        if (!wrapper) {
+          wrapper = function WsgmNativeQamDescend(props) {
+            return hideNativeRows(controlRuntime, type(props), labels, 0);
+          };
+          descendCache.set(type, wrapper);
+        }
+        // The key rides along explicitly: it lives on the element, not in props, and dropping it
+        // would re-key this node inside its parent's child list on every render.
+        return controlRuntime.react.createElement(
+          wrapper,
+          element.key === null ? element.props : { ...element.props, key: element.key },
+        );
       }
       const kids = controlRuntime.react.Children.toArray(element.props?.children);
       if (!kids.length) return element;
