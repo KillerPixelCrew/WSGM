@@ -46,7 +46,21 @@ internal static partial class NativeAuthenticode
                 UnionChoice = WtdChoiceFile,
                 File = &file,
                 StateAction = WtdStateActionIgnore,
-                ProviderFlags = WtdRevocationCheckChainExcludeRoot | WtdLifetimeSigningFlag,
+                // Deliberately WITHOUT WTD_LIFETIME_SIGNING_FLAG. That flag rejects a signature once
+                // its certificate expires even when the signature was properly countersigned, which
+                // is a policy for verifying signatures you control — not for identifying somebody
+                // else's shipped software. Applied to a third party it fails eventually and
+                // unavoidably: every binary outlives the certificate it was signed with.
+                //
+                // It already had. RTSS 7.3.5 as MSI ships it is signed by Micro-Star with a
+                // certificate that expired on 2025-10-16 and is timestamped by GlobalSign, so
+                // Windows itself reports the signature as valid while WSGM called the installation
+                // "incompatible" and refused every performance control on the device
+                // (device-observed on the reference Claw, 2026-08-29).
+                //
+                // What is still enforced is what actually matters: a trusted chain, an intact
+                // signature over these exact bytes, and whole-chain revocation.
+                ProviderFlags = WtdRevocationCheckChainExcludeRoot,
             };
             Guid action = GenericVerifyV2;
             return WinVerifyTrust(0, ref action, ref data);

@@ -33,6 +33,9 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     private readonly Dictionary<DeviceCapabilityKey, CapabilityValue> _temporaryDesired = [];
     private readonly Dictionary<DeviceCapabilityKey, CapabilityCommandResult> _lastResults = [];
     private readonly Dictionary<DeviceCapabilityKey, CapabilityValue> _pendingValues = [];
+
+    /// <summary>Last logged availability per capability, so only changes are written.</summary>
+    private readonly Dictionary<DeviceCapabilityKey, bool> _availability = [];
     private readonly Dictionary<DeviceCapabilityKey, SemaphoreSlim> _commandGates = [];
     private readonly Dictionary<Guid, DeviceCapabilityKey> _timedOutCommands = [];
     private CapabilityStateTracker _states;
@@ -426,7 +429,8 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                     _cycleGeneration,
                     out error))
             {
-                Log.Warn($"Device capability state rejected: {error ?? "invalid sequence or key"}.");
+                Log.Warn($"Device capability state rejected: key={key}, "
+                    + $"{error ?? "invalid sequence or key"}");
                 return;
             }
 
@@ -436,9 +440,47 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 Log.Warn($"Device capability delta rejected: key={key}, reason={rejection}.");
                 return;
             }
+
+            LogAvailabilityChange(key, delta.State);
         }
 
         Publish();
+    }
+
+    /// <summary>Logs a capability becoming available or unavailable, with the plugin's own reason.</summary>
+    /// <param name="key">The capability that changed.</param>
+    /// <param name="state">The state just applied.</param>
+    /// <remarks>
+    /// The plugin already says exactly why a capability is unavailable — a gated firmware revision,
+    /// a missing prerequisite, a topology it could not match — and WSGM was throwing every one of
+    /// those away. A device reporting itself "partly available" with no record of which parts or
+    /// why cannot be diagnosed from a pasted log, which is the only way most of these devices are
+    /// reachable. Logged on change so a capability that is simply unavailable does not repeat.
+    /// <para>
+    /// Called under <c>_gate</c>, after the delta is accepted, so what is logged is what was
+    /// actually applied rather than what arrived.
+    /// </para>
+    /// </remarks>
+    private void LogAvailabilityChange(DeviceCapabilityKey key, CapabilityState state)
+    {
+        bool previous = _availability.TryGetValue(key, out bool known) && known;
+        bool first = !_availability.ContainsKey(key);
+        _availability[key] = state.Available;
+        if (!first && previous == state.Available)
+        {
+            return;
+        }
+
+        if (state.Available)
+        {
+            Log.Info($"Device capability available: {key}.");
+            return;
+        }
+
+        string reason = state.Reason?.Detail is { Length: > 0 } detail
+            ? $"{state.Reason.Code}: {detail}"
+            : state.Reason?.Code.ToString() ?? "no reason given";
+        Log.Warn($"Device capability unavailable: {key} — {reason}");
     }
 
     private void OnLateCommandResult(CapabilityCommandResult result)
