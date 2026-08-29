@@ -41,6 +41,13 @@ public sealed class SteamUiBridgeAuthorizer
         new Dictionary<string, string[]>(StringComparer.Ordinal)
         {
             ["wsgm.native-qam.tdp"] = ["setPrimaryLimit"],
+
+            // The bootstrap declares this component with command "setAutoTdp" and its control
+            // subscribes to the patch id on mount. The id was missing here, and the JS gate is
+            // `Object.hasOwn(config.allowed, patchId)` for subscriptions as well as commands, so
+            // the AutoTDP row threw "subscription not allowlisted" every time it rendered — the one
+            // native-QAM control that could never receive state.
+            ["wsgm.native-qam.auto-tdp"] = ["setAutoTdp"],
             ["wsgm.native-qam.frame-limit"] = ["setFrameLimit"],
             ["wsgm.native-qam.overlay-level"] = ["setOverlayLevel"],
             ["wsgm.native-qam.controller-target"] = ["setControllerTarget"],

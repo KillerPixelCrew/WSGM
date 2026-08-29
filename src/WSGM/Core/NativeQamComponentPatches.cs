@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading;
@@ -373,11 +374,19 @@ public abstract class NativeQamComponentPatch : ISteamUiPatch
             + SteamCef.JsString(ComponentKind)
             + ");return JSON.stringify({ok:status.ok&&status.registered"
             + "&&status.hostVersion===1&&status.performanceRootWrapped,status});})()";
-        return await EvaluateOutcomeAsync(
+        SteamUiPatchOperationResult result = await EvaluateOutcomeAsync(
             context,
             expression,
             "Native-QAM component verification failed.",
             cancellationToken).ConfigureAwait(false);
+
+        // Verification asks whether the component registered and the performance root is wrapped.
+        // Both can be true while the Quick Access panel shows nothing, because the rows are only
+        // inserted if the tree Steam renders contains the section they attach to — and on Windows
+        // Steam does not render the SteamOS-gated performance blocks at all. Reporting the append
+        // outcome is what separates "WSGM did not run" from "WSGM ran and found nowhere to put it".
+        await LogAppendOutcomeAsync(context, cancellationToken).ConfigureAwait(false);
+        return result;
     }
 
     /// <inheritdoc />
@@ -411,6 +420,44 @@ public abstract class NativeQamComponentPatch : ISteamUiPatch
             expression,
             fallback,
             cancellationToken);
+
+    /// <summary>Reports what the last row-insertion attempt actually achieved.</summary>
+    /// <param name="context">The live patch context.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <remarks>
+    /// Read-only, and deliberately best-effort: a diagnostic that could fail verification would
+    /// make the log a liability. Keyed per component through <see cref="Log.Change"/>, so a steady
+    /// outcome is stated once and a change in it is stated again.
+    /// </remarks>
+    private async Task LogAppendOutcomeAsync(
+        SteamUiPatchContext context,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            string expression = "(()=>{const b=window[" + SteamCef.JsString(BridgeNamespace)
+                + "];if(!b||!b.nativeComponents)return JSON.stringify({error:'bridge unavailable'});"
+                + "const s=b.nativeComponents.status(" + SteamCef.JsString(ComponentKind) + ");"
+                + "return JSON.stringify({append:s.lastAppend||{never:true},"
+                + "rows:s.renderOutcomes,toggle:s.toggleResolved});})()";
+            SteamUiEvaluationResult evaluation = await context.EvaluateAsync(
+                SteamUiTargetRole.SharedJsContext,
+                expression,
+                cancellationToken).ConfigureAwait(false);
+            if (!evaluation.Reachable || evaluation.Value is null)
+            {
+                return;
+            }
+
+            Log.Change(
+                "steam.ui.append." + Id,
+                $"Native-QAM rows for {Id}: {evaluation.Value}");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log.Change("steam.ui.append.error." + Id, $"Native-QAM row report failed: {ex.Message}");
+        }
+    }
 
     private static bool IsOne(JsonElement root, string property) =>
         SteamUiPatchEvaluation.IsOne(root, property);

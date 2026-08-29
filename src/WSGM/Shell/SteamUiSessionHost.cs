@@ -309,6 +309,18 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             && presentation is not null
             && (presentation.StableResources.Count > 0
                 || presentation.ControllerImages.Count > 0);
+
+        // Three independent conditions, and failing any of them leaves the Steam Input page showing
+        // Valve's Steam Deck artwork instead of the handheld's own. The patch then reports itself
+        // Disabled, which is honest but says nothing about which condition was missing — the
+        // setting, a profile that never resolved, or a profile that resolved with nothing to draw.
+        Log.Change(
+            "steam.ui.glyphs",
+            $"Steam Input glyph delivery {(deliver ? "enabled" : "disabled")}: "
+                + $"setting={_glyphsEnabled}, profile={presentation is not null}, "
+                + $"stableResources={presentation?.StableResources.Count ?? 0}, "
+                + $"controllerImages={presentation?.ControllerImages.Count ?? 0}",
+            deliver ? "info " : "warn ");
         _patches.SetPatchEnabled(GlyphStylePatchId, deliver);
         _glyphDeliveryEnabled = deliver;
     }

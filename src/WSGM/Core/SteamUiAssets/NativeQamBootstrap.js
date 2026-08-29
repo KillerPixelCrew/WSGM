@@ -151,6 +151,18 @@
     let originalUseMemo;
     let patchedUseMemo;
     let disposedHost = false;
+    // What the last append attempt actually did, surfaced through status(). Without it a panel that
+    // inserted nothing was indistinguishable from a bridge that never ran.
+    let lastAppend = null;
+    // Why each control did or did not draw. A control that renders null leaves no trace anywhere:
+    // the row is built and appended, the panel simply has one fewer child, and every other signal
+    // still reports success. This is the difference between "WSGM did not add it" and "WSGM added
+    // it and the device had nothing to show".
+    const renderOutcomes = {};
+    const note = (kind, reason) => {
+      renderOutcomes[kind] = reason;
+      return null;
+    };
     const definitions = Object.freeze({
       tdp: Object.freeze({
         patchId: "wsgm.native-qam.tdp",
@@ -491,8 +503,13 @@
       progress === "queued" || progress === "applying" || progress === "replacing";
     // Steam's localizer returns the token itself when it has no string for it, which is truthy and
     // would render "#QuickAccess_..." as a label. Live-verified 2026-08-29: a known token localizes,
-    // an unknown one comes straight back. That matters for anything WSGM adds — Valve has no token
-    // for a WSGM feature — and it also protects the Valve-token calls if one is ever retired.
+    // an unknown one comes straight back.
+    //
+    // EVERY label goes through this, not only the WSGM-invented ones. The Valve performance tokens
+    // are SteamOS strings and are not all present in the Windows client's localization set: with
+    // the rows finally rendering on the reference Claw, "#QuickAccess_Tab_Perf_FramerateLimit" and
+    // "#QuickAccess_Tab_Perf_PerfOverlayLevel" both came back raw and were shown to the user as
+    // their token text. A bare localize() call here is a bug waiting for the next missing string.
     const localizeOr = (controlRuntime, token, fallback) => {
       const text = controlRuntime.localize(token);
       return typeof text === "string" && text.length > 0 && text[0] !== "#" ? text : fallback;
@@ -500,9 +517,12 @@
     const createTdpControl = (controlRuntime) =>
       function WsgmNativeTdpControl() {
         const state = useSemanticState(controlRuntime, "tdp", normalizeTdpState);
-        if (!state || !state.available) return null;
+        if (!state) return note("tdp", "no state");
+        if (!state.available)
+          return note("tdp", "unavailable: " + (state.statusText || "no reason"));
         const value = state.observedWatts ?? state.desiredWatts;
-        if (value === null) return null;
+        if (value === null) return note("tdp", "no observed or desired watts");
+        renderOutcomes.tdp = "rendered";
         const definition = definitions.tdp;
         const setValue = (watts) => {
           if (!Number.isInteger(watts) || watts < state.minimumWatts || watts > state.maximumWatts)
@@ -515,10 +535,18 @@
           ).catch(() => {});
         };
         return controlRuntime.react.createElement(controlRuntime.slider, {
-          label: controlRuntime.localize("#QuickAccess_Tab_Perf_TDPLimitEnabled"),
-          explainer: controlRuntime.localize("#QuickAccess_Tab_Perf_TDPLimit_Explainer"),
-          explainerTitle: controlRuntime.localize("#QuickAccess_Tab_Perf_TDPLimitEnabled"),
-          valueSuffix: controlRuntime.localize("#QuickAccess_Tab_Perf_TDPLimitUnits"),
+          label: localizeOr(controlRuntime, "#QuickAccess_Tab_Perf_TDPLimitEnabled", "TDP limit"),
+          explainer: localizeOr(
+            controlRuntime,
+            "#QuickAccess_Tab_Perf_TDPLimit_Explainer",
+            "Sets the sustained power limit for the processor.",
+          ),
+          explainerTitle: localizeOr(
+            controlRuntime,
+            "#QuickAccess_Tab_Perf_TDPLimitEnabled",
+            "TDP limit",
+          ),
+          valueSuffix: localizeOr(controlRuntime, "#QuickAccess_Tab_Perf_TDPLimitUnits", "W"),
           min: state.minimumWatts,
           max: state.maximumWatts,
           step: state.stepWatts,
@@ -534,7 +562,13 @@
     const createAutoTdpControl = (controlRuntime) =>
       function WsgmNativeAutoTdpControl() {
         const state = useSemanticState(controlRuntime, "autoTdp", normalizeAutoTdpState);
-        if (!state || !state.available || !controlRuntime.toggle) return null;
+        if (!state) return note("autoTdp", "no state");
+        if (!state.available)
+          return note("autoTdp", "unavailable: " + (state.statusText || "no reason"));
+        // Deliberately outside createControlRuntime's guard, so a client whose ToggleField cannot
+        // be located loses only this row. That silence is exactly what needed a name.
+        if (!controlRuntime.toggle) return note("autoTdp", "Steam ToggleField was not resolved");
+        renderOutcomes.autoTdp = "rendered";
         const definition = definitions.autoTdp;
         const setEnabled = (enabled) => {
           if (typeof enabled !== "boolean" || enabled === state.enabled) return;
@@ -570,12 +604,19 @@
           "controllerTarget",
           normalizeControllerState,
         );
-        if (!state || !state.available) return null;
+        if (!state) return note("controllerTarget", "no state");
+        if (!state.available)
+          return note("controllerTarget", "unavailable: " + (state.statusText || "no reason"));
         const options = state.targets
           .filter((target) => target.available)
           .map((target) => ({ data: target.id, label: target.label }));
         const selected = state.observedTarget || state.selectedTarget;
-        if (!options.some((option) => option.data === selected)) return null;
+        if (!options.some((option) => option.data === selected))
+          return note(
+            "controllerTarget",
+            `selected '${selected}' is not among ${options.length} available target(s)`,
+          );
+        renderOutcomes.controllerTarget = "rendered";
         const definition = definitions.controllerTarget;
         const setTarget = (option) => {
           if (!option || !options.some((candidate) => candidate.data === option.data)) return;
@@ -590,7 +631,11 @@
           ? " Restart the application to rebind."
           : "";
         return controlRuntime.react.createElement(controlRuntime.dropdown, {
-          label: controlRuntime.localize("#QuickAccess_Tab_Settings_Section_Controller_Title"),
+          label: localizeOr(
+            controlRuntime,
+            "#QuickAccess_Tab_Settings_Section_Controller_Title",
+            "Controller",
+          ),
           rgOptions: options,
           selectedOption: selected,
           onChange: setTarget,
@@ -602,9 +647,12 @@
     const createFrameLimitControl = (controlRuntime) =>
       function WsgmNativeFrameLimitControl() {
         const state = useSemanticState(controlRuntime, "frameLimit", normalizeFrameLimitState);
-        if (!state || !state.available) return null;
+        if (!state) return note("frameLimit", "no state");
+        if (!state.available)
+          return note("frameLimit", "unavailable: " + (state.statusText || "no reason"));
         const value = state.observedFps ?? state.desiredFps;
-        if (value === null) return null;
+        if (value === null) return note("frameLimit", "no observed or desired fps");
+        renderOutcomes.frameLimit = "rendered";
         const definition = definitions.frameLimit;
         const setValue = (nextValue) => {
           if (
@@ -621,7 +669,11 @@
           ).catch(() => {});
         };
         return controlRuntime.react.createElement(controlRuntime.slider, {
-          label: controlRuntime.localize("#QuickAccess_Tab_Perf_FramerateLimit"),
+          label: localizeOr(
+            controlRuntime,
+            "#QuickAccess_Tab_Perf_FramerateLimit",
+            "Frame rate limit",
+          ),
           min: state.minimumFps,
           max: state.maximumFps,
           step: 1,
@@ -638,9 +690,13 @@
     const createOverlayLevelControl = (controlRuntime) =>
       function WsgmNativeOverlayLevelControl() {
         const state = useSemanticState(controlRuntime, "overlayLevel", normalizeOverlayLevelState);
-        if (!state || !state.available) return null;
+        if (!state) return note("overlayLevel", "no state");
+        if (!state.available)
+          return note("overlayLevel", "unavailable: " + (state.statusText || "no reason"));
         const selected = state.observedLevel ?? state.desiredLevel;
-        if (selected === null || !state.levels.includes(selected)) return null;
+        if (selected === null || !state.levels.includes(selected))
+          return note("overlayLevel", `level ${selected} is not among [${state.levels}]`);
+        renderOutcomes.overlayLevel = "rendered";
         const options = state.levels.map((level) => ({
           data: level,
           label: level === 0 ? "Off" : level === 1 ? "On" : String(level),
@@ -656,7 +712,11 @@
           ).catch(() => {});
         };
         return controlRuntime.react.createElement(controlRuntime.dropdown, {
-          label: controlRuntime.localize("#QuickAccess_Tab_Perf_PerfOverlayLevel"),
+          label: localizeOr(
+            controlRuntime,
+            "#QuickAccess_Tab_Perf_PerfOverlayLevel",
+            "Performance overlay",
+          ),
           rgOptions: options,
           selectedOption: selected,
           onChange: setValue,
@@ -715,26 +775,31 @@
           ),
         );
       }
-      if (!controls.length) return tree;
-      let inserted = false;
-      const visit = (element, depth) => {
-        if (inserted || depth > 8 || !controlRuntime.react.isValidElement(element)) return element;
-        if (element.type === controlRuntime.section) {
-          inserted = true;
-          const children = controlRuntime.react.Children.toArray(element.props.children);
-          return controlRuntime.react.cloneElement(element, {}, ...children, ...controls);
-        }
-        const children = controlRuntime.react.Children.toArray(element.props.children);
-        if (!children.length) return element;
-        let changed = false;
-        const next = children.map((child) => {
-          const replacement = visit(child, depth + 1);
-          changed ||= replacement !== child;
-          return replacement;
-        });
-        return changed ? controlRuntime.react.cloneElement(element, {}, ...next) : element;
-      };
-      return visit(tree, 0);
+      if (!controls.length) {
+        lastAppend = { controls: 0, inserted: false, ownSection: false };
+        return tree;
+      }
+      // WSGM's rows go into a PanelSection of their own, appended after whatever the native
+      // performance panel rendered.
+      //
+      // The previous implementation searched the tree for a component identical to
+      // controlRuntime.section and inserted into it. That could never work, on any OS: `tree` is
+      // the ELEMENT returned by performanceRoot(props), and an element's props.children holds only
+      // what was passed IN, never what its component produces when React renders it. Steam's
+      // section exists only after that rendering, so the walk terminated on a root with no
+      // children — measured on the reference Claw as depthReached 0, sectionSeen false, with the
+      // section component itself resolved and all five rows built. It failed silently, which is
+      // why an empty Quick Access panel survived so long: every other signal said success.
+      //
+      // Appending a section instead depends on nothing about Steam's internal tree shape, so it
+      // cannot be broken by a Steam UI change or by the fields Windows hides.
+      const own = controlRuntime.react.createElement(
+        controlRuntime.section,
+        { key: "wsgm-native-qam-section" },
+        ...controls,
+      );
+      lastAppend = { controls: controls.length, inserted: true, ownSection: true };
+      return controlRuntime.react.createElement(controlRuntime.react.Fragment, null, tree, own);
     };
     const ensurePatched = () => {
       if (
@@ -826,6 +891,12 @@
       hostVersion: 1,
       performanceRootWrapped:
         !!controlRuntime && !!patchedUseMemo && controlRuntime.react.useMemo === patchedUseMemo,
+      // Everything above can be true while the panel still shows nothing, because insertion
+      // depends on the shape of the tree Steam renders. This is the part that says so.
+      lastAppend,
+      // And this says which rows drew, and why the others did not.
+      renderOutcomes,
+      toggleResolved: !!(controlRuntime && controlRuntime.toggle),
     });
     const disposeHostResources = () => {
       disposedHost = true;
