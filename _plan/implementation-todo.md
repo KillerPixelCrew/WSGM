@@ -517,9 +517,29 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
 
 ### S8 — Complete Steam UI, RTSS, and AutoTDP directly
 
-- [ ] Keep one persistent `SteamUiHost` connection/reconnect owner and one TypeScript bootstrap.
-- [ ] Collapse class/version/tier machinery where a direct component-local probe/apply/remove/health
+- [x] Keep one persistent `SteamUiHost` connection/reconnect owner and one TypeScript bootstrap.
+      One of each, and the shape enforces it: `ShellSession` constructs the single
+      `PersistentSteamUiTransport`, `SteamUiSessionHost` is the only thing that takes it and builds
+      the one `SteamUiBridgeHost` over it, and `NativeQamBootstrapPatch` is registered once and is
+      the only patch carrying a bootstrap. Every semantic control is a separate patch sharing that
+      one bridge rather than a second connection, and `eng/build-steam-assets.mjs` compiles the one
+      TypeScript source into the one shipped asset with a drift check.
+- [x] Collapse class/version/tier machinery where a direct component-local probe/apply/remove/health
       implementation is sufficient; keep failures independent and native Valve fallback intact.
+      What is left is exactly the direct implementation this asks for and nothing above it.
+      `ISteamUiPatch` is probe, apply, verify, remove plus an id, a version and the resource key the
+      patch serializes on — no compatibility class, no tier, no shared registry of what a patch is
+      allowed to be. The four glyph mapping-namespace tiers that were the last of that machinery are
+      gone, replaced by one stylesheet with one owned node.
+      Both properties are structural rather than incidental. `SynchronizePatchAsync` runs each patch
+      inside its own bounded phase and its own try, and every failure path — a throwing probe, an
+      absent or non-unique target, a failed apply, a timeout — records that one patch's state and
+      returns, so a patch that cannot apply on a given client build costs exactly that control.
+      Valve fallback is what "returns" means: the patch never installed anything, so the surface it
+      would have replaced is Steam's own, untouched.
+      Six patches now exercise that independence for real, with their own probes and enable switches:
+      bootstrap, TDP, AutoTDP, frame limit, overlay level, controller target, and the glyph
+      stylesheet.
 - [x] Finish the deterministic TypeScript build with pinned dependencies and one drift/hash check,
       without introducing a general asset-manifest governance system. `eng/build-steam-assets.mjs`
       compiles the source with pinned `typescript`, strips everything above the `@wsgm-bundle-start`

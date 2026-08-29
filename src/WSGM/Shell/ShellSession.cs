@@ -1801,12 +1801,12 @@ public sealed class ShellSession : IAsyncDisposable
     }
 
     /// <summary>
-    /// Applies both halves of physical glyph presentation: the route selector and the profile the
-    /// delivery tiers actually render.
+    /// Applies both halves of physical glyph presentation: whether it is on, and what to draw.
     /// </summary>
     /// <remarks>
-    /// The selector alone changes nothing a user can see. Without the resolved profile the delivery
-    /// tiers hold no mappings and stay disabled, which is how physical glyphs were inert.
+    /// The selector alone changes nothing a user can see. Without the resolved profile the
+    /// stylesheet has no rules, and the patch refuses to install an empty one — which is how
+    /// physical glyphs were inert.
     /// </remarks>
     private void ApplyGlyphConfig(AppConfig config)
     {
