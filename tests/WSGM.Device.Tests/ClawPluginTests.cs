@@ -74,6 +74,42 @@ public sealed class ClawPluginTests
     }
 
     [Fact]
+    public void OemButtons_ReachTheVirtualPadAsSteamAndQuickAccess()
+    {
+        // The Claw's two front buttons are the virtual target's Steam and Quick Access buttons. They
+        // are not in the DirectInput report — the firmware sends them as WMI events — so a latch
+        // carries them into the sample stream. Without it the virtual Steam Deck had neither button,
+        // Steam listed no such controls, and no glyph could exist for a control Steam did not know
+        // about.
+        ClawOemButtonLatch latch = new();
+        byte[] report = new byte[64];
+        report[0] = 0x01;
+        report[1] = report[2] = report[3] = report[4] = 0x80;
+        report[5] = 0x0F;
+        DateTimeOffset pressed = DateTimeOffset.UnixEpoch;
+
+        latch.Press(CanonicalButtons.Guide, pressed);
+        latch.Press(CanonicalButtons.QuickAccess, pressed);
+        CanonicalControllerSample held = ClawControllerCodec.Decode(
+            report, 1, CycleGeneration, pressed, SampleQuality.Good, latch);
+
+        Assert.True(held.Buttons.HasFlag(CanonicalButtons.Guide));
+        Assert.True(held.Buttons.HasFlag(CanonicalButtons.QuickAccess));
+
+        // One event has to become a press AND a release: the firmware never sends the release.
+        CanonicalControllerSample released = ClawControllerCodec.Decode(
+            report,
+            2,
+            CycleGeneration,
+            pressed + ClawOemButtonLatch.HoldDuration,
+            SampleQuality.Good,
+            latch);
+
+        Assert.False(released.Buttons.HasFlag(CanonicalButtons.Guide));
+        Assert.False(released.Buttons.HasFlag(CanonicalButtons.QuickAccess));
+    }
+
+    [Fact]
     public void Encode_Lighting_ReplicatesThreeLogicalZonesAcrossNineProtocolIndices()
     {
         byte[] payload = ClawA2VmLightingCapability.Encode(new LightingState(
@@ -347,7 +383,8 @@ public sealed class ClawPluginTests
             new FakeMcuTransport(),
             new FakeControllerSource(),
             new FakeMotionSource(),
-            new FakeChordSuppressor());
+            new FakeChordSuppressor(),
+            new ClawOemButtonLatch());
 
     private static DeviceIdentitySnapshot ExactIdentity() => new()
     {

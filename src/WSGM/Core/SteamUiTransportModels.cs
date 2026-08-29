@@ -13,6 +13,17 @@ public enum SteamUiTargetRole
 
     /// <summary>The native controller-oriented Quick Access popup.</summary>
     QuickAccess,
+
+    /// <summary>The Big Picture window, which renders the pages the user is looking at.</summary>
+    /// <remarks>
+    /// Distinct from <see cref="SharedJsContext"/>, which owns the route and the module registry but
+    /// almost no DOM: with the Steam Input page open on the reference Claw its body measured 218
+    /// bytes, while every element that page draws — and every Valve glyph image the stylesheet keys
+    /// off — was here. CSS is per document, so a stylesheet meant for what the user sees has to be
+    /// installed in this one. The glyph stylesheet was going to SharedJSContext, which is why half a
+    /// megabyte of correct CSS applied, verified, and changed nothing.
+    /// </remarks>
+    MainWindow,
 }
 
 /// <summary>Health of one persistent Steam UI target channel.</summary>

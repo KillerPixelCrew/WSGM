@@ -28,7 +28,12 @@ public sealed class SteamGlyphCssTests
                 StringComparison.Ordinal);
         });
         Assert.Equal("full", Assert.Single(presentation.ControllerImages).Slot);
-        Assert.Equal(GlyphControlId.LeftTrackpad, Assert.Single(presentation.AbsentControls));
+
+        // Absence is the default: the profile declares what the device HAS, and everything it does
+        // not name is absent. Requiring each missing control to be declared meant the one nobody
+        // remembered to list was the one left on screen.
+        Assert.Contains(GlyphControlId.LeftTrackpad, presentation.AbsentControls);
+        Assert.DoesNotContain(GlyphControlId.FaceSouth, presentation.AbsentControls);
     }
 
     [Fact]
@@ -77,9 +82,16 @@ public sealed class SteamGlyphCssTests
         string hidden = SteamGlyphCss.Build(presentation, hideAbsentControls: true);
         string shown = SteamGlyphCss.Build(presentation, hideAbsentControls: false);
 
-        Assert.Contains("sd_ltrackpad_swipe.svg", hidden, StringComparison.Ordinal);
+        // The glyph names are the ones the client actually draws. The table previously named
+        // sd_ltrackpad_swipe.svg, which this build renders nowhere, so every hide rule matched
+        // nothing and a device with no trackpads still showed both trackpad sections.
+        Assert.Contains("sd_ltrackpad_up.svg", hidden, StringComparison.Ordinal);
         Assert.Contains("display: none;", hidden, StringComparison.Ordinal);
-        Assert.DoesNotContain("sd_ltrackpad_swipe.svg", shown, StringComparison.Ordinal);
+
+        // Anchored on the section container, so a control the device lacks takes its heading and
+        // its bindings with it rather than leaving an empty group behind.
+        Assert.Contains($".{SteamGlyphCss.ControlSectionClass}:has(", hidden, StringComparison.Ordinal);
+        Assert.DoesNotContain("sd_ltrackpad_up.svg", shown, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -37,7 +37,34 @@ internal sealed class PhysicalGlyphCatalog : IDisposable
     private Dictionary<string, ImportedGlyphProfile> _profiles = new(StringComparer.Ordinal);
     private bool _disposed;
 
+    private string? _activeDeviceId;
+
     internal event Action? Changed;
+
+    /// <summary>Records which device definition the active plugin matched.</summary>
+    /// <param name="deviceDefinitionId">The matched definition, or null when none is active.</param>
+    /// <remarks>
+    /// Held here rather than by the caller because selection depends on it exactly as it depends on
+    /// the profiles, and both can arrive in either order: the definition comes from a lifecycle
+    /// notification and the profiles from the installed package. Whichever lands second has to
+    /// re-raise <see cref="Changed"/>, or every surface keeps the answer computed before the pair
+    /// was complete.
+    /// </remarks>
+    internal void SetActiveDevice(string? deviceDefinitionId)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        lock (_gate)
+        {
+            if (string.Equals(_activeDeviceId, deviceDefinitionId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _activeDeviceId = deviceDefinitionId;
+        }
+
+        Changed?.Invoke();
+    }
 
     internal void ReplacePackageProfiles(IEnumerable<ImportedGlyphProfile> profiles)
     {
@@ -67,13 +94,21 @@ internal sealed class PhysicalGlyphCatalog : IDisposable
     internal PhysicalGlyphSelectionResult SelectProfile(
         bool deviceIntegrationEnabled,
         PhysicalGlyphSelectionMode selectionMode,
-        string? activeDeviceId,
-        string? advertisedProfileId,
         string? manualProfileId)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         lock (_gate)
         {
+            string? activeDeviceId = _activeDeviceId;
+
+            // Every glyph surface funnels through here, and each refusal below used to return a
+            // null profile with no trace: an empty Steam Input page, letters instead of buttons in
+            // the overlay, and nothing anywhere saying which of five conditions was responsible.
+            Log.Change(
+                "glyph.selection",
+                $"Glyph selection: integration={deviceIntegrationEnabled}, mode={selectionMode}, "
+                    + $"device={activeDeviceId ?? "<none>"}, profiles={_profiles.Count}, "
+                    + $"manual={manualProfileId ?? "<none>"}");
             if (!deviceIntegrationEnabled)
             {
                 return Fallback(PhysicalGlyphFallbackReason.DeviceIntegrationDisabled);
@@ -102,16 +137,26 @@ internal sealed class PhysicalGlyphCatalog : IDisposable
                 missingManual = true;
             }
 
-            if (advertisedProfileId is not { Length: > 0 }
-                || !_profiles.TryGetValue(advertisedProfileId, out ImportedGlyphProfile? automatic))
+            if (activeDeviceId is not { Length: > 0 })
             {
                 return new PhysicalGlyphSelectionResult(
                     null,
-                    PhysicalGlyphFallbackReason.ProfileMissing,
+                    PhysicalGlyphFallbackReason.ExactDeviceMismatch,
                     missingManual);
             }
-            if (activeDeviceId is not { Length: > 0 }
-                || !automatic.Manifest.ExactDeviceIds.Contains(activeDeviceId, StringComparer.Ordinal))
+
+            // Automatic selection is the package's own profile for the matched device. There used
+            // to be a separate "advertised profile id" parameter deciding this, which nothing ever
+            // supplied — its one call site passed null, so this branch returned ProfileMissing for
+            // every package and no artwork could be selected at all. Naming the device is the whole
+            // discriminator; a package wanting a different profile for the same device uses the
+            // manual selection above.
+            ImportedGlyphProfile? automatic = _profiles.Values
+                .Where(profile =>
+                    profile.Manifest.ExactDeviceIds.Contains(activeDeviceId, StringComparer.Ordinal))
+                .OrderBy(profile => profile.Manifest.ProfileId, StringComparer.Ordinal)
+                .FirstOrDefault();
+            if (automatic is null)
             {
                 return new PhysicalGlyphSelectionResult(
                     null,

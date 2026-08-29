@@ -42,6 +42,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     };
     private AppConfig _config;
     private DeviceIdentitySnapshot? _identity;
+    private string? _deviceDefinitionId;
     private DeviceHostClient? _client;
     private long _cycleGeneration;
     private string? _runningApplicationId;
@@ -762,6 +763,10 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 controllerManagement,
                 cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
+
+            // Before the profiles load: glyph selection is gated on the matched device definition,
+            // and a catalog that arrives first would be selected against a null id and rejected.
+            SetDeviceDefinitionId(activation.DeviceDefinitionId);
             LoadPhysicalGlyphProfiles(package);
             SetState(activation.State);
             Log.Info(
@@ -1434,8 +1439,6 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         _physicalGlyphs.SelectProfile(
             _config.DeviceIntegration.Enabled,
             MapGlyphSelection(_config.DeviceIntegration.GlyphSelection),
-            activeDeviceId: null,
-            advertisedProfileId: null,
             _config.DeviceIntegration.ManualGlyphProfileId);
 
     /// <summary>Cycles the physical presentation policy and persists it without changing device ownership.</summary>
@@ -1829,7 +1832,30 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             return;
         }
 
+        SetDeviceDefinitionId(state.DeviceDefinitionId);
         SetState(state.State);
+    }
+
+    /// <summary>Records which device definition the plugin matched.</summary>
+    /// <param name="deviceDefinitionId">The matched definition, or null when detection did not match.</param>
+    /// <remarks>
+    /// Every glyph surface — the Steam Input page, the overlay's glyph rows, and the navigation
+    /// hints — resolves through <see cref="PhysicalGlyphSelectionSnapshot"/>, which will only return
+    /// a profile that names the active device. DeviceHost has always sent this on the lifecycle
+    /// notification and WSGM never read it, so the selector was asked to match against null and
+    /// refused every profile. The package's artwork was unreachable no matter what it contained.
+    /// </remarks>
+    private void SetDeviceDefinitionId(string? deviceDefinitionId)
+    {
+        if (string.IsNullOrWhiteSpace(deviceDefinitionId)
+            || string.Equals(_deviceDefinitionId, deviceDefinitionId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _deviceDefinitionId = deviceDefinitionId;
+        Log.Info($"Device definition matched: {deviceDefinitionId}.");
+        _physicalGlyphs.SetActiveDevice(deviceDefinitionId);
     }
 
     private void SetState(DeviceCycleState state)

@@ -83,6 +83,25 @@ internal sealed record SteamInputGlyphPresentation(
         ("/steaminputglyphs/shared_r1.svg", GlyphControlId.RightShoulder),
         ("/steaminputglyphs/shared_l2.svg", GlyphControlId.LeftTrigger),
         ("/steaminputglyphs/shared_r2.svg", GlyphControlId.RightTrigger),
+
+        // The sd_* family, which is what the page actually draws while WSGM presents a Steam Deck
+        // virtual pad — read off the live Steam Input page on the reference Claw, where the German
+        // row labels name each one: sd_l1 "Linke Schultertaste", sd_r1 "Rechte Schultertaste".
+        // Without these the shoulders, triggers and rear paddles kept Valve's artwork while every
+        // face button and d-pad glyph was correctly replaced.
+        ("/steaminputglyphs/sd_l1.svg", GlyphControlId.LeftShoulder),
+        ("/steaminputglyphs/sd_r1.svg", GlyphControlId.RightShoulder),
+        ("/steaminputglyphs/sd_l2.svg", GlyphControlId.LeftTrigger),
+        ("/steaminputglyphs/sd_r2.svg", GlyphControlId.RightTrigger),
+
+        // The Deck's rear pairs. M1 is the LEFT paddle and M2 the RIGHT one — measured on the
+        // reference unit and recorded in the plugin's own notes, which explicitly correct
+        // Handheld Companion for having them inverted. The second pair (l5/r5) has no counterpart
+        // on this device and is declared absent by the profile instead.
+        ("/steaminputglyphs/sd_l4.svg", GlyphControlId.RearM1),
+        ("/steaminputglyphs/sd_r4.svg", GlyphControlId.RearM2),
+        ("/steaminputglyphs/sd_l5.svg", GlyphControlId.RearLeft2),
+        ("/steaminputglyphs/sd_r5.svg", GlyphControlId.RearRight2),
         ("/steaminputglyphs/xbox_button_logo.svg", GlyphControlId.Guide),
         ("/steaminputglyphs/ps4_button_logo.svg", GlyphControlId.Guide),
         ("/steaminputglyphs/sc_button_steam.svg", GlyphControlId.Guide),
@@ -153,9 +172,18 @@ internal sealed record SteamInputGlyphPresentation(
             "right",
             profile.Manifest.ControllerImages.RightSha256);
 
-        GlyphControlId[] absent = profile.Manifest.Controls
-            .Where(mapping => mapping.Presence is GlyphControlPresence.Absent)
+        // Absence is the default. The plugin declares the controls its device HAS, and everything
+        // it does not name is hidden — so a handheld with no trackpads gets no trackpad sections
+        // without having to say so, and a profile cannot leave a section behind by forgetting to
+        // list it. Declaring absence explicitly was the previous model and it fails the same way
+        // every allowlist-by-omission does: the entry nobody remembered to add is the one that
+        // shows up on screen.
+        HashSet<GlyphControlId> present = profile.Manifest.Controls
+            .Where(mapping => mapping.Presence is GlyphControlPresence.Present)
             .Select(mapping => mapping.Control)
+            .ToHashSet();
+        GlyphControlId[] absent = Enum.GetValues<GlyphControlId>()
+            .Where(control => !present.Contains(control))
             .OrderBy(control => control)
             .ToArray();
 

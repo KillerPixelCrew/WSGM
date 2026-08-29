@@ -76,8 +76,25 @@ internal static class SteamGlyphCss
     internal const string InlineLogoContainerClass = "_3Jfd85nK4bKoNf_gCSTX6U";
 
     /// <summary>Row class Steam gives one control line in the configurator lists.</summary>
-    /// <remarks>Build-coupled in the same way as <see cref="InlineLogoContainerClass"/>.</remarks>
-    internal const string ControlRowClass = "_2mL2HfT5AkDXRi1YBnRWKa";
+    /// <remarks>
+    /// Build-coupled in the same way as <see cref="InlineLogoContainerClass"/>, and it had already
+    /// gone stale: the previous value matched nothing on the reference Claw, so every hide rule
+    /// silently applied to zero elements. Read from the live page, where this container holds all
+    /// eighteen glyph rows. Only hiding depends on it — the glyph overrides key off Valve's own
+    /// asset paths and survive a Steam rebuild — so a future drift costs the absent-control rows
+    /// and nothing else.
+    /// </remarks>
+    internal const string ControlRowClass = "pywHIi8MBtTWNlCbZ_7Qx";
+
+    /// <summary>Container Steam gives one control group in the configurator overview.</summary>
+    /// <remarks>
+    /// Hiding anchors here rather than on the row: a trackpad is a whole section with its own
+    /// heading and four bindings under it, and hiding one row of that left the heading and the rest
+    /// behind. The reference theme in <c>_ref/handheld-controller-glyphs</c> uses this same class,
+    /// which is one reason to have ported its rules rather than reimplementing them — its selectors
+    /// are still accurate against the current client, and were sitting there to be copied.
+    /// </remarks>
+    internal const string ControlSectionClass = "_1KA4m3xP2X5TGmO81UKYgL";
 
     /// <summary>
     /// Valve glyph resources that identify a control's row for hiding.
@@ -89,12 +106,24 @@ internal static class SteamGlyphCss
     /// </remarks>
     private static readonly (GlyphControlId Control, string ValvePath)[] RowGlyphs =
     [
-        (GlyphControlId.LeftTrackpad, "/steaminputglyphs/sd_ltrackpad_swipe.svg"),
-        (GlyphControlId.RightTrackpad, "/steaminputglyphs/sd_rtrackpad_swipe.svg"),
-        (GlyphControlId.RearM1, "/steaminputglyphs/shared_m1.svg"),
-        (GlyphControlId.RearM2, "/steaminputglyphs/shared_m2.svg"),
-        (GlyphControlId.RearLeft2, "/steaminputglyphs/shared_l5.svg"),
-        (GlyphControlId.RearRight2, "/steaminputglyphs/shared_r5.svg"),
+        // Read off the live configurator on the reference Claw. The previous table named
+        // sd_ltrackpad_swipe, shared_m1, shared_l5 and shared_r5 — none of which this build draws —
+        // so every hide rule matched nothing and a device with no trackpads and one pair of back
+        // buttons still showed both trackpad sections and four back buttons.
+        (GlyphControlId.LeftTrackpad, "/steaminputglyphs/sd_ltrackpad_up.svg"),
+        (GlyphControlId.LeftTrackpad, "/steaminputglyphs/sd_ltrackpad_down.svg"),
+        (GlyphControlId.LeftTrackpad, "/steaminputglyphs/sd_ltrackpad_left.svg"),
+        (GlyphControlId.LeftTrackpad, "/steaminputglyphs/sd_ltrackpad_right.svg"),
+        (GlyphControlId.LeftTrackpad, "/steaminputglyphs/sd_ltrackpad_click.svg"),
+        (GlyphControlId.RightTrackpad, "/steaminputglyphs/sd_rtrackpad_up.svg"),
+        (GlyphControlId.RightTrackpad, "/steaminputglyphs/sd_rtrackpad_down.svg"),
+        (GlyphControlId.RightTrackpad, "/steaminputglyphs/sd_rtrackpad_left.svg"),
+        (GlyphControlId.RightTrackpad, "/steaminputglyphs/sd_rtrackpad_right.svg"),
+        (GlyphControlId.RightTrackpad, "/steaminputglyphs/sd_rtrackpad_click.svg"),
+        (GlyphControlId.RearM1, "/steaminputglyphs/sd_l4.svg"),
+        (GlyphControlId.RearM2, "/steaminputglyphs/sd_r4.svg"),
+        (GlyphControlId.RearLeft2, "/steaminputglyphs/sd_l5.svg"),
+        (GlyphControlId.RearRight2, "/steaminputglyphs/sd_r5.svg"),
     ];
 
     /// <summary>
@@ -169,10 +198,16 @@ internal static class SteamGlyphCss
         string path = $"svg path[d=\"{Attribute(SteamLogoPathData)}\"]";
         // The inner svg is hidden rather than removed, and the replacement is painted on the
         // container: the svg is Steam's own node, and WSGM owns no DOM here, only style.
+        //
+        // visibility, not display. The container is a flex box whose only child is that svg, so
+        // display:none collapsed it to 0x0 and the background had no area to paint into — measured
+        // exactly that on the reference Claw, where the footer's Menu hint showed no glyph at all
+        // while both halves of this override were demonstrably applied. Hiding it this way keeps
+        // the box, and the container stays 61x22.
         css.Append(container)
             .Append(" svg:has(> [d=\"")
             .Append(Attribute(SteamLogoPathData))
-            .Append("\"]) {\n  display: none;\n}\n")
+            .Append("\"]) {\n  visibility: hidden;\n}\n")
             .Append(container)
             .Append(":has(")
             .Append(path)
@@ -214,10 +249,16 @@ internal static class SteamGlyphCss
         SteamInputGlyphPresentation presentation)
     {
         HashSet<GlyphControlId> absent = [.. presentation.AbsentControls];
+
+        // Anchored on the section container and matched by the Valve glyph anywhere inside it, so a
+        // control the device does not have takes its heading and its bindings with it. The previous
+        // form required the glyph to be an immediate grandchild of a row, which described neither
+        // the trackpad sections nor the back-button rows as Steam actually builds them.
         string[] selectors = RowGlyphs
             .Where(row => absent.Contains(row.Control))
             .Select(row =>
-                $".{ControlRowClass}:has(> div > img[src=\"{Attribute(row.ValvePath)}\"])")
+                $".{ControlSectionClass}:has(img[src=\"{Attribute(row.ValvePath)}\"])")
+            .Distinct(StringComparer.Ordinal)
             .ToArray();
         if (selectors.Length == 0)
         {

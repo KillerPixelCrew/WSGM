@@ -260,7 +260,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
                 OemAction.ToggleWsgmOverlay => await actions.ToggleOverlayAsync(bounded.Token)
                     .ConfigureAwait(false),
                 OemAction.ToggleSteamQuickAccess =>
-                    await ToggleSteamOrDeviceAsync(actions, bounded.Token).ConfigureAwait(false),
+                    await actions.ToggleSteamQuickAccessAsync(bounded.Token).ConfigureAwait(false),
                 OemAction.ShowWsgmDevicePage => await actions.ToggleDevicePageAsync(bounded.Token)
                     .ConfigureAwait(false),
                 OemAction.ToggleWsgmTaskbar => await actions.ToggleTaskbarAsync(bounded.Token)
@@ -292,18 +292,6 @@ internal sealed class DeviceOemActionRouter : IDisposable
         }
     }
 
-    private static async Task<bool> ToggleSteamOrDeviceAsync(
-        DeviceOemActionServices actions,
-        CancellationToken cancellationToken)
-    {
-        if (await actions.ToggleSteamQuickAccessAsync(cancellationToken).ConfigureAwait(false))
-        {
-            return true;
-        }
-
-        return await actions.ToggleDevicePageAsync(cancellationToken).ConfigureAwait(false);
-    }
-
     private OemAction ResolveActionUnderGate(OemControlDescriptor control)
     {
         DeviceOemAssignment? assignment = _profile?.OemAssignments.FirstOrDefault(item =>
@@ -313,14 +301,17 @@ internal sealed class DeviceOemActionRouter : IDisposable
             return assignment.Action;
         }
 
-        if (string.Equals(control.ControlId, "oem1", StringComparison.OrdinalIgnoreCase))
-        {
-            return OemAction.ToggleWsgmOverlay;
-        }
-
-        return string.Equals(control.ControlId, "oem2", StringComparison.OrdinalIgnoreCase)
-            ? OemAction.ToggleSteamQuickAccess
-            : OemAction.Disabled;
+        // WSGM claims no physical button by default. The handheld's OEM buttons reach Steam as the
+        // virtual target's own Steam and Quick Access buttons — the plugin puts them in the
+        // controller sample, and Steam responds to its controller natively. WSGM neither intercepts
+        // them nor synthesizes anything on their behalf.
+        //
+        // They used to be WSGM's: OEM1 opened the WSGM overlay, and OEM2 fell through to WSGM's
+        // Device page whenever Steam's Quick Access did not answer, so on a machine where the
+        // native QAM was unreachable both of the device's buttons belonged to WSGM. Putting a WSGM
+        // surface on a hardware button is the user's decision, made through the hotkey assignment
+        // in Settings, and an unassigned button does nothing here.
+        return OemAction.Disabled;
     }
 
     private void ExpireDeduplicationUnderGate(DateTimeOffset now)

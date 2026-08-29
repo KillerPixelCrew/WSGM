@@ -28,23 +28,64 @@ public sealed class PhysicalGlyphServiceTests
     }
 
     [Fact]
+    public void Automatic_WithNoActiveDevice_ReportsTheMismatchRatherThanAProfile()
+    {
+        // The shape of the bug this replaced: the catalog held the package's profile and every
+        // glyph surface still fell back, because the one production call site passed no device at
+        // all. These tests passed throughout — they supplied a device id the coordinator never did.
+        ImportedGlyphProfile profile = ImportProfile(["device-a"]);
+        using PhysicalGlyphCatalog catalog = new();
+        catalog.ReplacePackageProfiles([profile]);
+
+        PhysicalGlyphSelectionResult result = catalog.SelectProfile(
+            true,
+            PhysicalGlyphSelectionMode.Automatic,
+            null);
+
+        Assert.Null(result.Profile);
+        Assert.Equal(PhysicalGlyphFallbackReason.ExactDeviceMismatch, result.FallbackReason);
+    }
+
+    [Fact]
+    public void SettingTheActiveDevice_AnnouncesTheChangeSoSurfacesReselect()
+    {
+        // The device definition and the profiles arrive from different places and in either order.
+        // Whichever lands second has to announce itself, or every surface keeps the answer it
+        // computed while the pair was still incomplete.
+        ImportedGlyphProfile profile = ImportProfile(["device-a"]);
+        using PhysicalGlyphCatalog catalog = new();
+        int changes = 0;
+        catalog.Changed += () => changes++;
+
+        catalog.ReplacePackageProfiles([profile]);
+        catalog.SetActiveDevice("device-a");
+
+        Assert.Equal(2, changes);
+        Assert.Same(
+            profile,
+            catalog.SelectProfile(true, PhysicalGlyphSelectionMode.Automatic, null).Profile);
+
+        // Setting the same device again is not a change.
+        catalog.SetActiveDevice("device-a");
+        Assert.Equal(2, changes);
+    }
+
+    [Fact]
     public void Automatic_RequiresAnImportedProfileForTheExactDevice()
     {
         ImportedGlyphProfile profile = ImportProfile(["device-a"]);
         using PhysicalGlyphCatalog catalog = new();
         catalog.ReplacePackageProfiles([profile]);
 
+        catalog.SetActiveDevice("device-a");
         PhysicalGlyphSelectionResult exact = catalog.SelectProfile(
             true,
             PhysicalGlyphSelectionMode.Automatic,
-            "device-a",
-            "example.handheld",
             null);
+        catalog.SetActiveDevice("device-b");
         PhysicalGlyphSelectionResult otherDevice = catalog.SelectProfile(
             true,
             PhysicalGlyphSelectionMode.Automatic,
-            "device-b",
-            "example.handheld",
             null);
 
         Assert.Same(profile, exact.Profile);
@@ -59,11 +100,10 @@ public sealed class PhysicalGlyphServiceTests
         using PhysicalGlyphCatalog catalog = new();
         catalog.ReplacePackageProfiles([profile]);
 
+        catalog.SetActiveDevice("device-a");
         PhysicalGlyphSelectionResult result = catalog.SelectProfile(
             true,
             PhysicalGlyphSelectionMode.ManualReviewed,
-            "device-a",
-            "example.handheld",
             "removed.profile");
 
         Assert.Same(profile, result.Profile);
@@ -77,11 +117,10 @@ public sealed class PhysicalGlyphServiceTests
         using PhysicalGlyphCatalog catalog = new();
         catalog.ReplacePackageProfiles([profile]);
 
+        catalog.SetActiveDevice("device-a");
         PhysicalGlyphSelectionResult result = catalog.SelectProfile(
             false,
             PhysicalGlyphSelectionMode.ManualReviewed,
-            "device-a",
-            "example.handheld",
             "example.handheld");
 
         Assert.Null(result.Profile);
@@ -113,11 +152,10 @@ public sealed class PhysicalGlyphServiceTests
         using PhysicalGlyphCatalog catalog = new();
         using PhysicalGlyphService service = new(catalog);
         catalog.ReplacePackageProfiles([profile]);
+        catalog.SetActiveDevice("device-a");
         PhysicalGlyphSelectionResult selected = catalog.SelectProfile(
             true,
             PhysicalGlyphSelectionMode.Automatic,
-            "device-a",
-            "example.handheld",
             null);
 
         // Controller-management state is deliberately not an input to profile selection. Only the
@@ -156,11 +194,10 @@ public sealed class PhysicalGlyphServiceTests
             maximumCacheEntries: 1,
             maximumCacheBytes: 4096);
         catalog.ReplacePackageProfiles([profile]);
+        catalog.SetActiveDevice("device-a");
         PhysicalGlyphSelectionResult selected = catalog.SelectProfile(
             true,
             PhysicalGlyphSelectionMode.Automatic,
-            "device-a",
-            "example.handheld",
             null);
 
         _ = service.Resolve(selected, GlyphControlId.FaceSouth,
@@ -183,11 +220,10 @@ public sealed class PhysicalGlyphServiceTests
         using PhysicalGlyphCatalog catalog = new();
         using PhysicalGlyphService service = new(catalog);
         catalog.ReplacePackageProfiles([profile]);
+        catalog.SetActiveDevice("device-a");
         PhysicalGlyphSelectionResult selected = catalog.SelectProfile(
             true,
             PhysicalGlyphSelectionMode.Automatic,
-            "device-a",
-            "example.handheld",
             null);
 
         PhysicalGlyphRenderPlan result = service.Resolve(

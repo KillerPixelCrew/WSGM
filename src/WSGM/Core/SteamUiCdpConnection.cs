@@ -44,20 +44,21 @@ internal sealed class SteamUiWebSocketWireFactory : ISteamUiCdpWireFactory
 
 internal sealed class SteamUiWebSocketWire : ISteamUiCdpWire
 {
-    private const int MaximumMessageBytes = 256 * 1024;
+    // Bounds what is READ. Steam's CEF is the peer here and its reply is accumulated into memory, so
+    // without a cap a malformed or enormous response takes the shell down. Nothing bounds what WSGM
+    // sends any more: WSGM decides that, and asserting our own payload is under a number we picked
+    // only ever managed to refuse a legitimate one — the handheld glyph stylesheet carries every
+    // control glyph and all three controller illustrations as data URIs, about 500 KB for the Claw,
+    // and the old 96 KB expression cap rejected it. The patch reported "expression exceeded its byte
+    // limit" and the Steam Input page silently kept Valve's artwork.
+    private const int MaximumResponseBytes = 8 * 1024 * 1024;
     private readonly ClientWebSocket _socket;
 
     internal SteamUiWebSocketWire(ClientWebSocket socket) => _socket = socket;
 
-    public Task SendAsync(ReadOnlyMemory<byte> message, CancellationToken cancellationToken)
-    {
-        if (message.Length > MaximumMessageBytes)
-        {
-            throw new InvalidDataException("Steam UI CDP request exceeded its byte limit.");
-        }
-        return _socket.SendAsync(
+    public Task SendAsync(ReadOnlyMemory<byte> message, CancellationToken cancellationToken) =>
+        _socket.SendAsync(
             message, WebSocketMessageType.Text, true, cancellationToken).AsTask();
-    }
 
     public async Task<byte[]?> ReceiveAsync(CancellationToken cancellationToken)
     {
@@ -75,7 +76,7 @@ internal sealed class SteamUiWebSocketWire : ISteamUiCdpWire
                 throw new InvalidDataException("Steam UI CDP emitted a non-text frame.");
             }
             writer.Advance(result.Count);
-            if (writer.WrittenCount > MaximumMessageBytes)
+            if (writer.WrittenCount > MaximumResponseBytes)
             {
                 throw new InvalidDataException("Steam UI CDP response exceeded its byte limit.");
             }
@@ -109,8 +110,11 @@ internal sealed class SteamUiWebSocketWire : ISteamUiCdpWire
 internal sealed class SteamUiCdpConnection : IAsyncDisposable
 {
     private const int MaximumOutstandingRequests = 32;
-    private const int MaximumExpressionBytes = 96 * 1024;
-    private const int MaximumNotificationBytes = 64 * 1024;
+
+    // Inbound only. A notification's parameters come from Steam and are held as a string, so this is
+    // the same framing bound as the response cap. There is deliberately no cap on the expressions
+    // WSGM sends.
+    private const int MaximumNotificationBytes = 1024 * 1024;
     private readonly SteamUiEndpoint _endpoint;
     private readonly ISteamUiCdpWire _wire;
     private readonly Action<string, string> _notification;
@@ -155,11 +159,6 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
     internal async Task<string?> EvaluateAsync(
         string expression, TimeSpan timeout, CancellationToken cancellationToken)
     {
-        if (System.Text.Encoding.UTF8.GetByteCount(expression) > MaximumExpressionBytes)
-        {
-            throw new InvalidDataException("Steam UI expression exceeded its byte limit.");
-        }
-
         var response = await InvokeCoreAsync(
             "Runtime.evaluate",
             writer =>

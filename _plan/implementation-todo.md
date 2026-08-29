@@ -705,6 +705,41 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       30 W" for EC `0x50` — the stock value copied into the range field — and that reached both the
       capability descriptor and the write validator. HandheldCompanion's `ClawA2VM` declares
       `cTDP = { 8, 37 }` for the same board.
+- [x] **Hide the sections the device does not have, and make absence the default.** Confirmed on
+      the reference unit: no trackpad sections, no second back-button pair.
+      Hiding now anchors on the section container `_1KA4m3xP2X5TGmO81UKYgL` and matches the Valve
+      glyph anywhere inside it, so a control the device lacks takes its heading and its bindings
+      with it. It previously anchored on a row and required the glyph to be an immediate
+      grandchild, which described neither the trackpad sections nor the back-button rows as Steam
+      builds them, and its `RowGlyphs` table named `shared_m1.svg`, `shared_l5.svg` and
+      `sd_ltrackpad_swipe.svg` where the client draws `sd_l4.svg`, `sd_l5.svg` and
+      `sd_ltrackpad_up/down/left/right.svg` — so every rule matched nothing.
+      **A plugin now declares only what its device HAS.** Anything it does not name is hidden.
+      Declaring absence explicitly was the previous model and it fails the way every
+      allowlist-by-omission fails: the entry nobody remembered to add is the one that shows up on
+      screen. The Claw profile lists no absent controls at all now.
+      Still worth taking from the reference rather than reinventing: it keys binding sub-rows off
+      `div[id*="EControllerModeInput ( 55 )-binding-"]` — Valve's own input enum inside an element
+      id, **stable across Steam builds**, unlike every hashed class this work had to chase — and it
+      gates hiding behind `@container style(--hiding-enabled: 1)` so it is a toggle rather than a
+      policy. Neither is adopted yet.
+- [x] **Map the Claw's OEM buttons onto the virtual target's Steam and Quick Access buttons, in the
+      plugin.** They are physical controller buttons and belong in the controller sample.
+      `CanonicalButtons.Guide` and `CanonicalButtons.QuickAccess` both existed and
+      `ClawInput.Decode` set neither, so the virtual Steam Deck had no Steam button and no QAM
+      button — which is also why no glyph could appear for them: the controls did not exist as far
+      as Steam was concerned.
+      The firmware sends them as MSI WMI events (`0x29` OEM1, `0x58` OEM2 short, `0x2A` OEM2 long)
+      with a press and no release, so `ClawOemButtonLatch` turns one event into a 120 ms
+      press-and-release that the pad reader merges into the sample stream. One latch, shared by the
+      OEM event source and the controller reader.
+      **WSGM claims neither button.** `DeviceOemActionRouter` defaulted OEM1 to the WSGM overlay and
+      let OEM2 fall through to WSGM's Device page whenever Steam's QAM did not answer, so on any
+      machine where the native QAM was unreachable both of the device's buttons belonged to WSGM.
+      The default is `Disabled`; the Settings hotkey assignment is the only thing that should put a
+      WSGM surface on a hardware button. A first attempt at this added a WSGM action that
+      synthesized Ctrl+1 into Steam — the same boundary violation wearing a different hat — and was
+      reverted.
 - [ ] **Sweep the codebase for more pseudo-security like the glyph SVG sanitizer.** That one kept an
       allowlist of permitted SVG root attributes, elements, path attributes and colour forms, and
       shipped a canonical document re-serialized from what survived. It protected nothing: a plugin
@@ -721,15 +756,40 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       and anything else framed as protecting WSGM from a component that already runs as the user.
       Integrity checks are NOT the target — hash pinning, size bounds, CRCs and dimension
       agreement catch corruption and stay.
-- [ ] **Ship a physical glyph profile for the Claw 8 A2VM.** The delivery stack works and is inert
-      for want of content: `Device glyph catalog: package=wsgm.device.msi.claw-8-a2vm, profiles=0,
-      rejected=0` — nothing malformed, nothing rejected, nothing present. The Steam Input page
-      therefore keeps Valve's Steam Deck artwork, and `SetGlyphDeliveryPatchStates` disables the
-      stylesheet patch because the resolved profile has neither stable resources nor controller
-      images. `_ref/handheld-controller-glyphs` is the artwork source. What this needs: the glyph
-      profile and control map in the plugin package, the assets it names, and the manifest entry the
-      catalog reads — then the existing importer, stylesheet patch and delivery gate carry it the
-      rest of the way unchanged.
+- [x] **Ship a physical glyph profile for the Claw 8 A2VM.** Done and confirmed on the reference
+      unit: the Steam Input page shows the Claw's buttons and its own illustration. The package
+      carries a profile for `ms-1t52` with twenty control glyphs, both split controller images and
+      the controller illustration, from `_ref/handheld-controller-glyphs` (MIT, attributed, pinned
+      to its upstream revision); release staging copies `glyphs/` and the offline validator runs
+      over the staged bytes.
+      Shipping it took seven separate faults, none of which the code reported, and every one found
+      by probing the running client rather than by reading:
+      - The stylesheet was installed into `SharedJsContext`, whose body measured 218 bytes. The page
+        renders in the Big Picture window — 29,555 bytes, every glyph image — and CSS is per
+        document, so half a megabyte of correct CSS applied and verified into a blank page. There
+        was no role for that window; `MainWindow` now matches on window shape, because CDP reports
+        the URL a target was CREATED with (`about:blank?…`) rather than the document address, and
+        the title is localized.
+      - Selection was hardwired to fail: `PhysicalGlyphSelectionSnapshot` passed
+        `activeDeviceId: null, advertisedProfileId: null`. DeviceHost had always sent the matched
+        definition and WSGM never read it, and nothing anywhere supplied an "advertised profile" —
+        so the selector refused every profile whatever the catalog held, disabling all three glyph
+        surfaces from one call site. That parameter is deleted rather than fed: naming the device is
+        the whole discriminator.
+      - The control map lacked the `sd_*` family the page actually draws, so shoulders, triggers and
+        rear paddles kept Valve's artwork while the face buttons were correctly replaced.
+      - The footer's Menu hint stayed blank because `display: none` on Steam's inline logo svg
+        collapsed its flex container to 0x0 and the background had no area. `visibility: hidden`
+        keeps the box.
+      - Hiding matched nothing: it anchored on the wrong class and named `shared_l5.svg`,
+        `shared_m1.svg` and `sd_ltrackpad_swipe.svg` where the client draws `sd_l5.svg`,
+        `sd_l4.svg` and `sd_ltrackpad_up/down/left/right.svg`.
+      - The controller illustration override installed, verified, and lost the cascade: Steam
+        qualifies that div with a controller-type ancestor, so two classes beat one. It needed
+        `!important`, which the live prototype had and the implementation dropped.
+      - The transport refused the payload outright — a 96 KB cap on WSGM's own outgoing expression
+        against ~500 KB of real artwork. Inbound framing bounds are kept; the send-side caps are
+        gone, because WSGM decides what WSGM sends.
 - [ ] **Replace WSGM's hand-rolled RTSS interop with `RTSSSharedMemoryNET`** — the library
       HandheldCompanion uses. There was never a decision to hand-roll this; it is an omission, and
       two of the three RTSS defects found on 2026-08-29 were in code the library already owns.

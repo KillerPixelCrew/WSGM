@@ -106,6 +106,23 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery
                 && url.Contains("createflags", StringComparison.Ordinal)
                 && url.Contains("browserviewpopup", StringComparison.Ordinal)
                 && url.Contains("openerid", StringComparison.Ordinal),
+
+            // Steam's top-level window, identified by the shape of its creation URL rather than by
+            // its title or its document address. The title is localized — "Big-Picture-Modus" on a
+            // German client — and the URL reported here is the URL the target was CREATED with, not
+            // the one it later navigated to: the document reads
+            // "https://steamloopback.host/index.html?…" while this field still says "about:blank?…".
+            // Matching the document address therefore found nothing at all.
+            //
+            // What separates it from every sibling: it is a real window, so it carries a minimum
+            // size, and it is nobody's popup, so it has neither a browser-view marker nor an opener.
+            SteamUiTargetRole.MainWindow =>
+                type == "page"
+                && url.StartsWith("about:blank?", StringComparison.Ordinal)
+                && url.Contains("createflags", StringComparison.Ordinal)
+                && url.Contains("minwidth", StringComparison.Ordinal)
+                && !url.Contains("browserviewpopup", StringComparison.Ordinal)
+                && !url.Contains("openerid", StringComparison.Ordinal),
             _ => false,
         };
 
