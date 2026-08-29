@@ -30,6 +30,15 @@ patch.
 cannot succeed against usbip-win2 0.9.7.8. See the next section — it was found by running the call,
 not by reading the code.
 
+`0003-device-add-does-not-attach.patch` is WSGM's own and stops `viiper_device_add` attaching. That
+matters twice over. Upstream attached in both `add` and `attach`, so the documented pair produced
+**two** USB/IP attachments of one device — two ports in `usbip port` pointing at the same bus/dev,
+and two identical controllers in Steam's controller list (device-observed 2026-08-29). Attach was
+only ever described as a retry there, so following the API literally gives a duplicate rather than a
+retry. It also made the intended ordering impossible: a caller cannot present a neutral first frame
+before Windows enumerates the device when adding it is what enumerates it. With attach explicit,
+WSGM opens the fast handle, submits a neutral frame, and only then lets the host see the controller.
+
 PR #2 needed adapting rather than applying verbatim: this branch replaced the inline `ctx.Done()`
 waits with `device.BlockUntilDeadline`, so the two endpoint cases collapse into one that blocks and
 returns no data.
