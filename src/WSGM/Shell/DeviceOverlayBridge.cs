@@ -12,12 +12,35 @@ using WSGM.Device.Sdk.Lifecycle;
 namespace WSGM.Shell;
 
 /// <summary>Stable final-overlay section selected from a semantic capability role.</summary>
+/// <remarks>
+/// Each section is a page in the Device destination, not a heading in one long list. The split is
+/// driven by capability role alone, so a plugin that publishes nothing for a section simply causes
+/// that page to be absent — no section is a fixed fixture of the UI.
+/// </remarks>
 internal enum DeviceOverlaySection
 {
+    /// <summary>Identity, scenario mode, and anything that describes the device as a whole.</summary>
     Overview,
+
+    /// <summary>Named hardware profiles the user selects between.</summary>
+    Profiles,
+
+    /// <summary>Power limits, fans, charge behaviour, and temperature readings.</summary>
     PowerAndThermals,
+
+    /// <summary>The physical controller, its motion sensors, and haptics.</summary>
     ControllerAndMotion,
-    OemAndLighting,
+
+    /// <summary>Device-specific OEM buttons and their assignments.</summary>
+    Oem,
+
+    /// <summary>Lighting and any remaining device features.</summary>
+    LightingAndFeatures,
+
+    /// <summary>Physical glyph presentation, preview, and input test.</summary>
+    Glyphs,
+
+    /// <summary>Health, recovery, and anything that exists to be read rather than changed.</summary>
     Diagnostics,
 }
 
@@ -365,12 +388,16 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             or CapabilityRole.Telemetry => DeviceOverlaySection.PowerAndThermals,
         CapabilityRole.ControllerSource or CapabilityRole.MotionSource
             or CapabilityRole.HapticSink => DeviceOverlaySection.ControllerAndMotion,
-        CapabilityRole.OemControl or CapabilityRole.LightingPower
-            or CapabilityRole.LightingBrightness or CapabilityRole.LightingZoneColor
-            or CapabilityRole.LightingEffect or CapabilityRole.LightingEffectSpeed
+        CapabilityRole.OemControl => DeviceOverlaySection.Oem,
+        CapabilityRole.LightingPower or CapabilityRole.LightingBrightness
+            or CapabilityRole.LightingZoneColor or CapabilityRole.LightingEffect
+            or CapabilityRole.LightingEffectSpeed
             or CapabilityRole.GenericToggle or CapabilityRole.GenericRange
             or CapabilityRole.GenericChoice or CapabilityRole.GenericAction
-            or CapabilityRole.GenericReadOnly => DeviceOverlaySection.OemAndLighting,
+            => DeviceOverlaySection.LightingAndFeatures,
+        // A read-only value is something to consult, not to set, so it belongs with the rest of the
+        // diagnostics rather than among the controls a user came to change.
+        CapabilityRole.GenericReadOnly => DeviceOverlaySection.Diagnostics,
         _ => DeviceOverlaySection.Overview,
     };
 
@@ -608,7 +635,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 new DeviceOverlayCapability(
                     "preview.lighting",
                     null,
-                    DeviceOverlaySection.OemAndLighting,
+                    DeviceOverlaySection.LightingAndFeatures,
                     DeviceOverlayStatus.Available,
                     "Lighting",
                     "Verified readback · stored on device",

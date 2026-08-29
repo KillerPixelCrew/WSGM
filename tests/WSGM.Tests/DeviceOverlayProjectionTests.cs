@@ -18,7 +18,7 @@ public sealed class DeviceOverlayProjectionTests
         Assert.Contains(snapshot.Capabilities,
             capability => capability.Section == DeviceOverlaySection.ControllerAndMotion);
         Assert.Contains(snapshot.Capabilities,
-            capability => capability.Section == DeviceOverlaySection.OemAndLighting);
+            capability => capability.Section == DeviceOverlaySection.LightingAndFeatures);
         Assert.All(snapshot.Capabilities,
             capability => Assert.NotEqual(DeviceOverlayStatus.None, capability.Status));
         Assert.NotNull(snapshot.GlyphSelection);

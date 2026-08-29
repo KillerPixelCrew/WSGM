@@ -23,6 +23,14 @@ internal enum OverlayPage
     SteamLaunchConfiguration,
     SteamStorageFormat,
     Device,
+    DeviceOverview,
+    DeviceProfiles,
+    DevicePowerAndThermals,
+    DeviceControllerAndMotion,
+    DeviceOem,
+    DeviceLightingAndFeatures,
+    DeviceGlyphs,
+    DeviceDiagnostics,
     System,
     SystemWakeLocks,
 }
@@ -162,7 +170,11 @@ internal sealed class OverlayNavigation
         OverlayPage.Steam or OverlayPage.SteamLibraryTabs or OverlayPage.SteamCardManager
             or OverlayPage.SteamArtwork or OverlayPage.SteamLaunchConfiguration
             or OverlayPage.SteamStorageFormat => OverlayDestination.Steam,
-        OverlayPage.Device => OverlayDestination.Device,
+        OverlayPage.Device or OverlayPage.DeviceOverview or OverlayPage.DeviceProfiles
+            or OverlayPage.DevicePowerAndThermals or OverlayPage.DeviceControllerAndMotion
+            or OverlayPage.DeviceOem or OverlayPage.DeviceLightingAndFeatures
+            or OverlayPage.DeviceGlyphs or OverlayPage.DeviceDiagnostics
+            => OverlayDestination.Device,
         OverlayPage.System or OverlayPage.SystemWakeLocks => OverlayDestination.System,
         _ => throw new ArgumentOutOfRangeException(nameof(page)),
     };

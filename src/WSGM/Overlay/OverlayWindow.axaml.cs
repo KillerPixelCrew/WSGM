@@ -227,57 +227,114 @@ public partial class OverlayWindow : Window
             return;
         }
 
+        DescriptorStatusRow? restoreFocus =
+            DeviceOverlaySectionPages.SectionFor(_navigation.Page) is { } section
+                ? RenderDeviceSection(snapshot, section, focusedKey)
+                : RenderDeviceSectionMenu(snapshot, focusedKey);
+
+        restoreFocus?.Focus(NavigationMethod.Directional);
+    }
+
+    /// <summary>
+    /// Renders the Device root: one card per section that currently has something in it.
+    /// </summary>
+    /// <remarks>
+    /// A menu rather than one long list. The whole surface is a few rows tall on a handheld, and a
+    /// list that needs scrolling is a list a controller cannot cross quickly. Each card carries the
+    /// most serious status inside it, so a fault is visible without opening the page.
+    /// </remarks>
+    private DescriptorStatusRow? RenderDeviceSectionMenu(
+        DeviceOverlaySnapshot snapshot,
+        string? focusedKey)
+    {
         DescriptorStatusRow? restoreFocus = null;
-        bool firstSection = true;
-        foreach (DeviceOverlaySection section in Enum.GetValues<DeviceOverlaySection>())
+        foreach (DeviceOverlaySectionEntry entry in DeviceOverlaySectionPages.Build(snapshot))
         {
-            DeviceOverlayCapability[] sectionCapabilities = snapshot.Capabilities
-                .Where(capability => capability.Section == section)
-                .ToArray();
-            DeviceOverlayGlyphSelection? glyphSelection = section
-                is DeviceOverlaySection.ControllerAndMotion
-                ? snapshot.GlyphSelection
-                : null;
-            if (sectionCapabilities.Length == 0 && glyphSelection is null)
+            string key = DeviceOverlaySectionPages.FocusKey(entry.Section);
+            DescriptorStatusRow row = new();
+            row.Apply(new DescriptorRow(
+                key,
+                entry.Title,
+                entry.Description,
+                entry.Count.ToString(CultureInfo.InvariantCulture),
+                CanInvoke: true,
+                DeviceStatusFor(entry.Status)));
+            DeviceOverlaySection section = entry.Section;
+            row.Click += (_, _) => EnterDeviceSection(section);
+            DeviceCapabilityList.Children.Add(row);
+            if (string.Equals(key, focusedKey, StringComparison.Ordinal))
             {
-                continue;
-            }
-
-            TextBlock heading = new()
-            {
-                Text = DeviceSectionLabel(section),
-                Margin = new Thickness(2, firstSection ? 2 : 8, 2, 2),
-            };
-            heading.Classes.Add("eyebrow");
-            DeviceCapabilityList.Children.Add(heading);
-            firstSection = false;
-
-            foreach (DeviceOverlayCapability capability in sectionCapabilities)
-            {
-                string key = capability.InstanceId is { Length: > 0 }
-                    ? $"{capability.CapabilityId}#{capability.InstanceId}"
-                    : capability.CapabilityId;
-                DescriptorStatusRow button = CreateDeviceCapabilityRow(capability, key);
-                DeviceCapabilityList.Children.Add(button);
-                if (string.Equals(key, focusedKey, StringComparison.Ordinal))
-                {
-                    restoreFocus = button;
-                }
-            }
-
-            if (glyphSelection is not null)
-            {
-                const string glyphFocusKey = "device.glyph-selection";
-                DescriptorStatusRow button = CreateGlyphSelectionRow(glyphSelection, glyphFocusKey);
-                DeviceCapabilityList.Children.Add(button);
-                if (string.Equals(glyphFocusKey, focusedKey, StringComparison.Ordinal))
-                {
-                    restoreFocus = button;
-                }
+                restoreFocus = row;
             }
         }
 
-        restoreFocus?.Focus(NavigationMethod.Directional);
+        return restoreFocus;
+    }
+
+    /// <summary>Renders one Device section's rows.</summary>
+    private DescriptorStatusRow? RenderDeviceSection(
+        DeviceOverlaySnapshot snapshot,
+        DeviceOverlaySection section,
+        string? focusedKey)
+    {
+        DescriptorStatusRow? restoreFocus = null;
+        TextBlock heading = new()
+        {
+            Text = DeviceSectionLabel(section),
+            Margin = new Thickness(2, 2, 2, 2),
+        };
+        heading.Classes.Add("eyebrow");
+        DeviceCapabilityList.Children.Add(heading);
+
+        foreach (DeviceOverlayCapability capability
+            in DeviceOverlaySectionPages.CapabilitiesIn(snapshot, section))
+        {
+            string key = capability.InstanceId is { Length: > 0 }
+                ? $"{capability.CapabilityId}#{capability.InstanceId}"
+                : capability.CapabilityId;
+            DescriptorStatusRow button = CreateDeviceCapabilityRow(capability, key);
+            DeviceCapabilityList.Children.Add(button);
+            if (string.Equals(key, focusedKey, StringComparison.Ordinal))
+            {
+                restoreFocus = button;
+            }
+        }
+
+        // Glyph selection is WSGM's own control rather than a plugin capability, so it is placed
+        // here explicitly rather than arriving through the capability list.
+        if (section is DeviceOverlaySection.Glyphs && snapshot.GlyphSelection is { } glyphSelection)
+        {
+            const string glyphFocusKey = "device.glyph-selection";
+            DescriptorStatusRow button = CreateGlyphSelectionRow(glyphSelection, glyphFocusKey);
+            DeviceCapabilityList.Children.Add(button);
+            if (string.Equals(glyphFocusKey, focusedKey, StringComparison.Ordinal))
+            {
+                restoreFocus = button;
+            }
+        }
+
+        return restoreFocus;
+    }
+
+    private void EnterDeviceSection(DeviceOverlaySection section)
+    {
+        if (!_navigation.Push(
+            DeviceOverlaySectionPages.PageFor(section),
+            CurrentSemanticFocusKey()))
+        {
+            return;
+        }
+
+        RefreshDevicePanel();
+        FocusFirstControl(DeviceCapabilityList);
+    }
+
+    private void LeaveDeviceSection(DeviceOverlaySection section)
+    {
+        string? returnFocusKey = _navigation.Pop()
+            ?? DeviceOverlaySectionPages.FocusKey(section);
+        RefreshDevicePanel();
+        RestoreRootFocus(returnFocusKey);
     }
 
     private DescriptorStatusRow CreateDeviceCapabilityRow(
@@ -457,10 +514,13 @@ public partial class OverlayWindow : Window
 
     private static string DeviceSectionLabel(DeviceOverlaySection section) => section switch
     {
-        DeviceOverlaySection.Overview => "OVERVIEW AND PROFILES",
+        DeviceOverlaySection.Overview => "OVERVIEW",
+        DeviceOverlaySection.Profiles => "PROFILES",
         DeviceOverlaySection.PowerAndThermals => "POWER AND THERMALS",
         DeviceOverlaySection.ControllerAndMotion => "CONTROLLER AND MOTION",
-        DeviceOverlaySection.OemAndLighting => "OEM CONTROLS AND LIGHTING",
+        DeviceOverlaySection.Oem => "OEM BUTTONS",
+        DeviceOverlaySection.LightingAndFeatures => "LIGHTING AND FEATURES",
+        DeviceOverlaySection.Glyphs => "GLYPHS",
         DeviceOverlaySection.Diagnostics => "DIAGNOSTICS AND RECOVERY",
         _ => "DEVICE",
     };
@@ -772,6 +832,11 @@ public partial class OverlayWindow : Window
                 if (InFormatSubView)
                 {
                     LeaveFormatSubViewToOrigin();
+                    return true;
+                }
+                if (DeviceOverlaySectionPages.SectionFor(_navigation.Page) is { } leaving)
+                {
+                    LeaveDeviceSection(leaving);
                     return true;
                 }
                 _navigation.Pop();
