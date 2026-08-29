@@ -325,11 +325,43 @@ internal sealed class ExplorerShellAnchor : IDisposable, IAsyncDisposable
             _ = await _process.WaitForExitAsync(StopTimeout).ConfigureAwait(false);
         }
 
-        _writer.Dispose();
-        _reader.Dispose();
-        _pipe.Dispose();
+        // Disposing a StreamWriter FLUSHES it, and flushing to a pipe whose peer has exited throws
+        // IOException: IO_PipeBroken. A dead peer is the ordinary state here — this anchor is
+        // being disposed precisely because it is finished — so the throw was never a failure, but
+        // it escaped: the handshake above is guarded and these four lines were not.
+        //
+        // What that cost: entering game mode replaces the anchor and disposes the previous one, so
+        // one stale anchor made the IOException propagate out of DisposeAsync, through
+        // ExplorerDesktopHost, to SessionModes, which logged "Game-mode transition failed" and
+        // rolled back by closing Big Picture. Returning to game mode stayed broken for the rest of
+        // the session, with a live Explorer and a Steam that opened and immediately closed.
+        DisposeQuietly(_writer, nameof(_writer));
+        DisposeQuietly(_reader, nameof(_reader));
+        DisposeQuietly(_pipe, nameof(_pipe));
         _process.Dispose();
         _commandGate.Dispose();
+    }
+
+    /// <summary>Releases one pipe-backed resource, tolerating a peer that has already gone.</summary>
+    /// <param name="resource">The resource to release.</param>
+    /// <param name="name">Its field name, for the log when release was not clean.</param>
+    /// <remarks>
+    /// Only the broken-pipe family is tolerated. Anything else still surfaces, because a disposal
+    /// failing for an unexpected reason is a real defect and swallowing it here would hide it in
+    /// the one place nobody looks.
+    /// </remarks>
+    private static void DisposeQuietly(IDisposable resource, string name)
+    {
+        try
+        {
+            resource.Dispose();
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+        {
+            Log.Change(
+                "anchor.dispose." + name,
+                $"Shell anchor {name} released after its peer had gone: {ex.Message}");
+        }
     }
 
     private static async Task<int> RunProcessModeAsync(

@@ -167,7 +167,19 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
         _anchor = replacement;
         if (previous is not null)
         {
-            await previous.DisposeAsync().ConfigureAwait(false);
+            // The replacement is already installed, so retiring the old anchor cannot change the
+            // outcome of this takeover and must never be able to fail it. It did: a broken pipe
+            // thrown from the old anchor's disposal aborted the whole game-mode transition and
+            // closed the Big Picture that had already started.
+            try
+            {
+                await previous.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Retiring the previous shell anchor failed, continuing with the new one "
+                    + $"(pid {replacement.ProcessId}): {ex.GetType().Name}: {ex.Message}");
+            }
         }
         Log.Info($"Explorer launch anchor ready (pid {_anchor.ProcessId}, "
             + $"parent pid {shell.Process.ProcessId}).");

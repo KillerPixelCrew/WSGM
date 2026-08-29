@@ -351,6 +351,23 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
         }
     }
 
+    /// <summary>Records a patch's new state and reports the transition.</summary>
+    /// <remarks>
+    /// The single funnel every outcome of <see cref="SynchronizePatchAsync"/> passes through, which
+    /// is why the log line belongs here rather than at the seven call sites.
+    /// <para>
+    /// This state machine already computed exactly what a remote diagnosis needs — which patch,
+    /// whether the target was absent, whether the fingerprint matched, and a bounded diagnostic
+    /// saying why — and then put all of it in a snapshot that nothing logged. A native QAM that
+    /// never appeared produced no line at all, so "nothing is in Steam's QAM" and "WSGM never tried"
+    /// looked identical from a pasted log.
+    /// </para>
+    /// <para>
+    /// Keyed per patch so each one's transitions are tracked independently, and via
+    /// <see cref="Log.Change"/> because synchronization re-runs on every Steam UI generation and a
+    /// steady Verified state would otherwise be the next thing to flood the log.
+    /// </para>
+    /// </remarks>
     private static void SetState(
         PatchEntry entry,
         SteamUiPatchState state,
@@ -367,6 +384,17 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
             generations,
             Bound(failure, entry.Patch.Bounds.MaximumDiagnosticCharacters),
             DateTimeOffset.UtcNow);
+
+        string detail = string.IsNullOrWhiteSpace(entry.Snapshot.LastFailure)
+            ? string.Empty
+            : $" — {entry.Snapshot.LastFailure}";
+        Log.Change(
+            "steam.ui.patch." + entry.Patch.Id,
+            $"Steam UI patch {entry.Patch.Id} v{entry.Patch.Version}: {state}{detail}",
+            state is SteamUiPatchState.Applied or SteamUiPatchState.Verified
+                or SteamUiPatchState.Applying or SteamUiPatchState.Disabled
+                ? "info "
+                : "warn ");
     }
 
     private static string? Bound(string? value, int maximumLength) =>

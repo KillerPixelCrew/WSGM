@@ -182,9 +182,17 @@ public static class SteamCef
 
     private static async Task<string?> GetSocketAsync(WhichTarget which, CancellationToken token)
     {
-        if (!IsSteamPortOwner())
+        // One log site for all four outcomes, carrying the reason the check actually reached, on a
+        // single Change key so a transition between them shows and the repeats do not.
+        bool owned = IsSteamPortOwner(out string ownership);
+        Log.Change(
+            PortStateKey,
+            owned
+                ? $"Steam CEF: {ownership}."
+                : $"Steam CEF refused port {DebugPort}: {ownership}.",
+            owned ? "info " : "warn ");
+        if (!owned)
         {
-            Log.Warn($"Steam CEF refused port {DebugPort}: listener is not a Steam process.");
             return null;
         }
         string json;
@@ -233,7 +241,10 @@ public static class SteamCef
     // Reads the TCP listener table directly instead of parsing netstat: netstat's
     // STATE column is localized, so matching the literal "LISTENING" fails closed on
     // every non-English Windows and takes the whole Steam integration down with it.
-    private static bool IsSteamPortOwner() =>
+    /// <summary>Runs the ownership check against the live listener table.</summary>
+    /// <param name="reason">What was observed, whatever the verdict.</param>
+    /// <returns><see langword="true"/> only when a Steam process owns the port.</returns>
+    private static bool IsSteamPortOwner(out string reason) =>
         IsSteamPortOwner(NativeTcp.ListListeners(), static pid =>
         {
             try
@@ -245,10 +256,14 @@ public static class SteamCef
             {
                 // The owner exited between the table read and the lookup; keep
                 // scanning rather than treating one stale row as a verdict.
-                Log.Warn($"Steam CEF listener ownership check failed: {ex.Message}");
+                Log.Change(
+                    "steam.cef.ownerLookup",
+                    $"Steam CEF listener ownership check failed: {ex.Message}",
+                    "warn ");
                 return null;
             }
-        });
+        },
+        out reason);
 
     /// <summary>One Change key for every outcome of the CEF port probe.</summary>
     private const string PortStateKey = "steam.cef.port";
@@ -259,23 +274,27 @@ public static class SteamCef
     /// <para>A pure seam over the live check so the hardening is regression-testable.</para></summary>
     /// <param name="listeners">The TCP listener table, or null when it could not be read.</param>
     /// <param name="processName">Resolves a pid to its process name, or null if it is gone.</param>
+    /// <param name="reason">
+    /// What was observed, whatever the verdict, ready to be logged verbatim by the caller.
+    /// </param>
     /// <returns><see langword="true"/> only when a Steam process owns the port.</returns>
+    /// <remarks>
+    /// The reason is an out-parameter rather than a log call because this is a pure seam and has to
+    /// stay one, and because the caller was otherwise left inventing a cause: it logged "listener
+    /// is not a Steam process" for all four outcomes, including the ordinary one where Steam simply
+    /// had not started yet. A wrong reason is worse than none — that line sent a maintainer hunting
+    /// a squatter on a port that nothing was listening on.
+    /// </remarks>
     internal static bool IsSteamPortOwner(IReadOnlyList<NativeTcp.Listener>? listeners,
-        Func<int, string?> processName)
+        Func<int, string?> processName,
+        out string reason)
     {
         if (listeners is null)
         {
             // A failed table read is NOT "nothing is listening" — reporting it as such
             // once sent the maintainer hunting a closed Steam port that was open.
-            //
-            // All four outcomes of this probe share one Change key, so the log records every
-            // transition between them and none of the repeats. Splitting them across keys would
-            // put the poll back to one line every two seconds whenever the state alternated.
-            Log.Change(
-                PortStateKey,
-                $"Steam CEF: TCP listener table unavailable; "
-                    + $"cannot verify the owner of port {DebugPort}.",
-                "warn ");
+            reason = $"the TCP listener table was unavailable, so the owner of port {DebugPort} "
+                + "could not be verified";
             return false;
         }
         var candidates = listeners
@@ -284,11 +303,10 @@ public static class SteamCef
             .ToList();
         if (candidates.Count == 0)
         {
-            // Polled every two seconds for as long as Steam is not up. This one message was 8,044
-            // of one session's 43,392 log lines.
-            Log.Change(PortStateKey, $"Steam CEF: nothing is listening on port {DebugPort}.");
+            reason = $"nothing is listening on port {DebugPort}";
             return false;
         }
+        int unidentified = 0;
         foreach (var listener in candidates)
         {
             var name = processName(listener.ProcessId);
@@ -296,15 +314,12 @@ public static class SteamCef
             {
                 // The owner exited between the table read and the lookup; that row is
                 // stale, so keep scanning rather than treating it as a verdict.
+                unidentified++;
                 continue;
             }
             if (name is "steamwebhelper" or "steam")
             {
-                // The success was silent, so a log could show the port failing for minutes and
-                // never show it recovering — the reader had to infer it from CEF work appearing.
-                Log.Change(
-                    PortStateKey,
-                    $"Steam CEF: port {DebugPort} owned by {name} (pid {listener.ProcessId}).");
+                reason = $"port {DebugPort} is owned by {name} (pid {listener.ProcessId})";
                 return true;
             }
             // Decisive, not just logged: we connect to 127.0.0.1, and Windows routes
@@ -312,13 +327,14 @@ public static class SteamCef
             // above. If that one is not Steam, then Steam's own wildcard row further
             // down the list belongs to a socket our connect never reaches, and
             // continuing the scan would clear a squatter sitting in front of Steam.
-            Log.Change(
-                PortStateKey,
-                $"Steam CEF: port {DebugPort} is owned by "
-                    + $"{name} (pid {listener.ProcessId}), not Steam.",
-                "warn ");
+            reason = $"port {DebugPort} is owned by {name} (pid {listener.ProcessId}), not Steam";
             return false;
         }
+
+        // Every candidate's owning process had exited by the time it was looked up. That is a
+        // genuinely different state from "not Steam" and used to fall out of the loop unreported.
+        reason = $"{unidentified} listener(s) on port {DebugPort} could not be attributed to a "
+            + "running process";
         return false;
     }
 

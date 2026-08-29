@@ -43,8 +43,15 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery
     public async Task<SteamUiEndpoint?> DiscoverAsync(
         SteamUiTargetRole role, CancellationToken cancellationToken)
     {
-        if (!IsSteamPortOwner())
+        // Returning null here abandons the whole Steam UI injection, and it used to do so without
+        // a word: no endpoint, no surface, and nothing in the log saying the discovery had even
+        // been attempted.
+        if (!IsSteamPortOwner(out string ownership))
         {
+            Log.Change(
+                "steam.ui.discovery",
+                $"Steam UI discovery for {role} refused: {ownership}.",
+                "warn ");
             return null;
         }
 
@@ -167,17 +174,20 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery
             .ConfigureAwait(false);
     }
 
-    private static bool IsSteamPortOwner() =>
-        SteamCef.IsSteamPortOwner(NativeTcp.ListListeners(), static processId =>
-        {
-            try
+    private static bool IsSteamPortOwner(out string reason) =>
+        SteamCef.IsSteamPortOwner(
+            NativeTcp.ListListeners(),
+            static processId =>
             {
-                using var process = Process.GetProcessById(processId);
-                return process.ProcessName;
-            }
-            catch
-            {
-                return null;
-            }
-        });
+                try
+                {
+                    using var process = Process.GetProcessById(processId);
+                    return process.ProcessName;
+                }
+                catch
+                {
+                    return null;
+                }
+            },
+            out reason);
 }

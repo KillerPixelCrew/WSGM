@@ -97,29 +97,75 @@ public class SteamCefGateTests
 
     [Fact]
     public void AnUnreadableListenerTableIsNotTreatedAsNothingListening()
-        => Assert.False(SteamCef.IsSteamPortOwner(null, static _ => "steam"));
+    {
+        Assert.False(SteamCef.IsSteamPortOwner(null, static _ => "steam", out string reason));
+        Assert.Contains("unavailable", reason, StringComparison.Ordinal);
+    }
 
     [Fact]
     public void NoListenerOnTheDebugPortIsNotSteam()
-        => Assert.False(SteamCef.IsSteamPortOwner(
-            [new NativeTcp.Listener(NativeTcp.Loopback, 1234, 42)], static _ => "steam"));
+    {
+        Assert.False(SteamCef.IsSteamPortOwner(
+            [new NativeTcp.Listener(NativeTcp.Loopback, 1234, 42)],
+            static _ => "steam",
+            out string reason));
+        Assert.Contains("nothing is listening", reason, StringComparison.Ordinal);
+    }
 
     [Theory]
     [InlineData("steam")]
     [InlineData("steamwebhelper")]
     public void ASteamProcessOwningTheDebugPortIsAccepted(string name)
-        => Assert.True(SteamCef.IsSteamPortOwner(
-            [new NativeTcp.Listener(NativeTcp.Loopback, DebugPort, 42)], _ => name));
+    {
+        Assert.True(SteamCef.IsSteamPortOwner(
+            [new NativeTcp.Listener(NativeTcp.Loopback, DebugPort, 42)],
+            _ => name,
+            out string reason));
+        Assert.Contains(name, reason, StringComparison.Ordinal);
+    }
 
     [Fact]
     public void AForeignProcessOwningTheDebugPortIsRejected()
-        => Assert.False(SteamCef.IsSteamPortOwner(
-            [new NativeTcp.Listener(NativeTcp.Loopback, DebugPort, 42)], static _ => "squatter"));
+    {
+        Assert.False(SteamCef.IsSteamPortOwner(
+            [new NativeTcp.Listener(NativeTcp.Loopback, DebugPort, 42)],
+            static _ => "squatter",
+            out string reason));
+        Assert.Contains("squatter", reason, StringComparison.Ordinal);
+    }
 
     [Fact]
     public void AListenerWhoseProcessHasExitedDoesNotDecideTheVerdict()
-        => Assert.False(SteamCef.IsSteamPortOwner(
-            [new NativeTcp.Listener(NativeTcp.Loopback, DebugPort, 42)], static _ => null));
+    {
+        Assert.False(SteamCef.IsSteamPortOwner(
+            [new NativeTcp.Listener(NativeTcp.Loopback, DebugPort, 42)],
+            static _ => null,
+            out string reason));
+        Assert.Contains("could not be attributed", reason, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The four ways the probe can fail must not describe each other. The caller logs this string
+    /// verbatim, and when it hardcoded one cause for all of them the log reported a squatter on a
+    /// port that nothing was listening on — sending the maintainer after a process that did not
+    /// exist.
+    /// </summary>
+    [Fact]
+    public void EachRefusalReasonNamesItsOwnCause()
+    {
+        NativeTcp.Listener[] onPort = [new NativeTcp.Listener(NativeTcp.Loopback, DebugPort, 42)];
+        SteamCef.IsSteamPortOwner(null, static _ => "steam", out string unreadable);
+        SteamCef.IsSteamPortOwner(
+            [new NativeTcp.Listener(NativeTcp.Loopback, 1234, 42)],
+            static _ => "steam",
+            out string absent);
+        SteamCef.IsSteamPortOwner(onPort, static _ => "squatter", out string foreign);
+        SteamCef.IsSteamPortOwner(onPort, static _ => null, out string unidentified);
+
+        string[] reasons = [unreadable, absent, foreign, unidentified];
+        Assert.Equal(reasons.Length, reasons.Distinct(StringComparer.Ordinal).Count());
+        Assert.DoesNotContain(reasons, r => string.IsNullOrWhiteSpace(r));
+    }
 
     /// A squatter on 127.0.0.1 must not be able to hide behind Steam's own wildcard
     /// row: the loopback listener is examined first, so it — not Steam — decides.
@@ -130,5 +176,6 @@ public class SteamCefGateTests
                 new NativeTcp.Listener(NativeTcp.AnyAddress, DebugPort, 1),
                 new NativeTcp.Listener(NativeTcp.Loopback, DebugPort, 2),
             ],
-            static pid => pid == 1 ? "steam" : "squatter"));
+            static pid => pid == 1 ? "steam" : "squatter",
+            out _));
 }
