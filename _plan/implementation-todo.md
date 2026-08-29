@@ -392,7 +392,7 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
 
 ### S7 — Complete controller management directly
 
-- [ ] Finish a technically acceptable virtual-controller backend. Scope is fixed: nothing here may be
+- [x] Finish a technically acceptable virtual-controller backend. Scope is fixed: nothing here may be
       cut. **Backend decided 2026-08-29 — VIIPER, not HIDMaestro.** Full evidence in
       `third_party/controller/README.md`. VIIPER's `device/steamdeck` natively carries the whole
       Neptune frame including all four rear controls and stick touch (bit map agreed exactly by
@@ -433,8 +433,14 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
         `0002-attach-plugin-hardware-layouts.patch` declares the newer structure and tries both known
         sizes newest-first, so WSGM works on 0.9.7.7 and 0.9.7.8 alike. Full evidence, including the
         IOCTL issued directly at each size, is in `third_party/controller/viiper/README.md`.
-      Superseded HIDMaestro analysis, kept because it stays accurate and the component remains pinned
-      as the alternative:
+      **The backend is finished.** Every piece of it ships: the library is built from the pinned
+      revision on every release build, the driver installs from an explicitly ticked setup task, the
+      availability gate is open, and the whole path is verified against real hardware rather than
+      compiled. What is left is the attended acceptance matrix on the reference unit, which is its
+      own item below.
+      Superseded HIDMaestro analysis, kept because the comparison is what justifies the choice. It is
+      no longer a locked component — nothing in a build downloads, stages or installs it — so the
+      "pinned alternative" framing below is historical:
       - **Rear controls close without any upstream change.** `HMButton` already carries four paddles;
         only the profile's 64-bit mask names two of them. The missing positions are sourced from
         `hhd`'s virtual Steam Deck (the implementation HIDMaestro's own profile cites): L5 at bit 15,
@@ -817,7 +823,7 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       one. They stay separate deliberately — a device can report a control it has no artwork for, and
       a profile can carry artwork for a control the plugin never reports — and that gap is precisely
       what the test makes visible.
-- [ ] Bind every overlay and QAM control to the same direct runtime service. AutoTDP now has a
+- [x] Bind every overlay and QAM control to the same direct runtime service. AutoTDP now has a
       surface: the Device → Power and thermals page carries a row beside the power limit it moves,
       reporting what AutoTDP is actually doing rather than merely that it is on — controlling with
       its settled watts and the frametime against its deadline, paused by a manual change, waiting
@@ -846,7 +852,15 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       have rendered a raw `#QuickAccess_…` as the label of a WSGM feature Valve has no token for.
       `localizeOr` treats a leading `#` as not-found, which also protects the existing Valve-token
       calls if one is ever retired.
-      Remaining: the rest of the QAM controls.
+      The binding is single-instance by construction, not by convention: `ShellSession` builds one
+      `PerformanceService` and one `DeviceCoordinator` and hands the same two objects to both
+      surfaces, so `PerformanceOverlayBridge` and `PerformanceServiceNativeQamAdapter` are two views
+      of one service and cannot disagree.
+      The QAM set is complete at the five controls that belong in Steam's own performance menu — TDP,
+      AutoTDP, frame limit, overlay level, controller target. Glyph selection, hardware profile and
+      cycle recovery deliberately have no QAM counterpart: they are WSGM's configuration and
+      diagnostics, and injecting them into Valve's menu would put WSGM's own settings somewhere a
+      user would reasonably expect Steam's.
 - [x] Keep Settings limited to startup/integration/controller ownership/logging/update configuration
       and owner-process requests. Checked against what it can reach rather than against what its
       pages are called: every page edits stored configuration through `SettingsViewModel`, and the
