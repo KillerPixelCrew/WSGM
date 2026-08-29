@@ -20,18 +20,25 @@ fast path, value-typed input state, and a `GOMAXPROCS` cap.
 but not on this branch. A third, the SDL3 `ucLength` fix, is already present here and needs no
 patch.
 
-| Upstream PR | Fix | Why it matters to WSGM |
+| Source | Fix | Why it matters to WSGM |
 | --- | --- | --- |
 | Valkirie/VIIPER#3 | Clamp stick Y off `-32768` | SDL3's Deck driver negates stick Y with a plain unary minus, so `-32768` wraps to itself and a fully-down stick reads as fully up. Real Deck sticks are calibrated and never report it. |
 | Valkirie/VIIPER#2 | Placeholder mouse and keyboard endpoints stay pending | They carry no data, yet completed a transfer on every poll. That both wakes the system from standby and burns CPU for nothing. |
+| WSGM | Stale quaternion assertion | `9de6355` deliberately dropped the forced identity orientation quaternion, because a frozen identity made Steam ignore raw angular velocity and collapse gyro-to-stick to centre. The test still expected `0x4000` and was left failing, so the package had no green baseline to regress from. |
 
 PR #2 needed adapting rather than applying verbatim: this branch replaced the inline `ctx.Done()`
 waits with `device.BlockUntilDeadline`, so the two endpoint cases collapse into one that blocks and
 returns no data.
 
-**Not yet compiled.** A Go toolchain is required to build VIIPER and is not installed on the
-maintainer machine, so both edits are reviewed by inspection only. Building and running the package
-tests is the first step whenever this work resumes.
+## Build baseline
+
+Verified with Go 1.27.0 on the reference Claw, 2026-08-29. `go build ./...` succeeds for the whole
+tree, and `go test ./device/steamdeck/...` passes with the patch applied.
+
+Three packages fail on this branch **before** any WSGM patch and are the accepted baseline:
+`device/xboxelite2`, `device/xboxgip`, and `internal/server/api` (build failure). None is touched by
+the patch, and none is on WSGM's path — but a fourth failure appearing is a regression worth
+investigating.
 
 ## What the installer must provide
 
@@ -49,11 +56,9 @@ user-approved, elevated step that verifies the locked component identity first.
    USBIP port. It is built from the pinned revision above with the patches applied.
 3. **HidHide**, already pinned, and already mandatory only while controller management is active.
 
-Two consequences follow and are not yet settled:
+Licensing is settled and is not a blocker: WSGM is GPL-3.0 and so is the VIIPER server, so shipping
+it is straightforward. Retain the upstream notices as for any other shipped component.
 
-- **Licensing.** The VIIPER server is GPL-3.0 while its client libraries are MIT. Shipping the server
-  in WSGM's installer is a distribution decision that has to be made deliberately, with the notice
-  obligations met, before it ships.
-- **Ordering and failure.** The installer must verify each locked component before installing it, and
-  a machine where usbip-win2 is absent or refused must still install and run WSGM with controller
-  management unavailable, exactly as it does today.
+The remaining installer requirement is ordinary failure handling: verify each locked component
+identity before installing it, and keep a machine where usbip-win2 is absent or declined installing
+and running WSGM normally, with controller management simply unavailable — exactly as today.

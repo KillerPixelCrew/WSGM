@@ -400,10 +400,13 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       46/47), and it rides `usbip-win2`'s already-pinned signed kernel driver, so the missing-fields
       and driver-reproducibility gates both disappear.
       - The three fixes merged into `Valkirie/VIIPER` are carried onto corando98's `viiper-controller`
-        branch in `_ref/VIIPER`: PR #4 (SDL3 `ucLength` 64) was already present; PR #3 (stick-Y
-        clamp) and PR #2 (placeholder endpoints must stay pending) are applied, #2 adapted to this
-        branch's `device.BlockUntilDeadline`. Not compiled — **a Go toolchain is not installed on
-        this machine** and is now a prerequisite for this work.
+        branch, tracked as a patch in `third_party/controller/viiper/`: PR #4 (SDL3 `ucLength` 64) was
+        already present; PR #3 (stick-Y clamp) and PR #2 (placeholder endpoints must stay pending) are
+        applied, #2 adapted to this branch's `device.BlockUntilDeadline`. The patch also repairs a
+        stale quaternion assertion the branch left failing, so the package has a green baseline.
+        Built and tested with Go 1.27.0 on the reference Claw: `go build ./...` succeeds tree-wide and
+        `go test ./device/steamdeck/...` passes. `xboxelite2`, `xboxgip`, and `internal/server/api`
+        fail before any WSGM patch and are the accepted baseline.
       - **The one real cost is CPU and it must be fixed, not accepted.** VIIPER driving a virtual Deck
         in HandheldCompanion measured a constant 6–8%. Mechanism identified: the Deck does not declare
         `NaksWhenIdle`, so all three streaming endpoints take the keepalive path and replay the last
@@ -428,13 +431,11 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
         EV-cert concerns are gone. Driver and certificate installation still must not happen at
         runtime (INV-020); it belongs to the installer as an explicit, user-approved, elevated step
         that verifies the locked component identity first.
-      Next implementation steps, in order: install a Go toolchain and build the patched branch;
-      measure the idle CPU of the virtual Deck with PR #2 applied, and again with `VIIPER_NAK_IDLE`
-      forced, against a Steam client that has actually claimed the device; then replace
-      `HidMaestroProductionBackend` with a VIIPER-backed `IHidBackend` implementation. The VIIPER
-      server is a separate process with MIT-licensed client libraries, so it does not need to live
-      inside the NativeAOT `WSGM.exe`; its GPL-3.0 server licensing has to be settled before the
-      installer ships it.
+      Next implementation steps, in order: measure the idle CPU of the virtual Deck with the patch
+      applied, and again with `VIIPER_NAK_IDLE` forced, against a Steam client that has actually
+      claimed the device; then replace `HidMaestroProductionBackend` with a VIIPER-backed
+      `IHidBackend` implementation. Licensing is settled — WSGM and the VIIPER server are both
+      GPL-3.0, so shipping it is straightforward.
 - [x] Keep one `ControllerManager` owning Steam Deck Composite, Xbox 360, DualShock 4, target
       replacement, output, HidHide, local UI capture, and fallback. `Shell/ControllerManager.cs` is
       that owner: selection, target lifetime and replacement, owned-delta HidHide, reference-counted
