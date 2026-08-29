@@ -1,3 +1,4 @@
+using System;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
@@ -16,6 +17,23 @@ namespace WSGM.Controls;
 /// </summary>
 public class CardButton : Button
 {
+    /// <summary>
+    /// Resolves the <c>ControlTheme</c> for this type and every type derived from it.
+    /// </summary>
+    /// <remarks>
+    /// Avalonia looks a <c>ControlTheme</c> up by the control's actual runtime type, and the theme
+    /// is keyed <c>{x:Type c:CardButton}</c>. Without this override a subclass finds no theme, gets
+    /// no template, and lays out at zero size — present in the tree, counted by the parent, drawing
+    /// nothing.
+    /// <para>
+    /// That is not hypothetical: every row on the overlay's Device page is a
+    /// <c>DescriptorStatusRow</c>, so the page rendered its cards and showed an empty panel under
+    /// the heading while the log correctly reported six rows and sixteen live capabilities. It
+    /// presents as missing data, which is why it survived several passes looking at the data.
+    /// </para>
+    /// </remarks>
+    protected override Type StyleKeyOverride => typeof(CardButton);
+
     /// <summary>
     /// Defines the <see cref="IconGeometry"/> property.
     /// </summary>
