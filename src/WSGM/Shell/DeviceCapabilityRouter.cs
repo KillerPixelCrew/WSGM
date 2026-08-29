@@ -4,7 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
-using WSGM.Device.Contracts.Capabilities;
+using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Shell;
 
@@ -41,24 +41,23 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     private string? _hardwareProfileId;
     private string? _applicationId;
     private long _descriptorGeneration;
-    private long _deviceGeneration;
-    private long _hostGeneration;
+    private long _cycleGeneration;
     private bool _onAcPower = true;
     private bool _connected;
     private bool _disposed;
 
-    internal DeviceCapabilityRouter(long hostGeneration, Action<Action> postToUi)
+    internal DeviceCapabilityRouter(long cycleGeneration, Action<Action> postToUi)
     {
         ArgumentNullException.ThrowIfNull(postToUi);
-        _hostGeneration = hostGeneration;
-        _states = new CapabilityStateTracker(hostGeneration);
+        _cycleGeneration = cycleGeneration;
+        _states = new CapabilityStateTracker(cycleGeneration);
         _postToUi = postToUi;
     }
 
     /// <summary>Raised on the UI dispatcher with a complete immutable projection.</summary>
     internal event Action<IReadOnlyList<DeviceCapabilityView>>? Changed;
 
-    internal void Attach(DeviceHostClient client, long hostGeneration, long deviceGeneration)
+    internal void Attach(DeviceHostClient client, long cycleGeneration)
     {
         ArgumentNullException.ThrowIfNull(client);
         lock (_gate)
@@ -66,11 +65,10 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
             DetachUnderGate();
             _client = client;
-            _hostGeneration = hostGeneration;
-            _deviceGeneration = deviceGeneration;
+            _cycleGeneration = cycleGeneration;
             _descriptorGeneration = 0;
             _descriptors.Clear();
-            _states.ResetTo(hostGeneration);
+            _states.ResetTo(cycleGeneration);
             _lastResults.Clear();
             _pendingValues.Clear();
             _timedOutCommands.Clear();
@@ -224,14 +222,24 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         }
     }
 
-    internal void MarkDeviceGenerationChanged(long deviceGeneration)
+    internal void MarkCycleGenerationChanged(long cycleGeneration)
     {
         lock (_gate)
         {
-            _deviceGeneration = deviceGeneration;
+            _cycleGeneration = cycleGeneration;
             _temporaryDesired.Clear();
             _pendingValues.Clear();
             _lastResults.Clear();
+        }
+
+        Publish();
+    }
+
+    internal void CloseCommandAdmission()
+    {
+        lock (_gate)
+        {
+            _connected = false;
         }
 
         Publish();
@@ -285,12 +293,11 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             command = new CapabilityCommand
             {
                 CommandId = commandId,
-                IdempotencyKey = $"{_hostGeneration}:{_deviceGeneration}:{key}:{commandId:N}",
                 CapabilityId = key.CapabilityId,
                 InstanceId = key.InstanceId,
                 RequestedValue = value,
                 ExpectedDescriptorGeneration = _descriptorGeneration,
-                ExpectedDeviceGeneration = _deviceGeneration,
+                ExpectedCycleGeneration = _cycleGeneration,
                 Deadline = now.Add(timeout > TimeSpan.Zero ? timeout : TimeSpan.FromSeconds(5)),
             };
 
@@ -319,8 +326,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 rawState,
                 FreshnessFor(descriptor.Role),
                 now,
-                _deviceGeneration,
-                _hostGeneration);
+                _cycleGeneration);
             if (!CapabilityFreshness.CanCommand(state))
             {
                 return Reject(
@@ -330,20 +336,40 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                     retryable: state.Reason?.Retryable ?? true);
             }
 
-            CommandAdmission.Result admission = CommandAdmission.Evaluate(
-                command,
-                descriptor,
-                _descriptorGeneration,
-                _deviceGeneration,
-                _onAcPower,
-                now);
-            if (!admission.Admitted)
+            CapabilityReason? refusal = null;
+            if (_onAcPower ? !descriptor.AvailableOnAc : !descriptor.AvailableOnDc)
+            {
+                refusal = new CapabilityReason(
+                    CapabilityReasonCode.UnavailableOnPowerSource,
+                    _onAcPower
+                        ? "Capability is not available on AC power."
+                        : "Capability is not available on battery.");
+            }
+            else if (value is null && !descriptor.SupportsAction)
+            {
+                refusal = new CapabilityReason(
+                    CapabilityReasonCode.Unsupported,
+                    "Capability does not support being invoked as an action.");
+            }
+            else if (value is not null && !descriptor.SupportsWrite)
+            {
+                refusal = new CapabilityReason(CapabilityReasonCode.Unsupported, "Capability is read-only.");
+            }
+            else if (value is not null
+                && !DeviceCapabilityValidation.ValueMatches(value, descriptor, out string? error))
+            {
+                refusal = new CapabilityReason(
+                    CapabilityReasonCode.ValueOutOfRange,
+                    error ?? "Capability value violates its descriptor.");
+            }
+
+            if (refusal is not null)
             {
                 return Reject(
                     command,
-                    admission.Reason?.Code ?? CapabilityReasonCode.Unsupported,
-                    admission.Reason?.Detail ?? "Command admission failed.",
-                    admission.Reason?.Retryable ?? false);
+                    refusal.Code,
+                    refusal.Detail ?? "Command preflight failed.",
+                    refusal.Retryable);
             }
 
             if (value is not null)
@@ -361,7 +387,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         {
             if (!DeviceCapabilityValidation.TryValidateDescriptorSet(
                 descriptors,
-                _deviceGeneration,
+                _cycleGeneration,
                 _descriptorGeneration,
                 out string? error))
             {
@@ -376,7 +402,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 _descriptors.Add(Key(descriptor), descriptor);
             }
 
-            _states = new CapabilityStateTracker(_hostGeneration);
+            _states = new CapabilityStateTracker(_cycleGeneration);
             _pendingValues.Clear();
             _lastResults.Clear();
             _temporaryDesired.Clear();
@@ -397,8 +423,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                     delta.State,
                     descriptor,
                     _descriptorGeneration,
-                    _deviceGeneration,
-                    _hostGeneration,
+                    _cycleGeneration,
                     out error))
             {
                 Log.Warn($"Device capability state rejected: {error ?? "invalid sequence or key"}.");
@@ -474,8 +499,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                     state,
                     FreshnessFor(descriptor.Role),
                     now,
-                    _deviceGeneration,
-                    _hostGeneration);
+                    _cycleGeneration);
             }
 
             ResolvedDeviceDesiredValue desired = ResolveDesired(key);
@@ -527,8 +551,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         Available = false,
         Quality = HardwareStateQuality.Unknown,
         DescriptorGeneration = _descriptorGeneration,
-        DeviceGeneration = _deviceGeneration,
-        HostGeneration = _hostGeneration,
+        CycleGeneration = _cycleGeneration,
         Reason = new CapabilityReason(
             CapabilityReasonCode.ObservationExpired,
             "No state has been published for this descriptor.",
@@ -646,11 +669,11 @@ internal static class DeviceCapabilityValidation
 
     internal static bool TryValidateDescriptorSet(
         CapabilityDescriptorSet set,
-        long deviceGeneration,
+        long cycleGeneration,
         long previousGeneration,
         out string? error)
     {
-        if (set.Generation <= previousGeneration || set.DeviceGeneration != deviceGeneration)
+        if (set.Generation <= previousGeneration || set.CycleGeneration != cycleGeneration)
         {
             error = "Descriptor or device generation is stale.";
             return false;
@@ -683,15 +706,13 @@ internal static class DeviceCapabilityValidation
         CapabilityState state,
         CapabilityDescriptor descriptor,
         long descriptorGeneration,
-        long deviceGeneration,
-        long hostGeneration,
+        long cycleGeneration,
         out string? error)
     {
         if (state.DescriptorGeneration != descriptorGeneration
-            || state.DeviceGeneration != deviceGeneration
-            || state.HostGeneration != hostGeneration)
+            || state.CycleGeneration != cycleGeneration)
         {
-            error = "State generation does not match the current descriptor, device, and host.";
+            error = "State generation does not match the current descriptor and cycle.";
             return false;
         }
 
@@ -801,16 +822,6 @@ internal static class DeviceCapabilityValidation
         if (!RoleMatchesValueKind(descriptor.Role, descriptor.ValueKind))
         {
             error = "Capability role and value kind are inconsistent.";
-            return false;
-        }
-
-        if (descriptor.MutuallyExclusiveWith.Count > 32
-            || descriptor.MutuallyExclusiveWith.Any(id => !ValidId(id, MaxIdLength)
-                || string.Equals(id, descriptor.CapabilityId, StringComparison.Ordinal))
-            || descriptor.MutuallyExclusiveWith.Distinct(StringComparer.Ordinal).Count()
-                != descriptor.MutuallyExclusiveWith.Count)
-        {
-            error = "Mutual-exclusion identifiers are invalid, duplicated, or self-referential.";
             return false;
         }
 

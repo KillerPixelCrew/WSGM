@@ -14,9 +14,16 @@ waiting to happen.
   the killed WSGM and start explorer mid-update, flipping the restart into desktop mode; also frees
   the Program Files binary, including an abandoned preview's — same service name), then signals
   `Local\WSGM.ExitForUpdate` (one SetEvent releases every instance, including elevated ones), waits
-  bounded on the shell mutex, taskkill fallback — and restarts WSGM in its previous mode
-  (shell-mutex check taken _before_ killing → `--shell`, else settings). `[Run]` order: `--setup`
-  (per-user files, migrate off any legacy shell registration, Xbox-FSE guard, boot manifest) then
+  bounded on the shell mutex, then taskkills only primary `WSGM.exe` images in the installer's
+  Terminal Services session. Restart Manager excludes the separately named `WSGM.ShellAnchor.exe`
+  companion; it gets its bounded owner-loss recovery window and is retired only after publishing
+  `Local\WSGM.ShellAnchor.RecoverySettled`, through the same current-session process filter, while
+  setup holds that session-local event open so a new anchor cannot enter the image-name kill. If
+  that acknowledgement is unavailable, setup defers replacement instead of killing the recovery
+  owner; a silent update skips the locked companion rather than scheduling the automatic reboot that
+  `restartreplace` would otherwise cause. Setup then restarts WSGM in its previous mode (shell-mutex
+  check taken _before_ killing → `--shell`, else settings). `[Run]` order: `--setup` (per-user
+  files, migrate off any legacy shell registration, Xbox-FSE guard, boot manifest) then
   `WSGM.LogonService.exe --install` (create-or-reconfigure + failure actions + start).
   `[UninstallRun]` order: service `--uninstall` (stop+delete) → `--unregister-shell` (legacy no-op
   on service installs) → `--uninstall-restore`, all before files are deleted; `[UninstallDelete]`
@@ -63,13 +70,15 @@ waiting to happen.
     `%LOCALAPPDATA%`/HKCU are the attacker's own store); what the event adds is only _timing
     control_ over when the pre-planted handler runs. Do not describe this path as a mere shutdown
     request.
-  - **It does leave the session desktop-less.** The graceful path ends with `lifetime.Shutdown()`
-    and therefore **exit code 0**, while the logon service starts its Explorer fallback only on a
-    dirty exit (`WSGM.LogonService\SessionLauncher.Watch`:
-    `dirtyExit = !exitKnown || waitResult != WAIT_OBJECT_0 || exitCode != 0`). A signal delivered
-    outside a real update thus ends the shell with no Explorer behind it until the user signs out.
-    This is not a new capability — same-user medium code can already loop `taskkill` on the
-    unelevated Explorer — but the doc must not claim the fallback covers it.
+  - **It can force an update-style Steam stop and game-mode exit.** The graceful path now runs the
+    bounded application cleanup and verifies an Explorer desktop before `lifetime.Shutdown()` exits
+    with code 0. If cleanup reaches its outer deadline, the separately rooted Explorer anchor keeps
+    the owner-loss recovery path alive through process exit. The logon service still starts its own
+    Explorer fallback only on a dirty exit (`WSGM.LogonService\SessionLauncher.Watch`:
+    `dirtyExit = !exitKnown || waitResult != WAIT_OBJECT_0 || exitCode != 0`); it is not the
+    recovery owner for a successful update handoff. A same-user process can therefore disrupt Steam
+    and end game mode on demand, but the accepted capability no longer intentionally strands the
+    session without a desktop.
   - **The hardening that is kept is the cheap kind, and the grant must not be narrowed.** The medium
     label keeps low-IL/sandboxed code from signalling at all, and the watcher's `ResetEvent` at
     start drops a stale signal so a relaunched instance does not shut itself straight back down. Do
@@ -79,6 +88,12 @@ waiting to happen.
     `0x00100002` mask are a **cross-version** contract — during an upgrade the object is created by
     the OLD build and the new installer only opens it by name — so drifting either one silently
     breaks graceful update shutdown and leaves the injected Steam Input payload mapped.
+- **Uninstall uses a separate graceful-exit event.** `Local\WSGM.ExitForUninstall` carries the same
+  same-user DACL and stale-signal behavior, but selects the frozen 20-second uninstall budget and
+  does not call `Steam.StopForUpdate`. The uninstaller falls back to `Local\WSGM.ExitForUpdate` when
+  removing an older build, then uses the same force-stop fallback. This keeps the update event's
+  cross-version name and semantics intact while avoiding an unnecessary Steam/game termination
+  during uninstall.
 - **Never manage Windows device posture or automatic touch-keyboard policy:** game/desktop mode must
   not capture or write `ConvertibleSlateMode` or `TouchKeyboardTapInvoke`. Windows owns both. The
   legacy config fields and `LegacyPostureCleanup.Restore` exist only to undo values changed by older

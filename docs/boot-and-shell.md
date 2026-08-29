@@ -12,8 +12,9 @@ settings. Shell mode: single-instance mutex `Local\WSGM.Shell` (held only in she
 installer keys off it), crash-loop breaker (3 shell starts in 2 min → **disarm the service boot**:
 boot.json `GameModeBoot=false` + config flag off + legacy shell unregister + explorer if none),
 `Panic()` = legacy shell unregister (self-guarding no-op on service installs), destroy tray host,
-start explorer if none is running. The logon service's watchdog is the robust outer recovery layer;
-Panic is in-process best effort.
+delegate recovery to the verified shell anchor when one exists, otherwise start explorer if none is
+running. The logon service's watchdog is the robust outer recovery layer; Panic is in-process best
+effort.
 
 **Logon service + boot flow** (`src\WSGM.LogonService`, `Core\BootManifest.cs`,
 `Core\BootManifestWriter.cs`, `Shell\ExplorerReadiness.cs`): the SYSTEM service (raw SCM +
@@ -25,10 +26,13 @@ named exe AS THAT USER), and launches `WSGM.exe --boot` via `CreateProcessAsUser
 elevated **linked token** when the manifest says so (legal under the service's SeTcbPrivilege; no
 UAC prompt at logon). A startup catch-up sweep covers autologons that beat the auto-start service
 (fresh = logged on < 60 s). The service watchdog holds the launched pid: dirty exit + active
-session + no explorer → start explorer with the UNLINKED token (explorer must stay unelevated), once
-per logon, never relaunching WSGM. Service log: `%ProgramData%\WSGM\wsgm-service.log` (SYSTEM must
-not write user dirs); WSGM's own `Run mode: Shell (service boot, elevated=…, session N)` line keeps
-wsgm.log the primary surface.
+session + no explorer → allow the session-owned shell anchor five seconds to restore its normal
+medium/jobless Explorer, then start explorer with the UNLINKED token only if no shell appeared
+(explorer must stay unelevated), once per logon, never relaunching WSGM. This bounded grace prevents
+the anchor and SYSTEM watchdog from creating competing shells; the watchdog remains the outer
+fallback when the anchor is absent or broken. Service log: `%ProgramData%\WSGM\wsgm-service.log`
+(SYSTEM must not write user dirs); WSGM's own
+`Run mode: Shell (service boot, elevated=…, session N)` line keeps wsgm.log the primary surface.
 
 **The service fires BEFORE Winlogon starts explorer** (device-verified 2026-08-07), so `--boot` runs
 the takeover unconditionally — never gate it on `IsRunningInSession()` at start (that exact gate
@@ -69,6 +73,66 @@ requires 500 ms of stable absence. Two mechanisms are device-DISPROVEN (2026-08-
 explorer ~30 s, error 351, then respawn). The full working-era implementation is preserved in the
 Codex transcript `~\.codex\sessions\2026\08\06\rollout-2026-08-06T23-57-41-*.jsonl` (L567/L1167).
 
+**How Explorer is restored for a normal desktop transition:** immediately before each orderly exit,
+WSGM resolves the actual `Shell_TrayWnd` owner and accepts it only when `GetShellWindow` has the
+same owner, its image is the canonical `%WINDIR%\explorer.exe`, it belongs to the current session,
+runs at medium integrity, and is not associated with a job. WSGM retains that process as the
+designated `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS` and starts one fixed-purpose medium/jobless WSGM
+anchor under it before the old shell exits. The anchor accepts only an authenticated per-session
+`start` command for the fixed Windows Explorer path. WSGM owns the exact child handle, bounds every
+pipe operation, stops only that owned process on failed setup, and disposes/replaces the anchor with
+the shell session. Capture, restore, replacement, and disposal are serialized inside that session
+owner; disposal closes admission before waiting for an already-running operation. A named
+per-session stop event lets a new run identify and retire only a stale WSGM anchor. Command-pipe EOF
+alone is not owner loss: the anchor keeps the recovery role until the retained owner process
+actually exits or that explicit stop event is signalled. A faulted asynchronous owner wait is
+likewise not a recovery settlement; the anchor keeps serving its authenticated pipe, retries an
+exact-process liveness observation, and otherwise waits for explicit stop instead of abandoning the
+session or starting Explorer beside an owner it could not classify.
+
+The transition completes only after `GetShellWindow` and `Shell_TrayWnd` have the same resulting
+owner for a stable 500 ms and that owner again passes image/session/integrity/job inspection. The
+PID returned by process creation is diagnostic only; it is never the success condition. An
+already-valid shell is adopted (the early splash-cancellation case). A canonical current-session
+medium Explorer with unknown or positive job membership is usable only as a degraded desktop. A
+wrong-image, wrong-session, elevated, uninspectable, owner-mismatched, or unsettled taskbar is
+failure, not degraded success. If an anchor request was dispatched or may have crossed the pipe,
+WSGM never dispatches the scheduler as a second creator and never recreates `TrayHost` while that
+late shell may still publish `Shell_TrayWnd`.
+
+The scheduled-task de-elevation route is retained solely as last-resort fail-open recovery when no
+anchor request was dispatched. Its result is always reported as degraded even if the observed
+Explorer happens to be jobless. Its task XML write and `schtasks` create/run/delete commands consume
+the same absolute desktop-restoration deadline as readiness observation; cancellation or a process
+wait fault stops the active tool, and cleanup is skipped once that shared budget is closed instead
+of acquiring a fresh timeout. An uncertain `/Create` is still cleanup-eligible while budget remains.
+A timed-out or faulted `/Run` command is an unknown dispatch, never proof that no launch occurred,
+so WSGM keeps its tray retired while a late Explorer may still appear. An older-build job-bound
+taskbar is never ended without a verified repair owner: takeover stays in desktop mode and the UI
+gives the explicit sign-out/reboot-once instruction. On abnormal WSGM loss the anchor waits briefly
+for another recovery actor, preserves any existing shell surface, checks that the session is still
+active, and only then restores Explorer. The installed anchor is the same AOT payload under the
+distinct `WSGM.ShellAnchor.exe` image name. Restart Manager excludes that image, so installer force
+fallback can stop the primary `WSGM.exe` first, wait for the companion's bounded recovery-settled
+acknowledgement, and retire only the companion image in the installer's Terminal Services session
+after its preserve/restore decision while holding that session-local event name against a new
+anchor. A missing acknowledgement defers companion replacement rather than killing the only
+remaining desktop-recovery owner; silent setup keeps the old companion for a later maintenance pass
+instead of converting that deferral into an automatic reboot. Before explicitly retiring the anchor,
+normal disposal verifies or restores a usable desktop; logoff retires it without launching.
+Application shutdown rejects new mode and Steam-launch commands and waits for the one in-flight
+transition and boot worker under the process's single outer deadline. Device cleanup runs before
+that wait, and the anchor remains alive if the deadline or desktop verification fails so owner-loss
+recovery still has a jobless Explorer launch path. Logs record source and result PID, both
+shell-surface owners, route, session, integrity, job state, readiness, elapsed time,
+fallback/dispatched state, and independent Win32 query errors.
+
+**Residual device acceptance:** the anchor path and refusal/fallback classifications are covered by
+isolated policy tests and build verification, but the affected-device matrix remains attended:
+before/after-exit splash cancellation, repeated transitions, abnormal-loss recovery, Process
+Explorer job inspection, and the Mod Organizer 2 breakaway launch must still be exercised on the
+reference Claw. Unattended tests must not start or stop the live shell.
+
 **Shell session** (`Shell\ShellSession`): launches startup apps (optional `StartupDelayMs` wait
 before the first one — the "First app delay" setting — then staggered, optionally elevated), then
 Steam Big Picture. WSGM self-elevates when a startup app or Steam requires matching integrity, and
@@ -77,22 +141,44 @@ state must live on controllers, not in `_config`, because reloads replace it who
 `Shell\SteamMonitor` polls `steam;steamwebhelper` every 5 s; its `Paused` flag is how desktop mode
 and "Close Steam" suppress auto-relaunch/overlay-pop reactions.
 
+The resident shell also owns a shared `WTSRegisterSessionNotification` lease. `WTS_SESSION_LOGOFF`
+requests the five-second session-end shutdown path before Avalonia exits; display-mute owns a
+separate lease for unlock recovery, so toggling that optional feature cannot deregister the shell's
+logoff signal. Update and uninstall use distinct cross-version events and deadlines. Update asks
+Steam and launch wrappers to exit under one bounded ten-second pre-stop before the separate
+ten-second WSGM cleanup because the mapped input payload must be replaceable. The installer reserves
+both windows plus handoff margin before force-stop; a failed Steam pre-stop still starts WSGM
+cleanup. Setup records the initial shell/settings classification once; a post-shutdown refusal,
+retry, or cancellation before file mutation releases its device reservations and restores the old
+service through its installer-tagged start plus that exact runtime mode instead of classifying the
+temporary stopped state. If DeviceHost exit could not be verified, the restored shell suppresses
+Device Integration for that process, bypasses package-slot startup inspection, and does not count as
+a crash-loop start. Rollback therefore cannot admit a second hardware cycle or disarm game-mode
+boot; before setup releases its owner handle, the restored process opens the same unowned global
+marker, acknowledges retention, and keeps it for process lifetime. A setup retry or ordinary WSGM
+restart returns to normal admission. Uninstall allows twenty seconds for WSGM cleanup and does not
+force-close Steam. It holds the same global package/owner reservations through `[UninstallDelete]`;
+cancellation before uninstall mutation restores the service and prior runtime.
+
 **Steam integration** (`Core\Steam.cs`, `Core\SteamInputBlocker.cs`, `Shell\SessionModes.cs`,
 `Overlay\OverlayController.cs`): everything is protocol URLs — start/focus =
 `steam://open/bigpicture` (boots Steam if needed, UIPI-proof), leave BP =
 `steam://close/bigpicture`, quit = `steam://exit`. Desktop mode = pause monitor + close BP + start
-explorer (de-elevated if WSGM is elevated — `Core\UnelevatedLauncher.cs` via scheduled task). A
-runtime desktop-to-game switch requests Big Picture FIRST while keeping the monitor paused, then
-runs `ExplorerControl.ExitExplorerAndWait` off the UI thread. That overlaps Steam's UI startup with
-Explorer's bounded linger/retry instead of presenting the safety wait before Big Picture appears.
-Only after Explorer is verifiably gone does the UI thread apply game posture, recreate game-mode
-services/the tray host, and resume monitoring. If Explorer refuses to exit, the transition sends
-`steam://close/bigpicture` and preserves desktop mode. The direct logon boot remains stricter: Steam
-starts only after Explorer is gone. `SessionModes.TransitionInProgress` serializes transitions (the
-overlay ignores mode clicks while one runs). The game/desktop mode transitions and the shared Steam
-start+warning flow live in `Shell\SessionModes` (session coordinator, used by both `ShellSession`
-boot and the overlay's buttons); `OverlayController` stays the UI owner (lease lifecycle, overlay
-window) and surfaces `SessionModes.SteamStartFailed` warnings.
+Explorer through the verified session anchor above; `Core\UnelevatedLauncher.cs` via scheduled task
+is recovery-only and is surfaced as degraded. A runtime desktop-to-game switch requests Big Picture
+FIRST while keeping the monitor paused, then runs `ExplorerControl.ExitExplorerAndWait` off the UI
+thread. That overlaps Steam's UI startup with Explorer's bounded linger/retry instead of presenting
+the safety wait before Big Picture appears. Only after Explorer is verifiably gone does the UI
+thread apply game posture, recreate game-mode services/the tray host, and resume monitoring. If
+Explorer refuses to exit, the transition sends `steam://close/bigpicture` and preserves desktop
+mode. Conversely, if desktop restoration fails before any Explorer launch was dispatched, rollback
+reopens Big Picture before recreating game-mode services; a dispatched/late shell suppresses that
+recreation to prevent dual taskbars. The direct logon boot remains stricter: Steam starts only after
+Explorer is gone. `SessionModes.TransitionInProgress` serializes transitions (the overlay ignores
+mode clicks while one runs). The game/desktop mode transitions and the shared Steam start+warning
+flow live in `Shell\SessionModes` (session coordinator, used by both `ShellSession` boot and the
+overlay's buttons); `OverlayController` stays the UI owner (lease lifecycle, overlay window) and
+surfaces `SessionModes.SteamStartFailed` warnings.
 
 **The strongest current evidence for the recurring Steam startup hang is boot-context CEF mutation,
 not the resident input shim** (device-observed repeatedly 2026-08-22). WSGM's direct-boot Steam

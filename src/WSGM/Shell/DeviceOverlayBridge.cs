@@ -1,12 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
-using WSGM.Device.Contracts.Capabilities;
-using WSGM.Device.Contracts.Lifecycle;
+using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Shell;
 
@@ -45,11 +46,20 @@ internal sealed record DeviceOverlayCapability(
     bool CanInvoke,
     CapabilityValue? NextValue);
 
+/// <summary>Presentation-only state for the WSGM-owned physical-glyph selection command.</summary>
+internal sealed record DeviceOverlayGlyphSelection(
+    DeviceOverlayStatus Status,
+    string Title,
+    string Description,
+    string TrailingText,
+    bool CanCycle);
+
 /// <summary>Complete bounded Device-surface snapshot produced from coordinator-owned state.</summary>
 internal sealed record DeviceOverlaySnapshot(
     bool Visible,
     string Status,
     string Detail,
+    DeviceOverlayGlyphSelection? GlyphSelection,
     IReadOnlyList<DeviceOverlayCapability> Capabilities);
 
 /// <summary>Closed semantic source consumed by the Device overlay destination.</summary>
@@ -62,6 +72,8 @@ internal interface IDeviceOverlaySource : IDisposable
     Task InvokeAsync(
         DeviceOverlayCapability capability,
         CancellationToken cancellationToken = default);
+
+    Task CyclePhysicalGlyphSelectionAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -89,11 +101,14 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     public DeviceOverlaySnapshot Snapshot()
     {
         DeviceCycleState state = _coordinator.State;
-        DevicePackageCandidate? package = _coordinator.SelectedPackage;
+        InstalledDevicePackage? package = _coordinator.InstalledPackage;
         List<DeviceOverlayCapability> capabilities = _coordinator.CapabilitySnapshot()
             .Take(128)
             .Select(ToOverlayCapability)
             .ToList();
+        DeviceOverlayGlyphSelection glyphSelection = PhysicalGlyphSelectionView(
+            _coordinator.PhysicalGlyphSelection,
+            _coordinator.PhysicalGlyphSelectionSnapshot());
         DateTimeOffset? retryAt = _coordinator.ManualRetryAvailableAt;
         ScheduleRetryRefresh(retryAt);
         if (retryAt is not null)
@@ -106,58 +121,44 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 available ? DeviceOverlayStatus.Warning : DeviceOverlayStatus.Progress,
                 "Retry device integration",
                 available
-                    ? "Starts one manual recovery attempt for the quarantined package"
+                    ? "Starts one manual recovery attempt for the faulted device cycle"
                     : $"Retry available at {retryAt.Value.ToLocalTime():t}",
                 available ? "READY" : "WAIT",
                 available,
                 null));
         }
 
-        foreach (DevicePackageCandidate rejected in _coordinator.Candidates
-            .Where(candidate => !candidate.Eligible)
-            .Take(16))
+        if (package is { Valid: false })
         {
             capabilities.Add(new DeviceOverlayCapability(
-                $"wsgm.package.rejected.{rejected.Manifest?.Id ?? "unknown"}",
-                rejected.Manifest?.Version,
+                $"wsgm.package.rejected.{package.Manifest?.Id ?? "unknown"}",
+                package.Manifest?.Version,
                 DeviceOverlaySection.Diagnostics,
                 DeviceOverlayStatus.Unsupported,
-                rejected.Manifest?.Id ?? "Rejected device package",
-                rejected.Detail ?? "Package did not pass activation policy.",
-                rejected.RejectionCode ?? "REJECTED",
+                package.Manifest?.Id ?? "Invalid device package",
+                package.Detail ?? "The installed package did not pass validation.",
+                package.RejectionCode ?? "INVALID",
                 false,
                 null));
         }
-        DevicePackageCandidate? staged = _coordinator.StagedPackageUpdate;
-        if (staged?.Manifest is { } stagedManifest)
-        {
-            capabilities.Insert(0, new DeviceOverlayCapability(
-                "wsgm.package.apply-update",
-                null,
-                DeviceOverlaySection.Diagnostics,
-                DeviceOverlayStatus.Available,
-                "Apply staged device update",
-                "Runs full device deactivation, then starts the verified replacement",
-                stagedManifest.Version,
-                CanInvoke: true,
-                NextValue: null));
-        }
 
-        DevicePackageCandidate? rollback = _coordinator.RollbackPackage;
-        if (rollback?.Manifest is { } rollbackManifest)
+        DevicePackageDiscovery discovery = _coordinator.PackageDiscovery;
+        if (discovery.Inventory.Cardinality is DevicePackageCardinality.Multiple)
         {
-            capabilities.Insert(staged is null ? 0 : 1, new DeviceOverlayCapability(
-                "wsgm.package.rollback",
-                null,
-                DeviceOverlaySection.Diagnostics,
-                DeviceOverlayStatus.Warning,
-                "Roll back device package",
-                "Runs full device deactivation and pins the retained previous version",
-                rollbackManifest.Version,
-                CanInvoke: true,
-                NextValue: null));
+            foreach (string packageRoot in discovery.Inventory.PackageRoots.Take(16))
+            {
+                capabilities.Add(new DeviceOverlayCapability(
+                    $"wsgm.package.multiple.{Path.GetFileName(packageRoot)}",
+                    null,
+                    DeviceOverlaySection.Diagnostics,
+                    DeviceOverlayStatus.Unsupported,
+                    Path.GetFileName(packageRoot),
+                    $"{discovery.Detail} Path: {packageRoot}",
+                    discovery.ErrorCode ?? "MULTIPLE",
+                    false,
+                    null));
+            }
         }
-
         capabilities = capabilities
             .Select((capability, index) => (Capability: capability, Index: index))
             .OrderBy(item => item.Capability.Section)
@@ -168,11 +169,12 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             ? state is DeviceCycleState.Detected or DeviceCycleState.Passive
                 ? "No compatible verified device package is active."
                 : "Device integration is waiting for a compatible handheld."
-            : $"{package.Manifest?.Id} {package.Manifest?.Version} · {package.TrustTier}";
+            : $"{package.Manifest?.Id} {package.Manifest?.Version}";
         return new DeviceOverlaySnapshot(
             _coordinator.IntegrationEnabled,
             LifecycleLabel(state),
             detail,
+            glyphSelection,
             capabilities);
     }
 
@@ -186,21 +188,9 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             return;
         }
 
-        if (capability.CapabilityId is "wsgm.package.apply-update")
-        {
-            await _coordinator.ApplyStagedPackageNowAsync(cancellationToken).ConfigureAwait(false);
-            return;
-        }
-
-        if (capability.CapabilityId is "wsgm.package.rollback")
-        {
-            await _coordinator.RollbackPackageAsync(cancellationToken).ConfigureAwait(false);
-            return;
-        }
-
         if (capability.CapabilityId is "wsgm.device.retry")
         {
-            await _coordinator.RetryAfterQuarantineAsync(cancellationToken).ConfigureAwait(false);
+            await _coordinator.RetryAfterFaultAsync(cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -211,6 +201,9 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             TimeSpan.FromSeconds(5),
             cancellationToken).ConfigureAwait(false);
     }
+
+    public Task CyclePhysicalGlyphSelectionAsync(CancellationToken cancellationToken = default) =>
+        _coordinator.CyclePhysicalGlyphSelectionAsync(cancellationToken);
 
     public void Dispose()
     {
@@ -288,7 +281,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         bool canInvoke = current
             && (descriptor.SupportsAction
                 || descriptor.SupportsWrite && next is not null);
-        string description = projection.Progress switch
+        string description = (projection.Progress switch
         {
             CommandProgress.Pending => "Applying requested value…",
             CommandProgress.Uncertain => "Last request is unverified — refresh before retrying",
@@ -297,7 +290,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 "Saved value is outside the current firmware range",
             _ when state.Reason is not null => state.Reason.Detail,
             _ => $"{QualityLabel(state.Quality)} · {PersistenceLabel(descriptor.Persistence)}",
-        };
+        }) ?? "Capability state is unavailable.";
         return new DeviceOverlayCapability(
             descriptor.CapabilityId,
             descriptor.InstanceId,
@@ -308,6 +301,56 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             FormatValue(displayed, descriptor.Unit),
             canInvoke,
             descriptor.SupportsAction ? null : next);
+    }
+
+    internal static DeviceOverlayGlyphSelection PhysicalGlyphSelectionView(
+        DeviceGlyphSelection mode,
+        PhysicalGlyphSelectionResult selection)
+    {
+        string trailing = mode switch
+        {
+            DeviceGlyphSelection.Automatic => "AUTO",
+            DeviceGlyphSelection.NativeSteam => "STEAM",
+            DeviceGlyphSelection.ManualReviewedProfile => "REVIEWED",
+            _ => "AUTO",
+        };
+        string description;
+        DeviceOverlayStatus status;
+        if (selection.Profile is { } profile)
+        {
+            description = $"{profile.Manifest.DisplayName} · revision {profile.Manifest.Revision} · "
+                + $"source {profile.Manifest.SourceRevision}"
+                + (selection.FellBackFromMissingManualProfile
+                    ? " · selected reviewed profile is missing; Automatic fallback"
+                    : string.Empty);
+            status = selection.FellBackFromMissingManualProfile
+                ? DeviceOverlayStatus.Warning
+                : DeviceOverlayStatus.Available;
+        }
+        else if (selection.FallbackReason is PhysicalGlyphFallbackReason.NativeSteamSelected)
+        {
+            description = "Steam and generic first-party glyphs remain unchanged.";
+            status = DeviceOverlayStatus.Available;
+        }
+        else
+        {
+            description = selection.FallbackReason switch
+            {
+                PhysicalGlyphFallbackReason.DeviceIntegrationDisabled =>
+                    "Device integration is off; generic glyphs remain active.",
+                PhysicalGlyphFallbackReason.ExactDeviceMismatch =>
+                    "The package profile does not match this exact device; generic glyphs remain active.",
+                _ => "No reviewed physical profile is available; generic glyphs remain active.",
+            };
+            status = DeviceOverlayStatus.Warning;
+        }
+
+        return new DeviceOverlayGlyphSelection(
+            status,
+            "Physical glyphs",
+            description,
+            trailing,
+            CanCycle: true);
     }
 
     private static DeviceOverlaySection SectionFor(CapabilityRole role) => role switch
@@ -483,7 +526,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         DeviceCycleState.Degraded => "Device partly available",
         DeviceCycleState.Suspended => "Device suspended",
         DeviceCycleState.Deactivating => "Device deactivating",
-        DeviceCycleState.Quarantined => "Device quarantined",
+        DeviceCycleState.Faulted => "Device faulted",
         _ => state.ToString(),
     };
 
@@ -510,6 +553,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
     private int _tdp = 15;
     private bool _lighting = true;
     private int _fanMode;
+    private int _glyphSelection;
 
     public event Action? Changed;
 
@@ -520,6 +564,17 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
             Visible: true,
             Status: "Simulated handheld",
             Detail: "Preview data only · no package, host, IPC, hook, or device handle",
+            GlyphSelection: new DeviceOverlayGlyphSelection(
+                DeviceOverlayStatus.Available,
+                "Physical glyphs",
+                "Preview-only physical presentation selection",
+                _glyphSelection switch
+                {
+                    0 => "AUTO",
+                    1 => "STEAM",
+                    _ => "REVIEWED",
+                },
+                CanCycle: true),
             Capabilities:
             [
                 new DeviceOverlayCapability(
@@ -606,6 +661,14 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 break;
         }
 
+        Changed?.Invoke();
+        return Task.CompletedTask;
+    }
+
+    public Task CyclePhysicalGlyphSelectionAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _glyphSelection = (_glyphSelection + 1) % 3;
         Changed?.Invoke();
         return Task.CompletedTask;
     }

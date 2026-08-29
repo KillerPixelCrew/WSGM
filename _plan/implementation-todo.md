@@ -1,167 +1,603 @@
-# WSGM 2.0 delivery tracker
+# WSGM 2.0 simplification and delivery plan
 
-Status: implementation paused at the 2026-08-28 safety checkpoint
+Status: structural architectural simplification complete in source and build on 2026-08-29; focused 2.0
+feature work and attended acceptance continue below
+
 Branch: `2.0`
-Latest checkpoint commit: `448b2e0` (`Document 2.0 stop checkpoint`)
 
-This is the operational plan. It tracks product outcomes and the next work queue, not every method,
-test case, failure mode, or manual matrix cell.
+Purpose: simplify the implementation without removing any fixed 2.0 feature
 
-The exhaustive `INV-*` and `P0-*` through `P10-*` specification is preserved in
-[`implementation-requirements.md`](./implementation-requirements.md). It remains the requirement-ID
-source for design decisions and generated traceability, but it is no longer a progress counter.
+This is the only progress tracker. The other `_plan` files describe architecture, decisions,
+requirements, exact Claw hardware facts, and glyph behavior; they are not parallel checklists.
 
-## Reading status
+## Non-negotiable outcome
 
-Source and validation are deliberately separate:
+The overhaul preserves:
 
-- **Done** — committed implementation, focused tests, and required documentation exist.
-- **Mostly** — the main production path exists; bounded implementation gaps remain.
-- **Partial** — useful foundations exist, but a major path is still absent or fail-closed.
-- **Not started** — no production implementation exists.
-- **Validated** — the applicable automated/live/hardware acceptance has passed.
-- **Partial evidence** — useful evidence exists but not the complete acceptance matrix.
-- **Not run** — do not infer runtime behavior from source presence.
-- **Attended** — requires the maintainer at the reference unit; never run unattended.
+- A real public Device SDK and community Device Plugins.
+- Full MSI Claw 8 AI+ A2VM support.
+- Device Lab GUI and CLI workflows.
+- Steam Deck Composite, Xbox 360, and DualShock 4.
+- Global and per-application controller targets.
+- HidHide, managed WSGM UI input, output routing, and Steam Input fallback.
+- Persistent Steam CEF, native QAM, RTSS, and shared performance state.
+- Frametime-driven AutoTDP.
+- Plugin-owned physical glyphs in Steam and WSGM.
+- Home/Steam/Device/System overlay redesign.
+- Safe update, uninstall, handoff, recovery, and release validation.
 
-Milestones are not equal-sized, so their row count is not a completion percentage. At this
-checkpoint the best engineering estimate is **55–60% source implementation** and **25–30% release
-readiness**. Those are estimates, not arithmetic derived from this table.
+No simplification item may satisfy itself by deleting, disabling, or indefinitely deferring one of
+these outcomes.
 
-## Current outcome map
+## What is being simplified
 
-### Foundations and Device Lab
+At the reset checkpoint, the branch had added roughly 68,000 C# lines and thirteen projects relative
+to `master` while remaining far from hardware/release acceptance. The largest excess was not the
+feature code; it was the framework built around a hypothetical multi-plugin ecosystem:
 
-| ID | Outcome | Source | Validation | Real remaining work |
-| --- | --- | --- | --- | --- |
-| M01 | Product architecture, trust model, and 2.0 decisions | Done | Validated at design level | Shipment-specific notices remain ordinary packaging evidence, not architecture blockers |
-| M02 | Repository, NativeAOT, module, build, and agent boundaries | Done | Automated checks exist | Final clean-checkout release proof belongs to M34/M38 |
-| M03 | Semantic contracts and authenticated IPC | Done | Focused tests exist | Protocol 1 and `wsgm-device-v1` remain frozen |
-| M04 | Offline inventory, capture, matching, evidence, redaction, and deterministic fixtures | Done | Focused tests exist | No core work remains; product workflow acceptance is M08 |
-| M05 | SDK, scaffold, package, and plugin-owned glyph authoring | Mostly | Partial evidence | Finish the packaged analyzer/generator and explicit regeneration-review workflow |
-| M06 | Reviewed read probes and bounded mutation framework | Mostly | Not run on hardware | Finish reviewed-trial registry/hash admission, five concrete trials, and Developer Mode validation |
-| M07 | Device Lab CLI and guided Hardware Owner/Plugin Developer GUI flows | Partial | Not run end to end | Finish guided workflows, analysis workbench, live validation, and recovery/privacy review |
-| M08 | Device Lab end-to-end product acceptance | Not started | Not run | Safe sweep, fault, privacy/export, runtime separation, scaffold, packaging, and contributor acceptance |
+- Plugin ranking, selection, enablement, trust tiers, side-by-side versions, promotion, signer
+  rotation/revocation, staged rollback, and quarantine.
+- Separate Contracts, SDK, Host, ProbeHost, Device Lab Core, CLI, GUI, generators, and their test
+  projects.
+- A 147-line plugin manifest duplicating runtime hardware policy.
+- Generic implementation-module composition, resource coordinators, public recovery DTOs, evidence
+  IDs/locks, and generated scaffolding architecture.
+- General capture/evidence/promotion schemas and a multi-stage mutation-authorization system.
+- Generated requirement/code/test traceability and build gates enforcing the bureaucracy itself.
+- Multiple policy/projection layers between a feature and the one UI that consumes it.
 
-### Device runtime and MSI Claw package
+The replacement is a direct product architecture:
 
-| ID | Outcome | Source | Validation | Real remaining work |
-| --- | --- | --- | --- | --- |
-| M09 | Exact A2VM definition and first-party package | Mostly | Partial evidence | Finish evidence-locked firmware/endpoint identity and resume/hotplug proof |
-| M10 | A2VM power, fan, telemetry, scenario, and RGB | Mostly | Attended | Close fail-closed bounds/readback/rollback gaps; run bounded writes, thermal/fan/RGB mapping, restoration, and soaks |
-| M11 | A2VM physical input, motion, rumble, OEM events, and chord suppression | Partial | Attended | Finish XInput fallback/container binding and edge/hotplug logic; run report, gyro, rumble, mode, and Win+G matrices |
-| M12 | A2VM evidence and release dossier | Partial | Not accepted | Populate sanitized claims/golden fixtures, close exact unknowns, prove restoration, and disable unsupported firmware/capabilities |
-| M13 | Device runtime, package discovery/trust, host supervision, and authority | Mostly | Partial evidence | Finish multi-process/stale-owner, package update/rollback, crash/hang, user-switch, and same-session cycle tests |
-| M14 | Capability state, profiles, lifecycle, recovery journal, and deactivation | Mostly | Partial evidence | Finish startup reconciliation and bounded handoff semantics; run timeout/fault/hardware-restoration matrix |
-| M15 | Device policy UI, OEM action routing, diagnostics, and generic-device conformance | Partial | Not run end to end | Finish diagnostics/recovery UI, same-run re-enable, and a materially different synthetic plugin |
+```text
+WSGM.exe
+  ├─ DeviceRuntime ── DeviceHost.exe ── one installed plugin ── hardware
+  ├─ ControllerManager ── HIDMaestro + HidHide ── Deck / X360 / DS4
+  ├─ PerformanceManager ── RTSS + AutoTDP
+  ├─ SteamUiHost ── native QAM + physical glyphs
+  └─ Overlay and Settings consume those same services
 
-### Controller integration
+WSGM.Device.Sdk
+  one AOT-safe public semantic API shared by WSGM, DeviceHost, plugins, and Device Lab
+```
 
-| ID | Outcome | Source | Validation | Real remaining work |
-| --- | --- | --- | --- | --- |
-| M16 | Reproducible production virtual-controller backend and dependencies | Partial, fail-closed | Not run | Finish one technically acceptable backend and its installer/update/removal lifecycle; licensing is not a blocker |
-| M17 | Managed target, HidHide ownership, translation, output, and handoff | Partial | Not run on hardware | Integrate the real backend/source; finish target replacement, output, fault injection, duplicate-input, and restoration matrices |
-| M18 | Managed UI capture with SDL and Steam Input lease fallback | Not started | Not run | Implement one `IUiGamepadSource`, reference-counted capture owner, make-before-break source arbiter, and failure tests |
+## Hard one-plugin rule
 
-### Steam UI, performance, and AutoTDP
+- [x] Count plugin package roots before manifest validation, device matching, elevation, splash,
+      Explorer exit, Avalonia initialization, `ShellSession`, DeviceHost, HidHide, or virtual-target
+      creation.
+- [x] Zero package roots starts normal core WSGM with Device Integration unavailable.
+- [x] One package root is the only candidate. Validate it; if it is broken or does not match this
+      machine, keep core WSGM usable and show the device error.
+- [x] Two or more package roots refuse every normal WSGM UI/shell startup and list each package name
+      and absolute path. Do not rank, select, disable, or prefer one.
+- [x] Recovery/setup/update/uninstall, `--restore-shell`, and a dedicated plugin-removal maintenance
+      command bypass the refusal without starting device code.
+- [x] `--overlay-test` remains simulated and independent of production plugins.
+- [x] A developer plugin occupies the same single logical slot; there is no simultaneous installed
+      release plugin plus developer plugin.
+- [x] Stage updates outside every discovery path and atomically replace the sole slot.
+- [x] Ensure the installer can place at most one plugin in the slot. Installing a future Legion Go
+      or other plugin replaces the Claw package rather than accumulating beside it.
+- [x] Add focused tests for 0, 1 valid, 1 malformed, 1 nonmatching, 2 valid, valid+malformed, update
+      staging, and recovery-bypass cases.
 
-| ID | Outcome | Source | Validation | Real remaining work |
-| --- | --- | --- | --- | --- |
-| M19 | Persistent Steam CDP transport, bridge, and patch registry | Mostly | Partial live evidence | Migrate remaining one-shot loops and validate malformed/reconnect/startup/context-churn/coexistence paths |
-| M20 | Native QAM components, shared semantic controls, and OEM2 toggle | Mostly | Partial live evidence | Complete component/error matrix; validate focus, navigation, latency, one-press/one-toggle, and supported Steam builds |
-| M21 | Deterministic TypeScript/React Steam asset pipeline | Seed only | Not run | Add locked dependencies, generator/minifier, manifest/hash/revision, schema/security checks, drift gate, and verification wiring |
-| M22 | RTSS frame-limit and overlay controls | Mostly | Read-only evidence | Validate a disposable profile, app mapping, external edits, restart, rollback, readback truth, and native-QAM binding |
-| M23 | Shared RTSS/plugin performance metrics and frametime stream | Not started | Not run | Implement typed metrics, source precedence, bounded history/freshness, consumer-aware cadence, and shared overlay/QAM projection |
-| M24 | Frametime-driven AutoTDP | Design only | Not run | After M23: implement deterministic policy/model, arbiter/lease, persistence, diagnostics, replay, then attended calibration/soaks |
+This invariant deletes the need for package selection, preferred plugin configuration, matching
+scores, trust/version ranking, multiple hosts, cross-plugin resources, and plugin-update deferral.
 
-### Physical glyphs and Steam delivery
+## Target project structure
 
-| ID | Outcome | Source | Validation | Real remaining work |
-| --- | --- | --- | --- | --- |
-| M25 | Validated plugin-owned glyph packages and deterministic import | Mostly | Focused tests exist | Accept a real A2VM profile/assets with exact-device visual review and retained provenance |
-| M26 | Physical glyph runtime, fallback, diagnostics, and selection UI | Partial | Not run end to end | Review/commit current selection work; add graphical preview, accessibility/scaling coverage, and complete fallback diagnostics |
-| M27 | Steam handheld-route targeting and independent glyph-tier framework | Partial, fail-closed | Narrow live evidence | Review/commit selectors/tiers; preserve independent health/kill switches and native fallback |
-| M28 | Active Steam glyph delivery, cleanup, and CSS Loader coexistence | Not started | Not run | Add accepted assets, bounded context-local delivery, exact inline/hiding maps, cleanup/leak proof, coexistence, and full live matrix |
+### Keep
 
-### Final overlay and Settings
+- `src/WSGM`, `src/WSGM.Launch`, and `src/WSGM.LogonService`.
+- One AOT-safe `src/WSGM.Device.Sdk` public API.
+- One `src/WSGM.DeviceHost` process.
+- One `src/WSGM.DeviceLab` application with GUI and CLI modes.
+- Independent `plugins/*` projects, beginning with the Claw.
+- Existing native components and third-party controller source boundaries where they are required.
 
-| ID | Outcome | Source | Validation | Real remaining work |
-| --- | --- | --- | --- | --- |
-| M29 | Final Home/Steam/Device/System navigation shell | Partial | Focused foundation tests | Finish information architecture, Back/focus/scroll restoration, dynamic visibility, and nested navigation |
-| M30 | Home, Steam, and System destination parity | Partial | Not run end to end | Migrate existing actions without reimplementation and close cancellation/error/focus parity |
-| M31 | Complete Device destination | Partial | Not run end to end | Finish overview, profiles, thermals, controller/motion, OEM, lighting, diagnostics, recovery, and glyph preview |
-| M32 | Settings ownership-only UI and cross-process behavior | Partial | Not run end to end | Finish standalone connection, ownership transactions, conflicts, and deactivation/fallback results |
-| M33 | Handheld overlay acceptance | Not started | Not run | Controller/touch/keyboard, DPI/themes, accessibility, responsiveness, disposal, and complete parity matrix |
+### Collapse or remove
 
-### Integration and release
+- [x] Merge `WSGM.Device.Contracts` into the public AOT-safe `WSGM.Device.Sdk`; keep only types that
+      are part of the plugin/wire/capability/input/glyph contract.
+- [x] Move WSGM-only UI capture, controller backend, projection, source arbitration, and policy
+      types out of the public SDK and back into WSGM.
+- [x] Fold Device Lab Core/CLI/GUI into one application with internal services and one executable
+      mode switch. Preserve both user experiences.
+- [x] Remove `WSGM.Device.ProbeHost`; run explicit developer/plugin test operations through a
+      clearly named DeviceHost tooling mode or directly in Device Lab where no isolation is needed.
+- [x] Merge the five new device-platform test projects into one focused `WSGM.Device.Tests` unless
+      a genuine runtime/toolchain boundary requires a separate project.
+- [x] Remove solution/build-order assertions that only enforce the discarded project diagram:
+      delete `eng/assert-build-graph.ps1` and its `eng/verify.ps1` hook; in
+      `eng/check-agent-guidance.ps1` keep the load-bearing `CLAUDE.md` symlink check while the
+      per-layer ownership-guidance enforcement shrinks with the scoped `AGENTS.md` files.
+- [x] Delete the empty `catalog/` directory; it holds only `AGENTS.md`/`CLAUDE.md` and no data.
+- [x] Keep the AOT isolation check, normal solution dependency order, and component staging checks
+      that catch real binary contamination.
+- [x] Reduce scoped `AGENTS.md` files to directories with genuinely different ownership or safety
+      rules; keep every `CLAUDE.md` symlink correct.
 
-| ID | Outcome | Source | Validation | Real remaining work |
-| --- | --- | --- | --- | --- |
-| M34 | Deterministic traceability, governance, build graph, and component staging | Mostly | Automated foundations exist | Integrate M21; prove clean-checkout/reproducible outputs and complete component/dependency health paths |
-| M35 | Graceful exit, update, rollback, downgrade, and uninstall | Partial, uncommitted | Not compiled | Finish result-channel docs/semantics, compile/Inno validation, atomic lifecycle, owned-state removal, and hardware restoration |
-| M36 | Automated compatibility, fault, and security coverage | Mostly | Broad focused suites exist | Add consolidated fault scheduling, remaining malformed/fuzz/property/process cases, then run full verification |
-| M37 | Live Steam, hardware, coexistence, performance, and soak acceptance | Mostly open | Partial evidence only | Run the approved current-Steam matrix and attended A2VM/controller/lifecycle/resource/performance soaks |
-| M38 | Release documentation and artifact handoff | Not started | Not run | Finish user/developer docs and notices; run verification/build; validate installer; copy newest installer to `Z:\` and hash it |
+Project count is not a score. A project remains separate only for NativeAOT, executable lifetime,
+packaging, or public plugin ownership—not because an abstract layer can be named.
 
-## Immediate work queue
+## Simplification phases
 
-This is the only day-to-day checkbox list. Keep it short; add a new item only when another leaves.
+### S0 — Preserve and stabilize the checkpoint and shell baseline
 
-- [ ] **Q01 · Stabilize the current worktree.** Review and commit the shutdown/result slice, physical
-      glyph selection, Steam route/tier patches, and TypeScript seed as separate coherent commits;
-      preserve the unrelated `native/SteamInput/crates/steam-input-recovery/src/lib.rs` edit.
-- [ ] **Q02 · Finish M21.** Make the Steam TypeScript source/bundle pipeline reproducible and
-      verification-enforced before further injected UI growth.
-- [ ] **Q03 · Finish M23.** Add the verified shared performance metric/frametime service and bind
-      overlay/QAM consumers to it.
-- [ ] **Q04 · Implement M24 source and replay.** Build pure AutoTDP policy, calibration/model,
-      arbitration, persistence, diagnostics, and replay without enabling unattended hardware writes.
-- [ ] **Q05 · Close Device Lab product gaps.** Finish M05–M08: generator/analyzer, reviewed trials,
-      guided workflows, regeneration review, privacy/export, and end-to-end acceptance.
-- [ ] **Q06 · Finish controller integration.** Complete M16–M18 with a real backend, exact HidHide
-      ownership/handoff, output, managed UI capture, and fallback.
-- [ ] **Q07 · Accept one real A2VM glyph package and finish Steam delivery.** Complete M25–M28 while
-      keeping every unproven tier disabled and native Valve rendering intact.
-- [ ] **Q08 · Finish the final overlay and Settings.** Complete M29–M33 by migrating existing
-      behavior rather than rebuilding already-working services.
-- [ ] **Q09 · Close runtime and A2VM source gaps.** Finish M09–M15 with deterministic fixtures and
-      fault injection before attended validation.
-- [ ] **Q10 · Run live and attended acceptance.** Execute M37 only with the approved safe modes,
-      explicit maintainer presence for mutation, exact restoration, and recorded evidence.
-- [ ] **Q11 · Finish release integration.** Complete M34–M36, including installer lifecycle,
-      security/fault closure, clean-checkout staging, rollback, downgrade, and uninstall.
-- [ ] **Q12 · Produce the handoff artifact.** Complete M38 with `eng/verify.ps1 -Fix`, `build.ps1`,
-      newest-installer copy to `Z:\`, and matching SHA-256 hashes.
+- [x] Review the current uncommitted shutdown/update/uninstall changes as one coherent slice.
+- [x] Review the current physical-glyph selection and Steam route/tier changes as a separate slice.
+- [x] Preserve `SteamUiAssets/Source/NativeQamBootstrap.ts` as the TypeScript source seed.
+- [x] Preserve the unrelated user-owned
+      `native/SteamInput/crates/steam-input-recovery/src/lib.rs` edit without combining it.
+- [x] Record the current build/test state honestly before structural movement; do not infer runtime
+      completion from source or fixtures. Two gaps are already verified: the Steam Input glyph
+      delivery stack is inert (`SteamUiSessionHost.ApplyGlyphDeliveryProfile` has zero callers, so
+      tier enablement never leaves Disabled), and Device Lab mutation trials are unreachable from
+      the CLI/GUI facade (`DeviceLabApplication` exposes no trial operation). S5/S9 must wire these
+      features, not merely preserve them.
+      Automated checkpoint on 2026-08-28: `eng/verify.ps1 -Fix` passes 1,687 managed tests and both
+      native suites; `build.ps1` completes the NativeAOT publish and installer; the copied installer
+      on `Z:\` matches the local SHA-256. No live Steam, shell-takeover, or attended hardware
+      acceptance is claimed by that checkpoint.
+- [x] Keep the completed rewrite as one coherent, source-reviewed vertical change; run the complete
+      verification/build handoff before its requested final commit and exclude the unrelated Steam
+      Input recovery edit.
 
-## Non-negotiable release gates
+#### S0.1 — Restore normal Explorer process semantics
 
-These are constraints, not hundreds of separate progress boxes:
+Affected-device comparison on 2026-08-28 isolated a release-blocking desktop handoff defect. After
+a complete WSGM boot and later desktop transition, the Explorer launched through scheduled-task
+de-elevation is medium-integrity but belongs to an `<Unnamed Job>`. Mod Organizer 2 inherits that
+job and receives Win32 error 5 when it requests `CREATE_BREAKAWAY_FROM_JOB` for a game process.
+Cancelling at the startup splash before WSGM ends the original Explorer preserves the normal jobless
+shell and the same MO2 launch works. Launching the game through Steam in Game Mode also works. Medium
+integrity alone is therefore not a successful desktop handoff.
 
-1. Device Integration off must leave normal WSGM, Steam, overlay, and desktop behavior usable.
-2. Hardware writes require exact device/firmware identity, bounded values, readback where available,
-   rollback/restoration, and attended acceptance. Unknown identity fails closed.
-3. Controller failure must return to usable physical or established fallback input without leaving
-   foreign HidHide state or duplicate input.
-4. Steam CEF/QAM/glyph failures must remain isolated and fail open to native Valve UI.
-5. Plugin packages own hardware protocol and artwork; WSGM consumes only validated semantic data.
-6. No runtime downloader, generic hardware broker, arbitrary plugin code/UI/command authority, or
-   silent dependency repair is introduced.
-7. Optional capabilities and conditional experiments do not block the base release when omitted
-   honestly; required shipped notices/provenance remain packaging evidence.
-8. Final release requires the automated suite, NativeAOT publish, installer lifecycle, live Steam
-   matrix, attended reference-device restoration matrix, and verified `Z:\` artifact handoff.
+The required normal result is the initialized taskbar-owning Explorer for the current interactive
+session, running at medium integrity and not associated with a job. Process Explorer's top-level
+tree position is useful diagnostic evidence, but parent-tree appearance is not itself the contract.
 
-## Current uncommitted checkpoint
+- [x] Add narrow native job-membership inspection at the `Interop` boundary and record the current
+      WSGM process, the original taskbar-owning Explorer, every launch owner, and the resulting
+      Explorer before choosing a route. Treat a failed membership query as unknown, never jobless.
+      Do not add `CREATE_BREAKAWAY_FROM_JOB` to WSGM's launch: that flag itself fails with access
+      denied when the creator's job disallows breakaway.
+- [x] Couple creation of a session-owned, disposable shell-parent context to the orderly Explorer
+      exit operation. Immediately before each exit, resolve the `Shell_TrayWnd` owner rather than an
+      arbitrary `explorer.exe`; verify its canonical Windows image path, current session, medium
+      integrity, and jobless state; then retain a handle with `PROCESS_CREATE_PROCESS` and build the
+      matching user environment for the replacement. If this capture fails while the original shell
+      still exists, abort takeover and preserve desktop mode instead of making the transition
+      irreversible.
+- [x] Implement the narrow launch mechanism: start
+      `%WINDIR%\explorer.exe` with `CreateProcessW`, `STARTUPINFOEX`, and
+      `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS` set to the captured canonical Explorer. The designated
+      parent, not a copied token alone, supplies both the medium token and job association.
+- [ ] Prove on the supported Windows 11 builds whether the retained handle remains a valid
+      process-creation parent after the old Explorer exits; the API documentation does not document
+      that lifetime. The implemented anchor is the normal path until this attended proof exists.
+- [x] If a terminated Explorer cannot remain the designated parent reliably, start a minimal
+      fixed-purpose medium/jobless shell anchor through that parent before the orderly exit. Give it
+      only an authenticated per-session command to start the fixed Windows Explorer path; never
+      accept caller-provided executables or arguments. Keep the anchor/session resource owned and
+      disposed by `ShellSession`. It must preserve an already-valid shell, restore Explorer after
+      abnormal WSGM loss once the old shell is gone, self-terminate on owner/session exit, and allow
+      the next run to identify and clean up only stale WSGM-owned anchors. Use `CloseHandle`,
+      `DeleteProcThreadAttributeList` plus allocation release, and `DestroyEnvironmentBlock` for
+      their respective resources.
+- [x] Do not substitute `CreateProcessWithTokenW` or Logon Service `CreateProcessAsUserW` merely
+      because either supplies a medium user token: the child still inherits job association from
+      its actual/designated creator. Either path is eligible only if its launch owner is separately
+      verified jobless and the resulting shell passes the same postcondition.
+- [x] Keep Explorer's use of `CreateExplorerShellUnelevatedTask`/`UnelevatedLauncher` only as a
+      last-resort fail-open recovery route when no verified jobless launch owner is available. A
+      scheduler-launched, job-bound Explorer restores a usable desktop but is a logged degraded
+      outcome and must not satisfy normal transition success. Leave `WSGM.Launch`, Steam, and other
+      one-shot de-elevation users outside this fix.
+- [x] Add a transition-only asynchronous Explorer-launch API consumed by `SessionModes` and boot
+      cancellation after the irreversible exit point; do not change the intentionally non-waiting
+      `Panic` recovery or blocking `--restore-shell`/crash-loop recovery contracts. Replace the
+      normal transition's fire-and-forget five-second elevation repair, and do not finish that
+      transition until the resulting taskbar owner—not merely the PID returned at process
+      creation—is initialized, belongs to the current session, has the canonical image path, is
+      medium integrity, and is jobless. Adopt an already-valid Explorer instead of replacing it
+      during an early splash cancellation.
+- [x] Handle an installed upgrade that starts beside an Explorer contaminated by an older WSGM
+      scheduled-task launch. Never end that shell without a verified jobless parent/anchor. If no
+      independent verified repair owner exists, fail open, keep desktop mode, and present one
+      explicit sign-out/reboot requirement; after the fresh logon shell appears, capture it before
+      allowing the next takeover.
+- [x] Preserve the device-verified orderly Explorer exit and one-per-session initialization timing.
+      On timeout or launch failure, retain the existing fail-open priority of returning a desktop,
+      but report whether the outcome is normal, degraded scheduler recovery, or failed. Log route,
+      source and result PID/session, integrity, job membership, readiness, elapsed time, fallback,
+      and Win32 error so a remote report identifies the containment failure directly.
+- [x] Add isolated tests for shell-parent acceptance by image/session/integrity/job/query result;
+      capture-before-exit ordering; existing-shell adoption; returned-PID versus taskbar-owner
+      verification; wrong-session, elevated, job-bound, not-ready, timeout, fallback, and
+      cancellation results; old-build contaminated-shell refusal; anchor owner/session loss and
+      stale cleanup; and exact native-resource cleanup. Tests must use fakes/pure result evaluation
+      and must never stop or start the live Explorer.
+- [x] Update `docs/boot-and-shell.md` and `docs/elevation.md` in the implementation change. Record
+      that scheduled-task de-elevation is valid for ordinary one-shot apps but cannot produce the
+      normal shell process semantics required by Explorer-hosted launchers.
+- [ ] Validate on the affected device: splash cancellation both before and after Explorer exit,
+      repeated Game Mode-to-desktop transitions, crash/restore recovery, taskbar/tray/UWP/touch
+      behavior, and MO2 launching a game from Explorer without access denied. Confirm the normal
+      restored Explorer has no Process Explorer Job tab and record the original Explorer, WSGM,
+      selected parent/anchor, and result job states; retain Steam/Game Mode launch as an unchanged
+      regression case and identify any scheduler fallback as deliberately degraded. Also install
+      over an older job-bound desktop, prove takeover is safely refused, then sign out/reboot once
+      and prove the next complete cycle produces the canonical jobless Explorer.
 
-Do not lose or accidentally combine these slices:
+### S1 — Remove planning and governance machinery
 
-- Bounded shutdown/update/uninstall result handoff and session-logoff ownership (`M35`), missing final
-  result-channel documentation and compile/Inno validation.
-- Physical glyph selection plus Steam route/tier patches (`M26`–`M27`), source-complete only at a
-  fail-closed checkpoint; no production delivery tier is enabled.
-- `SteamUiAssets/Source/NativeQamBootstrap.ts` (`M21`), a source seed only; the embedded JavaScript
-  still matches its existing pinned hash.
-- User-owned `native/SteamInput/crates/steam-input-recovery/src/lib.rs`, unrelated to these slices.
+- [x] Remove `docs/2.0-traceability.manifest.json`, generated `docs/2.0-traceability.md`,
+      `eng/update-traceability.ps1`, and its `eng/verify.ps1` hook.
+- [x] Remove requirement IDs from commit/review expectations and delete the temporary legacy-ID
+      appendix from `implementation-requirements.md` after the hook is gone.
+- [x] Remove evidence-lock, claim-promotion, trust-promotion, and generated-operation artifacts that
+      no runtime/developer feature consumes.
+- [x] Update root/nested `AGENTS.md`, `docs/device-integration.md`, and `docs/device-security.md` so
+      they describe the lean one-plugin architecture rather than reimposing the retired system.
+- [x] Retain ordinary license notices, exact Claw hardware facts, diagnostic fixtures, and comments
+      beside safety-critical code.
+- [x] Keep one architecture document, one decision record, one requirements document, and this
+      tracker; do not create a second exhaustive backlog.
 
-No full `eng/verify.ps1 -Fix`, `build.ps1`, installer copy, or final live/hardware matrix has run
-since these integration slices landed.
+### S2 — Implement the one protected plugin slot
+
+- [x] Replace trust-tier roots and candidate ranking in `Core/DevicePackagePolicy.cs` with one
+      protected installed slot and the hard cardinality result.
+- [x] Replace side-by-side immutable version staging in `Core/DevicePackageStager.cs` with one
+      temporary sibling plus atomic replacement.
+- [x] Remove package selection, preferred package, staged apply, selected-device cardinality,
+      version rollback selection, and quarantine policy from `Shell/DeviceCoordinator.cs`.
+- [x] Remove trust-tier privilege branching/de-elevation from `Shell/DeviceHostProcess.cs`; normal
+      installed plugins run as explicit trusted hardware code with WSGM's required authority.
+- [x] Shrink `plugin.wsgm.json` to ID, name, version, API version, entry assembly, and entry type.
+- [x] Move hardware matching and capability/dependency publication into plugin code.
+- [x] Delete publisher grants, signature rotation/revocation, risk declarations, module catalogs,
+      runtime per-file hash ledgers, and disabled-plugin configuration: `DevicePluginTrustTier` and
+      `IDevicePackageSignatureVerifier`/`WindowsDevicePackageSignatureVerifier` in
+      `Core/DevicePackagePolicy.cs`, `eng/prepare-reviewed-packages.ps1` and its `build.ps1` call,
+      the manifest schema's `RiskDeclaration`/`DependencyDeclaration`/`ModuleReference`/
+      `PackageProvenance` types, and the Claw package's `evidence.lock.json`; reduce its
+      `PROVENANCE.md` to the D25 source revision beside the retained `THIRD_PARTY_NOTICES.md`.
+- [x] Keep path containment, protected-directory enforcement, package-local dependency loading, and
+      a clear install warning because they prevent concrete broken/elevation paths.
+
+### S3 — Collapse and freeze the thin SDK
+
+- [x] Define one exact integer API version and one public `IDevicePlugin` lifecycle:
+      detect/start/stop/suspend/resume/diagnostics.
+- [x] Retain only practical capability descriptors/state/commands/results, canonical controller and
+      motion samples, haptic output, OEM events, glyph package/control map, and publication sink.
+- [x] Collapse Contracts and SDK implementation/tests while keeping the resulting assembly AOT-safe.
+- [x] Remove `ImplementationModule`, module-composition validators, evidence IDs/locks,
+      `PluginResourceCoordinator`, generic resource leases, generated authoring models, and
+      WSGM-only policy types from the public API.
+- [x] Replace the generator/analyzer architecture with a checked-in minimal plugin template, sample
+      plugin, small TestKit, manifest validator, and pack command.
+- [x] Document the entire plugin author path on one page: implement, run, test, pack, install.
+- [x] Validate the API against the real Claw plugin and at least one materially different synthetic
+      plugin; add an abstraction only when one of those consumers needs it.
+- [x] Apply an adopt-or-delete rule to the roughly thirty Contracts types whose only consumers are
+      their own tests: either the runtime becomes their one real consumer (`SourceArbitration`/
+      `UiCaptureState`/`ZeroOutputTrigger` in the S7 UI-capture work; `DeviceCycleTransitions`/
+      `LifecycleTrigger` replacing `DeviceCoordinator`'s hand-rolled transitions) or the unused type
+      and its tests are deleted together (`LeaseArbitration`, `Lifecycle/ResourceLease.cs`,
+      `ModuleCompositionValidator`, `CommandDeduplicator`, `CommandAdmission`, `DeviceContinuity`,
+      and `CorruptionResponse`). `OutputRouting` and the zero-consumer `IControllerBackend`/
+      `IUiGamepadSource` in `Input/ControllerBackend.cs` may disappear only as abstractions after S7
+      provides their required controller-output and managed-UI-input behavior through the direct
+      `ControllerManager` path. Those S7 contracts are the only deliberate zero-consumer holdovers;
+      the obsolete architecture/test-only contracts were deleted with their tests.
+- [x] Move the entirely test-only `Sdk/Authoring` folder (`GlyphProfileBuilder`,
+      `IPluginObservationAnalyzer<,>`, `PluginProjectTemplate`, `PluginSourceGenerationRequest`)
+      into Device Lab or delete it, and decide where `Sdk/Testing` (TestKit) ships so the merged
+      SDK assembly referenced by NativeAOT WSGM stays AOT-clean; `eng/check-aot-isolation.ps1`
+      remains the proof.
+- [x] Collapse the three stacked glyph import layers in `Contracts/Glyphs`
+      (`GlyphProfileReader`/`GlyphProfileValidator`, `GlyphProfileImporter`,
+      `GlyphPackageImporter`) into one loader with one error list.
+- [x] Fold the misnamed `tests/WSGM.Device.Sdk.Generators.Tests` into the merged device test
+      project; no Roslyn generator exists anywhere in `src/` — generation is string templating.
+- [x] Consolidate the device-platform source-generated JSON contexts (`DeviceWireJsonContext`,
+      `DeviceContractsJsonContext`, `GlyphProfileJsonContext`, `RecoveryJournalJsonContext`,
+      `DeviceCoordinatorDiagnosticsJsonContext`, `DevicePackageJsonContext`,
+      `DeviceLabJsonContext`, `DeviceLabCompactJsonContext`) down to one per remaining device
+      assembly; unrelated established WSGM mechanism contexts remain separately owned.
+
+### S4 — Slim DeviceHost and runtime coordination
+
+- [x] Reduce DeviceHost to one package load, one lifecycle, one pipe connection, one shared input
+      ring, bounded shutdown, and package-local dependency resolution.
+- [x] Retain the measured fixed shared controller/motion ring (42 ns/sample in the current benchmark)
+      and keep it single-purpose.
+- [x] Replace min/max protocol negotiation and schema fingerprints with exact API/wire equality;
+      delete `Contracts/Ipc/ProtocolNegotiation.cs` with it.
+- [x] Use one cycle generation where stale reconnect rejection is required; remove duplicate
+      host/device/context generations that do not prevent a demonstrated stale action
+      (`Contracts/Lifecycle/DeviceGeneration.cs` plus `DeviceCoordinator`'s separate host and
+      device generations).
+- [x] Remove generic command idempotency caches (`CommandDeduplicator`, `CommandAdmission`). Never
+      automatically retry an uncertain hardware write; return the uncertainty to the owning
+      plugin/service.
+- [x] Reduce host restart policy to one or two bounded retries, then fault Device Integration for the
+      run with manual retry and clear diagnostics. Keep exactly one policy — today
+      `RestartPolicy.Evaluate` and `DeviceCoordinator`'s own `_hostFaults` window coexist.
+- [x] Keep the kill-on-close job and shutdown timeout; remove periodic enterprise resource policing
+      (the `DeviceHostClient` handle/working-set watchdog).
+- [x] Keep the `--settings` owner-request pipe but drop its bespoke third framing: reuse the host
+      pipe's `WireFormat` and one JSON context in `Shell/DeviceCoordinatorDiagnostics.cs`.
+- [x] Reduce `DeviceCoordinator` to composition/lifecycle, `DeviceCapabilityRouter` to direct
+      capability state/command routing, and `DeviceOverlayBridge` to view-ready projections.
+- [x] Ensure `ShellSession` owns and disposes each retained resident service exactly once.
+
+### S5 — Simplify Device Lab without cutting workflows
+
+- [x] Preserve doctor, inventory, capture, inspect/compare/correlate, fixture extraction, scaffold,
+      glyph import, local plugin run, validate/test, and pack in the combined Device Lab app.
+- [x] Keep the Hardware Owner GUI flow and Plugin Developer GUI flow as thin views over the same
+      operations; do not require every obscure CLI switch to have a separate screen.
+- [x] Use one current capture schema and one obvious redaction pass; remove compatibility families,
+      evidence promotion, claim ledgers, and immutable evidence locks.
+- [x] Replace the versioned implementation-module catalog and weighted matching with straightforward
+      known-device fingerprints and explained exact mismatches; fold
+      `BuiltInKnownImplementationCatalog`'s five entries (all one `ms-1t52` family) into that data.
+- [x] Replace generated source architecture with checked-in templates and token replacement.
+- [x] Run read/test operations through ordinary compiled code. Replace trial hashes, receipts,
+      authorization snapshots, experiment leases, and mutation fault frameworks — the
+      `DeviceLab.Core/Trials` folder with `BoundedMutationTrialRunner`, its five zero-implementor
+      trial-transport interfaces, `MutationTrialFaultHarness`, and `MutationTrialJournal` — with
+      one explicit attended action plus plugin-owned snapshot/readback/restore wired through
+      `DeviceLabApplication` and both front ends.
+- [x] Delete lab machinery with no production caller unless a preserved workflow adopts it:
+      `ClaimStatePolicy`, the `Evidence` promotion/lock types, `DeviceLabSchemaReader<T>`,
+      `DevicePluginScaffoldRegeneration`/`DevicePluginScaffoldVerifier`, `ReadProbeSelector`, and
+      `ResourceCompatibility`.
+- [x] When absorbing ProbeHost, flatten `ReadProbeProfiles.cs` — eight marker interfaces (two with
+      zero implementors) over six concrete probes — into plain probe classes in one registry.
+- [x] Settle one CLI verb set: `doctor`, `inventory`, `candidates`, `probe-read`, `capture`,
+      `inspect`, `compare`, `correlate`, `fixture`, `scaffold`, `glyph`, `validate`, `test`, and
+      `pack`; update the root `AGENTS.md` safe-command table in the same change so documentation and
+      tool never disagree.
+- [x] Retain privacy redaction, explicit output paths, and the prohibition on live WSGM data because
+      those prevent actual data loss/leaks.
+- [x] Ship Device Lab as an optional developer-tools component; normal WSGM runtime never depends on
+      it.
+
+### S6 — Simplify the Claw plugin around hardware services
+
+- [x] Preserve every exact identity, WMI address, fan layout, MCU command, topology rule, input map,
+      rumble byte, gyro limit, OEM event/chord rule, RGB address/zone, and unresolved hardware item
+      in `claw-8-a2vm-plugin.md`.
+- [x] Replace generic `IPluginResource` objects and public resource-state machinery with direct
+      power, fan, controller, motion, OEM, and RGB services publishing independent availability;
+      retire `Sdk/Lifecycle/PluginResourceCoordinator.cs` and the eight `ClawResourceBase`
+      wrappers in `ClawResources.cs` with it.
+- [x] Replace nested capability/command/lease/registry gates with one plugin command entry that
+      validates current identity, ownership, range, and device state immediately before the write.
+- [x] Keep one serializer per actual vendor transport, not per abstract capability layer.
+- [x] Replace host-owned plus plugin-owned recovery journals with one small plugin-owned record of
+      temporary state the plugin actually changed and could not restore; today
+      `Contracts/Lifecycle/RecoveryJournal.cs`, `DeviceHost/RecoveryJournalStore.cs`, and the
+      plugin's `ClawRecoveryJournal.cs` coexist.
+- [x] Keep persistent RGB desired state separate from temporary restoration.
+- [ ] Complete remaining power/fan/charge, controller, gyro, OEM suppression, rumble, RGB effect,
+      glyph, suspend/resume, hotplug, conflict, and handoff hardware work.
+- [ ] Verify that Device Integration off leaves no Claw activity and another manager can take over
+      without WSGM killing or reconfiguring it.
+
+### S7 — Complete controller management directly
+
+- [ ] Finish a technically acceptable HIDMaestro/usbip backend; controller support may not be cut
+      because the current dependency misses mandatory fields.
+- [ ] Keep one `ControllerManager` owning Steam Deck Composite, Xbox 360, DualShock 4, target
+      replacement, output, HidHide, local UI capture, and fallback.
+- [ ] Use one existing/merged running-application monitor to resolve both per-app controller target
+      and performance/profile identity.
+- [ ] Store controller selection directly as global default plus executable override; remove generic
+      desired-state/selection projections that have no second policy.
+- [ ] Preserve owned-delta HidHide and the two-phase make-safe handoff because they prevent real
+      controller loss/duplicate input.
+- [ ] Unify the two handoff sequencing vocabularies — `Shell/ControllerReleaseOrdering.cs`
+      (`ControllerReleaseOrder`, ten states) and `Contracts/Lifecycle/ControllerHandoff.cs`
+      (`ControllerHandoffStep`) — into the one make-safe sequence `ControllerManager` owns.
+- [ ] Finish managed overlay/taskbar/Settings navigation, held-control suppression, target
+      neutralization, and make-before-break SDL/Steam-lease fallback.
+- [ ] Complete physical rumble/haptic return and zero-output cleanup.
+- [ ] Run all target, per-app, slot, duplicate-input, suspend/resume, host-fault, and external-owner
+      acceptance on the reference unit.
+
+### S8 — Complete Steam UI, RTSS, and AutoTDP directly
+
+- [ ] Keep one persistent `SteamUiHost` connection/reconnect owner and one TypeScript bootstrap.
+- [ ] Collapse class/version/tier machinery where a direct component-local probe/apply/remove/health
+      implementation is sufficient; keep failures independent and native Valve fallback intact.
+- [ ] Finish the deterministic TypeScript build with pinned dependencies and one drift/hash check,
+      without introducing a general asset-manifest governance system. Until that build exists,
+      `NativeQamBootstrap.js` stays the authoritative shipped asset and
+      `SteamUiAssets/Source/NativeQamBootstrap.ts` (currently referenced by no build step) is a
+      seed — never hand-maintain both copies.
+- [ ] Hoist the identical private CDP evaluate/`ok`-parse helper duplicated in
+      `NativeQamComponentPatches.cs`, `SteamInputHandheldGlyphPatch.cs`, and
+      `SteamInputGlyphDeliveryPatches.cs` into one shared helper beside `SteamUiPatchManager`.
+- [ ] Retain existing CEF library/card/Wi-Fi/download behavior while completing native TDP, frame
+      limit, RTSS overlay level, performance/profile, controller-target, and AutoTDP projections.
+- [ ] Add a user-owned toggle that launches the complete Steam client unelevated, not only
+      individual games or helper processes. Keep the current integrity-matched launch as the
+      default, apply the choice consistently to cold start and restart paths, and log the selected
+      Steam launch integrity for remote diagnosis.
+- [ ] Keep RTSS controls working when Device Integration is off.
+- [ ] Reduce performance state to the verified current frametime/metrics required by overlay, QAM,
+      diagnostics, and AutoTDP; do not build a general metrics platform.
+- [ ] Implement one deterministic AutoTDP controller: fast rise on sustained misses, settled
+      one-step descent, last-good restore, cap/menu handling, transient heavy-scene recovery,
+      per-app/context learning, manual pause, one in-flight write, and exact stop restore.
+- [ ] Build replay around real trace shapes and add sophistication only when a recorded trace defeats
+      the simple controller.
+- [ ] Validate live Steam context churn, focus/navigation, RTSS external edits/restart, AutoTDP
+      games/menus/scenes/suspend/manual override, performance, and cleanup.
+
+### S9 — Complete physical glyphs as static plugin data
+
+- [ ] Keep the plugin-owned manifest, artwork, logical control map, source revision, and required
+      license notice.
+- [ ] Prefer fixed reviewed PNG assets for runtime presentation where they can replace the custom
+      thousand-line SVG parser without losing quality; retain narrowly normalized SVG only where
+      needed.
+- [ ] Reduce validation to path locality, known IDs, format, dimensions, size, and references.
+- [ ] Keep WSGM-owned Steam selectors, context-local delivery, cleanup, CSS Loader coexistence, and
+      native fallback.
+- [ ] Finish Automatic/Native/manual selection, graphical preview, input test, OEM rows, and
+      navigation hints from one shared physical map.
+- [ ] Finish stable resource mappings, controller diagrams, exact inline mappings, and supported
+      capability hiding without a generic patch-tier framework: replace the
+      `SteamInputGlyphTierPatch` abstract base (six abstract members) and its four subclasses with
+      direct per-group patches. The current inline-SVG and capability-hiding tiers are hardcoded
+      stubs (`{ok:false}` with no emitted mappings), not completed features; obtain their live Steam
+      fingerprints and implement the required direct patches before release rather than deleting or
+      indefinitely deferring either outcome.
+- [ ] Wire the dead activation path: `SteamUiSessionHost.ApplyGlyphDeliveryProfile` has zero
+      callers, so tier enablement never leaves Disabled and every delivery patch is inert. Drive it
+      from `DeviceCoordinator` when the active glyph profile loads or changes.
+- [ ] Merge `SteamInputHandheldGlyphPatch` — a full probe/apply/verify/remove patch that installs
+      only a route-predicate object — into the delivery patch that consumes it, and share the
+      selector-namespace constant duplicated across both files.
+- [x] Replace the `"wsgm.glyph.selection"` pseudo-capability that `DeviceOverlayBridge` synthesizes
+      and special-cases in `InvokeAsync` with a direct overlay command to
+      `DeviceCoordinator.CyclePhysicalGlyphSelectionAsync`, keeping one dispatch path for real
+      capabilities.
+- [ ] Visually accept the A2VM profile, OEM sides, and M1-left/M2-right orientation at supported
+      scales.
+
+### S10 — Finish the overlay without duplicating services
+
+- [ ] Complete Home, Steam, Device, and System navigation with Back/focus/scroll restoration.
+- [ ] Migrate every existing Home/Steam/System action to its page without reimplementing its service.
+- [ ] Complete Device Overview, Profiles, Power/Thermals, Controller/Motion, OEM,
+      Lighting/Features, Glyph Preview/Input Test, and Diagnostics/Recovery.
+- [ ] Bind every overlay and QAM control to the same direct runtime service.
+- [ ] Keep Settings limited to startup/integration/controller ownership/logging/update configuration
+      and owner-process requests.
+- [ ] Validate controller, touch, keyboard, scaling, accessibility, themes, cancellation, disposal,
+      and responsiveness on the handheld.
+
+### S11 — Simplify build, installer, tests, and release
+
+- [x] Make `WSGM.slnx`, `eng/verify.ps1`, and `build.ps1` reflect the collapsed projects and one
+      compatible component composition.
+- [x] Keep NativeAOT publish proof and prevent JIT/plugin/tool dependencies from leaking beside
+      `WSGM.exe`.
+- [x] Stage only App, DeviceHost, the one plugin, optional Device Lab, and required controller
+      dependencies; remove package catalogs and side-by-side versions.
+- [x] Standardize setup and managed maintenance on the fixed `.staging`/`.previous` siblings,
+      reconcile the prior `.installed.previous` name, and serialize stop/recheck/publication with
+      the exact global package-slot and hardware-owner objects so no DeviceHost can race replacement
+      or uninstall. Preserve the initially observed runtime mode across setup refusal/retry/cancel
+      through an installer-tagged service restart; suppress rollback-shell hardware admission when
+      prior DeviceHost exit is unverified and hand the global marker to that restored process without
+      an unreserved gap.
+- [x] Keep legal notices for shipped code/assets and remove provenance/promotion metadata not needed
+      by licensing; retire `eng/write-artifact-manifests.ps1`'s per-component hash manifests unless
+      a retained staging check consumes them — the final installer SHA-256 handoff is enough.
+- [x] Simplify tests toward known parsing, bounds, lifecycle, cleanup, host/crash, controller,
+      Steam/RTSS/glyph, AutoTDP replay, UI parity, and regressions.
+- [x] Remove exhaustive schema compatibility, trust-tier, evidence, ranking, promotion, and
+      theoretical fault-matrix tests with the code they served.
+- [x] Finish one shutdown coordinator and one installer result channel for normal/update/logoff/
+      uninstall, preserving the current uncommitted work where correct. Known defects to fix in
+      that review: the outer Update budget in `ApplicationShutdownCoordinator.BudgetFor` (10 s)
+      equals `DeactivationBudget.Update.Total` with CEF/RTSS teardown still to run after it,
+      guaranteeing `TimedOut`; `ApplicationShutdownRequest` precedence is enum-declaration-order
+      max-wins, so a logoff downgrades an installer-requested Update to the 5 s SessionEnd path;
+      and Uninstall reuses `DeviceDeactivationReason.IntegrationDisabled`.
+- [x] Pass one outer shutdown deadline down instead of parallel budget tables; delete
+      `DeactivationBudget` from `Contracts/Lifecycle/RestartPolicy.cs` once the deadline flows.
+- [x] Simplify the installer result channel: `UpdateExitWatcher` creates eight per-outcome named
+      events and `WSGM.iss` decodes them, yet all four outcomes fall through to the same
+      unconditional force-stop. Either branch installer behavior on the outcome or reduce to one
+      completion event plus the logged compact result; keep the D22
+      clean/unverified/timed-out/failed report either way.
+- [x] Deduplicate the request-plus-`Shutdown()` block in `Program.RequestInstallerExit` and
+      `ShellSession.OnSessionEnding`; drop the dead `_messageWindow ?? MessageWindow.Create()`
+      branches; re-evaluate the two-holder `SessionNotificationLease` refcount against simply
+      registering session notifications for the `MessageWindow`'s lifetime.
+- [x] Retarget tests that freeze constants (exact budget seconds, event-name suffix strings) at the
+      behavior they exist to protect.
+- [ ] Validate atomic one-plugin update, rollback by reinstall, uninstall, external-state
+      preservation, and recovery-first bypass.
+- [ ] Run the focused automated suite, NativeAOT build, live Steam matrix, attended Claw/controller/
+      AutoTDP/glyph/transition tests, and meaningful soak/performance checks.
+- [x] Run `eng/verify.ps1 -Fix`, `build.ps1`, copy the newest installer to `Z:\`, and verify matching
+      SHA-256 hashes for the final handoff.
+
+## Current feature state to preserve through simplification
+
+| Area | Existing useful work | Still required |
+| --- | --- | --- |
+| SDK/Host | One public AOT-safe SDK, exact wire contract, one-package host lifecycle, shared ring, focused tests | Feature-specific controller/glyph consumers and attended fault/recovery acceptance |
+| Device Lab | One GUI/CLI app preserving inventory, capture, probes, scaffolding, testing, glyph import, validation, and packing | Attended reference-device acceptance for the explicit hardware action |
+| Claw | Direct hardware services, one command gate, one small plugin journal, exact WMI/HID facts and fixtures | Remaining hardware features plus attended acceptance/restoration |
+| Controller | Managed backend/router/HidHide foundations | Real backend, three targets, per-app selection, UI capture/output/fallback |
+| Steam/QAM | Persistent CDP, bootstrap, semantic QAM foundations | Direct component implementation, TypeScript build, live matrix |
+| RTSS | Discovery/profile/control foundations | Verified shared frametime/performance state and QAM/overlay binding |
+| AutoTDP | Requirements and related performance foundations | Direct controller, persistence, replay, UI, and hardware validation |
+| Glyphs | Import/runtime/selection/Steam route foundations | Static package simplification, active delivery, preview, visual acceptance |
+| Overlay | Navigation and partial Device projections | Complete destinations and handheld acceptance |
+| Shutdown | One deadline-driven coordinator and one installer completion channel | Live update/logoff/uninstall recovery acceptance |
+| Shell/Desktop | Explorer-first takeover plus a session-owned jobless shell anchor and verified-result transition API | Attended Process Explorer/MO2/repeated-transition acceptance |
+
+## Immediate queue
+
+Only this list drives the next implementation work:
+
+- [x] **Q01 — Stabilize the uncommitted checkpoint** into separately reviewed shutdown, glyph/Steam,
+      and TypeScript slices while preserving the unrelated Steam Input recovery edit.
+- [x] **Q02 — Restore normal Explorer process semantics** through a captured canonical shell
+      parent or live jobless anchor, await the complete shell result, and add focused tests,
+      diagnostics, and docs. The attended Process Explorer/MO2 matrix remains the explicit S0.1
+      release gate because shell takeover must not be run unattended.
+- [x] **Q03 — Remove generated traceability/governance** and update repository instructions/docs to
+      the lean architecture.
+- [x] **Q04 — Implement the one-plugin startup invariant** and protected atomic slot before further
+      package/runtime work.
+- [x] **Q05 — Collapse Contracts/SDK and shrink the manifest/API** against the real Claw consumer.
+- [x] **Q06 — Slim DeviceHost/Coordinator and merge Device Lab projects** without dropping GUI/CLI
+      workflows.
+- [x] **Q07 — Simplify the Claw plugin internals** around direct services and the small plugin-owned
+      recovery record. Remaining capability completion and attended hardware acceptance stay in S6.
+- [ ] **Q08 — Finish controller targets, per-app selection, UI capture, output, HidHide, and fallback.**
+- [ ] **Q09 — Finish Steam/QAM/RTSS, the full-client unelevated Steam launch toggle, and implement
+      the direct AutoTDP controller/replay.**
+- [ ] **Q10 — Finish static plugin glyph delivery and all WSGM/Steam consumers.**
+- [ ] **Q11 — Finish the overlay, shutdown/installer, and focused release validation.**
+
+A checked architectural queue item has its code, focused tests, diagnostics, and documentation
+complete. Attended/live gates remain explicit and unchecked in the owning phase until they run on
+the reference device; they are release evidence, not a reason to leave finished source architecture
+open. Do not add hundreds of sub-gates; add a concrete bug or missing outcome to the owning item.
+
+## Simplification completion criteria
+
+The structural overhaul is complete when:
+
+- Every fixed feature still has a direct owner and implementation path.
+- Normal startup has exactly the 0/1/2+ plugin behavior above.
+- A community developer can understand the public SDK and package format quickly.
+- WSGM, DeviceHost, Device Lab, and the Claw plugin no longer carry multi-plugin/trust/evidence/
+  promotion machinery.
+- UI actions reach one service without parallel policy/projection stacks.
+- Every normal desktop handoff yields an initialized, medium-integrity, current-session Explorer
+  that is not associated with a job; scheduled-task Explorer launch is recovery-only and reported
+  as degraded.
+- The solution/build/installer contain only boundaries justified by AOT, process lifetime, public
+  SDK ownership, or packaging.
+- Safety remains concentrated around exact hardware writes, input recovery, CEF fail-open, and
+  cleanup—not spread across enterprise governance abstractions.
+
+The current source/build composition meets those structural criteria. Full 2.0 completion remains
+separate: the feature set must still pass its focused automated, live Steam, and attended
+reference-device validation and produce the release installer artifact.

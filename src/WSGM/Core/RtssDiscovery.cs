@@ -221,8 +221,9 @@ internal sealed class RtssDiscovery
             return false;
         }
 
+        string resolvedRoot = root;
         return _environment.ProtectedInstallRoots.Any(protectedRoot =>
-            IsUnder(root!, protectedRoot));
+            IsUnder(resolvedRoot, protectedRoot));
     }
 
     private static bool ValidExecutable(RtssFileIdentity identity, Version registrationVersion)

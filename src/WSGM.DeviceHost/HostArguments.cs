@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using WSGM.Device.Contracts.Ipc;
+using WSGM.Device.Sdk.Ipc;
 
 namespace WSGM.DeviceHost;
 
@@ -18,9 +18,7 @@ internal sealed record HostArguments
 
     public required uint SessionId { get; init; }
 
-    public required long HostGeneration { get; init; }
-
-    public required string TrustTier { get; init; }
+    public required long CycleGeneration { get; init; }
 
     public string? StateRingName { get; init; }
 
@@ -38,8 +36,7 @@ internal sealed record HostArguments
             "--pipe",
             "--nonce",
             "--session",
-            "--host-generation",
-            "--trust-tier",
+            "--generation",
             "--state-ring",
             "--state-event",
         };
@@ -71,8 +68,7 @@ internal sealed record HostArguments
             || !Required(values, "--pipe", out string pipeName)
             || !Required(values, "--nonce", out string nonceText)
             || !Required(values, "--session", out string sessionText)
-            || !Required(values, "--host-generation", out string generationText)
-            || !Required(values, "--trust-tier", out string trustTier))
+            || !Required(values, "--generation", out string generationText))
         {
             error = "Required host launch arguments are missing.";
             return false;
@@ -91,10 +87,10 @@ internal sealed record HostArguments
 
         if (nonce.Length != ControlEndpoint.NonceBytes
             || !uint.TryParse(sessionText, out uint sessionId)
-            || !long.TryParse(generationText, out long hostGeneration)
-            || hostGeneration <= 0)
+            || !long.TryParse(generationText, out long cycleGeneration)
+            || cycleGeneration <= 0)
         {
-            error = "The nonce, session, or host generation is malformed.";
+            error = "The nonce, session, or cycle generation is malformed.";
             return false;
         }
 
@@ -105,8 +101,7 @@ internal sealed record HostArguments
             PipeName = pipeName,
             Nonce = nonce,
             SessionId = sessionId,
-            HostGeneration = hostGeneration,
-            TrustTier = trustTier,
+            CycleGeneration = cycleGeneration,
             StateRingName = values.GetValueOrDefault("--state-ring"),
             StateEventName = values.GetValueOrDefault("--state-event"),
         };

@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>WSGM.Device.Tests</AssemblyName>
+    <RootNamespace>WSGM.Device.Tests</RootNamespace>
+    <!-- Test names are the executable specification; production XML documentation rules do not apply. -->
+    <NoWarn>$(NoWarn);1573;1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector" Version="10.0.1">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../plugins/WSGM.Device.Msi.Claw8A2Vm/WSGM.Device.Msi.Claw8A2Vm.csproj" />
+    <ProjectReference Include="../../src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj" />
+    <ProjectReference Include="../../src/WSGM.DeviceHost/WSGM.DeviceHost.csproj" />
+    <ProjectReference Include="../../src/WSGM.DeviceLab/WSGM.DeviceLab.csproj" />
+  </ItemGroup>
+</Project>

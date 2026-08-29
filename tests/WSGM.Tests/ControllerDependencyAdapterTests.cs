@@ -1,4 +1,4 @@
-using WSGM.Device.Contracts.Input;
+using WSGM.Device.Sdk.Input;
 using WSGM.Input;
 using WSGM.Shell;
 
@@ -17,7 +17,7 @@ public sealed class ControllerDependencyAdapterTests
 
         Assert.Equal(HidBackendHealthState.Incompatible, health.State);
         Assert.Null(health.Capabilities);
-        Assert.Equal("P0-020", diagnostics["policy"]);
+        Assert.Equal("controller-backend-incomplete", diagnostics["policy"]);
         Assert.Equal(bool.FalseString, diagnostics["controllerManagementApproved"]);
         Assert.Contains("four-rear-control", health.Detail);
     }
@@ -37,7 +37,7 @@ public sealed class ControllerDependencyAdapterTests
                 neutral,
                 CancellationToken.None));
 
-        Assert.Contains("P0-020", error.Message);
+        Assert.Contains("pinned HIDMaestro", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]

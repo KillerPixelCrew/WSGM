@@ -234,11 +234,7 @@
         "DropDownField",
         "SliderField",
       ]);
-      const layoutFactory = uniqueFactory([
-        "PanelSectionTitle",
-        "PanelSectionRow",
-        "spinner",
-      ]);
+      const layoutFactory = uniqueFactory(["PanelSectionTitle", "PanelSectionRow", "spinner"]);
       const localizationFactory = uniqueFactory([
         "Attempting to localize token",
         "Unable to find localization token",
@@ -266,15 +262,11 @@
         layout,
         (value) => value.$$typeof && typeof value.render === "function",
       );
-      const localize = uniqueFunction(localization, [
-        "LocalizeString(e)",
-        "void 0===r?e",
-      ]);
+      const localize = uniqueFunction(localization, ["LocalizeString(e)", "void 0===r?e"]);
       if (!slider || !dropdown || !section || !row || !localize) return null;
       return { react, slider, dropdown, section, row, localize };
     };
-    const normalizeText = (value) =>
-      typeof value === "string" ? value.slice(0, 240) : "";
+    const normalizeText = (value) => (typeof value === "string" ? value.slice(0, 240) : "");
     const normalizeTdpState = (value) => {
       if (!value || typeof value !== "object" || typeof value.available !== "boolean") return null;
       if (!value.available) {
@@ -430,7 +422,8 @@
       const levels = [];
       for (const item of value.levels) {
         const level = Number(item);
-        if (!Number.isInteger(level) || level < 0 || level > 4 || levels.includes(level)) return null;
+        if (!Number.isInteger(level) || level < 0 || level > 4 || levels.includes(level))
+          return null;
         levels.push(level);
       }
       levels.sort((left, right) => left - right);
@@ -519,7 +512,9 @@
             nextActionGeneration(definition.patchId),
           ).catch(() => {});
         };
-        const restart = state.applicationRestartRequired ? " Restart the application to rebind." : "";
+        const restart = state.applicationRestartRequired
+          ? " Restart the application to rebind."
+          : "";
         return controlRuntime.react.createElement(controlRuntime.dropdown, {
           label: controlRuntime.localize("#QuickAccess_Tab_Settings_Section_Controller_Title"),
           rgOptions: options,
@@ -532,11 +527,7 @@
       };
     const createFrameLimitControl = (controlRuntime) =>
       function WsgmNativeFrameLimitControl() {
-        const state = useSemanticState(
-          controlRuntime,
-          "frameLimit",
-          normalizeFrameLimitState,
-        );
+        const state = useSemanticState(controlRuntime, "frameLimit", normalizeFrameLimitState);
         if (!state || !state.available) return null;
         const value = state.observedFps ?? state.desiredFps;
         if (value === null) return null;
@@ -572,11 +563,7 @@
       };
     const createOverlayLevelControl = (controlRuntime) =>
       function WsgmNativeOverlayLevelControl() {
-        const state = useSemanticState(
-          controlRuntime,
-          "overlayLevel",
-          normalizeOverlayLevelState,
-        );
+        const state = useSemanticState(controlRuntime, "overlayLevel", normalizeOverlayLevelState);
         if (!state || !state.available) return null;
         const selected = state.observedLevel ?? state.desiredLevel;
         if (selected === null || !state.levels.includes(selected)) return null;
@@ -680,10 +667,7 @@
       ]);
       controlRuntime = createControlRuntime();
       if (!performanceFactory || !controlRuntime) return false;
-      performanceRoot = uniqueFunction(runtime(performanceFactory[0]), [
-        "TS.ON_FRAME",
-        "return",
-      ]);
+      performanceRoot = uniqueFunction(runtime(performanceFactory[0]), ["TS.ON_FRAME", "return"]);
       if (!performanceRoot) return false;
       tdpControl = createTdpControl(controlRuntime);
       frameLimitControl = createFrameLimitControl(controlRuntime);
@@ -725,7 +709,10 @@
       if (disposedHost || !Object.hasOwn(definitions, kind))
         return { ok: false, error: "component is not allowlisted" };
       if (!ensurePatched())
-        return { ok: false, error: "native performance root was already initialized or incompatible" };
+        return {
+          ok: false,
+          error: "native performance root was already initialized or incompatible",
+        };
       registrations.set(kind, definitions[kind].patchId);
       notify();
       return { ok: true, kind, registered: true, hostVersion: 1 };
@@ -759,13 +746,9 @@
       actionGenerations.clear();
       notify();
       listeners.clear();
-      if (
-        controlRuntime &&
-        originalUseMemo &&
-        controlRuntime.react.useMemo === patchedUseMemo
-      )
+      if (controlRuntime && originalUseMemo && controlRuntime.react.useMemo === patchedUseMemo)
         controlRuntime.react.useMemo = originalUseMemo;
     };
     return { install, remove, status, dispose: disposeHostResources };
   }
-})()
+})();

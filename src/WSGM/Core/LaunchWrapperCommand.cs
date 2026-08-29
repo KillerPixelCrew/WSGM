@@ -292,19 +292,48 @@ internal static class LaunchWrapperCommand
 
     /// <summary>Stops any running wrapper processes.</summary>
     /// <param name="reason">Why they are being stopped, for the log.</param>
-    internal static void StopRunningHelpers(string reason)
+    internal static void StopRunningHelpers(string reason) =>
+        StopRunningHelpers(reason, timeout: null);
+
+    /// <summary>Stops running wrappers while sharing one optional caller-owned wait budget.</summary>
+    /// <param name="reason">Why they are being stopped, for the log.</param>
+    /// <param name="timeout">Maximum combined process-exit wait, or null for the ordinary per-process bound.</param>
+    internal static void StopRunningHelpers(string reason, TimeSpan timeout) =>
+        StopRunningHelpers(reason, (TimeSpan?)timeout);
+
+    private static void StopRunningHelpers(string reason, TimeSpan? timeout)
     {
-        foreach (var process in Process.GetProcessesByName(
+        Stopwatch? elapsed = timeout is null ? null : Stopwatch.StartNew();
+        foreach (Process process in Process.GetProcessesByName(
                      Path.GetFileNameWithoutExtension(HelperFileName)))
         {
             try
             {
+                TimeSpan remaining = timeout is null
+                    ? TimeSpan.FromMilliseconds(5_000)
+                    : timeout.Value - elapsed!.Elapsed;
+                if (remaining <= TimeSpan.Zero)
+                {
+                    Log.Warn($"Launch-wrapper stop budget expired before pid {process.Id} could be ended.");
+                    continue;
+                }
+
                 Log.Info($"Stopping launch wrapper pid {process.Id} ({reason}).");
                 // The medium child owns the launched game/emulator. Ending its
                 // complete tree releases both the wrapper executable and target
                 // before an update/uninstall replaces or removes the helper.
                 process.Kill(entireProcessTree: true);
-                process.WaitForExit(5_000);
+                remaining = timeout is null
+                    ? TimeSpan.FromMilliseconds(5_000)
+                    : timeout.Value - elapsed!.Elapsed;
+                if (remaining <= TimeSpan.Zero)
+                {
+                    continue;
+                }
+                int waitMilliseconds = Math.Min(
+                    5_000,
+                    Math.Max(1, (int)Math.Ceiling(remaining.TotalMilliseconds)));
+                process.WaitForExit(waitMilliseconds);
             }
             catch (Exception ex)
             {

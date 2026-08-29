@@ -1,12 +1,10 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using WSGM.Device.Contracts.Capabilities;
-using WSGM.Device.Contracts.Input;
-using WSGM.Device.Contracts.Ipc;
-using WSGM.Device.Contracts.Lifecycle;
+using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Input;
+using WSGM.Device.Sdk.Ipc;
 using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.DeviceHost;
@@ -18,9 +16,6 @@ internal sealed class PluginHostAdapter : IPluginHostAdapter, IDisposable
     private readonly ushort _protocolVersion;
     private readonly SharedStateRing? _stateRing;
     private readonly EventWaitHandle? _stateEvent;
-    private readonly RecoveryJournalStore _journal;
-    private readonly ConcurrentDictionary<string, DeviceResourceStateNotification> _resources =
-        new(StringComparer.Ordinal);
     private long _descriptorGeneration;
     private long _stateSequence;
     private bool _disposed;
@@ -28,18 +23,13 @@ internal sealed class PluginHostAdapter : IPluginHostAdapter, IDisposable
     public PluginHostAdapter(
         HostWireSender sender,
         ushort protocolVersion,
-        long hostGeneration,
-        long deviceGeneration,
+        long cycleGeneration,
         string? stateRingName,
-        string? stateEventName,
-        RecoveryJournalStore journal)
+        string? stateEventName)
     {
-        ArgumentNullException.ThrowIfNull(journal);
         _sender = sender;
         _protocolVersion = protocolVersion;
-        HostGeneration = hostGeneration;
-        DeviceGeneration = deviceGeneration;
-        _journal = journal;
+        CycleGeneration = cycleGeneration;
         if (!string.IsNullOrWhiteSpace(stateRingName))
         {
             _stateRing = SharedStateRing.Open(
@@ -54,11 +44,7 @@ internal sealed class PluginHostAdapter : IPluginHostAdapter, IDisposable
         }
     }
 
-    public long HostGeneration { get; }
-
-    public long DeviceGeneration { get; private set; }
-
-    public IReadOnlyDictionary<string, DeviceResourceStateNotification> Resources => _resources;
+    public long CycleGeneration { get; private set; }
 
     public ValueTask PublishDescriptorsAsync(
         CapabilityDescriptorSet descriptors,
@@ -66,7 +52,7 @@ internal sealed class PluginHostAdapter : IPluginHostAdapter, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(descriptors);
-        if (descriptors.DeviceGeneration != DeviceGeneration
+        if (descriptors.CycleGeneration != CycleGeneration
             || descriptors.Generation <= Interlocked.Read(ref _descriptorGeneration))
         {
             throw new InvalidOperationException("Descriptor generations must be current and monotonic.");
@@ -89,8 +75,7 @@ internal sealed class PluginHostAdapter : IPluginHostAdapter, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(state);
-        if (state.HostGeneration != HostGeneration
-            || state.DeviceGeneration != DeviceGeneration
+        if (state.CycleGeneration != CycleGeneration
             || state.DescriptorGeneration != Interlocked.Read(ref _descriptorGeneration))
         {
             throw new InvalidOperationException("Capability state belongs to a stale generation.");
@@ -105,36 +90,6 @@ internal sealed class PluginHostAdapter : IPluginHostAdapter, IDisposable
             FrameFlags.None,
             delta,
             DeviceWireJsonContext.Default.CapabilityStateDelta,
-            _protocolVersion,
-            cancellationToken);
-    }
-
-    public ValueTask PublishResourceStateAsync(
-        PluginResourceState state,
-        CancellationToken cancellationToken)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        ArgumentNullException.ThrowIfNull(state);
-        if (state.DeviceGeneration != DeviceGeneration
-            || string.IsNullOrWhiteSpace(state.ResourceId))
-        {
-            throw new InvalidOperationException("Resource state belongs to a stale generation.");
-        }
-
-        DeviceResourceStateNotification notification = new()
-        {
-            ResourceId = state.ResourceId,
-            State = state.State,
-            Reason = state.Reason,
-            DeviceGeneration = state.DeviceGeneration,
-        };
-        _resources[state.ResourceId] = notification;
-        return _sender.SendAsync(
-            DeviceMessageType.ResourceState,
-            0,
-            FrameFlags.None,
-            notification,
-            DeviceWireJsonContext.Default.DeviceResourceStateNotification,
             _protocolVersion,
             cancellationToken);
     }
@@ -163,7 +118,7 @@ internal sealed class PluginHostAdapter : IPluginHostAdapter, IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(sample);
         cancellationToken.ThrowIfCancellationRequested();
-        if (sample.DeviceGeneration != DeviceGeneration)
+        if (sample.CycleGeneration != CycleGeneration)
         {
             throw new InvalidOperationException("Controller sample belongs to a stale generation.");
         }
@@ -213,29 +168,15 @@ internal sealed class PluginHostAdapter : IPluginHostAdapter, IDisposable
             cancellationToken);
     }
 
-    public ValueTask PersistRecoveryJournalEntryAsync(
-        RecoveryJournalEntry entry,
-        CancellationToken cancellationToken)
+    public void SetCycleGeneration(long cycleGeneration)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        ArgumentNullException.ThrowIfNull(entry);
-        return _journal.PersistAsync(
-            entry,
-            HostGeneration,
-            DeviceGeneration,
-            cancellationToken);
-    }
-
-    public void SetDeviceGeneration(long deviceGeneration)
-    {
-        if (deviceGeneration <= DeviceGeneration)
+        if (cycleGeneration <= CycleGeneration)
         {
-            throw new InvalidOperationException("Device generation must increase on resume.");
+            throw new InvalidOperationException("Cycle generation must increase on resume.");
         }
 
-        DeviceGeneration = deviceGeneration;
+        CycleGeneration = cycleGeneration;
         Interlocked.Exchange(ref _descriptorGeneration, 0);
-        _resources.Clear();
     }
 
     public void Dispose()

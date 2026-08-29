@@ -3,10 +3,11 @@
     Publishes every JIT-only device component into an isolated release staging tree.
 
 .DESCRIPTION
-    WSGM's NativeAOT app tree is deliberately not an input or output of this script. DeviceHost,
-    Device Lab, and the command-line tools each receive their own self-contained JIT output;
-    plugin packages remain managed libraries loaded into DeviceHost. A plugin package is assembled from its compiled output plus only
-    the reviewed manifest/provenance files named below; source captures and build diagnostics never
+    WSGM's NativeAOT app tree is deliberately not an input or output of this script. DeviceHost
+    and Device Lab receive separate self-contained JIT outputs; Device Lab contains both GUI and
+    CLI modes.
+    plugin packages remain managed libraries loaded into DeviceHost. The one package is assembled
+    from its compiled output plus only the manifest and license notices named below; source captures and build diagnostics never
     enter the package.
 #>
 [CmdletBinding()]
@@ -19,6 +20,8 @@ param(
     [string]$RuntimeIdentifier = "win-x64",
 
     [string]$Version = "1.0.0",
+
+    [string]$BuiltInPackageId = "wsgm.device.msi.claw-8-a2vm",
 
     [switch]$NoRestore
 )
@@ -67,36 +70,6 @@ function Invoke-ComponentPublish(
     }
 }
 
-function Write-PackageHashRecord(
-    [string]$PackageRoot,
-    [string]$PackageId,
-    [string]$PackageVersion
-) {
-    $recordPath = Join-Path $PackageRoot "package-files.wsgm.json"
-    $files = @(
-        Get-ChildItem -LiteralPath $PackageRoot -File -Recurse |
-        Where-Object { $_.FullName -cne $recordPath } |
-        ForEach-Object {
-            [ordered]@{
-                path = [IO.Path]::GetRelativePath($PackageRoot, $_.FullName).Replace("\", "/")
-                length = $_.Length
-                sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
-            }
-        } |
-        Sort-Object { $_.path }
-    )
-    $record = [ordered]@{
-        schemaVersion = 1
-        packageId = $PackageId
-        packageVersion = $PackageVersion
-        configuration = $Configuration
-        runtimeIdentifier = $RuntimeIdentifier
-        files = $files
-    }
-    $json = $record | ConvertTo-Json -Depth 8 -Compress
-    [IO.File]::WriteAllText($recordPath, $json + "`n", [Text.UTF8Encoding]::new($false))
-}
-
 function Assert-RegularSourceFile([string]$Path) {
     $item = Get-Item -LiteralPath $Path
     if ($item.LinkType -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
@@ -104,30 +77,95 @@ function Assert-RegularSourceFile([string]$Path) {
     }
 }
 
+function Copy-DotNetRuntimeNotices(
+    [string]$AssetsPath,
+    [string]$Destination
+) {
+    if (-not (Test-Path -LiteralPath $AssetsPath -PathType Leaf)) {
+        throw "Component restore assets are missing: $AssetsPath"
+    }
+
+    $assets = Get-Content -LiteralPath $AssetsPath -Raw | ConvertFrom-Json -Depth 100
+    $runtimePackName = "Microsoft.NETCore.App.Runtime.$RuntimeIdentifier"
+    $frameworks = @($assets.project.frameworks.psobject.Properties | ForEach-Object { $_.Value })
+    $runtimeDependencies = @(
+        $frameworks |
+            ForEach-Object { $_.downloadDependencies } |
+            Where-Object { [string]$_.name -ieq $runtimePackName }
+    )
+    if ($runtimeDependencies.Count -ne 1) {
+        throw "Component restore must resolve exactly one $runtimePackName pack."
+    }
+
+    $versionRange = ([string]$runtimeDependencies[0].version -replace '^\[|\]$', '')
+    $bounds = @($versionRange.Split(',') | ForEach-Object { $_.Trim() })
+    if ($bounds.Count -ne 2 -or $bounds[0] -cne $bounds[1] -or
+        [string]::IsNullOrWhiteSpace($bounds[0])) {
+        throw "Component runtime pack version is not exact: $($runtimeDependencies[0].version)"
+    }
+
+    $runtimePack = $null
+    foreach ($packageFolder in $assets.packageFolders.psobject.Properties.Name) {
+        $candidate = Join-Path `
+            (Join-Path $packageFolder ($runtimePackName.ToLowerInvariant())) `
+            $bounds[0]
+        if (Test-Path -LiteralPath $candidate -PathType Container) {
+            $runtimePack = $candidate
+            break
+        }
+    }
+    if ($null -eq $runtimePack) {
+        throw "Resolved component runtime pack was not found in the restored package folders."
+    }
+
+    foreach ($notice in @(
+        @{ Source = "LICENSE.TXT"; Destination = "DotNetRuntime-LICENSE.txt" },
+        @{ Source = "THIRD-PARTY-NOTICES.TXT"; Destination = "DotNetRuntime-THIRD-PARTY-NOTICES.txt" }
+    )) {
+        $source = Join-Path $runtimePack $notice.Source
+        if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+            throw "Required .NET runtime notice is missing: $source"
+        }
+        Assert-RegularSourceFile $source
+        Copy-Item -LiteralPath $source `
+            -Destination (Join-Path $Destination $notice.Destination) -Force
+    }
+}
+
 try {
     $hostDestination = Join-Path $temporaryRoot "DeviceHost"
     Invoke-ComponentPublish `
         "src\WSGM.DeviceHost\WSGM.DeviceHost.csproj" $hostDestination $Version
+    # DeviceHost is self-contained. Stage the exact restored runtime pack's full
+    # license and third-party notice rather than a hand-maintained summary.
+    Copy-DotNetRuntimeNotices `
+        (Join-Path $root "src\WSGM.DeviceHost\obj\project.assets.json") `
+        $hostDestination
 
     $deviceLabDestination = Join-Path $temporaryRoot "Tools\DeviceLab"
     Invoke-ComponentPublish `
-        "src\WSGM.DeviceLab.Gui\WSGM.DeviceLab.Gui.csproj" $deviceLabDestination $Version
+        "src\WSGM.DeviceLab\WSGM.DeviceLab.csproj" $deviceLabDestination $Version
+    # Device Lab is also self-contained and must carry the exact restored runtime notices.
+    Copy-DotNetRuntimeNotices `
+        (Join-Path $root "src\WSGM.DeviceLab\obj\project.assets.json") `
+        $deviceLabDestination
 
-    $commandLineDestination = Join-Path $temporaryRoot "Tools\CommandLine"
-    Invoke-ComponentPublish `
-        "src\WSGM.DeviceLab.Cli\WSGM.DeviceLab.Cli.csproj" $commandLineDestination $Version
-
-    $probeHostDestination = Join-Path $temporaryRoot "Tools\ProbeHost"
-    Invoke-ComponentPublish `
-        "src\WSGM.Device.ProbeHost\WSGM.Device.ProbeHost.csproj" $probeHostDestination $Version
-
-    $pluginManifests = @(
+    $allPluginManifests = @(
         Get-ChildItem -LiteralPath (Join-Path $root "plugins") `
             -Filter "plugin.wsgm.json" -File -Recurse |
+        Where-Object { $_.FullName -notmatch "[\\/](?:bin|obj)[\\/]" } |
         Sort-Object FullName
     )
-    if ($pluginManifests.Count -eq 0) {
-        throw "No reviewed plugin.wsgm.json files were found."
+    $pluginManifests = @(
+        $allPluginManifests |
+            Where-Object {
+                $candidateManifest = Get-Content -LiteralPath $_.FullName -Raw |
+                    ConvertFrom-Json -Depth 32
+                [string]$candidateManifest.id -ceq $BuiltInPackageId
+            }
+    )
+    if ($pluginManifests.Count -ne 1) {
+        throw "Release staging requires exactly one '$BuiltInPackageId' manifest; found $($pluginManifests.Count)."
     }
 
     foreach ($manifestFile in $pluginManifests) {
@@ -141,16 +179,18 @@ try {
         $manifest = Get-Content -LiteralPath $manifestFile.FullName -Raw | ConvertFrom-Json -Depth 32
         $packageId = [string]$manifest.id
         $packageVersion = [string]$manifest.version
-        $entryPoint = [string]$manifest.entryPoint
+        $entryAssembly = [string]$manifest.entryAssembly
         $safeSegment = '^[A-Za-z0-9._-]+$'
         if ($packageId -notmatch $safeSegment -or $packageVersion -notmatch '^[0-9]+(?:\.[0-9]+){1,3}$') {
             throw "$($manifestFile.FullName) has an unsafe package id or version."
         }
-        if ([IO.Path]::IsPathRooted($entryPoint) -or [IO.Path]::GetFileName($entryPoint) -cne $entryPoint) {
+        if ([IO.Path]::IsPathRooted($entryAssembly) -or
+            [IO.Path]::GetFileName($entryAssembly) -cne $entryAssembly -or
+            [IO.Path]::GetExtension($entryAssembly) -cne '.dll') {
             throw "$($manifestFile.FullName) must name a package-root entry assembly."
         }
 
-        $packageDestination = Join-Path $temporaryRoot "Packages\$packageId\$packageVersion"
+        $packageDestination = Join-Path $temporaryRoot "Packages\$packageId"
         Invoke-ComponentPublish `
             ([IO.Path]::GetRelativePath($root, $projectFiles[0].FullName)) `
             $packageDestination $packageVersion -PlatformX64 -FrameworkDependent
@@ -160,44 +200,33 @@ try {
         Copy-Item -LiteralPath $manifestFile.FullName `
             -Destination (Join-Path $packageDestination "plugin.wsgm.json")
 
-        foreach ($metadataName in @("evidence.lock.json", "PROVENANCE.md", "THIRD_PARTY_NOTICES.md")) {
+        foreach ($metadataName in @("PROVENANCE.md", "THIRD_PARTY_NOTICES.md")) {
             $metadataPath = Join-Path $sourceDirectory $metadataName
-            if (Test-Path -LiteralPath $metadataPath -PathType Leaf) {
-                Assert-RegularSourceFile $metadataPath
-                Copy-Item -LiteralPath $metadataPath -Destination $packageDestination
+            if (-not (Test-Path -LiteralPath $metadataPath -PathType Leaf)) {
+                throw "Required built-in package notice is missing: $metadataPath"
             }
+            Assert-RegularSourceFile $metadataPath
+            Copy-Item -LiteralPath $metadataPath -Destination $packageDestination
         }
 
-        $licenseNoticePath = [string]$manifest.provenance.licenseNoticePath
-        if (-not [string]::IsNullOrWhiteSpace($licenseNoticePath)) {
-            if ([IO.Path]::IsPathRooted($licenseNoticePath) -or
-                $licenseNoticePath.Replace("\", "/").Split('/') -contains "..") {
-                throw "$($manifestFile.FullName) has an unsafe license notice path."
-            }
-            $licenseSource = Join-Path $sourceDirectory $licenseNoticePath
-            if (-not (Test-Path -LiteralPath $licenseSource -PathType Leaf) -and
-                $licenseNoticePath -ceq "LICENSE.txt") {
-                $licenseSource = Join-Path $root "LICENSE"
-            }
-            if (-not (Test-Path -LiteralPath $licenseSource -PathType Leaf)) {
-                throw "License notice '$licenseNoticePath' is missing for $packageId."
-            }
-            Assert-RegularSourceFile $licenseSource
-            $licenseDestination = Join-Path $packageDestination $licenseNoticePath
-            New-Item -ItemType Directory -Path (Split-Path -Parent $licenseDestination) -Force | Out-Null
-            Copy-Item -LiteralPath $licenseSource -Destination $licenseDestination
+        # The built-in package is first-party GPL code. Materialize the package copy
+        # from the repository's authoritative license instead of maintaining a duplicate.
+        $licensePath = Join-Path $root "LICENSE"
+        if (-not (Test-Path -LiteralPath $licensePath -PathType Leaf)) {
+            throw "Repository GPL license is missing: $licensePath"
         }
+        Assert-RegularSourceFile $licensePath
+        Copy-Item -LiteralPath $licensePath `
+            -Destination (Join-Path $packageDestination "LICENSE.txt") -Force
 
-        if (-not (Test-Path -LiteralPath (Join-Path $packageDestination $entryPoint) -PathType Leaf)) {
-            throw "Published package $packageId did not produce entry point $entryPoint."
+        if (-not (Test-Path -LiteralPath (Join-Path $packageDestination $entryAssembly) -PathType Leaf)) {
+            throw "Published package $packageId did not produce entry assembly $entryAssembly."
         }
-        Write-PackageHashRecord $packageDestination $packageId $packageVersion
-
         # Run the product's own bounded offline validator against the exact bytes
-        # that will be handed to signing/installer work. This never loads plugin
-        # code, starts DeviceHost, probes hardware, or grants package trust.
-        $validator = Join-Path $commandLineDestination "wsgm-device.exe"
-        $validationOutput = @(& $validator validate offline $packageDestination 2>&1)
+        # that will be handed to the installer. This never loads plugin code,
+        # starts DeviceHost, or probes hardware.
+        $validator = Join-Path $deviceLabDestination "wsgm-device.exe"
+        $validationOutput = @(& $validator validate $packageDestination 2>&1)
         if ($LASTEXITCODE -ne 0) {
             throw "Offline package validation failed for $packageId`: $($validationOutput -join [Environment]::NewLine)"
         }

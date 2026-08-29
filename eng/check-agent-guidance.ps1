@@ -1,6 +1,6 @@
 <#[
 .SYNOPSIS
-    Verifies production ownership guidance and the load-bearing CLAUDE.md symlink convention.
+    Verifies the load-bearing CLAUDE.md symlink convention.
 #>
 [CmdletBinding()]
 param()
@@ -11,7 +11,13 @@ $root = Split-Path -Parent $PSScriptRoot
 $failures = [Collections.Generic.List[string]]::new()
 
 function Relative-Path([string]$Path) {
-    return [IO.Path]::GetRelativePath($root, $Path).Replace("\", "/")
+    $rootFull = [IO.Path]::GetFullPath($root).TrimEnd("\", "/")
+    $pathFull = [IO.Path]::GetFullPath($Path)
+    if (-not $pathFull.StartsWith($rootFull + "\", [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Agent-guidance path is outside the repository: $pathFull"
+    }
+
+    return $pathFull.Substring($rootFull.Length + 1).Replace("\", "/")
 }
 
 $agentFiles = Get-ChildItem -LiteralPath $root -Filter "AGENTS.md" -File -Recurse |
@@ -42,29 +48,8 @@ foreach ($agents in $agentFiles) {
     }
 }
 
-$productionProjects = @(
-    Get-ChildItem -Path (Join-Path $root "src"), (Join-Path $root "plugins") `
-        -Filter "*.csproj" -File -Recurse |
-        Where-Object { $_.FullName -notmatch "[\\/](bin|obj)[\\/]" }
-)
-foreach ($project in $productionProjects) {
-    $cursor = $project.Directory
-    $guidance = $null
-    while ($null -ne $cursor -and $cursor.FullName.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) {
-        $candidate = Join-Path $cursor.FullName "AGENTS.md"
-        if (Test-Path -LiteralPath $candidate) {
-            $guidance = $candidate
-            break
-        }
-        $cursor = $cursor.Parent
-    }
-    if ($null -eq $guidance -or [IO.Path]::GetFullPath($guidance) -eq (Join-Path $root "AGENTS.md")) {
-        $failures.Add("Production project $(Relative-Path $project.FullName) has no scoped AGENTS.md owner.")
-    }
-}
-
 if ($failures.Count -gt 0) {
     throw "Agent-guidance validation failed:`n - $($failures -join "`n - ")"
 }
 
-Write-Host "Agent guidance is scoped and every CLAUDE.md is a tracked AGENTS.md symlink."
+Write-Host "Every CLAUDE.md is a tracked AGENTS.md symlink."

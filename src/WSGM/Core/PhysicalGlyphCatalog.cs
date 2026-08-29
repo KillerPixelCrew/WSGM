@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using WSGM.Device.Contracts.Glyphs;
+using WSGM.Device.Sdk.Glyphs;
 
 namespace WSGM.Core;
 
@@ -18,7 +18,6 @@ internal enum PhysicalGlyphFallbackReason
     DeviceIntegrationDisabled,
     NativeSteamSelected,
     ProfileMissing,
-    ProfileUnverified,
     ExactDeviceMismatch,
     SourceNotHandheld,
     ControlAbsent,
@@ -88,8 +87,9 @@ internal sealed class PhysicalGlyphCatalog : IDisposable
             if (selectionMode is PhysicalGlyphSelectionMode.ManualReviewed)
             {
                 if (manualProfileId is { Length: > 0 }
+                    && activeDeviceId is { Length: > 0 }
                     && _profiles.TryGetValue(manualProfileId, out ImportedGlyphProfile? manual)
-                    && manual.Manifest.Verification is not GlyphProfileVerification.Unverified)
+                    && manual.Manifest.ExactDeviceIds.Contains(activeDeviceId, StringComparer.Ordinal))
                 {
                     return new PhysicalGlyphSelectionResult(
                         manual,
@@ -97,8 +97,8 @@ internal sealed class PhysicalGlyphCatalog : IDisposable
                         false);
                 }
 
-                // P0-017: a missing manual profile falls back to Automatic and reports the
-                // missing selection; it never guesses another manual profile.
+                // A missing manual profile falls back to Automatic and reports the missing
+                // selection; it never guesses another manual profile.
                 missingManual = true;
             }
 
@@ -108,13 +108,6 @@ internal sealed class PhysicalGlyphCatalog : IDisposable
                 return new PhysicalGlyphSelectionResult(
                     null,
                     PhysicalGlyphFallbackReason.ProfileMissing,
-                    missingManual);
-            }
-            if (automatic.Manifest.Verification is not GlyphProfileVerification.ExactDeviceVerified)
-            {
-                return new PhysicalGlyphSelectionResult(
-                    null,
-                    PhysicalGlyphFallbackReason.ProfileUnverified,
                     missingManual);
             }
             if (activeDeviceId is not { Length: > 0 }

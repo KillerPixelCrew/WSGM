@@ -5,6 +5,46 @@ section says device-verified or live-verified, it encodes something that only re
 real hardware or against a live Steam client, and changing it without re-verifying is a regression
 waiting to happen.
 
+## Steam Input handheld-glyph selector
+
+**Live-verified 2026-08-28 against the local Windows Steam client.** The controller selector is
+owned by `SharedJSContext`, not by store/community pages or desktop Chromium targets. Current Steam
+has exactly one positive structural match for each approved configuration summary, layout editor,
+controller settings, controller input-test, binding-glyph URL builder, menu-prompt glyph selector,
+semantic prompt map, and controller-image container. The inline controller-visualization shape is
+pinned by its sanitized shape evidence (length 14, SHA-256
+`52b961386cb4a9cb53cc2eb7baff0251ec7f8b7513efb035262c85bf71fb8d84`) in addition to its unique
+component structure; a module id or class fragment alone is not compatibility evidence.
+
+The P8.6 selector deliberately delivers no assets. Its exact route-kind gate also requires the
+resolved subject `handheld`; external and unresolved controller subjects retain native Steam glyphs.
+The live lifecycle probe left SharedJSContext head/body counts unchanged, created no owned nodes or
+asset references, was absent from every store, community, supernav, menu, and desktop Steam target,
+and removed its only namespace cleanly. Asset mapping and route-specific presentation remain
+separate later patch tiers.
+
+## Steam Input glyph mapping tiers
+
+**Live-probed 2026-08-28 against the local Windows Steam client.** Stable resource mapping,
+structural controller images, inline Valve SVG matching, and capability hiding have separate patch
+IDs, resources, namespaces, probes, verification, removal, health, and kill switches. The stable
+probe found exactly one binding-glyph builder, one menu-prompt selector, and one semantic prompt
+map; the semantic map exposed 246 sanitized `/steaminputglyphs/...` resource basenames. The
+structural probe again found exactly one layout-editor shape and one controller-image container. The
+candidate cross-route capability-control set did not produce a unique positive result, so capability
+hiding remains disabled. The one known inline shape still has no audited catalog mapping from its
+Valve path hash to reviewed device artwork, so that tier also remains disabled.
+
+The tier payload builder accepts only already-imported reviewed profiles, resolves Valve resource
+names through WSGM's compiled semantic map, and re-emits only the importer's hash-checked SVG/PNG
+bytes as bounded data references. It never accepts a plugin path, URL, stylesheet, selector, or
+script. Each installed tier is a route/subject-gated mapping namespace only: it owns no DOM node and
+performs no Steam UI mutation until the later route-specific delivery work has its own positive
+result verification. Current production registration is deliberately fail-closed because the tree
+contains no reviewed plugin-owned profile/assets or accepted A2VM glyph profile. All four tier kill
+switches therefore initialize disabled and native Valve rendering remains unchanged. The live probe
+was read-only; final cleanup confirmed the selector and all four tier namespaces were absent.
+
 8. **Adding a library to a RUNNING Steam goes through Steam's own front-end, never its internals.**
    `Core\SteamCef.cs` drives Steam's CEF remote-debugging port (localhost:8080) → WebSocket
    `Runtime.evaluate` → `SteamClient.InstallFolder.AddInstallFolder("<path>")`, so Steam adds,
@@ -287,12 +327,12 @@ its entry point immediately.
 ## Persistent Steam UI host and native Quick Access
 
 WSGM 2.0 adds one process-owned persistent transport beside the proven one-shot paths. It reuses the
-same loopback listener ownership, target URL/origin, and Steam process validation; it does not open a
-new local listener or weaken the accepted port-8080 posture. Connections are reference-counted by
+same loopback listener ownership, target URL/origin, and Steam process validation; it does not open
+a new local listener or weaken the accepted port-8080 posture. Connections are reference-counted by
 allowlisted target role and carry browser, target, session, frame, execution-context, and document
-generations. Requests, notifications, payloads, outstanding work, deadlines, reconnect attempts,
-and diagnostics are bounded. A lost target or context advances its generation, invalidates stale
-work, and reconnects asynchronously without delaying Steam launch or a shell transition.
+generations. Requests, notifications, payloads, outstanding work, deadlines, reconnect attempts, and
+diagnostics are bounded. A lost target or context advances its generation, invalidates stale work,
+and reconnects asynchronously without delaying Steam launch or a shell transition.
 
 `SteamUiPatchManager` is the only persistent patch scheduler. Each patch has an independent stable
 ID/version, target role, resource key, bounds, positive unique fingerprint, apply, functional
@@ -307,6 +347,13 @@ component, performance actions, and read-only performance-profile projection. Mo
 deliberately not selectors. The first patch uses that four-part structural fingerprint and installs
 only a collision-resistant versioned Runtime binding/namespace; it does not globally spoof SteamOS,
 Steam Deck identity, or mutate unrelated performance, storage, update, shutdown, or device gates.
+
+The independent frame-limit and RTSS own-statistics components were live-verified against the same
+Steam client on 2026-08-28. Each registered and replayed retained state independently, emitted only
+its exact semantic request payload (`value` plus persistence), survived removal of its peer, and
+restored React's original `useMemo` only after the final component was removed. The probe binding
+answered requests locally and did not write an RTSS profile; cleanup removed the temporary bridge
+namespace and binding.
 
 Injected code can request only the compiled patch/command vocabulary. The managed bridge validates
 schema, patch ID, command, payload size, monotonic request/action generations, current execution

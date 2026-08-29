@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
-using WSGM.Device.Contracts.Input;
+using WSGM.Device.Sdk.Input;
 
 namespace WSGM.Input;
 
@@ -89,7 +89,7 @@ internal sealed class HidMaestroProductionBackend : IHidBackend
         IReadOnlyDictionary<string, string> diagnostics = new Dictionary<string, string>
         {
             ["health"] = HidBackendHealthState.Incompatible.ToString(),
-            ["policy"] = "P0-020",
+            ["policy"] = "controller-backend-incomplete",
             ["controllerManagementApproved"] = bool.FalseString,
             ["hidMaestroVersion"] = PinnedVersion,
             ["hidMaestroCommit"] = PinnedCommit,

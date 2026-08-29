@@ -1,7 +1,5 @@
-using System;
 using WSGM.Core;
 using WSGM.Shell;
-using Xunit;
 
 namespace WSGM.Tests;
 
@@ -21,17 +19,21 @@ public sealed class RunningApplicationPerformanceCoordinatorTests
         Assert.Equal("game.exe", target?.RtssProfileName);
     }
 
-    [Theory]
-    [InlineData(RunningApplicationTargetState.Global)]
-    [InlineData(RunningApplicationTargetState.IdentityOnly)]
-    [InlineData(RunningApplicationTargetState.Ambiguous)]
-    [InlineData(RunningApplicationTargetState.Unavailable)]
-    public void ProjectClearsTargetWhenExecutableIdentityIsNotAuthoritative(
-        RunningApplicationTargetState state)
+    [Fact]
+    public void ProjectClearsTargetWhenExecutableIdentityIsNotAuthoritative()
     {
-        var snapshot = Snapshot(state, "steam:42", "stale.exe");
-
-        Assert.Null(RunningApplicationPerformanceCoordinator.Project(snapshot));
+        RunningApplicationTargetState[] states =
+        [
+            RunningApplicationTargetState.Global,
+            RunningApplicationTargetState.IdentityOnly,
+            RunningApplicationTargetState.Ambiguous,
+            RunningApplicationTargetState.Unavailable,
+        ];
+        foreach (RunningApplicationTargetState state in states)
+        {
+            var snapshot = Snapshot(state, "steam:42", "stale.exe");
+            Assert.Null(RunningApplicationPerformanceCoordinator.Project(snapshot));
+        }
     }
 
     [Theory]

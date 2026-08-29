@@ -102,9 +102,10 @@ re-verification is grounds for refusing a change on its own.
 | `docs\overlay-and-input.md` | The quick-access panel, taskbar surfaces, SDL/gamepad ownership, touch and raw input |
 | `docs\power-and-display.md` | Display profiles and HDR, mute-while-screen-off, keep-awake and wake-lock reporting |
 | `docs\ui.md` | Themes, shared controls, Settings layout, the splash engine |
-| `docs\device-integration.md` | Device packages, DeviceHost/coordinator lifecycle, semantic capabilities, recovery, and trust boundaries |
+| `docs\device-integration.md` | The protected single-plugin slot, DeviceHost lifecycle, semantic capabilities, and recovery |
+| `docs\device-plugin-authoring.md` | Implementing, testing, packing, and installing a community Device Plugin |
 | `docs\decisions.md` | Standing decisions, accepted security posture, and approaches that are deliberately not taken |
-| `_plan\2.0-decisions.md` | The authoritative answer for every WSGM 2.0 `P0` decision; supersedes conflicting prose in the `_plan\` design documents |
+| `_plan\2.0-decisions.md` | The authoritative WSGM 2.0 decisions; supersedes conflicting prose in the `_plan\` design documents |
 
 Each module also has its own `AGENTS.md` (`src\WSGM\Core\`, `Shell\`, `Overlay\`, ...) carrying
 the rules for that directory. Those load when you work in the directory, which is exactly when they
@@ -120,15 +121,16 @@ dotnet build src\WSGM\WSGM.csproj          # build (output is localized German: 
                                             # (needs .NET 10 SDK, VS C++ build tools, Inno Setup 6)
 src\WSGM\bin\...\WSGM.exe --settings        # safe to run locally: settings window only
 src\WSGM\bin\...\WSGM.exe --overlay-test    # safe to run locally: overlay + activation surfaces, no apps started
-wsgm-device doctor|inventory|candidates     # safe: read-only device observation
-wsgm-device inspect|diff|correlate <file>   # safe: offline analysis of an existing capture
-wsgm-device validate offline|pack <plugin>  # safe: no hardware, no trust granted
+wsgm-device doctor|inventory|candidates       # safe: read-only device observation
+wsgm-device inspect|compare|correlate <file>  # safe: offline analysis of an existing capture
+wsgm-device validate <plugin>|pack <plugin>   # safe: no hardware or plugin code executed
 ```
 
-**Never run unattended**, in addition to `--shell`, `--boot`, and `WSGM.LogonService.exe --install`:
-`wsgm-device probe run` (the single hardware-mutation path), `wsgm-device validate hardware`,
-`wsgm-device capture run` against live hardware, any DeviceHost lifecycle command, and any plugin
-activation. `probe run` requires a local interactive maintainer by design — there is no `--yes`.
+**Never run unattended**, in addition to `--shell`, `--boot`, `--install-device-plugin`, and
+`WSGM.LogonService.exe --install`: `wsgm-device test hardware` (the single plugin
+lifecycle/hardware-mutation path), live capture, any DeviceHost lifecycle command, and any other
+plugin activation. `test hardware` requires a local interactive maintainer by design — there is no
+`--yes`.
 
 ## The Steam Input Lease library (`native\SteamInput`)
 
@@ -184,9 +186,10 @@ if ($null -eq $setup) { throw 'WSGM installer was not produced.' }
 Copy-Item -LiteralPath $setup.FullName -Destination 'Z:\' -Force
 ```
 
-Automated tests live in `tests\WSGM.Tests` and run through `dotnet test WSGM.slnx`. They cover
-pure/stateful logic, source-generated config serialization, and isolated per-test HKCU snapshot
-round trips. The CI workflow also collects Cobertura and LCOV coverage under `TestResults`. **Never
+Automated tests live in `tests\WSGM.Tests` and `tests\WSGM.Device.Tests` and run through
+`dotnet test WSGM.slnx`. They cover pure/stateful logic, source-generated config serialization,
+device SDK/host/Lab/plugin contracts, and isolated per-test HKCU snapshot round trips. The CI
+workflow also collects Cobertura and LCOV coverage under `TestResults`. **Never
 run `--shell` or `--boot` on a dev machine** — both end explorer and take over the session; never
 run `WSGM.LogonService.exe --install` locally either. `--restore-shell` is the recovery path
 (restores any legacy shell registration, disarms the service boot, starts explorer) and must stay
@@ -268,10 +271,9 @@ on Avalonia windows or controls.
 | `WSGM.LogonService` | SYSTEM launch/watchdog boundary | shared boot manifest, Win32 | Avalonia or user-profile writes |
 | `WSGM.Launch` | per-game wrapper: medium-integrity child lifetime, Steam Input lease | scheduled-task launcher, `SteamInterop` mirror | shell/session UI, launch-option writing |
 | `native\*` | OS APIs unavailable to NativeAOT WSGM | Rust/C++ and C ABI | managed business logic |
-| `WSGM.Device.Contracts` | semantic capability/lifecycle/IPC contracts, glyph schema and normalizer | BCL only | device-specific addresses, methods, or raw buffers |
-| `WSGM.DeviceHost` | one plugin package per process, supervised lifecycle | `Contracts`, `Sdk`, WMI/WinRT | privilege escalation for unreviewed packages |
-| `WSGM.Device.Sdk` | what a plugin links: host adapter, capability registration, glyph authoring | `Contracts` | Steam selectors, CDP, patch apply/verify |
-| `WSGM.DeviceLab.*` | inventory, matching, capture, evidence, scaffold, packaging | `Contracts` | restarting the production device lifecycle |
+| `WSGM.Device.Sdk` | one AOT-safe public plugin/wire/capability/input/glyph API shared by WSGM, DeviceHost, plugins, and Device Lab | BCL only | device-specific addresses, WSGM UI policy, Steam selectors, or runtime code loading |
+| `WSGM.DeviceHost` | load and run the sole installed plugin with one lifecycle, pipe, and input ring | `Sdk`, package-local dependencies, WMI/WinRT | package selection, plugin installation, or a generic privileged broker |
+| `WSGM.DeviceLab` | one GUI/CLI application for inventory, capture, diagnosis, scaffolding, testing, and packaging | `Sdk`, internal tooling services | production device-cycle ownership or unattended hardware mutation |
 | `plugins\*` | every hardware transport, protocol, layout, policy for one device | `Sdk` | UI code, HIDMaestro, HidHide, the Steam Input lease |
 
 ## Application lifetime and state flow

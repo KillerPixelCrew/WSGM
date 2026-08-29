@@ -5,6 +5,12 @@ namespace WSGM.Interop;
 
 internal static partial class NativeMethods
 {
+    internal const uint MbOk = 0x00000000;
+    internal const uint MbIconError = 0x00000010;
+
+    [LibraryImport("user32.dll", EntryPoint = "MessageBoxW", StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial int MessageBoxW(nint hWnd, string text, string caption, uint type);
+
     // ---- Shell / desktop detection ----
     [LibraryImport("user32.dll")]
     internal static partial nint GetShellWindow();
@@ -405,6 +411,10 @@ internal static partial class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool ResetEvent(nint eventHandle);
 
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool SetEvent(nint eventHandle);
+
     [LibraryImport("kernel32.dll")]
     internal static partial nint LocalFree(nint mem);
 
@@ -799,6 +809,9 @@ internal static partial class NativeMethods
 
     /// <summary>WTS_SESSION_UNLOCK — the session's desktop was unlocked.</summary>
     internal const nint WtsSessionUnlock = 0x8;
+
+    /// <summary>WTS_SESSION_LOGOFF — this interactive session is ending.</summary>
+    internal const nint WtsSessionLogoff = 0x6;
 
     /// <summary>NOTIFY_FOR_THIS_SESSION.</summary>
     internal const uint NotifyForThisSession = 0;

@@ -3,27 +3,24 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Pipes;
+using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
-using WSGM.Device.Contracts.Capabilities;
-using WSGM.Device.Contracts.Identity;
-using WSGM.Device.Contracts.Input;
-using WSGM.Device.Contracts.Ipc;
-using WSGM.Device.Contracts.Lifecycle;
+using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Identity;
+using WSGM.Device.Sdk.Input;
+using WSGM.Device.Sdk.Ipc;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Shell;
 
 /// <summary>Authenticated WSGM side of one supervised DeviceHost generation.</summary>
 internal sealed class DeviceHostClient : IAsyncDisposable
 {
-    private const int MaxHandleCount = 4096;
-    private const long MaxWorkingSetBytes = 512L * 1024 * 1024;
-    private readonly DevicePackageCandidate _candidate;
-    private readonly long _hostGeneration;
     private readonly DeviceHostProcess _host;
     private readonly SharedStateRing _stateRing;
     private readonly EventWaitHandle _stateEvent;
@@ -41,16 +38,12 @@ internal sealed class DeviceHostClient : IAsyncDisposable
     private bool _disposed;
 
     private DeviceHostClient(
-        DevicePackageCandidate candidate,
-        long hostGeneration,
         DeviceHostProcess host,
         SharedStateRing stateRing,
         EventWaitHandle stateEvent,
         DeviceFrameStream frames,
         ushort protocolVersion)
     {
-        _candidate = candidate;
-        _hostGeneration = hostGeneration;
         _host = host;
         _stateRing = stateRing;
         _stateEvent = stateEvent;
@@ -77,8 +70,6 @@ internal sealed class DeviceHostClient : IAsyncDisposable
 
     public event Action<CapabilityCommandResult>? LateCommandResultReceived;
 
-    public event Action<DeviceResourceStateNotification>? ResourceStateReceived;
-
     public event Action<DeviceLifecycleNotification>? LifecycleStateReceived;
 
     public event Action<DevicePhysicalIdentitiesNotification>? PhysicalIdentitiesReceived;
@@ -90,33 +81,39 @@ internal sealed class DeviceHostClient : IAsyncDisposable
     public event Action<CanonicalControllerSample>? ControllerSampleReceived;
 
     public static async Task<DeviceHostClient> StartAsync(
-        DevicePackageCandidate candidate,
+        InstalledDevicePackage package,
         uint sessionId,
-        long hostGeneration,
+        long cycleGeneration,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(candidate);
+        ArgumentNullException.ThrowIfNull(package);
         string token = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
         string pipeName = ControlEndpoint.PipeName(sessionId, token);
         string ringName = $"Local\\WSGM.DeviceState.{sessionId}.{token}";
         string eventName = $"Local\\WSGM.DeviceStateEvent.{sessionId}.{token}";
         byte[] nonce = RandomNumberGenerator.GetBytes(ControlEndpoint.NonceBytes);
-        NamedPipeServerStream pipe = DeviceControlPipe.CreateServer(pipeName);
-        SharedStateRing ring = SharedStateRing.Create(
-            ringName,
-            slotCount: 256,
-            CanonicalSampleCodec.PayloadBytes);
-        EventWaitHandle stateEvent = new(false, EventResetMode.AutoReset, eventName, out _);
+        (NamedPipeServerStream pipe, SharedStateRing ring, EventWaitHandle stateEvent) =
+            AcquireStartupResources(
+                () => DeviceControlPipe.CreateServer(pipeName),
+                () => SharedStateRing.Create(
+                    ringName,
+                    slotCount: 256,
+                    CanonicalSampleCodec.PayloadBytes),
+                () => new EventWaitHandle(
+                    false,
+                    EventResetMode.AutoReset,
+                    eventName,
+                    out _));
         DeviceHostProcess? host = null;
         DeviceFrameStream? frames = null;
         try
         {
             host = DeviceHostProcess.Start(
-                candidate,
+                package,
                 pipeName,
                 nonce,
                 sessionId,
-                hostGeneration,
+                cycleGeneration,
                 ringName,
                 eventName);
             using CancellationTokenSource handshake = CancellationTokenSource.CreateLinkedTokenSource(
@@ -133,62 +130,102 @@ internal sealed class DeviceHostClient : IAsyncDisposable
 
             await connection.ConfigureAwait(false);
             frames = new DeviceFrameStream(pipe);
-            (ushort protocolVersion, DeviceHostHello hello) = await AuthenticateAsync(
+            DeviceHostHello hello = await AuthenticateAsync(
                 frames,
-                candidate,
+                package,
                 nonce,
                 sessionId,
-                hostGeneration,
+                cycleGeneration,
                 handshake.Token).ConfigureAwait(false);
             Log.Info(
                 $"DeviceHost handshake: package={hello.PackageId}, version={hello.PackageVersion}, "
-                    + $"hostGeneration={hostGeneration}, protocol={protocolVersion}.");
+                    + $"cycleGeneration={cycleGeneration}, protocol={DeviceProtocol.Version}.");
             return new DeviceHostClient(
-                candidate,
-                hostGeneration,
                 host,
                 ring,
                 stateEvent,
                 frames,
-                protocolVersion);
+                DeviceProtocol.Version);
         }
-        catch
+        catch (Exception startFailure)
         {
-            if (frames is not null)
+            List<Exception> cleanupFailures = [];
+            try
             {
-                await frames.DisposeAsync().ConfigureAwait(false);
+                if (frames is not null)
+                {
+                    await RetainDisposeFailureAsync(
+                        cleanupFailures,
+                        "failed-start frame transport disposal",
+                        frames.DisposeAsync).ConfigureAwait(false);
+                }
+                else
+                {
+                    RetainDisposeFailure(
+                        cleanupFailures,
+                        "failed-start pipe disposal",
+                        pipe.Dispose);
+                }
             }
-            else
+            finally
             {
-                pipe.Dispose();
+                try
+                {
+                    if (host is not null)
+                    {
+                        RetainDisposeFailure(
+                            cleanupFailures,
+                            "failed-start host/job disposal",
+                            host.Dispose);
+                    }
+                }
+                finally
+                {
+                    try
+                    {
+                        RetainDisposeFailure(
+                            cleanupFailures,
+                            "failed-start state event disposal",
+                            stateEvent.Dispose);
+                    }
+                    finally
+                    {
+                        RetainDisposeFailure(
+                            cleanupFailures,
+                            "failed-start state ring disposal",
+                            ring.Dispose);
+                    }
+                }
             }
 
-            host?.Dispose();
-            stateEvent.Dispose();
-            ring.Dispose();
-            throw;
+            if (cleanupFailures.Count == 0)
+            {
+                throw;
+            }
+            List<Exception> failures = [startFailure, .. cleanupFailures];
+            throw new AggregateException(
+                "DeviceHost startup and resource cleanup both failed.",
+                failures);
         }
     }
 
-    public async Task<DeviceLifecycleNotification> ActivateAsync(
+    public async Task<DeviceLifecycleNotification> StartAsync(
         DeviceIdentitySnapshot identity,
-        long deviceGeneration,
+        long cycleGeneration,
         bool controllerManagementEnabled,
-        IReadOnlyList<RecoveryJournalEntry> outstandingJournalEntries,
         CancellationToken cancellationToken)
     {
         DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(15);
         DeviceFrame response = await RequestAsync(
-            DeviceMessageType.Activate,
-            new DeviceActivateRequest
+            DeviceMessageType.Start,
+            new DeviceStartRequest
             {
                 Identity = identity,
-                DeviceGeneration = deviceGeneration,
+                CycleGeneration = cycleGeneration,
                 ControllerManagementEnabled = controllerManagementEnabled,
-                OutstandingJournalEntries = outstandingJournalEntries,
                 Deadline = deadline,
             },
-            DeviceWireJsonContext.Default.DeviceActivateRequest,
+            DeviceWireJsonContext.Default.DeviceStartRequest,
             deadline,
             cancellationToken).ConfigureAwait(false);
         return RequireResponse(
@@ -212,7 +249,7 @@ internal sealed class DeviceHostClient : IAsyncDisposable
     }
 
     public async Task<DeviceLifecycleNotification> ResumeAsync(
-        long deviceGeneration,
+        long cycleGeneration,
         DateTimeOffset deadline,
         CancellationToken cancellationToken)
     {
@@ -221,7 +258,7 @@ internal sealed class DeviceHostClient : IAsyncDisposable
             new DeviceLifecycleRequest
             {
                 Deadline = deadline,
-                DeviceGeneration = deviceGeneration,
+                CycleGeneration = cycleGeneration,
             },
             DeviceWireJsonContext.Default.DeviceLifecycleRequest,
             deadline,
@@ -230,15 +267,15 @@ internal sealed class DeviceHostClient : IAsyncDisposable
             DeviceWireJsonContext.Default.DeviceLifecycleNotification);
     }
 
-    public async Task<DeviceLifecycleNotification> DeactivateAsync(
-        DeviceDeactivationReason reason,
+    public async Task<DeviceLifecycleNotification> StopAsync(
+        DeviceStopReason reason,
         DateTimeOffset deadline,
         CancellationToken cancellationToken)
     {
         DeviceFrame response = await RequestAsync(
-            DeviceMessageType.Deactivate,
-            new DeviceDeactivateRequest { Reason = reason, Deadline = deadline },
-            DeviceWireJsonContext.Default.DeviceDeactivateRequest,
+            DeviceMessageType.Stop,
+            new DeviceStopRequest { Reason = reason, Deadline = deadline },
+            DeviceWireJsonContext.Default.DeviceStopRequest,
             deadline,
             cancellationToken).ConfigureAwait(false);
         return RequireResponse(response, DeviceMessageType.LifecycleState,
@@ -302,7 +339,7 @@ internal sealed class DeviceHostClient : IAsyncDisposable
 
     public async Task SetControllerManagementAsync(
         bool enabled,
-        long deviceGeneration,
+        long cycleGeneration,
         DateTimeOffset deadline,
         CancellationToken cancellationToken)
     {
@@ -311,7 +348,7 @@ internal sealed class DeviceHostClient : IAsyncDisposable
             new DeviceControllerManagementRequest
             {
                 Enabled = enabled,
-                DeviceGeneration = deviceGeneration,
+                CycleGeneration = cycleGeneration,
                 Deadline = deadline,
             },
             DeviceWireJsonContext.Default.DeviceControllerManagementRequest,
@@ -389,31 +426,205 @@ internal sealed class DeviceHostClient : IAsyncDisposable
         }
 
         _disposed = true;
-        _lifetime.Cancel();
+        await RunDisposeStepsAsync(
+            _lifetime.Cancel,
+            UnregisterStateWaitAsync,
+            CancelPendingRequests,
+            WaitForReaderAsync,
+            _frames.DisposeAsync,
+            _stateEvent.Dispose,
+            _stateRing.Dispose,
+            _host.Dispose,
+            _lifetime.Dispose).ConfigureAwait(false);
+    }
+
+    private async ValueTask UnregisterStateWaitAsync()
+    {
         using ManualResetEvent waitUnregistered = new(initialState: false);
         if (_stateRegistration.Unregister(waitUnregistered))
         {
             _ = await Task.Run(() => waitUnregistered.WaitOne(TimeSpan.FromSeconds(1)))
                 .ConfigureAwait(false);
         }
+    }
+
+    internal static (TPipe Pipe, TRing Ring, TEvent StateEvent) AcquireStartupResources<
+        TPipe,
+        TRing,
+        TEvent>(
+        Func<TPipe> createPipe,
+        Func<TRing> createRing,
+        Func<TEvent> createStateEvent)
+        where TPipe : class, IDisposable
+        where TRing : class, IDisposable
+        where TEvent : class, IDisposable
+    {
+        ArgumentNullException.ThrowIfNull(createPipe);
+        ArgumentNullException.ThrowIfNull(createRing);
+        ArgumentNullException.ThrowIfNull(createStateEvent);
+        TPipe? pipe = null;
+        TRing? ring = null;
+        try
+        {
+            pipe = createPipe();
+            ring = createRing();
+            TEvent stateEvent = createStateEvent();
+            return (pipe, ring, stateEvent);
+        }
+        catch (Exception acquisitionFailure)
+        {
+            List<Exception> failures = [acquisitionFailure];
+            try
+            {
+                if (ring is not null)
+                {
+                    RetainDisposeFailure(
+                        failures,
+                        "partial-start state ring disposal",
+                        ring.Dispose);
+                }
+            }
+            finally
+            {
+                if (pipe is not null)
+                {
+                    RetainDisposeFailure(
+                        failures,
+                        "partial-start pipe disposal",
+                        pipe.Dispose);
+                }
+            }
+
+            if (failures.Count == 1)
+            {
+                ExceptionDispatchInfo.Capture(acquisitionFailure).Throw();
+            }
+
+            throw new AggregateException(
+                "DeviceHost startup resource acquisition and cleanup both failed.",
+                failures);
+        }
+    }
+
+    private void CancelPendingRequests()
+    {
         foreach (TaskCompletionSource<DeviceFrame> pending in _pending.Values)
         {
             pending.TrySetCanceled();
         }
+    }
 
+    private ValueTask WaitForReaderAsync() => WaitForReaderDuringDisposeAsync(_reader);
+
+    internal static async ValueTask WaitForReaderDuringDisposeAsync(Task reader)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
         try
         {
-            await _reader.WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+            await reader.WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is TimeoutException or OperationCanceledException)
         {
         }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+        {
+            // Stop is terminal: DeviceHost sends its final response and then closes the control
+            // pipe. If that EOF wins the race with lifetime cancellation, reader completion is
+            // still a verified teardown rather than a second protocol failure.
+        }
+    }
 
-        await _frames.DisposeAsync().ConfigureAwait(false);
-        _stateEvent.Dispose();
-        _stateRing.Dispose();
-        _host.Dispose();
-        _lifetime.Dispose();
+    internal static async ValueTask RunDisposeStepsAsync(
+        Action cancelLifetime,
+        Func<ValueTask> unregisterStateWaitAsync,
+        Action cancelPendingRequests,
+        Func<ValueTask> waitReaderAsync,
+        Func<ValueTask> disposeFramesAsync,
+        Action disposeStateEvent,
+        Action disposeStateRing,
+        Action disposeHost,
+        Action disposeLifetime)
+    {
+        ArgumentNullException.ThrowIfNull(cancelLifetime);
+        ArgumentNullException.ThrowIfNull(unregisterStateWaitAsync);
+        ArgumentNullException.ThrowIfNull(cancelPendingRequests);
+        ArgumentNullException.ThrowIfNull(waitReaderAsync);
+        ArgumentNullException.ThrowIfNull(disposeFramesAsync);
+        ArgumentNullException.ThrowIfNull(disposeStateEvent);
+        ArgumentNullException.ThrowIfNull(disposeStateRing);
+        ArgumentNullException.ThrowIfNull(disposeHost);
+        ArgumentNullException.ThrowIfNull(disposeLifetime);
+        List<Exception> failures = [];
+        try
+        {
+            RetainDisposeFailure(failures, "lifetime cancellation", cancelLifetime);
+            await RetainDisposeFailureAsync(
+                failures,
+                "state-wait unregistration",
+                unregisterStateWaitAsync).ConfigureAwait(false);
+            RetainDisposeFailure(failures, "pending request cancellation", cancelPendingRequests);
+            await RetainDisposeFailureAsync(
+                failures,
+                "reader completion",
+                waitReaderAsync).ConfigureAwait(false);
+            await RetainDisposeFailureAsync(
+                failures,
+                "frame transport disposal",
+                disposeFramesAsync).ConfigureAwait(false);
+            RetainDisposeFailure(failures, "state event disposal", disposeStateEvent);
+            RetainDisposeFailure(failures, "state ring disposal", disposeStateRing);
+        }
+        finally
+        {
+            // Closing the supervised host owns the kill-on-close job and must run even if an
+            // earlier cleanup step faults catastrophically. Lifetime disposal follows it under a
+            // nested finally so neither failure can suppress the other attempt.
+            try
+            {
+                RetainDisposeFailure(failures, "host/job disposal", disposeHost);
+            }
+            finally
+            {
+                RetainDisposeFailure(failures, "lifetime disposal", disposeLifetime);
+            }
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new AggregateException("DeviceHost client disposal was incomplete.", failures);
+        }
+    }
+
+    private static void RetainDisposeFailure(
+        List<Exception> failures,
+        string operation,
+        Action cleanup)
+    {
+        try
+        {
+            cleanup();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            failures.Add(ex);
+            Log.Warn($"DeviceHost client {operation} failed; cleanup continues: {ex.Message}");
+        }
+    }
+
+    private static async ValueTask RetainDisposeFailureAsync(
+        List<Exception> failures,
+        string operation,
+        Func<ValueTask> cleanupAsync)
+    {
+        try
+        {
+            await cleanupAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            failures.Add(ex);
+            Log.Warn($"DeviceHost client {operation} failed; cleanup continues: {ex.Message}");
+        }
     }
 
     private async Task<DeviceFrame> RequestAsync<T>(
@@ -528,11 +739,6 @@ internal sealed class DeviceHostClient : IAsyncDisposable
                     frame,
                     DeviceWireJsonContext.Default.CapabilityStateDelta));
                 break;
-            case DeviceMessageType.ResourceState:
-                ResourceStateReceived?.Invoke(Deserialize(
-                    frame,
-                    DeviceWireJsonContext.Default.DeviceResourceStateNotification));
-                break;
             case DeviceMessageType.LifecycleState:
                 LifecycleStateReceived?.Invoke(Deserialize(
                     frame,
@@ -560,54 +766,9 @@ internal sealed class DeviceHostClient : IAsyncDisposable
     private async Task<DeviceHostExit> MonitorAsync(CancellationToken cancellationToken)
     {
         DateTimeOffset started = DateTimeOffset.UtcNow;
-        TimeSpan previousCpu = TimeSpan.Zero;
-        DateTimeOffset previousSample = started;
         try
         {
-            while (!cancellationToken.IsCancellationRequested && !_host.Process.HasExited)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
-                _host.Process.Refresh();
-                if (_host.Process.HandleCount > MaxHandleCount
-                    || _host.Process.WorkingSet64 > MaxWorkingSetBytes)
-                {
-                    string detail = _host.Process.HandleCount > MaxHandleCount
-                        ? $"handle limit exceeded ({_host.Process.HandleCount})"
-                        : $"working-set limit exceeded ({_host.Process.WorkingSet64})";
-                    _host.Terminate(72);
-                    return new DeviceHostExit(72, DeviceHostExitReason.ResourceLimit, detail,
-                        DateTimeOffset.UtcNow - started);
-                }
-
-                TimeSpan cpu = _host.Process.TotalProcessorTime;
-                DateTimeOffset now = DateTimeOffset.UtcNow;
-                double cpuFraction = (cpu - previousCpu).TotalSeconds
-                    / Math.Max(0.001, (now - previousSample).TotalSeconds);
-                previousCpu = cpu;
-                previousSample = now;
-                if (cpuFraction > 0.75)
-                {
-                    Log.Warn($"DeviceHost high CPU: {cpuFraction:P0} of one logical processor.");
-                }
-            }
-
-            if (cancellationToken.IsCancellationRequested)
-            {
-                if (!_disposed && _protocolFaultDetail is not null)
-                {
-                    _host.Terminate(71);
-                    return new DeviceHostExit(
-                        71,
-                        DeviceHostExitReason.ProtocolFault,
-                        _protocolFaultDetail,
-                        DateTimeOffset.UtcNow - started);
-                }
-
-                return new DeviceHostExit(0, DeviceHostExitReason.Intentional, "Coordinator stopped.",
-                    DateTimeOffset.UtcNow - started);
-            }
-
-            await _host.Process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+            await _host.Process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
             int exitCode = _host.Process.ExitCode;
             return new DeviceHostExit(
                 exitCode,
@@ -629,12 +790,12 @@ internal sealed class DeviceHostClient : IAsyncDisposable
         }
     }
 
-    private static async Task<(ushort ProtocolVersion, DeviceHostHello Hello)> AuthenticateAsync(
+    private static async Task<DeviceHostHello> AuthenticateAsync(
         DeviceFrameStream frames,
-        DevicePackageCandidate candidate,
+        InstalledDevicePackage package,
         byte[] nonce,
         uint sessionId,
-        long hostGeneration,
+        long cycleGeneration,
         CancellationToken cancellationToken)
     {
         DeviceFrame helloFrame = await frames.ReadAsync(cancellationToken).ConfigureAwait(false)
@@ -649,27 +810,20 @@ internal sealed class DeviceHostClient : IAsyncDisposable
         DeviceHostHello hello = Deserialize(
             helloFrame,
             DeviceWireJsonContext.Default.DeviceHostHello);
-        NegotiationResult negotiation = DeviceProtocol.Negotiate(
-            hello.MinProtocolVersion,
-            hello.MaxProtocolVersion,
-            hello.SchemaFingerprint,
-            out ushort protocolVersion);
         bool nonceDecoded = TryDecodeNonce(hello.Nonce, out byte[] presentedNonce);
         HandshakeVerifier verifier = new(nonce);
-        bool accepted = negotiation is NegotiationResult.Agreed
+        bool accepted = helloFrame.Header.ProtocolVersion == DeviceProtocol.Version
             && nonceDecoded
             && verifier.Accept(presentedNonce)
             && hello.SessionId == sessionId
-            && hello.HostGeneration == hostGeneration
-            && string.Equals(hello.PackageId, candidate.Manifest?.Id, StringComparison.Ordinal)
-            && string.Equals(hello.PackageVersion, candidate.Manifest?.Version, StringComparison.Ordinal);
+            && hello.CycleGeneration == cycleGeneration
+            && string.Equals(hello.PackageId, package.Manifest?.Id, StringComparison.Ordinal)
+            && string.Equals(hello.PackageVersion, package.Manifest?.Version, StringComparison.Ordinal);
 
         DeviceHostHelloAck ack = new()
         {
             Accepted = accepted,
-            Negotiation = negotiation,
-            ProtocolVersion = accepted ? protocolVersion : (ushort)0,
-            PackageId = candidate.Manifest?.Id ?? string.Empty,
+            PackageId = package.Manifest?.Id ?? string.Empty,
             Detail = accepted ? null : "Protocol, launch identity, or one-time nonce did not match.",
         };
         byte[] ackBytes = JsonSerializer.SerializeToUtf8Bytes(
@@ -678,7 +832,7 @@ internal sealed class DeviceHostClient : IAsyncDisposable
         await frames.WriteAsync(new FrameHeader
         {
             PayloadLength = ackBytes.Length,
-            ProtocolVersion = accepted ? protocolVersion : DeviceProtocol.MaxSupportedVersion,
+            ProtocolVersion = DeviceProtocol.Version,
             MessageType = DeviceMessageType.HelloAck,
             RequestId = helloFrame.Header.RequestId,
             Flags = FrameFlags.IsResponse,
@@ -688,7 +842,7 @@ internal sealed class DeviceHostClient : IAsyncDisposable
             throw new InvalidDataException("DeviceHost authentication failed.");
         }
 
-        return (protocolVersion, hello);
+        return hello;
     }
 
     private static bool TryDecodeNonce(string value, out byte[] nonce)
@@ -777,7 +931,6 @@ internal enum DeviceHostExitReason
     Intentional,
     ProcessFault,
     ProtocolFault,
-    ResourceLimit,
 }
 
 /// <summary>Sanitized completion record for one host generation.</summary>

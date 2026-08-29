@@ -25,6 +25,7 @@ internal static class SessionLauncher
     private const uint WaitObject0 = 0;
 
     private static readonly TimeSpan LaunchRetryDelay = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan AnchorRecoveryGrace = TimeSpan.FromSeconds(5);
 
     private sealed class SessionState
     {
@@ -217,6 +218,23 @@ internal static class SessionLauncher
             ServiceLog.Info($"WSGM (pid {state.ProcessId}, session {sessionId}) exited code " +
                             $"{(exitKnown ? exitCode.ToString() : "unknown")} — " +
                             $"session active={sessionActive}, explorer running={explorerRunning}.");
+            if (sessionActive && dirtyExit && !explorerRunning)
+            {
+                // A normal shell session owns a medium/jobless anchor that observes the same WSGM
+                // process handle and restores Explorer after owner loss. Give that narrow path one
+                // bounded window to publish its shell before the SYSTEM watchdog uses its robust
+                // token fallback; otherwise both creators race and the fallback can win with the
+                // job-bound process semantics the anchor exists to avoid.
+                var recoveryDeadline = DateTime.UtcNow + AnchorRecoveryGrace;
+                while (DateTime.UtcNow < recoveryDeadline
+                    && IsSessionActive(sessionId)
+                    && !IsExplorerInSession(sessionId))
+                {
+                    Thread.Sleep(250);
+                }
+                sessionActive = IsSessionActive(sessionId);
+                explorerRunning = IsExplorerInSession(sessionId);
+            }
             if (sessionActive && dirtyExit && !explorerRunning)
             {
                 // One explorer fallback per logon, always with the UNLINKED user

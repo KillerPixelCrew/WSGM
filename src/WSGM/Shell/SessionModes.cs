@@ -18,6 +18,7 @@ public sealed class SessionModes
 
     private AppConfig _config;
     private readonly SteamMonitor? _monitor;
+    private readonly ExplorerDesktopHost? _desktopHost;
     private readonly object _homeLaunchGate = new();
     private bool _homeLaunchInProgress;
     private DateTime _lastHomeLaunchUtc;
@@ -36,6 +37,25 @@ public sealed class SessionModes
     public const string ExplorerExitFailedWarning =
         "Couldn't exit Windows Explorer safely. Desktop mode was preserved.";
 
+    /// <summary>The warning shown when Explorer was recovered through the scheduler and is usable,
+    /// but its process semantics do not support launchers that require job breakaway.</summary>
+    public const string ExplorerDesktopDegradedWarning =
+        "Windows Explorer was restored in recovery mode. Sign out or reboot before launching games from desktop tools.";
+
+    /// <summary>The warning shown when no usable Explorer taskbar could be restored.</summary>
+    public const string ExplorerDesktopStartFailedWarning =
+        "Windows Explorer could not be restored. WSGM returned to Game Mode.";
+
+    /// <summary>The warning shown when a dispatched Explorer may still be initializing, so WSGM
+    /// deliberately avoids creating a competing replacement taskbar.</summary>
+    public const string ExplorerDesktopPendingWarning =
+        "Windows Explorer did not finish starting. WSGM will not create a competing taskbar; sign out or reboot to recover the desktop.";
+
+    /// <summary>The warning shown when the current desktop cannot safely supply a normal shell
+    /// launch owner, most commonly after upgrading beside an older job-bound Explorer.</summary>
+    public const string ExplorerTakeoverRefusedWarning =
+        "Game Mode could not safely take over this Windows Explorer. Desktop mode was preserved; sign out or reboot once before retrying.";
+
     /// <summary>Raised (on the caller's thread) when <see cref="StartOrFocusSteam"/>
     /// could not bring Steam up, with the user-facing warning text.</summary>
     public event Action<string>? SteamStartFailed;
@@ -53,14 +73,33 @@ public sealed class SessionModes
     /// (tray host) here.</summary>
     public event Action? GameModeEntered;
 
-    /// <summary>Creates the coordinator for desktop/game transitions.</summary>
+    /// <summary>Surfaces a shell-transition warning through the overlay's existing warning path.</summary>
+    internal void ReportWarning(string warning) => SteamStartFailed?.Invoke(warning);
+
+    /// <summary>Creates a preview-only coordinator. Desktop/game transition requests are inert
+    /// because Settings and other safe previews do not own an Explorer recovery host.</summary>
     /// <param name="config">The initial configuration controlling display posture and launch behavior.</param>
     /// <param name="monitor">The optional Steam monitor to pause or resume during transitions.</param>
     public SessionModes(AppConfig config, SteamMonitor? monitor)
     {
         _config = config;
         _monitor = monitor;
+        _desktopHost = null;
     }
+
+    /// <summary>Creates the coordinator with the session-owned verified Explorer launch path.</summary>
+    internal SessionModes(
+        AppConfig config,
+        SteamMonitor? monitor,
+        ExplorerDesktopHost desktopHost)
+        : this(config, monitor)
+    {
+        ArgumentNullException.ThrowIfNull(desktopHost);
+        _desktopHost = desktopHost;
+    }
+
+    /// <summary>Gets whether this coordinator is restricted to safe preview behavior.</summary>
+    internal bool IsPreviewOnly => _desktopHost is null;
 
     /// <summary>Applies a freshly loaded config (settings saved in another process).
     /// Reloads replace the config wholesale, so no runtime state may live on it.</summary>
@@ -77,6 +116,7 @@ public sealed class SessionModes
     }
 
     private int _explorerTransition;
+    private int _shutdownRequested;
 
     /// <summary>True while explorer is being brought up or down (mode switch or the
     /// boot takeover). Mode-switch requests arriving in that window are ignored —
@@ -91,11 +131,35 @@ public sealed class SessionModes
     /// <summary>Clears the transition flag. Always pair with Begin/TryBegin.</summary>
     internal void EndTransition() => System.Threading.Volatile.Write(ref _explorerTransition, 0);
 
-    private bool TryBeginTransition(string reason)
+    /// <summary>Prevents another shell transition from starting during application teardown.</summary>
+    internal void RequestShutdown() => System.Threading.Volatile.Write(ref _shutdownRequested, 1);
+
+    /// <summary>Waits for the one already-running shell transition to leave its Explorer and UI
+    /// boundaries. The application shutdown coordinator supplies the sole outer deadline.</summary>
+    internal async System.Threading.Tasks.Task WaitForTransitionAsync()
     {
+        while (TransitionInProgress)
+        {
+            await System.Threading.Tasks.Task.Delay(50).ConfigureAwait(false);
+        }
+    }
+
+    internal bool TryBeginTransition(string reason)
+    {
+        if (System.Threading.Volatile.Read(ref _shutdownRequested) != 0)
+        {
+            Log.Warn($"Ignoring {reason}: application shutdown is in progress.");
+            return false;
+        }
         if (System.Threading.Interlocked.CompareExchange(ref _explorerTransition, 1, 0) != 0)
         {
             Log.Warn($"Ignoring {reason}: an explorer transition is already in progress.");
+            return false;
+        }
+        if (System.Threading.Volatile.Read(ref _shutdownRequested) != 0)
+        {
+            EndTransition();
+            Log.Warn($"Ignoring {reason}: application shutdown is in progress.");
             return false;
         }
         return true;
@@ -110,8 +174,16 @@ public sealed class SessionModes
     /// makes the panel disappear when the button was pressed). Only the monitor
     /// pause (before anything can react to Steam leaving) and
     /// <see cref="DesktopModeStarting"/> stay UI-thread work.</summary>
-    public void EnterDesktopMode()
+    /// <param name="startSteamDesktop">Whether to start windowed Steam after the verified desktop
+    /// is ready; used by boot-splash recovery because that path skips the normal boot launch.</param>
+    public void EnterDesktopMode(bool startSteamDesktop = false)
     {
+        ExplorerDesktopHost? desktopHost = _desktopHost;
+        if (desktopHost is null)
+        {
+            Log.Info("Ignoring desktop-mode switch in preview-only SessionModes.");
+            return;
+        }
         if (!TryBeginTransition("desktop-mode switch"))
         {
             return;
@@ -121,41 +193,117 @@ public sealed class SessionModes
         {
             _monitor.Paused = true;
         }
-        System.Threading.Tasks.Task.Run(() =>
+        _ = System.Threading.Tasks.Task.Run(async () =>
         {
             try
             {
-                ExitBigPicture();
-                DisplayScale.ApplyDesktopMode(_config);
-            }
-            catch (Exception ex)
-            {
-                Log.Error("Leaving Big Picture / restoring the display scale failed", ex);
-            }
-            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-            {
                 try
                 {
-                    // UI-thread owned: the listeners destroy the tray host window,
-                    // and that must still happen BEFORE explorer starts.
-                    DesktopModeStarting?.Invoke();
+                    ExitBigPicture();
+                    DisplayScale.ApplyDesktopMode(_config);
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("Leaving Big Picture / restoring the display scale failed", ex);
+                }
+                try
+                {
+                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        // UI-thread owned: the listeners destroy the tray host window,
+                        // and that must still happen BEFORE explorer starts.
+                        DesktopModeStarting?.Invoke();
+                    });
                 }
                 catch (Exception ex)
                 {
                     Log.Error("Desktop-mode teardown failed", ex);
                 }
-                System.Threading.Tasks.Task.Run(() =>
+
+                ExplorerDesktopResult result;
+                try
+                {
+                    result = await desktopHost.RestoreDesktopAsync(TimeSpan.FromSeconds(20))
+                        .ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("Explorer desktop restoration failed", ex);
+                    result = new ExplorerDesktopResult(
+                        ExplorerDesktopOutcome.Failed,
+                        ExplorerDesktopRoute.ScheduledTaskRecovery,
+                        0,
+                        0,
+                        ex.Message,
+                        // The exception may have happened after an anchor/scheduler launch crossed
+                        // its boundary. Unknown is unsafe for recreating a competing Shell_TrayWnd.
+                        launchDispatched: true,
+                        shellSurfacePresent: false,
+                        elapsed: TimeSpan.Zero);
+                }
+
+                string? rollbackSteamWarning = null;
+                if (result.Outcome is ExplorerDesktopOutcome.Failed && result.CanResumeGameModeSafely)
                 {
                     try
                     {
-                        ExplorerControl.StartExplorer();
+                        // Desktop mode closed Big Picture before the launch attempt. A safe rollback
+                        // must restore the complete game-mode transaction, not only its taskbar.
+                        rollbackSteamWarning = RequestBigPictureWhilePaused();
                     }
-                    finally
+                    catch (Exception ex)
                     {
-                        EndTransition();
+                        Log.Error("Restoring Big Picture after Explorer launch failure failed", ex);
+                        rollbackSteamWarning = BigPictureStartFailedWarning;
+                    }
+                }
+
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (result.Outcome is ExplorerDesktopOutcome.Failed)
+                    {
+                        if (result.CanResumeGameModeSafely)
+                        {
+                            ApplyGameModePosture();
+                            GameModeEntered?.Invoke();
+                            if (_monitor is not null)
+                            {
+                                _monitor.Paused = false;
+                            }
+                            SteamStartFailed?.Invoke(rollbackSteamWarning is null
+                                ? ExplorerDesktopStartFailedWarning
+                                : $"{ExplorerDesktopStartFailedWarning} {rollbackSteamWarning}");
+                        }
+                        else
+                        {
+                            // A dispatched or already-visible shell can still publish its taskbar
+                            // after our deadline. Leave game-only surfaces down to prevent dual
+                            // Shell_TrayWnd owners and give one explicit recovery instruction.
+                            SteamStartFailed?.Invoke(ExplorerDesktopPendingWarning);
+                        }
+                        return;
+                    }
+
+                    if (result.Outcome is ExplorerDesktopOutcome.Degraded)
+                    {
+                        SteamStartFailed?.Invoke(ExplorerDesktopDegradedWarning);
+                    }
+                    if (startSteamDesktop)
+                    {
+                        StartSteamDesktop();
                     }
                 });
-            });
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Desktop-mode transition failed", ex);
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                    SteamStartFailed?.Invoke(ExplorerDesktopPendingWarning));
+            }
+            finally
+            {
+                EndTransition();
+            }
         });
     }
 
@@ -165,6 +313,11 @@ public sealed class SessionModes
     /// available in windowed mode. No-op when Steam already runs.</summary>
     public void StartSteamDesktop()
     {
+        if (System.Threading.Volatile.Read(ref _shutdownRequested) != 0)
+        {
+            Log.Info("Ignoring desktop Steam start: application shutdown is in progress.");
+            return;
+        }
         if (Steam.IsRunning)
         {
             return;
@@ -184,6 +337,12 @@ public sealed class SessionModes
     /// preserved. Returns immediately.</summary>
     public void EnterGameMode()
     {
+        ExplorerDesktopHost? desktopHost = _desktopHost;
+        if (desktopHost is null)
+        {
+            Log.Info("Ignoring game-mode switch in preview-only SessionModes.");
+            return;
+        }
         if (!TryBeginTransition("game-mode switch"))
         {
             return;
@@ -195,74 +354,94 @@ public sealed class SessionModes
             // no Steam lifecycle edge may react until Explorer is confirmed gone.
             _monitor.Paused = true;
         }
-        System.Threading.Tasks.Task.Run(() =>
+        _ = System.Threading.Tasks.Task.Run(async () =>
         {
-            string? steamWarning;
             try
             {
-                // Fire exactly once before Explorer's linger/retry work. Steam can
-                // construct Big Picture during that wait; activating it again after
-                // the transition would interrupt its intro and steal focus again.
-                steamWarning = RequestBigPictureWhilePaused();
-            }
-            catch (Exception ex)
-            {
-                Log.Error("Starting Steam Big Picture during game-mode transition failed", ex);
-                steamWarning = BigPictureStartFailedWarning;
-            }
-
-            var exited = false;
-            try
-            {
-                exited = ExplorerControl.ExitExplorerAndWait(ExplorerExitTimeout);
-            }
-            catch (Exception ex)
-            {
-                Log.Error("Explorer exit failed", ex);
-            }
-
-            // Decide once on the worker after the bounded exit finishes. Rolling
-            // Steam back and then re-checking Explorer on the UI thread could race
-            // a late process exit into committing game mode after BP was closed.
-            var preserveDesktop = false;
-            if (!exited)
-            {
+                string? steamWarning;
                 try
                 {
-                    preserveDesktop = ExplorerControl.IsRunningInSession();
+                    // Fire exactly once before Explorer's linger/retry work. Steam can
+                    // construct Big Picture during that wait; activating it again after
+                    // the transition would interrupt its intro and steal focus again.
+                    steamWarning = RequestBigPictureWhilePaused();
                 }
                 catch (Exception ex)
                 {
-                    // Failure cannot prove Explorer is absent. Preserve the usable
-                    // desktop instead of risking a tray-host collision.
-                    Log.Error("Checking Explorer state after its exit attempt failed", ex);
-                    preserveDesktop = true;
+                    Log.Error("Starting Steam Big Picture during game-mode transition failed", ex);
+                    steamWarning = BigPictureStartFailedWarning;
                 }
-            }
-            if (preserveDesktop)
-            {
+
+                var exited = false;
+                // The normal desktop can be recreated only if its current taskbar owner is
+                // captured while it still exists. A contaminated/unknown shell is preserved.
+                ExplorerPreparationResult preparation = await desktopHost.PrepareForExplorerExitAsync()
+                    .ConfigureAwait(false);
                 try
                 {
-                    // The Big Picture request was speculative until Explorer left.
-                    // Undo it before the warning overlay reopens on the desktop.
-                    ExitBigPicture();
+                    if (preparation.Prepared)
+                    {
+                        exited = ExplorerControl.ExitExplorerAndWait(ExplorerExitTimeout);
+                    }
                 }
                 catch (Exception ex)
                 {
-                    Log.Error("Rolling Steam back after Explorer exit failure failed", ex);
+                    Log.Error("Explorer exit failed", ex);
                 }
-            }
 
-            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-            {
-                try
+                // Decide once on the worker after the bounded exit finishes. Rolling
+                // Steam back and then re-checking Explorer on the UI thread could race
+                // a late process exit into committing game mode after BP was closed.
+                var preserveDesktop = !preparation.Prepared;
+                if (!exited && preparation.Prepared)
+                {
+                    try
+                    {
+                        preserveDesktop = ExplorerControl.IsRunningInSession();
+                    }
+                    catch (Exception ex)
+                    {
+                        // Failure cannot prove Explorer is absent. Preserve the usable
+                        // desktop instead of risking a tray-host collision.
+                        Log.Error("Checking Explorer state after its exit attempt failed", ex);
+                        preserveDesktop = true;
+                    }
+
+                    if (!preserveDesktop)
+                    {
+                        // Exit returned failure without a living shell. Fail open by restoring through
+                        // the already-captured anchor; never commit game mode on an unproven exit.
+                        ExplorerDesktopResult restored = await desktopHost.RestoreDesktopAsync(
+                            TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+                        preserveDesktop = restored.Outcome is not ExplorerDesktopOutcome.Failed
+                            || restored.LaunchDispatched
+                            || restored.ShellSurfacePresent;
+                    }
+                }
+                if (preserveDesktop)
+                {
+                    try
+                    {
+                        // The Big Picture request was speculative until Explorer left.
+                        // Undo it before the warning overlay reopens on the desktop.
+                        ExitBigPicture();
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error("Rolling Steam back after Explorer exit failure failed", ex);
+                    }
+                }
+
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
                     if (preserveDesktop)
                     {
                         // Fail open (era-proven UX): a half-removed desktop with a
                         // refused tray host is strictly worse than staying put.
                         Log.Warn("Could not exit explorer safely — staying in desktop mode.");
-                        SteamStartFailed?.Invoke(ExplorerExitFailedWarning);
+                        SteamStartFailed?.Invoke(preparation.Prepared
+                            ? ExplorerExitFailedWarning
+                            : ExplorerTakeoverRefusedWarning);
                         return;
                     }
                     ApplyGameModePosture();
@@ -275,12 +454,26 @@ public sealed class SessionModes
                     {
                         SteamStartFailed?.Invoke(steamWarning);
                     }
-                }
-                finally
+                });
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Game-mode transition failed", ex);
+                try
                 {
-                    EndTransition();
+                    ExitBigPicture();
                 }
-            });
+                catch (Exception rollbackEx)
+                {
+                    Log.Error("Rolling Steam back after game-mode transition failure failed", rollbackEx);
+                }
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                    SteamStartFailed?.Invoke(ExplorerExitFailedWarning));
+            }
+            finally
+            {
+                EndTransition();
+            }
         });
     }
 
@@ -316,6 +509,11 @@ public sealed class SessionModes
     /// Failures surface through <see cref="SteamStartFailed"/>.</summary>
     public void StartOrFocusSteam()
     {
+        if (System.Threading.Volatile.Read(ref _shutdownRequested) != 0)
+        {
+            Log.Info("Ignoring Steam start/focus: application shutdown is in progress.");
+            return;
+        }
         if (_monitor is not null)
         {
             _monitor.Paused = false;
@@ -363,6 +561,11 @@ public sealed class SessionModes
     /// surface, or null on success.</summary>
     public string? StartBigPicture()
     {
+        if (System.Threading.Volatile.Read(ref _shutdownRequested) != 0)
+        {
+            Log.Info("Ignoring Big Picture start: application shutdown is in progress.");
+            return null;
+        }
         if (!Steam.IsInstalled)
         {
             Log.Warn("Steam is not installed — showing overlay instead.");
@@ -376,6 +579,11 @@ public sealed class SessionModes
     /// <summary>Brings Steam Big Picture to the foreground when the monitor sees it alive.</summary>
     public void FocusSteam()
     {
+        if (System.Threading.Volatile.Read(ref _shutdownRequested) != 0)
+        {
+            Log.Info("Ignoring Steam focus: application shutdown is in progress.");
+            return;
+        }
         if (_monitor?.IsAlive == true)
         {
             // Protocol re-activation self-focuses even against an elevated target.

@@ -6,15 +6,17 @@ into the repository or copied into an application publish directory.
 
 ## Current release decision
 
-Controller management is **not approved**. Under `_plan/2.0-decisions.md` P0-020, WSGM must leave
-controller management unavailable while Device Integration, SDL input, and the Steam Input lease
-remain usable. `HidMaestroProductionBackend` implements that capability-specific failure and never
-loads HIDMaestro, launches a helper, installs a driver, or creates a virtual target.
+Controller management is **not approved**. The pinned backend does not yet satisfy the mandatory
+controller contract, so WSGM leaves controller management unavailable while Device Integration,
+SDL input, and the Steam Input lease remain usable. `HidMaestroProductionBackend` implements that
+capability-specific failure and never loads HIDMaestro, launches a helper, installs a driver, or
+creates a virtual target.
 
 The reviewed HIDMaestro `steam-deck-composite` profile does not encode the four distinct rear
-controls or stick-touch fields required by P6-016. Its driver build also stamps INF versions from the
-current date and creates local signing material, so a clean checkout cannot reproduce the exact
-signed driver artifacts. These are mandatory release gates, not best-effort diagnostics.
+controls or stick-touch fields required by WSGM's controller contract. Its driver build also stamps
+INF versions from the current date and creates local signing material, so a clean checkout cannot
+reproduce the exact signed driver artifacts. These are mandatory release gates, not best-effort
+diagnostics.
 
 ## Pinned primary sources
 
@@ -41,7 +43,7 @@ unavailable from a clean public checkout.
 HIDMaestro is a managed JIT/WinRT SDK and must never be referenced by or staged beside WSGM's
 NativeAOT application. If all gates are later closed, the conditional component is reserved for
 `publish/ControllerHost` and installed root `ControllerHost/`; it remains separate from both `App`
-and the untrusted plugin `DeviceHost`. The installer must verify the locked component identity and
+and the JIT-only plugin `DeviceHost`. The installer must verify the locked component identity and
 signatures before any explicit, user-approved install or repair operation.
 
 HidHide is mandatory only while controller management is active. Missing, inactive, inverse-mode,

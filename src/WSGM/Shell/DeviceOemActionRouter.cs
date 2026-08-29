@@ -4,7 +4,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
-using WSGM.Device.Contracts.Input;
+using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Input;
 
 namespace WSGM.Shell;
 
@@ -30,6 +31,34 @@ internal sealed record DeviceOemActionServices
     internal required Func<int, CancellationToken, Task<bool>> SetRearButtonAsync { get; init; }
 }
 
+/// <summary>WSGM-owned assignment and runtime-availability policy for physical OEM controls.</summary>
+internal static class OemActionRules
+{
+    internal static bool IsAssignable(OemAction action, OemControlPlacement placement) =>
+        !IsVirtualTargetButton(action) || placement is OemControlPlacement.Rear;
+
+    internal static bool IsVirtualTargetButton(OemAction action) => action
+        is OemAction.VirtualTargetRearButton1
+        or OemAction.VirtualTargetRearButton2;
+
+    internal static bool IsAvailable(
+        OemAction action,
+        bool targetHasRearButtons,
+        out CapabilityReason? reason)
+    {
+        if (IsVirtualTargetButton(action) && !targetHasRearButtons)
+        {
+            reason = new CapabilityReason(
+                CapabilityReasonCode.Unsupported,
+                "The selected virtual controller target has no rear controls.");
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+}
+
 /// <summary>Maps canonical OEM events to the closed WSGM-owned action vocabulary.</summary>
 internal sealed class DeviceOemActionRouter : IDisposable
 {
@@ -44,7 +73,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
     private DeviceHostClient? _client;
     private DeviceOemActionServices? _actions;
     private DeviceDesiredProfile? _profile;
-    private long _deviceGeneration;
+    private long _cycleGeneration;
     private long _actionGeneration;
     private bool _controllerManagementEnabled;
     private bool _targetHasRearButtons;
@@ -59,7 +88,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
         }
     }
 
-    internal void Attach(DeviceHostClient client, long deviceGeneration)
+    internal void Attach(DeviceHostClient client, long cycleGeneration)
     {
         ArgumentNullException.ThrowIfNull(client);
         lock (_gate)
@@ -67,7 +96,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
             DetachUnderGate();
             _client = client;
-            _deviceGeneration = deviceGeneration;
+            _cycleGeneration = cycleGeneration;
             ResetUnderGate();
             client.OemControlsReceived += OnControls;
             client.OemEventReceived += OnEvent;
@@ -89,13 +118,13 @@ internal sealed class DeviceOemActionRouter : IDisposable
         }
     }
 
-    internal void Reset(long? deviceGeneration = null)
+    internal void Reset(long? cycleGeneration = null)
     {
         lock (_gate)
         {
-            if (deviceGeneration is { } generation)
+            if (cycleGeneration is { } generation)
             {
-                _deviceGeneration = generation;
+                _cycleGeneration = generation;
             }
 
             ResetUnderGate();
@@ -129,7 +158,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
         _lifetime.Dispose();
     }
 
-    private void OnControls(WSGM.Device.Contracts.Ipc.DeviceOemControlsNotification notification)
+    private void OnControls(WSGM.Device.Sdk.Ipc.DeviceOemControlsNotification notification)
     {
         lock (_gate)
         {
@@ -159,7 +188,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
         DeviceOemActionServices? actions;
         lock (_gate)
         {
-            if (input.SourceGeneration != _deviceGeneration
+            if (input.SourceGeneration != _cycleGeneration
                 || !_controls.TryGetValue(input.ControlId, out OemControlDescriptor? control)
                 || string.IsNullOrWhiteSpace(input.DeduplicationId)
                 || input.DeduplicationId.Length > 128

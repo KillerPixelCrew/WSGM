@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
-using WSGM.Device.Contracts.Capabilities;
+using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Shell;
 

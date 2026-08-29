@@ -57,8 +57,13 @@ internal sealed unsafe partial class RtssProfileApi : IDisposable
         nint propertyPointer = Marshal.StringToCoTaskMemAnsi(property);
         try
         {
-            value = 0;
-            return _getProfileProperty(propertyPointer, (nint)(&value), sizeof(uint)) != 0;
+            uint readValue = 0;
+            bool succeeded = _getProfileProperty(
+                propertyPointer,
+                (nint)(&readValue),
+                sizeof(uint)) != 0;
+            value = readValue;
+            return succeeded;
         }
         finally
         {

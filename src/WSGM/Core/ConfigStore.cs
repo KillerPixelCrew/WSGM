@@ -277,11 +277,6 @@ public static class ConfigStore
 
     private static void NormalizeDeviceIntegration(DeviceIntegrationConfig device)
     {
-        if (!Enum.IsDefined(device.UpdatePolicy))
-        {
-            device.UpdatePolicy = DevicePluginUpdatePolicy.Notify;
-        }
-
         if (!Enum.IsDefined(device.ControllerTarget))
         {
             device.ControllerTarget = ManagedControllerTarget.SteamDeckComposite;
@@ -300,20 +295,7 @@ public static class ConfigStore
         device.ManualGlyphProfileId = string.IsNullOrWhiteSpace(device.ManualGlyphProfileId)
             ? null
             : device.ManualGlyphProfileId.Trim();
-        device.PackageSelections ??= [];
         device.Profiles ??= [];
-        device.PackageSelections.RemoveAll(static selection => selection is null
-            || string.IsNullOrWhiteSpace(selection.DeviceIdentityKey)
-            || string.IsNullOrWhiteSpace(selection.PackageId));
-        foreach (DevicePackageSelection selection in device.PackageSelections)
-        {
-            selection.DeviceIdentityKey = selection.DeviceIdentityKey.Trim();
-            selection.PackageId = selection.PackageId.Trim();
-            selection.Version = string.IsNullOrWhiteSpace(selection.Version)
-                ? null
-                : selection.Version.Trim();
-        }
-
         device.Profiles.RemoveAll(static profile => profile is null
             || string.IsNullOrWhiteSpace(profile.DeviceIdentityKey));
         foreach (DeviceDesiredProfile profile in device.Profiles)

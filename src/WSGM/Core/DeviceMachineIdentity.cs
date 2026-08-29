@@ -2,7 +2,7 @@ using System;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Win32;
-using WSGM.Device.Contracts.Identity;
+using WSGM.Device.Sdk.Identity;
 
 namespace WSGM.Core;
 

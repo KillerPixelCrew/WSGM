@@ -1,5 +1,5 @@
 using System;
-using WSGM.Device.Contracts.Lifecycle;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Shell;
 

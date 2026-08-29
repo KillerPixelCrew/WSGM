@@ -5,14 +5,15 @@ using System.IO;
 using System.IO.Pipes;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
-using WSGM.Device.Contracts.Capabilities;
-using WSGM.Device.Contracts.Input;
-using WSGM.Device.Contracts.Ipc;
-using WSGM.Device.Contracts.Lifecycle;
+using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Input;
+using WSGM.Device.Sdk.Ipc;
+using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.DeviceHost;
@@ -21,29 +22,31 @@ namespace WSGM.DeviceHost;
 internal sealed class DeviceHostSession : IAsyncDisposable
 {
     private const uint HelloRequestId = 1;
+    private static readonly TimeSpan DisconnectCleanupBudget = TimeSpan.FromSeconds(5);
     private readonly HostArguments _arguments;
     private readonly PluginPackageMetadata _metadata;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
-    private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _commands = new();
+    private readonly DeviceStartCancellationGate _startCancellation = new();
+    private readonly DeviceCommandRegistry _commands = new();
     private readonly ConcurrentDictionary<long, Task> _operations = new();
     private PluginPackageLoader? _package;
     private PluginHostAdapter? _adapter;
-    private RecoveryJournalStore? _journal;
     private DeviceFrameStream? _frames;
     private HostWireSender? _sender;
     private ushort _protocolVersion;
     private long _operationSequence;
-    private long _deviceGeneration;
+    private long _cycleGeneration;
     private string? _deviceDefinitionId;
     private DeviceCycleState _cycleState = DeviceCycleState.Disabled;
-    private IReadOnlyList<RecoveryJournalEntry> _outstandingJournalEntries = [];
+    private bool _pluginStartAttempted;
     private bool _disposed;
 
     public DeviceHostSession(HostArguments arguments, PluginPackageMetadata metadata)
     {
         _arguments = arguments;
         _metadata = metadata;
+        _cycleGeneration = arguments.CycleGeneration;
     }
 
     public async Task RunAsync(CancellationToken cancellationToken)
@@ -61,7 +64,6 @@ internal sealed class DeviceHostSession : IAsyncDisposable
         _sender = new HostWireSender(_frames);
         await HandshakeAsync(lifetime.Token).ConfigureAwait(false);
 
-        _journal = RecoveryJournalStore.Open(_metadata.PackageId);
         _package = PluginPackageLoader.LoadPlugin(_metadata);
         try
         {
@@ -86,24 +88,11 @@ internal sealed class DeviceHostSession : IAsyncDisposable
         }
         finally
         {
-            _shutdown.Cancel();
-            foreach (CancellationTokenSource command in _commands.Values)
-            {
-                command.Cancel();
-            }
-
-            Task[] operations = _operations.Values.ToArray();
-            if (operations.Length > 0)
-            {
-                try
-                {
-                    await Task.WhenAll(operations).WaitAsync(TimeSpan.FromSeconds(2))
-                        .ConfigureAwait(false);
-                }
-                catch (Exception ex) when (ex is TimeoutException or OperationCanceledException)
-                {
-                }
-            }
+            await RunDisconnectTeardownAsync(
+                _shutdown.Cancel,
+                CancelInFlightCommands,
+                WaitForInFlightOperationsAsync,
+                StopAfterCoordinatorDisconnectAsync).ConfigureAwait(false);
         }
     }
 
@@ -115,47 +104,45 @@ internal sealed class DeviceHostSession : IAsyncDisposable
         }
 
         _disposed = true;
-        _shutdown.Cancel();
-        foreach (CancellationTokenSource command in _commands.Values)
-        {
-            command.Cancel();
-            command.Dispose();
-        }
-
+        List<Exception> failures = [];
+        RetainCleanupFailure(failures, "session cancellation", _shutdown.Cancel);
+        RetainCleanupFailure(failures, "command cancellation", CancelInFlightCommands);
         if (_package is not null)
         {
-            await _package.Plugin.DisposeAsync().ConfigureAwait(false);
-            _package.Dispose();
+            await RetainCleanupFailureAsync(
+                failures,
+                "plugin disposal",
+                _package.Plugin.DisposeAsync).ConfigureAwait(false);
+            RetainCleanupFailure(failures, "plugin load-context disposal", _package.Dispose);
         }
 
-        _adapter?.Dispose();
-        if (_journal is not null)
-        {
-            await _journal.DisposeAsync().ConfigureAwait(false);
-        }
-
+        RetainCleanupFailure(failures, "host adapter disposal", () => _adapter?.Dispose());
         if (_frames is not null)
         {
-            await _frames.DisposeAsync().ConfigureAwait(false);
+            await RetainCleanupFailureAsync(
+                failures,
+                "frame transport disposal",
+                _frames.DisposeAsync).ConfigureAwait(false);
         }
 
-        _lifecycleGate.Dispose();
-        _shutdown.Dispose();
+        RetainCleanupFailure(failures, "lifecycle gate disposal", _lifecycleGate.Dispose);
+        RetainCleanupFailure(failures, "shutdown token disposal", _shutdown.Dispose);
+        if (failures.Count > 0)
+        {
+            throw new AggregateException("DeviceHost session disposal was incomplete.", failures);
+        }
     }
 
     private async Task HandshakeAsync(CancellationToken cancellationToken)
     {
         DeviceHostHello hello = new()
         {
-            MinProtocolVersion = DeviceProtocol.MinSupportedVersion,
-            MaxProtocolVersion = DeviceProtocol.MaxSupportedVersion,
-            SchemaFingerprint = DeviceProtocol.SchemaFingerprint,
             Nonce = Convert.ToBase64String(_arguments.Nonce),
             PackageId = _metadata.Manifest.Id,
             PackageVersion = _metadata.Manifest.Version,
             RuntimeVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0.0",
             SessionId = _arguments.SessionId,
-            HostGeneration = _arguments.HostGeneration,
+            CycleGeneration = _arguments.CycleGeneration,
         };
         await Sender.SendAsync(
             DeviceMessageType.Hello,
@@ -163,7 +150,7 @@ internal sealed class DeviceHostSession : IAsyncDisposable
             FrameFlags.None,
             hello,
             DeviceWireJsonContext.Default.DeviceHostHello,
-            DeviceProtocol.MaxSupportedVersion,
+            DeviceProtocol.Version,
             cancellationToken).ConfigureAwait(false);
 
         DeviceFrame frame = await Frames.ReadAsync(cancellationToken).ConfigureAwait(false)
@@ -182,13 +169,12 @@ internal sealed class DeviceHostSession : IAsyncDisposable
             ack,
             HelloRequestId,
             _metadata.Manifest.Id,
-            out ushort protocolVersion,
             out string detail))
         {
             throw new InvalidDataException(detail);
         }
 
-        _protocolVersion = protocolVersion;
+        _protocolVersion = DeviceProtocol.Version;
     }
 
     private void Dispatch(DeviceFrame frame, CancellationToken sessionToken)
@@ -202,8 +188,8 @@ internal sealed class DeviceHostSession : IAsyncDisposable
 
         switch (frame.Header.MessageType)
         {
-            case DeviceMessageType.Activate:
-                StartOperation(() => ActivateAsync(frame, sessionToken));
+            case DeviceMessageType.Start:
+                StartOperation(() => StartAsync(frame, sessionToken));
                 break;
             case DeviceMessageType.Suspend:
                 StartOperation(() => SuspendAsync(frame, sessionToken));
@@ -211,8 +197,8 @@ internal sealed class DeviceHostSession : IAsyncDisposable
             case DeviceMessageType.Resume:
                 StartOperation(() => ResumeAsync(frame, sessionToken));
                 break;
-            case DeviceMessageType.Deactivate:
-                StartOperation(() => DeactivateAsync(frame, sessionToken));
+            case DeviceMessageType.Stop:
+                StartOperation(() => StopAsync(frame, sessionToken));
                 break;
             case DeviceMessageType.Command:
                 StartOperation(() => CommandAsync(frame, sessionToken));
@@ -279,9 +265,9 @@ internal sealed class DeviceHostSession : IAsyncDisposable
         }
     }
 
-    private async Task ActivateAsync(DeviceFrame frame, CancellationToken sessionToken)
+    private async Task StartAsync(DeviceFrame frame, CancellationToken sessionToken)
     {
-        DeviceActivateRequest request = Deserialize(frame, DeviceWireJsonContext.Default.DeviceActivateRequest);
+        DeviceStartRequest request = Deserialize(frame, DeviceWireJsonContext.Default.DeviceStartRequest);
         await _lifecycleGate.WaitAsync(sessionToken).ConfigureAwait(false);
         try
         {
@@ -293,15 +279,20 @@ internal sealed class DeviceHostSession : IAsyncDisposable
             }
 
             using CancellationTokenSource bounded = DeadlineToken(request.Deadline, sessionToken);
+            using IDisposable startRegistration = _startCancellation.Register(bounded);
+            if (request.CycleGeneration != _cycleGeneration)
+            {
+                await SendErrorAsync(frame.Header.RequestId, "stale-generation",
+                    "Start request does not match the launched cycle generation.", false, sessionToken)
+                    .ConfigureAwait(false);
+                return;
+            }
+
             PluginDetectionResult detection = await Plugin.DetectAsync(new PluginDetectionContext
             {
                 Identity = request.Identity,
-                HostGeneration = _arguments.HostGeneration,
             }, bounded.Token).ConfigureAwait(false);
-            _deviceGeneration = request.DeviceGeneration;
-            _outstandingJournalEntries = MergeOutstandingJournalEntries(
-                request.OutstandingJournalEntries,
-                Journal.Outstanding);
+            bounded.Token.ThrowIfCancellationRequested();
             if (!detection.Matched || string.IsNullOrWhiteSpace(detection.DeviceDefinitionId))
             {
                 _cycleState = DeviceCycleState.Passive;
@@ -322,56 +313,46 @@ internal sealed class DeviceHostSession : IAsyncDisposable
             _adapter = new PluginHostAdapter(
                 Sender,
                 _protocolVersion,
-                _arguments.HostGeneration,
-                _deviceGeneration,
+                _cycleGeneration,
                 _arguments.StateRingName,
-                _arguments.StateEventName,
-                Journal);
-            if (Journal.CorruptionQuarantined)
-            {
-                _cycleState = DeviceCycleState.Degraded;
-                await SendErrorAsync(
-                    frame.Header.RequestId,
-                    "recovery-journal-corrupt",
-                    "A corrupt recovery journal was quarantined; hardware writes remain blocked.",
-                    false,
-                    bounded.Token).ConfigureAwait(false);
-                return;
-            }
+                _arguments.StateEventName);
 
-            await Plugin.ActivateAsync(new PluginActivationContext
+            // From this point a plugin may have acquired hardware even if StartAsync later throws.
+            // A lost coordinator must therefore run StopAsync before unloading the assembly.
+            _pluginStartAttempted = true;
+            PluginStartResult start = await Plugin.StartAsync(new PluginStartContext
             {
                 Host = _adapter,
-                HostGeneration = _arguments.HostGeneration,
-                DeviceGeneration = _deviceGeneration,
+                CycleGeneration = _cycleGeneration,
                 DeviceDefinitionId = _deviceDefinitionId,
-                OutstandingJournalEntries = _outstandingJournalEntries,
+                StateDirectory = CreatePluginStateDirectory(_metadata.Manifest.Id),
                 ControllerManagementEnabled = request.ControllerManagementEnabled,
             }, bounded.Token).ConfigureAwait(false);
 
-            bool anyOwned = _adapter.Resources.Values.Any(resource => resource.State is ResourceState.Owned);
-            bool anyUnhealthy = _adapter.Resources.Values.Any(resource => resource.State
-                is ResourceState.Passive or ResourceState.Degraded or ResourceState.Faulted
-                    or ResourceState.ReleasedUnverified);
-            _cycleState = anyOwned
-                ? anyUnhealthy ? DeviceCycleState.Degraded : DeviceCycleState.Active
-                : DeviceCycleState.Passive;
+            _cycleState = MapOperationalState(start.State);
             await PublishLifecycleAsync(
                 frame.Header.RequestId,
-                null,
+                start.Reason,
                 isResponse: true,
                 bounded.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!sessionToken.IsCancellationRequested
+            && _startCancellation.TerminalStopRequested)
+        {
+            // The terminal handoff owns the response path now. Release the lifecycle gate without
+            // spending cleanup time on a late Start response the coordinator no longer awaits.
+            _cycleState = DeviceCycleState.Deactivating;
         }
         catch (OperationCanceledException) when (!sessionToken.IsCancellationRequested)
         {
             _cycleState = DeviceCycleState.Degraded;
-            await SendErrorAsync(frame.Header.RequestId, "activation-timeout",
-                "Plugin activation exceeded its deadline.", true, sessionToken).ConfigureAwait(false);
+            await SendErrorAsync(frame.Header.RequestId, "start-timeout",
+                "Plugin startup exceeded its deadline.", true, sessionToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             _cycleState = DeviceCycleState.Degraded;
-            await SendErrorAsync(frame.Header.RequestId, "activation-failed",
+            await SendErrorAsync(frame.Header.RequestId, "start-failed",
                 ex.GetType().Name, true, sessionToken).ConfigureAwait(false);
         }
         finally
@@ -402,7 +383,7 @@ internal sealed class DeviceHostSession : IAsyncDisposable
     private async Task ResumeAsync(DeviceFrame frame, CancellationToken sessionToken)
     {
         DeviceLifecycleRequest request = Deserialize(frame, DeviceWireJsonContext.Default.DeviceLifecycleRequest);
-        if (request.DeviceGeneration is not long generation || generation <= _deviceGeneration)
+        if (request.CycleGeneration is not long generation || generation <= _cycleGeneration)
         {
             await SendErrorAsync(frame.Header.RequestId, "stale-generation",
                 "Resume requires a new device generation.", true, sessionToken).ConfigureAwait(false);
@@ -413,13 +394,14 @@ internal sealed class DeviceHostSession : IAsyncDisposable
         try
         {
             using CancellationTokenSource bounded = DeadlineToken(request.Deadline, sessionToken);
-            _adapter?.SetDeviceGeneration(generation);
-            _deviceGeneration = generation;
+            _adapter?.SetCycleGeneration(generation);
+            _cycleGeneration = generation;
             _cycleState = DeviceCycleState.Activating;
-            await Plugin.ResumeAsync(new PluginResumeContext(generation, request.Deadline), bounded.Token)
+            PluginStartResult resumed = await Plugin.ResumeAsync(
+                new PluginResumeContext(generation, request.Deadline), bounded.Token)
                 .ConfigureAwait(false);
-            _cycleState = DeviceCycleState.Active;
-            await PublishLifecycleAsync(frame.Header.RequestId, null, true, bounded.Token)
+            _cycleState = MapOperationalState(resumed.State);
+            await PublishLifecycleAsync(frame.Header.RequestId, resumed.Reason, true, bounded.Token)
                 .ConfigureAwait(false);
         }
         finally
@@ -428,35 +410,112 @@ internal sealed class DeviceHostSession : IAsyncDisposable
         }
     }
 
-    private async Task DeactivateAsync(DeviceFrame frame, CancellationToken sessionToken)
+    private Task StopAsync(DeviceFrame frame, CancellationToken sessionToken)
     {
-        DeviceDeactivateRequest request = Deserialize(
+        DeviceStopRequest request = Deserialize(
             frame,
-            DeviceWireJsonContext.Default.DeviceDeactivateRequest);
-        await _lifecycleGate.WaitAsync(sessionToken).ConfigureAwait(false);
+            DeviceWireJsonContext.Default.DeviceStopRequest);
+        Task<IReadOnlyList<Exception>> commandQuiescence =
+            _commands.CloseAdmissionAndCancelAsync();
+        return RunTerminalLifecycleAfterStartAsync(
+            _startCancellation,
+            _lifecycleGate,
+            cancellationToken => RunTerminalActionAfterCommandQuiescenceAsync(
+                commandQuiescence,
+                token => StopUnderLifecycleGateAsync(frame, request, token),
+                cancellationToken),
+            sessionToken);
+    }
+
+    private async Task StopUnderLifecycleGateAsync(
+        DeviceFrame frame,
+        DeviceStopRequest request,
+        CancellationToken sessionToken)
+    {
         try
         {
             _cycleState = DeviceCycleState.Deactivating;
             await PublishLifecycleAsync(0, null, false, sessionToken).ConfigureAwait(false);
             using CancellationTokenSource bounded = DeadlineToken(request.Deadline, sessionToken);
-            await Plugin.DeactivateAsync(new PluginDeactivationContext(
+            PluginStopResult stopped = await Plugin.StopAsync(new PluginStopContext(
                 MapReason(request.Reason),
                 request.Deadline), bounded.Token).ConfigureAwait(false);
+            _pluginStartAttempted = false;
             _cycleState = DeviceCycleState.Disabled;
-            await PublishLifecycleAsync(frame.Header.RequestId, null, true, sessionToken)
+            CapabilityReason? stopReason = stopped.Status switch
+            {
+                PluginStopStatus.Clean => null,
+                PluginStopStatus.Unverified => stopped.Reason ?? new CapabilityReason(
+                    CapabilityReasonCode.TransportFaulted,
+                    "Plugin cleanup completed without verified restoration."),
+                PluginStopStatus.Failed => stopped.Reason ?? new CapabilityReason(
+                    CapabilityReasonCode.TransportFaulted,
+                    "Plugin cleanup failed."),
+                _ => throw new InvalidDataException("Unknown plugin stop status."),
+            };
+            await PublishLifecycleAsync(frame.Header.RequestId, stopReason, true, sessionToken)
                 .ConfigureAwait(false);
             _shutdown.Cancel();
         }
         catch (OperationCanceledException) when (!sessionToken.IsCancellationRequested)
         {
-            await SendErrorAsync(frame.Header.RequestId, "deactivation-timeout",
+            await SendErrorAsync(frame.Header.RequestId, "stop-timeout",
                 "Plugin cleanup exceeded its deadline; restoration is unverified.", false, sessionToken)
                 .ConfigureAwait(false);
             _shutdown.Cancel();
         }
+    }
+
+    private async Task StopAfterCoordinatorDisconnectAsync()
+    {
+        using CancellationTokenSource cleanup = new(DisconnectCleanupBudget);
+        await RunDisconnectCleanupAfterLifecycleAsync(
+            _lifecycleGate,
+            () => NeedsDisconnectCleanup(_pluginStartAttempted, _cycleState),
+            async cancellationToken =>
+            {
+                DateTimeOffset deadline = DateTimeOffset.UtcNow + DisconnectCleanupBudget;
+                _cycleState = DeviceCycleState.Deactivating;
+                PluginStopResult stopped = await Plugin.StopAsync(
+                    new PluginStopContext(PluginStopReason.WsgmExiting, deadline),
+                    cancellationToken).ConfigureAwait(false);
+                _pluginStartAttempted = false;
+                _cycleState = DeviceCycleState.Disabled;
+                if (stopped.Status is not PluginStopStatus.Clean)
+                {
+                    throw new InvalidOperationException(
+                        "Plugin cleanup after coordinator disconnect was not verified clean: "
+                            + $"{stopped.Status}; {stopped.Reason?.Detail ?? "no detail"}.");
+                }
+            },
+            cleanup.Token).ConfigureAwait(false);
+    }
+
+    internal static bool NeedsDisconnectCleanup(
+        bool pluginStartAttempted,
+        DeviceCycleState cycleState) => pluginStartAttempted
+        && cycleState is not DeviceCycleState.Disabled;
+
+    internal static async Task RunDisconnectCleanupAfterLifecycleAsync(
+        SemaphoreSlim lifecycleGate,
+        Func<bool> needsCleanup,
+        Func<CancellationToken, Task> cleanupAsync,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(lifecycleGate);
+        ArgumentNullException.ThrowIfNull(needsCleanup);
+        ArgumentNullException.ThrowIfNull(cleanupAsync);
+        await lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (needsCleanup())
+            {
+                await cleanupAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
         finally
         {
-            _lifecycleGate.Release();
+            lifecycleGate.Release();
         }
     }
 
@@ -479,27 +538,27 @@ internal sealed class DeviceHostSession : IAsyncDisposable
             return;
         }
 
-        using CancellationTokenSource commandCancellation =
-            CancellationTokenSource.CreateLinkedTokenSource(sessionToken);
-        TimeSpan remaining = command.Deadline - DateTimeOffset.UtcNow;
-        if (remaining <= TimeSpan.Zero)
-        {
-            commandCancellation.Cancel();
-        }
-        else
-        {
-            commandCancellation.CancelAfter(remaining);
-        }
+        using var commandCancellation = new DeviceCommandCancellation(
+            sessionToken,
+            command.Deadline);
 
-        if (!_commands.TryAdd(command.CommandId, commandCancellation))
+        if (!_commands.TryAdd(
+                command.CommandId,
+                commandCancellation,
+                out bool terminalAdmissionClosed))
         {
             await SendCommandResultAsync(frame.Header.RequestId, new CapabilityCommandResult
             {
                 CommandId = command.CommandId,
                 Outcome = CommandOutcome.Rejected,
                 Reason = new CapabilityReason(
-                    CapabilityReasonCode.ValueOutOfRange,
-                    "The command ID is already in flight."),
+                    terminalAdmissionClosed
+                        ? CapabilityReasonCode.Quiescing
+                        : CapabilityReasonCode.ValueOutOfRange,
+                    terminalAdmissionClosed
+                        ? "DeviceHost is quiescing for terminal cleanup."
+                        : "The command ID is already in flight.",
+                    Retryable: terminalAdmissionClosed),
                 CompletedAt = DateTimeOffset.UtcNow,
             }, sessionToken).ConfigureAwait(false);
             return;
@@ -528,7 +587,8 @@ internal sealed class DeviceHostSession : IAsyncDisposable
         }
         finally
         {
-            _commands.TryRemove(command.CommandId, out _);
+            commandCancellation.Complete();
+            _commands.Remove(command.CommandId);
         }
     }
 
@@ -537,10 +597,16 @@ internal sealed class DeviceHostSession : IAsyncDisposable
         DeviceCancelCommandRequest request = Deserialize(
             frame,
             DeviceWireJsonContext.Default.DeviceCancelCommandRequest);
-        bool found = _commands.TryGetValue(request.CommandId, out CancellationTokenSource? command);
-        command?.Cancel();
-        await SendAckAsync(frame.Header.RequestId, found,
-            found ? null : "The command was not in flight.", sessionToken).ConfigureAwait(false);
+        bool found = _commands.TryGet(request.CommandId, out DeviceCommandCancellation? command);
+        bool cancellationRequested = command?.TryCancel() is true;
+        Exception? callbackFailure = command?.TakeCancellationFailure();
+        bool completed = found && cancellationRequested && callbackFailure is null;
+        string? detail = !found || !cancellationRequested
+            ? "The command was not in flight."
+            : callbackFailure is null
+                ? null
+                : $"The plugin cancellation callback failed ({callbackFailure.GetType().Name}).";
+        await SendAckAsync(frame.Header.RequestId, completed, detail, sessionToken).ConfigureAwait(false);
     }
 
     private async Task HapticOutputAsync(DeviceFrame frame, CancellationToken sessionToken)
@@ -555,24 +621,195 @@ internal sealed class DeviceHostSession : IAsyncDisposable
         DeviceControllerHandoffRequest request = Deserialize(
             frame,
             DeviceWireJsonContext.Default.DeviceControllerHandoffRequest);
+        bool terminalHandoff = request.Scope is HandoffScope.FullDeactivation;
         using CancellationTokenSource bounded = DeadlineToken(request.Deadline, sessionToken);
-        PluginControllerRelease release = await Plugin.ReleaseControllerAsync(
-            new PluginControllerReleaseContext(request.Scope, request.Deadline),
-            bounded.Token).ConfigureAwait(false);
-        DeviceControllerHandoffResponse response = new()
+        async Task ReleaseAndRespondAsync(CancellationToken cancellationToken)
         {
-            Step = release.Step,
-            Result = release.Result,
-            ReleasedDevices = release.ReleasedDevices,
-        };
-        await Sender.SendAsync(
-            DeviceMessageType.ControllerHandoff,
-            frame.Header.RequestId,
-            FrameFlags.IsResponse,
-            response,
-            DeviceWireJsonContext.Default.DeviceControllerHandoffResponse,
-            _protocolVersion,
-            sessionToken).ConfigureAwait(false);
+            PluginControllerRelease release = await Plugin.ReleaseControllerAsync(
+                new PluginControllerReleaseContext(request.Scope, request.Deadline),
+                cancellationToken).ConfigureAwait(false);
+            DeviceControllerHandoffResponse response = new()
+            {
+                Step = release.Step,
+                Result = release.Result,
+                ReleasedDevices = release.ReleasedDevices,
+            };
+            await Sender.SendAsync(
+                DeviceMessageType.ControllerHandoff,
+                frame.Header.RequestId,
+                FrameFlags.IsResponse,
+                response,
+                DeviceWireJsonContext.Default.DeviceControllerHandoffResponse,
+                _protocolVersion,
+                sessionToken).ConfigureAwait(false);
+        }
+
+        if (terminalHandoff)
+        {
+            // A full handoff is the first frame in terminal coordinator cleanup. Cancel any
+            // in-flight command and plugin start immediately, then serialize release behind both
+            // unwinds so Stop can acquire the same lifecycle gate within the cleanup deadline.
+            Task<IReadOnlyList<Exception>> commandQuiescence =
+                _commands.CloseAdmissionAndCancelAsync();
+            await RunTerminalLifecycleAfterStartAsync(
+                _startCancellation,
+                _lifecycleGate,
+                cancellationToken => RunTerminalActionAfterCommandQuiescenceAsync(
+                    commandQuiescence,
+                    ReleaseAndRespondAsync,
+                    cancellationToken),
+                bounded.Token).ConfigureAwait(false);
+            return;
+        }
+
+        await ReleaseAndRespondAsync(bounded.Token).ConfigureAwait(false);
+    }
+
+    internal static async Task RunTerminalLifecycleAfterStartAsync(
+        DeviceStartCancellationGate startCancellation,
+        SemaphoreSlim lifecycleGate,
+        Func<CancellationToken, Task> terminalAction,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(startCancellation);
+        ArgumentNullException.ThrowIfNull(lifecycleGate);
+        ArgumentNullException.ThrowIfNull(terminalAction);
+        Exception? cancellationFailure = startCancellation.RequestTerminalStop();
+        Exception? terminalFailure = null;
+        await lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            try
+            {
+                await terminalAction(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                terminalFailure = ex;
+            }
+        }
+        finally
+        {
+            lifecycleGate.Release();
+        }
+
+        if (cancellationFailure is not null && terminalFailure is not null)
+        {
+            throw new AggregateException(
+                "Plugin start cancellation and terminal lifecycle both failed.",
+                cancellationFailure,
+                terminalFailure);
+        }
+        if (terminalFailure is not null)
+        {
+            ExceptionDispatchInfo.Capture(terminalFailure).Throw();
+        }
+        if (cancellationFailure is not null)
+        {
+            throw new InvalidOperationException(
+                "Plugin start cancellation callback failed after terminal cleanup completed.",
+                cancellationFailure);
+        }
+    }
+
+    internal static async Task RunTerminalActionAfterCommandQuiescenceAsync(
+        Task<IReadOnlyList<Exception>> commandQuiescence,
+        Func<CancellationToken, Task> terminalAction,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(commandQuiescence);
+        ArgumentNullException.ThrowIfNull(terminalAction);
+        IReadOnlyList<Exception> cancellationFailures = await commandQuiescence
+            .WaitAsync(cancellationToken).ConfigureAwait(false);
+        List<Exception> failures = [.. cancellationFailures];
+
+        try
+        {
+            await terminalAction(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            failures.Add(ex);
+        }
+
+        if (failures.Count == 1)
+        {
+            ExceptionDispatchInfo.Capture(failures[0]).Throw();
+        }
+        if (failures.Count > 1)
+        {
+            throw new AggregateException(
+                "Command quiescence and terminal lifecycle were not both verified.",
+                failures);
+        }
+    }
+
+    private void CancelInFlightCommands() => _commands.CancelAll();
+
+    private async Task WaitForInFlightOperationsAsync()
+    {
+        Task[] operations = _operations.Values.ToArray();
+        if (operations.Length > 0)
+        {
+            await Task.WhenAll(operations).WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+        }
+    }
+
+    internal static async Task RunDisconnectTeardownAsync(
+        Action cancelSession,
+        Action cancelCommands,
+        Func<Task> waitForOperationsAsync,
+        Func<Task> stopAfterDisconnectAsync)
+    {
+        ArgumentNullException.ThrowIfNull(cancelSession);
+        ArgumentNullException.ThrowIfNull(cancelCommands);
+        ArgumentNullException.ThrowIfNull(waitForOperationsAsync);
+        ArgumentNullException.ThrowIfNull(stopAfterDisconnectAsync);
+        List<Exception> failures = [];
+        RetainCleanupFailure(failures, "disconnect cancellation", cancelSession);
+        RetainCleanupFailure(failures, "in-flight command cancellation", cancelCommands);
+        await RetainCleanupFailureAsync(
+            failures,
+            "in-flight operation completion",
+            () => new ValueTask(waitForOperationsAsync())).ConfigureAwait(false);
+        await RetainCleanupFailureAsync(
+            failures,
+            "plugin stop after coordinator disconnect",
+            () => new ValueTask(stopAfterDisconnectAsync())).ConfigureAwait(false);
+        if (failures.Count > 0)
+        {
+            throw new AggregateException("DeviceHost disconnect teardown was incomplete.", failures);
+        }
+    }
+
+    private static void RetainCleanupFailure(
+        List<Exception> failures,
+        string operation,
+        Action cleanup)
+    {
+        try
+        {
+            cleanup();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            failures.Add(new InvalidOperationException($"DeviceHost {operation} failed.", ex));
+        }
+    }
+
+    private static async ValueTask RetainCleanupFailureAsync(
+        List<Exception> failures,
+        string operation,
+        Func<ValueTask> cleanupAsync)
+    {
+        try
+        {
+            await cleanupAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            failures.Add(new InvalidOperationException($"DeviceHost {operation} failed.", ex));
+        }
     }
 
     private async Task ControllerManagementAsync(DeviceFrame frame, CancellationToken sessionToken)
@@ -583,21 +820,21 @@ internal sealed class DeviceHostSession : IAsyncDisposable
         using CancellationTokenSource bounded = DeadlineToken(request.Deadline, sessionToken);
         if (request.Enabled)
         {
-            if (request.DeviceGeneration <= _deviceGeneration)
+            if (request.CycleGeneration <= _cycleGeneration)
             {
                 await SendErrorAsync(frame.Header.RequestId, "stale-generation",
-                    "Controller activation requires a fresh device generation.", true, sessionToken)
+                    "Controller acquisition requires a fresh cycle generation.", true, sessionToken)
                     .ConfigureAwait(false);
                 return;
             }
 
-            _adapter?.SetDeviceGeneration(request.DeviceGeneration);
-            _deviceGeneration = request.DeviceGeneration;
+            _adapter?.SetCycleGeneration(request.CycleGeneration);
+            _cycleGeneration = request.CycleGeneration;
         }
 
         await Plugin.SetControllerManagementAsync(new PluginControllerManagementContext(
             request.Enabled,
-            request.DeviceGeneration,
+            request.CycleGeneration,
             request.Deadline), bounded.Token).ConfigureAwait(false);
         await SendAckAsync(frame.Header.RequestId, true, null, sessionToken).ConfigureAwait(false);
     }
@@ -605,21 +842,15 @@ internal sealed class DeviceHostSession : IAsyncDisposable
     private async Task DiagnosticsAsync(DeviceFrame frame, CancellationToken sessionToken)
     {
         _ = Deserialize(frame, DeviceWireJsonContext.Default.DeviceDiagnosticsRequest);
-        Dictionary<string, ResourceState> resources = _adapter?.Resources.ToDictionary(
-            pair => pair.Key,
-            pair => pair.Value.State,
-            StringComparer.Ordinal) ?? new Dictionary<string, ResourceState>(StringComparer.Ordinal);
+        PluginDiagnostics diagnostics = await Plugin.GetDiagnosticsAsync(sessionToken)
+            .ConfigureAwait(false);
         DeviceDiagnosticsSnapshot snapshot = new()
         {
-            SchemaVersion = 1,
             PackageId = _metadata.Manifest.Id,
             DeviceId = _deviceDefinitionId ?? "unmatched",
-            TrustTier = _arguments.TrustTier,
             CycleState = _cycleState,
-            HostGeneration = _arguments.HostGeneration,
-            DeviceGeneration = _deviceGeneration,
-            Resources = resources,
-            OutstandingJournalEntries = _outstandingJournalEntries,
+            CycleGeneration = _cycleGeneration,
+            PluginValues = diagnostics.Values,
             CapturedAt = DateTimeOffset.UtcNow,
         };
         await Sender.SendAsync(
@@ -641,8 +872,7 @@ internal sealed class DeviceHostSession : IAsyncDisposable
         DeviceLifecycleNotification notification = new()
         {
             State = _cycleState,
-            HostGeneration = _arguments.HostGeneration,
-            DeviceGeneration = _deviceGeneration,
+            CycleGeneration = _cycleGeneration,
             DeviceDefinitionId = _deviceDefinitionId,
             Reason = reason,
         };
@@ -660,7 +890,7 @@ internal sealed class DeviceHostSession : IAsyncDisposable
         uint requestId,
         CapabilityCommandResult result,
         CancellationToken cancellationToken) => Sender.SendAsync(
-            DeviceMessageType.OperationAck,
+            DeviceMessageType.CommandResult,
             requestId,
             FrameFlags.IsResponse,
             result,
@@ -673,7 +903,7 @@ internal sealed class DeviceHostSession : IAsyncDisposable
         bool completed,
         string? detail,
         CancellationToken cancellationToken) => Sender.SendAsync(
-            DeviceMessageType.CommandResult,
+            DeviceMessageType.OperationAck,
             requestId,
             FrameFlags.IsResponse,
             new DeviceOperationAck { Completed = completed, Detail = detail },
@@ -731,27 +961,38 @@ internal sealed class DeviceHostSession : IAsyncDisposable
         return source;
     }
 
-    private static PluginDeactivationReason MapReason(DeviceDeactivationReason reason) => reason switch
+    private static PluginStopReason MapReason(DeviceStopReason reason) => reason switch
     {
-        DeviceDeactivationReason.WsgmExiting => PluginDeactivationReason.WsgmExiting,
-        DeviceDeactivationReason.IntegrationDisabled => PluginDeactivationReason.IntegrationDisabled,
-        DeviceDeactivationReason.Updating => PluginDeactivationReason.Updating,
-        DeviceDeactivationReason.SessionEnding => PluginDeactivationReason.SessionEnding,
-        _ => throw new InvalidDataException("Unknown deactivation reason."),
+        DeviceStopReason.WsgmExiting => PluginStopReason.WsgmExiting,
+        DeviceStopReason.StartCanceled => PluginStopReason.StartCanceled,
+        DeviceStopReason.StartFailed => PluginStopReason.StartFailed,
+        DeviceStopReason.IntegrationDisabled => PluginStopReason.IntegrationDisabled,
+        DeviceStopReason.Updating => PluginStopReason.Updating,
+        DeviceStopReason.SessionEnding => PluginStopReason.SessionEnding,
+        DeviceStopReason.Uninstalling => PluginStopReason.Uninstalling,
+        _ => throw new InvalidDataException("Unknown stop reason."),
     };
 
-    private RecoveryJournalStore Journal => _journal
-        ?? throw new InvalidOperationException("Recovery journal is not initialized.");
+    private static DeviceCycleState MapOperationalState(PluginOperationalState state) => state switch
+    {
+        PluginOperationalState.Active => DeviceCycleState.Active,
+        PluginOperationalState.Passive => DeviceCycleState.Passive,
+        PluginOperationalState.Degraded => DeviceCycleState.Degraded,
+        _ => throw new InvalidDataException("Unknown plugin operational state."),
+    };
 
-    private static IReadOnlyList<RecoveryJournalEntry> MergeOutstandingJournalEntries(
-        IReadOnlyList<RecoveryJournalEntry> coordinatorEntries,
-        IReadOnlyList<RecoveryJournalEntry> hostEntries) =>
-        coordinatorEntries.Concat(hostEntries)
-            .GroupBy(entry => $"{entry.PackageId}:{entry.Sequence}", StringComparer.Ordinal)
-            .Select(group => group.OrderByDescending(entry => entry.Status).First())
-            .OrderByDescending(entry => entry.Sequence)
-            .Take(1000)
-            .ToArray();
+    private static string CreatePluginStateDirectory(string packageId)
+    {
+        string localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (string.IsNullOrWhiteSpace(localData))
+        {
+            throw new InvalidOperationException("The local application-data directory is unavailable.");
+        }
+
+        string directory = Path.Combine(localData, "WSGM", "DeviceState", packageId);
+        Directory.CreateDirectory(directory);
+        return directory;
+    }
 
     private IDevicePlugin Plugin => _package?.Plugin
         ?? throw new InvalidOperationException("Plugin has not been loaded.");
@@ -761,4 +1002,355 @@ internal sealed class DeviceHostSession : IAsyncDisposable
 
     private HostWireSender Sender => _sender
         ?? throw new InvalidOperationException("Control stream has not been connected.");
+}
+
+internal sealed class DeviceStartCancellationGate
+{
+    private readonly object _gate = new();
+    private CancellationTokenSource? _active;
+    private bool _terminalStopRequested;
+
+    internal IDisposable Register(CancellationTokenSource cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(cancellation);
+        bool cancelImmediately;
+        lock (_gate)
+        {
+            if (_active is not null)
+            {
+                throw new InvalidOperationException("Only one plugin start may be active.");
+            }
+
+            cancelImmediately = _terminalStopRequested;
+            if (!cancelImmediately)
+            {
+                _active = cancellation;
+            }
+        }
+
+        if (cancelImmediately)
+        {
+            cancellation.Cancel();
+        }
+        return new Registration(this, cancellation);
+    }
+
+    internal Exception? RequestTerminalStop()
+    {
+        lock (_gate)
+        {
+            _terminalStopRequested = true;
+            try
+            {
+                _active?.Cancel();
+                return null;
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                // CancellationToken callbacks are plugin code. A broken callback must be reported,
+                // but it cannot prevent the terminal action from running after Start unwinds.
+                return ex;
+            }
+        }
+    }
+
+    internal bool TerminalStopRequested
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _terminalStopRequested;
+            }
+        }
+    }
+
+    private void Unregister(CancellationTokenSource cancellation)
+    {
+        lock (_gate)
+        {
+            if (ReferenceEquals(_active, cancellation))
+            {
+                _active = null;
+            }
+        }
+    }
+
+    private sealed class Registration(
+        DeviceStartCancellationGate owner,
+        CancellationTokenSource cancellation) : IDisposable
+    {
+        private DeviceStartCancellationGate? _owner = owner;
+
+        public void Dispose()
+        {
+            DeviceStartCancellationGate? current = Interlocked.Exchange(ref _owner, null);
+            current?.Unregister(cancellation);
+        }
+    }
+}
+
+internal sealed class DeviceCommandRegistry
+{
+    private readonly object _gate = new();
+    private readonly Dictionary<Guid, DeviceCommandCancellation> _commands = [];
+    private bool _terminalAdmissionClosed;
+
+    internal bool TryAdd(
+        Guid commandId,
+        DeviceCommandCancellation command,
+        out bool terminalAdmissionClosed)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        lock (_gate)
+        {
+            terminalAdmissionClosed = _terminalAdmissionClosed;
+            if (terminalAdmissionClosed || _commands.ContainsKey(commandId))
+            {
+                return false;
+            }
+
+            _commands.Add(commandId, command);
+            return true;
+        }
+    }
+
+    internal bool TryGet(Guid commandId, out DeviceCommandCancellation? command)
+    {
+        lock (_gate)
+        {
+            return _commands.TryGetValue(commandId, out command);
+        }
+    }
+
+    internal void Remove(Guid commandId)
+    {
+        lock (_gate)
+        {
+            _commands.Remove(commandId);
+        }
+    }
+
+    internal void CancelAll()
+    {
+        DeviceCommandCancellation[] commands;
+        lock (_gate)
+        {
+            commands = _commands.Values.ToArray();
+        }
+
+        List<Exception> failures = [];
+        foreach (DeviceCommandCancellation command in commands)
+        {
+            _ = command.TryCancel();
+            Exception? failure = command.TakeCancellationFailure();
+            if (failure is not null)
+            {
+                failures.Add(failure);
+            }
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new AggregateException("One or more plugin command cancellations failed.", failures);
+        }
+    }
+
+    internal Task<IReadOnlyList<Exception>> CloseAdmissionAndCancelAsync()
+    {
+        DeviceCommandCancellation[] commands;
+        lock (_gate)
+        {
+            _terminalAdmissionClosed = true;
+            commands = _commands.Values.ToArray();
+        }
+
+        List<Task> cancellationCompletions = [];
+        foreach (DeviceCommandCancellation command in commands)
+        {
+            if (command.TryCancel())
+            {
+                cancellationCompletions.Add(command.CancellationCompletion);
+            }
+        }
+
+        return WaitForCompletionAsync(commands, cancellationCompletions);
+    }
+
+    private static async Task<IReadOnlyList<Exception>> WaitForCompletionAsync(
+        DeviceCommandCancellation[] commands,
+        IReadOnlyList<Task> cancellationCompletions)
+    {
+        if (cancellationCompletions.Count > 0)
+        {
+            await Task.WhenAll(cancellationCompletions).ConfigureAwait(false);
+        }
+        if (commands.Length > 0)
+        {
+            await Task.WhenAll(commands.Select(command => command.Completion)).ConfigureAwait(false);
+        }
+
+        List<Exception> failures = [];
+        foreach (DeviceCommandCancellation command in commands)
+        {
+            Exception? failure = command.TakeCancellationFailure();
+            if (failure is not null)
+            {
+                failures.Add(failure);
+            }
+        }
+        return failures;
+    }
+}
+
+internal sealed class DeviceCommandCancellation : IDisposable
+{
+    private readonly object _gate = new();
+    private readonly CancellationTokenSource _source = new();
+    private readonly TaskCompletionSource _completion = new(
+        TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _cancellationCompletion = new(
+        TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly CancellationTokenRegistration _sessionRegistration;
+    private readonly Timer? _deadlineTimer;
+    private List<Exception>? _failures;
+    private int _activeCancellations;
+    private bool _cancellationRequested;
+    private bool _disposeRequested;
+    private bool _sourceDisposed;
+
+    internal DeviceCommandCancellation(
+        CancellationToken sessionToken,
+        DateTimeOffset deadline)
+    {
+        _sessionRegistration = sessionToken.Register(
+            static state => _ = ((DeviceCommandCancellation)state!).TryCancel(),
+            this);
+        try
+        {
+            TimeSpan remaining = deadline - DateTimeOffset.UtcNow;
+            if (remaining <= TimeSpan.Zero || _source.IsCancellationRequested)
+            {
+                _deadlineTimer = null;
+                _ = TryCancel();
+            }
+            else
+            {
+                _deadlineTimer = new Timer(
+                    static state => _ = ((DeviceCommandCancellation)state!).TryCancel(),
+                    this,
+                    remaining,
+                    Timeout.InfiniteTimeSpan);
+            }
+        }
+        catch
+        {
+            _ = _sessionRegistration.Unregister();
+            _source.Dispose();
+            throw;
+        }
+    }
+
+    internal CancellationToken Token => _source.Token;
+
+    internal Task Completion => _completion.Task;
+
+    internal Task CancellationCompletion => _cancellationCompletion.Task;
+
+    internal void Complete() => _completion.TrySetResult();
+
+    internal bool TryCancel()
+    {
+        lock (_gate)
+        {
+            if (_disposeRequested || _sourceDisposed)
+            {
+                return false;
+            }
+            if (_cancellationRequested)
+            {
+                return true;
+            }
+
+            _cancellationRequested = true;
+            _activeCancellations++;
+        }
+
+        try
+        {
+            _source.Cancel();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            lock (_gate)
+            {
+                (_failures ??= []).Add(ex);
+            }
+        }
+        finally
+        {
+            bool disposeSource;
+            lock (_gate)
+            {
+                _activeCancellations--;
+                disposeSource = _disposeRequested
+                    && _activeCancellations == 0
+                    && !_sourceDisposed;
+                if (disposeSource)
+                {
+                    _sourceDisposed = true;
+                }
+            }
+
+            if (disposeSource)
+            {
+                _source.Dispose();
+            }
+            _cancellationCompletion.TrySetResult();
+        }
+
+        return true;
+    }
+
+    internal Exception? TakeCancellationFailure()
+    {
+        lock (_gate)
+        {
+            if (_failures is not { Count: > 0 } failures)
+            {
+                return null;
+            }
+
+            _failures = null;
+            return failures.Count == 1
+                ? failures[0]
+                : new AggregateException("Multiple plugin cancellation callbacks failed.", failures);
+        }
+    }
+
+    public void Dispose()
+    {
+        bool disposeSource;
+        lock (_gate)
+        {
+            if (_disposeRequested)
+            {
+                return;
+            }
+
+            _disposeRequested = true;
+            disposeSource = _activeCancellations == 0 && !_sourceDisposed;
+            if (disposeSource)
+            {
+                _sourceDisposed = true;
+            }
+        }
+
+        _ = _sessionRegistration.Unregister();
+        _deadlineTimer?.Dispose();
+        if (disposeSource)
+        {
+            _source.Dispose();
+        }
+    }
 }

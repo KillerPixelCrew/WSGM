@@ -13,13 +13,11 @@ $csproj = Get-Content "$root\src\WSGM\WSGM.csproj" -Raw
 if ($csproj -notmatch '<Version>([^<]+)</Version>') { throw "No <Version> found in WSGM.csproj" }
 $version = $Matches[1]
 
-# These checks use only checked-in metadata and Node built-ins. Run them before
-# the native toolchains so a stale asset hash or broken component graph fails
-# in seconds rather than after a full release publish.
+# This check uses only checked-in assets and Node built-ins. Run it before the
+# native toolchains so stale generated Steam UI code fails immediately.
 Write-Host "== Validating release inputs ==" -ForegroundColor Cyan
 npm run steam-assets:verify
 if ($LASTEXITCODE -ne 0) { throw "Steam UI asset drift check failed" }
-& "$root\eng\assert-build-graph.ps1"
 
 # The Steam Input gate is built from the source in native\SteamInput on every
 # release build, so a shipped installer can never carry a gate older than the
@@ -48,8 +46,8 @@ $appPublish = "$root\publish\App"
 New-Item -ItemType Directory -Path $appPublish | Out-Null
 
 # One RID-aware restore feeds every --no-restore publish below. ProjectReference
-# edges establish dependency order; the static graph assertion above catches a
-# new project that was omitted from the solution or crosses the AOT/JIT boundary.
+# edges and the solution establish dependency order; the isolation checks below
+# catch AOT/JIT staging mistakes in the produced bytes.
 dotnet restore "$root\WSGM.slnx" --runtime win-x64
 if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed" }
 
@@ -102,7 +100,7 @@ if (-not (Test-Path "$appPublish\WSGM.Radio.dll")) { throw "Radio helper was not
 if (-not (Test-Path "$appPublish\WSGM.Launch.exe")) { throw "Launch wrapper was not produced" }
 if (-not (Test-Path "$appPublish\WSGM.LogonService.exe")) { throw "Logon service was not produced" }
 
-# The AOT/JIT split only holds if nothing from the device platform is staged beside WSGM.exe.
+# The AOT/JIT split only holds if no JIT device binary is staged beside WSGM.exe.
 # A wrong ProjectReference is caught by DeviceBoundaryTests; a binary that arrives by copy has no
 # compile-time symptom at all, so it is checked here against the finished publish layout.
 & "$root\eng\check-aot-isolation.ps1" -OutputDirectory $appPublish
@@ -114,7 +112,6 @@ Write-Host "== Publishing isolated device components ==" -ForegroundColor Cyan
     -RuntimeIdentifier win-x64 `
     -Version $version `
     -NoRestore
-& "$root\eng\prepare-reviewed-packages.ps1" -OutputRoot "$root\publish"
 & "$root\eng\assert-component-staging.ps1" -OutputRoot "$root\publish"
 
 $iscc = @(
@@ -126,12 +123,6 @@ if (-not $iscc) { throw "Inno Setup 6 not found (winget install JRSoftware.InnoS
 Write-Host "== Compiling installer ==" -ForegroundColor Cyan
 & $iscc "/DAppVersion=$version" "$root\installer\WSGM.iss"
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
-
-& "$root\eng\write-artifact-manifests.ps1" `
-    -OutputRoot "$root\publish" `
-    -Version $version `
-    -Configuration Release `
-    -RuntimeIdentifier win-x64
 
 Get-ChildItem "$root\publish\WSGM-Setup-*.exe" |
     Select-Object Name, @{n='SizeMB';e={[math]::Round($_.Length/1MB,1)}}

@@ -5,7 +5,7 @@ using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 using WSGM.Core;
-using WSGM.Device.Contracts.Input;
+using WSGM.Device.Sdk.Input;
 
 namespace WSGM.Input;
 
@@ -136,7 +136,7 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
     private long _sourceGeneration;
     private long _routeGeneration;
     private long _lastDispatchTimestamp;
-    private bool _outputQuarantined;
+    private bool _outputFaulted;
     private bool _disposed;
 
     internal ControllerOutputRouter(
@@ -167,7 +167,7 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
             _sourceGeneration = sourceGeneration;
             _routeGeneration++;
             _lastDispatchTimestamp = 0;
-            _outputQuarantined = false;
+            _outputFaulted = false;
             State = ControllerOutputState.Stopped;
             DrainUnderGate();
         }
@@ -337,7 +337,7 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
                 {
                     lock (_gate)
                     {
-                        _outputQuarantined = true;
+                        _outputFaulted = true;
                         State = ControllerOutputState.Faulted;
                     }
 
@@ -357,7 +357,7 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
     private bool CanQueueUnderGate(HidTargetOutput output)
     {
         DateTimeOffset now = _timeProvider.GetUtcNow();
-        return !_outputQuarantined
+        return !_outputFaulted
             && MatchesRouteUnderGate(output)
             && output.Frame.Timestamp <= now.AddSeconds(1)
             && now - output.Frame.Timestamp <= MaxOutputAge
@@ -493,6 +493,10 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
         _sourceGeneration = sourceGeneration;
         _lastSequence = long.MinValue;
         _output.Attach(_target, sourceGeneration);
+        // Activation means a source may affect the target. Even before the first accepted sample,
+        // an invalid frame must publish an explicit neutral report rather than relying on the
+        // creation-time packet still being current.
+        _neutral = false;
         State = ManagedTargetState.Active;
     }
 

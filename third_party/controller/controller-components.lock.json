@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "reviewedAtUtc": "2026-08-28T00:00:00Z",
   "controllerManagementApproved": false,
-  "policy": "P0-020",
+  "policy": "controller-backend-incomplete",
   "approvalBlockers": [
-    "HIDMaestro 1.7.0's steam-deck-composite profile does not expose four distinct rear controls and stick-touch fields required by P6-016.",
+    "HIDMaestro 1.7.0's steam-deck-composite profile does not expose the four distinct rear controls and stick-touch fields required by WSGM.",
     "HIDMaestro stamps driver INF versions from the current date and locally generates/signs driver packages; exact signed driver reproduction has not been established.",
     "The trusted WSGM ControllerHost and conditional installer component do not exist yet."
   ],

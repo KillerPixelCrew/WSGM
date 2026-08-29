@@ -1,11 +1,11 @@
 using System;
-using System.Buffers.Binary;
 using System.IO;
 using System.IO.Pipes;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
+using WSGM.Device.Sdk.Ipc;
 
 namespace WSGM.Shell;
 
@@ -49,26 +49,25 @@ internal sealed class DeviceCoordinatorDiagnosticsServer : IAsyncDisposable
             {
                 await using NamedPipeServerStream pipe = new(
                     _pipeName,
-                    PipeDirection.Out,
+                    PipeDirection.InOut,
                     NamedPipeServerStream.MaxAllowedServerInstances,
                     PipeTransmissionMode.Byte,
                     PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly,
                     inBufferSize: 4096,
                     outBufferSize: 64 * 1024);
                 await pipe.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
+                await using DeviceFrameStream frames = new(pipe);
                 byte[] payload = JsonSerializer.SerializeToUtf8Bytes(
                     _snapshot(),
-                    DeviceCoordinatorDiagnosticsJsonContext.Default.DeviceCoordinatorDiagnosticsSnapshot);
-                if (payload.Length > DeviceCoordinatorDiagnosticsContract.MaxPayloadBytes)
+                    ConfigJsonContext.Default.DeviceCoordinatorDiagnosticsSnapshot);
+                await frames.WriteAsync(new FrameHeader
                 {
-                    throw new InvalidDataException("Device diagnostics snapshot exceeded 1 MiB.");
-                }
-
-                byte[] header = new byte[sizeof(int)];
-                BinaryPrimitives.WriteInt32LittleEndian(header, payload.Length);
-                await pipe.WriteAsync(header, cancellationToken).ConfigureAwait(false);
-                await pipe.WriteAsync(payload, cancellationToken).ConfigureAwait(false);
-                await pipe.FlushAsync(cancellationToken).ConfigureAwait(false);
+                    PayloadLength = payload.Length,
+                    ProtocolVersion = DeviceProtocol.Version,
+                    MessageType = DeviceMessageType.DiagnosticsSnapshot,
+                    RequestId = 1,
+                    Flags = FrameFlags.IsResponse,
+                }, payload, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {

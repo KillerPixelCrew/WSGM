@@ -1,4 +1,4 @@
-using WSGM.Device.Contracts.Lifecycle;
+using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Shell;
 
 namespace WSGM.Tests;

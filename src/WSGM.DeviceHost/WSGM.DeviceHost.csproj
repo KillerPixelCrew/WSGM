@@ -18,7 +18,6 @@
     <PublishSingleFile>false</PublishSingleFile>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\WSGM.Device.Contracts\WSGM.Device.Contracts.csproj" />
     <ProjectReference Include="..\WSGM.Device.Sdk\WSGM.Device.Sdk.csproj" />
   </ItemGroup>
 </Project>

@@ -868,7 +868,8 @@ public sealed class CefConfig
 [JsonSerializable(typeof(PerformanceConfig))]
 [JsonSerializable(typeof(PerformanceApplicationConfig))]
 [JsonSerializable(typeof(FilterNode))]
+[JsonSerializable(typeof(DeviceCoordinatorDiagnosticsSnapshot))]
 [JsonSourceGenerationOptions(WriteIndented = true, UseStringEnumConverter = true)]
-public partial class ConfigJsonContext : JsonSerializerContext
+internal partial class ConfigJsonContext : JsonSerializerContext
 {
 }

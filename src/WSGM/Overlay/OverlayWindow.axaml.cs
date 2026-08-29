@@ -207,7 +207,7 @@ public partial class OverlayWindow : Window
         }
 
         DeviceOverlaySnapshot snapshot = _deviceBridge?.Snapshot()
-            ?? new DeviceOverlaySnapshot(false, "Device integration off", string.Empty, []);
+            ?? new DeviceOverlaySnapshot(false, "Device integration off", string.Empty, null, []);
         ConfigureTabs(snapshot.Visible);
         DeviceStatusTitle.Text = snapshot.Status;
         DeviceStatusDetail.Text = snapshot.Detail;
@@ -216,7 +216,7 @@ public partial class OverlayWindow : Window
             ? focused.Tag as string
             : null;
         DeviceCapabilityList.Children.Clear();
-        if (snapshot.Capabilities.Count == 0)
+        if (snapshot.Capabilities.Count == 0 && snapshot.GlyphSelection is null)
         {
             DeviceCapabilityList.Children.Add(new TextBlock
             {
@@ -228,68 +228,142 @@ public partial class OverlayWindow : Window
         }
 
         DescriptorStatusRow? restoreFocus = null;
-        DeviceOverlaySection? currentSection = null;
-        foreach (DeviceOverlayCapability capability in snapshot.Capabilities)
+        bool firstSection = true;
+        foreach (DeviceOverlaySection section in Enum.GetValues<DeviceOverlaySection>())
         {
-            if (capability.Section != currentSection)
+            DeviceOverlayCapability[] sectionCapabilities = snapshot.Capabilities
+                .Where(capability => capability.Section == section)
+                .ToArray();
+            DeviceOverlayGlyphSelection? glyphSelection = section
+                is DeviceOverlaySection.ControllerAndMotion
+                ? snapshot.GlyphSelection
+                : null;
+            if (sectionCapabilities.Length == 0 && glyphSelection is null)
             {
-                TextBlock heading = new()
-                {
-                    Text = DeviceSectionLabel(capability.Section),
-                    Margin = new Thickness(2, currentSection is null ? 2 : 8, 2, 2),
-                };
-                heading.Classes.Add("eyebrow");
-                DeviceCapabilityList.Children.Add(heading);
-                currentSection = capability.Section;
+                continue;
             }
 
-            string key = capability.InstanceId is { Length: > 0 }
-                ? $"{capability.CapabilityId}#{capability.InstanceId}"
-                : capability.CapabilityId;
-            DescriptorStatusRow button = new();
-            button.Apply(new DescriptorRow(
-                key,
-                capability.Title,
-                capability.Description,
-                capability.TrailingText,
-                capability.CanInvoke,
-                DeviceStatusFor(capability)));
-            button.Click += async (_, _) =>
+            TextBlock heading = new()
             {
-                IDeviceOverlaySource? bridge = _deviceBridge;
-                if (bridge is null || _closed)
-                {
-                    return;
-                }
-
-                button.IsEnabled = false;
-                try
-                {
-                    await bridge.InvokeAsync(capability, _deviceLifetime.Token);
-                }
-                catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested)
-                {
-                }
-                catch (Exception ex)
-                {
-                    Log.Warn($"Device overlay command failed: {capability.CapabilityId}, {ex.Message}");
-                }
-                finally
-                {
-                    if (!_closed)
-                    {
-                        button.IsEnabled = capability.CanInvoke;
-                    }
-                }
+                Text = DeviceSectionLabel(section),
+                Margin = new Thickness(2, firstSection ? 2 : 8, 2, 2),
             };
-            DeviceCapabilityList.Children.Add(button);
-            if (string.Equals(key, focusedKey, StringComparison.Ordinal))
+            heading.Classes.Add("eyebrow");
+            DeviceCapabilityList.Children.Add(heading);
+            firstSection = false;
+
+            foreach (DeviceOverlayCapability capability in sectionCapabilities)
             {
-                restoreFocus = button;
+                string key = capability.InstanceId is { Length: > 0 }
+                    ? $"{capability.CapabilityId}#{capability.InstanceId}"
+                    : capability.CapabilityId;
+                DescriptorStatusRow button = CreateDeviceCapabilityRow(capability, key);
+                DeviceCapabilityList.Children.Add(button);
+                if (string.Equals(key, focusedKey, StringComparison.Ordinal))
+                {
+                    restoreFocus = button;
+                }
+            }
+
+            if (glyphSelection is not null)
+            {
+                const string glyphFocusKey = "device.glyph-selection";
+                DescriptorStatusRow button = CreateGlyphSelectionRow(glyphSelection, glyphFocusKey);
+                DeviceCapabilityList.Children.Add(button);
+                if (string.Equals(glyphFocusKey, focusedKey, StringComparison.Ordinal))
+                {
+                    restoreFocus = button;
+                }
             }
         }
 
         restoreFocus?.Focus(NavigationMethod.Directional);
+    }
+
+    private DescriptorStatusRow CreateDeviceCapabilityRow(
+        DeviceOverlayCapability capability,
+        string key)
+    {
+        DescriptorStatusRow button = new();
+        button.Apply(new DescriptorRow(
+            key,
+            capability.Title,
+            capability.Description,
+            capability.TrailingText,
+            capability.CanInvoke,
+            DeviceStatusFor(capability.Status)));
+        button.Click += async (_, _) =>
+        {
+            IDeviceOverlaySource? bridge = _deviceBridge;
+            if (bridge is null || _closed)
+            {
+                return;
+            }
+
+            button.IsEnabled = false;
+            try
+            {
+                await bridge.InvokeAsync(capability, _deviceLifetime.Token);
+            }
+            catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested)
+            {
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Device overlay command failed: {capability.CapabilityId}, {ex.Message}");
+            }
+            finally
+            {
+                if (!_closed)
+                {
+                    button.IsEnabled = capability.CanInvoke;
+                }
+            }
+        };
+        return button;
+    }
+
+    private DescriptorStatusRow CreateGlyphSelectionRow(
+        DeviceOverlayGlyphSelection glyphSelection,
+        string key)
+    {
+        DescriptorStatusRow button = new();
+        button.Apply(new DescriptorRow(
+            key,
+            glyphSelection.Title,
+            glyphSelection.Description,
+            glyphSelection.TrailingText,
+            glyphSelection.CanCycle,
+            DeviceStatusFor(glyphSelection.Status)));
+        button.Click += async (_, _) =>
+        {
+            IDeviceOverlaySource? bridge = _deviceBridge;
+            if (bridge is null || _closed)
+            {
+                return;
+            }
+
+            button.IsEnabled = false;
+            try
+            {
+                await bridge.CyclePhysicalGlyphSelectionAsync(_deviceLifetime.Token);
+            }
+            catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested)
+            {
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Physical glyph selection command failed: {ex.Message}");
+            }
+            finally
+            {
+                if (!_closed)
+                {
+                    button.IsEnabled = glyphSelection.CanCycle;
+                }
+            }
+        };
+        return button;
     }
 
     private void RefreshPerformancePanel()
@@ -368,8 +442,8 @@ public partial class OverlayWindow : Window
         target.Children.Insert(Math.Min(targetIndex, target.Children.Count), PerformanceSection);
     }
 
-    private static DescriptorStatus DeviceStatusFor(DeviceOverlayCapability capability)
-        => capability.Status switch
+    private static DescriptorStatus DeviceStatusFor(DeviceOverlayStatus status)
+        => status switch
         {
             DeviceOverlayStatus.Available => DescriptorStatus.Available,
             DeviceOverlayStatus.Warning => DescriptorStatus.Warning,

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
+using WSGM.Device.Sdk.Ipc;
 using WSGM.Interop;
 using WSGM.Overlay;
 
@@ -19,9 +20,11 @@ public sealed class ShellSession : IAsyncDisposable
     private AppConfig _config;
     private readonly bool _overlayTestOnly;
     private readonly bool _serviceBoot;
+    private readonly bool _suppressDeviceIntegration;
     private bool _tookOverFromExplorer;
     private SteamMonitor? _monitor;
     private SessionModes? _modes;
+    private ExplorerDesktopHost? _desktopHost;
     private StartupAppWatcher? _startupWatcher;
     private OverlayController? _overlay;
     private TrayHost? _trayHost;
@@ -35,6 +38,9 @@ public sealed class ShellSession : IAsyncDisposable
     // the worker releases SessionModes' transition gate. The splash's desktop
     // recovery cancels through this owner instead of racing that gate.
     private BootTakeoverCancellation? _bootTakeover;
+    private Task? _bootWork;
+    private readonly CancellationTokenSource _shutdownCancellation = new();
+    private volatile bool _shutdownRequested;
     // Replaced (not just cancelled) on every game-mode entry: a single cancelled
     // source would permanently kill boot syncing after the first desktop trip.
     private CancellationTokenSource _tabBootSyncCancellation = new();
@@ -66,6 +72,7 @@ public sealed class ShellSession : IAsyncDisposable
     private System.IO.FileSystemWatcher? _configWatcher;
     private System.Threading.Timer? _configDebounce;
     private readonly object _configDebounceGate = new();
+    private Task? _startupTask;
     private DeviceCoordinator? _deviceCoordinator;
     private IDeviceOverlaySource? _deviceOverlay;
     private PerformanceService? _performance;
@@ -74,6 +81,7 @@ public sealed class ShellSession : IAsyncDisposable
     private RunningApplicationMonitor? _runningApplications;
     private RunningApplicationPerformanceCoordinator? _runningApplicationPerformance;
     private SteamUiSessionHost? _steamUi;
+    private MessageWindow? _messageWindow;
     private bool _disposed;
 
     /// <summary>Creates the shell session without performing any Windows state changes.</summary>
@@ -81,7 +89,13 @@ public sealed class ShellSession : IAsyncDisposable
     /// <param name="overlayTestOnly">Whether to omit normal shell startup for the manual overlay test.</param>
     /// <param name="serviceBoot">Whether the logon service launched this process over a
     /// live, still-initializing explorer (--boot) — enables the takeover flow.</param>
-    public ShellSession(AppConfig config, bool overlayTestOnly = false, bool serviceBoot = false)
+    /// <param name="suppressDeviceIntegration">Whether an installer rollback that could not verify
+    /// old DeviceHost exit must restore shell mode without admitting a new hardware cycle.</param>
+    public ShellSession(
+        AppConfig config,
+        bool overlayTestOnly = false,
+        bool serviceBoot = false,
+        bool suppressDeviceIntegration = false)
     {
         _config = config;
         _cefMasterEnabled = config.Cef.Enabled;
@@ -91,19 +105,94 @@ public sealed class ShellSession : IAsyncDisposable
         SteamInputShim.SetEnabled(config.SteamInputManagementEnabled);
         _overlayTestOnly = overlayTestOnly;
         _serviceBoot = serviceBoot;
+        _suppressDeviceIntegration = suppressDeviceIntegration;
     }
 
-    /// <summary>Starts the shell's startup applications, home application, and overlay services.</summary>
-    public void Start()
+    internal static bool ShouldStartDeviceCoordinator(
+        bool overlayTestOnly,
+        bool suppressDeviceIntegration) => !overlayTestOnly && !suppressDeviceIntegration;
+
+    /// <summary>Starts device admission off-thread, then creates shell and overlay services on the UI thread.</summary>
+    /// <returns>The complete asynchronous session-start operation.</returns>
+    public Task StartAsync()
+    {
+        _startupTask ??= StartUnderDeviceAdmissionAsync();
+        return _startupTask;
+    }
+
+    internal static Task<DeviceCoordinator?> AdmitDeviceCoordinatorAsync(
+        AppConfig config,
+        bool overlayTestOnly,
+        bool suppressDeviceIntegration,
+        CancellationToken cancellationToken,
+        Func<AppConfig, CancellationToken, Task<DeviceCoordinator?>>? startAsync = null)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        if (!ShouldStartDeviceCoordinator(overlayTestOnly, suppressDeviceIntegration))
+        {
+            return Task.FromResult<DeviceCoordinator?>(null);
+        }
+
+        Func<AppConfig, CancellationToken, Task<DeviceCoordinator?>> factory =
+            startAsync ?? DeviceCoordinator.TryStartAsync;
+        return factory(config, cancellationToken);
+    }
+
+    private async Task StartUnderDeviceAdmissionAsync()
+    {
+        DeviceCoordinator? coordinator = null;
+        bool coordinatorAdopted = false;
+        try
+        {
+            coordinator = await AdmitDeviceCoordinatorAsync(
+                _config,
+                _overlayTestOnly,
+                _suppressDeviceIntegration,
+                _shutdownCancellation.Token).ConfigureAwait(false);
+            if (_shutdownRequested)
+            {
+                return;
+            }
+
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (_disposed)
+                {
+                    return;
+                }
+
+                _deviceCoordinator = coordinator;
+                coordinatorAdopted = true;
+                StartOnUiThread();
+            });
+        }
+        catch (OperationCanceledException) when (_shutdownCancellation.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            if (!coordinatorAdopted && coordinator is not null)
+            {
+                await coordinator.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+    }
+
+    private void StartOnUiThread()
     {
         // The resident shell is the sole device-cycle authority. Overlay test deliberately never
         // creates this object, opens its IPC, discovers packages, or starts DeviceHost.
         if (!_overlayTestOnly)
         {
-            _deviceCoordinator = DeviceCoordinator.TryStart(_config);
+            _messageWindow = MessageWindow.Create();
+            _messageWindow.SessionEnding += OnSessionEnding;
             if (_deviceCoordinator is not null)
             {
                 _deviceOverlay = new DeviceOverlayBridge(_deviceCoordinator);
+            }
+            else if (_suppressDeviceIntegration)
+            {
+                Log.Warn("Device cycle: suppressed for an installer rollback with unverified prior host state.");
             }
         }
         else
@@ -127,7 +216,13 @@ public sealed class ShellSession : IAsyncDisposable
         }
 
         _monitor = new SteamMonitor();
-        _modes = new SessionModes(_config, _monitor);
+        if (!_overlayTestOnly)
+        {
+            _desktopHost = new ExplorerDesktopHost();
+        }
+        _modes = _desktopHost is null
+            ? new SessionModes(_config, _monitor)
+            : new SessionModes(_config, _monitor, _desktopHost);
         // Session-lifetime on purpose (survives desktop trips): a Steam download must
         // keep the device awake in both modes, and the manual hold belongs to the user.
         // The automatic side is off in overlay-test mode: its poll drives the live
@@ -208,6 +303,7 @@ public sealed class ShellSession : IAsyncDisposable
                 _deviceCoordinator,
                 _performance);
             _steamUi.Apply(_config.Cef.Enabled && _config.Cef.NativeQuickAccess);
+            _steamUi.ApplyGlyphSelector(GlyphSelectorEnabled(_config));
         }
 
         // The tray host must never coexist with explorer's taskbar (Z-order war
@@ -284,9 +380,9 @@ public sealed class ShellSession : IAsyncDisposable
         }
 
         _volumeButtons = new VolumeButtonService(
-            MessageWindow.Create(),
+            _messageWindow!,
             () => DisplayScale.GetUiScalePercent(_config) / 100.0);
-        _displayMute = new DisplayOffMuteService(MessageWindow.Create());
+        _displayMute = new DisplayOffMuteService(_messageWindow!);
         _displayMute.ApplyConfig(_config.MuteWhileDisplayOff);
         _displayMute.SetDownloadActive(_keepAwake.DownloadActive);
         if (_config.MuteWhileDisplayOff && !_config.Cef.Enabled)
@@ -363,20 +459,21 @@ public sealed class ShellSession : IAsyncDisposable
         _startupWatcher = new StartupAppWatcher(_config.StartupApps);
         WatchConfig();
 
-        Task.Run(async () =>
+        _bootWork = Task.Run(async () =>
         {
             try
             {
-                await LaunchAppsAsync();
+                await LaunchAppsAsync(_shutdownCancellation.Token);
+            }
+            catch (OperationCanceledException) when (_shutdownCancellation.IsCancellationRequested)
+            {
+                Log.Info("Shell launch sequence cancelled for application shutdown.");
             }
             catch (Exception ex)
             {
                 Log.Error("Shell session launch sequence failed", ex);
             }
-            // Boot has settled (splash gone, apps and Steam up) — drop the
-            // startup memory before the shell disappears behind the game.
-            await Task.Delay(TimeSpan.FromSeconds(90));
-            MemoryTrim.TrimBestEffort("boot settled");
+            _ = TrimAfterBootSettlesAsync(_shutdownCancellation.Token);
         });
     }
 
@@ -410,16 +507,21 @@ public sealed class ShellSession : IAsyncDisposable
         // splash and its Desktop button would start a second explorer transition).
         _modes!.BeginTransition();
 
-        Task.Run(async () =>
+        _bootWork = Task.Run(async () =>
         {
-            var tookOver = false;
+            var result = BootTakeoverResult.DesktopRestoreRequired;
             try
             {
-                tookOver = await RunBootTakeoverAsync(takeover.Token);
+                result = await RunBootTakeoverAsync(takeover.Token);
             }
             catch (OperationCanceledException) when (takeover.DesktopRequested)
             {
                 Log.Info("Boot takeover cancelled by the splash desktop recovery.");
+            }
+            catch (OperationCanceledException) when (takeover.ShutdownRequested
+                || _shutdownCancellation.IsCancellationRequested)
+            {
+                Log.Info("Boot takeover cancelled for application shutdown.");
             }
             catch (Exception ex)
             {
@@ -438,32 +540,69 @@ public sealed class ShellSession : IAsyncDisposable
             }
 
             var desktopRequested = takeover.DesktopRequested;
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            if (takeover.ShutdownRequested || _shutdownRequested)
             {
                 if (ReferenceEquals(_bootTakeover, takeover))
                 {
                     _bootTakeover = null;
                 }
-                if (desktopRequested)
-                {
-                    BeginDesktopModeFromSplash();
-                }
-            });
-            takeover.Dispose();
+                takeover.Dispose();
+                return;
+            }
 
-            if (tookOver && !desktopRequested)
+            try
+            {
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (ReferenceEquals(_bootTakeover, takeover))
+                    {
+                        _bootTakeover = null;
+                    }
+                    if (_shutdownRequested)
+                    {
+                        return;
+                    }
+                    if (desktopRequested)
+                    {
+                        BeginDesktopModeFromSplash();
+                    }
+                    else if (result is BootTakeoverResult.DesktopPreserved)
+                    {
+                        ResumePreservedDesktopAfterBootFailure();
+                    }
+                    else if (result is BootTakeoverResult.DesktopRestoreRequired)
+                    {
+                        BeginDesktopModeAfterBootFailure();
+                    }
+                });
+            }
+            finally
+            {
+                if (ReferenceEquals(_bootTakeover, takeover))
+                {
+                    _bootTakeover = null;
+                }
+                takeover.Dispose();
+            }
+
+            if (result is BootTakeoverResult.EnteredGameMode
+                && !desktopRequested
+                && !_shutdownRequested)
             {
                 try
                 {
-                    await LaunchAppsAsync();
+                    await LaunchAppsAsync(_shutdownCancellation.Token);
+                }
+                catch (OperationCanceledException) when (_shutdownCancellation.IsCancellationRequested)
+                {
+                    Log.Info("Shell launch sequence cancelled for application shutdown.");
                 }
                 catch (Exception ex)
                 {
                     Log.Error("Shell session launch sequence failed", ex);
                 }
             }
-            await Task.Delay(TimeSpan.FromSeconds(90));
-            MemoryTrim.TrimBestEffort("boot settled");
+            _ = TrimAfterBootSettlesAsync(_shutdownCancellation.Token);
         });
     }
 
@@ -473,7 +612,7 @@ public sealed class ShellSession : IAsyncDisposable
     /// <param name="cancellationToken">Cancelled by the splash's desktop recovery.
     /// Before the orderly exit it preserves Explorer; after that irreversible
     /// request began, it skips game-mode setup so the caller can restart Explorer.</param>
-    private async Task<bool> RunBootTakeoverAsync(CancellationToken cancellationToken)
+    private async Task<BootTakeoverResult> RunBootTakeoverAsync(CancellationToken cancellationToken)
     {
         // Input-desktop barrier (era-proven): WTS_SESSION_LOGON fires while the
         // Welcome screen still owns the input desktop — proceeding then starts
@@ -552,29 +691,52 @@ public sealed class ShellSession : IAsyncDisposable
         // cheaper than terminating it — that is what Winlogon respawns) AND the
         // respawn retry, which shares the same deadline.
         cancellationToken.ThrowIfCancellationRequested();
+        ExplorerPreparationResult preparation = _desktopHost is null
+            ? new ExplorerPreparationResult(false, ExplorerShellRejection.ProcessUnavailable, "host-unavailable")
+            : await _desktopHost.PrepareForExplorerExitAsync(cancellationToken).ConfigureAwait(false);
+        if (!preparation.Prepared)
+        {
+            Log.Warn("Boot takeover refused before Explorer exit because no verified jobless "
+                + $"shell launch owner could be retained ({preparation.Detail}).");
+            bool desktopPresent;
+            try
+            {
+                desktopPresent = ExplorerControl.IsRunningInSession()
+                    || NativeMethods.GetShellWindow() != 0
+                    || NativeMethods.FindWindowW("Shell_TrayWnd", null) != 0;
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Checking desktop after refused boot takeover failed", ex);
+                desktopPresent = false;
+            }
+            return desktopPresent
+                ? BootTakeoverResult.DesktopPreserved
+                : BootTakeoverResult.DesktopRestoreRequired;
+        }
         var exited = ExplorerControl.ExitExplorerAndWait(TimeSpan.FromSeconds(30));
         // Posting Explorer's orderly-exit command is irreversible. A desktop
         // request that landed during the bounded wait must recover by starting
         // Explorer again, never continue into posture/tray/Steam game mode.
         cancellationToken.ThrowIfCancellationRequested();
-        if (!exited && ExplorerControl.IsRunningInSession())
+        if (!exited)
         {
-            // Fail open (era-proven): never enter a half game mode next to a live
-            // explorer. Resume like a desktop session — overlay armed, monitor
-            // paused, no Steam start; the user can retry from quick access.
-            Log.Warn("Boot takeover failed open — explorer preserved; resuming in desktop mode (overlay armed).");
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            bool explorerStillRunning;
+            try
             {
-                _splash?.Dismiss("takeover failed open");
-                // Same reason as the live-desktop resume: this session never
-                // entered game mode, so the injections must stay stood down.
-                _inGameMode = false;
-                if (_monitor is not null)
-                {
-                    _monitor.Paused = true;
-                }
-            });
-            return false;
+                explorerStillRunning = ExplorerControl.IsRunningInSession();
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Checking Explorer after failed boot takeover failed", ex);
+                explorerStillRunning = false;
+            }
+            Log.Warn(explorerStillRunning
+                ? "Boot takeover failed open — explorer was preserved."
+                : "Boot takeover could not prove Explorer exited and no live shell remains — restoring desktop.");
+            return explorerStillRunning
+                ? BootTakeoverResult.DesktopPreserved
+                : BootTakeoverResult.DesktopRestoreRequired;
         }
 
         var enteredGameMode = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
@@ -603,7 +765,7 @@ public sealed class ShellSession : IAsyncDisposable
             throw new OperationCanceledException(cancellationToken);
         }
 
-        return true;
+        return BootTakeoverResult.EnteredGameMode;
     }
 
     /// <summary>Handles the boot splash's recovery/quickswitch action on the UI
@@ -630,10 +792,31 @@ public sealed class ShellSession : IAsyncDisposable
     /// release its transition gate first.</summary>
     private void BeginDesktopModeFromSplash()
     {
-        _modes!.EnterDesktopMode();
-        // The boot sequence skips its Big Picture start once the monitor is paused;
-        // give the resulting desktop session a normal windowed Steam instead.
-        _modes.StartSteamDesktop();
+        // The boot sequence skips its Big Picture start once the monitor is paused. Windowed
+        // Steam starts only after Explorer's actual taskbar owner has been verified.
+        _modes!.EnterDesktopMode(startSteamDesktop: true);
+    }
+
+    /// <summary>Completes a refused boot takeover without starting another Explorer. The original
+    /// taskbar owner is still present, so dismissing the opaque cover is the recovery operation.</summary>
+    private void ResumePreservedDesktopAfterBootFailure()
+    {
+        _splash?.Dismiss("takeover refused");
+        _inGameMode = false;
+        if (_monitor is not null)
+        {
+            _monitor.Paused = true;
+        }
+        _modes!.ReportWarning(SessionModes.ExplorerTakeoverRefusedWarning);
+    }
+
+    /// <summary>Starts the ordinary verified desktop restoration after boot crossed an uncertain
+    /// Explorer-exit boundary. The transition gate has already been released by the caller.</summary>
+    private void BeginDesktopModeAfterBootFailure()
+    {
+        _splash?.Dismiss("takeover recovery");
+        _modes!.ReportWarning(SessionModes.ExplorerExitFailedWarning);
+        _modes.EnterDesktopMode();
     }
 
     /// <summary>Name-based liveness check for the double-launch guard. Deliberately
@@ -674,6 +857,10 @@ public sealed class ShellSession : IAsyncDisposable
     /// caller still runs a full sync; they are not collapsed into one).</summary>
     private void KickTabBootSync()
     {
+        if (_shutdownRequested)
+        {
+            return;
+        }
         _tabBootSyncCancellation.Cancel();
         _tabBootSyncCancellation.Dispose();
         _tabBootSyncCancellation = new CancellationTokenSource();
@@ -686,6 +873,10 @@ public sealed class ShellSession : IAsyncDisposable
     /// warning instead of refilling the capped log every few seconds.</summary>
     private void KickDownloadSort()
     {
+        if (_shutdownRequested)
+        {
+            return;
+        }
         _downloadSortCancellation.Cancel();
         _downloadSortCancellation.Dispose();
         _downloadSortCancellation = new CancellationTokenSource();
@@ -1006,6 +1197,10 @@ public sealed class ShellSession : IAsyncDisposable
                     var config = ConfigStore.Load();
                     Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                     {
+                        if (_disposed)
+                        {
+                            return;
+                        }
                         // One instance for every reader: the volume OSD's UI-scale
                         // callback and DisplayScale's saved-scale snapshot must not
                         // drift onto different AppConfig objects.
@@ -1016,6 +1211,7 @@ public sealed class ShellSession : IAsyncDisposable
                         if (config.Cef.Enabled)
                         {
                             _steamUi?.Apply(config.Cef.NativeQuickAccess);
+                            _steamUi?.ApplyGlyphSelector(GlyphSelectorEnabled(config));
                         }
                         ApplySteamInputManagement(config.SteamInputManagementEnabled);
                         ApplyNetworkIndicator(config.Cef.Enabled && config.Cef.WifiIndicator);
@@ -1071,17 +1267,26 @@ public sealed class ShellSession : IAsyncDisposable
         }
     }
 
-    private static async Task<bool> RunUiActionAsync(
+    private async Task<bool> RunUiActionAsync(
         Func<bool> action,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(action);
+        if (_shutdownRequested)
+        {
+            return false;
+        }
+        return await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            _shutdownRequested ? false : action());
     }
 
     private async Task<bool> CyclePerformanceOverlayLevelAsync(
         CancellationToken cancellationToken)
     {
+        if (_shutdownRequested)
+        {
+            return false;
+        }
         PerformanceService? performance = _performance;
         if (performance is null || !performance.Enabled)
         {
@@ -1116,8 +1321,31 @@ public sealed class ShellSession : IAsyncDisposable
             or PerformanceCommandPhase.AppliedUnverified;
     }
 
+    private void OnSessionEnding()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+        Log.Info("Interactive session is ending; requesting bounded session cleanup.");
+        ApplicationShutdownRequest.Request(ApplicationShutdownReason.SessionEnd);
+        if (Avalonia.Application.Current?.ApplicationLifetime
+            is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime lifetime)
+        {
+            lifetime.Shutdown();
+        }
+    }
+
     /// <summary>Runs bounded device cleanup before the application lifetime ends.</summary>
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync() => ShutdownAsync(
+        ApplicationShutdownReason.Normal,
+        DateTimeOffset.UtcNow.Add(ApplicationShutdownCoordinator.BudgetFor(
+            ApplicationShutdownReason.Normal)));
+
+    /// <summary>Runs session cleanup with the device protocol reason and one outer deadline.</summary>
+    internal async ValueTask ShutdownAsync(
+        ApplicationShutdownReason reason,
+        DateTimeOffset deadline)
     {
         if (_disposed)
         {
@@ -1125,59 +1353,363 @@ public sealed class ShellSession : IAsyncDisposable
         }
 
         _disposed = true;
+        _shutdownRequested = true;
+        _shutdownCancellation.Cancel();
+        Exception? startupFailure = null;
+        if (_startupTask is not null)
+        {
+            try
+            {
+                await _startupTask;
+            }
+            catch (OperationCanceledException) when (_shutdownCancellation.IsCancellationRequested)
+            {
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                startupFailure = ex;
+                Log.Error("Shell startup failed before shutdown cleanup", ex);
+            }
+        }
+        _bootTakeover?.RequestShutdown();
+        _modes?.RequestShutdown();
+        Exception? uiCleanupFailure = startupFailure;
+        try
+        {
+            _splash?.Dismiss("application shutdown");
+        }
+        catch (Exception ex)
+        {
+            uiCleanupFailure = RetainFirstShutdownFailure(uiCleanupFailure, ex);
+            Log.Error("Dismissing the boot splash during application shutdown failed", ex);
+        }
+        // Close input admission on the UI thread before any safety-critical asynchronous cleanup.
+        try
+        {
+            _overlay?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            uiCleanupFailure = RetainFirstShutdownFailure(uiCleanupFailure, ex);
+            Log.Error("Closing overlay command admission during application shutdown failed", ex);
+        }
+        finally
+        {
+            _overlay = null;
+        }
         _tabBootSyncCancellation.Cancel();
         _downloadSortCancellation.Cancel();
+
+        // Device cleanup is the safety-critical part of the outer application budget.
+        // Run it before waiting on shell transitions or doing Explorer/CEF/RTSS teardown.
+        // If the outer owner reaches its deadline, process exit still closes DeviceHost's job
+        // while the shell anchor remains available for owner-loss desktop recovery.
+        Exception? deviceCleanupFailure = null;
+        if (_deviceCoordinator is not null)
+        {
+            DeviceStopReason deviceReason = reason switch
+            {
+                ApplicationShutdownReason.Update =>
+                    DeviceStopReason.Updating,
+                ApplicationShutdownReason.SessionEnd =>
+                    DeviceStopReason.SessionEnding,
+                ApplicationShutdownReason.Uninstall =>
+                    DeviceStopReason.Uninstalling,
+                _ => DeviceStopReason.WsgmExiting,
+            };
+            try
+            {
+                await _deviceCoordinator.ShutdownAsync(deviceReason, deadline).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                deviceCleanupFailure = ex;
+                Log.Error(
+                    "Device cleanup was unverified; remaining shell cleanup continues",
+                    ex);
+            }
+            finally
+            {
+                _deviceCoordinator = null;
+            }
+        }
+
+        Exception? retainedShutdownFailure = CombineShutdownFailures(
+            uiCleanupFailure,
+            deviceCleanupFailure);
+        uiCleanupFailure = null;
+        await ContinueShutdownWithRetainedFailureAsync(
+            retainedShutdownFailure,
+            async () =>
+            {
+                // Shutdown rejects every new transition before reaching this point. Let the one
+                // existing transition and the separately-rooted boot worker cross their Explorer/UI
+                // boundaries before disposing anything they can still access. The application
+                // coordinator owns the only deadline; a nested timeout here could retire the recovery
+                // anchor underneath them.
+                if (_modes is not null)
+                {
+                    await _modes.WaitForTransitionAsync().ConfigureAwait(false);
+                }
+                if (_bootWork is not null)
+                {
+                    await _bootWork.ConfigureAwait(false);
+                    _bootWork = null;
+                }
+
+                bool trayRetired = false;
+                try
+                {
+                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(RetireTrayHostForShutdown);
+                    trayRetired = true;
+                }
+                catch (Exception ex)
+                {
+                    uiCleanupFailure = RetainFirstShutdownFailure(uiCleanupFailure, ex);
+                    Log.Error("Retiring the WSGM taskbar during application shutdown failed", ex);
+                }
+                try
+                {
+                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(DisposeUiOwnedSessionResources);
+                }
+                catch (Exception ex)
+                {
+                    uiCleanupFailure = RetainFirstShutdownFailure(uiCleanupFailure, ex);
+                    Log.Error("UI-owned shell cleanup failed during application shutdown", ex);
+                }
+
+                bool desktopVerified = trayRetired
+                    && await RestoreDesktopBeforeShutdownAsync(reason, deadline).ConfigureAwait(false);
+                if (desktopVerified && _desktopHost is not null)
+                {
+                    await _desktopHost.DisposeAsync().ConfigureAwait(false);
+                    _desktopHost = null;
+                }
+
+                if (_runningApplicationPerformance is not null)
+                {
+                    await _runningApplicationPerformance.DisposeAsync().ConfigureAwait(false);
+                    _runningApplicationPerformance = null;
+                }
+                if (_runningApplications is not null)
+                {
+                    await _runningApplications.DisposeAsync().ConfigureAwait(false);
+                    _runningApplications = null;
+                }
+                await _cefMasterGate.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    if (_steamUi is not null)
+                    {
+                        await _steamUi.DisposeAsync().ConfigureAwait(false);
+                        _steamUi = null;
+                    }
+                }
+                finally
+                {
+                    _cefMasterGate.Release();
+                }
+                if (_steamUiTransport is not null)
+                {
+                    await _steamUiTransport.DisposeAsync().ConfigureAwait(false);
+                    _steamUiTransport = null;
+                }
+                if (_performance is not null)
+                {
+                    await _performance.DisposeAsync().ConfigureAwait(false);
+                    _performance = null;
+                }
+                _tabBootSyncCancellation.Dispose();
+                _downloadSortCancellation.Dispose();
+                _shutdownCancellation.Dispose();
+
+                if (!desktopVerified)
+                {
+                    throw new InvalidOperationException(
+                        "Application shutdown could not verify a usable Explorer desktop; "
+                        + "the retained shell anchor will recover after process exit.");
+                }
+                ThrowIfUiCleanupIncomplete(uiCleanupFailure);
+            }).ConfigureAwait(false);
+    }
+
+    /// <summary>Keeps the earliest UI/input-admission cleanup failure so later cleanup cannot
+    /// accidentally turn an incomplete shutdown into a verified outcome.</summary>
+    internal static Exception RetainFirstShutdownFailure(Exception? current, Exception failure) =>
+        current ?? failure;
+
+    /// <summary>Combines independently retained shutdown failures without discarding either cause.</summary>
+    internal static Exception? CombineShutdownFailures(Exception? first, Exception? second)
+    {
+        if (first is null)
+        {
+            return second;
+        }
+        if (second is null)
+        {
+            return first;
+        }
+
+        List<Exception> failures = [];
+        if (first is AggregateException firstAggregate)
+        {
+            failures.AddRange(firstAggregate.Flatten().InnerExceptions);
+        }
+        else
+        {
+            failures.Add(first);
+        }
+        if (second is AggregateException secondAggregate)
+        {
+            failures.AddRange(secondAggregate.Flatten().InnerExceptions);
+        }
+        else
+        {
+            failures.Add(second);
+        }
+        return new AggregateException("Multiple application shutdown steps were unverified.", failures);
+    }
+
+    /// <summary>Runs all remaining shell cleanup before reporting an earlier retained failure.</summary>
+    internal static async ValueTask ContinueShutdownWithRetainedFailureAsync(
+        Exception? retainedFailure,
+        Func<Task> remainingCleanupAsync)
+    {
+        ArgumentNullException.ThrowIfNull(remainingCleanupAsync);
+        Exception? remainingFailure = null;
+        try
+        {
+            await remainingCleanupAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            remainingFailure = ex;
+        }
+
+        Exception? failure = CombineShutdownFailures(retainedFailure, remainingFailure);
+        if (failure is not null)
+        {
+            throw new InvalidOperationException(
+                "Application shutdown completed its remaining cleanup, but one or more steps were unverified.",
+                failure);
+        }
+    }
+
+    /// <summary>Reports any retained UI/input-admission cleanup failure to the outer coordinator.</summary>
+    internal static void ThrowIfUiCleanupIncomplete(Exception? failure)
+    {
+        if (failure is not null)
+        {
+            throw new InvalidOperationException(
+                "Application shutdown completed desktop recovery but UI-owned cleanup was incomplete.",
+                failure);
+        }
+    }
+
+    private void DisposeUiOwnedSessionResources()
+    {
         lock (_configDebounceGate)
         {
             _configDebounce?.Dispose();
             _configDebounce = null;
         }
-
         _configWatcher?.Dispose();
         _configWatcher = null;
+        _splash = null;
+        if (_messageWindow is not null)
+        {
+            _messageWindow.SessionEnding -= OnSessionEnding;
+        }
+        _messageWindow = null;
         _overlay?.Dispose();
         _overlay = null;
         _performanceOverlay?.Dispose();
         _performanceOverlay = null;
-        if (_runningApplicationPerformance is not null)
-        {
-            await _runningApplicationPerformance.DisposeAsync().ConfigureAwait(false);
-            _runningApplicationPerformance = null;
-        }
-        if (_runningApplications is not null)
-        {
-            await _runningApplications.DisposeAsync().ConfigureAwait(false);
-            _runningApplications = null;
-        }
-        await _cefMasterGate.WaitAsync().ConfigureAwait(false);
-        try
-        {
-            if (_steamUi is not null)
-            {
-                await _steamUi.DisposeAsync().ConfigureAwait(false);
-                _steamUi = null;
-            }
-        }
-        finally
-        {
-            _cefMasterGate.Release();
-        }
-        if (_steamUiTransport is not null)
-        {
-            await _steamUiTransport.DisposeAsync().ConfigureAwait(false);
-            _steamUiTransport = null;
-        }
-        if (_performance is not null)
-        {
-            await _performance.DisposeAsync().ConfigureAwait(false);
-            _performance = null;
-        }
         _deviceOverlay?.Dispose();
         _deviceOverlay = null;
-        if (_deviceCoordinator is not null)
+        _displayMute?.Dispose();
+        _displayMute = null;
+        _volumeButtons?.Dispose();
+        _volumeButtons = null;
+        _cardVolumes?.Dispose();
+        _cardVolumes = null;
+        _cardAcfWatcher?.Dispose();
+        _cardAcfWatcher = null;
+        _networkIndicator?.Dispose();
+        _networkIndicator = null;
+        _startupWatcher?.Dispose();
+        _startupWatcher = null;
+        if (_keepAwake is not null)
         {
-            await _deviceCoordinator.DisposeAsync().ConfigureAwait(false);
-            _deviceCoordinator = null;
+            _keepAwake.DownloadActivityChanged -= OnDownloadActivityChanged;
+            _keepAwake.Dispose();
+            _keepAwake = null;
+        }
+        _monitor?.Dispose();
+        _monitor = null;
+    }
+
+    private void RetireTrayHostForShutdown()
+    {
+        // Every later cleanup is recoverable through process exit. Explorer restoration is not:
+        // it must never run beside WSGM's Shell_TrayWnd and create two taskbar owners.
+        _trayHost?.Dispose();
+        _trayHost = null;
+    }
+
+    private async Task<bool> RestoreDesktopBeforeShutdownAsync(
+        ApplicationShutdownReason reason,
+        DateTimeOffset deadline)
+    {
+        ExplorerDesktopHost? desktopHost = _desktopHost;
+        if (desktopHost is null || reason is ApplicationShutdownReason.SessionEnd)
+        {
+            return true;
+        }
+
+        TimeSpan remaining = deadline - DateTimeOffset.UtcNow;
+        if (remaining <= TimeSpan.Zero)
+        {
+            Log.Warn("Application shutdown reached its deadline before Explorer desktop recovery.");
+            return false;
+        }
+
+        try
+        {
+            // Reproduce the non-Explorer half of the ordinary desktop transition before the shell
+            // appears. Update already asked Steam to exit so its mapped payload can be replaced;
+            // never race that exit with a protocol URL that could start the client again.
+            if (reason is not ApplicationShutdownReason.Update)
+            {
+                _modes?.ExitBigPicture();
+            }
+            DisplayScale.ApplyDesktopMode(_config);
+        }
+        catch (Exception ex)
+        {
+            // Explorer recovery is the higher-priority safety boundary. Program's final posture
+            // cleanup gets another chance after Avalonia exits.
+            Log.Error("Preparing desktop posture during application shutdown failed", ex);
+        }
+
+        remaining = deadline - DateTimeOffset.UtcNow;
+        if (remaining <= TimeSpan.Zero)
+        {
+            Log.Warn("Application shutdown reached its deadline before Explorer desktop recovery.");
+            return false;
+        }
+
+        try
+        {
+            ExplorerDesktopResult result = await desktopHost.RestoreDesktopAsync(remaining)
+                .ConfigureAwait(false);
+            return result.Outcome is ExplorerDesktopOutcome.Normal
+                or ExplorerDesktopOutcome.Degraded;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Application shutdown Explorer desktop recovery failed", ex);
+            return false;
         }
     }
 
@@ -1191,6 +1723,11 @@ public sealed class ShellSession : IAsyncDisposable
 
         _ = ObserveDeviceConfigAsync(coordinator, config);
     }
+
+    private static bool GlyphSelectorEnabled(AppConfig config) =>
+        config.Cef.Enabled
+        && config.DeviceIntegration.Enabled
+        && config.DeviceIntegration.GlyphSelection is not DeviceGlyphSelection.NativeSteam;
 
     private void ApplyPerformanceConfig(AppConfig config)
     {
@@ -1287,8 +1824,9 @@ public sealed class ShellSession : IAsyncDisposable
         }
     }
 
-    private async Task LaunchAppsAsync()
+    private async Task LaunchAppsAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         // Snapshot the token up front: KickTabBootSync (UI thread) disposes and
         // replaces the source, and reading .Token off the replaced instance later
         // throws ObjectDisposedException — which would abort the rest of this
@@ -1298,11 +1836,12 @@ public sealed class ShellSession : IAsyncDisposable
         if (haveApps && _config.StartupDelayMs > 0)
         {
             Log.Info($"Waiting {_config.StartupDelayMs} ms before the first startup app (boot settle).");
-            await Task.Delay(_config.StartupDelayMs);
+            await Task.Delay(_config.StartupDelayMs, cancellationToken);
         }
 
         foreach (var app in _config.StartupApps)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!app.Enabled || string.IsNullOrWhiteSpace(app.Path))
             {
                 continue;
@@ -1316,12 +1855,12 @@ public sealed class ShellSession : IAsyncDisposable
             }
             Log.Info($"Starting startup app: {app.Path} {app.Args}{(app.Elevated ? " (elevated)" : "")}");
             AppLauncher.Start(app.Path, app.Args, app.Elevated);
-            await Task.Delay(Math.Max(0, _config.StaggerDelayMs));
+            await Task.Delay(Math.Max(0, _config.StaggerDelayMs), cancellationToken);
         }
 
         if (_config.SteamDelayMs > 0)
         {
-            await Task.Delay(_config.SteamDelayMs);
+            await Task.Delay(_config.SteamDelayMs, cancellationToken);
         }
 
         // The splash's Switch-to-desktop (or the overlay's) may have fired while
@@ -1333,7 +1872,7 @@ public sealed class ShellSession : IAsyncDisposable
             return;
         }
 
-
+        cancellationToken.ThrowIfCancellationRequested();
         // Shared start + warning flow (also behind the overlay's Steam button);
         // boot surfaces failures itself because this runs off the UI thread.
         // (steam://open/bigpicture adopts a Steam that explorer's own autostart
@@ -1343,12 +1882,17 @@ public sealed class ShellSession : IAsyncDisposable
         {
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
+                if (_shutdownRequested)
+                {
+                    return;
+                }
                 _splash?.Dismiss("Steam start warning");
                 _overlay?.SetWarning(warning);
                 _overlay?.ShowOverlay();
             });
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         // Inject the WSGM library tabs once Steam's UI has loaded, so they appear at
         // boot without the user opening the overlay. Fire-and-forget; self-limiting.
         _ = new LibraryTabManager().SyncOnBootAsync(tabSyncToken);
@@ -1363,4 +1907,28 @@ public sealed class ShellSession : IAsyncDisposable
         // already there the first time the user opens the Downloads page.
         KickDownloadSort();
     }
+
+    private static async Task TrimAfterBootSettlesAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(90), cancellationToken).ConfigureAwait(false);
+            MemoryTrim.TrimBestEffort("boot settled");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Application teardown deliberately suppresses the post-boot trim.
+        }
+    }
+}
+
+/// <summary>Outcome of the service-boot Explorer takeover phase.</summary>
+internal enum BootTakeoverResult
+{
+    /// <summary>Explorer exited safely and game-mode shell resources were created.</summary>
+    EnteredGameMode,
+    /// <summary>The original desktop stayed intact and only the boot cover must be removed.</summary>
+    DesktopPreserved,
+    /// <summary>The exit boundary is uncertain and the verified desktop restoration must run.</summary>
+    DesktopRestoreRequired,
 }

@@ -23,6 +23,8 @@ public enum BigPictureShortcut
 /// and its Big Picture window is recognized by class+process.</summary>
 public static class Steam
 {
+    private static readonly TimeSpan UpdateGracefulExitBudget = TimeSpan.FromSeconds(5);
+
     /// <summary>steam.exe plus the process that owns the Big Picture window.</summary>
     public const string ProcessNames = "steam;steamwebhelper";
 
@@ -42,6 +44,10 @@ public static class Steam
     public const string CloseBigPictureUrl = "steam://close/bigpicture";
     /// <summary>Graceful full Steam shutdown (verified client URL).</summary>
     public const string ExitUrl = "steam://exit";
+
+    /// <summary>Gets the complete bounded pre-shutdown window used to release Steam and launch
+    /// wrappers before WSGM starts its separate application-cleanup deadline.</summary>
+    internal static TimeSpan UpdateStopBudget => TimeSpan.FromSeconds(10);
 
     private static string? _cachedExePath;
 
@@ -248,34 +254,68 @@ public static class Steam
     /// injected payload DLL. First requests Steam's normal shutdown, then uses
     /// WSGM's possibly elevated token to end any client that remains after a
     /// bounded grace period; the unelevated installer cannot do this reliably.</summary>
-    public static void StopForUpdate()
+    public static void StopForUpdate() => StopForUpdate(UpdateStopBudget);
+
+    /// <summary>Stops Steam and launch wrappers without exceeding the updater-owned pre-shutdown
+    /// window through any process-exit wait. The installer reserves this phase before WSGM's
+    /// application cleanup budget.</summary>
+    /// <param name="budget">Maximum combined graceful and forced-stop wait.</param>
+    internal static void StopForUpdate(TimeSpan budget)
     {
+        if (budget <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(budget));
+        }
+
+        Stopwatch elapsed = Stopwatch.StartNew();
         if (IsRunning)
         {
             Log.Info("Update requested — closing Steam to release the Steam Input payload.");
             AppLauncher.StartProtocol(ExitUrl);
-            for (var attempt = 0; attempt < 20; attempt++)
+            TimeSpan gracefulDeadline = budget < UpdateGracefulExitBudget
+                ? budget
+                : UpdateGracefulExitBudget;
+            while (elapsed.Elapsed < gracefulDeadline)
             {
-                var remaining = Process.GetProcessesByName(MainProcessName);
+                Process[] remaining = Process.GetProcessesByName(MainProcessName);
                 if (remaining.Length == 0)
                 {
                     Log.Info("Steam exited gracefully for update.");
                     break;
                 }
-                foreach (var process in remaining)
+                foreach (Process process in remaining)
                 {
                     process.Dispose();
                 }
-                Thread.Sleep(250);
+
+                TimeSpan delay = gracefulDeadline - elapsed.Elapsed;
+                if (delay > TimeSpan.Zero)
+                {
+                    Thread.Sleep(delay < TimeSpan.FromMilliseconds(250)
+                        ? delay
+                        : TimeSpan.FromMilliseconds(250));
+                }
             }
 
-            foreach (var process in Process.GetProcessesByName(MainProcessName))
+            Process[] remainingSteam = elapsed.Elapsed < budget
+                ? Process.GetProcessesByName(MainProcessName)
+                : [];
+            foreach (Process process in remainingSteam)
             {
                 try
                 {
+                    if (elapsed.Elapsed >= budget)
+                    {
+                        Log.Warn("Steam update-stop budget expired before every client could be ended.");
+                        continue;
+                    }
                     Log.Warn($"Steam did not exit for update — ending process {process.Id}.");
                     process.Kill(entireProcessTree: true);
-                    process.WaitForExit(5_000);
+                    int waitMilliseconds = RemainingWaitMilliseconds(elapsed, budget, 5_000);
+                    if (waitMilliseconds > 0)
+                    {
+                        process.WaitForExit(waitMilliseconds);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -288,6 +328,30 @@ public static class Steam
             }
         }
 
-        LaunchWrapperCommand.StopRunningHelpers("update");
+        TimeSpan helperBudget = budget - elapsed.Elapsed;
+        if (helperBudget > TimeSpan.Zero)
+        {
+            LaunchWrapperCommand.StopRunningHelpers("update", helperBudget);
+        }
+        else
+        {
+            Log.Warn("Update-stop budget expired before launch wrappers could be ended.");
+        }
+    }
+
+    private static int RemainingWaitMilliseconds(
+        Stopwatch elapsed,
+        TimeSpan budget,
+        int phaseMaximumMilliseconds)
+    {
+        TimeSpan remaining = budget - elapsed.Elapsed;
+        if (remaining <= TimeSpan.Zero)
+        {
+            return 0;
+        }
+
+        return Math.Min(
+            phaseMaximumMilliseconds,
+            Math.Max(1, (int)Math.Ceiling(remaining.TotalMilliseconds)));
     }
 }

@@ -1,9 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using Avalonia.Media;
 using WSGM.Core;
-using WSGM.Device.Contracts.Glyphs;
+using WSGM.Device.Sdk.Glyphs;
 
 namespace WSGM.Controls;
 
@@ -49,7 +50,7 @@ internal sealed record PhysicalGlyphRenderPlan
 /// <remarks>
 /// Kept internal until the P8 Steam selector and coexistence gates authorize surface wiring. The
 /// service never opens a package file, parses SVG, or performs network work; it consumes only the
-/// normalized model returned by <see cref="GlyphProfileImporter"/>.
+/// normalized model returned by the SDK's bounded package loader.
 /// </remarks>
 internal sealed class PhysicalGlyphService : IDisposable
 {
@@ -145,7 +146,7 @@ internal sealed class PhysicalGlyphService : IDisposable
             scaleBucket);
         lock (_gate)
         {
-            if (_cache.TryGetValue(key, out CacheEntry cached))
+            if (_cache.TryGetValue(key, out CacheEntry? cached) && cached is not null)
             {
                 Touch(cached);
                 return cached.Plan;
@@ -207,7 +208,8 @@ internal sealed class PhysicalGlyphService : IDisposable
         }
 
         if (mapping.AssetSha256 is not { } hash
-            || !profile.Assets.TryGetValue(hash, out ImportedGlyphAsset asset))
+            || !profile.Assets.TryGetValue(hash, out ImportedGlyphAsset? asset)
+            || asset is null)
         {
             return FallbackPlan(
                 requestedControl,
@@ -221,7 +223,7 @@ internal sealed class PhysicalGlyphService : IDisposable
             try
             {
                 PhysicalGlyphPath[] paths = vector.Paths.Select(path => new PhysicalGlyphPath(
-                    Geometry.Parse(path.Data),
+                    StreamGeometry.Parse(ToAvaloniaPathData(path.Data)),
                     path.Fill,
                     path.Stroke,
                     path.StrokeWidth,
@@ -275,9 +277,71 @@ internal sealed class PhysicalGlyphService : IDisposable
         GlyphControlMapping? mapping = profile.Manifest.Controls.FirstOrDefault(
             item => item.Control == control);
         return mapping?.AssetSha256 is { } hash
-            && profile.Assets.TryGetValue(hash, out ImportedGlyphAsset asset)
+            && profile.Assets.TryGetValue(hash, out ImportedGlyphAsset? asset)
+            && asset is not null
             ? Math.Max(64, asset.RetainedBytes)
             : 64;
+    }
+
+    private static string ToAvaloniaPathData(string normalized)
+    {
+        string[] tokens = normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        StringBuilder output = new(normalized.Length + 16);
+        int index = 0;
+        while (index < tokens.Length)
+        {
+            string command = tokens[index++];
+            if (output.Length > 0)
+            {
+                output.Append(' ');
+            }
+            output.Append(command);
+            int arity = char.ToUpperInvariant(command[0]) switch
+            {
+                'M' or 'L' or 'T' => 2,
+                'H' or 'V' => 1,
+                'C' => 6,
+                'S' or 'Q' => 4,
+                'A' => 7,
+                'Z' => 0,
+                _ => throw new FormatException("Imported glyph path has an unsupported command."),
+            };
+            while (arity > 0 && index < tokens.Length && !char.IsAsciiLetter(tokens[index][0]))
+            {
+                if (index + arity > tokens.Length)
+                {
+                    throw new FormatException("Imported glyph path has an incomplete command.");
+                }
+
+                output.Append(' ');
+                if (arity == 1)
+                {
+                    output.Append(tokens[index]);
+                }
+                else if (arity == 7)
+                {
+                    output.Append(tokens[index]).Append(',').Append(tokens[index + 1])
+                        .Append(' ').Append(tokens[index + 2])
+                        .Append(' ').Append(tokens[index + 3])
+                        .Append(' ').Append(tokens[index + 4])
+                        .Append(' ').Append(tokens[index + 5]).Append(',').Append(tokens[index + 6]);
+                }
+                else
+                {
+                    for (int parameter = 0; parameter < arity; parameter += 2)
+                    {
+                        if (parameter > 0)
+                        {
+                            output.Append(' ');
+                        }
+                        output.Append(tokens[index + parameter]).Append(',')
+                            .Append(tokens[index + parameter + 1]);
+                    }
+                }
+                index += arity;
+            }
+        }
+        return output.ToString();
     }
 
     private static PhysicalGlyphRenderPlan FallbackPlan(
@@ -306,7 +370,9 @@ internal sealed class PhysicalGlyphService : IDisposable
         while (_cache.Count > _maximumCacheEntries || _cacheBytes > _maximumCacheBytes)
         {
             LinkedListNode<RenderCacheKey>? tail = _lru.Last;
-            if (tail is null || !_cache.Remove(tail.Value, out CacheEntry removed))
+            if (tail is null
+                || !_cache.Remove(tail.Value, out CacheEntry? removed)
+                || removed is null)
             {
                 break;
             }

@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Loader;
-using WSGM.Device.Contracts.Packaging;
+using WSGM.Device.Sdk.Packaging;
 using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.DeviceHost;
@@ -42,7 +44,13 @@ internal sealed class PluginPackageLoader : IDisposable
         }
 
         string manifestPath = Constrain(root, "plugin.wsgm.json");
-        byte[] manifestBytes = File.ReadAllBytes(manifestPath);
+        FileInfo manifestFile = new(manifestPath);
+        if (!manifestFile.Exists)
+        {
+            throw new InvalidDataException("The package manifest is missing or exceeds its byte limit.");
+        }
+
+        byte[] manifestBytes = ReadBoundedManifest(manifestPath);
         PluginManifestReadResult read = PluginManifestReader.Read(manifestBytes);
         PluginManifest manifest = read.Manifest
             ?? throw new InvalidDataException("The package manifest is malformed.");
@@ -58,7 +66,7 @@ internal sealed class PluginPackageLoader : IDisposable
             throw new InvalidDataException("The package identifier does not match the launch grant.");
         }
 
-        string entryPath = Constrain(root, manifest.EntryPoint);
+        string entryPath = Constrain(root, manifest.EntryAssembly);
         if (!File.Exists(entryPath) || IsLink(entryPath))
         {
             throw new InvalidDataException("The plugin entry point is missing or is a link.");
@@ -71,28 +79,34 @@ internal sealed class PluginPackageLoader : IDisposable
     {
         ArgumentNullException.ThrowIfNull(metadata);
         PluginLoadContext context = new(metadata.PackageRoot, metadata.EntryPath);
+        IDevicePlugin? plugin = null;
         try
         {
             Assembly assembly = context.LoadFromAssemblyPath(metadata.EntryPath);
-            Type[] entryTypes = assembly.GetTypes()
-                .Where(type => !type.IsAbstract
-                    && !type.IsInterface
-                    && typeof(IDevicePlugin).IsAssignableFrom(type))
-                .ToArray();
-            if (entryTypes.Length != 1)
+            Type entryType = assembly.GetType(
+                metadata.Manifest.EntryType,
+                throwOnError: false,
+                ignoreCase: false)
+                ?? throw new InvalidDataException("The declared plugin entry type was not found.");
+            if (!entryType.IsPublic
+                || entryType.IsAbstract
+                || entryType.IsInterface
+                || entryType.ContainsGenericParameters
+                || !typeof(IDevicePlugin).IsAssignableFrom(entryType))
             {
                 throw new InvalidDataException(
-                    $"The entry assembly must contain exactly one IDevicePlugin; found {entryTypes.Length}.");
+                    "The declared entry type must be a public, concrete, non-generic IDevicePlugin.");
             }
 
-            if (Activator.CreateInstance(entryTypes[0]) is not IDevicePlugin plugin)
+            if (entryType.GetConstructor(Type.EmptyTypes) is null)
             {
                 throw new InvalidDataException("The plugin entry type needs a public parameterless constructor.");
             }
+            plugin = Activator.CreateInstance(entryType) as IDevicePlugin
+                ?? throw new InvalidDataException("The plugin entry type did not create an IDevicePlugin instance.");
 
             if (!string.Equals(plugin.PackageId, metadata.Manifest.Id, StringComparison.Ordinal))
             {
-                plugin.DisposeAsync().AsTask().GetAwaiter().GetResult();
                 throw new InvalidDataException("The plugin code and manifest package identifiers differ.");
             }
 
@@ -102,10 +116,38 @@ internal sealed class PluginPackageLoader : IDisposable
                 context,
                 plugin);
         }
-        catch
+        catch (Exception loadFailure)
         {
-            context.Unload();
-            throw;
+            List<Exception> failures = [loadFailure];
+            if (plugin is not null)
+            {
+                try
+                {
+                    plugin.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                }
+                catch (Exception disposalFailure)
+                {
+                    failures.Add(disposalFailure);
+                }
+            }
+
+            try
+            {
+                context.Unload();
+            }
+            catch (Exception unloadFailure)
+            {
+                failures.Add(unloadFailure);
+            }
+
+            if (failures.Count == 1)
+            {
+                ExceptionDispatchInfo.Capture(loadFailure).Throw();
+            }
+
+            throw new AggregateException(
+                "Plugin loading and resource cleanup were not both verified.",
+                failures);
         }
     }
 
@@ -118,6 +160,27 @@ internal sealed class PluginPackageLoader : IDisposable
 
         _disposed = true;
         _loadContext.Unload();
+    }
+
+    private static byte[] ReadBoundedManifest(string manifestPath)
+    {
+        using var stream = new FileStream(
+            manifestPath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read);
+        if (stream.Length > ManifestLimits.MaxDocumentBytes)
+        {
+            throw new InvalidDataException("The package manifest is missing or exceeds its byte limit.");
+        }
+
+        byte[] bytes = new byte[checked((int)stream.Length)];
+        stream.ReadExactly(bytes);
+        if (stream.ReadByte() >= 0)
+        {
+            throw new InvalidDataException("The package manifest is missing or exceeds its byte limit.");
+        }
+        return bytes;
     }
 
     private static string Constrain(string packageRoot, string relativePath)
@@ -162,7 +225,6 @@ internal sealed class PluginPackageLoader : IDisposable
 
     private sealed class PluginLoadContext : AssemblyLoadContext
     {
-        private static readonly string ContractsName = typeof(PluginManifest).Assembly.GetName().Name!;
         private static readonly string SdkName = typeof(IDevicePlugin).Assembly.GetName().Name!;
         private readonly string _packageRoot;
         private readonly AssemblyDependencyResolver _resolver;
@@ -176,15 +238,19 @@ internal sealed class PluginPackageLoader : IDisposable
 
         protected override Assembly? Load(AssemblyName assemblyName)
         {
-            if (string.Equals(assemblyName.Name, ContractsName, StringComparison.Ordinal)
-                || string.Equals(assemblyName.Name, SdkName, StringComparison.Ordinal))
+            if (string.Equals(assemblyName.Name, SdkName, StringComparison.Ordinal))
             {
                 return null;
             }
 
-            string path = _resolver.ResolveAssemblyToPath(assemblyName)
-                ?? throw new FileNotFoundException(
-                    $"Package-local dependency '{assemblyName.Name}' was not resolved.");
+            string? path = _resolver.ResolveAssemblyToPath(assemblyName);
+            if (path is null)
+            {
+                // Framework and the shared SDK resolve from the default context. Package
+                // dependencies still resolve to concrete paths below and remain confined.
+                return null;
+            }
+
             EnsurePackagePath(path);
             return LoadFromAssemblyPath(path);
         }

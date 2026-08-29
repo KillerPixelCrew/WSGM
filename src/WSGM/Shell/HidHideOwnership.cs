@@ -6,7 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
-using WSGM.Device.Contracts.Input;
+using WSGM.Device.Sdk.Input;
 
 namespace WSGM.Shell;
 
@@ -407,7 +407,7 @@ internal sealed class HidHideOwnedDeltaManager
         _store = store;
     }
 
-    internal async Task<HidHideActivationResult> ActivateAsync(
+    internal async Task<HidHideActivationResult> StartAsync(
         bool controllerManagementEnabled,
         string deviceHostApplication,
         IReadOnlyList<PhysicalDeviceIdentity> physicalDevices,

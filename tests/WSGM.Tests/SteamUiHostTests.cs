@@ -264,9 +264,17 @@ public sealed class NativeQamComponentPatchTests
 
     private sealed class NativeQamComponentTransport : ISteamUiTransport
     {
-        public event EventHandler<SteamUiNotification>? NotificationReceived;
+        public event EventHandler<SteamUiNotification>? NotificationReceived
+        {
+            add { }
+            remove { }
+        }
 
-        public event EventHandler<SteamUiTransportSnapshot>? GenerationChanged;
+        public event EventHandler<SteamUiTransportSnapshot>? GenerationChanged
+        {
+            add { }
+            remove { }
+        }
 
         internal int TdpAvailabilityCount { get; init; } = 1;
 
@@ -523,9 +531,17 @@ public sealed class SteamUiPatchManagerTests
 
     private sealed class FakeTransport : ISteamUiTransport
     {
-        public event EventHandler<SteamUiNotification>? NotificationReceived;
+        public event EventHandler<SteamUiNotification>? NotificationReceived
+        {
+            add { }
+            remove { }
+        }
 
-        public event EventHandler<SteamUiTransportSnapshot>? GenerationChanged;
+        public event EventHandler<SteamUiTransportSnapshot>? GenerationChanged
+        {
+            add { }
+            remove { }
+        }
 
         public ValueTask<IAsyncDisposable> SubscribeAsync(
             SteamUiTargetRole role, CancellationToken cancellationToken = default) =>

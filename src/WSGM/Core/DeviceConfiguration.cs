@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using WSGM.Device.Contracts.Capabilities;
-using WSGM.Device.Contracts.Input;
+using System.Text.Json.Serialization;
+using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Core;
 
@@ -14,7 +14,7 @@ public static class DeviceFeatureAvailability
 
     /// <summary>User-safe reason controller management is excluded from this release.</summary>
     public const string ControllerManagementDetail =
-        "Controller management is unavailable under P0-020: the pinned HIDMaestro release "
+        "Controller management is unavailable: the pinned HIDMaestro release "
         + "does not pass the four-rear-control/stick-touch profile gate, and exact signed "
         + "driver reproduction is not established.";
 }
@@ -32,13 +32,6 @@ public sealed class DeviceIntegrationConfig
     /// </remarks>
     public bool ControllerManagementEnabled { get; set; }
 
-    /// <summary>Whether explicit Device Lab developer packages may be inspected.</summary>
-    /// <remarks>Developer packages still never auto-activate as production plugins.</remarks>
-    public bool DeveloperMode { get; set; }
-
-    /// <summary>How eligible package updates are offered.</summary>
-    public DevicePluginUpdatePolicy UpdatePolicy { get; set; } = DevicePluginUpdatePolicy.Notify;
-
     /// <summary>Global managed-controller target.</summary>
     public ManagedControllerTarget ControllerTarget { get; set; } =
         ManagedControllerTarget.SteamDeckComposite;
@@ -52,24 +45,8 @@ public sealed class DeviceIntegrationConfig
     /// <summary>Sanitized diagnostics detail retained and displayed by default.</summary>
     public DeviceDiagnosticLevel DiagnosticLevel { get; set; } = DeviceDiagnosticLevel.Standard;
 
-    /// <summary>Explicit selected packages keyed by stable local device identity.</summary>
-    public List<DevicePackageSelection> PackageSelections { get; set; } = [];
-
     /// <summary>Desired semantic profiles keyed by stable local device identity.</summary>
     public List<DeviceDesiredProfile> Profiles { get; set; } = [];
-}
-
-/// <summary>How package updates may enter the next device cycle.</summary>
-public enum DevicePluginUpdatePolicy
-{
-    /// <summary>Never fetch or stage automatically.</summary>
-    Manual,
-
-    /// <summary>Notify the user; installation remains explicit.</summary>
-    Notify,
-
-    /// <summary>Allow a verified update to stage, but never apply it to an active cycle.</summary>
-    StageVerified,
 }
 
 /// <summary>Controller identity exposed to applications while management is active.</summary>
@@ -109,19 +86,6 @@ public enum DeviceDiagnosticLevel
 
     /// <summary>Bounded transaction metadata without raw unique identifiers or samples.</summary>
     Detailed,
-}
-
-/// <summary>An explicit package choice for one local device identity.</summary>
-public sealed class DevicePackageSelection
-{
-    /// <summary>Stable local device identity key.</summary>
-    public string DeviceIdentityKey { get; set; } = string.Empty;
-
-    /// <summary>Package identifier selected by the user.</summary>
-    public string PackageId { get; set; } = string.Empty;
-
-    /// <summary>Explicit immutable version pin used for activation and rollback.</summary>
-    public string? Version { get; set; }
 }
 
 /// <summary>All persistent desired state for one local device identity.</summary>
@@ -186,6 +150,49 @@ public sealed class DeviceApplicationDesiredValue
 
     /// <summary>Desired semantic value.</summary>
     public CapabilityValue? Value { get; set; }
+}
+
+/// <summary>Closed WSGM-owned actions that an OEM control may invoke.</summary>
+/// <remarks>
+/// There is deliberately no executable, script, shell-command, text-macro, or arbitrary-key action.
+/// Keeping the vocabulary here, rather than in the plugin SDK, prevents hardware packages from
+/// defining WSGM application policy or turning OEM assignment into a general remapper.
+/// </remarks>
+[JsonConverter(typeof(JsonStringEnumConverter<OemAction>))]
+public enum OemAction
+{
+    /// <summary>Do nothing.</summary>
+    Disabled,
+
+    /// <summary>Open or close the WSGM overlay.</summary>
+    ToggleWsgmOverlay,
+
+    /// <summary>Open or close Steam's native Quick Access Menu.</summary>
+    ToggleSteamQuickAccess,
+
+    /// <summary>Open the overlay directly on the Device page.</summary>
+    ShowWsgmDevicePage,
+
+    /// <summary>Open or close the WSGM taskbar.</summary>
+    ToggleWsgmTaskbar,
+
+    /// <summary>Switch between Desktop and Game Mode.</summary>
+    ToggleDesktopGameMode,
+
+    /// <summary>Show or hide the on-screen keyboard.</summary>
+    ToggleOnScreenKeyboard,
+
+    /// <summary>Move to the next performance profile.</summary>
+    CyclePerformanceProfile,
+
+    /// <summary>Move to the next performance-overlay level.</summary>
+    CyclePerformanceOverlayLevel,
+
+    /// <summary>Forward as the current target's first rear control. Rear placement only.</summary>
+    VirtualTargetRearButton1,
+
+    /// <summary>Forward as the current target's second rear control. Rear placement only.</summary>
+    VirtualTargetRearButton2,
 }
 
 /// <summary>One allowlisted OEM-control assignment.</summary>

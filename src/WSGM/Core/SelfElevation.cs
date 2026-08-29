@@ -2,6 +2,7 @@ using System;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace WSGM.Core;
 
@@ -42,9 +43,8 @@ public static class SelfElevation
 
         var elevatedStartupApps = config.StartupApps.Any(a => a.Enabled && a.Elevated);
         var elevatedSteam = Steam.RequiresElevatedShell;
-        // Reviewed first-party DeviceHost inherits WSGM's token. The selected package is not loaded
-        // until after elevation and trust validation, while unreviewed tiers are explicitly launched
-        // with the interactive shell's medium-integrity token by DeviceHostProcess.
+        // The sole administrator-installed DeviceHost/plugin inherits WSGM's token. Startup has
+        // already enforced package-root cardinality; the package is not opened until after elevation.
         var wantsElevation = elevatedStartupApps || elevatedSteam || config.DeviceIntegration.Enabled;
         if (!wantsElevation ||
             ElevationCheck.IsCurrentProcessElevated() != false)
@@ -127,6 +127,43 @@ public static class SelfElevation
                 return false;
             }
             return p.ExitCode == 0;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"{description} not applied: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>Starts an elevated maintenance copy and asynchronously waits for its exact result.
+    /// Package replacement uses this untruncated wait because a bounded file copy can legitimately
+    /// exceed the short settings-action window and must not keep running after its caller reports a
+    /// false failure.</summary>
+    internal static async Task<bool> RunElevatedMaintenanceAsync(
+        string arguments,
+        string description)
+    {
+        string? executable = Environment.ProcessPath;
+        if (executable is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            ProcessStartInfo start = new(executable, arguments)
+            {
+                UseShellExecute = true,
+                Verb = "runas",
+            };
+            using Process? process = Process.Start(start);
+            if (process is null)
+            {
+                return false;
+            }
+
+            await process.WaitForExitAsync().ConfigureAwait(false);
+            return process.ExitCode == 0;
         }
         catch (Exception ex)
         {

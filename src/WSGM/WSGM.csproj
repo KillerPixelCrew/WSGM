@@ -72,6 +72,12 @@
           Link="%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" />
+    <!-- WSGM is GPL-3.0-or-later. Ship the repository's authoritative license
+         as part of every core output instead of maintaining a second copy. -->
+    <None Include="..\..\LICENSE"
+          Link="LICENSE.txt"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <!-- Boot-splash spinner styles (Unlicense; the license text ships from
@@ -81,13 +87,10 @@
          the Avalonia we ship. See its csproj for the full reasoning. -->
     <ProjectReference
         Include="..\..\third_party\LoadingIndicators.Avalonia\LoadingIndicators.Avalonia\LoadingIndicators.Avalonia.csproj" />
-    <!-- The semantic device contracts, and the ONLY device-platform project this
-         executable may reference. DeviceHost, the SDK, Device Lab and every plugin
-         stay JIT and out of this image; DeviceBoundaryTests fails the build if one
-         of them is referenced, and eng\check-aot-isolation.ps1 fails it if one is
-         copied here without a reference. This project's IsAotCompatible analyzers
-         mean the AOT publish below is what proves the contracts stay AOT-safe. -->
-    <ProjectReference Include="..\WSGM.Device.Contracts\WSGM.Device.Contracts.csproj" />
+    <!-- The zero-dependency semantic Device SDK is the ONLY device-platform project
+         this executable may reference. DeviceHost, Device Lab and every plugin stay
+         JIT and out of this image. NativeAOT publish proves the shared SDK closure. -->
+    <ProjectReference Include="..\WSGM.Device.Sdk\WSGM.Device.Sdk.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- 1-9: how hard the GC works to keep the heap small; 9 = maximum. Reads

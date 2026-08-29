@@ -22,8 +22,8 @@ internal static class Program
     /// <summary>Required arguments were missing or malformed.</summary>
     /// <remarks>
     /// Also the exit code a human gets for launching the executable directly, which is the intended
-    /// outcome: DeviceHost is not a diagnostic tool. Device Lab observes a running plugin through the
-    /// owner's bounded read-only diagnostic session instead of starting its own host.
+    /// outcome: DeviceHost is not a diagnostic tool. Device Lab owns its explicit local test
+    /// lifecycle and never repurposes this production host as a diagnostic broker.
     /// </remarks>
     private const int ExitInvalidArguments = 64;
 
@@ -42,7 +42,7 @@ internal static class Program
                 +
                 "WSGM.DeviceHost is started by WSGM, not run directly. "
                     + "Required: --package, --package-id, --pipe, --nonce, --session, "
-                    + "--host-generation, and --trust-tier.");
+                    + "and --generation.");
             return ExitInvalidArguments;
         }
 

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using WSGM.Device.Contracts.Input;
+using WSGM.Device.Sdk.Input;
 
 namespace WSGM.Input;
 
@@ -478,7 +478,7 @@ internal static class ManagedControllerSampleValidator
         out string reason)
     {
         ArgumentNullException.ThrowIfNull(sample);
-        if (sample.DeviceGeneration != sourceGeneration)
+        if (sample.CycleGeneration != sourceGeneration)
         {
             reason = "stale-source-generation";
             return false;

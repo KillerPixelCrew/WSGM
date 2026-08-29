@@ -2,7 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
-using WSGM.Device.Contracts.Ipc;
+using WSGM.Device.Sdk.Ipc;
 
 namespace WSGM.DeviceHost;
 

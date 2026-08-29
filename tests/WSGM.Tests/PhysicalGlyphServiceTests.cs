@@ -1,34 +1,36 @@
+using System.Buffers.Binary;
+using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using WSGM.Controls;
 using WSGM.Core;
-using WSGM.Device.Contracts.Glyphs;
+using WSGM.Device.Sdk.Glyphs;
+using WSGM.Device.Sdk.Ipc;
 using WSGM.Shell;
 
 namespace WSGM.Tests;
 
 public sealed class PhysicalGlyphServiceTests
 {
-    [Theory]
-    [InlineData(DeviceGlyphSelection.Automatic, PhysicalGlyphSelectionMode.Automatic)]
-    [InlineData(DeviceGlyphSelection.NativeSteam, PhysicalGlyphSelectionMode.NativeSteam)]
-    [InlineData(DeviceGlyphSelection.ManualReviewedProfile, PhysicalGlyphSelectionMode.ManualReviewed)]
-    public void PersistedSelection_MapsToClosedPhysicalMode(
-        DeviceGlyphSelection persisted,
-        PhysicalGlyphSelectionMode expected)
+    [Fact]
+    public void PersistedSelection_MapsToClosedPhysicalMode()
     {
-        Assert.Equal(expected, DeviceCoordinator.MapGlyphSelection(persisted));
+        Assert.Equal(
+            PhysicalGlyphSelectionMode.Automatic,
+            DeviceCoordinator.MapGlyphSelection(DeviceGlyphSelection.Automatic));
+        Assert.Equal(
+            PhysicalGlyphSelectionMode.NativeSteam,
+            DeviceCoordinator.MapGlyphSelection(DeviceGlyphSelection.NativeSteam));
+        Assert.Equal(
+            PhysicalGlyphSelectionMode.ManualReviewed,
+            DeviceCoordinator.MapGlyphSelection(DeviceGlyphSelection.ManualReviewedProfile));
     }
 
-    private const string NoticeHash =
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-
     [Fact]
-    public void Automatic_RequiresExactProfileAndExactDeviceVerification()
+    public void Automatic_RequiresAnImportedProfileForTheExactDevice()
     {
-        ImportedGlyphProfile profile = ImportProfile(
-            GlyphProfileVerification.ExactDeviceVerified,
-            ["device-a"]);
+        ImportedGlyphProfile profile = ImportProfile(["device-a"]);
         using PhysicalGlyphCatalog catalog = new();
         catalog.ReplacePackageProfiles([profile]);
 
@@ -51,31 +53,9 @@ public sealed class PhysicalGlyphServiceTests
     }
 
     [Fact]
-    public void Automatic_NeverEnablesAnUnverifiedProfile()
-    {
-        ImportedGlyphProfile profile = ImportProfile(
-            GlyphProfileVerification.Unverified,
-            ["ms-1t52"]);
-        using PhysicalGlyphCatalog catalog = new();
-        catalog.ReplacePackageProfiles([profile]);
-
-        PhysicalGlyphSelectionResult result = catalog.SelectProfile(
-            true,
-            PhysicalGlyphSelectionMode.Automatic,
-            "ms-1t52",
-            "example.handheld",
-            null);
-
-        Assert.Null(result.Profile);
-        Assert.Equal(PhysicalGlyphFallbackReason.ProfileUnverified, result.FallbackReason);
-    }
-
-    [Fact]
     public void MissingManualProfile_FallsBackThroughAutomaticAndReportsMissing()
     {
-        ImportedGlyphProfile profile = ImportProfile(
-            GlyphProfileVerification.ExactDeviceVerified,
-            ["device-a"]);
+        ImportedGlyphProfile profile = ImportProfile(["device-a"]);
         using PhysicalGlyphCatalog catalog = new();
         catalog.ReplacePackageProfiles([profile]);
 
@@ -93,9 +73,7 @@ public sealed class PhysicalGlyphServiceTests
     [Fact]
     public void DeviceIntegrationOff_AlwaysReturnsGenericOrNativeFallback()
     {
-        ImportedGlyphProfile profile = ImportProfile(
-            GlyphProfileVerification.ExactDeviceVerified,
-            ["device-a"]);
+        ImportedGlyphProfile profile = ImportProfile(["device-a"]);
         using PhysicalGlyphCatalog catalog = new();
         catalog.ReplacePackageProfiles([profile]);
 
@@ -113,11 +91,25 @@ public sealed class PhysicalGlyphServiceTests
     }
 
     [Fact]
+    public void GlyphSelectionViewReportsGenericFallbackWithoutClaimingDeviceArtwork()
+    {
+        DeviceOverlayGlyphSelection row = DeviceOverlayBridge.PhysicalGlyphSelectionView(
+            DeviceGlyphSelection.Automatic,
+            new PhysicalGlyphSelectionResult(
+                null,
+                PhysicalGlyphFallbackReason.ProfileMissing,
+                false));
+
+        Assert.Equal(DeviceOverlayStatus.Warning, row.Status);
+        Assert.Equal("AUTO", row.TrailingText);
+        Assert.Contains("generic glyphs", row.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.True(row.CanCycle);
+    }
+
+    [Fact]
     public void DeviceDescriptionSurvivesControllerManagementOffButNavigationDoesNotMislabelExternalInput()
     {
-        ImportedGlyphProfile profile = ImportProfile(
-            GlyphProfileVerification.ExactDeviceVerified,
-            ["device-a"]);
+        ImportedGlyphProfile profile = ImportProfile(["device-a"]);
         using PhysicalGlyphCatalog catalog = new();
         using PhysicalGlyphService service = new(catalog);
         catalog.ReplacePackageProfiles([profile]);
@@ -157,9 +149,7 @@ public sealed class PhysicalGlyphServiceTests
     [Fact]
     public void Cache_IsBoundedAndReleasedWhenPackageProfileChanges()
     {
-        ImportedGlyphProfile profile = ImportProfile(
-            GlyphProfileVerification.ExactDeviceVerified,
-            ["device-a"]);
+        ImportedGlyphProfile profile = ImportProfile(["device-a"]);
         using PhysicalGlyphCatalog catalog = new();
         using PhysicalGlyphService service = new(
             catalog,
@@ -189,10 +179,7 @@ public sealed class PhysicalGlyphServiceTests
     [Fact]
     public void PresentControlWithoutReviewedArtwork_UsesGenericFallback()
     {
-        ImportedGlyphProfile profile = ImportProfile(
-            GlyphProfileVerification.ExactDeviceVerified,
-            ["device-a"],
-            includeArtwork: false);
+        ImportedGlyphProfile profile = ImportProfile(["device-a"], includeArtwork: false);
         using PhysicalGlyphCatalog catalog = new();
         using PhysicalGlyphService service = new(catalog);
         catalog.ReplacePackageProfiles([profile]);
@@ -217,31 +204,19 @@ public sealed class PhysicalGlyphServiceTests
     }
 
     private static ImportedGlyphProfile ImportProfile(
-        GlyphProfileVerification verification,
         IReadOnlyList<string> exactDeviceIds,
         bool includeArtwork = true)
     {
-        byte[] svg = Encoding.UTF8.GetBytes(
-            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\">"
-            + "<path d=\"M 0 0 L 64 64 Z\"/></svg>");
-        string hash = Convert.ToHexString(SHA256.HashData(svg)).ToLowerInvariant();
-        GlyphProfileProvenance provenance = new()
-        {
-            SourceId = "example.source",
-            SourceRevision = "revision-1",
-            License = "MIT",
-            LicenseNoticeSha256 = NoticeHash,
-        };
+        byte[] artwork = OnePixelPng();
+        string hash = Convert.ToHexString(SHA256.HashData(artwork)).ToLowerInvariant();
         GlyphAssetLockEntry asset = new()
         {
             Sha256 = hash,
-            Format = GlyphAssetFormat.Svg,
-            ByteCount = svg.Length,
+            Format = GlyphAssetFormat.Png,
+            ByteCount = artwork.Length,
             Role = GlyphAssetRole.Control,
-            ViewBox = new GlyphViewBox(0, 0, 64, 64),
-            Conversion = GlyphConversionKind.NormalizedVector,
-            ImporterVersion = GlyphProfileImporter.CurrentImporterVersion,
-            Provenance = provenance,
+            PixelWidth = 1,
+            PixelHeight = 1,
         };
         GlyphProfileManifest manifest = new()
         {
@@ -249,9 +224,9 @@ public sealed class PhysicalGlyphServiceTests
             ProfileId = "example.handheld",
             DisplayName = "Example handheld",
             Revision = 1,
-            Verification = verification,
             ExactDeviceIds = exactDeviceIds,
-            Provenance = provenance,
+            SourceRevision = "revision-1",
+            NoticePath = "THIRD_PARTY_NOTICES.md",
             Assets = includeArtwork ? [asset] : [],
             Controls =
             [
@@ -263,18 +238,87 @@ public sealed class PhysicalGlyphServiceTests
                 },
             ],
         };
-        GlyphProfileImportResult result = GlyphProfileImporter.Import(
-            manifest,
-            new MemorySource(hash, svg));
+        Dictionary<string, byte[]> files = new(StringComparer.Ordinal)
+        {
+            [GlyphPackageLayout.ProfileManifest(manifest.ProfileId)] =
+                JsonSerializer.SerializeToUtf8Bytes(
+                    manifest,
+                    DeviceWireJsonContext.Default.GlyphProfileManifest),
+            [manifest.NoticePath] = Encoding.UTF8.GetBytes("Example glyph notice\n"),
+        };
+        if (includeArtwork)
+        {
+            files[GlyphPackageLayout.Asset(hash, GlyphAssetFormat.Png)] = artwork;
+        }
+
+        GlyphPackageImportResult result = GlyphPackageImporter.Import(
+            new MemoryPackageSource(manifest.ProfileId, files));
         Assert.True(result.IsValid, string.Join("; ", result.Errors));
-        return result.Profile!;
+        return Assert.Single(result.Profiles);
     }
 
-    private sealed class MemorySource(string hash, byte[] bytes) : IGlyphAssetSource
+    private static byte[] OnePixelPng()
     {
-        public bool TryRead(string sha256, int maximumBytes, out byte[] result)
+        using MemoryStream output = new();
+        output.Write([137, 80, 78, 71, 13, 10, 26, 10]);
+
+        byte[] header = new byte[13];
+        BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(0, 4), 1);
+        BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(4, 4), 1);
+        header[8] = 8;
+        header[9] = 6;
+        WritePngChunk(output, "IHDR", header);
+
+        using MemoryStream compressed = new();
+        using (ZLibStream zlib = new(compressed, CompressionLevel.SmallestSize, leaveOpen: true))
         {
-            if (sha256 == hash && bytes.Length <= maximumBytes)
+            zlib.Write([0, 255, 0, 0, 255]);
+        }
+        WritePngChunk(output, "IDAT", compressed.ToArray());
+        WritePngChunk(output, "IEND", []);
+        return output.ToArray();
+    }
+
+    private static void WritePngChunk(Stream output, string type, byte[] data)
+    {
+        byte[] length = new byte[4];
+        BinaryPrimitives.WriteUInt32BigEndian(length, (uint)data.Length);
+        output.Write(length);
+        byte[] typeBytes = Encoding.ASCII.GetBytes(type);
+        output.Write(typeBytes);
+        output.Write(data);
+
+        byte[] crcInput = [.. typeBytes, .. data];
+        byte[] crc = new byte[4];
+        BinaryPrimitives.WriteUInt32BigEndian(crc, Crc32(crcInput));
+        output.Write(crc);
+    }
+
+    private static uint Crc32(ReadOnlySpan<byte> bytes)
+    {
+        uint crc = uint.MaxValue;
+        foreach (byte value in bytes)
+        {
+            crc ^= value;
+            for (int bit = 0; bit < 8; bit++)
+            {
+                uint mask = 0u - (crc & 1u);
+                crc = (crc >> 1) ^ (0xedb88320u & mask);
+            }
+        }
+        return ~crc;
+    }
+
+    private sealed class MemoryPackageSource(
+        string profileId,
+        IReadOnlyDictionary<string, byte[]> files) : IGlyphPackageSource
+    {
+        public IReadOnlyList<string> EnumerateProfileIds() => [profileId];
+
+        public bool TryRead(string relativePath, int maximumBytes, out byte[] result)
+        {
+            if (files.TryGetValue(relativePath, out byte[]? bytes)
+                && bytes.Length <= maximumBytes)
             {
                 result = bytes.ToArray();
                 return true;

@@ -13,7 +13,7 @@
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                         <StackPanel VerticalAlignment="Center" Spacing="1">
                             <TextBlock Text="Device Integration" Classes="setting-title" />
-                            <TextBlock Text="Let the resident WSGM shell discover one reviewed device plugin. Off starts no DeviceHost and touches no hardware." Classes="caption" TextWrapping="Wrap" />
+                            <TextBlock Text="Let the resident WSGM shell use the one administrator-installed device plugin. Off starts no DeviceHost and touches no hardware." Classes="caption" TextWrapping="Wrap" />
                         </StackPanel>
                         <ToggleSwitch Grid.Column="1" IsChecked="{Binding DeviceIntegrationEnabled}" VerticalAlignment="Center" />
                     </Grid>
@@ -28,16 +28,6 @@
                                       IsEnabled="{Binding DeviceIntegrationEnabled}" VerticalAlignment="Center" />
                     </Grid>
                 </Border>
-                <Border Classes="setting-row alt">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="Developer packages" Classes="setting-title" />
-                            <TextBlock Text="Show local Device Lab builds for explicit inspection. They never auto-activate and never inherit reviewed privileges." Classes="caption" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding DeviceDeveloperMode}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-
                 <Border Classes="section-header">
                     <TextBlock Text="RUNNING OWNER" />
                 </Border>
@@ -63,16 +53,6 @@
                         </ComboBox>
                     </Grid>
                 </Border>
-                <Border Classes="setting-row">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <TextBlock Text="Verified package updates" Classes="setting-title" VerticalAlignment="Center" />
-                        <ComboBox Grid.Column="1" Width="190" SelectedIndex="{Binding DeviceUpdatePolicyIndex}">
-                            <ComboBoxItem Content="Manual" />
-                            <ComboBoxItem Content="Notify" />
-                            <ComboBoxItem Content="Stage for next cycle" />
-                        </ComboBox>
-                    </Grid>
-                </Border>
                 <Border Classes="setting-row alt">
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                         <TextBlock Text="Physical glyphs" Classes="setting-title" VerticalAlignment="Center" />
@@ -94,7 +74,7 @@
                     </Grid>
                 </Border>
                 <TextBlock Margin="10,10,10,0" Classes="caption" TextWrapping="Wrap"
-                           Text="Hardware controls and profiles live in the overlay's Device destination. Settings owns only startup, trust, update, diagnostics, and top-level ownership policy." />
+                           Text="Hardware controls and profiles live in the overlay's Device destination. Settings owns only startup, diagnostics, and top-level ownership policy." />
             </StackPanel>
         </Grid>
     </Border>

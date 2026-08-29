@@ -1,4 +1,4 @@
-using WSGM.Device.Contracts.Input;
+using WSGM.Device.Sdk.Input;
 using WSGM.Input;
 
 namespace WSGM.Tests;
@@ -163,7 +163,7 @@ public sealed class ManagedControllerBackendTests
     private static CanonicalControllerSample LiveSample(long sequence, long generation) => new()
     {
         Sequence = sequence,
-        DeviceGeneration = generation,
+        CycleGeneration = generation,
         Timestamp = DateTimeOffset.UtcNow,
         Buttons = CanonicalButtons.A,
         LeftStickX = 0.25f,

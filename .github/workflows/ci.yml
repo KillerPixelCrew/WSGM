@@ -39,8 +39,8 @@ jobs:
         shell: pwsh
         run: rustup component add clippy
 
-      # The device platform took the solution from four projects to ten, so a cold
-      # NuGet restore is now a meaningful part of the run. Keyed on the project
+      # The device platform adds isolated runtime, tooling, plugin, and test projects, so a cold
+      # NuGet restore is a meaningful part of the run. Keyed on the project
       # files because this repository pins versions in the csproj rather than in a
       # packages.lock.json, which is what setup-dotnet's own caching would need.
       - name: Cache NuGet packages

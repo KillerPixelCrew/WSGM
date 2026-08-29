@@ -1,6 +1,5 @@
 using WSGM.Core;
-using WSGM.Device.Contracts.Capabilities;
-using WSGM.Device.Contracts.Packaging;
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
 
 namespace WSGM.Tests;
@@ -64,7 +63,7 @@ public sealed class DevicePlatformPolicyTests
         CapabilityDescriptorSet duplicated = new()
         {
             Generation = 2,
-            DeviceGeneration = 3,
+            CycleGeneration = 3,
             Descriptors = [descriptor, descriptor],
         };
 
@@ -72,23 +71,6 @@ public sealed class DevicePlatformPolicyTests
             duplicated, 3, 1, out _));
         Assert.False(DeviceCapabilityValidation.TryValidateDescriptorSet(
             duplicated with { Descriptors = [descriptor], Generation = 1 }, 3, 1, out _));
-    }
-
-    [Fact]
-    public void PackageSelectionIsTrustThenSpecificityThenVersion()
-    {
-        DevicePackageCandidate community = Candidate(
-            "community.package", "9.0.0", DevicePluginTrustTier.SideloadedCommunity, 99);
-        DevicePackageCandidate reviewedOlder = Candidate(
-            "reviewed.package", "1.0.0", DevicePluginTrustTier.WsgmReviewed, 2);
-        DevicePackageCandidate reviewedNewer = Candidate(
-            "reviewed.package", "2.0.0", DevicePluginTrustTier.WsgmReviewed, 2);
-
-        DevicePackageCandidate? selected = DevicePackagePolicy.Select(
-            [community, reviewedOlder, reviewedNewer], null, out string? refusal);
-
-        Assert.Null(refusal);
-        Assert.Same(reviewedNewer, selected);
     }
 
     private static CapabilityValue Value(int value) => new()
@@ -111,25 +93,4 @@ public sealed class DevicePlatformPolicyTests
         Persistence = CapabilityPersistence.Volatile,
     };
 
-    private static DevicePackageCandidate Candidate(
-        string id,
-        string version,
-        DevicePluginTrustTier tier,
-        int specificity) => new()
-        {
-            PackagePath = System.IO.Path.Combine("X:\\packages", id, version),
-            TrustTier = tier,
-            Manifest = new PluginManifest
-            {
-                SchemaVersion = 1,
-                Id = id,
-                Version = version,
-                Publisher = "fixture",
-                EntryPoint = "fixture.dll",
-                MinApiVersion = 1,
-                MaxApiVersion = 1,
-            },
-            Specificity = specificity,
-            Eligible = true,
-        };
 }

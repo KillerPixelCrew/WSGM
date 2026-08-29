@@ -18,9 +18,9 @@
     file-scoped on purpose - exempting a whole file would let an unrelated write slip in beside the
     guard that justified the exemption.
 
-    Production WSGM resolves that directory legitimately - ConfigStore and Log own it - so
-    src\WSGM, src\WSGM.Launch and src\WSGM.LogonService are not scanned. Everything that runs as a
-    test, a probe, or developer tooling is.
+    Production WSGM processes resolve that directory legitimately - ConfigStore, Log, and the
+    DeviceHost package-state boundary own it - so their source is not scanned. Everything that runs
+    as a test, plugin, or developer tool is.
 #>
 [CmdletBinding()]
 param()
@@ -31,18 +31,13 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 
 # Scanned: anything that may run on a developer's machine outside the shipped application.
-# Deliberately excluded: src\WSGM, src\WSGM.Launch, src\WSGM.LogonService, which own the real
-# directory, and third_party\, which is vendored upstream source.
+# Deliberately excluded: the shipped WSGM processes, which own the real directory, and
+# third_party\, which is vendored upstream source. DeviceHost tests use its explicit-root seam.
 $scanned = @(
     "tests",
     "plugins",
-    "catalog",
-    "src\WSGM.Device.Contracts",
     "src\WSGM.Device.Sdk",
-    "src\WSGM.Device.ProbeHost",
-    "src\WSGM.DeviceHost",
-    "src\WSGM.DeviceLab.Core",
-    "src\WSGM.DeviceLab.Cli"
+    "src\WSGM.DeviceLab"
 )
 
 # A literal WSGM data path, or resolving the local-app-data root at all. The second pattern is the

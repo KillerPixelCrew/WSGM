@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Interop;
 
@@ -12,8 +15,6 @@ namespace WSGM.Shell;
 /// <summary>One contained DeviceHost process and the kill-on-close job that owns it.</summary>
 internal sealed class DeviceHostProcess : IDisposable
 {
-    private const long MemoryLimitBytes = 512L * 1024 * 1024;
-    private const uint CpuRateHundredths = 5000;
     private nint _jobHandle;
     private bool _disposed;
 
@@ -25,6 +26,30 @@ internal sealed class DeviceHostProcess : IDisposable
 
     public Process Process { get; }
 
+    internal static bool? IsAnyRunning()
+    {
+        try
+        {
+            Process[] processes = System.Diagnostics.Process.GetProcessesByName("WSGM.DeviceHost");
+            try
+            {
+                return processes.Length > 0;
+            }
+            finally
+            {
+                foreach (Process process in processes)
+                {
+                    process.Dispose();
+                }
+            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
+        {
+            Log.Warn($"DeviceHost process state is unknown: {ex.Message}");
+            return null;
+        }
+    }
+
     public void Terminate(uint exitCode)
     {
         if (_jobHandle != 0 && !Process.HasExited)
@@ -34,15 +59,15 @@ internal sealed class DeviceHostProcess : IDisposable
     }
 
     public static DeviceHostProcess Start(
-        DevicePackageCandidate candidate,
+        InstalledDevicePackage package,
         string pipeName,
         byte[] nonce,
         uint sessionId,
-        long hostGeneration,
+        long cycleGeneration,
         string stateRingName,
         string stateEventName)
     {
-        ArgumentNullException.ThrowIfNull(candidate);
+        ArgumentNullException.ThrowIfNull(package);
         string hostDirectory = DeviceInstallationPaths.DeviceHostRoot;
         string executable = Path.Combine(hostDirectory, "WSGM.DeviceHost.exe");
         if (!File.Exists(executable))
@@ -53,20 +78,16 @@ internal sealed class DeviceHostProcess : IDisposable
         }
 
         string arguments = BuildArguments(
-            candidate,
+            package,
             pipeName,
             nonce,
             sessionId,
-            hostGeneration,
+            cycleGeneration,
             stateRingName,
             stateEventName);
-        Process process = candidate.TrustTier is DevicePluginTrustTier.WsgmReviewed
-            ? StartInherited(executable, arguments, hostDirectory)
-            : StartAsShellUser(executable, arguments, hostDirectory, sessionId);
-        int jobError = NativeDeviceHostProcess.CreateContainedJob(
+        Process process = StartInherited(executable, arguments, hostDirectory);
+        int jobError = NativeDeviceHostProcess.CreateKillOnCloseJob(
             process.Handle,
-            (nuint)MemoryLimitBytes,
-            CpuRateHundredths,
             out nint jobHandle);
         if (jobError != 0)
         {
@@ -94,19 +115,37 @@ internal sealed class DeviceHostProcess : IDisposable
         }
 
         _disposed = true;
-        if (_jobHandle != 0)
+        nint jobHandle = Interlocked.Exchange(ref _jobHandle, 0);
+        try
         {
-            if (!Process.HasExited)
+            if (jobHandle != 0)
             {
-                Terminate(1);
+                try
+                {
+                    if (!Process.HasExited)
+                    {
+                        _ = NativeDeviceHostProcess.TerminateJob(jobHandle, 1);
+                    }
+                }
+                finally
+                {
+                    // Kill-on-close is the last containment boundary even when querying or
+                    // terminating the child reports a process-state failure.
+                    NativeDeviceHostProcess.CloseJob(jobHandle);
+                }
             }
-
-            NativeDeviceHostProcess.CloseJob(_jobHandle);
-            _jobHandle = 0;
         }
-
-        Process.Dispose();
+        finally
+        {
+            Process.Dispose();
+        }
     }
+
+    /// <summary>Snapshots global DeviceHost process state away from the Avalonia UI thread.</summary>
+    internal static Task<bool?> IsAnyRunningAsync(
+        CancellationToken cancellationToken = default,
+        Func<bool?>? inspect = null) =>
+        Task.Run(inspect ?? IsAnyRunning, cancellationToken);
 
     private static Process StartInherited(
         string executable,
@@ -124,53 +163,24 @@ internal sealed class DeviceHostProcess : IDisposable
             ?? throw new InvalidOperationException("DeviceHost process did not start.");
     }
 
-    private static Process StartAsShellUser(
-        string executable,
-        string arguments,
-        string hostDirectory,
-        uint sessionId)
-    {
-        using Process shell = Process.GetProcessesByName("explorer")
-            .FirstOrDefault(process => process.SessionId == sessionId)
-            ?? throw new InvalidOperationException(
-                "No Explorer process exists in the current interactive session for de-elevation.");
-        string commandLine = $"{Quote(executable)} {arguments}";
-        string environment = BuildEnvironmentBlock(hostDirectory);
-        int error = NativeDeviceHostProcess.StartAsShellUser(
-            shell.Handle,
-            executable,
-            commandLine,
-            hostDirectory,
-            environment,
-            out uint processId);
-        if (error != 0)
-        {
-            throw new InvalidOperationException(
-                $"De-elevated DeviceHost launch failed with Win32 error {error}.");
-        }
-
-        return Process.GetProcessById((int)processId);
-    }
-
     private static string BuildArguments(
-        DevicePackageCandidate candidate,
+        InstalledDevicePackage package,
         string pipeName,
         byte[] nonce,
         uint sessionId,
-        long hostGeneration,
+        long cycleGeneration,
         string stateRingName,
         string stateEventName)
     {
-        string packageId = candidate.Manifest?.Id
-            ?? throw new InvalidOperationException("Selected package has no manifest.");
+        string packageId = package.Manifest?.Id
+            ?? throw new InvalidOperationException("Installed package has no manifest.");
         return string.Join(' ',
-            "--package", Quote(candidate.PackagePath),
+            "--package", Quote(package.PackagePath),
             "--package-id", Quote(packageId),
             "--pipe", Quote(pipeName),
             "--nonce", Quote(Convert.ToBase64String(nonce)),
             "--session", sessionId.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            "--host-generation", hostGeneration.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            "--trust-tier", Quote(candidate.TrustTier.ToString()),
+            "--generation", cycleGeneration.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--state-ring", Quote(stateRingName),
             "--state-event", Quote(stateEventName));
     }

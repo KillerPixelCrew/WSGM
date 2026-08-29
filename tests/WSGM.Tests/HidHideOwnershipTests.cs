@@ -1,4 +1,4 @@
-using WSGM.Device.Contracts.Input;
+using WSGM.Device.Sdk.Input;
 using WSGM.Shell;
 
 namespace WSGM.Tests;
@@ -12,7 +12,7 @@ public sealed class HidHideOwnershipTests
         InMemoryHidHideOwnershipStore store = new();
         HidHideOwnedDeltaManager manager = new(adapter, store);
 
-        HidHideActivationResult result = await manager.ActivateAsync(
+        HidHideActivationResult result = await manager.StartAsync(
             controllerManagementEnabled: false,
             "DeviceHost.exe",
             [Physical("HID\\OWN")],
@@ -34,7 +34,7 @@ public sealed class HidHideOwnershipTests
         InMemoryHidHideOwnershipStore store = new();
         HidHideOwnedDeltaManager manager = new(adapter, store);
 
-        HidHideActivationResult activation = await manager.ActivateAsync(
+        HidHideActivationResult activation = await manager.StartAsync(
             controllerManagementEnabled: true,
             "DeviceHost.exe",
             [Physical("HID\\OWN")],
@@ -66,7 +66,7 @@ public sealed class HidHideOwnershipTests
         InMemoryHidHideOwnershipStore store = new();
         HidHideOwnedDeltaManager manager = new(adapter, store);
 
-        HidHideActivationResult activation = await manager.ActivateAsync(
+        HidHideActivationResult activation = await manager.StartAsync(
             controllerManagementEnabled: true,
             "DeviceHost.exe",
             [Physical("HID\\OWN")],
@@ -89,7 +89,7 @@ public sealed class HidHideOwnershipTests
         DeterministicFakeHidHideAdapter adapter = new();
         InMemoryHidHideOwnershipStore store = new();
         HidHideOwnedDeltaManager manager = new(adapter, store);
-        await manager.ActivateAsync(
+        await manager.StartAsync(
             controllerManagementEnabled: true,
             "DeviceHost.exe",
             [Physical("HID\\OWN")],
@@ -120,7 +120,7 @@ public sealed class HidHideOwnershipTests
         HidHideOwnedDeltaManager manager = new(adapter, store);
         adapter.FailMutationAttempt = 2;
 
-        HidHideActivationResult activation = await manager.ActivateAsync(
+        HidHideActivationResult activation = await manager.StartAsync(
             controllerManagementEnabled: true,
             "DeviceHost.exe",
             [Physical("HID\\OWN")],
@@ -141,7 +141,7 @@ public sealed class HidHideOwnershipTests
         InMemoryHidHideOwnershipStore store = new();
         HidHideOwnedDeltaManager manager = new(adapter, store);
 
-        HidHideActivationResult activation = await manager.ActivateAsync(
+        HidHideActivationResult activation = await manager.StartAsync(
             controllerManagementEnabled: true,
             "DeviceHost.exe",
             [Physical("HID\\OWN")],
@@ -160,7 +160,7 @@ public sealed class HidHideOwnershipTests
         DeterministicFakeHidHideAdapter adapter = new();
         InMemoryHidHideOwnershipStore store = new();
         HidHideOwnedDeltaManager manager = new(adapter, store);
-        HidHideActivationResult activation = await manager.ActivateAsync(
+        HidHideActivationResult activation = await manager.StartAsync(
             controllerManagementEnabled: true,
             "DeviceHost.exe",
             [Physical("HID\\OWN")],

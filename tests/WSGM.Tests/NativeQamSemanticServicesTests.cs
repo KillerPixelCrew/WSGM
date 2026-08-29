@@ -1,5 +1,5 @@
 using WSGM.Core;
-using WSGM.Device.Contracts.Capabilities;
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
 
 namespace WSGM.Tests;
@@ -37,7 +37,7 @@ public sealed class NativeQamSemanticServicesTests
     }
 
     [Fact]
-    public void P020ControllerServicePublishesNoSelectableTargets()
+    public void UnavailableControllerServicePublishesNoSelectableTargets()
     {
         using var service = new UnavailableNativeQamControllerTargetService();
 
@@ -47,7 +47,7 @@ public sealed class NativeQamSemanticServicesTests
         Assert.Empty(state.Targets);
         Assert.Empty(state.SelectedTarget);
         Assert.Empty(state.ObservedTarget);
-        Assert.Contains("P0-020", state.StatusText, StringComparison.Ordinal);
+        Assert.Contains("pinned HIDMaestro", state.StatusText, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -162,8 +162,7 @@ public sealed class NativeQamSemanticServicesTests
             Quality = HardwareStateQuality.Verified,
             ObservedAt = DateTimeOffset.UtcNow,
             DescriptorGeneration = 4,
-            DeviceGeneration = 3,
-            HostGeneration = 2,
+            CycleGeneration = 3,
         };
         return new DeviceCapabilityView(
             descriptor,

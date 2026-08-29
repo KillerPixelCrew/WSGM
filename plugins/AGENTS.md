@@ -1,12 +1,13 @@
 # plugins
 
-Device plugin packages. Each directory here is a separate deployable artifact with its own manifest,
-evidence lock, trust tier, and licensing provenance — that is why plugins live at the repository top
-level rather than under `src\`.
+Device plugin packages. Each directory here is a separate deployable artifact with a minimal
+manifest, hardware implementation, static glyph data, and required third-party notices — that is why
+plugins live at the repository top level rather than under `src\`.
 
-**Nothing in the solution may add a `ProjectReference` to a plugin.** A plugin is loaded at runtime
-by `WSGM.DeviceHost` from its package directory. The dependency-direction test in
-`tests\WSGM.Tests` fails the build if a reference appears.
+**No production project may add a `ProjectReference` to a plugin.** A plugin is loaded at runtime
+by `WSGM.DeviceHost` from its package directory. The sole compile-time exception is the consolidated
+`tests\WSGM.Device.Tests` owner, which references a plugin only for fake-hardware regression tests.
+The dependency-direction test in `tests\WSGM.Tests` fails the build if any other reference appears.
 
 ## What a plugin owns
 
@@ -21,7 +22,7 @@ journal; its own controller artwork and glyph control map; and its declared depe
 - Call HIDMaestro, own WSGM's Steam Input lease, or touch HidHide.
 - Supply XAML, HTML, CSS, JavaScript, URLs, Steam selectors, patch logic, arbitrary commands, or any
   executable content. Artwork and the control map are **data**, validated and re-emitted by WSGM
-  before any surface sees them (`P0-052`).
+  before any surface sees them.
 - Install, repair, register, or restart a dependency at runtime. Declare it; a missing dependency
   makes the affected capability unavailable, and nothing more.
 - Perform UI work, or dispatch an action from a hook callback.
@@ -42,5 +43,6 @@ journal; its own controller artwork and glyph control map; and its declared depe
   OEM-event capabilities.
 - Detect conflicting OEM software and report it; never terminate or reconfigure it. Process presence
   alone is not ownership — only demonstrated competing writes or exclusive-access failure is.
-- Record the provenance and license of every constant, module, and bundled asset. Protocol facts
-  learned from another implementation are free to use; its code and structured tables are not.
+- Keep required third-party notices and record the upstream revision for copied or adapted assets.
+  Hardware constants and device findings belong beside the implementation or in the device plan;
+  do not build evidence ledgers or per-constant provenance machinery.

@@ -1,11 +1,6 @@
-using System;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Overlay;
 using WSGM.Shell;
-using Xunit;
 
 namespace WSGM.Tests;
 

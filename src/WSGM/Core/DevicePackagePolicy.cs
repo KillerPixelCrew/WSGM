@@ -1,86 +1,53 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
-using System.Security.Cryptography.X509Certificates;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using WSGM.Device.Contracts.Identity;
-using WSGM.Device.Contracts.Packaging;
-using WSGM.Interop;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
+using WSGM.Device.Sdk;
+using WSGM.Device.Sdk.Packaging;
 
 namespace WSGM.Core;
 
-/// <summary>Runtime trust tier assigned by the installer or an explicit user workflow.</summary>
-public enum DevicePluginTrustTier
+/// <summary>The startup-safe cardinality of the one protected plugin slot.</summary>
+internal enum DevicePackageCardinality
 {
-    /// <summary>Built and installed by the WSGM release process.</summary>
-    WsgmReviewed,
+    /// <summary>No package is installed; core WSGM remains available without Device Integration.</summary>
+    Empty,
 
-    /// <summary>Authenticode publisher explicitly approved by the user.</summary>
-    SignedExternal,
+    /// <summary>Exactly one package root exists and may be validated.</summary>
+    Single,
 
-    /// <summary>Permanently labelled unreviewed manual package.</summary>
-    SideloadedCommunity,
-
-    /// <summary>Device Lab source build; never automatically selected.</summary>
-    Developer,
+    /// <summary>More than one package root exists; normal startup must refuse all of them.</summary>
+    Multiple,
 }
 
-/// <summary>Installer-owned immutable grant accompanying one expanded package version.</summary>
-public sealed record InstalledDevicePackageRecord
+/// <summary>A manifest-free inventory of the protected plugin slot.</summary>
+internal sealed record DevicePackageInventory
 {
-    /// <summary>Record schema version.</summary>
-    public required int SchemaVersion { get; init; }
+    /// <summary>Every immediate package root, sorted by absolute path.</summary>
+    public required IReadOnlyList<string> PackageRoots { get; init; }
 
-    /// <summary>Package identifier expected in the manifest.</summary>
-    public required string PackageId { get; init; }
-
-    /// <summary>Installed package version.</summary>
-    public required string Version { get; init; }
-
-    /// <summary>Tier assigned by the installation route.</summary>
-    public required DevicePluginTrustTier TrustTier { get; init; }
-
-    /// <summary>Whether the user explicitly enabled this package.</summary>
-    public required bool Enabled { get; init; }
-
-    /// <summary>Certificate subject pinned at first install, when signatures are required.</summary>
-    public string? PublisherSubject { get; init; }
-
-    /// <summary>Certificate thumbprint pinned at first install.</summary>
-    public string? PublisherThumbprint { get; init; }
-
-    /// <summary>SHA-256 for every package file except this record.</summary>
-    public IReadOnlyDictionary<string, string> FileHashes { get; init; } =
-        new ReadOnlyDictionary<string, string>(new Dictionary<string, string>());
-
-    /// <summary>When this immutable version was installed.</summary>
-    public required DateTimeOffset InstalledAt { get; init; }
+    /// <summary>The hard startup cardinality derived solely from <see cref="PackageRoots"/>.</summary>
+    public DevicePackageCardinality Cardinality => PackageRoots.Count switch
+    {
+        0 => DevicePackageCardinality.Empty,
+        1 => DevicePackageCardinality.Single,
+        _ => DevicePackageCardinality.Multiple,
+    };
 }
 
-/// <summary>One accepted or rejected runtime package candidate.</summary>
-public sealed record DevicePackageCandidate
+/// <summary>The sole installed package after structural, API, and architecture validation.</summary>
+internal sealed record InstalledDevicePackage
 {
-    /// <summary>Canonical expanded package directory.</summary>
+    /// <summary>Canonical protected package directory.</summary>
     public required string PackagePath { get; init; }
-
-    /// <summary>Trust tier fixed by the discovery root.</summary>
-    public required DevicePluginTrustTier TrustTier { get; init; }
 
     /// <summary>Parsed manifest when structural validation succeeded.</summary>
     public PluginManifest? Manifest { get; init; }
 
-    /// <summary>Exact matched device definition when identity gates passed.</summary>
-    public DeviceDefinition? MatchedDevice { get; init; }
-
-    /// <summary>Count of satisfied required identity predicates, used for tie-breaking.</summary>
-    public int Specificity { get; init; }
-
-    /// <summary>Whether this candidate may be activated.</summary>
-    public required bool Eligible { get; init; }
+    /// <summary>Whether this sole package may be activated.</summary>
+    public required bool Valid { get; init; }
 
     /// <summary>Stable rejection code, or null when eligible.</summary>
     public string? RejectionCode { get; init; }
@@ -89,442 +56,264 @@ public sealed record DevicePackageCandidate
     public string? Detail { get; init; }
 }
 
-/// <summary>Configured administrator and per-user discovery roots.</summary>
-public sealed record DevicePackageDiscoveryOptions
+/// <summary>The complete result of reading the one protected plugin slot.</summary>
+internal sealed record DevicePackageDiscovery
 {
-    /// <summary>Administrator-protected WSGM-reviewed root.</summary>
-    public required string ReviewedRoot { get; init; }
+    /// <summary>The manifest-free slot inventory.</summary>
+    public required DevicePackageInventory Inventory { get; init; }
 
-    /// <summary>Per-user signed-external root.</summary>
-    public required string SignedExternalRoot { get; init; }
+    /// <summary>The sole installed package, including its validation failure when invalid.</summary>
+    public InstalledDevicePackage? InstalledPackage { get; init; }
 
-    /// <summary>Per-user community root.</summary>
-    public required string CommunityRoot { get; init; }
+    /// <summary>The slot-level failure code used when multiple package roots were found.</summary>
+    public string? ErrorCode { get; init; }
 
-    /// <summary>Per-user Device Lab developer root.</summary>
-    public required string DeveloperRoot { get; init; }
+    /// <summary>Sanitized slot-level failure detail.</summary>
+    public string? Detail { get; init; }
+}
+
+/// <summary>The one protected package-slot root and current semantic API version.</summary>
+internal sealed record DevicePackageDiscoveryOptions
+{
+    /// <summary>Administrator-protected directory whose immediate children are package roots.</summary>
+    public required string PackageRoot { get; init; }
 
     /// <summary>Current runtime semantic API version.</summary>
-    public int RuntimeApiVersion { get; init; } = 1;
+    public int RuntimeApiVersion { get; init; } = DeviceApi.Version;
 
-    /// <summary>Whether Developer Mode permits developer candidates to be shown.</summary>
-    public bool DeveloperMode { get; init; }
-
-    /// <summary>Builds production roots without creating them.</summary>
-    public static DevicePackageDiscoveryOptions Production(bool developerMode)
+    /// <summary>Builds production options without creating the package directory.</summary>
+    public static DevicePackageDiscoveryOptions Production() => new()
     {
-        string localRoot = Path.Combine(Log.Directory, "DevicePlugins");
-        return new DevicePackageDiscoveryOptions
-        {
-            ReviewedRoot = DeviceInstallationPaths.ReviewedPackageRoot,
-            SignedExternalRoot = Path.Combine(localRoot, "signed"),
-            CommunityRoot = Path.Combine(localRoot, "community"),
-            DeveloperRoot = Path.Combine(localRoot, "developer"),
-            DeveloperMode = developerMode,
-        };
-    }
+        PackageRoot = DeviceInstallationPaths.InstalledPackageRoot,
+    };
 }
 
-/// <summary>Publisher identity extracted after successful Authenticode verification.</summary>
-public sealed record DevicePackagePublisher(string Subject, string Thumbprint);
-
-/// <summary>Injectable signature verifier for deterministic policy tests.</summary>
-public interface IDevicePackageSignatureVerifier
+/// <summary>Manifest-free cardinality plus sole-package validation for the protected slot.</summary>
+internal static class DevicePackagePolicy
 {
-    /// <summary>Verifies one executable package entry point and returns its publisher.</summary>
-    bool TryVerify(string path, out DevicePackagePublisher? publisher, out string detail);
-}
-
-/// <summary>Windows Authenticode verification with chain, timestamp, and revocation checking.</summary>
-public sealed class WindowsDevicePackageSignatureVerifier : IDevicePackageSignatureVerifier
-{
-    /// <inheritdoc />
-    public bool TryVerify(
-        string path,
-        out DevicePackagePublisher? publisher,
-        out string detail)
-    {
-        publisher = null;
-        int status = NativeAuthenticode.VerifyFile(path);
-        if (status != 0)
-        {
-            detail = $"WinVerifyTrust rejected the entry point (0x{status:X8}).";
-            return false;
-        }
-
-        try
-        {
-#pragma warning disable SYSLIB0057 // Authenticode signer extraction has no replacement API.
-            using X509Certificate certificate = X509Certificate.CreateFromSignedFile(path);
-            using X509Certificate2 certificate2 = new(certificate);
-#pragma warning restore SYSLIB0057
-            publisher = new DevicePackagePublisher(
-                certificate2.Subject,
-                certificate2.Thumbprint);
-            detail = "Authenticode signature and publisher verified.";
-            return true;
-        }
-        catch (CryptographicException ex)
-        {
-            detail = $"Signer extraction failed: {ex.Message}";
-            return false;
-        }
-    }
-}
-
-/// <summary>Read-only package discovery, integrity validation, matching, and deterministic selection.</summary>
-public static class DevicePackagePolicy
-{
-    private const string InstallRecordName = "installed.wsgm.json";
     private const string ManifestName = "plugin.wsgm.json";
     private const int MaxMetadataBytes = 1024 * 1024;
+    private const int MaxPackageEntries = 1024;
     private const int MaxPackageFiles = 512;
     private const long MaxPackageFileBytes = 128L * 1024 * 1024;
     private const long MaxPackageBytes = 512L * 1024 * 1024;
 
-    /// <summary>Discovers and validates every installed candidate without loading plugin code.</summary>
-    public static IReadOnlyList<DevicePackageCandidate> Discover(
+    /// <summary>
+    /// Counts immediate package directories without reading a manifest or opening plugin files.
+    /// </summary>
+    /// <param name="packageRoot">The protected directory containing zero or one package directory.</param>
+    /// <param name="attributeReader">Optional exact attribute seam for isolated inspection tests.</param>
+    /// <returns>The absolute package paths and their hard cardinality.</returns>
+    public static DevicePackageInventory Inventory(
+        string packageRoot,
+        Func<string, FileAttributes?>? attributeReader = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageRoot);
+        string root = NormalizeDirectoryPath(packageRoot);
+        Func<string, FileAttributes?> readAttributes = attributeReader ?? ReadPathAttributes;
+        FileAttributes? rootAttributes = readAttributes(root);
+        if (rootAttributes is null)
+        {
+            return new DevicePackageInventory { PackageRoots = [] };
+        }
+
+        if ((rootAttributes.Value & FileAttributes.Directory) == 0)
+        {
+            throw new InvalidDataException("The protected package slot must be a directory.");
+        }
+        if ((rootAttributes.Value & FileAttributes.ReparsePoint) != 0)
+        {
+            return new DevicePackageInventory { PackageRoots = [root] };
+        }
+
+        List<string> packages = [];
+        foreach (string entry in Directory.EnumerateFileSystemEntries(root))
+        {
+            FileAttributes? attributes = readAttributes(entry)
+                ?? throw new IOException("A package-slot entry disappeared during inspection.");
+            if ((attributes.Value & FileAttributes.Directory) != 0)
+            {
+                packages.Add(NormalizeDirectoryPath(entry));
+            }
+        }
+
+        string[] sortedPackages = packages
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        return new DevicePackageInventory { PackageRoots = sortedPackages };
+    }
+
+    /// <summary>
+    /// Validates the sole installed package. Multiple roots are all rejected without reading any
+    /// manifest, and an empty slot returns no package.
+    /// </summary>
+    /// <param name="options">Protected slot and runtime API options.</param>
+    /// <param name="attributeReader">Optional exact attribute seam for isolated inspection tests.</param>
+    /// <returns>The inventory and, only for a single root, its validated package.</returns>
+    public static DevicePackageDiscovery Discover(
         DevicePackageDiscoveryOptions options,
-        DeviceIdentitySnapshot identity,
-        IDevicePackageSignatureVerifier? signatureVerifier = null)
+        Func<string, FileAttributes?>? attributeReader = null)
     {
         ArgumentNullException.ThrowIfNull(options);
-        ArgumentNullException.ThrowIfNull(identity);
-        signatureVerifier ??= new WindowsDevicePackageSignatureVerifier();
+        Func<string, FileAttributes?> readAttributes = attributeReader ?? ReadPathAttributes;
+        DevicePackageInventory inventory = Inventory(options.PackageRoot, readAttributes);
+        if (inventory.Cardinality is DevicePackageCardinality.Empty)
+        {
+            return new DevicePackageDiscovery { Inventory = inventory };
+        }
 
-        List<DevicePackageCandidate> candidates = [];
-        DiscoverRoot(options.ReviewedRoot, DevicePluginTrustTier.WsgmReviewed, options, identity,
-            signatureVerifier, candidates);
-        DiscoverRoot(options.SignedExternalRoot, DevicePluginTrustTier.SignedExternal, options, identity,
-            signatureVerifier, candidates);
-        DiscoverRoot(options.CommunityRoot, DevicePluginTrustTier.SideloadedCommunity, options, identity,
-            signatureVerifier, candidates);
-        DiscoverRoot(options.DeveloperRoot, DevicePluginTrustTier.Developer, options, identity,
-            signatureVerifier, candidates);
-        return candidates.OrderBy(candidate => candidate.PackagePath, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        if (inventory.Cardinality is DevicePackageCardinality.Multiple)
+        {
+            return new DevicePackageDiscovery
+            {
+                Inventory = inventory,
+                ErrorCode = "multiple-package-roots",
+                Detail = "Normal startup refuses every package when the protected slot contains more than one root.",
+            };
+        }
+
+        return new DevicePackageDiscovery
+        {
+            Inventory = inventory,
+            InstalledPackage = ValidateInstalledPackage(
+                inventory.PackageRoots[0],
+                options,
+                readAttributes),
+        };
     }
 
-    /// <summary>Selects at most one package under the frozen four-key policy.</summary>
-    public static DevicePackageCandidate? Select(
-        IReadOnlyList<DevicePackageCandidate> candidates,
-        string? explicitPackageId,
-        out string? refusal) =>
-        Select(
-            candidates,
-            string.IsNullOrWhiteSpace(explicitPackageId)
-                ? null
-                : new DevicePackageSelection { PackageId = explicitPackageId },
-            out refusal);
-
-    /// <summary>Selects at most one package, honoring an exact user version pin when present.</summary>
-    public static DevicePackageCandidate? Select(
-        IReadOnlyList<DevicePackageCandidate> candidates,
-        DevicePackageSelection? explicitSelection,
-        out string? refusal)
-    {
-        ArgumentNullException.ThrowIfNull(candidates);
-        refusal = null;
-        IEnumerable<DevicePackageCandidate> eligible = candidates.Where(candidate => candidate.Eligible);
-        if (!string.IsNullOrWhiteSpace(explicitSelection?.PackageId))
-        {
-            DevicePackageCandidate[] explicitMatches = eligible.Where(candidate => string.Equals(
-                candidate.Manifest?.Id,
-                explicitSelection.PackageId,
-                StringComparison.Ordinal)
-                && (string.IsNullOrWhiteSpace(explicitSelection.Version)
-                    || string.Equals(
-                        candidate.Manifest?.Version,
-                        explicitSelection.Version,
-                        StringComparison.Ordinal))).ToArray();
-            if (explicitMatches.Length > 1)
-            {
-                explicitMatches = explicitMatches
-                    .OrderBy(candidate => TrustRank(candidate.TrustTier))
-                    .ThenByDescending(candidate => ParseVersion(candidate.Manifest?.Version))
-                    .ToArray();
-                if (explicitMatches[0].TrustTier == explicitMatches[1].TrustTier
-                    && ParseVersion(explicitMatches[0].Manifest?.Version)
-                        == ParseVersion(explicitMatches[1].Manifest?.Version))
-                {
-                    refusal = "ambiguous-package-selection";
-                    return null;
-                }
-
-                return explicitMatches[0];
-            }
-
-            if (explicitMatches.Length == 1)
-            {
-                return explicitMatches[0];
-            }
-
-            refusal = explicitMatches.Length == 0
-                ? "selected-package-unavailable"
-                : "ambiguous-package-selection";
-            return null;
-        }
-
-        DevicePackageCandidate[] ordered = eligible
-            .OrderBy(candidate => TrustRank(candidate.TrustTier))
-            .ThenByDescending(candidate => candidate.Specificity)
-            .ThenByDescending(candidate => ParseVersion(candidate.Manifest?.Version))
-            .ThenBy(candidate => candidate.Manifest?.Id, StringComparer.Ordinal)
-            .ToArray();
-        if (ordered.Length == 0)
-        {
-            refusal = "no-matching-package";
-            return null;
-        }
-
-        if (ordered.Length > 1 && SameSelectionKeys(ordered[0], ordered[1]))
-        {
-            refusal = "ambiguous-package-selection";
-            return null;
-        }
-
-        return ordered[0];
-    }
-
-    private static void DiscoverRoot(
-        string root,
-        DevicePluginTrustTier trustTier,
-        DevicePackageDiscoveryOptions options,
-        DeviceIdentitySnapshot identity,
-        IDevicePackageSignatureVerifier signatureVerifier,
-        ICollection<DevicePackageCandidate> output)
-    {
-        if (!Directory.Exists(root) || IsLink(root))
-        {
-            return;
-        }
-
-        foreach (string packageIdDirectory in Directory.EnumerateDirectories(root)
-            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
-        {
-            if (IsLink(packageIdDirectory))
-            {
-                output.Add(Reject(packageIdDirectory, trustTier, "package-link",
-                    "Package discovery does not traverse links or reparse points."));
-                continue;
-            }
-
-            foreach (string versionDirectory in Directory.EnumerateDirectories(packageIdDirectory)
-                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
-            {
-                output.Add(ValidateCandidate(
-                    versionDirectory,
-                    trustTier,
-                    options,
-                    identity,
-                    signatureVerifier));
-            }
-        }
-    }
-
-    private static DevicePackageCandidate ValidateCandidate(
+    private static InstalledDevicePackage ValidateInstalledPackage(
         string packagePath,
-        DevicePluginTrustTier trustTier,
         DevicePackageDiscoveryOptions options,
-        DeviceIdentitySnapshot identity,
-        IDevicePackageSignatureVerifier signatureVerifier)
+        Func<string, FileAttributes?> readAttributes)
     {
         try
         {
-            string root = Path.GetFullPath(packagePath);
-            if (IsLink(root))
+            string root = NormalizeDirectoryPath(packagePath);
+            FileAttributes? rootAttributes = readAttributes(root)
+                ?? throw new IOException("The installed package disappeared during validation.");
+            if ((rootAttributes.Value & FileAttributes.Directory) == 0)
             {
-                return Reject(root, trustTier, "package-link", "Package version directory is a link.");
+                return Reject(root, "package-invalid", "The installed package is not a directory.");
+            }
+            if ((rootAttributes.Value & FileAttributes.ReparsePoint) != 0)
+            {
+                return Reject(root, "package-link", "Package directories may not be links or reparse points.");
             }
 
-            InstalledDevicePackageRecord record = ReadInstallRecord(Path.Combine(root, InstallRecordName));
-            if (record.SchemaVersion != 1 || record.TrustTier != trustTier || !record.Enabled)
-            {
-                return Reject(root, trustTier, "install-grant-invalid",
-                    "Install record schema, tier, or enabled state is invalid.");
-            }
-
-            if (trustTier is DevicePluginTrustTier.Developer && !options.DeveloperMode)
-            {
-                return Reject(root, trustTier, "developer-mode-disabled",
-                    "Developer packages require Device Lab Developer Mode.");
-            }
-
-            VerifyIntegrity(root, record);
+            ValidateBoundedPackage(root, readAttributes);
             byte[] manifestBytes = ReadAllBytesBounded(
-                Constrain(root, ManifestName),
+                Constrain(root, ManifestName, readAttributes),
                 MaxMetadataBytes,
                 "Plugin manifest");
             PluginManifestReadResult manifestRead = PluginManifestReader.Read(manifestBytes);
             if (!manifestRead.IsValid || manifestRead.Manifest is null)
             {
-                return Reject(root, trustTier, "manifest-invalid",
+                string rejectionCode = manifestRead.Errors.Any(error =>
+                    error.Code is ManifestValidationCode.InvalidApiVersion)
+                    ? "api-incompatible"
+                    : "manifest-invalid";
+                return Reject(
+                    root,
+                    rejectionCode,
                     string.Join("; ", manifestRead.Errors.Select(error => error.Message)));
             }
 
             PluginManifest manifest = manifestRead.Manifest;
-            if (!string.Equals(manifest.Id, record.PackageId, StringComparison.Ordinal)
-                || !string.Equals(manifest.Version, record.Version, StringComparison.Ordinal))
+            if (options.RuntimeApiVersion != manifest.ApiVersion)
             {
-                return Reject(root, trustTier, "install-grant-confusion",
-                    "Manifest identity differs from the installer-owned record.", manifest);
+                return Reject(
+                    root,
+                    "api-incompatible",
+                    "Package API version does not equal this runtime.",
+                    manifest);
             }
 
-            if (options.RuntimeApiVersion < manifest.MinApiVersion
-                || options.RuntimeApiVersion > manifest.MaxApiVersion)
+            string entryPath = Constrain(root, manifest.EntryAssembly, readAttributes);
+            if (!IsX64ManagedAssembly(entryPath))
             {
-                return Reject(root, trustTier, "api-incompatible",
-                    "Package API window does not include this runtime.", manifest);
+                return Reject(
+                    root,
+                    "architecture-unsupported",
+                    "Plugin entry point is not an x64 managed assembly.",
+                    manifest);
             }
 
-            string entryPath = Constrain(root, manifest.EntryPoint);
-            if (!IsX64Pe(entryPath))
-            {
-                return Reject(root, trustTier, "architecture-unsupported",
-                    "Plugin entry point is not an x64 PE image.", manifest);
-            }
-
-            if (trustTier is DevicePluginTrustTier.WsgmReviewed
-                or DevicePluginTrustTier.SignedExternal)
-            {
-                if (!signatureVerifier.TryVerify(entryPath, out DevicePackagePublisher? publisher,
-                    out string signatureDetail) || publisher is null)
-                {
-                    return Reject(root, trustTier, "package-signature-invalid", signatureDetail, manifest);
-                }
-
-                if (!string.Equals(record.PublisherSubject, publisher.Subject, StringComparison.Ordinal)
-                    || !string.Equals(record.PublisherThumbprint, publisher.Thumbprint,
-                        StringComparison.OrdinalIgnoreCase)
-                    || !string.Equals(manifest.Publisher, publisher.Subject, StringComparison.Ordinal))
-                {
-                    return Reject(root, trustTier, "package-publisher-changed",
-                        "Pinned, declared, and verified publisher identities differ.", manifest);
-                }
-            }
-
-            (DeviceDefinition Device, IdentityMatchResult Match)[] matches = manifest.Devices
-                .Select(device => (Device: device, Match: IdentityMatcher.Match(device, identity)))
-                .Where(candidate => candidate.Match.Outcome is IdentityMatchOutcome.Matched)
-                .ToArray();
-            if (matches.Length != 1)
-            {
-                return Reject(root, trustTier,
-                    matches.Length == 0 ? "identity-mismatch" : "ambiguous-device-definition",
-                    $"Exact identity matching produced {matches.Length} definitions.", manifest);
-            }
-
-            int specificity = matches[0].Match.Explanations.Count(explanation =>
-                explanation.Strength is IdentityStrength.Required && explanation.Satisfied);
-            return new DevicePackageCandidate
+            return new InstalledDevicePackage
             {
                 PackagePath = root,
-                TrustTier = trustTier,
                 Manifest = manifest,
-                MatchedDevice = matches[0].Device,
-                Specificity = specificity,
-                Eligible = trustTier is not DevicePluginTrustTier.Developer,
-                RejectionCode = trustTier is DevicePluginTrustTier.Developer
-                    ? "developer-never-auto-activates"
-                    : null,
-                Detail = trustTier is DevicePluginTrustTier.SideloadedCommunity
-                    ? "Unreviewed community code; ordinary user integrity only."
-                    : null,
+                Valid = true,
             };
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-            or InvalidDataException or JsonException or CryptographicException)
+            or InvalidDataException)
         {
-            return Reject(packagePath, trustTier, "package-invalid", ex.Message);
+            return Reject(packagePath, "package-invalid", ex.Message);
         }
     }
 
-    private static InstalledDevicePackageRecord ReadInstallRecord(string path)
+    private static void ValidateBoundedPackage(
+        string root,
+        Func<string, FileAttributes?> readAttributes)
     {
-        byte[] bytes = ReadAllBytesBounded(path, MaxMetadataBytes, "Install record");
-
-        return JsonSerializer.Deserialize(
-            bytes,
-            DevicePackageJsonContext.Default.InstalledDevicePackageRecord)
-            ?? throw new InvalidDataException("Install record deserialized to null.");
-    }
-
-    private static void VerifyIntegrity(string root, InstalledDevicePackageRecord record)
-    {
-        string[] files = EnumeratePackageFiles(root)
-            .Where(path => !string.Equals(Path.GetFileName(path), InstallRecordName,
-                StringComparison.OrdinalIgnoreCase))
-            .Select(path => Path.GetRelativePath(root, path).Replace('\\', '/'))
-            .OrderBy(path => path, StringComparer.Ordinal)
-            .ToArray();
-        string[] declared = record.FileHashes.Keys.OrderBy(path => path, StringComparer.Ordinal).ToArray();
-        if (!files.SequenceEqual(declared, StringComparer.Ordinal))
-        {
-            throw new InvalidDataException("Install record does not cover the exact package file set.");
-        }
-
+        int entryCount = 0;
+        int fileCount = 0;
         long totalBytes = 0;
-        foreach ((string relativePath, string expectedHash) in record.FileHashes)
-        {
-            string path = Constrain(root, relativePath);
-            if (IsLink(path))
-            {
-                throw new InvalidDataException("Package files may not be links or reparse points.");
-            }
-
-            using FileStream stream = new(
-                path,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.Read,
-                bufferSize: 64 * 1024,
-                FileOptions.SequentialScan);
-            if (stream.Length > MaxPackageFileBytes
-                || checked(totalBytes + stream.Length) > MaxPackageBytes)
-            {
-                throw new InvalidDataException("Package exceeds the bounded integrity-check size.");
-            }
-
-            totalBytes += stream.Length;
-            string actual = Convert.ToHexString(SHA256.HashData(stream));
-            if (!string.Equals(actual, expectedHash, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidDataException($"Package file hash mismatch: {relativePath}.");
-            }
-        }
-    }
-
-    private static IReadOnlyList<string> EnumeratePackageFiles(string root)
-    {
-        List<string> files = [];
         Stack<string> pending = new();
         pending.Push(root);
         while (pending.Count > 0)
         {
             string directory = pending.Pop();
-            foreach (string entry in Directory.EnumerateFileSystemEntries(directory)
-                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+            IReadOnlyList<string> entries = EnumerateBoundedDirectory(
+                directory,
+                MaxPackageEntries - entryCount);
+            entryCount += entries.Count;
+            foreach (string entry in entries)
             {
-                if (IsLink(entry))
+                FileAttributes? attributes = readAttributes(entry)
+                    ?? throw new IOException("A package entry disappeared during validation.");
+                if ((attributes.Value & FileAttributes.ReparsePoint) != 0)
                 {
                     throw new InvalidDataException("Package paths may not traverse links.");
                 }
 
-                if (Directory.Exists(entry))
+                if ((attributes.Value & FileAttributes.Directory) != 0)
                 {
                     pending.Push(entry);
                     continue;
                 }
 
-                files.Add(entry);
-                if (files.Count > MaxPackageFiles)
+                FileInfo file = new(entry);
+                fileCount++;
+                if (fileCount > MaxPackageFiles
+                    || file.Length > MaxPackageFileBytes
+                    || file.Length > MaxPackageBytes - totalBytes)
                 {
-                    throw new InvalidDataException("Package contains too many files.");
+                    throw new InvalidDataException("Package exceeds the bounded file or size limit.");
                 }
+                totalBytes += file.Length;
+            }
+        }
+    }
+
+    private static IReadOnlyList<string> EnumerateBoundedDirectory(
+        string directory,
+        int remainingEntries)
+    {
+        List<string> entries = [];
+        foreach (string entry in Directory.EnumerateFileSystemEntries(directory))
+        {
+            entries.Add(entry);
+            if (entries.Count > remainingEntries)
+            {
+                throw new InvalidDataException(
+                    "Package exceeds the bounded filesystem-entry limit.");
             }
         }
 
-        return files;
+        entries.Sort(StringComparer.OrdinalIgnoreCase);
+        return entries;
     }
 
     private static byte[] ReadAllBytesBounded(string path, int maxBytes, string description)
@@ -546,28 +335,35 @@ public static class DevicePackagePolicy
         return bytes;
     }
 
-    private static string Constrain(string root, string relativePath)
+    private static string Constrain(
+        string root,
+        string relativePath,
+        Func<string, FileAttributes?> readAttributes)
     {
         if (string.IsNullOrWhiteSpace(relativePath) || Path.IsPathRooted(relativePath))
         {
             throw new InvalidDataException("Package paths must be relative.");
         }
 
-        string prefix = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar)
-            + Path.DirectorySeparatorChar;
-        string candidate = Path.GetFullPath(Path.Combine(root, relativePath));
+        string normalizedRoot = NormalizeDirectoryPath(root);
+        string prefix = Path.EndsInDirectorySeparator(normalizedRoot)
+            ? normalizedRoot
+            : normalizedRoot + Path.DirectorySeparatorChar;
+        string candidate = Path.GetFullPath(Path.Combine(normalizedRoot, relativePath));
         if (!candidate.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidDataException("A package path escaped its immutable version directory.");
+            throw new InvalidDataException("A package path escaped its protected directory.");
         }
 
-        string current = root;
-        foreach (string segment in Path.GetRelativePath(root, candidate).Split(
+        string current = normalizedRoot;
+        foreach (string segment in Path.GetRelativePath(normalizedRoot, candidate).Split(
             [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
             StringSplitOptions.RemoveEmptyEntries))
         {
             current = Path.Combine(current, segment);
-            if ((File.Exists(current) || Directory.Exists(current)) && IsLink(current))
+            FileAttributes? attributes = readAttributes(current);
+            if (attributes is not null
+                && (attributes.Value & FileAttributes.ReparsePoint) != 0)
             {
                 throw new InvalidDataException("Package paths may not traverse links.");
             }
@@ -576,77 +372,48 @@ public static class DevicePackagePolicy
         return candidate;
     }
 
-    private static bool IsX64Pe(string path)
+    private static bool IsX64ManagedAssembly(string path)
     {
-        using FileStream stream = File.OpenRead(path);
-        Span<byte> header = stackalloc byte[64];
-        if (stream.Read(header) != header.Length || header[0] != (byte)'M' || header[1] != (byte)'Z')
+        try
+        {
+            using FileStream stream = File.OpenRead(path);
+            using PEReader pe = new(stream, PEStreamOptions.LeaveOpen);
+            return pe.PEHeaders.CoffHeader.Machine is Machine.Amd64
+                && pe.PEHeaders.CorHeader is not null
+                && pe.HasMetadata
+                && pe.GetMetadataReader().IsAssembly;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException)
         {
             return false;
         }
+    }
 
-        int peOffset = BitConverter.ToInt32(header[60..64]);
-        if (peOffset < 64 || peOffset > stream.Length - 6)
+    private static string NormalizeDirectoryPath(string path) =>
+        Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+
+    private static FileAttributes? ReadPathAttributes(string path)
+    {
+        try
         {
-            return false;
+            return File.GetAttributes(path);
         }
-
-        stream.Position = peOffset;
-        Span<byte> pe = stackalloc byte[6];
-        return stream.Read(pe) == pe.Length
-            && pe[0] == (byte)'P'
-            && pe[1] == (byte)'E'
-            && pe[2] == 0
-            && pe[3] == 0
-            && BitConverter.ToUInt16(pe[4..6]) == 0x8664;
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return null;
+        }
     }
 
-    private static bool SameSelectionKeys(DevicePackageCandidate left, DevicePackageCandidate right) =>
-        left.TrustTier == right.TrustTier
-        && left.Specificity == right.Specificity
-        && ParseVersion(left.Manifest?.Version) == ParseVersion(right.Manifest?.Version)
-        && string.Equals(left.Manifest?.Id, right.Manifest?.Id, StringComparison.Ordinal);
-
-    private static int TrustRank(DevicePluginTrustTier tier) => tier switch
-    {
-        DevicePluginTrustTier.WsgmReviewed => 0,
-        DevicePluginTrustTier.SignedExternal => 1,
-        DevicePluginTrustTier.SideloadedCommunity => 2,
-        DevicePluginTrustTier.Developer => 3,
-        _ => int.MaxValue,
-    };
-
-    private static Version ParseVersion(string? version) =>
-        Version.TryParse(version, out Version? parsed) ? parsed : new Version();
-
-    private static bool IsLink(string path)
-    {
-        FileSystemInfo info = Directory.Exists(path)
-            ? new DirectoryInfo(path)
-            : new FileInfo(path);
-        return info.Exists && (info.LinkTarget is not null
-            || (info.Attributes & FileAttributes.ReparsePoint) != 0);
-    }
-
-    private static DevicePackageCandidate Reject(
+    private static InstalledDevicePackage Reject(
         string path,
-        DevicePluginTrustTier tier,
         string code,
         string detail,
         PluginManifest? manifest = null) => new()
         {
             PackagePath = Path.GetFullPath(path),
-            TrustTier = tier,
             Manifest = manifest,
-            Eligible = false,
+            Valid = false,
             RejectionCode = code,
             Detail = detail,
         };
 }
-
-/// <summary>NativeAOT-safe installed-package metadata.</summary>
-[JsonSourceGenerationOptions(
-    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
-[JsonSerializable(typeof(InstalledDevicePackageRecord))]
-public sealed partial class DevicePackageJsonContext : JsonSerializerContext;

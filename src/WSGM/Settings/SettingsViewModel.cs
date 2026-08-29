@@ -136,8 +136,6 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         SteamInputManagementEnabled = _config.SteamInputManagementEnabled;
         DeviceIntegrationEnabled = _config.DeviceIntegration.Enabled;
         DeviceControllerManagementEnabled = _config.DeviceIntegration.ControllerManagementEnabled;
-        DeviceDeveloperMode = _config.DeviceIntegration.DeveloperMode;
-        DeviceUpdatePolicyIndex = (int)_config.DeviceIntegration.UpdatePolicy;
         DeviceControllerTargetIndex = (int)_config.DeviceIntegration.ControllerTarget;
         DeviceGlyphSelectionIndex = (int)_config.DeviceIntegration.GlyphSelection;
         DeviceDiagnosticLevelIndex = (int)_config.DeviceIntegration.DiagnosticLevel;
@@ -369,8 +367,6 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     private bool _deviceIntegrationEnabled;
     private bool _deviceControllerManagementEnabled;
-    private bool _deviceDeveloperMode;
-    private int _deviceUpdatePolicyIndex = (int)DevicePluginUpdatePolicy.Notify;
     private int _deviceControllerTargetIndex = (int)ManagedControllerTarget.SteamDeckComposite;
     private int _deviceGlyphSelectionIndex = (int)DeviceGlyphSelection.Automatic;
     private int _deviceDiagnosticLevelIndex = (int)DeviceDiagnosticLevel.Standard;
@@ -400,24 +396,6 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             _deviceControllerManagementEnabled = value;
             Raise(nameof(DeviceControllerManagementEnabled));
         }
-    }
-
-    /// <summary>Gets or sets whether Device Lab developer packages may be inspected.</summary>
-    public bool DeviceDeveloperMode
-    {
-        get => _deviceDeveloperMode;
-        set
-        {
-            _deviceDeveloperMode = value;
-            Raise(nameof(DeviceDeveloperMode));
-        }
-    }
-
-    /// <summary>Selected verified package update-policy index.</summary>
-    public int DeviceUpdatePolicyIndex
-    {
-        get => _deviceUpdatePolicyIndex;
-        set { _deviceUpdatePolicyIndex = value; Raise(nameof(DeviceUpdatePolicyIndex)); }
     }
 
     /// <summary>Selected global managed-controller target index.</summary>
@@ -457,9 +435,9 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
                 TimeSpan.FromMilliseconds(750));
         DeviceOwnerStatusText = snapshot is null
             ? "No running device coordinator detected. Saved changes apply at the next shell start."
-            : $"{snapshot.State} · {snapshot.PackageId ?? "no package"} · "
+            : $"{snapshot.State} · {snapshot.InstalledPackage?.PackageId ?? "no package"} · "
                 + $"{snapshot.HealthyCapabilityCount}/{snapshot.CapabilityCount} healthy · "
-                + $"host {snapshot.HostGeneration}, device {snapshot.DeviceGeneration}";
+                + $"cycle {snapshot.CycleGeneration}";
     }
 
     /// <summary>Gets whether first-run Quick Setup still has to be answered.</summary>
@@ -1173,11 +1151,6 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.SteamInputManagementEnabled = SteamInputManagementEnabled;
         config.DeviceIntegration.Enabled = DeviceIntegrationEnabled;
         config.DeviceIntegration.ControllerManagementEnabled = DeviceControllerManagementEnabled;
-        config.DeviceIntegration.DeveloperMode = DeviceDeveloperMode;
-        config.DeviceIntegration.UpdatePolicy = (DevicePluginUpdatePolicy)Math.Clamp(
-            DeviceUpdatePolicyIndex,
-            0,
-            Enum.GetValues<DevicePluginUpdatePolicy>().Length - 1);
         config.DeviceIntegration.ControllerTarget = (ManagedControllerTarget)Math.Clamp(
             DeviceControllerTargetIndex,
             0,

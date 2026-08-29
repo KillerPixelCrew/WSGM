@@ -27,18 +27,20 @@ if (source.length === 0 || source.length > maximumAssetBytes) {
   );
 }
 if (source[0] === 0xef && source[1] === 0xbb && source[2] === 0xbf) {
-  throw new Error(`${relative(repositoryRoot, sourcePath)} must be UTF-8 without a byte-order mark.`);
+  throw new Error(
+    `${relative(repositoryRoot, sourcePath)} must be UTF-8 without a byte-order mark.`,
+  );
 }
 
 const decoder = new TextDecoder("utf-8", { fatal: true });
 decoder.decode(source);
 const sha256 = createHash("sha256").update(source).digest("hex").toUpperCase();
 const catalog = await readFile(catalogPath, "utf8");
-const match = catalog.match(
-  /NativeQamBootstrapSha256\s*=\s*\r?\n\s*"([0-9A-F]{64})";/u,
-);
+const match = catalog.match(/NativeQamBootstrapSha256\s*=\s*\r?\n\s*"([0-9A-F]{64})";/u);
 if (match === null) {
-  throw new Error(`Could not find the pinned NativeQamBootstrapSha256 in ${basename(catalogPath)}.`);
+  throw new Error(
+    `Could not find the pinned NativeQamBootstrapSha256 in ${basename(catalogPath)}.`,
+  );
 }
 if (match[1] !== sha256) {
   throw new Error(

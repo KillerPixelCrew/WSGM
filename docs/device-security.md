@@ -1,136 +1,132 @@
-# Device platform security and trust review
+# Device integration security boundary
 
-This threat model covers the WSGM 2.0 device platform: package discovery, DeviceHost launch and
-IPC, shared state, optional dependencies, Device Lab inputs, Steam CEF patches, glyph assets,
-recovery, update, and uninstall. It applies WSGM's accepted same-user/elevation posture from
-`docs/decisions.md`; it does not redefine UAC as a product security boundary or treat the deliberate
-elevated shell and reviewed first-party plugin as defects.
+This record applies WSGM's accepted same-user/elevation posture from `docs/decisions.md`. Elevated
+WSGM, one elevated administrator-installed hardware plugin, native helpers, Steam CEF patching, and
+raw input observation are deliberate product mechanisms. The relevant boundary is concrete path,
+identity, IPC, ownership, recovery, and cleanup correctness—not an enterprise plugin marketplace.
 
 ## Authority map
 
-| Component | Authority | Untrusted input | Must never do |
-| --- | --- | --- | --- |
-| WSGM | Session/device-cycle policy, semantic commands, WSGM-owned controller and HidHide state | Config, package metadata, host frames, CEF results | Expose a generic raw hardware or plugin command broker |
-| DeviceHost | Load one pinned plugin package, bound its lifecycle and IPC | Package assembly and plugin results | Install dependencies, select another package, or outlive its job |
-| Reviewed plugin | Exact reviewed operations for one matched device | Firmware/provider/HID responses | Broaden its own identity, ranges, transports, dependencies, or persistence |
-| Community/developer plugin | Read-only or explicitly granted semantic operations at its trust tier | Same as above | Inherit reviewed/elevated authority from package contents alone |
-| Device Lab | Offline inventory, evidence, generation, validation, packaging; one interactive trial door | Captures, recipes, manifests, evidence, packages | Treat an imported file as write authority or automate mutation |
-| Steam UI host | Fixed patch identities and semantic request vocabulary | Loopback CDP target state and fixed-size bridge payloads | Provide general JavaScript, filesystem, device, process, or shell authority |
-| Installer | Install/repair verified components and perform bounded cleanup fallback | Existing installation/component state | Let a plugin or runtime IPC request installation or arbitrary recovery |
+| Component        | Owns                                                                               | Must not do                                                                                   |
+| ---------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| WSGM             | Single-slot discovery, session policy, semantic commands, controller/HidHide state | Load plugin code from a user-writable root or expose a raw hardware broker                    |
+| DeviceHost       | One installed package, one lifecycle, bounded IPC, package-local loading           | Select/install another package, broker arbitrary privileged work, or outlive its job          |
+| Installed plugin | Exact-device transports, writes, readback, restoration, diagnostics                | Broaden identity/ranges at runtime, supply UI/Steam code, or manage WSGM controller ownership |
+| Device Lab       | Read-only diagnosis and one attended compiled plugin test                          | Treat imported files as mutation authority or offer unattended/bulk hardware writes           |
+| Steam UI host    | Fixed WSGM patch IDs and semantic command vocabulary                               | Expose generic JavaScript, filesystem, process, plugin, or device authority                   |
+| Installer        | Atomic component/plugin replacement and bounded cleanup fallback                   | Leave two discoverable plugins or let runtime IPC request arbitrary installation              |
 
-## Protected assets and failure impact
+## Protected single slot
 
-- **Usable physical input.** A failed handoff must not leave the only controller hidden. WSGM owns
-  only its virtual target and its HidHide ledger entries, and deactivation continues through later
-  cleanup phases after an earlier timeout.
-- **Original hardware state.** Captured state is restoration-only. Desired-state precedence cannot
-  overwrite it, and an indeterminate write remains in the recovery journal for exact next-start
-  reconciliation.
-- **Package identity and code.** Selection pins package ID/version, exact device identity, trust
-  tier, entry assembly, signer/grant, file hashes, and contained paths before spawn. Mutable or
-  traversing entry paths are rejected before assembly resolution.
-- **Control-plane integrity.** Each DeviceHost launch gets a random one-use nonce, current
-  user/session pipe ACL, protocol/schema negotiation, bounded frames, correlation/generation IDs,
-  and a single authenticated connection.
-- **Availability and cleanup.** DeviceHost is assigned to a kill-on-close job. Restart/backoff is
-  bounded and quarantine is manual-retry-only. Process shutdown has one outer deadline; timeout
-  permits process/job closure and preserves journal evidence.
-- **User privacy.** Default logs and inventory omit raw high-rate samples, secrets, serial numbers,
-  and user content. Capture/export requires an explicit destination and redaction report; no path
-  uploads automatically.
+Package-root cardinality is checked before manifest parsing or privileged startup. Zero packages is
+a supported core-only state. One root is the sole installed package. Two or more roots refuse normal
+startup and list every absolute path; WSGM never resolves the ambiguity through ranking, trust,
+version, signature, preference, enablement, or quarantine policy.
 
-## Boundary review
+The slot is administrator-protected. A plugin update stages in the fixed `.staging` sibling outside
+all discovery paths, parks rollback at `.previous`, and atomically replaces `installed`; the prior
+`.installed.previous` name is reconciled during migration. Entry assembly and native dependency
+paths are normalized, contained beneath the package root, and loaded only from that root. The
+minimal manifest is bounded and identifies code; hardware matching and capability publication remain
+executable plugin logic. Elevated maintenance rejects lexical, reparse, and filesystem-identity
+aliases before reconciliation, holds every existing source path component against replacement, and
+copies each enumerated entry only from a no-follow handle whose identity was revalidated. Every
+protected slot, recovery, and staging path has its attributes inspected exactly before a cleanup or
+replacement mutation; an access or I/O failure is never collapsed into path absence. Runtime
+discovery/host creation and elevated maintenance share the exact `Global\WSGM.DevicePackageSlot`
+gate, with the exact global device-owner marker atomically reserved and all DeviceHost processes
+rechecked under it before replacement or removal. Setup holds both objects from shutdown through
+staging/publication and fails closed when the process snapshot cannot prove every DeviceHost exited.
+Uninstall holds them through `[UninstallDelete]`, so another session cannot start a host against
+files being removed.
 
-### Package discovery and loading
+Administrator installation is the consent and authority boundary. The plugin intentionally inherits
+WSGM's integrity because the MSI provider and device writes require it. DeviceHost process/job
+isolation contains crashes and dependency loading; it is not a sandbox against malicious
+administrator-installed code. Runtime trust tiers, publisher grants, signer promotion/revocation,
+per-file evidence ledgers, and de-elevated plugin classes do not improve that stated boundary and
+are not part of the design.
 
-`DevicePackagePolicy`, `PluginManifestValidator`, the coordinator's signature verifier, and
-`PluginPackageLoader` form one fail-closed chain. Candidate similarity never grants authority. A
-package must be in an approved root, remain beneath it after normalization, contain no link/traversal
-escape, satisfy schema/API/architecture and exact identity, and pass its trust-tier integrity rules.
-DeviceHost resolves managed and native dependencies only from that pinned package; current-directory
-and global probing are not package policy.
+## IPC, lifecycle, and input safety
 
-Residual risk: WSGM-reviewed packages intentionally run with WSGM's integrity and community code is
-not sandboxed from malicious same-user behavior. Per-package process and job isolation reduce crash,
-dependency, and resource blast radius; they are not a security sandbox.
+The parent creates one pipe, launch token, fixed input ring, signal, and kill-on-close job before
+starting DeviceHost. Frames are size-bounded and exact-versioned. Requests carry IDs, cancellation,
+and one current cycle generation where stale-action rejection is required. Lifecycle, commands,
+output, and ownership remain on authenticated control IPC; the shared ring is advisory high-rate
+input only.
 
-### Launch, IPC, and shared state
+There is no generic execute, shell, file, WMI, HID, EC, IOCTL, registry, or process endpoint. The
+plugin receives semantic commands and revalidates exact current identity, device availability,
+ownership/conflict, range, and sequencing immediately before every write. An uncertain write is
+returned to the owning service and is never automatically retried.
 
-The parent creates the pipe, nonce, shared ring, signal, and job before launch. A valid hello must
-match protocol, schema, launch identity, and the nonce in constant time; accepting it consumes the
-nonce. Wire framing caps lengths before allocation and unknown/incompatible messages fail the
-operation rather than changing protocol state. Device generations reject stale state and commands.
-High-rate shared state is advisory observation; lifecycle, command admission, output, and ownership
-remain on authenticated control IPC.
+Usable physical input is a recovery invariant. Target replacement and source switching establish a
+safe replacement before releasing the current source. WSGM removes only its virtual target and its
+HidHide ledger delta. Plugin failure cannot justify killing or reconfiguring an external manager.
 
-No unrelated inheritable handle is part of the contract. The child process receives named endpoints
-and a nonce as explicit launch arguments, then enters the parent-owned job. Untrusted trust tiers are
-launched through the interactive Explorer token and a missing de-elevation path is a refusal, not an
-elevated fallback.
+## Recovery and shutdown
 
-### Hardware and helper authority
+One outer deadline flows from normal/update/logoff/uninstall shutdown into controller release and
+plugin restoration. WSGM does not stack per-phase timeout tables. Later WSGM-owned cleanup continues
+after an unverified plugin step, the DeviceHost job closes on forced exit, and the compact outcome
+is logged as clean, unverified, timed-out, or failed.
 
-The main NativeAOT process consumes only semantic contracts. WMI, WinRT sensors, HID reports,
-firmware methods, controller protocols, and raw buffers remain inside the exact plugin. Native radio,
-volume, and Steam Input helpers expose fixed ABIs for their existing WSGM-owned operations; they are
-not a route for plugin commands. A plugin cannot ask WSGM to open an arbitrary device, invoke WMI,
-write a registry/file path, launch a process, or install a component.
+Recovery persists only temporary plugin-owned state that was changed and could not be restored. It
+does not retain general evidence claims, attempt receipts, or a second host-owned hardware journal.
+Persistent desired state is separate, and next-start reconciliation requires the exact device.
 
-Each production write must validate exact device/generation, supported semantic operation, bounds,
-ownership/conflict, expected original state, remaining deadline, and journal transition. Imported
-captures and recipes can nominate or document a trial but cannot authorize one.
+Update/uninstall first captures whether the logon service exists and is running, stops it only when
+running, requests the correct bounded shutdown, then applies an installer-owned force-stop fallback.
+A setup refusal, retry, or pre-mutation cancellation restores only that captured running service
+through its installer-tagged start and restores the initially observed shell/settings mode. An
+unverified prior DeviceHost suppresses hardware-cycle admission in the restored shell process rather
+than risking an overlapping host; the restored process takes and acknowledges a second handle to the
+same global owner marker before the installer releases its reservation. The acknowledgement event
+keeps the elevated user's default DACL and is relabeled medium/no-write-up before launch, allowing
+the restored same-user medium Settings process to signal it without admitting low-integrity callers.
+Atomic replacement never makes two packages discoverable. Uninstall removes only WSGM-owned
+service/task/target/HidHide/plugin/CEF/configuration state and does not invent hardware restoration
+after the plugin is unavailable.
 
-### Device Lab
+## Device Lab and untrusted data
 
-Offline inputs are hostile. Parsers bound size/shape, normalize deterministically, redact before
-export, and keep failed/denied/absent observations distinct. All paths are explicit and the real
-`%LOCALAPPDATA%\WSGM` directory, repository root, and broad home paths are forbidden outputs.
-`probe run` remains the sole mutation door and requires a locally reviewed trial hash, matching
-identity/generation/preflight/original state, an interactive local operator, and the existing
-emergency/restore sequence. There is no unattended consent flag.
+Captures, manifests, packages, and diagnostic files are untrusted data. Parsers cap size and shape:
+manifest length is checked before allocating its buffer, and package traversal has entry, file,
+per-file, and aggregate-byte ceilings that are enforced before unbounded sorting or traversal. Entry
+assemblies must be AMD64 managed assemblies with readable CLR and assembly metadata. Paths are
+explicit. Offline packing holds each validated source file against writes, rename, and deletion and
+archives those same handles rather than reopening path names. Exports pass one redaction step that
+removes user, machine, network, and account identifiers. Tools never read or write the live
+`%LOCALAPPDATA%\WSGM` directory and upload nothing automatically.
 
-### Steam CEF, native QAM, and glyph delivery
+The sole mutation door is a locally attended action that invokes compiled plugin-owned
+snapshot/readback/restore behavior for the exact current device. It has no imported recipe, trial
+hash, authorization snapshot, evidence grade, remembered consent, `--yes`, bulk, or CI route. A
+production owner already holding the hardware causes refusal.
+
+The attended run atomically reserves WSGM's exact machine-wide owner object before plugin loading
+and keeps the unowned handle through plugin cleanup and disposal. This makes production startup and
+the developer run mutually exclusive instead of relying on a stale owner observation. Normal
+production startup also snapshots all DeviceHost processes after creating that marker and fails
+closed, releasing its new marker, when an earlier host is present or process enumeration is
+unverified.
+
+## Steam and glyph isolation
 
 The CDP transport accepts only loopback Steam-owned targets and generation-tags contexts/documents.
-Every patch has a fixed ID/version/target/resource key, positive structural probe, bounds, independent
-kill switch, apply/result verification, owned cleanup, and incompatible fallback. The bridge admits
-only compiled semantic patch/command schemas with size, replay, context, and action-generation
-checks. It exposes no generic evaluation endpoint.
+Built-in patches have fixed IDs, bounded semantic payloads, positive probes, independent removal,
+and owned namespaces. The bridge exposes no generic evaluation endpoint and patch failure retains
+Valve's native UI.
 
-Glyph selectors require an exact approved controller route and resolved handheld subject. Assets are
-plugin-owned declarative data validated by WSGM's schema/importer; a plugin cannot provide JavaScript,
-CSS selectors, URLs, or runtime filesystem paths. Missing, ambiguous, unverified, or version-mismatched
-profiles retain native Steam and generic WSGM presentation.
+Glyphs are static plugin data. WSGM validates local paths, known IDs, format, dimensions, size, and
+references, then owns Steam selectors, CDP expressions, cleanup, and Avalonia rendering. A plugin
+cannot provide JavaScript, CSS selectors, URLs, or runtime filesystem paths. Missing, ambiguous, or
+mismatched profiles keep native Steam/generic WSGM presentation.
 
-### Update, rollback, and uninstall
+## Validation boundary
 
-Runtime code may discover and stage policy, but only the installer/component manager may install,
-repair, update, or remove drivers, providers, services, tasks, packages, or helpers. Active packages
-are not replaced inside a device cycle. Applying or rolling back requires full deactivation and an
-atomic verified composition; a partial package never becomes launchable.
-
-Update and uninstall first stop the logon service, then use distinct same-user named events and
-bounded application cleanup. The force-stop fallback is installer-owned. Uninstall may remove only
-the WSGM virtual target and WSGM-owned HidHide ledger entries after graceful failure; it never invents
-hardware restoration without the plugin. External MSI Center, Handheld Companion, HidHide entries,
-Steam state, and RTSS profiles remain externally owned.
-
-## Required negative and fault evidence
-
-Automated coverage must retain minimal deterministic cases for malformed/oversized frames, bad and
-replayed nonces, stale generations, duplicate commands, out-of-order state, path/link/native-search
-escapes, tampered hashes/assets, incompatible schema/API, signer continuity/revocation/downgrade,
-ambiguous identities/routes, dependency substitution, host crash/hang/forced kill, phase timeouts,
-locked update files, rollback failure, and unresolved journals. Fuzz/property runs are bounded by
-time, memory, handles, and output size, and their reduced fixtures contain no live identifiers.
-
-Hardware, driver, shell-takeover, live Steam, and mutation trials remain outside ordinary automated
-test authority. Their evidence must name the exact Windows/Steam/firmware/package/build identity,
-expected and observed result, cleanup, and retained external-state comparison.
-
-## Review closure
-
-A release review closes this model only when every shipped operation appears in the generated 2.0
-traceability report, no high/critical finding is open, lower risks are explicitly accepted or scoped
-out, malformed and fault paths are covered, manual gates remain honest, and Device Integration off
-leaves every optional host/helper/hook/patch/target absent or inert.
+Automated coverage focuses on malformed/bounded frames, exact-version mismatch, stale cycle action,
+package cardinality and path escape, host crash/hang, controller cleanup, atomic replacement,
+unresolved restoration, and native Steam fallback. Hardware writes, shell takeover, live Steam, and
+attended Device Lab tests remain outside unattended automation and must record exact build/device,
+observed result, cleanup, and external-state preservation.

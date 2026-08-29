@@ -2,10 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using WSGM.Device.Contracts.Capabilities;
-using WSGM.Device.Contracts.Identity;
-using WSGM.Device.Contracts.Input;
-using WSGM.Device.Contracts.Lifecycle;
+using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Identity;
+using WSGM.Device.Sdk.Input;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Device.Sdk.Plugin;
 
@@ -20,7 +20,7 @@ public interface IDevicePlugin : IAsyncDisposable
     string PackageId { get; }
 
     /// <summary>Detects an exact supported device without acquiring a mutable resource.</summary>
-    /// <param name="context">Normalized host observations and generation.</param>
+    /// <param name="context">Normalized host observations.</param>
     /// <param name="cancellationToken">Cancels detection.</param>
     /// <returns>Exact detection outcome.</returns>
     ValueTask<PluginDetectionResult> DetectAsync(
@@ -28,11 +28,11 @@ public interface IDevicePlugin : IAsyncDisposable
         CancellationToken cancellationToken);
 
     /// <summary>Begins one process-long device cycle.</summary>
-    /// <param name="context">Host adapter, generations, and recovery state.</param>
-    /// <param name="cancellationToken">Cancels activation and requires acquired resources to unwind.</param>
-    /// <returns>A task completing after every declared resource was assessed.</returns>
-    ValueTask ActivateAsync(
-        PluginActivationContext context,
+    /// <param name="context">Host adapter, cycle generation, and package-owned state directory.</param>
+    /// <param name="cancellationToken">Cancels startup and requires acquired services to unwind.</param>
+    /// <returns>The plugin's aggregate operational state after startup.</returns>
+    ValueTask<PluginStartResult> StartAsync(
+        PluginStartContext context,
         CancellationToken cancellationToken);
 
     /// <summary>Applies one semantic capability command after authoritative plugin revalidation.</summary>
@@ -52,8 +52,15 @@ public interface IDevicePlugin : IAsyncDisposable
     /// <summary>Revalidates identity and reacquires resources after resume.</summary>
     /// <param name="context">New device generation and deadline.</param>
     /// <param name="cancellationToken">Cancels resume.</param>
-    /// <returns>A task completing after resource state was republished.</returns>
-    ValueTask ResumeAsync(PluginResumeContext context, CancellationToken cancellationToken);
+    /// <returns>The plugin's aggregate operational state after resume.</returns>
+    ValueTask<PluginStartResult> ResumeAsync(
+        PluginResumeContext context,
+        CancellationToken cancellationToken);
+
+    /// <summary>Returns bounded, plugin-owned diagnostic facts without exposing transports.</summary>
+    /// <param name="cancellationToken">Cancels diagnostic collection.</param>
+    /// <returns>Current service and recovery details.</returns>
+    ValueTask<PluginDiagnostics> GetDiagnosticsAsync(CancellationToken cancellationToken);
 
     /// <summary>Applies canonical virtual-target output to the physical device.</summary>
     /// <param name="frame">Bounded semantic haptic frame.</param>
@@ -82,9 +89,9 @@ public interface IDevicePlugin : IAsyncDisposable
     /// <summary>Restores and releases every remaining resource.</summary>
     /// <param name="context">Terminal reason and cleanup deadline.</param>
     /// <param name="cancellationToken">Cancels waiting at the host deadline.</param>
-    /// <returns>A task completing after cleanup results were published and journalled.</returns>
-    ValueTask DeactivateAsync(
-        PluginDeactivationContext context,
+    /// <returns>Whether cleanup was verified, unverified, or failed.</returns>
+    ValueTask<PluginStopResult> StopAsync(
+        PluginStopContext context,
         CancellationToken cancellationToken);
 }
 
@@ -94,8 +101,6 @@ public sealed record PluginDetectionContext
     /// <summary>Normalized machine and device identity.</summary>
     public required DeviceIdentitySnapshot Identity { get; init; }
 
-    /// <summary>Host generation performing detection.</summary>
-    public required long HostGeneration { get; init; }
 }
 
 /// <summary>Outcome of exact plugin detection.</summary>
@@ -111,36 +116,91 @@ public sealed record PluginDetectionResult
     public CapabilityReason? Reason { get; init; }
 }
 
-/// <summary>Inputs to one process-long activation.</summary>
-public sealed record PluginActivationContext
+/// <summary>Inputs to one process-long start.</summary>
+public sealed record PluginStartContext
 {
     /// <summary>Semantic publication surface implemented by DeviceHost.</summary>
     public required IPluginHostAdapter Host { get; init; }
 
-    /// <summary>Host generation owning the activation.</summary>
-    public required long HostGeneration { get; init; }
-
-    /// <summary>Device generation owning all handles opened during activation.</summary>
-    public required long DeviceGeneration { get; init; }
+    /// <summary>Cycle generation owning all handles opened during startup.</summary>
+    public required long CycleGeneration { get; init; }
 
     /// <summary>Exact matched device definition.</summary>
     public required string DeviceDefinitionId { get; init; }
 
-    /// <summary>Journal entries requiring plugin-owned reconciliation before new writes.</summary>
-    public IReadOnlyList<RecoveryJournalEntry> OutstandingJournalEntries { get; init; } = [];
+    /// <summary>Private writable directory for package-owned durable state.</summary>
+    /// <remarks>
+    /// The plugin owns the schema and atomicity of every file below this directory. The host does
+    /// not interpret or merge those files, and the plugin must keep them bounded.
+    /// </remarks>
+    public required string StateDirectory { get; init; }
 
     /// <summary>Whether physical-controller acquisition should be attempted.</summary>
     public required bool ControllerManagementEnabled { get; init; }
+}
+
+/// <summary>The plugin's aggregate state after starting or resuming its direct services.</summary>
+public sealed record PluginStartResult
+{
+    /// <summary>Whether services are active, passive, or partly degraded.</summary>
+    public required PluginOperationalState State { get; init; }
+
+    /// <summary>Structured reason when the aggregate state is not active.</summary>
+    public CapabilityReason? Reason { get; init; }
+}
+
+/// <summary>Aggregate result of starting or resuming direct plugin services.</summary>
+public enum PluginOperationalState
+{
+    /// <summary>No mutable service could be acquired.</summary>
+    Passive,
+
+    /// <summary>Every required service started successfully.</summary>
+    Active,
+
+    /// <summary>At least one service is usable and at least one is unavailable.</summary>
+    Degraded,
+}
+
+/// <summary>Bounded plugin-owned diagnostic facts.</summary>
+public sealed record PluginDiagnostics
+{
+    /// <summary>Short stable keys and sanitized values for current service and recovery state.</summary>
+    public IReadOnlyDictionary<string, string> Values { get; init; }
+        = new Dictionary<string, string>(StringComparer.Ordinal);
+}
+
+/// <summary>Truthful aggregate result of terminal plugin cleanup.</summary>
+public sealed record PluginStopResult
+{
+    /// <summary>Whether restoration was verified, unverified, or failed.</summary>
+    public required PluginStopStatus Status { get; init; }
+
+    /// <summary>Structured detail when restoration was not fully verified.</summary>
+    public CapabilityReason? Reason { get; init; }
+}
+
+/// <summary>Aggregate terminal cleanup status.</summary>
+public enum PluginStopStatus
+{
+    /// <summary>Every changed temporary state was restored and verified.</summary>
+    Clean,
+
+    /// <summary>Cleanup ran, but at least one restoration could not be confirmed.</summary>
+    Unverified,
+
+    /// <summary>At least one restoration failed.</summary>
+    Failed,
 }
 
 /// <summary>Bounded suspend or lock quiescence.</summary>
 /// <param name="Deadline">UTC deadline after which the host stops waiting.</param>
 public sealed record PluginQuiesceContext(DateTimeOffset Deadline);
 
-/// <summary>Bounded resume into a new or continuing device generation.</summary>
-/// <param name="DeviceGeneration">Generation that all newly opened handles belong to.</param>
+/// <summary>Bounded resume into a fresh cycle generation.</summary>
+/// <param name="CycleGeneration">Generation that all newly opened handles belong to.</param>
 /// <param name="Deadline">UTC deadline after which the host stops waiting.</param>
-public sealed record PluginResumeContext(long DeviceGeneration, DateTimeOffset Deadline);
+public sealed record PluginResumeContext(long CycleGeneration, DateTimeOffset Deadline);
 
 /// <summary>Controller-only or full release request.</summary>
 /// <param name="Scope">Whether the process-long device cycle continues.</param>
@@ -149,11 +209,11 @@ public sealed record PluginControllerReleaseContext(HandoffScope Scope, DateTime
 
 /// <summary>Controller-only ownership transition inside a continuing device cycle.</summary>
 /// <param name="Enabled">Whether physical acquisition should be active.</param>
-/// <param name="DeviceGeneration">Fresh generation for handles opened while enabling.</param>
+/// <param name="CycleGeneration">Fresh generation for handles opened while enabling.</param>
 /// <param name="Deadline">UTC transition deadline.</param>
 public sealed record PluginControllerManagementContext(
     bool Enabled,
-    long DeviceGeneration,
+    long CycleGeneration,
     DateTimeOffset Deadline);
 
 /// <summary>What the plugin established while releasing its physical controller.</summary>
@@ -170,7 +230,7 @@ public sealed record PluginControllerRelease
 }
 
 /// <summary>Why one process-long device cycle is ending.</summary>
-public enum PluginDeactivationReason
+public enum PluginStopReason
 {
     /// <summary>WSGM is exiting normally.</summary>
     WsgmExiting,
@@ -183,11 +243,20 @@ public enum PluginDeactivationReason
 
     /// <summary>The interactive session is ending.</summary>
     SessionEnding,
+
+    /// <summary>WSGM is being uninstalled after a bounded restoration attempt.</summary>
+    Uninstalling,
+
+    /// <summary>The startup owner canceled after plugin activation may have begun.</summary>
+    StartCanceled,
+
+    /// <summary>Startup failed after plugin activation may have begun.</summary>
+    StartFailed,
 }
 
 /// <summary>Terminal cleanup request.</summary>
 /// <param name="Reason">Why the cycle is ending.</param>
 /// <param name="Deadline">UTC deadline for plugin-owned restoration.</param>
-public sealed record PluginDeactivationContext(
-    PluginDeactivationReason Reason,
+public sealed record PluginStopContext(
+    PluginStopReason Reason,
     DateTimeOffset Deadline);

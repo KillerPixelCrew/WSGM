@@ -1,34 +1,22 @@
 using System;
-using System.Buffers.Binary;
-using System.Collections.Generic;
 using System.IO;
 using System.IO.Pipes;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
-using WSGM.Device.Contracts.Lifecycle;
+using WSGM.Device.Sdk.Ipc;
+using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Core;
 
 /// <summary>Bounded read-only view exposed by the resident device coordinator.</summary>
 internal sealed record DeviceCoordinatorDiagnosticsSnapshot
 {
-    internal const int CurrentSchemaVersion = 1;
-
-    public int SchemaVersion { get; init; } = CurrentSchemaVersion;
-
     public required DeviceCycleState State { get; init; }
 
-    public string? PackageId { get; init; }
+    public DeviceInstalledPackageDiagnostic? InstalledPackage { get; init; }
 
-    public string? PackageVersion { get; init; }
-
-    public DevicePluginTrustTier? TrustTier { get; init; }
-
-    public required long HostGeneration { get; init; }
-
-    public required long DeviceGeneration { get; init; }
+    public required long CycleGeneration { get; init; }
 
     public required int CapabilityCount { get; init; }
 
@@ -36,24 +24,17 @@ internal sealed record DeviceCoordinatorDiagnosticsSnapshot
 
     public required int FaultedCapabilityCount { get; init; }
 
-    public IReadOnlyList<DevicePackageDiagnostic> Packages { get; init; } = [];
-
     public required DateTimeOffset CapturedAt { get; init; }
 }
 
-/// <summary>Sanitized package candidate information for standalone Settings.</summary>
-internal sealed record DevicePackageDiagnostic(
-    string? PackageId,
-    string? Version,
-    DevicePluginTrustTier TrustTier,
-    bool Eligible,
-    string? RejectionCode);
+/// <summary>Sanitized sole installed-package information for standalone Settings.</summary>
+internal sealed record DeviceInstalledPackageDiagnostic(
+    string PackageId,
+    string Version);
 
 /// <summary>Shared one-shot diagnostics pipe identity.</summary>
 internal static class DeviceCoordinatorDiagnosticsContract
 {
-    internal const int MaxPayloadBytes = 1024 * 1024;
-
     internal static string PipeName(uint sessionId) => $"WSGM.DeviceCoordinator.{sessionId}";
 }
 
@@ -71,27 +52,21 @@ internal static class DeviceCoordinatorDiagnosticsClient
         await using NamedPipeClientStream pipe = new(
             ".",
             DeviceCoordinatorDiagnosticsContract.PipeName(sessionId),
-            PipeDirection.In,
+            PipeDirection.InOut,
             PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
         try
         {
             await pipe.ConnectAsync(bounded.Token).ConfigureAwait(false);
-            byte[] header = new byte[sizeof(int)];
-            await pipe.ReadExactlyAsync(header, bounded.Token).ConfigureAwait(false);
-            int payloadLength = BinaryPrimitives.ReadInt32LittleEndian(header);
-            if (payloadLength is <= 0 or > DeviceCoordinatorDiagnosticsContract.MaxPayloadBytes)
+            await using DeviceFrameStream frames = new(pipe);
+            DeviceFrame? frame = await frames.ReadAsync(bounded.Token).ConfigureAwait(false);
+            if (frame is null || !IsExpectedResponse(frame.Header))
             {
-                throw new InvalidDataException("Device diagnostics frame length is invalid.");
+                throw new InvalidDataException("Device diagnostics response envelope is invalid.");
             }
 
-            byte[] payload = new byte[payloadLength];
-            await pipe.ReadExactlyAsync(payload, bounded.Token).ConfigureAwait(false);
-            DeviceCoordinatorDiagnosticsSnapshot? snapshot = JsonSerializer.Deserialize(
-                payload,
-                DeviceCoordinatorDiagnosticsJsonContext.Default.DeviceCoordinatorDiagnosticsSnapshot);
-            return snapshot?.SchemaVersion == DeviceCoordinatorDiagnosticsSnapshot.CurrentSchemaVersion
-                ? snapshot
-                : null;
+            return JsonSerializer.Deserialize(
+                frame.Payload,
+                ConfigJsonContext.Default.DeviceCoordinatorDiagnosticsSnapshot);
         }
         catch (Exception ex) when (ex is IOException or TimeoutException or OperationCanceledException
             or JsonException or InvalidDataException)
@@ -104,10 +79,10 @@ internal static class DeviceCoordinatorDiagnosticsClient
             return null;
         }
     }
-}
 
-[JsonSourceGenerationOptions(
-    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
-[JsonSerializable(typeof(DeviceCoordinatorDiagnosticsSnapshot))]
-internal sealed partial class DeviceCoordinatorDiagnosticsJsonContext : JsonSerializerContext;
+    /// <summary>Accepts only the one exact framed response used by this build composition.</summary>
+    internal static bool IsExpectedResponse(FrameHeader header) =>
+        header.ProtocolVersion == DeviceProtocol.Version
+        && header.MessageType is DeviceMessageType.DiagnosticsSnapshot
+        && (header.Flags & FrameFlags.IsResponse) != 0;
+}

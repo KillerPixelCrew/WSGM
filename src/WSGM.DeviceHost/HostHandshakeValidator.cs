@@ -1,5 +1,5 @@
 using System;
-using WSGM.Device.Contracts.Ipc;
+using WSGM.Device.Sdk.Ipc;
 
 namespace WSGM.DeviceHost;
 
@@ -28,23 +28,17 @@ internal static class HostHandshakeValidator
         DeviceHostHelloAck acknowledgment,
         uint expectedRequestId,
         string expectedPackageId,
-        out ushort protocolVersion,
         out string detail)
     {
         ArgumentNullException.ThrowIfNull(acknowledgment);
         ArgumentException.ThrowIfNullOrWhiteSpace(expectedPackageId);
-        protocolVersion = 0;
-
         if (!IsExpectedAckEnvelope(header, expectedRequestId, out detail))
         {
             return false;
         }
 
         if (!acknowledgment.Accepted
-            || acknowledgment.Negotiation is not NegotiationResult.Agreed
-            || acknowledgment.ProtocolVersion < DeviceProtocol.MinSupportedVersion
-            || acknowledgment.ProtocolVersion > DeviceProtocol.MaxSupportedVersion
-            || header.ProtocolVersion != acknowledgment.ProtocolVersion
+            || header.ProtocolVersion != DeviceProtocol.Version
             || !string.Equals(
                 acknowledgment.PackageId,
                 expectedPackageId,
@@ -54,7 +48,6 @@ internal static class HostHandshakeValidator
             return false;
         }
 
-        protocolVersion = acknowledgment.ProtocolVersion;
         detail = string.Empty;
         return true;
     }

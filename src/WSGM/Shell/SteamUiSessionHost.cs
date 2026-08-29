@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
+using WSGM.Device.Sdk.Glyphs;
 
 namespace WSGM.Shell;
 
@@ -17,6 +18,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private const string FrameLimitPatchId = "wsgm.native-qam.frame-limit";
     private const string OverlayLevelPatchId = "wsgm.native-qam.overlay-level";
     private const string ControllerTargetPatchId = "wsgm.native-qam.controller-target";
+    private const string GlyphSelectorPatchId = "wsgm.steam-input.handheld-glyphs";
+    private const string GlyphResourcePatchId = "wsgm.steam-input.glyph-resources";
+    private const string GlyphControllerImagePatchId = "wsgm.steam-input.controller-images";
+    private const string GlyphInlineSvgPatchId = "wsgm.steam-input.inline-svg";
+    private const string GlyphCapabilityPatchId = "wsgm.steam-input.capability-hiding";
     private readonly PersistentSteamUiTransport _transport;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly SemaphoreSlim _synchronizeSignal = new(0, 1);
@@ -29,6 +35,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly INativeQamTdpService _tdp;
     private readonly PerformanceServiceNativeQamAdapter _performance;
     private readonly INativeQamControllerTargetService _controllerTarget;
+    private readonly SteamInputGlyphDeliveryState _glyphDeliveryState = new();
     private readonly SteamUiBridgeHost _bridge;
     private readonly SteamUiPatchManager _patches;
     private readonly Task _synchronization;
@@ -37,6 +44,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private int _publicationPending;
     private IDisposable? _performanceObservation;
     private volatile bool _enabled;
+    private volatile bool _glyphSelectorEnabled;
+    private volatile bool _glyphDeliveryEnabled;
+    private SteamInputGlyphTierEnablement _glyphTierEnablement =
+        SteamInputGlyphTierEnablement.Disabled;
     private volatile bool _disposed;
 
     internal SteamUiSessionHost(
@@ -60,6 +71,15 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _patches.Register(new NativeQamFrameLimitPatch());
         _patches.Register(new NativeQamOverlayLevelPatch());
         _patches.Register(new NativeQamControllerTargetPatch());
+        _patches.Register(new SteamInputHandheldGlyphPatch());
+        _patches.Register(new SteamInputStableResourceGlyphPatch(_glyphDeliveryState));
+        _patches.Register(new SteamInputControllerImageGlyphPatch(_glyphDeliveryState));
+        _patches.Register(new SteamInputInlineValveSvgGlyphPatch(_glyphDeliveryState));
+        _patches.Register(new SteamInputCapabilityHidingGlyphPatch(_glyphDeliveryState));
+        SetPatchStates(bootstrap: false, components: false);
+        _patches.SetPatchEnabled(GlyphSelectorPatchId, false);
+        SetGlyphDeliveryPatchStates(SteamInputGlyphTierEnablement.Disabled);
+        _patches.SetGlobalEnabled(false);
         _bridge.RequestReceived += OnRequestReceived;
         _transport.GenerationChanged += OnGenerationChanged;
         _tdp.StateChanged += OnSemanticStateChanged;
@@ -91,6 +111,42 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         QueueSynchronization();
     }
 
+    internal void ApplyGlyphSelector(bool enabled)
+    {
+        if (_disposed || _glyphSelectorEnabled == enabled)
+        {
+            return;
+        }
+
+        _glyphSelectorEnabled = enabled;
+        if (enabled)
+        {
+            _patches.SetGlobalEnabled(true);
+        }
+        _patches.SetPatchEnabled(GlyphSelectorPatchId, enabled);
+        SetGlyphDeliveryPatchStates(_glyphTierEnablement);
+        QueueSynchronization();
+    }
+
+    internal void ApplyGlyphDeliveryProfile(
+        ImportedGlyphProfile? profile,
+        SteamInputGlyphTierEnablement tierEnablement)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _glyphDeliveryState.Update(profile);
+        _glyphTierEnablement = tierEnablement;
+        SetGlyphDeliveryPatchStates(tierEnablement);
+        if (_glyphDeliveryEnabled)
+        {
+            _patches.SetGlobalEnabled(true);
+        }
+        QueueSynchronization();
+    }
+
     internal async Task DisableAsync()
     {
         if (_disposed)
@@ -99,10 +155,15 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
 
         _enabled = false;
+        _glyphSelectorEnabled = false;
+        _glyphTierEnablement = SteamInputGlyphTierEnablement.Disabled;
         CancelAllInflightRequests();
         ReleasePerformanceObservation();
         SetPatchStates(bootstrap: true, components: false);
+        _patches.SetPatchEnabled(GlyphSelectorPatchId, false);
+        SetGlyphDeliveryPatchStates(SteamInputGlyphTierEnablement.Disabled);
         await _patches.SynchronizeAsync(_shutdown.Token).ConfigureAwait(false);
+        _glyphDeliveryState.Update(null);
         SetPatchStates(bootstrap: false, components: false);
         _patches.SetGlobalEnabled(false);
         await _patches.SynchronizeAsync(_shutdown.Token).ConfigureAwait(false);
@@ -115,7 +176,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             ReleasePerformanceObservation();
         }
 
-        if (_enabled && snapshot.Role == SteamUiTargetRole.SharedJsContext)
+        if ((_enabled || _glyphSelectorEnabled || _glyphDeliveryEnabled)
+            && snapshot.Role == SteamUiTargetRole.SharedJsContext)
         {
             QueueSynchronization();
         }
@@ -152,7 +214,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 {
                     ReleasePerformanceObservation();
                     SetPatchStates(bootstrap: false, components: false);
-                    _patches.SetGlobalEnabled(false);
+                    _patches.SetGlobalEnabled(_glyphSelectorEnabled || _glyphDeliveryEnabled);
                     await _patches.SynchronizeAsync(_shutdown.Token).ConfigureAwait(false);
                 }
             }
@@ -236,6 +298,30 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _patches.SetPatchEnabled(FrameLimitPatchId, components);
         _patches.SetPatchEnabled(OverlayLevelPatchId, components);
         _patches.SetPatchEnabled(ControllerTargetPatchId, components);
+    }
+
+    private void SetGlyphDeliveryPatchStates(SteamInputGlyphTierEnablement requested)
+    {
+        SteamInputGlyphPresentation? presentation = _glyphDeliveryState.Current;
+        bool selectorEnabled = _glyphSelectorEnabled;
+        bool resources = selectorEnabled
+            && requested.StableResources
+            && presentation?.StableResources.Count > 0;
+        bool images = selectorEnabled
+            && requested.ControllerImages
+            && presentation?.ControllerImages.Count > 0;
+        bool inline = selectorEnabled
+            && requested.InlineValveSvg
+            && presentation?.InlineMappings.Count > 0;
+
+        // Capability hiding remains fail-closed until the current Steam build has an exact
+        // semantic-control result fingerprint. Profile absence alone never authorizes hiding.
+        bool capabilities = false;
+        _patches.SetPatchEnabled(GlyphResourcePatchId, resources);
+        _patches.SetPatchEnabled(GlyphControllerImagePatchId, images);
+        _patches.SetPatchEnabled(GlyphInlineSvgPatchId, inline);
+        _patches.SetPatchEnabled(GlyphCapabilityPatchId, capabilities);
+        _glyphDeliveryEnabled = resources || images || inline || capabilities;
     }
 
     private void UpdatePerformanceObservation()
@@ -386,7 +472,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             else if (request.PatchId == ControllerTargetPatchId
                 && request.Command == "setControllerTarget")
             {
-                if (!TryReadTargetPayload(request.Payload, out string? target))
+                if (!TryReadTargetPayload(request.Payload, out string target))
                 {
                     error = "The controller-target payload is invalid.";
                 }
@@ -524,9 +610,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         return propertyCount == 1;
     }
 
-    private static bool TryReadTargetPayload(JsonElement payload, out string? target)
+    private static bool TryReadTargetPayload(JsonElement payload, out string target)
     {
-        target = null;
+        target = string.Empty;
         if (payload.ValueKind != JsonValueKind.Object
             || !payload.TryGetProperty("target", out JsonElement property)
             || property.ValueKind != JsonValueKind.String)
@@ -540,8 +626,16 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             propertyCount++;
         }
 
-        target = property.GetString();
-        return propertyCount == 1 && target is { Length: >= 1 and <= 64 } && ValidTargetId(target);
+        string? candidate = property.GetString();
+        if (propertyCount != 1
+            || candidate is not { Length: >= 1 and <= 64 }
+            || !ValidTargetId(candidate))
+        {
+            return false;
+        }
+
+        target = candidate;
+        return true;
     }
 
     private static bool TryReadPerformancePayload(

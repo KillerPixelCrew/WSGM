@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading;
@@ -129,7 +128,7 @@ public sealed class NativeQamTdpPatch : NativeQamComponentPatch
             localization:count(['Attempting to localize token','Unable to find localization token','LocalizeString']),
             react:count(['react.transitional.element','useState','cloneElement','createElement'])
           });
-        }catch(error){return JSON.stringify({error:String(error)});}})()
+        }catch(error){return JSON.stringify({error:String(error)}); } })()
         """;
 }
 
@@ -183,7 +182,7 @@ public sealed class NativeQamControllerTargetPatch : NativeQamComponentPatch
             localization:count(['Attempting to localize token','Unable to find localization token','LocalizeString']),
             react:count(['react.transitional.element','useState','cloneElement','createElement'])
           });
-        }catch(error){return JSON.stringify({error:String(error)});}})()
+        }catch(error){return JSON.stringify({error:String(error)}); } })()
         """;
 }
 
@@ -239,7 +238,7 @@ public abstract class NativeQamComponentPatch : ISteamUiPatch
             localization:count(['Attempting to localize token','Unable to find localization token','LocalizeString']),
             react:count(['react.transitional.element','useState','cloneElement','createElement'])
           });
-        }catch(error){return JSON.stringify({error:String(error)});}})()
+        }catch(error){return JSON.stringify({error:String(error)}); } })()
         """;
 
     /// <inheritdoc />

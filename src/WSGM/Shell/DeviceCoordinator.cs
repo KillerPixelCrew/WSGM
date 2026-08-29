@@ -6,24 +6,24 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
-using WSGM.Device.Contracts.Capabilities;
-using WSGM.Device.Contracts.Glyphs;
-using WSGM.Device.Contracts.Identity;
-using WSGM.Device.Contracts.Ipc;
-using WSGM.Device.Contracts.Lifecycle;
+using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Glyphs;
+using WSGM.Device.Sdk.Identity;
+using WSGM.Device.Sdk.Ipc;
+using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Interop;
 
 namespace WSGM.Shell;
 
-/// <summary>Authoritative per-user, per-session owner of the process-long device cycle.</summary>
+/// <summary>Authoritative process-long owner of the machine-wide hardware cycle.</summary>
 public sealed class DeviceCoordinator : IAsyncDisposable
 {
+    internal const string ProductionOwnerName = @"Global\WSGM.DeviceOwner";
+    private static readonly TimeSpan CanceledStartCleanupBudget = TimeSpan.FromSeconds(5);
     private readonly uint _sessionId;
     private readonly Mutex _ownerMutex;
     private readonly SemaphoreSlim _transitionGate = new(1, 1);
-    private readonly SemaphoreSlim _packageGate = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
-    private readonly List<DateTimeOffset> _hostFaults = [];
     private readonly object _backgroundGate = new();
     private readonly HashSet<Task> _backgroundTasks = [];
     private readonly DeviceCapabilityRouter _capabilities;
@@ -31,14 +31,18 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private readonly DeviceCoordinatorDiagnosticsServer _diagnostics;
     private readonly DeviceProfileStore _profiles = new();
     private readonly PhysicalGlyphCatalog _physicalGlyphs = new();
+    private readonly DeviceTeardownFailureTracker _teardownFailures = new();
+    private DevicePackageDiscovery _packageDiscovery = new()
+    {
+        Inventory = new DevicePackageInventory { PackageRoots = [] },
+    };
     private AppConfig _config;
     private DeviceIdentitySnapshot? _identity;
     private DeviceHostClient? _client;
-    private long _hostGeneration;
-    private long _deviceGeneration;
+    private long _cycleGeneration;
     private bool _intentionalStop;
     private bool _faultRecoveryPending;
-    private DateTimeOffset _lastManualRetry;
+    private int _automaticRestartAttempts;
     private bool _disposed;
 
     private DeviceCoordinator(
@@ -60,22 +64,16 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// <summary>Whether the persisted master switch currently exposes the Device surface.</summary>
     internal bool IntegrationEnabled => _config.DeviceIntegration.Enabled;
 
-    /// <summary>A verified newer package that will not affect the active process-long cycle.</summary>
-    internal DevicePackageCandidate? StagedPackageUpdate => FindAdjacentPackageVersion(newer: true);
-
-    /// <summary>The retained prior package version offered after a failed replacement activation.</summary>
-    internal DevicePackageCandidate? RollbackPackage => FindAdjacentPackageVersion(newer: false);
-
-    /// <summary>When a quarantined package may be retried under the frozen cooldown policy.</summary>
-    internal DateTimeOffset? ManualRetryAvailableAt => State is DeviceCycleState.Quarantined
-        ? _lastManualRetry + RestartPolicy.Default.ManualRetryCooldown
+    /// <summary>When a faulted package may be retried manually.</summary>
+    internal DateTimeOffset? ManualRetryAvailableAt => State is DeviceCycleState.Faulted
+        ? DateTimeOffset.MinValue
         : null;
 
-    /// <summary>Current selected package, including any diagnostic rejection.</summary>
-    public DevicePackageCandidate? SelectedPackage { get; private set; }
+    /// <summary>The sole installed package, including its validation result.</summary>
+    internal InstalledDevicePackage? InstalledPackage => _packageDiscovery.InstalledPackage;
 
-    /// <summary>Every package considered at the latest discovery.</summary>
-    public IReadOnlyList<DevicePackageCandidate> Candidates { get; private set; } = [];
+    /// <summary>The latest one-slot discovery result.</summary>
+    internal DevicePackageDiscovery PackageDiscovery => _packageDiscovery;
 
     /// <summary>Raised after the authoritative lifecycle state changes.</summary>
     public event Action<DeviceCycleState>? StateChanged;
@@ -91,38 +89,150 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     internal event Action? ConfigurationChanged;
 
     /// <summary>
-    /// Creates the one coordinator allowed in this interactive session, without blocking startup.
+    /// Creates the one coordinator allowed to own hardware on this machine without blocking the UI.
     /// </summary>
     /// <param name="config">Initial normalized application configuration.</param>
-    /// <returns>The owner, or null when another WSGM process already owns this session.</returns>
-    public static DeviceCoordinator? TryStart(AppConfig config)
+    /// <param name="cancellationToken">Cancels admission before the coordinator is created.</param>
+    /// <returns>The coordinator, or null when ownership is reserved or DeviceHost absence is unverified.</returns>
+    public static async Task<DeviceCoordinator?> TryStartAsync(
+        AppConfig config,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
-        uint sessionId = (uint)Process.GetCurrentProcess().SessionId;
-        string ownerName = $"Local\\WSGM.DeviceOwner.{sessionId}";
-        Mutex owner = new(initiallyOwned: true, ownerName, out bool createdNew);
-        if (!createdNew)
+        Mutex? owner = await TryReserveOwnerForStartAsync(
+            ProductionOwnerName,
+            static token => DeviceHostProcess.IsAnyRunningAsync(token),
+            cancellationToken).ConfigureAwait(false);
+        if (owner is null)
         {
-            owner.Dispose();
-            Log.Warn($"Device cycle: another coordinator owns session {sessionId}; no host started.");
+            Log.Warn(
+                "Device cycle: safe machine-wide admission could not be established; no host started.");
             return null;
         }
 
-        DeviceCoordinator coordinator = new(
-            config,
-            sessionId,
-            owner,
-            action => Avalonia.Threading.Dispatcher.UIThread.Post(action));
+        DeviceCoordinator coordinator;
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            uint sessionId = (uint)Process.GetCurrentProcess().SessionId;
+            coordinator = new DeviceCoordinator(
+                config,
+                sessionId,
+                owner,
+                action => Avalonia.Threading.Dispatcher.UIThread.Post(action));
+        }
+        catch
+        {
+            owner.Dispose();
+            throw;
+        }
         if (config.DeviceIntegration.Enabled)
         {
             coordinator.Observe(coordinator.StartCycleAsync(coordinator._lifetime.Token), "initial start");
         }
         else
         {
-            Log.Info($"Device cycle: coordinator ready for session {sessionId}; integration disabled.");
+            Log.Info(
+                $"Device cycle: coordinator ready for session {coordinator._sessionId}; integration disabled.");
         }
 
         return coordinator;
+    }
+
+    /// <summary>Reserves the machine marker and admits startup only after a global DeviceHost
+    /// snapshot proves that no earlier host remains alive.</summary>
+    internal static async Task<Mutex?> TryReserveOwnerForStartAsync(
+        string name,
+        Func<CancellationToken, Task<bool?>> inspectDeviceHostAsync,
+        CancellationToken cancellationToken = default,
+        Func<string, (Mutex Owner, bool CreatedNew)>? create = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(inspectDeviceHostAsync);
+        cancellationToken.ThrowIfCancellationRequested();
+        Mutex? owner = TryCreateOwnerMutex(name, create);
+        if (owner is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            bool? running = await inspectDeviceHostAsync(cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (running is false)
+            {
+                return owner;
+            }
+
+            Log.Warn(running is true
+                ? "Device cycle: a DeviceHost process is already running after ownership was reserved; no host started."
+                : "Device cycle: DeviceHost process state could not be verified after ownership was reserved; no host started.");
+            owner.Dispose();
+            return null;
+        }
+        catch
+        {
+            owner.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>Creates one handle-owned machine marker. It is deliberately never mutex-owned, so
+    /// coordinator disposal may close it from any continuation thread.</summary>
+    internal static Mutex? TryCreateOwnerMutex(
+        string name,
+        Func<string, (Mutex Owner, bool CreatedNew)>? create = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        try
+        {
+            Func<string, (Mutex Owner, bool CreatedNew)> factory = create ?? CreateOwnerMutex;
+            (Mutex owner, bool createdNew) = factory(name);
+            if (createdNew)
+            {
+                return owner;
+            }
+
+            owner.Dispose();
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException
+            or UnauthorizedAccessException
+            or WaitHandleCannotBeOpenedException)
+        {
+            Log.Warn($"Device cycle: owner marker '{name}' could not be created: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>Retains an existing or newly created unowned owner marker for process lifetime.
+    /// Installer rollback uses this to take a second handle before setup closes its reservation;
+    /// it never waits on or releases the mutex, so the handoff has no thread affinity.</summary>
+    internal static Mutex? TryRetainOwnerMutex(
+        string name,
+        Func<string, (Mutex Owner, bool CreatedNew)>? create = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        try
+        {
+            Func<string, (Mutex Owner, bool CreatedNew)> factory = create ?? CreateOwnerMutex;
+            var (owner, _) = factory(name);
+            return owner;
+        }
+        catch (Exception ex) when (ex is IOException
+            or UnauthorizedAccessException
+            or WaitHandleCannotBeOpenedException)
+        {
+            Log.Warn($"Device cycle: owner marker '{name}' could not be retained: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static (Mutex Owner, bool CreatedNew) CreateOwnerMutex(string name)
+    {
+        var owner = new Mutex(initiallyOwned: false, name, out bool createdNew);
+        return (owner, createdNew);
     }
 
     /// <summary>Applies a saved ownership configuration to this authoritative process.</summary>
@@ -132,6 +242,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            AppConfig previousConfig = _config;
             bool wasEnabled = _config.DeviceIntegration.Enabled;
             bool controllerWasEnabled = EffectiveControllerManagement(_config);
             _config = config;
@@ -145,18 +256,27 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             UpdateOemConfiguration();
             if (!wasEnabled && config.DeviceIntegration.Enabled)
             {
-                _hostFaults.Clear();
-                await StartCycleUnderGateAsync(cancellationToken).ConfigureAwait(false);
+                _automaticRestartAttempts = 0;
+                try
+                {
+                    await StartCycleUnderGateAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    RestoreConfigAfterCanceledStart(previousConfig);
+                    throw;
+                }
                 return;
             }
 
             if (wasEnabled && !config.DeviceIntegration.Enabled)
             {
-                await StopCycleUnderGateAsync(
-                    DeviceDeactivationReason.Updating,
-                    DeactivationBudget.Normal,
+                DeviceClientTeardownResult teardown = await StopCycleUnderGateAsync(
+                    DeviceStopReason.IntegrationDisabled,
+                    NormalShutdownDeadline(),
                     cancellationToken).ConfigureAwait(false);
                 _physicalGlyphs.ReplacePackageProfiles([]);
+                ThrowIfDeviceTeardownIncomplete(teardown, cancellationToken);
                 return;
             }
 
@@ -172,6 +292,21 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         finally
         {
             _transitionGate.Release();
+        }
+    }
+
+    private void RestoreConfigAfterCanceledStart(AppConfig previousConfig)
+    {
+        _config = previousConfig;
+        try
+        {
+            ConfigurationChanged?.Invoke();
+            UpdateCapabilityDesiredContext();
+            UpdateOemConfiguration();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error("Device cycle cancellation config restore notification failed", ex);
         }
     }
 
@@ -212,12 +347,12 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             _identity = DeviceMachineIdentity.Collect();
             DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(5);
             DeviceLifecycleNotification state = await _client.ResumeAsync(
-                Interlocked.Increment(ref _deviceGeneration),
+                Interlocked.Increment(ref _cycleGeneration),
                 deadline,
                 cancellationToken).ConfigureAwait(false);
-            _capabilities.MarkDeviceGenerationChanged(_deviceGeneration);
+            _capabilities.MarkCycleGenerationChanged(_cycleGeneration);
             UpdateCapabilityDesiredContext();
-            _oemActions.Reset(_deviceGeneration);
+            _oemActions.Reset(_cycleGeneration);
             SetState(state.State);
         }
         finally
@@ -226,20 +361,18 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         }
     }
 
-    /// <summary>Retries a quarantined package after the frozen cooldown.</summary>
-    public async Task<bool> RetryAfterQuarantineAsync(CancellationToken cancellationToken = default)
+    /// <summary>Starts one user-requested attempt after automatic recovery was exhausted.</summary>
+    public async Task<bool> RetryAfterFaultAsync(CancellationToken cancellationToken = default)
     {
         await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (State is not DeviceCycleState.Quarantined
-                || DateTimeOffset.UtcNow - _lastManualRetry < RestartPolicy.Default.ManualRetryCooldown)
+            if (State is not DeviceCycleState.Faulted)
             {
                 return false;
             }
 
-            _lastManualRetry = DateTimeOffset.UtcNow;
-            _hostFaults.Clear();
+            _automaticRestartAttempts = 0;
             await StartCycleUnderGateAsync(cancellationToken).ConfigureAwait(false);
             return true;
         }
@@ -249,150 +382,20 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         }
     }
 
-    /// <summary>
-    /// Verifies and stages an expanded offline package without changing the active device cycle.
-    /// </summary>
-    internal async Task<DevicePackageCandidate> StagePackageAsync(
-        string sourceDirectory,
-        DevicePluginTrustTier trustTier,
-        IDevicePackageSignatureVerifier signatureVerifier,
-        CancellationToken cancellationToken = default)
-    {
-        await _packageGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            DeviceIdentitySnapshot identity = _identity ?? DeviceMachineIdentity.Collect();
-            DevicePackageDiscoveryOptions options = DevicePackageDiscoveryOptions.Production(
-                _config.DeviceIntegration.DeveloperMode);
-            string destinationRoot = trustTier switch
-            {
-                DevicePluginTrustTier.SignedExternal => options.SignedExternalRoot,
-                DevicePluginTrustTier.SideloadedCommunity => options.CommunityRoot,
-                DevicePluginTrustTier.Developer => options.DeveloperRoot,
-                _ => throw new InvalidOperationException(
-                    "WSGM-reviewed packages are installed only by the release installer."),
-            };
-            DevicePackageCandidate staged = await DevicePackageStager.StageAsync(
-                sourceDirectory,
-                destinationRoot,
-                trustTier,
-                identity,
-                signatureVerifier,
-                cancellationToken).ConfigureAwait(false);
-
-            await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                Candidates = await DiscoverPackagesAsync(identity, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            finally
-            {
-                _transitionGate.Release();
-            }
-
-            ConfigurationChanged?.Invoke();
-            Log.Info($"Device package staged: id={staged.Manifest?.Id}, "
-                + $"version={staged.Manifest?.Version}; applies at next device-cycle start.");
-            return staged;
-        }
-        finally
-        {
-            _packageGate.Release();
-        }
-    }
-
-    /// <summary>Runs full deactivation and explicitly activates the staged newer package.</summary>
-    internal async Task<bool> ApplyStagedPackageNowAsync(
-        CancellationToken cancellationToken = default)
-    {
-        await _packageGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                DevicePackageCandidate? staged = FindAdjacentPackageVersion(newer: true);
-                if (staged?.Manifest is null || _identity is null)
-                {
-                    return false;
-                }
-
-                await StopCycleUnderGateAsync(
-                    DeviceDeactivationReason.Updating,
-                    DeactivationBudget.Normal,
-                    cancellationToken).ConfigureAwait(false);
-                PinPackageVersion(
-                    DeviceMachineIdentity.StableKey(_identity),
-                    staged.Manifest.Id,
-                    staged.Manifest.Version);
-                _intentionalStop = false;
-                await StartCycleUnderGateAsync(cancellationToken).ConfigureAwait(false);
-                return SelectedPackage?.Manifest is { } selected
-                    && string.Equals(selected.Id, staged.Manifest.Id, StringComparison.Ordinal)
-                    && string.Equals(selected.Version, staged.Manifest.Version, StringComparison.Ordinal);
-            }
-            finally
-            {
-                _transitionGate.Release();
-            }
-        }
-        finally
-        {
-            _packageGate.Release();
-        }
-    }
-
-    /// <summary>Runs full deactivation and pins the retained previous immutable package version.</summary>
-    internal async Task<bool> RollbackPackageAsync(CancellationToken cancellationToken = default)
-    {
-        await _packageGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                DevicePackageCandidate? rollback = FindAdjacentPackageVersion(newer: false);
-                if (rollback?.Manifest is null || _identity is null)
-                {
-                    return false;
-                }
-
-                await StopCycleUnderGateAsync(
-                    DeviceDeactivationReason.IntegrationDisabled,
-                    DeactivationBudget.Normal,
-                    cancellationToken).ConfigureAwait(false);
-                PinPackageVersion(
-                    DeviceMachineIdentity.StableKey(_identity),
-                    rollback.Manifest.Id,
-                    rollback.Manifest.Version);
-                _intentionalStop = false;
-                await StartCycleUnderGateAsync(cancellationToken).ConfigureAwait(false);
-                return SelectedPackage?.Manifest is { } selected
-                    && string.Equals(selected.Id, rollback.Manifest.Id, StringComparison.Ordinal)
-                    && string.Equals(selected.Version, rollback.Manifest.Version, StringComparison.Ordinal);
-            }
-            finally
-            {
-                _transitionGate.Release();
-            }
-        }
-        finally
-        {
-            _packageGate.Release();
-        }
-    }
-
-    /// <summary>Stops the cycle under the correct full-deactivation budget.</summary>
+    /// <summary>Stops the cycle under one caller-owned full-deactivation deadline.</summary>
     public async Task StopAsync(
-        DeviceDeactivationReason reason,
-        DeactivationBudget budget,
+        DeviceStopReason reason,
+        DateTimeOffset deadline,
         CancellationToken cancellationToken = default)
     {
         await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await StopCycleUnderGateAsync(reason, budget, cancellationToken).ConfigureAwait(false);
+            DeviceClientTeardownResult teardown = await StopCycleUnderGateAsync(
+                reason,
+                deadline,
+                cancellationToken).ConfigureAwait(false);
+            ThrowIfDeviceTeardownIncomplete(teardown, cancellationToken);
         }
         finally
         {
@@ -401,7 +404,14 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     }
 
     /// <inheritdoc />
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync() => ShutdownAsync(
+        DeviceStopReason.WsgmExiting,
+        NormalShutdownDeadline());
+
+    /// <summary>Stops the device cycle under the process exit path's single outer deadline.</summary>
+    internal async ValueTask ShutdownAsync(
+        DeviceStopReason reason,
+        DateTimeOffset deadline)
     {
         if (_disposed)
         {
@@ -409,42 +419,109 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         }
 
         _disposed = true;
+        List<Exception> shutdownFailures = [];
         try
         {
-            await StopAsync(
-                DeviceDeactivationReason.WsgmExiting,
-                DeactivationBudget.Normal,
-                CancellationToken.None).ConfigureAwait(false);
+            await CancelLifetimeAndWaitForTransitionAsync(_lifetime, _transitionGate)
+                .ConfigureAwait(false);
+            try
+            {
+                DeviceClientTeardownResult teardown = await StopCycleUnderGateAsync(
+                    reason,
+                    deadline,
+                    CancellationToken.None).ConfigureAwait(false);
+                ThrowIfDeviceTeardownIncomplete(teardown, CancellationToken.None);
+            }
+            finally
+            {
+                shutdownFailures.AddRange(_teardownFailures.Drain());
+                _transitionGate.Release();
+            }
         }
         catch (Exception ex)
         {
+            shutdownFailures.Add(ex);
             Log.Warn($"Device cycle shutdown was unverified: {ex.Message}");
         }
 
-        _lifetime.Cancel();
         Task[] background;
         lock (_backgroundGate)
         {
             background = _backgroundTasks.ToArray();
         }
-        await Task.WhenAll(background).ConfigureAwait(false);
-        await _diagnostics.DisposeAsync().ConfigureAwait(false);
-        await _profiles.DisposeAsync().ConfigureAwait(false);
-        await _capabilities.DisposeAsync().ConfigureAwait(false);
-        _oemActions.Dispose();
-        _physicalGlyphs.Dispose();
-        _lifetime.Dispose();
-        _transitionGate.Dispose();
-        _packageGate.Dispose();
+        await RetainDeviceShutdownFailureAsync(
+            shutdownFailures,
+            "background task completion",
+            () => new ValueTask(Task.WhenAll(background))).ConfigureAwait(false);
+        await RetainDeviceShutdownFailureAsync(
+            shutdownFailures,
+            "diagnostics disposal",
+            _diagnostics.DisposeAsync).ConfigureAwait(false);
+        await RetainDeviceShutdownFailureAsync(
+            shutdownFailures,
+            "profile disposal",
+            _profiles.DisposeAsync).ConfigureAwait(false);
+        await RetainDeviceShutdownFailureAsync(
+            shutdownFailures,
+            "capability disposal",
+            _capabilities.DisposeAsync).ConfigureAwait(false);
+        RetainDeviceShutdownFailure(shutdownFailures, "OEM action disposal", _oemActions.Dispose);
+        RetainDeviceShutdownFailure(shutdownFailures, "glyph disposal", _physicalGlyphs.Dispose);
+        RetainDeviceShutdownFailure(shutdownFailures, "lifetime disposal", _lifetime.Dispose);
+        RetainDeviceShutdownFailure(shutdownFailures, "transition gate disposal", _transitionGate.Dispose);
+        RetainDeviceShutdownFailure(shutdownFailures, "owner marker disposal", _ownerMutex.Dispose);
+        if (shutdownFailures.Count > 0)
+        {
+            throw new InvalidOperationException(
+                "Device cycle shutdown completed teardown, but hardware release was unverified.",
+                shutdownFailures.Count == 1
+                    ? shutdownFailures[0]
+                    : new AggregateException(shutdownFailures));
+        }
+    }
+
+    private static async ValueTask RetainDeviceShutdownFailureAsync(
+        List<Exception> failures,
+        string operation,
+        Func<ValueTask> cleanupAsync)
+    {
         try
         {
-            _ownerMutex.ReleaseMutex();
+            await cleanupAsync().ConfigureAwait(false);
         }
-        catch (ApplicationException)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
+            failures.Add(ex);
+            Log.Warn($"Device cycle {operation} was incomplete: {ex.Message}");
         }
+    }
 
-        _ownerMutex.Dispose();
+    private static void RetainDeviceShutdownFailure(
+        List<Exception> failures,
+        string operation,
+        Action cleanup)
+    {
+        try
+        {
+            cleanup();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            failures.Add(ex);
+            Log.Warn($"Device cycle {operation} was incomplete: {ex.Message}");
+        }
+    }
+
+    /// <summary>Closes a coordinator lifetime before waiting for its serialized transition. The
+    /// ordering lets cancellation unwind an in-flight start that currently owns the gate.</summary>
+    internal static Task CancelLifetimeAndWaitForTransitionAsync(
+        CancellationTokenSource lifetime,
+        SemaphoreSlim transitionGate)
+    {
+        ArgumentNullException.ThrowIfNull(lifetime);
+        ArgumentNullException.ThrowIfNull(transitionGate);
+        lifetime.Cancel();
+        return transitionGate.WaitAsync(CancellationToken.None);
     }
 
     private Task StartCycleAsync(CancellationToken cancellationToken) =>
@@ -472,81 +549,300 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             return;
         }
 
-        _intentionalStop = false;
-        SetState(DeviceCycleState.Detected);
-        _identity = DeviceMachineIdentity.Collect();
-        string identityKey = DeviceMachineIdentity.StableKey(_identity);
-        Candidates = await DiscoverPackagesAsync(_identity, cancellationToken).ConfigureAwait(false);
-        DevicePackageSelection? explicitPackage = _config.DeviceIntegration.PackageSelections.FirstOrDefault(
-            selection => string.Equals(
-                selection.DeviceIdentityKey,
-                identityKey,
-                StringComparison.Ordinal));
-        SelectedPackage = DevicePackagePolicy.Select(Candidates, explicitPackage, out string? refusal);
-        _physicalGlyphs.ReplacePackageProfiles([]);
-        if (SelectedPackage is null)
-        {
-            SetState(DeviceCycleState.Passive);
-            Log.Warn($"Device cycle passive: {refusal}; candidates={Candidates.Count}.");
-            return;
-        }
+        DeviceCycleState retryState = State;
+        using CancellationTokenSource startLifetime = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            _lifetime.Token);
+        await RunCancellationSafeStartAsync(
+            StartCycleCoreUnderGateAsync,
+            CleanupCanceledStartAsync,
+            () => SetState(retryState),
+            startLifetime.Token).ConfigureAwait(false);
+    }
 
-        long hostGeneration = Interlocked.Increment(ref _hostGeneration);
-        long deviceGeneration = Interlocked.Increment(ref _deviceGeneration);
-        SetState(DeviceCycleState.Activating);
-        DeviceHostClient client;
+    /// <summary>Runs one start attempt while guaranteeing that linked cancellation applies its
+    /// ownership policy, restores the state from which the attempt may be retried, and is rethrown.</summary>
+    internal static async Task RunCancellationSafeStartAsync(
+        Func<CancellationToken, Task> operation,
+        Func<ValueTask> cleanup,
+        Action restoreRetryState,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(cleanup);
+        ArgumentNullException.ThrowIfNull(restoreRetryState);
         try
         {
-            client = await DeviceHostClient.StartAsync(
-                SelectedPackage,
-                _sessionId,
-                hostGeneration,
+            await operation(cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                await cleanup().ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Log.Error("Device cycle cancellation cleanup failed", ex);
+            }
+
+            try
+            {
+                restoreRetryState();
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Log.Error("Device cycle cancellation state restore failed", ex);
+            }
+
+            throw;
+        }
+    }
+
+    private async Task StartCycleCoreUnderGateAsync(CancellationToken cancellationToken)
+    {
+        _intentionalStop = false;
+        SetState(DeviceCycleState.Detected);
+        DevicePackageSlotGate? slotGate;
+        try
+        {
+            slotGate = await DevicePackageSlotGate.TryAcquireAsync(
+                TimeSpan.FromSeconds(5),
                 cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            ScheduleStartFault(ex);
+            cancellationToken.ThrowIfCancellationRequested();
+            ScheduleStartFault(new InvalidOperationException(
+                "The protected Device Plugin slot could not be locked for startup.",
+                ex));
             return;
         }
-        Attach(client);
+        if (slotGate is null)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ScheduleStartFault(new TimeoutException(
+                "The protected Device Plugin slot remained busy during startup."));
+            return;
+        }
+
+        InstalledDevicePackage package;
+        long cycleGeneration;
+        DeviceHostClient client;
+        await using (slotGate)
+        {
+            try
+            {
+                // Maintenance and host startup share this gate. Reconcile the fixed recovery
+                // sibling before discovery so a process death between the two atomic moves cannot
+                // make the previously installed package disappear permanently.
+                DevicePackageStager.ReconcileInstalledPackage(
+                    DeviceInstallationPaths.InstalledPackageRoot);
+                _identity = DeviceMachineIdentity.Collect();
+                _packageDiscovery = await DiscoverPackageAsync(_identity, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                ScheduleStartFault(new InvalidOperationException(
+                    "The protected Device Plugin slot could not be reconciled or discovered.",
+                    ex));
+                return;
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            InstalledDevicePackage? discoveredPackage = InstalledPackage;
+            _physicalGlyphs.ReplacePackageProfiles([]);
+            if (discoveredPackage is null || !discoveredPackage.Valid)
+            {
+                SetState(DeviceCycleState.Passive);
+                string refusal = _packageDiscovery.ErrorCode
+                    ?? discoveredPackage?.RejectionCode
+                    ?? "no-package-installed";
+                Log.Warn(
+                    $"Device cycle passive: {refusal}; packageRoots={_packageDiscovery.Inventory.PackageRoots.Count}.");
+                cancellationToken.ThrowIfCancellationRequested();
+                return;
+            }
+            package = discoveredPackage;
+
+            cycleGeneration = Interlocked.Increment(ref _cycleGeneration);
+            SetState(DeviceCycleState.Activating);
+            try
+            {
+                client = await DeviceHostClient.StartAsync(
+                    package,
+                    _sessionId,
+                    cycleGeneration,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                ScheduleStartFault(ex);
+                return;
+            }
+        }
         _client = client;
-        _capabilities.Attach(client, hostGeneration, deviceGeneration);
-        UpdateCapabilityDesiredContext();
-        _oemActions.Attach(client, deviceGeneration);
-        UpdateOemConfiguration();
         try
         {
+            Attach(client);
+            _capabilities.Attach(client, cycleGeneration);
+            UpdateCapabilityDesiredContext();
+            _oemActions.Attach(client, cycleGeneration);
+            UpdateOemConfiguration();
             bool controllerManagement = EffectiveControllerManagement(_config);
             if (_config.DeviceIntegration.ControllerManagementEnabled && !controllerManagement)
             {
                 Log.Warn(DeviceFeatureAvailability.ControllerManagementDetail);
             }
-            DeviceLifecycleNotification activation = await client.ActivateAsync(
+            DeviceLifecycleNotification activation = await client.StartAsync(
                 _identity,
-                deviceGeneration,
+                cycleGeneration,
                 controllerManagement,
-                [],
                 cancellationToken).ConfigureAwait(false);
-            LoadPhysicalGlyphProfiles(SelectedPackage);
+            cancellationToken.ThrowIfCancellationRequested();
+            LoadPhysicalGlyphProfiles(package);
             SetState(activation.State);
             Log.Info(
-                $"Device cycle active: package={SelectedPackage.Manifest?.Id}, "
-                    + $"hostGeneration={hostGeneration}, deviceGeneration={deviceGeneration}, "
+                $"Device cycle active: package={package.Manifest?.Id}, "
+                    + $"cycleGeneration={cycleGeneration}, "
                     + $"state={activation.State}.");
             Observe(ObserveHostExitAsync(client), "host supervision");
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException ex)
+        {
+            // DeviceHost owns its own start deadline. If that deadline expires after the plugin
+            // entered StartAsync, the caller token is still live even though hardware may already
+            // be acquired. Give the host the same fresh bounded handoff used by caller cancellation
+            // before its kill-on-close job can be disposed.
+            await ScheduleStartFaultAfterCleanupAsync(
+                ex,
+                DeviceStopReason.StartCanceled,
+                cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            _client = null;
-            Detach(client);
-            await client.DisposeAsync().ConfigureAwait(false);
-            ScheduleStartFault(ex);
+            cancellationToken.ThrowIfCancellationRequested();
+            await ScheduleStartFaultAfterCleanupAsync(
+                ex,
+                DeviceStopReason.StartFailed,
+                cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private ValueTask CleanupCanceledStartAsync()
+    {
+        // A start fault can enqueue recovery while cancellation races its return. The recovery
+        // worker is serialized behind this same transition, so clearing admission here guarantees
+        // a canceled caller cannot be followed by an automatic restart.
+        _faultRecoveryPending = false;
+        return new ValueTask(RunCanceledStartCleanupPolicyAsync(
+            _lifetime.IsCancellationRequested,
+            () => CleanupAbortedStartAsync(DeviceStopReason.StartCanceled)));
+    }
+
+    /// <summary>Preserves a possibly active client when shutdown canceled startup, because the
+    /// shutdown owner must perform the bounded handoff. An independent caller cancellation runs
+    /// its own fresh bounded teardown before the client can be disposed.</summary>
+    internal static Task RunCanceledStartCleanupPolicyAsync(
+        bool lifetimeCancellationRequested,
+        Func<Task> callerCleanupAsync)
+    {
+        ArgumentNullException.ThrowIfNull(callerCleanupAsync);
+        return lifetimeCancellationRequested
+            ? Task.CompletedTask
+            : callerCleanupAsync();
+    }
+
+    private async Task CleanupAbortedStartAsync(DeviceStopReason reason)
+    {
+        bool teardownVerified = false;
+        try
+        {
+            await RunFreshBoundedCleanupAsync(
+                CanceledStartCleanupBudget,
+                async (deadline, cancellationToken) =>
+                {
+                    DeviceClientTeardownResult teardown = await StopCycleUnderGateAsync(
+                        reason,
+                        deadline,
+                        cancellationToken).ConfigureAwait(false);
+                    teardownVerified = teardown.Verified;
+                    ThrowIfDeviceTeardownIncomplete(teardown, cancellationToken);
+                }).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (!teardownVerified && ex is not OutOfMemoryException)
+        {
+            _teardownFailures.Retain(ex);
+            throw;
+        }
+    }
+
+    private async Task ScheduleStartFaultAfterCleanupAsync(
+        Exception startFailure,
+        DeviceStopReason reason,
+        CancellationToken startCancellationToken)
+    {
+        Exception failure = startFailure;
+        try
+        {
+            await CleanupAbortedStartAsync(reason).ConfigureAwait(false);
+        }
+        catch (Exception cleanupFailure) when (cleanupFailure is not OutOfMemoryException)
+        {
+            failure = new AggregateException(
+                "Device startup failed and its bounded cleanup was unverified.",
+                startFailure,
+                cleanupFailure);
+        }
+
+        // Cancellation can race the original exception and the fresh cleanup. A canceled caller
+        // still owns the outcome and must never be followed by an automatic restart.
+        startCancellationToken.ThrowIfCancellationRequested();
+        ScheduleStartFault(failure);
+    }
+
+    /// <summary>Creates a cleanup budget independent from the already-canceled start caller.</summary>
+    internal static async Task RunFreshBoundedCleanupAsync(
+        TimeSpan budget,
+        Func<DateTimeOffset, CancellationToken, Task> cleanupAsync,
+        Func<DateTimeOffset>? utcNow = null)
+    {
+        if (budget <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(budget));
+        }
+        ArgumentNullException.ThrowIfNull(cleanupAsync);
+        utcNow ??= static () => DateTimeOffset.UtcNow;
+        using var cleanupCancellation = new CancellationTokenSource(budget);
+        await cleanupAsync(
+            utcNow().Add(budget),
+            cleanupCancellation.Token).ConfigureAwait(false);
     }
 
     private async Task ObserveHostExitAsync(DeviceHostClient client)
     {
-        DeviceHostExit exit = await client.Completion.ConfigureAwait(false);
+        DeviceHostExit exit = await NormalizeHostCompletionAsync(client.Completion)
+            .ConfigureAwait(false);
         await _transitionGate.WaitAsync().ConfigureAwait(false);
         try
         {
@@ -555,37 +851,136 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 return;
             }
 
+            Exception? hostExitFailure = UnverifiedHostExitFailure(_intentionalStop, exit);
+            if (hostExitFailure is not null)
+            {
+                _teardownFailures.Retain(hostExitFailure);
+            }
             _client = null;
-            Detach(client);
-            await client.DisposeAsync().ConfigureAwait(false);
-            if (_intentionalStop || _disposed || !_config.DeviceIntegration.Enabled
-                || exit.Reason is DeviceHostExitReason.Intentional)
+            IReadOnlyList<Exception> cleanupFailures = await RunHostExitOwnerCleanupAsync(
+                () => Detach(client),
+                client.DisposeAsync).ConfigureAwait(false);
+            foreach (Exception cleanupFailure in cleanupFailures)
+            {
+                _teardownFailures.Retain(cleanupFailure);
+            }
+            if (cleanupFailures.Count > 0)
+            {
+                SetState(DeviceCycleState.Faulted);
+                Log.Error(
+                    "DeviceHost exit cleanup was incomplete; automatic restart is blocked",
+                    cleanupFailures.Count == 1
+                        ? cleanupFailures[0]
+                        : new AggregateException(cleanupFailures));
+                return;
+            }
+
+            if (!ShouldRestartAfterHostExit(
+                _intentionalStop,
+                _disposed,
+                _config.DeviceIntegration.Enabled,
+                exit,
+                cleanupVerified: true))
             {
                 SetState(DeviceCycleState.Disabled);
                 return;
             }
 
             Log.Warn(
-                $"DeviceHost fault: generation={_hostGeneration}, reason={exit.Reason}, "
+                $"DeviceHost fault: generation={_cycleGeneration}, reason={exit.Reason}, "
                     + $"exit={exit.ExitCode}, detail={exit.Detail}.");
-            DateTimeOffset now = DateTimeOffset.UtcNow;
-            _hostFaults.RemoveAll(fault => now - fault > RestartPolicy.Default.Window);
-            int faultsAlreadyInWindow = _hostFaults.Count;
-            _hostFaults.Add(now);
-            ScheduleFaultRecovery(faultsAlreadyInWindow);
+            ScheduleFaultRecovery();
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
         }
         catch (Exception ex)
         {
-            SetState(DeviceCycleState.Quarantined);
-            Log.Error("DeviceHost restart failed; cycle quarantined", ex);
+            SetState(DeviceCycleState.Faulted);
+            Log.Error("DeviceHost restart failed; cycle faulted", ex);
         }
         finally
         {
             _transitionGate.Release();
         }
+    }
+
+    internal static async Task<DeviceHostExit> NormalizeHostCompletionAsync(
+        Task<DeviceHostExit> completion)
+    {
+        ArgumentNullException.ThrowIfNull(completion);
+        try
+        {
+            return await completion.ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return new DeviceHostExit(
+                71,
+                DeviceHostExitReason.ProcessFault,
+                $"DeviceHost supervision failed ({ex.GetType().Name}): {ex.Message}",
+                TimeSpan.Zero);
+        }
+    }
+
+    internal static async ValueTask<IReadOnlyList<Exception>> RunHostExitOwnerCleanupAsync(
+        Action detach,
+        Func<ValueTask> disposeAsync)
+    {
+        ArgumentNullException.ThrowIfNull(detach);
+        ArgumentNullException.ThrowIfNull(disposeAsync);
+        List<Exception> failures = [];
+        try
+        {
+            try
+            {
+                detach();
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                failures.Add(ex);
+            }
+        }
+        finally
+        {
+            try
+            {
+                await disposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                failures.Add(ex);
+            }
+        }
+
+        return failures;
+    }
+
+    internal static bool ShouldRestartAfterHostExit(
+        bool intentionalStop,
+        bool coordinatorDisposed,
+        bool integrationEnabled,
+        DeviceHostExit exit,
+        bool cleanupVerified)
+    {
+        ArgumentNullException.ThrowIfNull(exit);
+        return cleanupVerified
+            && !intentionalStop
+            && !coordinatorDisposed
+            && integrationEnabled
+            && exit.Reason is not DeviceHostExitReason.Intentional;
+    }
+
+    internal static Exception? UnverifiedHostExitFailure(
+        bool intentionalStop,
+        DeviceHostExit exit)
+    {
+        ArgumentNullException.ThrowIfNull(exit);
+        return intentionalStop || exit.Reason is DeviceHostExitReason.Intentional
+            ? null
+            : new InvalidOperationException(
+                $"DeviceHost exited before verified teardown: reason={exit.Reason}, "
+                    + $"exit={exit.ExitCode}, detail={exit.Detail}.");
     }
 
     private void ScheduleStartFault(Exception exception)
@@ -605,17 +1000,18 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         await _transitionGate.WaitAsync(_lifetime.Token).ConfigureAwait(false);
         try
         {
+            if (!_faultRecoveryPending)
+            {
+                return;
+            }
+
             _faultRecoveryPending = false;
             if (_disposed || !_config.DeviceIntegration.Enabled || _client is not null)
             {
                 return;
             }
 
-            DateTimeOffset now = DateTimeOffset.UtcNow;
-            _hostFaults.RemoveAll(fault => now - fault > RestartPolicy.Default.Window);
-            int faultsAlreadyInWindow = _hostFaults.Count;
-            _hostFaults.Add(now);
-            ScheduleFaultRecovery(faultsAlreadyInWindow);
+            ScheduleFaultRecovery();
         }
         finally
         {
@@ -623,22 +1019,24 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         }
     }
 
-    private void ScheduleFaultRecovery(int faultsAlreadyInWindow)
+    private void ScheduleFaultRecovery()
     {
-        FaultResponse response = RestartPolicy.Default.Evaluate(
-            faultsAlreadyInWindow,
-            out TimeSpan backoff);
-        if (response is FaultResponse.Quarantine)
+        if (_automaticRestartAttempts >= 2)
         {
-            SetState(DeviceCycleState.Quarantined);
+            SetState(DeviceCycleState.Faulted);
             Log.Error(
-                $"Device cycle quarantined: package={SelectedPackage?.Manifest?.Id}, "
-                    + $"faults={_hostFaults.Count}, window={RestartPolicy.Default.Window}.");
+                $"Device cycle faulted after restart exhaustion: package={InstalledPackage?.Manifest?.Id}, "
+                    + "the two automatic restart attempts were exhausted.");
             return;
         }
 
+        TimeSpan backoff = _automaticRestartAttempts++ == 0
+            ? TimeSpan.FromSeconds(1)
+            : TimeSpan.FromSeconds(4);
         SetState(DeviceCycleState.Activating);
-        Log.Warn($"DeviceHost restart scheduled in {backoff.TotalSeconds:0.#} s.");
+        Log.Warn(
+            $"DeviceHost restart {_automaticRestartAttempts}/2 scheduled in "
+                + $"{backoff.TotalSeconds:0.#} s.");
         Observe(RestartAfterDelayAsync(backoff), "delayed host restart");
     }
 
@@ -651,9 +1049,9 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         }
     }
 
-    private async Task StopCycleUnderGateAsync(
-        DeviceDeactivationReason reason,
-        DeactivationBudget budget,
+    private async Task<DeviceClientTeardownResult> StopCycleUnderGateAsync(
+        DeviceStopReason reason,
+        DateTimeOffset deadline,
         CancellationToken cancellationToken)
     {
         _intentionalStop = true;
@@ -662,47 +1060,218 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         if (client is null)
         {
             SetState(DeviceCycleState.Disabled);
-            return;
+            return DeviceClientTeardownResult.Clean;
         }
 
-        SetState(DeviceCycleState.Deactivating);
+        DeviceClientTeardownResult? ownerTeardown = null;
+        async Task<DeviceClientTeardownResult> TeardownOwnerAsync()
+        {
+            DeviceClientTeardownResult result = await RunClientTeardownAsync(
+                token => client.ReleaseControllerAsync(
+                    HandoffScope.FullDeactivation,
+                    deadline,
+                    token),
+                token => client.StopAsync(
+                    reason,
+                    deadline,
+                    token),
+                () => Detach(client),
+                client.DisposeAsync,
+                cancellationToken).ConfigureAwait(false);
+            ownerTeardown = result;
+            return result;
+        }
+
+        DeviceClientTeardownResult teardown = await RunClientTeardownWithStateNotificationsAsync(
+            _capabilities.CloseCommandAdmission,
+            () => SetState(DeviceCycleState.Deactivating),
+            TeardownOwnerAsync,
+            () => SetState(DeviceCycleState.Disabled)).ConfigureAwait(false);
+        if (ownerTeardown?.Verified is true
+            && reason is not (DeviceStopReason.StartCanceled or DeviceStopReason.StartFailed))
+        {
+            _teardownFailures.ResolveAfterVerifiedOwnerTeardown();
+        }
+        return teardown;
+    }
+
+    internal static async Task<DeviceClientTeardownResult> RunClientTeardownWithStateNotificationsAsync(
+        Action closeCommandAdmission,
+        Action setDeactivating,
+        Func<Task<DeviceClientTeardownResult>> teardownAsync,
+        Action setDisabled)
+    {
+        ArgumentNullException.ThrowIfNull(closeCommandAdmission);
+        ArgumentNullException.ThrowIfNull(setDeactivating);
+        ArgumentNullException.ThrowIfNull(teardownAsync);
+        ArgumentNullException.ThrowIfNull(setDisabled);
+        List<Exception> failures = [];
         try
         {
-            DateTimeOffset controllerDeadline = DateTimeOffset.UtcNow.Add(budget.ReleaseController);
+            closeCommandAdmission();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            failures.Add(ex);
+            Log.Warn($"Device command admission closure failed; cleanup continues: {ex.Message}");
+        }
+
+        try
+        {
+            setDeactivating();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            failures.Add(ex);
+            Log.Warn($"Device deactivation state notification failed; cleanup continues: {ex.Message}");
+        }
+
+        try
+        {
+            DeviceClientTeardownResult teardown = await teardownAsync().ConfigureAwait(false);
+            failures.AddRange(teardown.Failures);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            failures.Add(ex);
+            Log.Warn($"Device client teardown faulted before reporting its result: {ex.Message}");
+        }
+        finally
+        {
             try
             {
-                DeviceControllerHandoffResponse handoff = await client.ReleaseControllerAsync(
-                    HandoffScope.FullDeactivation,
-                    controllerDeadline,
-                    cancellationToken).ConfigureAwait(false);
-                Log.Info($"Device controller release: {handoff.Step}, {handoff.Result}.");
+                setDisabled();
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
+                failures.Add(ex);
+                Log.Warn($"Device disabled-state notification failed after cleanup: {ex.Message}");
+            }
+        }
+
+        return new DeviceClientTeardownResult(failures.ToArray());
+    }
+
+    /// <summary>Attempts both protocol cleanup phases before detaching and disposing the client.
+    /// Every non-fatal unverified response or exception is retained while later phases continue.</summary>
+    internal static async Task<DeviceClientTeardownResult> RunClientTeardownAsync(
+        Func<CancellationToken, Task<DeviceControllerHandoffResponse>> releaseControllerAsync,
+        Func<CancellationToken, Task<DeviceLifecycleNotification>> stopAsync,
+        Action detach,
+        Func<ValueTask> disposeAsync,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(releaseControllerAsync);
+        ArgumentNullException.ThrowIfNull(stopAsync);
+        ArgumentNullException.ThrowIfNull(detach);
+        ArgumentNullException.ThrowIfNull(disposeAsync);
+        List<Exception> failures = [];
+        try
+        {
+            try
+            {
+                DeviceControllerHandoffResponse handoff = await releaseControllerAsync(
+                    cancellationToken).ConfigureAwait(false);
+                if (handoff.Result is ControllerHandoffResult.ReleasedVerified
+                    && handoff.Step is (ControllerHandoffStep.TopologyVerified
+                        or ControllerHandoffStep.WsgmStateRemoved))
+                {
+                    Log.Info($"Device controller release: {handoff.Step}, {handoff.Result}.");
+                }
+                else
+                {
+                    var failure = new InvalidOperationException(
+                        $"Device controller release was unverified: {handoff.Step}, {handoff.Result}.");
+                    failures.Add(failure);
+                    Log.Warn(failure.Message);
+                }
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                failures.Add(ex);
                 Log.Warn($"Device controller release unverified; cleanup continues: {ex.Message}");
             }
 
-            DateTimeOffset hardwareDeadline = DateTimeOffset.UtcNow.Add(budget.RestoreHardware);
             try
             {
-                DeviceLifecycleNotification stopped = await client.DeactivateAsync(
-                    reason,
-                    hardwareDeadline,
-                    cancellationToken).ConfigureAwait(false);
-                Log.Info($"Device hardware release: {stopped.State}.");
+                DeviceLifecycleNotification stopped = await stopAsync(cancellationToken)
+                    .ConfigureAwait(false);
+                if (stopped.State is DeviceCycleState.Disabled && stopped.Reason is null)
+                {
+                    Log.Info($"Device hardware release: {stopped.State}, verified.");
+                }
+                else
+                {
+                    var failure = new InvalidOperationException(
+                        $"Device hardware release was unverified: state={stopped.State}, "
+                            + $"reason={stopped.Reason?.Code.ToString() ?? "none"}, "
+                            + $"detail={stopped.Reason?.Detail ?? "none"}.");
+                    failures.Add(failure);
+                    Log.Warn(failure.Message);
+                }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
+                failures.Add(ex);
                 Log.Warn($"Device hardware release unverified; host will be terminated: {ex.Message}");
             }
         }
         finally
         {
-            Detach(client);
-            await client.DisposeAsync().ConfigureAwait(false);
-            SetState(DeviceCycleState.Disabled);
+            try
+            {
+                try
+                {
+                    detach();
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    failures.Add(ex);
+                    Log.Warn($"Device client detach was incomplete: {ex.Message}");
+                }
+            }
+            finally
+            {
+                try
+                {
+                    await disposeAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    failures.Add(ex);
+                    Log.Warn($"Device client disposal was incomplete: {ex.Message}");
+                }
+            }
         }
+
+        return new DeviceClientTeardownResult(failures.ToArray());
     }
+
+    internal static void ThrowIfDeviceTeardownIncomplete(
+        DeviceClientTeardownResult teardown,
+        CancellationToken cancellationToken)
+    {
+        if (teardown.Verified)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return;
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(
+                "Device teardown observed caller cancellation after retaining unverified release results.",
+                teardown.ToException(),
+                cancellationToken);
+        }
+
+        throw new InvalidOperationException(
+            "Device hardware teardown completed, but one or more release steps were unverified.",
+            teardown.ToException());
+    }
+
+    private static DateTimeOffset NormalShutdownDeadline() =>
+        DateTimeOffset.UtcNow.AddSeconds(15);
 
     private async Task SetControllerManagementUnderGateAsync(
         bool enabled,
@@ -725,25 +1294,23 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             return;
         }
 
-        long generation = Interlocked.Increment(ref _deviceGeneration);
+        long generation = Interlocked.Increment(ref _cycleGeneration);
         await client.SetControllerManagementAsync(
             enabled: true,
             generation,
             deadline,
             cancellationToken).ConfigureAwait(false);
-        Log.Info($"Controller management enabled: deviceGeneration={generation}.");
+        Log.Info($"Controller management enabled: cycleGeneration={generation}.");
     }
 
     private void Attach(DeviceHostClient client)
     {
         client.LifecycleStateReceived += OnLifecycleState;
-        client.ResourceStateReceived += OnResourceState;
     }
 
     private void Detach(DeviceHostClient client)
     {
         client.LifecycleStateReceived -= OnLifecycleState;
-        client.ResourceStateReceived -= OnResourceState;
         _capabilities.Detach();
         _oemActions.Detach();
     }
@@ -752,14 +1319,45 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     internal IReadOnlyList<DeviceCapabilityView> CapabilitySnapshot() =>
         _capabilities.Snapshot(DateTimeOffset.UtcNow);
 
+    /// <summary>Current persisted physical-glyph presentation mode.</summary>
+    internal DeviceGlyphSelection PhysicalGlyphSelection =>
+        _config.DeviceIntegration.GlyphSelection;
+
     /// <summary>Resolves the current persisted mode against only the active package's safe profiles.</summary>
     internal PhysicalGlyphSelectionResult PhysicalGlyphSelectionSnapshot() =>
         _physicalGlyphs.SelectProfile(
             _config.DeviceIntegration.Enabled,
             MapGlyphSelection(_config.DeviceIntegration.GlyphSelection),
-            SelectedPackage?.MatchedDevice?.Id,
-            SelectedPackage?.MatchedDevice?.GlyphProfileId,
+            activeDeviceId: null,
+            advertisedProfileId: null,
             _config.DeviceIntegration.ManualGlyphProfileId);
+
+    /// <summary>Cycles the physical presentation policy and persists it without changing device ownership.</summary>
+    internal async Task CyclePhysicalGlyphSelectionAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            DeviceGlyphSelection next = _config.DeviceIntegration.GlyphSelection switch
+            {
+                DeviceGlyphSelection.Automatic => DeviceGlyphSelection.NativeSteam,
+                DeviceGlyphSelection.NativeSteam => DeviceGlyphSelection.ManualReviewedProfile,
+                _ => DeviceGlyphSelection.Automatic,
+            };
+            AppConfig persisted = await Task.Run(() => ConfigStore.Mutate(config =>
+            {
+                config.DeviceIntegration.GlyphSelection = next;
+            }), cancellationToken).ConfigureAwait(false);
+            _config = persisted;
+            ConfigurationChanged?.Invoke();
+            Log.Info($"Physical glyph presentation changed: {next}.");
+        }
+        finally
+        {
+            _transitionGate.Release();
+        }
+    }
 
     /// <summary>Routes one semantic capability command through current validation and serialization.</summary>
     internal Task<CapabilityCommandResult> ExecuteCapabilityAsync(
@@ -832,7 +1430,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         => config.DeviceIntegration.ControllerManagementEnabled
             && DeviceFeatureAvailability.ControllerManagement;
 
-    private void LoadPhysicalGlyphProfiles(DevicePackageCandidate package)
+    private void LoadPhysicalGlyphProfiles(InstalledDevicePackage package)
     {
         try
         {
@@ -867,64 +1465,15 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             _ => PhysicalGlyphSelectionMode.Automatic,
         };
 
-    private Task<IReadOnlyList<DevicePackageCandidate>> DiscoverPackagesAsync(
+    private Task<DevicePackageDiscovery> DiscoverPackageAsync(
         DeviceIdentitySnapshot identity,
         CancellationToken cancellationToken)
     {
-        DevicePackageDiscoveryOptions options = DevicePackageDiscoveryOptions.Production(
-            _config.DeviceIntegration.DeveloperMode);
-        return Task.Run<IReadOnlyList<DevicePackageCandidate>>(
-            () => DevicePackagePolicy.Discover(options, identity),
+        _ = identity;
+        DevicePackageDiscoveryOptions options = DevicePackageDiscoveryOptions.Production();
+        return Task.Run(
+            () => DevicePackagePolicy.Discover(options),
             cancellationToken);
-    }
-
-    private DevicePackageCandidate? FindAdjacentPackageVersion(bool newer)
-    {
-        if (SelectedPackage?.Manifest is not { } active
-            || !Version.TryParse(active.Version, out Version? activeVersion))
-        {
-            return null;
-        }
-
-        IEnumerable<DevicePackageCandidate> matching = Candidates.Where(candidate =>
-            candidate.Eligible
-            && candidate.Manifest is { } manifest
-            && string.Equals(manifest.Id, active.Id, StringComparison.Ordinal)
-            && Version.TryParse(manifest.Version, out Version? candidateVersion)
-            && (newer ? candidateVersion > activeVersion : candidateVersion < activeVersion));
-        return newer
-            ? matching.OrderByDescending(candidate => Version.Parse(candidate.Manifest!.Version))
-                .FirstOrDefault()
-            : matching.OrderByDescending(candidate => Version.Parse(candidate.Manifest!.Version))
-                .FirstOrDefault();
-    }
-
-    private void PinPackageVersion(string identityKey, string packageId, string version)
-    {
-        AppConfig persisted = ConfigStore.Mutate(config =>
-        {
-            DevicePackageSelection? selection = config.DeviceIntegration.PackageSelections
-                .FirstOrDefault(item => string.Equals(
-                    item.DeviceIdentityKey,
-                    identityKey,
-                    StringComparison.Ordinal));
-            if (selection is null)
-            {
-                config.DeviceIntegration.PackageSelections.Add(new DevicePackageSelection
-                {
-                    DeviceIdentityKey = identityKey,
-                    PackageId = packageId,
-                    Version = version,
-                });
-            }
-            else
-            {
-                selection.PackageId = packageId;
-                selection.Version = version;
-            }
-        });
-        _config = persisted;
-        ConfigurationChanged?.Invoke();
     }
 
     private DeviceCoordinatorDiagnosticsSnapshot DiagnosticsSnapshot()
@@ -933,11 +1482,10 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         return new DeviceCoordinatorDiagnosticsSnapshot
         {
             State = State,
-            PackageId = SelectedPackage?.Manifest?.Id,
-            PackageVersion = SelectedPackage?.Manifest?.Version,
-            TrustTier = SelectedPackage?.TrustTier,
-            HostGeneration = Interlocked.Read(ref _hostGeneration),
-            DeviceGeneration = Interlocked.Read(ref _deviceGeneration),
+            InstalledPackage = InstalledPackage?.Manifest is { } manifest
+                ? new DeviceInstalledPackageDiagnostic(manifest.Id, manifest.Version)
+                : null,
+            CycleGeneration = Interlocked.Read(ref _cycleGeneration),
             CapabilityCount = capabilities.Count,
             HealthyCapabilityCount = capabilities.Count(capability =>
                 capability.Projection.State.Available
@@ -945,33 +1493,22 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                     or HardwareStateQuality.Verified),
             FaultedCapabilityCount = capabilities.Count(capability =>
                 capability.Projection.State.Quality is HardwareStateQuality.Faulted),
-            Packages = Candidates.Take(64).Select(candidate => new DevicePackageDiagnostic(
-                candidate.Manifest?.Id,
-                candidate.Manifest?.Version,
-                candidate.TrustTier,
-                candidate.Eligible,
-                candidate.RejectionCode)).ToArray(),
             CapturedAt = DateTimeOffset.UtcNow,
         };
     }
 
     private void OnLifecycleState(DeviceLifecycleNotification state)
     {
-        if (state.HostGeneration != _hostGeneration || state.DeviceGeneration < _deviceGeneration)
+        if (state.CycleGeneration != _cycleGeneration)
         {
             Log.Warn(
-                $"Device lifecycle notification rejected as stale: host={state.HostGeneration}, "
-                    + $"device={state.DeviceGeneration}.");
+                $"Device lifecycle notification rejected as stale: "
+                    + $"cycle={state.CycleGeneration}, current={_cycleGeneration}.");
             return;
         }
 
         SetState(state.State);
     }
-
-    private static void OnResourceState(DeviceResourceStateNotification state) =>
-        Log.Info(
-            $"Device resource: id={state.ResourceId}, generation={state.DeviceGeneration}, "
-                + $"state={state.State}, reason={state.Reason?.Code.ToString() ?? "none"}.");
 
     private void SetState(DeviceCycleState state)
     {
@@ -981,8 +1518,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         }
 
         State = state;
-        Log.Info($"Device cycle: state={state}, hostGeneration={_hostGeneration}, "
-            + $"deviceGeneration={_deviceGeneration}.");
+        Log.Info($"Device cycle: state={state}, cycleGeneration={_cycleGeneration}.");
         StateChanged?.Invoke(state);
     }
 
@@ -1017,6 +1553,51 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         lock (_backgroundGate)
         {
             _backgroundTasks.Remove(observed);
+        }
+    }
+}
+
+/// <summary>Complete retained outcome of controller handoff, plugin stop, detach, and disposal.</summary>
+internal sealed record DeviceClientTeardownResult(IReadOnlyList<Exception> Failures)
+{
+    internal static DeviceClientTeardownResult Clean { get; } = new([]);
+
+    internal bool Verified => Failures.Count == 0;
+
+    internal Exception ToException() => Failures.Count == 1
+        ? Failures[0]
+        : new AggregateException("Multiple device teardown steps were unverified.", Failures);
+}
+
+internal sealed class DeviceTeardownFailureTracker
+{
+    private readonly object _gate = new();
+    private readonly List<Exception> _failures = [];
+
+    internal void Retain(Exception failure)
+    {
+        ArgumentNullException.ThrowIfNull(failure);
+        lock (_gate)
+        {
+            _failures.Add(failure);
+        }
+    }
+
+    internal void ResolveAfterVerifiedOwnerTeardown()
+    {
+        lock (_gate)
+        {
+            _failures.Clear();
+        }
+    }
+
+    internal IReadOnlyList<Exception> Drain()
+    {
+        lock (_gate)
+        {
+            Exception[] retained = _failures.ToArray();
+            _failures.Clear();
+            return retained;
         }
     }
 }

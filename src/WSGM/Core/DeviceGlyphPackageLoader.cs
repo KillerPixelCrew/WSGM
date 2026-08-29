@@ -1,21 +1,21 @@
 using System;
 using System.IO;
-using WSGM.Device.Contracts.Glyphs;
+using WSGM.Device.Sdk.Glyphs;
 
 namespace WSGM.Core;
 
-/// <summary>Loads only validated glyph data from one selected immutable package version.</summary>
+/// <summary>Loads validated glyph data from the sole installed package.</summary>
 internal static class DeviceGlyphPackageLoader
 {
-    internal static GlyphPackageImportResult Load(DevicePackageCandidate candidate)
+    internal static GlyphPackageImportResult Load(InstalledDevicePackage package)
     {
-        ArgumentNullException.ThrowIfNull(candidate);
-        if (!candidate.Eligible || candidate.Manifest is null)
+        ArgumentNullException.ThrowIfNull(package);
+        if (!package.Valid || package.Manifest is null)
         {
-            throw new InvalidDataException("Only an eligible parsed package can supply glyph profiles.");
+            throw new InvalidDataException("Only a valid installed package can supply glyph profiles.");
         }
 
-        ImmutableGlyphPackageDirectorySource source = new(candidate.PackagePath);
-        return GlyphPackageImporter.Import(candidate.Manifest, source);
+        ImmutableGlyphPackageDirectorySource source = new(package.PackagePath);
+        return GlyphPackageImporter.Import(source);
     }
 }

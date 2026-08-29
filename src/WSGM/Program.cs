@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using Avalonia;
 using WSGM.Core;
 using WSGM.Shell;
@@ -22,9 +23,20 @@ public enum RunMode
     OverlayTest,
 }
 
+internal enum DevicePluginMaintenanceMode
+{
+    None,
+    Install,
+    Remove,
+    Invalid,
+}
+
 /// <summary>Defines the safe command-line entry points and application bootstrap.</summary>
 public static class Program
 {
+    internal const string InstallerRollbackOwnerRetainedEventName =
+        @"Local\WSGM.InstallerRollback.DeviceOwnerRetained";
+
     /// <summary>Gets the mode selected from the current command line.</summary>
     public static RunMode Mode { get; private set; } = RunMode.Settings;
 
@@ -32,6 +44,8 @@ public static class Program
     /// (--boot): the session boots over a live, still-initializing explorer that
     /// the takeover flow waits out and then cleanly shuts down.</summary>
     public static bool ServiceBoot { get; private set; }
+
+    internal static bool InstallerRollbackWithoutDeviceIntegration { get; private set; }
 
     private static Mutex? _shellMutex;
 
@@ -41,6 +55,24 @@ public static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        // Roslyn implements an async Main through a separate synchronous entry point and does not
+        // carry STAThread onto that synthesized method. Keep the real process entry point
+        // synchronous so normal startup and Avalonia begin on the Windows STA thread; command-only
+        // maintenance may still yield inside the private body while this wrapper owns its result.
+        return MainAsync(args).GetAwaiter().GetResult();
+    }
+
+    private static async Task<int> MainAsync(string[] args)
+    {
+        // Hidden fixed-purpose process used only to preserve normal Explorer parent/job
+        // semantics across a shell transition. It must run before logging, package discovery,
+        // elevation, Avalonia, or any other WSGM service. The mode accepts no executable or
+        // argument input and can start only the canonical Windows Explorer path.
+        if (ExplorerShellAnchor.TryRunProcessMode(args, out int anchorExitCode))
+        {
+            return anchorExitCode;
+        }
+
         // Recovery path: must work even when Avalonia/GPU/config are broken.
         // Keep this ahead of logging too: a broken profile directory must never
         // prevent the user from getting their desktop back.
@@ -78,6 +110,15 @@ public static class Program
             ShellRegistration.Uninstall();
             SteamInputBlocker.ReleaseBestEffort("unregister-shell");
             return 0;
+        }
+
+        DevicePluginMaintenanceMode pluginMaintenance = ParseDevicePluginMaintenance(args);
+        if (pluginMaintenance is not DevicePluginMaintenanceMode.None)
+        {
+            Log.Init();
+            LegacyPostureCleanup.Restore();
+            return await RunDevicePluginMaintenanceAsync(pluginMaintenance, args)
+                .ConfigureAwait(false);
         }
 
         Log.Init();
@@ -195,8 +236,54 @@ public static class Program
             return 0;
         }
 
+        if (ShouldEnforceDevicePackageCardinality(args))
+        {
+            DevicePackageInventory? inventory;
+            try
+            {
+                inventory = InventoryDevicePackagesForStartup(
+                    DeviceInstallationPaths.InstalledPackageRoot,
+                    TimeSpan.FromSeconds(5));
+            }
+            catch (Exception ex) when (IsDevicePackageSlotGateFailure(ex))
+            {
+                Log.Error("Device plugin startup inventory failed", ex);
+                ShowDevicePackageStartupRefusal(
+                    "WSGM could not inspect the protected Device Plugin slot. "
+                        + "Use setup or --remove-device-plugin to repair it.\n\n"
+                        + ex.Message);
+                return 2;
+            }
+            if (inventory is null)
+            {
+                const string detail = "The protected Device Plugin slot remained busy during "
+                    + "startup. Close Device Plugin maintenance and start WSGM again.";
+                Log.Error(detail);
+                ShowDevicePackageStartupRefusal(detail);
+                return 2;
+            }
+
+            Log.Info($"Device plugin startup inventory: {inventory.Cardinality}, "
+                + $"roots={inventory.PackageRoots.Count}.");
+            if (inventory.Cardinality is DevicePackageCardinality.Multiple)
+            {
+                string packages = string.Join(
+                    Environment.NewLine,
+                    inventory.PackageRoots.Select(path => $"- {Path.GetFileName(path)}: {path}"));
+                string detail = "WSGM found more than one Device Plugin package root and refused "
+                    + "normal startup. No package was opened or selected. Remove the extra package "
+                    + "with setup or --remove-device-plugin, then start WSGM again."
+                    + Environment.NewLine + Environment.NewLine + packages;
+                Log.Error(detail);
+                ShowDevicePackageStartupRefusal(detail);
+                return 2;
+            }
+        }
+
         ServiceBoot = IsServiceBoot(args);
         Mode = DecideMode(args);
+        InstallerRollbackWithoutDeviceIntegration =
+            IsInstallerRollbackWithoutDeviceIntegration(args);
         if (ServiceBoot)
         {
             Log.Info($"Run mode: {Mode} (service boot, elevated={ElevationCheck.IsCurrentProcessElevated()}, " +
@@ -229,10 +316,15 @@ public static class Program
                 Log.Warn("Another WSGM shell instance is running; exiting.");
                 return 0;
             }
-            // Record this start BEFORE deciding, so the breaker fires on the
-            // 3rd start within 2 minutes (this one included) as documented.
-            CrashLoopBreaker.RecordStart();
-            if (CrashLoopBreaker.IsLooping())
+            bool applyCrashLoopProtection = ShouldApplyCrashLoopProtection(
+                InstallerRollbackWithoutDeviceIntegration);
+            if (applyCrashLoopProtection)
+            {
+                // Record this start BEFORE deciding, so the breaker fires on the
+                // 3rd start within 2 minutes (this one included) as documented.
+                CrashLoopBreaker.RecordStart();
+            }
+            if (applyCrashLoopProtection && CrashLoopBreaker.IsLooping())
             {
                 Log.Error("Crash loop detected (3+ shell starts within 2 minutes) — " +
                           "game-mode boot DISABLED (re-enable in WSGM settings).");
@@ -285,24 +377,9 @@ public static class Program
             e.SetObserved();
         };
 
-        UpdateExitWatcher.Start(() => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-        {
-            // Posted jobs only run once StartWithClassicDesktopLifetime pumps the
-            // dispatcher, so the classic desktop lifetime is always in place here
-            // and Shutdown() flows through the normal teardown below (lease release,
-            // posture cleanup/scale restore). No Environment.Exit fallback: it would skip
-            // that teardown, and if this ever failed to match, the installer's
-            // taskkill fallback still ends the process.
-            // This request originates from setup, which must replace the Steam
-            // Input payload DLLs. WSGM may be elevated while setup is not, so it
-            // owns both the graceful request and the bounded elevated fallback.
-            Steam.StopForUpdate();
-            if (Avalonia.Application.Current?.ApplicationLifetime
-                is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime lifetime)
-            {
-                lifetime.Shutdown();
-            }
-        }));
+        UpdateExitWatcher.Start(
+            () => RequestInstallerExit(ApplicationShutdownReason.Update),
+            () => RequestInstallerExit(ApplicationShutdownReason.Uninstall));
 
         try
         {
@@ -329,6 +406,56 @@ public static class Program
         {
             Panic("Avalonia lifetime crashed", ex);
             return 1;
+        }
+    }
+
+    private static void RequestInstallerExit(ApplicationShutdownReason reason) =>
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            // Posted jobs only run once StartWithClassicDesktopLifetime pumps the dispatcher.
+            // Update reserves one bounded Steam/wrapper pre-stop window before App's own cleanup
+            // deadline. The installer waits for both windows plus handoff margin before its force
+            // fallback, and a failed pre-stop must never prevent WSGM cleanup from starting.
+            RunInstallerExitRequest(
+                reason,
+                static () => Steam.StopForUpdate(),
+                ApplicationShutdownRequest.Request,
+                static () =>
+                {
+                    if (Avalonia.Application.Current?.ApplicationLifetime
+                        is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime lifetime)
+                    {
+                        lifetime.Shutdown();
+                    }
+                });
+        });
+
+    /// <summary>Orders an installer request without coupling its failure policy to live Steam or
+    /// Avalonia in tests. Application shutdown is requested even when the update pre-stop fails.</summary>
+    internal static void RunInstallerExitRequest(
+        ApplicationShutdownReason reason,
+        Action stopForUpdate,
+        Action<ApplicationShutdownReason> requestShutdown,
+        Action shutdownLifetime)
+    {
+        ArgumentNullException.ThrowIfNull(stopForUpdate);
+        ArgumentNullException.ThrowIfNull(requestShutdown);
+        ArgumentNullException.ThrowIfNull(shutdownLifetime);
+        try
+        {
+            if (reason is ApplicationShutdownReason.Update)
+            {
+                stopForUpdate();
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error("Steam/update-helper pre-stop failed; WSGM cleanup will still run", ex);
+        }
+        finally
+        {
+            requestShutdown(reason);
+            shutdownLifetime();
         }
     }
 
@@ -368,6 +495,305 @@ public static class Program
     /// (kept pure so mode precedence stays testable without a live session).</summary>
     internal static bool IsServiceBoot(string[] args)
         => args.Contains("--boot", StringComparer.OrdinalIgnoreCase);
+
+    internal static bool IsInstallerRollbackWithoutDeviceIntegration(string[] args)
+        => args.Contains("--installer-rollback-no-device", StringComparer.OrdinalIgnoreCase);
+
+    internal static bool ShouldApplyCrashLoopProtection(
+        bool installerRollbackWithoutDeviceIntegration)
+        => !installerRollbackWithoutDeviceIntegration;
+
+    internal static void ReportInstallerRollbackOwnerRetained()
+    {
+        try
+        {
+            if (EventWaitHandle.TryOpenExisting(
+                InstallerRollbackOwnerRetainedEventName,
+                out EventWaitHandle? ready))
+            {
+                using (ready)
+                {
+                    ready.Set();
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException
+            or UnauthorizedAccessException
+            or WaitHandleCannotBeOpenedException)
+        {
+            Log.Warn($"Installer rollback owner-retention acknowledgement failed: {ex.Message}");
+        }
+    }
+
+    private static async Task<int> RunDevicePluginMaintenanceAsync(
+        DevicePluginMaintenanceMode mode,
+        string[] args)
+    {
+        if (mode is DevicePluginMaintenanceMode.Invalid)
+        {
+            Log.Error("Device plugin maintenance: use exactly "
+                + "--install-device-plugin <expanded-package-directory> or "
+                + "--remove-device-plugin, without other arguments.");
+            return 1;
+        }
+
+        string? sourceDirectory = null;
+        string elevatedArguments = "--remove-device-plugin";
+        string operation = "removal";
+        if (mode is DevicePluginMaintenanceMode.Install)
+        {
+            try
+            {
+                sourceDirectory = Path.GetFullPath(args[1]);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or IOException)
+            {
+                Log.Error("Device plugin maintenance: source path is invalid", ex);
+                return 1;
+            }
+
+            elevatedArguments = "--install-device-plugin "
+                + SelfElevation.Quote(sourceDirectory);
+            operation = "installation";
+        }
+
+        bool? elevated = ElevationCheck.IsCurrentProcessElevated();
+        if (elevated is false)
+        {
+            return await SelfElevation.RunElevatedMaintenanceAsync(
+                elevatedArguments,
+                $"Device plugin {operation}").ConfigureAwait(false)
+                ? 0
+                : 1;
+        }
+        if (elevated is null)
+        {
+            Log.Error($"Device plugin maintenance: current elevation could not be verified; {operation} refused.");
+            return 1;
+        }
+
+        DevicePackageSlotGate? slotGate;
+        try
+        {
+            slotGate = await DevicePackageSlotGate.TryAcquireAsync(TimeSpan.FromSeconds(5))
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (IsDevicePackageSlotGateFailure(ex))
+        {
+            Log.Error($"Device plugin maintenance: package-slot ownership could not be verified; {operation} refused.", ex);
+            return 1;
+        }
+        if (slotGate is null)
+        {
+            Log.Error($"Device plugin maintenance: package-slot startup activity did not settle; {operation} refused.");
+            return 1;
+        }
+
+        await using (slotGate)
+        {
+            return await RunDevicePluginMaintenanceUnderGateAsync(
+                mode,
+                sourceDirectory,
+                operation).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task<int> RunDevicePluginMaintenanceUnderGateAsync(
+        DevicePluginMaintenanceMode mode,
+        string? sourceDirectory,
+        string operation)
+    {
+        // Atomically create the same machine-wide marker as production and Device Lab only after
+        // taking the package gate. Holding the unowned handle through the host recheck and every
+        // filesystem operation prevents a new coordinator from entering after a stale observation.
+        return await RunDevicePluginMaintenanceWithOwnerReservationAsync(
+            DeviceCoordinator.ProductionOwnerName,
+            operation,
+            () => RunDevicePluginMaintenanceWithReservedOwnerAsync(
+                mode,
+                sourceDirectory,
+                operation)).ConfigureAwait(false);
+    }
+
+    private static async Task<int> RunDevicePluginMaintenanceWithReservedOwnerAsync(
+        DevicePluginMaintenanceMode mode,
+        string? sourceDirectory,
+        string operation)
+    {
+        bool? hostRunning = DeviceHostProcess.IsAnyRunning();
+        if (hostRunning is true)
+        {
+            Log.Error($"Device plugin maintenance: close every running DeviceHost before {operation}.");
+            return 1;
+        }
+        if (hostRunning is null)
+        {
+            Log.Error($"Device plugin maintenance: DeviceHost process state could not be verified; {operation} refused.");
+            return 1;
+        }
+
+        try
+        {
+            if (mode is DevicePluginMaintenanceMode.Remove)
+            {
+                DevicePackageStager.RemoveInstalledPackage(
+                    DeviceInstallationPaths.InstalledPackageRoot);
+                Log.Info("Device plugin maintenance: installed slot removed.");
+                return 0;
+            }
+
+            InstalledDevicePackage installed = await DevicePackageStager.StageAsync(
+                sourceDirectory!,
+                DeviceInstallationPaths.InstalledPackageRoot).ConfigureAwait(false);
+            Log.Info("Device plugin maintenance: installed "
+                + $"{installed.Manifest?.Id ?? Path.GetFileName(installed.PackagePath)} "
+                + $"into the protected slot at {installed.PackagePath}.");
+            return 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+            or InvalidDataException)
+        {
+            Log.Error($"Device plugin maintenance: {operation} failed", ex);
+            return 1;
+        }
+    }
+
+    /// <summary>Runs one maintenance operation while an exact handle-held owner reservation exists.
+    /// The explicit name and delegate keep the cross-process lifetime testable without touching the
+    /// production machine object or filesystem.</summary>
+    internal static async Task<int> RunDevicePluginMaintenanceWithOwnerReservationAsync(
+        string ownerName,
+        string operation,
+        Func<Task<int>> maintenance)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(ownerName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(operation);
+        ArgumentNullException.ThrowIfNull(maintenance);
+        using Mutex? ownerReservation = DeviceCoordinator.TryCreateOwnerMutex(ownerName);
+        if (ownerReservation is null)
+        {
+            Log.Error($"Device plugin maintenance: machine-wide device ownership is active or "
+                + $"could not be reserved; {operation} refused.");
+            return 1;
+        }
+
+        return await maintenance().ConfigureAwait(false);
+    }
+
+    internal static DevicePluginMaintenanceMode ParseDevicePluginMaintenance(string[] args)
+    {
+        ArgumentNullException.ThrowIfNull(args);
+        bool hasInstall = args.Contains("--install-device-plugin", StringComparer.OrdinalIgnoreCase);
+        bool hasRemove = args.Contains("--remove-device-plugin", StringComparer.OrdinalIgnoreCase);
+        if (!hasInstall && !hasRemove)
+        {
+            return DevicePluginMaintenanceMode.None;
+        }
+
+        if (args.Length == 1
+            && string.Equals(args[0], "--remove-device-plugin", StringComparison.OrdinalIgnoreCase))
+        {
+            return DevicePluginMaintenanceMode.Remove;
+        }
+
+        if (args.Length == 2
+            && string.Equals(args[0], "--install-device-plugin", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(args[1])
+            && !args[1].StartsWith("--", StringComparison.Ordinal))
+        {
+            return DevicePluginMaintenanceMode.Install;
+        }
+
+        return DevicePluginMaintenanceMode.Invalid;
+    }
+
+    private static DevicePackageInventory? InventoryDevicePackagesForStartup(
+        string packageRoot,
+        TimeSpan timeout) =>
+        DevicePackageSlotGate.TryRunSynchronously(
+            timeout,
+            () => DevicePackageStager.InventoryEffectiveInstalledPackage(packageRoot));
+
+    /// <summary>Inventories the protected package slot while holding a named gate. The explicit
+    /// name and wait callback keep startup serialization testable without using the production
+    /// machine-wide object.</summary>
+    internal static DevicePackageInventory? InventoryDevicePackagesForStartup(
+        string packageRoot,
+        string gateName,
+        TimeSpan timeout,
+        Action? waitStarted = null) =>
+        DevicePackageSlotGate.TryRunSynchronously(
+            gateName,
+            timeout,
+            () => DevicePackageStager.InventoryEffectiveInstalledPackage(packageRoot),
+            waitStarted);
+
+    /// <summary>Returns whether startup must fail closed for a named-object, filesystem, or
+    /// ambiguous/unsafe recovery-slot inspection error.</summary>
+    internal static bool IsDevicePackageSlotGateFailure(Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        return exception is IOException
+            or UnauthorizedAccessException
+            or InvalidDataException
+            or WaitHandleCannotBeOpenedException;
+    }
+
+    /// <summary>
+    /// Returns whether this invocation is a normal startup that must enforce the one-plugin slot.
+    /// Recovery, setup, update/uninstall helpers, and the simulated overlay test never start device
+    /// code and therefore bypass the refusal.
+    /// </summary>
+    internal static bool ShouldEnforceDevicePackageCardinality(string[] args)
+    {
+        // Overlay test is the only simulated UI root, and it bypasses package discovery only when
+        // it is the whole invocation. A mixed command such as --shell --overlay-test resolves to
+        // the real shell and must not smuggle that startup past the hard one-plugin gate.
+        if (args.Length == 1
+            && string.Equals(args[0], "--overlay-test", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        string[] bypass =
+        [
+            "--restore-shell",
+            "--unregister-shell",
+            "--set-uac-silent",
+            "--restore-uac",
+            "--disable-lock-on-wake",
+            "--restore-lock-on-wake",
+            "--apply-steam-input-shim",
+            "--remove-steam-input-shim",
+            "--radio-probe",
+            "--pair-probe",
+            "--uninstall-restore",
+            "--uninstall-app",
+            "--install",
+            "--setup",
+            "--install-device-plugin",
+            "--remove-device-plugin",
+            "--installer-rollback-no-device",
+        ];
+        return !args.Any(argument => bypass.Contains(argument, StringComparer.OrdinalIgnoreCase));
+    }
+
+    private static void ShowDevicePackageStartupRefusal(string detail)
+    {
+        try
+        {
+            _ = Interop.NativeMethods.MessageBoxW(
+                0,
+                detail,
+                "WSGM Device Plugin startup refused",
+                Interop.NativeMethods.MbOk | Interop.NativeMethods.MbIconError);
+        }
+        catch
+        {
+            // The full refusal and absolute paths are already in wsgm.log. A service-boot desktop
+            // may not yet permit an interactive user32 surface, but that must not weaken the gate.
+        }
+    }
 
     private static bool AcquireShellMutex()
     {
@@ -412,7 +838,18 @@ public static class Program
             catch { /* recovery must not throw */ }
             if (!ExplorerControl.IsRunningInSession())
             {
-                ExplorerControl.StartExplorer();
+                using System.Diagnostics.Process current = System.Diagnostics.Process.GetCurrentProcess();
+                if (ExplorerShellAnchor.HasRecoveryOwner(current.SessionId))
+                {
+                    // The verified medium/jobless anchor restores Explorer after this process
+                    // actually exits. Starting one here would race that exact owner and the
+                    // service watchdog, and could recreate the job-bound desktop Q02 removes.
+                    Log.Info("Panic recovery delegated to the verified Explorer shell anchor.");
+                }
+                else
+                {
+                    ExplorerControl.StartExplorer();
+                }
             }
             LegacyPostureCleanup.Restore();
             RestoreDisplayScalesBestEffort();

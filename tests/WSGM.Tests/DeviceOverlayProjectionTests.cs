@@ -1,7 +1,4 @@
-using System.Linq;
-using System.Threading.Tasks;
 using WSGM.Shell;
-using Xunit;
 
 namespace WSGM.Tests;
 
@@ -24,6 +21,9 @@ public sealed class DeviceOverlayProjectionTests
             capability => capability.Section == DeviceOverlaySection.OemAndLighting);
         Assert.All(snapshot.Capabilities,
             capability => Assert.NotEqual(DeviceOverlayStatus.None, capability.Status));
+        Assert.NotNull(snapshot.GlyphSelection);
+        Assert.DoesNotContain(snapshot.Capabilities,
+            capability => capability.CapabilityId == "wsgm.glyph.selection");
     }
 
     [Fact]
@@ -40,5 +40,23 @@ public sealed class DeviceOverlayProjectionTests
         Assert.Equal(1, changes);
         Assert.Equal("16 W", source.Snapshot().Capabilities.Single(
             capability => capability.CapabilityId == "preview.power.tdp").TrailingText);
+    }
+
+    [Fact]
+    public async Task SimulatedGlyphSelectionUsesItsDedicatedCommandPath()
+    {
+        using SimulatedDeviceOverlaySource source = new();
+        int changes = 0;
+        source.Changed += () => changes++;
+
+        DeviceOverlayGlyphSelection before = Assert.IsType<DeviceOverlayGlyphSelection>(
+            source.Snapshot().GlyphSelection);
+        await source.CyclePhysicalGlyphSelectionAsync();
+        DeviceOverlayGlyphSelection after = Assert.IsType<DeviceOverlayGlyphSelection>(
+            source.Snapshot().GlyphSelection);
+
+        Assert.Equal("AUTO", before.TrailingText);
+        Assert.Equal("STEAM", after.TrailingText);
+        Assert.Equal(1, changes);
     }
 }

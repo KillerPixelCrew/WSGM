@@ -1,9 +1,8 @@
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using WSGM.Device.Contracts.Capabilities;
-using WSGM.Device.Contracts.Input;
-using WSGM.Device.Contracts.Lifecycle;
+using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Input;
 
 namespace WSGM.Device.Sdk.Plugin;
 
@@ -16,11 +15,8 @@ namespace WSGM.Device.Sdk.Plugin;
 /// </remarks>
 public interface IPluginHostAdapter
 {
-    /// <summary>Host generation receiving publications.</summary>
-    long HostGeneration { get; }
-
-    /// <summary>Current device generation.</summary>
-    long DeviceGeneration { get; }
+    /// <summary>Current process/reconnect cycle generation.</summary>
+    long CycleGeneration { get; }
 
     /// <summary>Publishes an immutable replacement descriptor set.</summary>
     /// <param name="descriptors">Complete descriptor set.</param>
@@ -36,14 +32,6 @@ public interface IPluginHostAdapter
     /// <returns>A task completing after DeviceHost accepted it.</returns>
     ValueTask PublishCapabilityStateAsync(
         CapabilityState state,
-        CancellationToken cancellationToken);
-
-    /// <summary>Publishes current state for one independently owned resource.</summary>
-    /// <param name="state">Resource state and structured reason.</param>
-    /// <param name="cancellationToken">Cancels publication.</param>
-    /// <returns>A task completing after DeviceHost accepted it.</returns>
-    ValueTask PublishResourceStateAsync(
-        PluginResourceState state,
         CancellationToken cancellationToken);
 
     /// <summary>Publishes exact physical identities WSGM may use for its HidHide transaction.</summary>
@@ -77,28 +65,4 @@ public interface IPluginHostAdapter
     ValueTask PublishOemEventAsync(
         OemControlEvent controlEvent,
         CancellationToken cancellationToken);
-
-    /// <summary>Atomically adds or advances one crash-recovery journal entry.</summary>
-    /// <param name="entry">The complete entry state to persist before the next hardware step.</param>
-    /// <param name="cancellationToken">Cancels persistence before hardware may be touched.</param>
-    /// <returns>A task completing only after the journal replacement is durable.</returns>
-    ValueTask PersistRecoveryJournalEntryAsync(
-        RecoveryJournalEntry entry,
-        CancellationToken cancellationToken);
-}
-
-/// <summary>One independently reported plugin resource state.</summary>
-public sealed record PluginResourceState
-{
-    /// <summary>Stable resource identifier from the device definition.</summary>
-    public required string ResourceId { get; init; }
-
-    /// <summary>Current ownership and health.</summary>
-    public required ResourceState State { get; init; }
-
-    /// <summary>Why the resource is passive, degraded, or faulted.</summary>
-    public CapabilityReason? Reason { get; init; }
-
-    /// <summary>Device generation this state describes.</summary>
-    public required long DeviceGeneration { get; init; }
 }

@@ -19,29 +19,29 @@ identity `RTSS` and file version `7.3.5.28314`; the executable and `RTSSHooks.dl
 Authenticode signatures from the MSI bundle publisher.
 
 The installed SDK documents profile functions exported by the architecture-matched
-`RTSSHooks.dll`/`RTSSHooks64.dll`: `LoadProfile`,
-`SaveProfile`, `GetProfileProperty`, `SetProfileProperty`, and `UpdateProfiles`. Its own HotkeyHandler
-sample uses those functions to load one profile, set `FramerateLimit`, save that same profile, and
-ask running applications to reload profiles. The same SDK header documents `EnableStat` as the
-`Show own statistics` profile property. This establishes supported controls worth prototyping; it
-does not by itself establish safe concurrent profile ownership or application-name mapping.
+`RTSSHooks.dll`/`RTSSHooks64.dll`: `LoadProfile`, `SaveProfile`, `GetProfileProperty`,
+`SetProfileProperty`, and `UpdateProfiles`. Its own HotkeyHandler sample uses those functions to
+load one profile, set `FramerateLimit`, save that same profile, and ask running applications to
+reload profiles. The same SDK header documents `EnableStat` as the `Show own statistics` profile
+property. This establishes supported controls worth prototyping; it does not by itself establish
+safe concurrent profile ownership or application-name mapping.
 
 The maintainer accepted redistribution-free use of the installed RTSS profile API for WSGM. WSGM
-still ships none of the SDK, headers, DLLs, profiles, or license text and requires the user's own RTSS
-installation. Technical compatibility, truthful readback, and coexistence remain normal engineering
-gates rather than license blockers.
+still ships none of the SDK, headers, DLLs, profiles, or license text and requires the user's own
+RTSS installation. Technical compatibility, truthful readback, and coexistence remain normal
+engineering gates rather than license blockers.
 
 ## Implemented support boundary
 
 `RtssDiscovery` accepts only one machine-wide RTSS 7.3-or-newer registration whose publisher,
 protected Program Files location, `RTSS.exe` product/version identity, required profile-API PE
-exports, and running process path all agree. It reads the DLL export table as data instead of loading
-the DLL. A process merely named `RTSS` is never sufficient. `RtssNativeAdapter` then loads only that
-exact architecture-matched, signed DLL by absolute path. It uses the documented profile API for
-`FramerateLimit` and `EnableStat`, saves the selected global/application profile, requests
+exports, and running process path all agree. It reads the DLL export table as data instead of
+loading the DLL. A process merely named `RTSS` is never sufficient. `RtssNativeAdapter` then loads
+only that exact architecture-matched, signed DLL by absolute path. It uses the documented profile
+API for `FramerateLimit` and `EnableStat`, saves the selected global/application profile, requests
 running-profile reload, and reads the same properties back. The overlay control exposes exactly two
-verified levels: `0` (off) and `1` (RTSS own statistics on). WSGM does not invent intermediate levels
-or rewrite the user's RTSS overlay layout.
+verified levels: `0` (off) and `1` (RTSS own statistics on). WSGM does not invent intermediate
+levels or rewrite the user's RTSS overlay layout.
 
 The shared performance contract already provides:
 
@@ -59,9 +59,9 @@ The shared performance contract already provides:
 ## Remaining live compatibility work
 
 Use a disposable test profile to validate the production adapter without editing an existing user
-profile. Record the exact RTSS profile name derived from WSGM's application identity, property ranges
-and units, query fidelity, concurrent external-edit behavior, RTSS restart behavior, and whether a
-failed save can be rolled back without deleting an external profile.
+profile. Record the exact RTSS profile name derived from WSGM's application identity, property
+ranges and units, query fidelity, concurrent external-edit behavior, RTSS restart behavior, and
+whether a failed save can be rolled back without deleting an external profile.
 
 The RTSS own-statistics control is deliberately binary. Do not equate Steam's numbered performance
 overlay presets with `EnableOSD`, RTSS shared flags, or an OverlayEditor layout. Additional levels

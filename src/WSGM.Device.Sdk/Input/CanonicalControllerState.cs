@@ -1,0 +1,226 @@
+using System;
+using System.Text.Json.Serialization;
+
+namespace WSGM.Device.Sdk.Input;
+
+/// <summary>
+/// Every button a handheld may physically have.
+/// </summary>
+/// <remarks>
+/// The canonical state represents the richest supported handheld without assuming a virtual target.
+/// A target consumes only what it genuinely supports: the Steam Deck composite takes rear paddles and
+/// native motion, Xbox 360 takes neither, and nothing is synthesized to fill the gap. Gyro is passed
+/// through where the target supports motion and simply absent where it does not — it is never
+/// converted into stick or mouse movement, which is the line between calibration and remapping.
+/// </remarks>
+[Flags]
+public enum CanonicalButtons : uint
+{
+    /// <summary>Nothing pressed.</summary>
+    None = 0,
+
+    /// <summary>South face button.</summary>
+    A = 1 << 0,
+
+    /// <summary>East face button.</summary>
+    B = 1 << 1,
+
+    /// <summary>West face button.</summary>
+    X = 1 << 2,
+
+    /// <summary>North face button.</summary>
+    Y = 1 << 3,
+
+    /// <summary>Left shoulder.</summary>
+    LeftShoulder = 1 << 4,
+
+    /// <summary>Right shoulder.</summary>
+    RightShoulder = 1 << 5,
+
+    /// <summary>Left stick click.</summary>
+    LeftStick = 1 << 6,
+
+    /// <summary>Right stick click.</summary>
+    RightStick = 1 << 7,
+
+    /// <summary>View or Back.</summary>
+    View = 1 << 8,
+
+    /// <summary>Menu or Start.</summary>
+    Menu = 1 << 9,
+
+    /// <summary>Guide or Home.</summary>
+    Guide = 1 << 10,
+
+    /// <summary>D-pad up.</summary>
+    DPadUp = 1 << 11,
+
+    /// <summary>D-pad down.</summary>
+    DPadDown = 1 << 12,
+
+    /// <summary>D-pad left.</summary>
+    DPadLeft = 1 << 13,
+
+    /// <summary>D-pad right.</summary>
+    DPadRight = 1 << 14,
+
+    /// <summary>First rear paddle.</summary>
+    RearPaddle1 = 1 << 15,
+
+    /// <summary>Second rear paddle.</summary>
+    RearPaddle2 = 1 << 16,
+
+    /// <summary>Third rear paddle.</summary>
+    RearPaddle3 = 1 << 17,
+
+    /// <summary>Fourth rear paddle.</summary>
+    RearPaddle4 = 1 << 18,
+
+    /// <summary>Left stick capacitive touch.</summary>
+    LeftStickTouch = 1 << 19,
+
+    /// <summary>Right stick capacitive touch.</summary>
+    RightStickTouch = 1 << 20,
+}
+
+/// <summary>
+/// How much a controller sample can be trusted.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<SampleQuality>))]
+public enum SampleQuality
+{
+    /// <summary>A normal sample following continuously from the previous one.</summary>
+    Good,
+
+    /// <summary>
+    /// Reports were lost between this sample and the previous one.
+    /// </summary>
+    /// <remarks>
+    /// Surfaced rather than hidden because a consumer deriving edges from full states needs to know
+    /// its edge detection may have missed a press-and-release entirely.
+    /// </remarks>
+    ReportLoss,
+
+    /// <summary>
+    /// The stream restarted, so no relationship to the previous sample can be assumed.
+    /// </summary>
+    Discontinuity,
+
+    /// <summary>
+    /// The first sample after acquisition, which some devices deliver uninitialized.
+    /// </summary>
+    /// <remarks>
+    /// A real observed failure mode, not defensive noise: the reference controller can return a
+    /// corrupt first state with every axis at its extreme, which would read as a fully deflected
+    /// stick if it were forwarded.
+    /// </remarks>
+    FirstSampleUnreliable,
+}
+
+/// <summary>
+/// One complete sample of the physical controller, normalized by the plugin.
+/// </summary>
+/// <remarks>
+/// Full state rather than deltas: a dropped delta leaves a control stuck forever, while a dropped
+/// full state is corrected by the next one. Axes are normalized so no consumer needs to know the
+/// device's raw ranges, centres, or inversions — that translation is the plugin's, and it is the
+/// only place that knows them.
+/// </remarks>
+public sealed record CanonicalControllerSample
+{
+    /// <summary>Monotonic sequence number within one device generation.</summary>
+    public required long Sequence { get; init; }
+
+    /// <summary>Device generation this sample belongs to.</summary>
+    public required long CycleGeneration { get; init; }
+
+    /// <summary>High-resolution timestamp of the sample, in UTC.</summary>
+    public required DateTimeOffset Timestamp { get; init; }
+
+    /// <summary>Buttons currently held.</summary>
+    public CanonicalButtons Buttons { get; init; }
+
+    /// <summary>Left stick X, from -1 to 1.</summary>
+    public float LeftStickX { get; init; }
+
+    /// <summary>Left stick Y, from -1 to 1, positive up.</summary>
+    public float LeftStickY { get; init; }
+
+    /// <summary>Right stick X, from -1 to 1.</summary>
+    public float RightStickX { get; init; }
+
+    /// <summary>Right stick Y, from -1 to 1, positive up.</summary>
+    public float RightStickY { get; init; }
+
+    /// <summary>Left trigger, from 0 to 1.</summary>
+    public float LeftTrigger { get; init; }
+
+    /// <summary>Right trigger, from 0 to 1.</summary>
+    public float RightTrigger { get; init; }
+
+    /// <summary>Motion, when the device has a sensor and it is available.</summary>
+    public MotionSample? Motion { get; init; }
+
+    /// <summary>How much this sample can be trusted.</summary>
+    public SampleQuality Quality { get; init; } = SampleQuality.Good;
+
+    /// <summary>
+    /// The neutral sample: nothing held, every axis centred.
+    /// </summary>
+    /// <remarks>
+    /// Published to the virtual target whenever forwarding stops — UI capture, target removal, game
+    /// exit, suspend, disconnect, plugin disable, or fault. Without it the last forwarded state stays
+    /// latched and the game keeps seeing a held control.
+    /// </remarks>
+    /// <param name="sequence">Sequence number to stamp on the neutral sample.</param>
+    /// <param name="cycleGeneration">Device generation to stamp on the neutral sample.</param>
+    /// <param name="timestamp">Timestamp to stamp on the neutral sample.</param>
+    /// <returns>A sample with every control at rest.</returns>
+    public static CanonicalControllerSample Neutral(
+        long sequence,
+        long cycleGeneration,
+        DateTimeOffset timestamp) => new()
+        {
+            Sequence = sequence,
+            CycleGeneration = cycleGeneration,
+            Timestamp = timestamp,
+        };
+}
+
+/// <summary>
+/// One motion sample.
+/// </summary>
+/// <remarks>
+/// Gyroscope and accelerometer are separate and optional because a device may have one without the
+/// other — verified on the reference handheld, which reports a gyroscope and no accelerometer at all.
+/// Synthesizing the missing one would invent data.
+/// </remarks>
+public sealed record MotionSample
+{
+    /// <summary>Angular velocity around X, in degrees per second.</summary>
+    public float GyroX { get; init; }
+
+    /// <summary>Angular velocity around Y, in degrees per second.</summary>
+    public float GyroY { get; init; }
+
+    /// <summary>Angular velocity around Z, in degrees per second.</summary>
+    public float GyroZ { get; init; }
+
+    /// <summary>Whether the gyroscope values are present.</summary>
+    public bool HasGyro { get; init; }
+
+    /// <summary>Acceleration along X, in g.</summary>
+    public float AccelX { get; init; }
+
+    /// <summary>Acceleration along Y, in g.</summary>
+    public float AccelY { get; init; }
+
+    /// <summary>Acceleration along Z, in g.</summary>
+    public float AccelZ { get; init; }
+
+    /// <summary>Whether the accelerometer values are present.</summary>
+    public bool HasAccelerometer { get; init; }
+
+    /// <summary>Sensor timestamp, when the sensor supplies one distinct from the sample time.</summary>
+    public DateTimeOffset? SensorTimestamp { get; init; }
+}

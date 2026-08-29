@@ -6,11 +6,11 @@ namespace WSGM.Tests;
 /// Guards the WSGM 2.0 device-platform boundary at the project-reference level.
 /// </summary>
 /// <remarks>
-/// WSGM stays NativeAOT and may reference exactly one new assembly, <c>WSGM.Device.Contracts</c>.
-/// DeviceHost, the SDK, Device Lab, and every plugin stay JIT because they need
-/// <c>System.Management</c>/WMI, WinRT sensors, and an interactive keyboard hook. Nothing enforces
-/// that at compile time: adding the wrong reference produces a perfectly good build whose AOT publish
-/// then fails, or worse, succeeds and drags reflection-dependent code into the shell.
+/// WSGM stays NativeAOT and may reference exactly one new assembly, <c>WSGM.Device.Sdk</c>.
+/// The SDK is deliberately AOT-safe. DeviceHost, Device Lab, and every plugin stay JIT because they
+/// may need <c>System.Management</c>/WMI, WinRT sensors, or an interactive keyboard hook. Nothing
+/// enforces that at compile time: adding the wrong reference produces a perfectly good build whose
+/// AOT publish then fails, or worse, succeeds and drags reflection-dependent code into the shell.
 /// <para>
 /// These tests read the project files rather than loaded assemblies, so they fail on the reference
 /// itself instead of waiting for a runtime symptom. The complementary output-directory check —
@@ -19,6 +19,8 @@ namespace WSGM.Tests;
 /// </remarks>
 public class DeviceBoundaryTests
 {
+    private const string PluginTestOwner = "tests/WSGM.Device.Tests/WSGM.Device.Tests.csproj";
+
     private static readonly string[] AotProjects =
     [
         "src/WSGM/WSGM.csproj",
@@ -30,10 +32,7 @@ public class DeviceBoundaryTests
     private static readonly string[] ForbiddenInAotProjects =
     [
         "WSGM.DeviceHost",
-        "WSGM.Device.Sdk",
-        "WSGM.Device.ProbeHost",
-        "WSGM.DeviceLab.Core",
-        "WSGM.DeviceLab.Cli",
+        "WSGM.DeviceLab",
         "WSGM.Device.Msi.Claw8A2Vm",
         "System.Management",
         "Microsoft.Windows.SDK.NET",
@@ -59,12 +58,12 @@ public class DeviceBoundaryTests
 
         Assert.True(
             violations.Count == 0,
-            "NativeAOT projects may reference only WSGM.Device.Contracts from the device platform. "
+            "NativeAOT projects may reference only WSGM.Device.Sdk from the device platform. "
                 + $"Found: {string.Join(", ", violations)}");
     }
 
     [Fact]
-    public void WsgmExecutable_ReferencesOnlyContractsFromTheDevicePlatform()
+    public void WsgmExecutable_ReferencesOnlySdkFromTheDevicePlatform()
     {
         string[] devicePlatformReferences = ReferencedNames("src/WSGM/WSGM.csproj")
             .Where(r => r.StartsWith("WSGM.Device", StringComparison.OrdinalIgnoreCase)
@@ -73,11 +72,11 @@ public class DeviceBoundaryTests
 
         Assert.All(
             devicePlatformReferences,
-            reference => Assert.Equal("WSGM.Device.Contracts", reference));
+            reference => Assert.Equal("WSGM.Device.Sdk", reference));
     }
 
     [Fact]
-    public void NoProjectReferencesAPluginPackage()
+    public void NoProductionProjectReferencesAPluginPackage()
     {
         List<string> violations = [];
 
@@ -90,24 +89,28 @@ public class DeviceBoundaryTests
                 if (include.Contains("/plugins/", StringComparison.OrdinalIgnoreCase)
                     || include.StartsWith("plugins/", StringComparison.OrdinalIgnoreCase))
                 {
-                    violations.Add($"{project} -> {include}");
+                    if (!string.Equals(project, PluginTestOwner, StringComparison.OrdinalIgnoreCase))
+                    {
+                        violations.Add($"{project} -> {include}");
+                    }
                 }
             }
         }
 
         Assert.True(
             violations.Count == 0,
-            "A plugin package is loaded at runtime by DeviceHost from its package directory and is "
-                + $"never referenced. Found: {string.Join(", ", violations)}");
+            "A plugin package is loaded at runtime by DeviceHost from its package directory. Only "
+                + $"the consolidated fake-hardware test owner {PluginTestOwner} may reference it. Found: "
+                + string.Join(", ", violations));
     }
 
     [Fact]
-    public void ContractsProjectIsMarkedAotCompatible()
+    public void SdkProjectIsMarkedAotCompatible()
     {
-        XDocument contracts = XDocument.Load(
-            Path.Combine(RepositoryRoot, "src/WSGM.Device.Contracts/WSGM.Device.Contracts.csproj"));
+        XDocument sdk = XDocument.Load(
+            Path.Combine(RepositoryRoot, "src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj"));
 
-        string? aotCompatible = contracts
+        string? aotCompatible = sdk
             .Descendants("IsAotCompatible")
             .Select(e => e.Value)
             .FirstOrDefault();
@@ -116,12 +119,12 @@ public class DeviceBoundaryTests
     }
 
     [Fact]
-    public void ContractsProjectReferencesNothing()
+    public void SdkProjectReferencesNothing()
     {
-        // The contract assembly is compiled into WSGM's AOT image. A dependency here is a dependency
+        // The SDK assembly is compiled into WSGM's AOT image. A dependency here is a dependency
         // of the shell, so the reference set stays empty rather than "carefully chosen".
-        Assert.Empty(ProjectReferences("src/WSGM.Device.Contracts/WSGM.Device.Contracts.csproj"));
-        Assert.Empty(PackageReferences("src/WSGM.Device.Contracts/WSGM.Device.Contracts.csproj"));
+        Assert.Empty(ProjectReferences("src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj"));
+        Assert.Empty(PackageReferences("src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj"));
     }
 
     private static string RepositoryRoot

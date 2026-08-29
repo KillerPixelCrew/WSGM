@@ -31,10 +31,14 @@ function Assert-NoLinks([string]$Directory) {
 Require-File "App\WSGM.exe"
 Require-File "App\WSGM.Launch.exe"
 Require-File "App\WSGM.LogonService.exe"
+Require-File "App\LICENSE.txt"
 Require-File "DeviceHost\WSGM.DeviceHost.exe"
-Require-File "Tools\DeviceLab\WSGM.DeviceLab.exe"
-Require-File "Tools\CommandLine\wsgm-device.exe"
-Require-File "Tools\ProbeHost\WSGM.Device.ProbeHost.exe"
+Require-File "DeviceHost\DotNetRuntime-LICENSE.txt"
+Require-File "DeviceHost\DotNetRuntime-THIRD-PARTY-NOTICES.txt"
+Require-File "Tools\DeviceLab\wsgm-device.exe"
+Require-File "Tools\DeviceLab\THIRD_PARTY_NOTICES.md"
+Require-File "Tools\DeviceLab\DotNetRuntime-LICENSE.txt"
+Require-File "Tools\DeviceLab\DotNetRuntime-THIRD-PARTY-NOTICES.txt"
 
 foreach ($directory in @("App", "DeviceHost", "Tools", "Packages")) {
     Assert-NoLinks (Join-Path $outputFull $directory)
@@ -53,11 +57,10 @@ if ($hostForbidden.Count -gt 0) {
 
 $packageRoots = @(
     Get-ChildItem -LiteralPath (Join-Path $outputFull "Packages") -Directory |
-    ForEach-Object { Get-ChildItem -LiteralPath $_.FullName -Directory } |
     Sort-Object FullName
 )
-if ($packageRoots.Count -eq 0) {
-    throw "No plugin packages were staged."
+if ($packageRoots.Count -ne 1) {
+    throw "Exactly one plugin package must be staged; found $($packageRoots.Count)."
 }
 
 $forbiddenExtensions = @(
@@ -71,18 +74,20 @@ $secretPattern = '(?i)(?:password|passwd|api[_-]?key|access[_-]?token|client[_-]
 
 foreach ($packageRoot in $packageRoots) {
     Require-File ([IO.Path]::GetRelativePath($outputFull, (Join-Path $packageRoot.FullName "plugin.wsgm.json")))
-    Require-File ([IO.Path]::GetRelativePath($outputFull, (Join-Path $packageRoot.FullName "package-files.wsgm.json")))
-    Require-File ([IO.Path]::GetRelativePath($outputFull, (Join-Path $packageRoot.FullName "installed.wsgm.json")))
+    foreach ($noticeName in @("LICENSE.txt", "PROVENANCE.md", "THIRD_PARTY_NOTICES.md")) {
+        Require-File ([IO.Path]::GetRelativePath(
+            $outputFull,
+            (Join-Path $packageRoot.FullName $noticeName)))
+    }
 
     $manifest = Get-Content -LiteralPath (Join-Path $packageRoot.FullName "plugin.wsgm.json") -Raw |
         ConvertFrom-Json -Depth 32
-    if ($packageRoot.Parent.Name -cne [string]$manifest.id -or
-        $packageRoot.Name -cne [string]$manifest.version) {
+    if ($packageRoot.Name -cne [string]$manifest.id) {
         throw "Plugin package path does not match its manifest identity: $($packageRoot.FullName)"
     }
     Require-File ([IO.Path]::GetRelativePath(
         $outputFull,
-        (Join-Path $packageRoot.FullName ([string]$manifest.entryPoint))))
+        (Join-Path $packageRoot.FullName ([string]$manifest.entryAssembly))))
 
     $files = @(Get-ChildItem -LiteralPath $packageRoot.FullName -File -Recurse | Sort-Object FullName)
     foreach ($file in $files) {
@@ -97,7 +102,7 @@ foreach ($packageRoot in $packageRoots) {
             throw "Plugin package contains a source-capture or evidence directory: $relative"
         }
         if ($file.Name -in @("WSGM.exe", "WSGM.Launch.exe", "WSGM.LogonService.exe",
-            "WSGM.DeviceHost.exe", "wsgm-device.exe", "WSGM.DeviceLab.exe")) {
+            "WSGM.DeviceHost.exe", "wsgm-device.exe")) {
             throw "Plugin package contains an unrelated WSGM executable: $relative"
         }
         if ($file.Extension -in $textExtensions -and $file.Length -le 4MB) {
@@ -111,49 +116,6 @@ foreach ($packageRoot in $packageRoots) {
         }
     }
 
-    $hashRecord = Get-Content -LiteralPath (Join-Path $packageRoot.FullName "package-files.wsgm.json") `
-        -Raw | ConvertFrom-Json -Depth 16
-    $actualFiles = @($files | Where-Object {
-        $_.Name -notin @("package-files.wsgm.json", "installed.wsgm.json")
-    } | ForEach-Object {
-        [IO.Path]::GetRelativePath($packageRoot.FullName, $_.FullName).Replace("\", "/")
-    } | Sort-Object)
-    $recordedFiles = @($hashRecord.files | ForEach-Object { [string]$_.path } | Sort-Object)
-    if (Compare-Object -ReferenceObject $actualFiles -DifferenceObject $recordedFiles) {
-        throw "Plugin package hash record does not cover its exact file set: $($packageRoot.FullName)"
-    }
-    foreach ($entry in $hashRecord.files) {
-        $filePath = Join-Path $packageRoot.FullName ([string]$entry.path)
-        $actualHash = (Get-FileHash -LiteralPath $filePath -Algorithm SHA256).Hash
-        if ($actualHash -cne [string]$entry.sha256) {
-            throw "Plugin package hash mismatch: $($entry.path)"
-        }
-    }
-
-    $installRecord = Get-Content -LiteralPath (Join-Path $packageRoot.FullName "installed.wsgm.json") `
-        -Raw | ConvertFrom-Json -Depth 32
-    if ([int]$installRecord.schemaVersion -ne 1 -or
-        [string]$installRecord.packageId -cne [string]$manifest.id -or
-        [string]$installRecord.version -cne [string]$manifest.version -or
-        [int]$installRecord.trustTier -ne 0) {
-        throw "Reviewed install grant identity is invalid: $($packageRoot.FullName)"
-    }
-    $grantedFiles = @($installRecord.fileHashes.psobject.Properties.Name | Sort-Object)
-    $installedFiles = @($files | Where-Object { $_.Name -cne "installed.wsgm.json" } |
-        ForEach-Object {
-            [IO.Path]::GetRelativePath($packageRoot.FullName, $_.FullName).Replace("\", "/")
-        } | Sort-Object)
-    if (Compare-Object -ReferenceObject $installedFiles -DifferenceObject $grantedFiles) {
-        throw "Reviewed install grant does not cover its exact file set: $($packageRoot.FullName)"
-    }
-    foreach ($property in $installRecord.fileHashes.psobject.Properties) {
-        $actualHash = (Get-FileHash `
-            -LiteralPath (Join-Path $packageRoot.FullName $property.Name) `
-            -Algorithm SHA256).Hash
-        if ($actualHash -cne [string]$property.Value) {
-            throw "Reviewed install grant hash mismatch: $($property.Name)"
-        }
-    }
 }
 
 Write-Host "Component isolation and package staging assertions passed."
