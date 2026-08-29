@@ -635,7 +635,15 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
 - [ ] Complete Home, Steam, Device, and System navigation with Back/focus/scroll restoration.
 - [ ] Migrate every existing Home/Steam/System action to its page without reimplementing its service.
 - [ ] Complete Device Overview, Profiles, Power/Thermals, Controller/Motion, OEM,
-      Lighting/Features, Glyph Preview/Input Test, and Diagnostics/Recovery.
+      Lighting/Features, Glyph Preview/Input Test, and Diagnostics/Recovery. The eight sections now
+      exist as navigable pages rather than headings in one scrolling list: `DeviceOverlaySection`
+      splits the combined OEM-and-lighting section and adds Profiles and Glyphs,
+      `Overlay/DeviceOverlaySectionPages.cs` builds the root menu from the snapshot, and the Device
+      root renders one card per section that currently has something in it, carrying its row count
+      and the most serious status inside it. A section a plugin publishes nothing for is absent
+      rather than empty, and Back leaves a section page to its card.
+      Remaining: the page-specific surfaces that are richer than a capability-row list — profile
+      selection, glyph preview and input test, and diagnostics/recovery actions.
 - [ ] Bind every overlay and QAM control to the same direct runtime service.
 - [ ] Keep Settings limited to startup/integration/controller ownership/logging/update configuration
       and owner-process requests.
