@@ -191,6 +191,8 @@ interface Window {
       inserted: boolean;
       ownSection: boolean;
       tree?: string;
+      nativeFiltered?: boolean;
+      nativeRowsHidden?: number;
     } | null = null;
 
     // Why each control did or did not draw. A control that renders null leaves no trace anywhere:
@@ -794,6 +796,65 @@ interface Window {
           layout: "below",
         });
       };
+    // Steam's own FPS counter rows, which WSGM replaces with its RTSS-driven overlay. Identified by
+    // localising the same tokens Steam did rather than by CSS class or visible text: the classes
+    // are hashed per client build and the text changes with the user's language, while the token is
+    // the one thing that is neither.
+    const NativeFpsTokens = [
+      "#QuickAccess_Tab_Perf_FPS_Corner",
+      "#QuickAccess_Tab_Perf_FPS_Contrast",
+    ];
+    let filteredNative: { inner: unknown; component: unknown } | null = null;
+    let lastHidden = 0;
+
+    /// Removes the native rows whose label matches one of the tokens above.
+    const hideNativeRows = (controlRuntime, element, labels, depth) => {
+      if (depth > 10 || !controlRuntime.react.isValidElement(element)) return element;
+      const label = element.props && element.props.label;
+      if (typeof label === "string" && labels.includes(label)) {
+        lastHidden++;
+        return null;
+      }
+
+      const kids = controlRuntime.react.Children.toArray(element.props?.children);
+      if (!kids.length) return element;
+      let changed = false;
+      const next: unknown[] = [];
+      for (const kid of kids) {
+        const replacement = hideNativeRows(controlRuntime, kid, labels, depth + 1);
+        changed ||= replacement !== kid;
+        if (replacement !== null) next.push(replacement);
+      }
+
+      return changed ? controlRuntime.react.cloneElement(element, {}, ...next) : element;
+    };
+
+    /// Wraps Steam's performance root so its OUTPUT can be filtered.
+    ///
+    /// The root returns a single component element with no static children, so its rows exist only
+    /// once React renders it. Calling it from inside a component of our own is what puts its output
+    /// in reach; the wrapper is cached against the inner component so React sees a stable type and
+    /// does not remount the panel on every render.
+    const withNativeRowsHidden = (controlRuntime, tree) => {
+      const inner: any = tree && tree.type;
+      if (typeof inner !== "function") return tree;
+      const labels = NativeFpsTokens.map((token) => controlRuntime.localize(token)).filter(
+        (text) => typeof text === "string" && text.length > 0 && text[0] !== "#",
+      );
+      if (!labels.length) return tree;
+      if (!filteredNative || filteredNative.inner !== inner) {
+        filteredNative = {
+          inner,
+          component: function WsgmNativeQamFilteredPerformance(props) {
+            lastHidden = 0;
+            return hideNativeRows(controlRuntime, inner(props), labels, 0);
+          },
+        };
+      }
+
+      return controlRuntime.react.createElement(filteredNative.component, tree.props);
+    };
+
     const appendControls = (controlRuntime, tree) => {
       // Rendered React elements from Steam's own untyped runtime.
       const controls: unknown[] = [];
@@ -881,13 +942,18 @@ interface Window {
           ? name
           : { [name]: kids.map((k) => describe(k, depth + 1)) };
       };
+      // Steam's FPS rows are suppressed only on this path, which runs when WSGM has rows of its own
+      // to put in their place. Hiding them and then rendering nothing would leave the user neither.
+      const native = withNativeRowsHidden(controlRuntime, tree);
       lastAppend = {
         controls: controls.length,
         inserted: true,
         ownSection: true,
         tree: JSON.stringify(describe(tree, 0)).slice(0, 600),
+        nativeFiltered: native !== tree,
+        nativeRowsHidden: lastHidden,
       };
-      return controlRuntime.react.createElement(controlRuntime.react.Fragment, null, tree, own);
+      return controlRuntime.react.createElement(controlRuntime.react.Fragment, null, native, own);
     };
     const ensurePatched = () => {
       if (

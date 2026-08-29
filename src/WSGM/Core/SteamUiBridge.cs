@@ -360,8 +360,16 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             var authorization = _authorizer.Authorize(request);
             if (!authorization.Accepted)
             {
-                Log.Warn($"Steam UI bridge rejected {request.PatchId}/{request.Command}: "
-                    + authorization.Reason);
+                // The payload prefix is included because the identifying fields are exactly what a
+                // decoding fault empties: "rejected /: schema version mismatch" describes a request
+                // that never decoded just as well as one that was genuinely refused, and telling
+                // them apart took a live tap on the Runtime binding.
+                Log.Change(
+                    "steam.ui.bridge.rejected",
+                    $"Steam UI bridge rejected {request.PatchId}/{request.Command}: "
+                        + $"{authorization.Reason} (payload: "
+                        + payload[..Math.Min(payload.Length, 200)] + ")",
+                    "warn ");
                 return;
             }
             RequestReceived?.Invoke(this, request);
@@ -502,6 +510,13 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
     }
 }
 
-[JsonSourceGenerationOptions(PropertyNameCaseInsensitive = false)]
+// CamelCase because that is what the bootstrap sends and what this file's own response writers
+// emit. Without it the source generator matched PascalCase, and with case-insensitivity explicitly
+// off NOTHING bound: every property took its default, so Version arrived as 0 and each request was
+// refused as a "schema version mismatch" with an empty patch id. Every native-QAM command had been
+// rejected since the bridge was written — invisible only because no row rendered to send one.
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    PropertyNameCaseInsensitive = false)]
 [JsonSerializable(typeof(SteamUiBridgeRequest))]
 internal sealed partial class SteamUiBridgeJsonContext : JsonSerializerContext;
