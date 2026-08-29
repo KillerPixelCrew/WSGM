@@ -501,11 +501,19 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
 - [ ] Keep one persistent `SteamUiHost` connection/reconnect owner and one TypeScript bootstrap.
 - [ ] Collapse class/version/tier machinery where a direct component-local probe/apply/remove/health
       implementation is sufficient; keep failures independent and native Valve fallback intact.
-- [ ] Finish the deterministic TypeScript build with pinned dependencies and one drift/hash check,
-      without introducing a general asset-manifest governance system. Until that build exists,
-      `NativeQamBootstrap.js` stays the authoritative shipped asset and
-      `SteamUiAssets/Source/NativeQamBootstrap.ts` (currently referenced by no build step) is a
-      seed — never hand-maintain both copies.
+- [x] Finish the deterministic TypeScript build with pinned dependencies and one drift/hash check,
+      without introducing a general asset-manifest governance system. `eng/build-steam-assets.mjs`
+      compiles the source with pinned `typescript`, strips everything above the `@wsgm-bundle-start`
+      marker, formats the result with the repository's pinned Prettier so it is byte-stable across
+      machines, and writes both the asset and its catalog hash. `--check` rebuilds into memory and
+      compares, so neither a source edit that was never compiled nor a hand edit of the generated
+      file can ship; `eng/verify.ps1` runs it. Type-stripping only — no bundler, no minifier — so the
+      shipped asset stays reviewable beside the page it is injected into.
+      The seed had never been compiled and did not type-check. Fixing it found four genuine
+      correlated-null defects in the frame-limit validator, where `maximumFps` was compared against
+      without establishing it was non-null; the generated asset is otherwise identical to the
+      hand-maintained one apart from stripped blank lines. Implicit `any` stays permitted at the one
+      boundary that reaches Steam's minified React internals, which have no types to borrow.
 - [x] Hoist the identical private CDP evaluate/`ok`-parse helper duplicated in
       `NativeQamComponentPatches.cs`, `SteamInputHandheldGlyphPatch.cs`, and
       `SteamInputGlyphDeliveryPatches.cs` into one shared helper beside `SteamUiPatchManager`.

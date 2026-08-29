@@ -3,9 +3,12 @@
   "scripts": {
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "steam-assets:build": "node eng/build-steam-assets.mjs",
+    "steam-assets:check": "node eng/build-steam-assets.mjs --check",
     "steam-assets:verify": "node eng/verify-steam-assets.mjs"
   },
   "devDependencies": {
-    "prettier": "3.9.6"
+    "prettier": "3.9.6",
+    "typescript": "7.0.2"
   }
 }

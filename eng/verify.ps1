@@ -38,6 +38,13 @@ try {
     npm run steam-assets:verify
     if ($LASTEXITCODE -ne 0) { throw "Steam UI asset drift check failed" }
 
+    # The shipped asset is generated from its TypeScript source. This rebuilds it
+    # into memory and compares, so neither a source edit that was never compiled
+    # nor a hand edit of the generated file can ship. It needs node_modules, so it
+    # is separate from the built-ins-only check above.
+    npm run steam-assets:check
+    if ($LASTEXITCODE -ne 0) { throw "Steam UI asset is not current with its TypeScript source" }
+
     & "$PSScriptRoot\check-agent-guidance.ps1"
 
     # Cheap source scan, before anything is built: a test or probe that can resolve the real

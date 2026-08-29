@@ -11,6 +11,15 @@ type BridgeConfiguration = Readonly<{
 
 declare const __WSGM_CONFIGURATION_JSON__: BridgeConfiguration;
 
+// This file is a script, not a module, so the interface merges with the global
+// Window directly; a `declare global` block would need a module context.
+interface Window {
+  // Steam's own webpack chunk registry. Untyped by Steam, and the only route to
+  // the module runtime the native components are installed into.
+  webpackChunksteamui: unknown[];
+  [key: string]: any;
+}
+
 // @wsgm-bundle-start
 (() => {
   "use strict";
@@ -156,7 +165,7 @@ declare const __WSGM_CONFIGURATION_JSON__: BridgeConfiguration;
 
   function createNativeComponentHost() {
     const registrations = new Map();
-    const listeners = new Set();
+    const listeners = new Set<() => void>();
     const actionGenerations = new Map();
     let runtime;
     let controlRuntime;
@@ -327,7 +336,7 @@ declare const __WSGM_CONFIGURATION_JSON__: BridgeConfiguration;
     const normalizeControllerState = (value) => {
       if (!value || typeof value !== "object" || typeof value.available !== "boolean") return null;
       if (!Array.isArray(value.targets) || value.targets.length > 8) return null;
-      const targets = [];
+      const targets: Readonly<{ id: string; label: string; available: boolean }>[] = [];
       const ids = new Set();
       for (const item of value.targets) {
         if (!item || typeof item !== "object") return null;
@@ -407,9 +416,13 @@ declare const __WSGM_CONFIGURATION_JSON__: BridgeConfiguration;
       const maximumFps = value.maximumFps === null ? null : Number(value.maximumFps);
       const desiredFps = value.desiredFps === null ? null : Number(value.desiredFps);
       const observedFps = value.observedFps === null ? null : Number(value.observedFps);
+      // The bounds are a pair: either both are present or neither is. Rejecting a
+      // half-populated range here rather than inside the big test below is also what
+      // lets the rest of it treat maximumFps as a number.
+      if ((minimumFps === null) !== (maximumFps === null)) return null;
       if (
-        (minimumFps === null) !== (maximumFps === null) ||
         (minimumFps !== null &&
+          maximumFps !== null &&
           (!Number.isInteger(minimumFps) ||
             !Number.isInteger(maximumFps) ||
             minimumFps < 0 ||
@@ -418,11 +431,13 @@ declare const __WSGM_CONFIGURATION_JSON__: BridgeConfiguration;
         (desiredFps !== null &&
           (!Number.isInteger(desiredFps) ||
             minimumFps === null ||
+            maximumFps === null ||
             desiredFps < minimumFps ||
             desiredFps > maximumFps)) ||
         (observedFps !== null &&
           (!Number.isInteger(observedFps) ||
             minimumFps === null ||
+            maximumFps === null ||
             observedFps < minimumFps ||
             observedFps > maximumFps)) ||
         (common.available && minimumFps === null)
@@ -433,7 +448,7 @@ declare const __WSGM_CONFIGURATION_JSON__: BridgeConfiguration;
     const normalizeOverlayLevelState = (value) => {
       const common = normalizePerformanceCommon(value);
       if (!common || !Array.isArray(value.levels) || value.levels.length > 5) return null;
-      const levels = [];
+      const levels: number[] = [];
       for (const item of value.levels) {
         const level = Number(item);
         if (!Number.isInteger(level) || level < 0 || level > 4 || levels.includes(level))
@@ -606,7 +621,8 @@ declare const __WSGM_CONFIGURATION_JSON__: BridgeConfiguration;
         });
       };
     const appendControls = (controlRuntime, tree) => {
-      const controls = [];
+      // Rendered React elements from Steam's own untyped runtime.
+      const controls: unknown[] = [];
       if (registrations.has("tdp")) {
         controls.push(
           controlRuntime.react.createElement(

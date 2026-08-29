@@ -13,14 +13,12 @@
     return JSON.stringify({ ok: true, reused: true, version: prior.version });
   }
   if (prior && typeof prior.dispose === "function") prior.dispose("generation replaced");
-
   const pending = new Map();
   const subscribers = new Map();
   const latestStates = new Map();
   const nativeComponents = createNativeComponentHost();
   let nextSequence = 0;
   let disposed = false;
-
   const allowed = (patchId, command) => {
     const commands = config.allowed[patchId];
     return Array.isArray(commands) && commands.includes(command);
@@ -117,7 +115,6 @@
     subscribers.clear();
     latestStates.clear();
   };
-
   const bridge = Object.freeze({
     version: config.version,
     contextGeneration: config.contextGeneration,
@@ -139,7 +136,6 @@
     writable: false,
   });
   return JSON.stringify({ ok: true, reused: false, version: config.version });
-
   function createNativeComponentHost() {
     const registrations = new Map();
     const listeners = new Set();
@@ -154,7 +150,6 @@
     let originalUseMemo;
     let patchedUseMemo;
     let disposedHost = false;
-
     const definitions = Object.freeze({
       tdp: Object.freeze({
         patchId: "wsgm.native-qam.tdp",
@@ -173,7 +168,6 @@
         command: "setControllerTarget",
       }),
     });
-
     const nextActionGeneration = (patchId) => {
       const next = (actionGenerations.get(patchId) || 0) + 1;
       actionGenerations.set(patchId, next);
@@ -241,7 +235,6 @@
         "LocalizeString",
       ]);
       if (!reactFactory || !fieldsFactory || !layoutFactory || !localizationFactory) return null;
-
       const react = runtime(reactFactory[0]);
       const fields = runtime(fieldsFactory[0]);
       const layout = runtime(layoutFactory[0]);
@@ -393,9 +386,13 @@
       const maximumFps = value.maximumFps === null ? null : Number(value.maximumFps);
       const desiredFps = value.desiredFps === null ? null : Number(value.desiredFps);
       const observedFps = value.observedFps === null ? null : Number(value.observedFps);
+      // The bounds are a pair: either both are present or neither is. Rejecting a
+      // half-populated range here rather than inside the big test below is also what
+      // lets the rest of it treat maximumFps as a number.
+      if ((minimumFps === null) !== (maximumFps === null)) return null;
       if (
-        (minimumFps === null) !== (maximumFps === null) ||
         (minimumFps !== null &&
+          maximumFps !== null &&
           (!Number.isInteger(minimumFps) ||
             !Number.isInteger(maximumFps) ||
             minimumFps < 0 ||
@@ -404,11 +401,13 @@
         (desiredFps !== null &&
           (!Number.isInteger(desiredFps) ||
             minimumFps === null ||
+            maximumFps === null ||
             desiredFps < minimumFps ||
             desiredFps > maximumFps)) ||
         (observedFps !== null &&
           (!Number.isInteger(observedFps) ||
             minimumFps === null ||
+            maximumFps === null ||
             observedFps < minimumFps ||
             observedFps > maximumFps)) ||
         (common.available && minimumFps === null)
@@ -592,6 +591,7 @@
         });
       };
     const appendControls = (controlRuntime, tree) => {
+      // Rendered React elements from Steam's own untyped runtime.
       const controls = [];
       if (registrations.has("tdp")) {
         controls.push(
