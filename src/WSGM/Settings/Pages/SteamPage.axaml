@@ -46,6 +46,19 @@
                     </Grid>
                 </Border>
 
+                <Border Classes="setting-row">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel VerticalAlignment="Center" Spacing="1">
+                            <TextBlock Text="Start Steam unelevated" Classes="setting-title" />
+                            <TextBlock
+                                Text="Runs the whole Steam client at normal integrity so games it starts are not elevated. Off starts Steam at WSGM's own integrity."
+                                TextWrapping="Wrap"
+                                Classes="caption" />
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding SteamLaunchUnelevated}" VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+
                 <Border Classes="section-header">
                     <TextBlock Text="STEAMGRIDDB" />
                 </Border>

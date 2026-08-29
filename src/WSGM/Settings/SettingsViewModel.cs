@@ -126,6 +126,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         _config = ConfigStore.Normalize(config);
 
         SteamAutoRelaunch = _config.SteamAutoRelaunch;
+        SteamLaunchUnelevated = _config.SteamLaunchUnelevated;
         SteamGridDbApiKey = _config.SteamGridDbApiKey;
         StartupDelayMs = _config.StartupDelayMs;
         StaggerDelayMs = _config.StaggerDelayMs;
@@ -137,6 +138,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         DeviceIntegrationEnabled = _config.DeviceIntegration.Enabled;
         DeviceControllerManagementEnabled = _config.DeviceIntegration.ControllerManagementEnabled;
         DeviceControllerTargetIndex = (int)_config.DeviceIntegration.ControllerTarget;
+        DeviceAutoTdpEnabled = _config.DeviceIntegration.AutoTdpEnabled;
         DeviceGlyphSelectionIndex = (int)_config.DeviceIntegration.GlyphSelection;
         DeviceDiagnosticLevelIndex = (int)_config.DeviceIntegration.DiagnosticLevel;
         PerformanceEnabled = _config.Performance.Enabled;
@@ -367,6 +369,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     private bool _deviceIntegrationEnabled;
     private bool _deviceControllerManagementEnabled;
+    private bool _deviceAutoTdpEnabled;
     private int _deviceControllerTargetIndex = (int)ManagedControllerTarget.SteamDeckComposite;
     private int _deviceGlyphSelectionIndex = (int)DeviceGlyphSelection.Automatic;
     private int _deviceDiagnosticLevelIndex = (int)DeviceDiagnosticLevel.Standard;
@@ -395,6 +398,17 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         {
             _deviceControllerManagementEnabled = value;
             Raise(nameof(DeviceControllerManagementEnabled));
+        }
+    }
+
+    /// <summary>Gets or sets whether AutoTDP controls the primary power limit.</summary>
+    public bool DeviceAutoTdpEnabled
+    {
+        get => _deviceAutoTdpEnabled;
+        set
+        {
+            _deviceAutoTdpEnabled = value;
+            Raise(nameof(DeviceAutoTdpEnabled));
         }
     }
 
@@ -628,9 +642,17 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         : "Steam was not found on this PC. Install Steam first — WSGM is Steam-exclusive.";
 
     private bool _steamAutoRelaunch;
+    private bool _steamLaunchUnelevated;
 
     /// <summary>Gets or sets whether the Steam monitor restarts Steam after an unexpected exit.</summary>
     public bool SteamAutoRelaunch { get => _steamAutoRelaunch; set { _steamAutoRelaunch = value; Raise(nameof(SteamAutoRelaunch)); } }
+
+    /// <summary>Whether the complete Steam client starts at medium integrity.</summary>
+    public bool SteamLaunchUnelevated
+    {
+        get => _steamLaunchUnelevated;
+        set { _steamLaunchUnelevated = value; Raise(nameof(SteamLaunchUnelevated)); }
+    }
 
     private string _steamGridDbApiKey = "";
 
@@ -1124,6 +1146,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private void ApplyTo(AppConfig config, SplashConfig splash)
     {
         config.SteamAutoRelaunch = SteamAutoRelaunch;
+        config.SteamLaunchUnelevated = SteamLaunchUnelevated;
         config.SteamGridDbApiKey = (SteamGridDbApiKey ?? "").Trim();
         config.StartupDelayMs = StartupDelayMs;
         config.StaggerDelayMs = StaggerDelayMs;
@@ -1151,6 +1174,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.SteamInputManagementEnabled = SteamInputManagementEnabled;
         config.DeviceIntegration.Enabled = DeviceIntegrationEnabled;
         config.DeviceIntegration.ControllerManagementEnabled = DeviceControllerManagementEnabled;
+        config.DeviceIntegration.AutoTdpEnabled = DeviceAutoTdpEnabled;
         config.DeviceIntegration.ControllerTarget = (ManagedControllerTarget)Math.Clamp(
             DeviceControllerTargetIndex,
             0,

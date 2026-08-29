@@ -29,7 +29,7 @@ public sealed class DeviceLabTests
                 CycleGeneration = 3,
             },
             CancellationToken.None);
-        await host.PublishPhysicalDevicesAsync([], CancellationToken.None);
+        await host.PublishPhysicalDevicesAsync([], output: null, CancellationToken.None);
         await host.PublishControllerSampleAsync(
             CanonicalControllerSample.Neutral(1, 3, DateTimeOffset.UnixEpoch),
             CancellationToken.None);

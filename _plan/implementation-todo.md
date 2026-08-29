@@ -393,21 +393,53 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
 ### S7 — Complete controller management directly
 
 - [ ] Finish a technically acceptable HIDMaestro/usbip backend; controller support may not be cut
-      because the current dependency misses mandatory fields.
-- [ ] Keep one `ControllerManager` owning Steam Deck Composite, Xbox 360, DualShock 4, target
-      replacement, output, HidHide, local UI capture, and fallback.
-- [ ] Use one existing/merged running-application monitor to resolve both per-app controller target
-      and performance/profile identity.
-- [ ] Store controller selection directly as global default plus executable override; remove generic
-      desired-state/selection projections that have no second policy.
-- [ ] Preserve owned-delta HidHide and the two-phase make-safe handoff because they prevent real
+      because the current dependency misses mandatory fields. This is the one remaining hard blocker
+      for the phase: the pinned HIDMaestro `steam-deck-composite` profile carries neither the four
+      distinct rear controls nor the stick-touch fields, and its driver build stamps INF versions
+      from the current date and creates local signing material, so a clean checkout cannot reproduce
+      the signed artifacts. Closing it needs a product decision (extend upstream, or own a
+      WSGM-side backend behind the existing `IHidBackend` seam), not a further refactor.
+      `HidMaestroProductionBackend` reports the closed gate and creates nothing.
+- [x] Keep one `ControllerManager` owning Steam Deck Composite, Xbox 360, DualShock 4, target
+      replacement, output, HidHide, local UI capture, and fallback. `Shell/ControllerManager.cs` is
+      that owner: selection, target lifetime and replacement, owned-delta HidHide, reference-counted
+      UI capture with held-control suppression, zero-output triggers, the make-safe handoff, and the
+      truthful `UiInputSource` fallback projection. It is the real consumer S3 held `UiCaptureState`,
+      `SourceArbitration`, `OutputRouting`, and `ManagedControllerRouter` open for. It is constructed
+      and owned by `DeviceCoordinator`, which feeds it canonical samples, starts it from the plugin's
+      own physical-identity publication, and routes both teardown paths through its make-safe
+      sequence. Production behaviour still waits on a usable backend (first item).
+- [x] Use one existing/merged running-application monitor to resolve both per-app controller target
+      and performance/profile identity. `ControllerManager.ApplyRunningApplicationAsync` consumes the
+      same `RunningApplicationTargetSnapshot` as `RunningApplicationPerformanceCoordinator`; no second
+      monitor exists.
+- [x] Store controller selection directly as global default plus executable override; remove generic
+      desired-state/selection projections that have no second policy. `ControllerTargets` moved from
+      the per-device `DeviceDesiredProfile` up beside `ControllerTarget` on `DeviceIntegrationConfig`,
+      and `ControllerTargetSelection.Resolve` is the whole policy. The five-layer
+      `DeviceDesiredStateResolver` stays for semantic capabilities, which genuinely vary by power
+      state and profile.
+- [x] Preserve owned-delta HidHide and the two-phase make-safe handoff because they prevent real
       controller loss/duplicate input.
-- [ ] Unify the two handoff sequencing vocabularies — `Shell/ControllerReleaseOrdering.cs`
+- [x] Unify the two handoff sequencing vocabularies — `Shell/ControllerReleaseOrdering.cs`
       (`ControllerReleaseOrder`, ten states) and `Contracts/Lifecycle/ControllerHandoff.cs`
       (`ControllerHandoffStep`) — into the one make-safe sequence `ControllerManager` owns.
+      `ControllerReleaseOrdering.cs` is deleted; `Shell/ControllerMakeSafe.cs` states the sequence in
+      the wire vocabulary and keeps the two orderings that matter (no target removal before the
+      physical release concludes, no HidHide removal before the target is gone) as explicit guards.
 - [ ] Finish managed overlay/taskbar/Settings navigation, held-control suppression, target
-      neutralization, and make-before-break SDL/Steam-lease fallback.
-- [ ] Complete physical rumble/haptic return and zero-output cleanup.
+      neutralization, and make-before-break SDL/Steam-lease fallback. Held-control suppression,
+      target neutralization, and the source projection are implemented and tested in
+      `ControllerManager`; the overlay/taskbar/Settings surfaces still consume SDL directly and are
+      not yet switched onto `UiSampleReceived`/`ClaimUiAsync`.
+- [x] Complete physical rumble/haptic return and zero-output cleanup. The plugin now publishes
+      `HapticCapabilities` alongside its physical identities, so `Shell/DeviceHostHapticSink.cs`
+      reports what the device can actually drive rather than guessing; the Claw declares its two
+      motors, no trigger haptics, and the 250 fps its own 4 ms write gate allows. Ownership is
+      withdrawn the moment the plugin stops publishing, an unowned sink clamps every channel to
+      silence, and stopping sends an explicit silent frame because the plugin latches its last rumble
+      values. Zero-output triggers and neutralize-on-capture were already in `ControllerManager`.
+      Felt rumble on the reference unit stays in the attended item below.
 - [ ] Run all target, per-app, slot, duplicate-input, suspend/resume, host-fault, and external-owner
       acceptance on the reference unit.
 
@@ -421,23 +453,43 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       `NativeQamBootstrap.js` stays the authoritative shipped asset and
       `SteamUiAssets/Source/NativeQamBootstrap.ts` (currently referenced by no build step) is a
       seed — never hand-maintain both copies.
-- [ ] Hoist the identical private CDP evaluate/`ok`-parse helper duplicated in
+- [x] Hoist the identical private CDP evaluate/`ok`-parse helper duplicated in
       `NativeQamComponentPatches.cs`, `SteamInputHandheldGlyphPatch.cs`, and
       `SteamInputGlyphDeliveryPatches.cs` into one shared helper beside `SteamUiPatchManager`.
+      `Core/SteamUiPatchEvaluation.cs` now owns the parse, the `ok` check, `IsOne`, and the bounded
+      diagnostic. The three copies had drifted: two discarded the page's own answer and reported only
+      the caller's fallback text whenever the returned shape carried no `error` string, which is
+      exactly the case a remote log needs. All patches now read the page's answer.
 - [ ] Retain existing CEF library/card/Wi-Fi/download behavior while completing native TDP, frame
       limit, RTSS overlay level, performance/profile, controller-target, and AutoTDP projections.
-- [ ] Add a user-owned toggle that launches the complete Steam client unelevated, not only
+- [x] Add a user-owned toggle that launches the complete Steam client unelevated, not only
       individual games or helper processes. Keep the current integrity-matched launch as the
       default, apply the choice consistently to cold start and restart paths, and log the selected
-      Steam launch integrity for remote diagnosis.
+      Steam launch integrity for remote diagnosis. `AppConfig.SteamLaunchUnelevated` (default off,
+      Settings → Steam) routes the cold start through `UnelevatedLauncher` when WSGM is elevated;
+      both the cold start and the auto-relaunch pass through `SessionModes.StartBigPicture`, so the
+      choice cannot apply to one and not the other. Every launch logs
+      `Steam launch integrity: …`, including a requested de-elevation that was unavailable.
+      Live acceptance stays in the S8 validation item below.
 - [ ] Keep RTSS controls working when Device Integration is off.
-- [ ] Reduce performance state to the verified current frametime/metrics required by overlay, QAM,
-      diagnostics, and AutoTDP; do not build a general metrics platform.
-- [ ] Implement one deterministic AutoTDP controller: fast rise on sustained misses, settled
+- [x] Reduce performance state to the verified current frametime/metrics required by overlay, QAM,
+      diagnostics, and AutoTDP; do not build a general metrics platform. `Core/RtssFrametimeReader.cs`
+      reads exactly one thing — the per-application mean frametime — from RTSS's own shared memory.
+      The `RTSSSharedMemoryV2` layout was confirmed against a live RTSS 2.21 on the reference Claw on
+      2026-08-29 rather than copied from a header; the offsets and the tick-based mean are recorded in
+      `docs/rtss.md`.
+- [x] Implement one deterministic AutoTDP controller: fast rise on sustained misses, settled
       one-step descent, last-good restore, cap/menu handling, transient heavy-scene recovery,
       per-app/context learning, manual pause, one in-flight write, and exact stop restore.
-- [ ] Build replay around real trace shapes and add sophistication only when a recorded trace defeats
-      the simple controller.
+      `Core/AutoTdp.cs` is the pure policy and `Shell/AutoTdpService.cs` the binding that decides
+      nothing: renderer selection against the shared running-application identity, the
+      `PowerSustainedLimit` capability and its plugin-published range, one write at a time, and
+      restoration on stop/disable/dispose. `DeviceIntegration.AutoTdpEnabled` (Settings → Device
+      ownership) is the user switch.
+- [x] Build replay around real trace shapes and add sophistication only when a recorded trace defeats
+      the simple controller. `AutoTdpReplay` runs a recorded trace through the controller with no
+      device involved; the 20 controller tests are written as trace shapes (sustained miss, settled
+      descent, rejected probe, capped menu, transient heavy scene, telemetry gap, context change).
 - [ ] Validate live Steam context churn, focus/navigation, RTSS external edits/restart, AutoTDP
       games/menus/scenes/suspend/manual override, performance, and cleanup.
 
@@ -460,12 +512,22 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       stubs (`{ok:false}` with no emitted mappings), not completed features; obtain their live Steam
       fingerprints and implement the required direct patches before release rather than deleting or
       indefinitely deferring either outcome.
-- [ ] Wire the dead activation path: `SteamUiSessionHost.ApplyGlyphDeliveryProfile` has zero
+- [x] Wire the dead activation path: `SteamUiSessionHost.ApplyGlyphDeliveryProfile` has zero
       callers, so tier enablement never leaves Disabled and every delivery patch is inert. Drive it
       from `DeviceCoordinator` when the active glyph profile loads or changes.
+      `ShellSession.ApplyGlyphConfig` now applies both halves — the route selector and the resolved
+      profile — from the coordinator's `PhysicalGlyphSelectionSnapshot`, driven by the new
+      `DeviceCoordinator.PhysicalGlyphProfilesChanged` event and by config reload. Only the two
+      live-approved tiers are requested; the inline-SVG and capability-hiding tiers stay fail-closed
+      until their fingerprints exist, so enabling them would produce a permanent patch failure rather
+      than a feature.
 - [ ] Merge `SteamInputHandheldGlyphPatch` — a full probe/apply/verify/remove patch that installs
       only a route-predicate object — into the delivery patch that consumes it, and share the
-      selector-namespace constant duplicated across both files.
+      selector-namespace constant duplicated across both files. The duplicated constant is gone: the
+      selector patch owns `SelectorNamespace` and the tier base references it. The merge itself is
+      deliberately held until the item above resolves the tier structure — all four tiers consume the
+      selector, so merging it into one of them now would either bury shared infrastructure inside an
+      arbitrary tier or duplicate the installer four ways when the base class is replaced.
 - [x] Replace the `"wsgm.glyph.selection"` pseudo-capability that `DeviceOverlayBridge` synthesizes
       and special-cases in `InvokeAsync` with a direct overlay command to
       `DeviceCoordinator.CyclePhysicalGlyphSelectionAsync`, keeping one dispatch path for real
@@ -541,11 +603,11 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
 | SDK/Host | One public AOT-safe SDK, exact wire contract, one-package host lifecycle, shared ring, focused tests | Feature-specific controller/glyph consumers and attended fault/recovery acceptance |
 | Device Lab | One GUI/CLI app preserving inventory, capture, probes, scaffolding, testing, glyph import, validation, and packing | Attended reference-device acceptance for the explicit hardware action |
 | Claw | Direct hardware services, one command gate, one small plugin journal, exact WMI/HID facts and fixtures | Remaining hardware features plus attended acceptance/restoration |
-| Controller | Managed backend/router/HidHide foundations | Real backend, three targets, per-app selection, UI capture/output/fallback |
-| Steam/QAM | Persistent CDP, bootstrap, semantic QAM foundations | Direct component implementation, TypeScript build, live matrix |
-| RTSS | Discovery/profile/control foundations | Verified shared frametime/performance state and QAM/overlay binding |
-| AutoTDP | Requirements and related performance foundations | Direct controller, persistence, replay, UI, and hardware validation |
-| Glyphs | Import/runtime/selection/Steam route foundations | Static package simplification, active delivery, preview, visual acceptance |
+| Controller | One `ControllerManager` owning selection, target lifetime/replacement, owned-delta HidHide, UI capture, zero-output, the unified make-safe sequence, and a real haptic return path | Real backend, overlay consumption of the managed UI source, attended acceptance |
+| Steam/QAM | Persistent CDP, bootstrap, semantic QAM foundations, one shared patch-evaluation helper, user-owned unelevated client launch | Direct component implementation, TypeScript build, live matrix |
+| RTSS | Discovery/profile/control plus a device-verified shared-memory frametime reader | QAM/overlay binding of the frametime state |
+| AutoTDP | One pure controller, trace replay, the session binding, and the user switch | Live games/menus/scenes/suspend/manual-override acceptance on hardware |
+| Glyphs | Import/runtime/selection/Steam route foundations, active delivery of the two live-approved tiers | Static package simplification, inline/capability fingerprints, preview, visual acceptance |
 | Overlay | Navigation and partial Device projections | Complete destinations and handheld acceptance |
 | Shutdown | One deadline-driven coordinator and one installer completion channel | Live update/logoff/uninstall recovery acceptance |
 | Shell/Desktop | Explorer-first takeover plus a session-owned jobless shell anchor and verified-result transition API | Attended Process Explorer/MO2/repeated-transition acceptance |
@@ -570,9 +632,21 @@ Only this list drives the next implementation work:
 - [x] **Q07 — Simplify the Claw plugin internals** around direct services and the small plugin-owned
       recovery record. Remaining capability completion and attended hardware acceptance stay in S6.
 - [ ] **Q08 — Finish controller targets, per-app selection, UI capture, output, HidHide, and fallback.**
+      The one `ControllerManager`, its `DeviceCoordinator` wiring, the unified make-safe sequence,
+      direct global-plus-override target selection, and the wire-published haptic return path are
+      complete with focused tests, diagnostics, and docs. What remains is the blocked backend
+      decision, switching the overlay surfaces onto the managed UI source, and the attended
+      reference-device acceptance in S7.
 - [ ] **Q09 — Finish Steam/QAM/RTSS, the full-client unelevated Steam launch toggle, and implement
-      the direct AutoTDP controller/replay.**
-- [ ] **Q10 — Finish static plugin glyph delivery and all WSGM/Steam consumers.**
+      the direct AutoTDP controller/replay.** The unelevated Steam toggle, the shared patch-evaluation
+      helper, the device-verified RTSS frametime reader, the pure AutoTDP controller with trace
+      replay, and its session binding and user switch are done. What remains is the deterministic
+      TypeScript build, the direct per-component QAM implementation, the QAM/overlay binding of the
+      frametime state, and the live Steam/RTSS/AutoTDP matrix.
+- [ ] **Q10 — Finish static plugin glyph delivery and all WSGM/Steam consumers.** Delivery is no
+      longer inert: the resolved profile now reaches the two live-approved tiers. What remains is the
+      static package simplification, the inline-SVG and capability-hiding fingerprints with their
+      direct patches, the preview/input-test surfaces, and visual acceptance.
 - [ ] **Q11 — Finish the overlay, shutdown/installer, and focused release validation.**
 
 A checked architectural queue item has its code, focused tests, diagnostics, and documentation

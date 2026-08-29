@@ -56,6 +56,57 @@ The shared performance contract already provides:
   seconds (two seconds by default), with cancellation and disposal; and
 - no dependency on the Device Integration master toggle.
 
+## Frametime-driven AutoTDP
+
+`RtssFrametimeReader` is the only thing WSGM takes from RTSS that the profile API cannot answer. It
+opens the `RTSSSharedMemoryV2` mapping read-only and walks the application array the header
+describes.
+
+The layout was confirmed against a live RTSS 2.21 (`dwVersion 0x00020015`) on the reference Claw on
+2026-08-29, not copied from a header: entry size 12416, application array of 256 entries, and per
+entry `dwProcessID` at +0, `szName[260]` at +4, `dwFlags` at +264, `dwTime0` at +268, `dwTime1` at
++272, `dwFrames` at +276. `dwTime0`/`dwTime1` are `GetTickCount` milliseconds; a 1 fps application
+reported `dwTime1 - dwTime0 = 2000` over `dwFrames = 2`, which is the 1000 ms mean WSGM uses.
+Entries RTSS has not updated for two seconds are treated as not rendering, because RTSS leaves an
+entry behind after an application stops drawing and staleness is the only way to tell the two apart.
+
+Everything about this read is defensive. The array is sized from the header rather than a constant,
+every offset is bounds-checked against the mapped capacity, the 32-bit tick counters are compared on
+their low 32 bits so a 49.7-day wrap cannot produce a huge age, and an absent, truncated, or
+unexpected-version mapping simply yields no samples. RTSS running elevated while WSGM is not is one
+of those cases and is not an error.
+
+`AutoTdpController` holds the whole control policy and is pure: every input is an argument, every
+decision is a return value, and `AutoTdpReplay` runs a recorded trace through it with no device
+involved. That is the regression harness for this feature — an oscillation reported from a handheld
+is reproduced by replaying its trace. The policy itself:
+
+- A window counts as a miss above 1.05x its deadline and as headroom at or below 0.92x. Zero
+  tolerance would raise power on every healthy capped game, because a cap is enforced by sleeping.
+- Three consecutive misses raise one step; eight consecutive comfortable windows probe one step
+  down. The thresholds are deliberately asymmetric: raising costs battery and fixes stutter,
+  lowering saves battery and risks stutter.
+- A probe that produces a miss restores the previous limit and records it as that context's learned
+  floor, so a later settled period cannot probe back into the same stutter. Without that the limit
+  oscillates for as long as the game runs.
+- A capped window that is not missing is treated as headroom, so a menu at the frame cap descends
+  rather than driving power to maximum.
+- Every write is followed by two settling windows, missing telemetry resets the streaks rather than
+  being read as comfort, and a context change discards the evidence gathered for the previous one.
+- A manual power change pauses control permanently until an explicit resume. Taking the limit back
+  from a user who just moved the slider is the most confusing thing this feature could do.
+
+`AutoTdpService` is the binding and decides nothing: it picks the renderer matching the running
+application (declining rather than guessing when several render with no identity), finds the
+`PowerSustainedLimit` capability and takes its range from the plugin, permits one power write at a
+time, and restores the limit it took over from on stop, disable, and disposal. Every prerequisite is
+optional and rechecked each second; no RTSS, no plugin, no power capability, or no rendering
+application means AutoTDP holds.
+
+The deadline is the applied RTSS frame limit when there is one, and 60 Hz otherwise — never the
+panel maximum, because chasing an uncapped refresh rate would raise the limit for as long as the
+game could absorb it.
+
 ## Remaining live compatibility work
 
 Use a disposable test profile to validate the production adapter without editing an existing user

@@ -9,8 +9,10 @@ using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Identity;
+using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Ipc;
 using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Input;
 using WSGM.Interop;
 
 namespace WSGM.Shell;
@@ -32,6 +34,8 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private readonly DeviceProfileStore _profiles = new();
     private readonly PhysicalGlyphCatalog _physicalGlyphs = new();
     private readonly DeviceTeardownFailureTracker _teardownFailures = new();
+    private readonly DeviceHostHapticSink _hapticSink;
+    private readonly ControllerManager _controllers;
     private DevicePackageDiscovery _packageDiscovery = new()
     {
         Inventory = new DevicePackageInventory { PackageRoots = [] },
@@ -40,6 +44,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private DeviceIdentitySnapshot? _identity;
     private DeviceHostClient? _client;
     private long _cycleGeneration;
+    private string? _runningApplicationId;
     private bool _intentionalStop;
     private bool _faultRecoveryPending;
     private int _automaticRestartAttempts;
@@ -56,6 +61,23 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         _ownerMutex = ownerMutex;
         _capabilities = new DeviceCapabilityRouter(0, postToUi);
         _diagnostics = new DeviceCoordinatorDiagnosticsServer(sessionId, DiagnosticsSnapshot);
+        _hapticSink = new DeviceHostHapticSink(ApplyHapticOutputAsync);
+        _controllers = new ControllerManager(
+            new HidMaestroProductionBackend(),
+            _hapticSink,
+            new HidHideOwnedDeltaManager(
+                new WindowsHidHideAdapter(),
+                new FileHidHideOwnershipStore(
+                    Path.Combine(Log.Directory, "hidhide-ownership.json"))),
+            Path.Combine(DeviceInstallationPaths.DeviceHostRoot, "WSGM.DeviceHost.exe"));
+    }
+
+    private Task ApplyHapticOutputAsync(HapticOutputFrame frame, CancellationToken cancellationToken)
+    {
+        DeviceHostClient? client = _client;
+        return client is null
+            ? Task.CompletedTask
+            : client.ApplyHapticOutputAsync(frame, cancellationToken);
     }
 
     /// <summary>Current process-long lifecycle state.</summary>
@@ -87,6 +109,17 @@ public sealed class DeviceCoordinator : IAsyncDisposable
 
     /// <summary>Raised when settings change overlay visibility or desired presentation.</summary>
     internal event Action? ConfigurationChanged;
+
+    /// <summary>Raised when the installed package's glyph profiles are replaced.</summary>
+    /// <remarks>
+    /// Selection also changes with configuration, which <see cref="ConfigurationChanged"/> already
+    /// reports; consumers of the active profile subscribe to both.
+    /// </remarks>
+    internal event Action? PhysicalGlyphProfilesChanged
+    {
+        add => _physicalGlyphs.Changed += value;
+        remove => _physicalGlyphs.Changed -= value;
+    }
 
     /// <summary>
     /// Creates the one coordinator allowed to own hardware on this machine without blocking the UI.
@@ -254,6 +287,10 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             ConfigurationChanged?.Invoke();
             UpdateCapabilityDesiredContext();
             UpdateOemConfiguration();
+            await _controllers.ApplySelectionAsync(
+                ControllerSelection.From(config.DeviceIntegration),
+                _runningApplicationId,
+                cancellationToken).ConfigureAwait(false);
             if (!wasEnabled && config.DeviceIntegration.Enabled)
             {
                 _automaticRestartAttempts = 0;
@@ -465,6 +502,10 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             shutdownFailures,
             "capability disposal",
             _capabilities.DisposeAsync).ConfigureAwait(false);
+        await RetainDeviceShutdownFailureAsync(
+            shutdownFailures,
+            "controller management disposal",
+            _controllers.DisposeAsync).ConfigureAwait(false);
         RetainDeviceShutdownFailure(shutdownFailures, "OEM action disposal", _oemActions.Dispose);
         RetainDeviceShutdownFailure(shutdownFailures, "glyph disposal", _physicalGlyphs.Dispose);
         RetainDeviceShutdownFailure(shutdownFailures, "lifetime disposal", _lifetime.Dispose);
@@ -1067,9 +1108,12 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         async Task<DeviceClientTeardownResult> TeardownOwnerAsync()
         {
             DeviceClientTeardownResult result = await RunClientTeardownAsync(
-                token => client.ReleaseControllerAsync(
+                token => _controllers.MakeSafeAsync(
                     HandoffScope.FullDeactivation,
-                    deadline,
+                    inner => client.ReleaseControllerAsync(
+                        HandoffScope.FullDeactivation,
+                        deadline,
+                        inner),
                     token),
                 token => client.StopAsync(
                     reason,
@@ -1286,9 +1330,12 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(6);
         if (!enabled)
         {
-            DeviceControllerHandoffResponse handoff = await client.ReleaseControllerAsync(
+            DeviceControllerHandoffResponse handoff = await _controllers.MakeSafeAsync(
                 HandoffScope.ControllerOnly,
-                deadline,
+                token => client.ReleaseControllerAsync(
+                    HandoffScope.ControllerOnly,
+                    deadline,
+                    token),
                 cancellationToken).ConfigureAwait(false);
             Log.Info($"Controller management disabled: {handoff.Step}, {handoff.Result}.");
             return;
@@ -1306,13 +1353,66 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private void Attach(DeviceHostClient client)
     {
         client.LifecycleStateReceived += OnLifecycleState;
+        client.PhysicalIdentitiesReceived += OnPhysicalIdentities;
+        client.ControllerSampleReceived += _controllers.Submit;
     }
 
     private void Detach(DeviceHostClient client)
     {
         client.LifecycleStateReceived -= OnLifecycleState;
+        client.PhysicalIdentitiesReceived -= OnPhysicalIdentities;
+        client.ControllerSampleReceived -= _controllers.Submit;
+        // The plugin no longer owns the controller, so no further output frame may be written to
+        // it. Withdrawing here closes that window before the routers are torn down.
+        _hapticSink.Withdraw();
         _capabilities.Detach();
         _oemActions.Detach();
+    }
+
+    /// <summary>
+    /// Starts WSGM-side controller management for the controller the plugin just took.
+    /// </summary>
+    /// <remarks>
+    /// Driven by the publication rather than by cycle start: WSGM may only hide a device and create
+    /// a virtual target once the plugin has actually acquired the physical one, and the plugin
+    /// republishes after a controller-management re-enable and after resume.
+    /// </remarks>
+    private void OnPhysicalIdentities(DevicePhysicalIdentitiesNotification notification)
+    {
+        long generation = Interlocked.Read(ref _cycleGeneration);
+        _hapticSink.Publish(notification.Output, generation);
+        Observe(
+            StartControllerManagementAsync(notification.Devices, generation),
+            "controller management start");
+    }
+
+    private async Task StartControllerManagementAsync(
+        IReadOnlyList<PhysicalDeviceIdentity> devices,
+        long generation)
+    {
+        ControllerManagerStatus status = await _controllers.StartAsync(
+            ControllerSelection.From(_config.DeviceIntegration),
+            devices,
+            _runningApplicationId,
+            generation,
+            _lifetime.Token).ConfigureAwait(false);
+        Log.Info(
+            $"Controller management: state={status.State}, target={status.Target}, "
+            + $"source={status.TargetSource}, uiSource={status.UiSource}, detail={status.Detail}");
+    }
+
+    /// <summary>Applies a running-application change from the one shared monitor.</summary>
+    /// <param name="snapshot">The canonical running-application snapshot.</param>
+    /// <param name="cancellationToken">Cancels the apply.</param>
+    /// <returns>A task completing after the controller target is reconciled.</returns>
+    internal async Task ApplyRunningApplicationAsync(
+        RunningApplicationTargetSnapshot snapshot,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        _runningApplicationId = snapshot.ApplicationId;
+        await _controllers.ApplyRunningApplicationAsync(snapshot, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <summary>Returns the current capability projection for diagnostics and overlay clients.</summary>

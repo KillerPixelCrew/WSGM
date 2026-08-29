@@ -295,6 +295,18 @@ public static class ConfigStore
         device.ManualGlyphProfileId = string.IsNullOrWhiteSpace(device.ManualGlyphProfileId)
             ? null
             : device.ManualGlyphProfileId.Trim();
+        device.ControllerTargets ??= [];
+        device.ControllerTargets.RemoveAll(static target => target is null
+            || string.IsNullOrWhiteSpace(target.ApplicationId)
+            || !Enum.IsDefined(target.Target));
+        HashSet<string> controllerApplications = new(StringComparer.Ordinal);
+        device.ControllerTargets.RemoveAll(
+            target => !controllerApplications.Add(target.ApplicationId.Trim()));
+        foreach (DeviceApplicationTargetOverride target in device.ControllerTargets)
+        {
+            target.ApplicationId = target.ApplicationId.Trim();
+        }
+
         device.Profiles ??= [];
         device.Profiles.RemoveAll(static profile => profile is null
             || string.IsNullOrWhiteSpace(profile.DeviceIdentityKey));
@@ -306,7 +318,6 @@ public static class ConfigStore
                 : profile.SelectedHardwareProfileId.Trim();
             profile.Capabilities ??= [];
             profile.OemAssignments ??= [];
-            profile.ControllerTargets ??= [];
             profile.Capabilities.RemoveAll(static capability => capability is null
                 || string.IsNullOrWhiteSpace(capability.CapabilityId));
             foreach (DeviceCapabilityPreference capability in profile.Capabilities)
@@ -326,9 +337,6 @@ public static class ConfigStore
             profile.OemAssignments.RemoveAll(static assignment => assignment is null
                 || string.IsNullOrWhiteSpace(assignment.ControlId)
                 || !Enum.IsDefined(assignment.Action));
-            profile.ControllerTargets.RemoveAll(static target => target is null
-                || string.IsNullOrWhiteSpace(target.ApplicationId)
-                || !Enum.IsDefined(target.Target));
         }
     }
 

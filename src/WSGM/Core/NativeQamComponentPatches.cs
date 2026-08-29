@@ -340,42 +340,18 @@ public abstract class NativeQamComponentPatch : ISteamUiPatch
             cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task<SteamUiPatchOperationResult> EvaluateOutcomeAsync(
+    private static Task<SteamUiPatchOperationResult> EvaluateOutcomeAsync(
         SteamUiPatchContext context,
         string expression,
         string fallback,
-        CancellationToken cancellationToken)
-    {
-        SteamUiEvaluationResult result = await context.EvaluateAsync(
+        CancellationToken cancellationToken) =>
+        SteamUiPatchEvaluation.EvaluateOutcomeAsync(
+            context,
             SteamUiTargetRole.SharedJsContext,
             expression,
-            cancellationToken).ConfigureAwait(false);
-        if (!result.Reachable || result.Value is null)
-        {
-            return new SteamUiPatchOperationResult(false, result.Error ?? fallback);
-        }
-
-        try
-        {
-            using JsonDocument document = JsonDocument.Parse(result.Value);
-            JsonElement root = document.RootElement;
-            bool succeeded = root.TryGetProperty("ok", out JsonElement ok)
-                && ok.ValueKind == JsonValueKind.True;
-            string? diagnostic = root.TryGetProperty("error", out JsonElement error)
-                && error.ValueKind == JsonValueKind.String
-                ? error.GetString()
-                : succeeded ? null : fallback;
-            return new SteamUiPatchOperationResult(succeeded, diagnostic);
-        }
-        catch (JsonException ex)
-        {
-            return new SteamUiPatchOperationResult(false, ex.Message);
-        }
-    }
+            fallback,
+            cancellationToken);
 
     private static bool IsOne(JsonElement root, string property) =>
-        root.TryGetProperty(property, out JsonElement value)
-        && value.ValueKind == JsonValueKind.Number
-        && value.TryGetInt32(out int count)
-        && count == 1;
+        SteamUiPatchEvaluation.IsOne(root, property);
 }

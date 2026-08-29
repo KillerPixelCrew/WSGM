@@ -10,7 +10,17 @@ namespace WSGM.Core;
 /// </summary>
 public sealed class SteamInputHandheldGlyphPatch : ISteamUiPatch
 {
-    private const string Namespace = "__wsgmSteamInputHandheldGlyphSelector_b563a91c";
+    /// <summary>
+    /// The window key carrying the route-predicate object every glyph delivery tier consults.
+    /// </summary>
+    /// <remarks>
+    /// Declared once and referenced by the tiers rather than repeated in each file. A tier that
+    /// disagreed with this patch about the key would silently find no selector and refuse to
+    /// install, which reads as a Steam-build mismatch rather than as the typo it would be.
+    /// </remarks>
+    internal const string SelectorNamespace = "__wsgmSteamInputHandheldGlyphSelector_b563a91c";
+
+    private const string Namespace = SelectorNamespace;
     private const string Owner = "wsgm.steam-input.handheld-glyphs";
     private static readonly string[] RequiredUniqueCounts =
     [
@@ -212,42 +222,18 @@ public sealed class SteamInputHandheldGlyphPatch : ISteamUiPatch
             "Steam Input handheld glyph selector removal failed.",
             cancellationToken);
 
-    private static async Task<SteamUiPatchOperationResult> EvaluateAsync(
+    private static Task<SteamUiPatchOperationResult> EvaluateAsync(
         SteamUiPatchContext context,
         string expression,
         string fallback,
-        CancellationToken cancellationToken)
-    {
-        SteamUiEvaluationResult result = await context.EvaluateAsync(
+        CancellationToken cancellationToken) =>
+        SteamUiPatchEvaluation.EvaluateOutcomeAsync(
+            context,
             SteamUiTargetRole.SharedJsContext,
             expression,
-            cancellationToken).ConfigureAwait(false);
-        if (!result.Reachable || result.Value is null)
-        {
-            return new SteamUiPatchOperationResult(false, result.Error ?? fallback);
-        }
-
-        try
-        {
-            using JsonDocument document = JsonDocument.Parse(result.Value);
-            JsonElement root = document.RootElement;
-            bool succeeded = root.TryGetProperty("ok", out JsonElement ok)
-                && ok.ValueKind == JsonValueKind.True;
-            string? diagnostic = root.TryGetProperty("error", out JsonElement error)
-                && error.ValueKind == JsonValueKind.String
-                ? error.GetString()
-                : succeeded ? null : fallback;
-            return new SteamUiPatchOperationResult(succeeded, diagnostic);
-        }
-        catch (JsonException ex)
-        {
-            return new SteamUiPatchOperationResult(false, ex.Message);
-        }
-    }
+            fallback,
+            cancellationToken);
 
     private static bool IsOne(JsonElement root, string property) =>
-        root.TryGetProperty(property, out JsonElement value)
-        && value.ValueKind == JsonValueKind.Number
-        && value.TryGetInt32(out int count)
-        && count == 1;
+        SteamUiPatchEvaluation.IsOne(root, property);
 }

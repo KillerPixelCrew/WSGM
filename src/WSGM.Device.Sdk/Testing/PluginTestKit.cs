@@ -41,6 +41,9 @@ public sealed class TestPluginHostAdapter : IPluginHostAdapter
     public IReadOnlyList<IReadOnlyList<PhysicalDeviceIdentity>> PhysicalDeviceSets =>
         Snapshot(_physicalDeviceSets);
 
+    /// <summary>Haptic capabilities from the most recent physical-device publication.</summary>
+    public HapticCapabilities? PublishedOutput { get; private set; }
+
     /// <summary>Canonical controller samples in publication order.</summary>
     public IReadOnlyList<CanonicalControllerSample> ControllerSamples => Snapshot(_controllerSamples);
 
@@ -65,9 +68,11 @@ public sealed class TestPluginHostAdapter : IPluginHostAdapter
     /// <inheritdoc />
     public ValueTask PublishPhysicalDevicesAsync(
         IReadOnlyList<PhysicalDeviceIdentity> devices,
+        HapticCapabilities? output,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(devices);
+        PublishedOutput = output;
         return RecordAsync(
             _physicalDeviceSets,
             (IReadOnlyList<PhysicalDeviceIdentity>)[.. devices],

@@ -36,6 +36,22 @@ public sealed class DeviceIntegrationConfig
     public ManagedControllerTarget ControllerTarget { get; set; } =
         ManagedControllerTarget.SteamDeckComposite;
 
+    /// <summary>Per-application managed-controller target overrides.</summary>
+    /// <remarks>
+    /// Stored beside the global default rather than under a per-device profile. There is one
+    /// installed plugin and therefore one device, so nesting the controller target under a device
+    /// identity would add a layer nothing can vary and a projection between the setting and the
+    /// virtual target.
+    /// </remarks>
+    public List<DeviceApplicationTargetOverride> ControllerTargets { get; set; } = [];
+
+    /// <summary>Whether AutoTDP controls the primary power limit from frame delivery.</summary>
+    /// <remarks>
+    /// Requires Device Integration, because the limit it moves is a plugin capability. Off leaves
+    /// the power limit entirely to manual control and profiles.
+    /// </remarks>
+    public bool AutoTdpEnabled { get; set; }
+
     /// <summary>How the active handheld glyph profile is selected.</summary>
     public DeviceGlyphSelection GlyphSelection { get; set; } = DeviceGlyphSelection.Automatic;
 
@@ -102,9 +118,6 @@ public sealed class DeviceDesiredProfile
 
     /// <summary>Allowlisted assignments for logical OEM controls.</summary>
     public List<DeviceOemAssignment> OemAssignments { get; set; } = [];
-
-    /// <summary>Per-application managed target overrides.</summary>
-    public List<DeviceApplicationTargetOverride> ControllerTargets { get; set; } = [];
 }
 
 /// <summary>Persistent desired-state layers for one semantic capability instance.</summary>

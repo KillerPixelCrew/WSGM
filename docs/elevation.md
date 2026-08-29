@@ -88,3 +88,25 @@ waiting to happen.
      **Target**, the real program in **Launch Arguments**. Never reintroduce `CurrentUserOnly` on an
      elevated↔medium pipe, and never make the wrapper WinExe. `Core\SteamLaunchConfig.cs` writes (d)
      into the running client so the user never has to; see invariant 11.
+
+## Steam client launch integrity
+
+WSGM starts Steam at its own integrity by default, which means elevated in a normal shell session.
+That is deliberate: WSGM drives the running client over CEF and sends it window messages, and a
+mismatched pair loses those messages to UIPI. The cost is that every game Steam launches inherits
+the elevation.
+
+`AppConfig.SteamLaunchUnelevated` is the user-owned choice between the two. When it is set and WSGM
+is elevated, the cold start goes through the same de-elevating scheduled task Explorer uses
+(`UnelevatedLauncher`), so the whole client — not an individual game — runs at medium integrity.
+From an unelevated WSGM the setting changes nothing, because the ordinary launch already produces a
+medium-integrity Steam.
+
+Both the cold start and the auto-relaunch after Steam exits pass through
+`SessionModes.StartBigPicture`, so the choice cannot apply to one and not the other. The selected
+integrity is logged on every launch (`Steam launch integrity: …`), including when de-elevation was
+requested but unavailable, so a pasted log settles which one actually happened. The scheduled-task
+route returns no process handle, so the Steam Input shim startup-trace line is only logged for the
+integrity-matched path that has one.
+
+`WSGM.Launch` is unaffected and keeps de-elevating individual games independently.

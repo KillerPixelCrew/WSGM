@@ -36,10 +36,12 @@ public interface IPluginHostAdapter
 
     /// <summary>Publishes exact physical identities WSGM may use for its HidHide transaction.</summary>
     /// <param name="devices">Plugin-owned physical interfaces.</param>
+    /// <param name="output">What the controller can do with haptic output, or null for none.</param>
     /// <param name="cancellationToken">Cancels publication.</param>
     /// <returns>A task completing after DeviceHost accepted them.</returns>
     ValueTask PublishPhysicalDevicesAsync(
         IReadOnlyList<PhysicalDeviceIdentity> devices,
+        HapticCapabilities? output,
         CancellationToken cancellationToken);
 
     /// <summary>Publishes one complete canonical controller sample.</summary>

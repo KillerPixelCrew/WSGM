@@ -123,6 +123,50 @@ Glyph artwork and semantic control maps are static plugin data. WSGM validates l
 formats, dimensions, sizes, and references, then owns every Avalonia and Steam adaptation. Missing,
 ambiguous, or mismatched profiles retain native Steam/generic WSGM presentation.
 
+## Controller management
+
+`ControllerManager` is the one WSGM-side owner of controller management for a session: the virtual
+target and its replacement, the haptic return path, WSGM's own HidHide delta, the local UI capture,
+the source WSGM's own surfaces navigate from, and the make-safe handoff. `DeviceCoordinator` keeps
+the plugin conversation; the manager orders both halves. Nothing else creates a target, mutates
+HidHide, or decides where UI input comes from.
+
+The target is chosen by exactly two stored layers: one global default plus per-application
+overrides, both kept directly under device integration rather than under a per-device profile.
+Overrides are keyed by the canonical running-application identity from the one
+`RunningApplicationMonitor`, which also resolves the RTSS profile, so the controller target and the
+performance profile can never disagree about which application is running. The semantic capabilities
+keep their five desired-state layers because hardware limits genuinely differ on battery and per
+profile; a controller target does not.
+
+Only one target exists at a time. A per-application change is one replacement operation that
+neutralizes and removes the old target before creating the new one, so the two are never enumerated
+together. Any unavailable prerequisite — closed release gate, missing or incompatible backend,
+unhealthy HidHide, a target that does not enumerate — fails open: the shell, SDL input, and the
+Steam Input lease continue unchanged, global HidHide state is untouched, and WSGM's own surfaces
+stay on the SDL-plus-Steam-lease source.
+
+Capture by a WSGM surface is reference counted and never reaches the virtual target. Controls held
+when a surface opens are suppressed until released, and forwarding resumes only on the first sample
+in which every control the UI used is up, so the press that opened or closed a surface never arrives
+in the game as a fresh input.
+
+The make-safe handoff is stated in the shared `ControllerHandoffStep` wire vocabulary rather than a
+second WSGM-local one, so a pasted log settles how far the handoff got. WSGM's half collapses into
+two of those steps and keeps the two orderings that prevent a defect as explicit guards: the virtual
+target may not be removed until the physical release has concluded either way, and WSGM's HidHide
+entries may not be removed until the target is gone. Removing them earlier would expose a device the
+plugin is still holding, which is the duplicate-input state the single-target rule exists to
+prevent. An unverified or failed plugin answer still runs WSGM's removal; the result records
+`ReleasedUnverified` rather than presenting a timeout as a clean release.
+
+Controller management remains excluded from the release: the reviewed HIDMaestro profile does not
+carry the four distinct rear controls or the stick-touch fields WSGM's controller contract requires,
+and exact signed driver reproduction is not established. `HidMaestroProductionBackend` implements
+that as a capability-specific failure and never loads HIDMaestro, launches a helper, installs a
+driver, or creates a target. `third_party/controller/README.md` holds the pinned sources and the
+gate.
+
 ## Device Lab and UI ownership
 
 Device Lab is one optional developer-tools application with GUI and CLI modes over the same internal

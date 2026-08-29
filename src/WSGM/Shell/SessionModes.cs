@@ -572,7 +572,9 @@ public sealed class SessionModes
             return SteamNotFoundWarning;
         }
         Log.Info("Starting Steam Big Picture.");
-        var result = Steam.LaunchBigPicture();
+        // Read at launch time, not captured: a config reload replaces _config wholesale, and both
+        // the cold start and the auto-relaunch after Steam exits come through here.
+        var result = Steam.LaunchBigPicture(_config.SteamLaunchUnelevated);
         return result.Started ? null : BigPictureStartFailedWarning;
     }
 

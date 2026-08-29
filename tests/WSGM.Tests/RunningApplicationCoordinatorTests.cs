@@ -3,7 +3,7 @@ using WSGM.Shell;
 
 namespace WSGM.Tests;
 
-public sealed class RunningApplicationPerformanceCoordinatorTests
+public sealed class RunningApplicationCoordinatorTests
 {
     [Fact]
     public void ProjectMapsOnlyActiveTruthfulExecutableTarget()
@@ -13,7 +13,7 @@ public sealed class RunningApplicationPerformanceCoordinatorTests
             "steam:42",
             "game.exe");
 
-        RtssApplicationTarget? target = RunningApplicationPerformanceCoordinator.Project(snapshot);
+        RtssApplicationTarget? target = RunningApplicationCoordinator.Project(snapshot);
 
         Assert.Equal("steam:42", target?.ApplicationId);
         Assert.Equal("game.exe", target?.RtssProfileName);
@@ -32,7 +32,7 @@ public sealed class RunningApplicationPerformanceCoordinatorTests
         foreach (RunningApplicationTargetState state in states)
         {
             var snapshot = Snapshot(state, "steam:42", "stale.exe");
-            Assert.Null(RunningApplicationPerformanceCoordinator.Project(snapshot));
+            Assert.Null(RunningApplicationCoordinator.Project(snapshot));
         }
     }
 
@@ -48,7 +48,7 @@ public sealed class RunningApplicationPerformanceCoordinatorTests
             applicationId,
             profileName);
 
-        Assert.Null(RunningApplicationPerformanceCoordinator.Project(snapshot));
+        Assert.Null(RunningApplicationCoordinator.Project(snapshot));
     }
 
     private static RunningApplicationTargetSnapshot Snapshot(

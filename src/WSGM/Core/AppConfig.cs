@@ -576,6 +576,16 @@ public sealed class AppConfig
     /// via the registry (see Core.Steam) — there is nothing else to configure.</summary>
     public bool SteamAutoRelaunch { get; set; }
 
+    /// <summary>Whether the complete Steam client is launched at medium integrity.</summary>
+    /// <remarks>
+    /// Off by default, which starts Steam at WSGM's own integrity. Elevated Steam is the deliberate
+    /// default because several WSGM mechanisms drive the running client and a mismatched pair loses
+    /// UIPI messages, but it also elevates every game Steam starts. This is the user-owned choice
+    /// between the two, and it applies to Steam itself rather than to individual games, which
+    /// <c>WSGM.Launch</c> de-elevates independently.
+    /// </remarks>
+    public bool SteamLaunchUnelevated { get; set; }
+
     /// <summary>Keep a card's injected library tab after the card is
     /// ejected. The games show as not-installed until it is reinserted.</summary>
     public bool KeepEjectedCardTabs { get; set; } = true;

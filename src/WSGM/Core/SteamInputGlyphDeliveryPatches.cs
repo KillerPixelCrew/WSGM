@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Glyphs;
@@ -215,7 +214,7 @@ internal sealed record SteamInputGlyphPresentation(
 
 internal abstract class SteamInputGlyphTierPatch : ISteamUiPatch
 {
-    private const string SelectorNamespace = "__wsgmSteamInputHandheldGlyphSelector_b563a91c";
+    private const string SelectorNamespace = SteamInputHandheldGlyphPatch.SelectorNamespace;
     private readonly SteamInputGlyphDeliveryState _state;
 
     protected SteamInputGlyphTierPatch(SteamInputGlyphDeliveryState state) => _state = state;
@@ -273,9 +272,14 @@ internal abstract class SteamInputGlyphTierPatch : ISteamUiPatch
                 result.Error ?? "Steam SharedJSContext is unavailable.");
         }
 
-        return IsSuccessful(result.Value)
+        return SteamUiPatchEvaluation.IsSuccessful(result.Value)
             ? new SteamUiPatchProbeResult(true, true, true, Fingerprint, null)
-            : new SteamUiPatchProbeResult(true, false, false, null, BoundedDiagnostic(result.Value));
+            : new SteamUiPatchProbeResult(
+                true,
+                false,
+                false,
+                null,
+                SteamUiPatchEvaluation.Bounded(result.Value));
     }
 
     public Task<SteamUiPatchOperationResult> ApplyAsync(
@@ -357,41 +361,17 @@ internal abstract class SteamInputGlyphTierPatch : ISteamUiPatch
     protected static string StringArray(IEnumerable<string> values) =>
         "[" + string.Join(",", values.Select(SteamCef.JsString)) + "]";
 
-    private static async Task<SteamUiPatchOperationResult> EvaluateAsync(
+    private static Task<SteamUiPatchOperationResult> EvaluateAsync(
         SteamUiPatchContext context,
         string expression,
         string fallback,
-        CancellationToken cancellationToken)
-    {
-        SteamUiEvaluationResult result = await context.EvaluateAsync(
+        CancellationToken cancellationToken) =>
+        SteamUiPatchEvaluation.EvaluateOutcomeAsync(
+            context,
             SteamUiTargetRole.SharedJsContext,
             expression,
-            cancellationToken).ConfigureAwait(false);
-        if (!result.Reachable || result.Value is null)
-        {
-            return new SteamUiPatchOperationResult(false, result.Error ?? fallback);
-        }
-        return IsSuccessful(result.Value)
-            ? new SteamUiPatchOperationResult(true, null)
-            : new SteamUiPatchOperationResult(false, BoundedDiagnostic(result.Value));
-    }
-
-    private static bool IsSuccessful(string value)
-    {
-        try
-        {
-            using JsonDocument document = JsonDocument.Parse(value);
-            return document.RootElement.TryGetProperty("ok", out JsonElement ok)
-                && ok.ValueKind == JsonValueKind.True;
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
-    }
-
-    private static string BoundedDiagnostic(string value) =>
-        value.Length <= 2048 ? value : value[..2048] + "...";
+            fallback,
+            cancellationToken);
 }
 
 internal sealed class SteamInputStableResourceGlyphPatch(SteamInputGlyphDeliveryState state)

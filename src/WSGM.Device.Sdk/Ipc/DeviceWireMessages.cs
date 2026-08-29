@@ -126,6 +126,15 @@ public sealed record DevicePhysicalIdentitiesNotification
 {
     /// <summary>Interfaces owned by the plugin.</summary>
     public IReadOnlyList<PhysicalDeviceIdentity> Devices { get; init; } = [];
+
+    /// <summary>What the physical controller can do with haptic output, when it has any.</summary>
+    /// <remarks>
+    /// Travels with the identities rather than in its own message because it describes the same
+    /// controller and changes at the same moments. Absent means the plugin drives no haptics, which
+    /// is not the same as a device whose channels are all unsupported: WSGM sends no output frames
+    /// at all rather than sending frames that the plugin silently discards.
+    /// </remarks>
+    public HapticCapabilities? Output { get; init; }
 }
 
 /// <summary>Closed OEM-control descriptor publication.</summary>

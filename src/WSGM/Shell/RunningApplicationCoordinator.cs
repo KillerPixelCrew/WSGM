@@ -6,14 +6,23 @@ using WSGM.Core;
 namespace WSGM.Shell;
 
 /// <summary>
-/// Projects the canonical Steam running-application identity into the shared RTSS service. Rapid
-/// transitions coalesce to the latest target and never retain an executable after Steam reports
-/// exit, ambiguity, or loss of observation.
+/// Projects the one canonical Steam running-application identity into every per-application
+/// consumer: the shared RTSS service and the managed controller target. Rapid transitions coalesce
+/// to the latest identity and never retain an executable after Steam reports exit, ambiguity, or
+/// loss of observation.
 /// </summary>
-internal sealed class RunningApplicationPerformanceCoordinator : IAsyncDisposable
+/// <remarks>
+/// One monitor and one projection for both consumers on purpose. A second observer would poll the
+/// live Steam client again over CEF and could resolve a different application than the one the RTSS
+/// profile was chosen for, so the controller target and the performance profile could disagree about
+/// what is running.
+/// </remarks>
+internal sealed class RunningApplicationCoordinator : IAsyncDisposable
 {
     private readonly RunningApplicationMonitor _monitor;
     private readonly Func<RtssApplicationTarget?, CancellationToken, Task> _setTargetAsync;
+    private readonly Func<RunningApplicationTargetSnapshot, CancellationToken, Task>?
+        _setControllerTargetAsync;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly object _gate = new();
     private IDisposable? _observation;
@@ -22,12 +31,14 @@ internal sealed class RunningApplicationPerformanceCoordinator : IAsyncDisposabl
     private bool _workerRunning;
     private bool _disposed;
 
-    internal RunningApplicationPerformanceCoordinator(
+    internal RunningApplicationCoordinator(
         RunningApplicationMonitor monitor,
-        Func<RtssApplicationTarget?, CancellationToken, Task> setTargetAsync)
+        Func<RtssApplicationTarget?, CancellationToken, Task> setTargetAsync,
+        Func<RunningApplicationTargetSnapshot, CancellationToken, Task>? setControllerTargetAsync = null)
     {
         _monitor = monitor ?? throw new ArgumentNullException(nameof(monitor));
         _setTargetAsync = setTargetAsync ?? throw new ArgumentNullException(nameof(setTargetAsync));
+        _setControllerTargetAsync = setControllerTargetAsync;
         _monitor.Changed += OnTargetChanged;
         try
         {
@@ -87,6 +98,26 @@ internal sealed class RunningApplicationPerformanceCoordinator : IAsyncDisposabl
         }
     }
 
+    private async Task ApplyAsync(
+        Func<CancellationToken, Task> applyAsync,
+        string consumer,
+        RunningApplicationTargetSnapshot snapshot)
+    {
+        try
+        {
+            await applyAsync(_shutdown.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            Log.Warn(
+                $"{consumer} running-application target apply failed for generation "
+                + $"{snapshot.Generation}: {ex.Message}");
+        }
+    }
+
     internal static RtssApplicationTarget? Project(RunningApplicationTargetSnapshot snapshot)
         => snapshot.State is RunningApplicationTargetState.Active
             && snapshot.ApplicationId is { Length: > 0 } applicationId
@@ -130,19 +161,18 @@ internal sealed class RunningApplicationPerformanceCoordinator : IAsyncDisposabl
                 }
             }
 
-            try
+            // Each consumer is applied independently: an RTSS failure must not leave the
+            // controller on the previous application's target, and the reverse.
+            await ApplyAsync(
+                token => _setTargetAsync(Project(snapshot), token),
+                "RTSS",
+                snapshot).ConfigureAwait(false);
+            if (_setControllerTargetAsync is { } applyController)
             {
-                await _setTargetAsync(Project(snapshot), _shutdown.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
-            {
-                return;
-            }
-            catch (Exception ex)
-            {
-                Log.Warn(
-                    $"RTSS running-application target apply failed for generation "
-                    + $"{snapshot.Generation}: {ex.Message}");
+                await ApplyAsync(
+                    token => applyController(snapshot, token),
+                    "Controller",
+                    snapshot).ConfigureAwait(false);
             }
         }
     }

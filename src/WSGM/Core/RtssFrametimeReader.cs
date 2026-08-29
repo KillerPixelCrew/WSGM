@@ -1,0 +1,209 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.IO.MemoryMappedFiles;
+using System.Text;
+
+namespace WSGM.Core;
+
+/// <summary>One rendering application as RTSS currently reports it.</summary>
+/// <param name="ProcessId">The rendering process.</param>
+/// <param name="ExecutablePath">Path RTSS recorded for that process.</param>
+/// <param name="MeanFrametimeMs">Mean frametime across RTSS's own averaging window.</param>
+/// <param name="Frames">Frames in that window.</param>
+/// <param name="AgeMs">How long ago the window ended.</param>
+internal sealed record RtssFrametimeSample(
+    uint ProcessId,
+    string ExecutablePath,
+    double MeanFrametimeMs,
+    uint Frames,
+    long AgeMs);
+
+/// <summary>The frametime feed AutoTDP consumes.</summary>
+internal interface IFrametimeSource
+{
+    /// <summary>Reads every application currently delivering frames.</summary>
+    /// <returns>Live rendering applications, newest measurement each.</returns>
+    IReadOnlyList<RtssFrametimeSample> ReadLive();
+}
+
+/// <summary>
+/// Reads frametimes from RTSS's own shared memory.
+/// </summary>
+/// <remarks>
+/// Read-only, and the only thing WSGM takes from RTSS that its profile API cannot answer. The layout
+/// below was confirmed against a live RTSS 2.21 (<c>dwVersion 0x00020015</c>) on the reference Claw
+/// rather than copied from a header: an entry's <c>dwTime0</c>/<c>dwTime1</c> are
+/// <c>GetTickCount</c> milliseconds and <c>dwFrames</c> is the frame count between them, which a
+/// 1 fps application confirmed by reporting a 1000 ms mean over two frames.
+/// <para>
+/// Every field is read defensively. RTSS writes this region while WSGM reads it, the array is sized
+/// by the header rather than by a constant, and a shared memory that is absent, truncated, or from
+/// an unexpected version simply produces no samples — AutoTDP then holds rather than acting on
+/// numbers it cannot trust.
+/// </para>
+/// </remarks>
+internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
+{
+    private const string MapName = "RTSSSharedMemoryV2";
+
+    // 'RTSS' little-endian, as written by the server.
+    private const uint Signature = 0x53535452;
+    private const uint MinimumVersion = 0x0002_0000;
+
+    // Header, all DWORD: signature, version, appEntrySize, appArrOffset, appArrSize.
+    private const int HeaderVersionOffset = 4;
+    private const int HeaderAppEntrySizeOffset = 8;
+    private const int HeaderAppArrOffsetOffset = 12;
+    private const int HeaderAppArrSizeOffset = 16;
+
+    // App entry: dwProcessID, szName[260], dwFlags, dwTime0, dwTime1, dwFrames, dwFrameTime.
+    private const int EntryNameOffset = 4;
+    private const int EntryNameLength = 260;
+    private const int EntryTime0Offset = 268;
+    private const int EntryTime1Offset = 272;
+    private const int EntryFramesOffset = 276;
+    private const int MinimumEntrySize = 284;
+
+    /// <summary>Entries whose last frame is older than this are treated as not rendering.</summary>
+    /// <remarks>
+    /// RTSS leaves an entry behind after an application stops drawing, so staleness is the only way
+    /// to tell a finished game from one that is mid-frame. Two seconds is long enough to survive a
+    /// shader-compilation hitch and short enough that AutoTDP stops acting on a dead entry quickly.
+    /// </remarks>
+    private const long MaximumAgeMs = 2000;
+
+    /// <summary>Upper bound on entries walked, whatever the header claims.</summary>
+    private const int MaximumEntries = 1024;
+
+    private MemoryMappedFile? _map;
+    private MemoryMappedViewAccessor? _view;
+    private bool _disposed;
+
+    /// <inheritdoc/>
+    public IReadOnlyList<RtssFrametimeSample> ReadLive()
+    {
+        if (_disposed || !TryOpen())
+        {
+            return [];
+        }
+
+        try
+        {
+            return ReadLiveCore();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+            or ArgumentException or ObjectDisposedException)
+        {
+            // RTSS exited or replaced its mapping mid-read. Drop the handles so the next poll
+            // reopens rather than reporting a permanently dead source.
+            Log.Warn($"RTSS frametime read failed; reopening next poll: {ex.Message}");
+            Close();
+            return [];
+        }
+    }
+
+    /// <inheritdoc/>
+    public void Dispose()
+    {
+        _disposed = true;
+        Close();
+    }
+
+    private IReadOnlyList<RtssFrametimeSample> ReadLiveCore()
+    {
+        MemoryMappedViewAccessor view = _view!;
+        if (view.ReadUInt32(0) != Signature || view.ReadUInt32(HeaderVersionOffset) < MinimumVersion)
+        {
+            Close();
+            return [];
+        }
+
+        uint entrySize = view.ReadUInt32(HeaderAppEntrySizeOffset);
+        uint arrayOffset = view.ReadUInt32(HeaderAppArrOffsetOffset);
+        uint arraySize = view.ReadUInt32(HeaderAppArrSizeOffset);
+        if (entrySize < MinimumEntrySize || arraySize == 0)
+        {
+            return [];
+        }
+
+        long capacity = view.Capacity;
+        int count = (int)Math.Min(arraySize, MaximumEntries);
+        long now = Environment.TickCount64;
+        List<RtssFrametimeSample> live = [];
+        byte[] name = new byte[EntryNameLength];
+        for (int index = 0; index < count; index++)
+        {
+            long entry = arrayOffset + ((long)index * entrySize);
+            if (entry < 0 || entry + entrySize > capacity)
+            {
+                break;
+            }
+
+            uint processId = view.ReadUInt32(entry);
+            uint time0 = view.ReadUInt32(entry + EntryTime0Offset);
+            uint time1 = view.ReadUInt32(entry + EntryTime1Offset);
+            uint frames = view.ReadUInt32(entry + EntryFramesOffset);
+            if (processId == 0 || frames == 0 || time1 == 0 || time1 <= time0)
+            {
+                continue;
+            }
+
+            // The tick counters are 32-bit and wrap every 49.7 days, so the age is computed on the
+            // low 32 bits of the current tick count and a negative result is discarded rather than
+            // reported as a huge age.
+            long age = unchecked((uint)now) - (long)time1;
+            if (age is < 0 or > MaximumAgeMs)
+            {
+                continue;
+            }
+
+            view.ReadArray(entry + EntryNameOffset, name, 0, EntryNameLength);
+            live.Add(new RtssFrametimeSample(
+                processId,
+                DecodeName(name),
+                (time1 - time0) / (double)frames,
+                frames,
+                age));
+        }
+
+        return live;
+    }
+
+    private static string DecodeName(byte[] name)
+    {
+        int length = Array.IndexOf(name, (byte)0);
+        return Encoding.ASCII.GetString(name, 0, length < 0 ? name.Length : length);
+    }
+
+    private bool TryOpen()
+    {
+        if (_view is not null)
+        {
+            return true;
+        }
+
+        try
+        {
+            _map = MemoryMappedFile.OpenExisting(MapName, MemoryMappedFileRights.Read);
+            _view = _map.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
+            return true;
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or UnauthorizedAccessException
+            or IOException)
+        {
+            // Not running, or running elevated while WSGM is not. Neither is an error: AutoTDP is
+            // simply unavailable until RTSS is reachable.
+            Close();
+            return false;
+        }
+    }
+
+    private void Close()
+    {
+        _view?.Dispose();
+        _view = null;
+        _map?.Dispose();
+        _map = null;
+    }
+}

@@ -79,7 +79,8 @@ public sealed class ShellSession : IAsyncDisposable
     private PerformanceOverlayBridge? _performanceOverlay;
     private PersistentSteamUiTransport? _steamUiTransport;
     private RunningApplicationMonitor? _runningApplications;
-    private RunningApplicationPerformanceCoordinator? _runningApplicationPerformance;
+    private AutoTdpService? _autoTdp;
+    private RunningApplicationCoordinator? _runningApplicationTargets;
     private SteamUiSessionHost? _steamUi;
     private MessageWindow? _messageWindow;
     private bool _disposed;
@@ -210,9 +211,28 @@ public sealed class ShellSession : IAsyncDisposable
             _steamUiTransport = new PersistentSteamUiTransport();
             _runningApplications = new RunningApplicationMonitor(
                 new SteamRunningApplicationProbe(_steamUiTransport));
-            _runningApplicationPerformance = new RunningApplicationPerformanceCoordinator(
+            if (_deviceCoordinator is { } deviceCoordinator)
+            {
+                _autoTdp = new AutoTdpService(
+                    new RtssFrametimeReader(),
+                    deviceCoordinator.CapabilitySnapshot,
+                    (capabilityId, instanceId, value, token) =>
+                        deviceCoordinator.ExecuteCapabilityAsync(
+                            capabilityId,
+                            instanceId,
+                            value,
+                            TimeSpan.FromSeconds(5),
+                            token),
+                    TargetFrametimeMs);
+                _autoTdp.Apply(_config.DeviceIntegration.AutoTdpEnabled);
+            }
+
+            _runningApplicationTargets = new RunningApplicationCoordinator(
                 _runningApplications,
-                _performance.SetTargetAsync);
+                _performance.SetTargetAsync,
+                _deviceCoordinator is null
+                    ? null
+                    : ApplyRunningApplicationTargetAsync);
         }
 
         _monitor = new SteamMonitor();
@@ -303,7 +323,13 @@ public sealed class ShellSession : IAsyncDisposable
                 _deviceCoordinator,
                 _performance);
             _steamUi.Apply(_config.Cef.Enabled && _config.Cef.NativeQuickAccess);
-            _steamUi.ApplyGlyphSelector(GlyphSelectorEnabled(_config));
+            ApplyGlyphConfig(_config);
+            if (_deviceCoordinator is not null)
+            {
+                // Two sources change the active profile: the package publishing its profiles, and
+                // the user changing the selection mode. Both land on the same apply.
+                _deviceCoordinator.PhysicalGlyphProfilesChanged += OnPhysicalGlyphProfilesChanged;
+            }
         }
 
         // The tray host must never coexist with explorer's taskbar (Z-order war
@@ -1211,7 +1237,7 @@ public sealed class ShellSession : IAsyncDisposable
                         if (config.Cef.Enabled)
                         {
                             _steamUi?.Apply(config.Cef.NativeQuickAccess);
-                            _steamUi?.ApplyGlyphSelector(GlyphSelectorEnabled(config));
+                            ApplyGlyphConfig(config);
                         }
                         ApplySteamInputManagement(config.SteamInputManagementEnabled);
                         ApplyNetworkIndicator(config.Cef.Enabled && config.Cef.WifiIndicator);
@@ -1417,6 +1443,7 @@ public sealed class ShellSession : IAsyncDisposable
                     DeviceStopReason.Uninstalling,
                 _ => DeviceStopReason.WsgmExiting,
             };
+            _deviceCoordinator.PhysicalGlyphProfilesChanged -= OnPhysicalGlyphProfilesChanged;
             try
             {
                 await _deviceCoordinator.ShutdownAsync(deviceReason, deadline).ConfigureAwait(false);
@@ -1486,10 +1513,15 @@ public sealed class ShellSession : IAsyncDisposable
                     _desktopHost = null;
                 }
 
-                if (_runningApplicationPerformance is not null)
+                if (_autoTdp is not null)
                 {
-                    await _runningApplicationPerformance.DisposeAsync().ConfigureAwait(false);
-                    _runningApplicationPerformance = null;
+                    await _autoTdp.DisposeAsync().ConfigureAwait(false);
+                    _autoTdp = null;
+                }
+                if (_runningApplicationTargets is not null)
+                {
+                    await _runningApplicationTargets.DisposeAsync().ConfigureAwait(false);
+                    _runningApplicationTargets = null;
                 }
                 if (_runningApplications is not null)
                 {
@@ -1721,6 +1753,9 @@ public sealed class ShellSession : IAsyncDisposable
             return;
         }
 
+        // AutoTDP is applied before the coordinator: turning Device Integration off must stop
+        // AutoTDP and restore the previous power limit while the capability is still writable.
+        _autoTdp?.Apply(config.DeviceIntegration.Enabled && config.DeviceIntegration.AutoTdpEnabled);
         _ = ObserveDeviceConfigAsync(coordinator, config);
     }
 
@@ -1728,6 +1763,61 @@ public sealed class ShellSession : IAsyncDisposable
         config.Cef.Enabled
         && config.DeviceIntegration.Enabled
         && config.DeviceIntegration.GlyphSelection is not DeviceGlyphSelection.NativeSteam;
+
+    private void OnPhysicalGlyphProfilesChanged() => ApplyGlyphConfig(_config);
+
+    private Task ApplyRunningApplicationTargetAsync(
+        RunningApplicationTargetSnapshot snapshot,
+        CancellationToken cancellationToken)
+    {
+        _autoTdp?.ApplyRunningApplication(snapshot);
+        return _deviceCoordinator is { } coordinator
+            ? coordinator.ApplyRunningApplicationAsync(snapshot, cancellationToken)
+            : Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// The deadline AutoTDP judges frame delivery against.
+    /// </summary>
+    /// <remarks>
+    /// The applied RTSS frame limit when there is one, because that is the rate the user asked for
+    /// and delivering it is the whole goal. Without a limit the deadline falls back to 60 Hz rather
+    /// than to the panel's maximum: chasing an uncapped refresh rate would push the power limit up
+    /// for as long as the game could absorb it, which is the opposite of what AutoTDP is for.
+    /// </remarks>
+    private double TargetFrametimeMs()
+    {
+        PerformanceState? state = _performance?.Current;
+        int limit = state?.Observed.FrameLimit ?? 0;
+        if (limit <= 0)
+        {
+            limit = state?.Desired.FrameLimit ?? 0;
+        }
+
+        return limit > 0 ? 1000d / limit : 1000d / 60d;
+    }
+
+    /// <summary>
+    /// Applies both halves of physical glyph presentation: the route selector and the profile the
+    /// delivery tiers actually render.
+    /// </summary>
+    /// <remarks>
+    /// The selector alone changes nothing a user can see. Without the resolved profile the delivery
+    /// tiers hold no mappings and stay disabled, which is how physical glyphs were inert.
+    /// </remarks>
+    private void ApplyGlyphConfig(AppConfig config)
+    {
+        SteamUiSessionHost? steamUi = _steamUi;
+        if (steamUi is null)
+        {
+            return;
+        }
+
+        bool selector = GlyphSelectorEnabled(config);
+        steamUi.ApplyGlyphSelector(selector);
+        steamUi.ApplyGlyphDeliveryProfile(
+            selector ? _deviceCoordinator?.PhysicalGlyphSelectionSnapshot().Profile : null);
+    }
 
     private void ApplyPerformanceConfig(AppConfig config)
     {

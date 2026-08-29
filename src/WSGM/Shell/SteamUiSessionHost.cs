@@ -128,6 +128,25 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         QueueSynchronization();
     }
 
+    /// <summary>
+    /// Publishes the active handheld glyph profile to the delivery tiers.
+    /// </summary>
+    /// <param name="profile">The resolved profile, or null for native Steam presentation.</param>
+    /// <remarks>
+    /// Only the two live-approved tiers are ever requested. The inline-Valve-SVG and
+    /// capability-hiding tiers still probe fail-closed against the current Steam build, so asking
+    /// for them would produce a permanent patch failure rather than a feature; they are enabled
+    /// once their exact live fingerprints exist.
+    /// </remarks>
+    internal void ApplyGlyphDeliveryProfile(ImportedGlyphProfile? profile) =>
+        ApplyGlyphDeliveryProfile(
+            profile,
+            new SteamInputGlyphTierEnablement(
+                StableResources: profile is not null,
+                ControllerImages: profile is not null,
+                InlineValveSvg: false,
+                CapabilityHiding: false));
+
     internal void ApplyGlyphDeliveryProfile(
         ImportedGlyphProfile? profile,
         SteamInputGlyphTierEnablement tierEnablement)

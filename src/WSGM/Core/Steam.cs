@@ -184,7 +184,7 @@ public static class Steam
     /// Big Picture — fired as a protocol instead, the handler first brings Steam up
     /// in desktop mode and only switches after login (user-reported wonkiness).
     /// When Steam already runs, the protocol re-activates/enters BP (UIPI-proof).</summary>
-    public static AppLauncher.LaunchResult LaunchBigPicture()
+    public static AppLauncher.LaunchResult LaunchBigPicture(bool unelevated = false)
     {
         if (!IsRunning && ExePath is { } exe)
         {
@@ -196,7 +196,29 @@ public static class Steam
             // libraries to the live client later without a restart. Only takes
             // effect on a fresh Steam start, which this cold path is.
             SteamCdp.EnsureRemoteDebuggingEnabled();
+            // The de-elevating scheduled task is only meaningful from an elevated WSGM: started
+            // from a medium-integrity process, the ordinary launch already produces a
+            // medium-integrity Steam without the task-scheduler round trip.
+            bool deElevate = unelevated && ElevationCheck.IsCurrentProcessElevated() is true;
+            if (deElevate
+                && UnelevatedLauncher.TryStartViaScheduledTask(exe, OpenBigPictureUrl))
+            {
+                Log.Info("Steam launch integrity: medium (de-elevated scheduled task).");
+                return new AppLauncher.LaunchResult(null, true, false);
+            }
+
+            if (deElevate)
+            {
+                Log.Warn(
+                    "Steam launch integrity: de-elevation was requested but unavailable; "
+                    + "falling back to WSGM's own integrity.");
+            }
+
             var result = AppLauncher.Start(exe, OpenBigPictureUrl, elevated: false);
+            Log.Info(
+                "Steam launch integrity: "
+                + (ElevationCheck.IsCurrentProcessElevated() is true ? "elevated" : "medium")
+                + " (matched to WSGM).");
             // Only when a vector is actually deployed, and worded as the EXPECTED
             // path. docs\steam-input.md tells the reader a missing file means the
             // gate worker never got past the loader — so naming a path for a Steam

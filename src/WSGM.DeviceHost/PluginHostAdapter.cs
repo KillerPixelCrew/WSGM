@@ -96,11 +96,16 @@ internal sealed class PluginHostAdapter : IPluginHostAdapter, IDisposable
 
     public ValueTask PublishPhysicalDevicesAsync(
         IReadOnlyList<PhysicalDeviceIdentity> devices,
+        HapticCapabilities? output,
         CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(devices);
-        DevicePhysicalIdentitiesNotification notification = new() { Devices = devices };
+        DevicePhysicalIdentitiesNotification notification = new()
+        {
+            Devices = devices,
+            Output = output,
+        };
         return _sender.SendAsync(
             DeviceMessageType.PhysicalIdentities,
             0,
