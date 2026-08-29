@@ -6,6 +6,7 @@ using System.IO.Pipes;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading;
@@ -353,7 +354,7 @@ internal sealed class DeviceHostSession : IAsyncDisposable
         {
             _cycleState = DeviceCycleState.Degraded;
             await SendErrorAsync(frame.Header.RequestId, "start-failed",
-                ex.GetType().Name, true, sessionToken).ConfigureAwait(false);
+                DescribeStartFailure(ex), true, sessionToken).ConfigureAwait(false);
         }
         finally
         {
@@ -910,6 +911,84 @@ internal sealed class DeviceHostSession : IAsyncDisposable
             DeviceWireJsonContext.Default.DeviceOperationAck,
             _protocolVersion,
             cancellationToken).AsTask();
+
+    /// <summary>Describes a plugin start failure well enough to diagnose it from a pasted log.</summary>
+    /// <param name="ex">The exception the plugin's start threw.</param>
+    /// <returns>Bounded text naming the failure and what it was about.</returns>
+    /// <remarks>
+    /// The type name alone is not a diagnosis. A bare "DllNotFoundException" reached a user's log and
+    /// cost an afternoon precisely because the one thing that identifies it — which library was not
+    /// found — lives in the message, and the message was being discarded here.
+    /// <para>
+    /// Inner exceptions are included because a plugin's start is mostly async and reflective work, so
+    /// the outer type is routinely a wrapper whose own message says nothing. The chain is bounded and
+    /// the whole string is capped: this is a wire field, and a plugin is not trusted to keep its
+    /// exception text short.
+    /// </para>
+    /// </remarks>
+    internal static string DescribeStartFailure(Exception ex)
+    {
+        ArgumentNullException.ThrowIfNull(ex);
+        StringBuilder text = new();
+        Exception? current = ex;
+        for (int depth = 0; current is not null && depth < 4; depth++)
+        {
+            if (depth > 0)
+            {
+                text.Append(" -> ");
+            }
+
+            text.Append(current.GetType().Name);
+            if (!string.IsNullOrWhiteSpace(current.Message))
+            {
+                text.Append(": ").Append(current.Message.Trim());
+            }
+
+            // The throwing frames, not the whole trace. For the failures that actually reach a user
+            // this is the diagnosis: a NullReferenceException's message says nothing at all, and
+            // without a frame there is no way to tell which of a plugin's start steps threw it.
+            AppendTopFrames(text, current);
+            current = current.InnerException;
+        }
+
+        const int maximum = 1200;
+        return text.Length <= maximum ? text.ToString() : text.ToString(0, maximum);
+    }
+
+    /// <summary>Appends the innermost few stack frames of one exception.</summary>
+    /// <param name="text">Buffer to append to.</param>
+    /// <param name="ex">The exception whose frames to describe.</param>
+    /// <remarks>
+    /// Bounded to the frames nearest the throw, which are the ones that identify it. A plugin's
+    /// stack is mostly async machinery, so the compiler-generated frames are skipped rather than
+    /// spending the budget on <c>MoveNext</c> entries that name nothing.
+    /// </remarks>
+    private static void AppendTopFrames(StringBuilder text, Exception ex)
+    {
+        string? trace = ex.StackTrace;
+        if (string.IsNullOrWhiteSpace(trace))
+        {
+            return;
+        }
+
+        int appended = 0;
+        foreach (string line in trace.Split('\n'))
+        {
+            if (appended >= 3)
+            {
+                break;
+            }
+
+            string frame = line.Trim();
+            if (frame.Length == 0)
+            {
+                continue;
+            }
+
+            text.Append(" | ").Append(frame.Length <= 200 ? frame : frame[..200]);
+            appended++;
+        }
+    }
 
     private Task SendErrorAsync(
         uint requestId,

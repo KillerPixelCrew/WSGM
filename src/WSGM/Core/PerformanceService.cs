@@ -137,6 +137,7 @@ internal sealed class PerformanceService : IAsyncDisposable
     private readonly SemaphoreSlim _adapterGate = new(1, 1);
     private readonly SemaphoreSlim _observerSignal = new(0, 1);
     private readonly CancellationTokenSource _disposeCts = new();
+    private readonly RtssLauncher _launcher;
     private readonly Task _pollTask;
     private PerformancePolicy _policy;
     private PerformanceState _state;
@@ -150,9 +151,13 @@ internal sealed class PerformanceService : IAsyncDisposable
         PerformancePolicy? policy = null,
         TimeSpan? pollInterval = null,
         TimeSpan? commandTimeout = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        RtssLauncher? launcher = null)
     {
         _adapter = adapter ?? throw new ArgumentNullException(nameof(adapter));
+        // Injected so a test can assert the decision without a test ever starting a process. The
+        // default one only starts the executable discovery already verified.
+        _launcher = launcher ?? new RtssLauncher();
         _persistPolicy = persistPolicy ?? throw new ArgumentNullException(nameof(persistPolicy));
         _policy = NormalizePolicy(policy ?? PerformancePolicy.Empty);
         _pollInterval = BoundInterval(pollInterval ?? DefaultPollInterval);
@@ -732,8 +737,10 @@ internal sealed class PerformanceService : IAsyncDisposable
         if (probe.Availability != RtssAvailability.Ready || probe.Capabilities is null)
         {
             PerformanceState unavailable;
+            RtssProbe previousProbe;
             lock (_stateGate)
             {
+                previousProbe = _state.Probe;
                 _state = WithResolvedDesired(_state with
                 {
                     Probe = probe,
@@ -746,7 +753,14 @@ internal sealed class PerformanceService : IAsyncDisposable
                 unavailable = _state;
             }
 
+            LogProbeChange(previousProbe, probe);
             RaiseStateChanged(unavailable);
+
+            // The one unavailable state WSGM can fix by itself. Discovery has already accepted the
+            // installation and found no process, which on a service boot is simply start order:
+            // RTSS's own tray entry has not run yet. Awaited rather than fired and forgotten so the
+            // next poll does not call it missing while it is still starting.
+            await _launcher.TryStartAsync(probe, Enabled, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -838,13 +852,48 @@ internal sealed class PerformanceService : IAsyncDisposable
     private void UpdateProbe(RtssProbe probe)
     {
         PerformanceState next;
+        RtssProbe previous;
         lock (_stateGate)
         {
+            previous = _state.Probe;
             _state = _state with { Probe = probe };
             next = _state;
         }
 
+        LogProbeChange(previous, probe);
         RaiseStateChanged(next);
+    }
+
+    /// <summary>Logs an RTSS probe result when it changes.</summary>
+    /// <param name="previous">The probe this replaces.</param>
+    /// <param name="probe">The new probe.</param>
+    /// <remarks>
+    /// On change only, because the probe runs on every poll and this would otherwise be the loudest
+    /// line in the file. It has to be logged at all: a user reading an RTSS problem off the overlay
+    /// previously found nothing whatsoever about it in the log, which made the subsystem WSGM is
+    /// most often asked about the one that could not be diagnosed from a pasted log.
+    /// </remarks>
+    private static void LogProbeChange(RtssProbe previous, RtssProbe probe)
+    {
+        if (previous.Availability == probe.Availability
+            && string.Equals(previous.Diagnostic, probe.Diagnostic, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        string version = string.IsNullOrWhiteSpace(probe.Version) ? "unknown" : probe.Version;
+        string detail = string.IsNullOrWhiteSpace(probe.Diagnostic)
+            ? string.Empty
+            : $" - {probe.Diagnostic}";
+        string line = $"RTSS: {probe.Availability}, version {version}{detail}";
+        if (probe.Availability is RtssAvailability.Ready)
+        {
+            Log.Info(line);
+        }
+        else
+        {
+            Log.Warn(line);
+        }
     }
 
     private void MarkDegraded(string diagnostic)

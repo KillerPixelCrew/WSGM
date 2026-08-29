@@ -257,9 +257,21 @@ internal sealed class PluginPackageLoader : IDisposable
 
         protected override nint LoadUnmanagedDll(string unmanagedDllName)
         {
-            string path = _resolver.ResolveUnmanagedDllToPath(unmanagedDllName)
-                ?? throw new DllNotFoundException(
-                    $"Package-local native dependency '{unmanagedDllName}' was not resolved.");
+            string? path = _resolver.ResolveUnmanagedDllToPath(unmanagedDllName);
+            if (path is null)
+            {
+                // Not a package-supplied library, so it is an operating-system one and the runtime's
+                // own probing resolves it — exactly as the managed Load above returns null for
+                // framework assemblies. Throwing here instead meant a plugin could not reach any
+                // Windows API at all: the Claw plugin died on `ole32.dll`, which it needs only
+                // because WMI is COM, and the whole device cycle faulted with it.
+                //
+                // This does not widen the package confinement. What is confined is what the package
+                // may SHIP: a name the resolver does answer still has to resolve inside the package
+                // directory and must not be a link, which EnsurePackagePath below still enforces.
+                return nint.Zero;
+            }
+
             EnsurePackagePath(path);
             return NativeLibrary.Load(path);
         }
