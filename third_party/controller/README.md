@@ -78,6 +78,34 @@ handheld that is a battery cost, not a rounding error, and it was the original r
 HIDMaestro. It has to be fixed rather than accepted, and the mechanism is now identified rather than
 guessed.
 
+#### Measured, 2026-08-29, reference Claw (Core Ultra 7 258V, 8 cores)
+
+An attached, idle virtual Steam Deck, sampled over interleaved 20 s runs of the same probe against
+two builds of the library — three rounds each, alternating, so drift and thermal state affect both:
+
+| Build | Of one core | Of the machine |
+| --- | --- | --- |
+| Both WSGM patches | 7.06 / 6.13 / 6.51 % — mean **6.6 %** | **0.82 %** |
+| Without PR #2 (placeholder endpoints) | 8.90 / 6.92 / 9.15 % — mean **8.3 %** | 1.04 % |
+
+Two things follow, and the second is the one that matters.
+
+**PR #2 is worth carrying.** The patched build wins every paired round, for roughly a fifth of the
+cost — about 1.7 points of a core. A single sample would not have shown this: the run-to-run spread
+overlaps between the two builds, and the first pair measured looked like noise. It is a real effect
+only because it is paired and repeated.
+
+**The famous 6–8% is per-core, not per-machine.** It lands almost exactly on the patched build's
+own per-core figure, so the number that nearly sent WSGM to a different backend was measuring the
+same thing this does — on eight cores that is **under 1% of the CPU**. It is still worth reducing on
+a battery-powered device, and the remaining question below is still worth answering. But it was
+never the disqualifying cost it was treated as, and it does not justify a different backend.
+
+Submissions are not the cost. Driving the device with input frames instead of leaving it idle moved
+the figure by about a tenth of a point. (That run reached ~64 Hz rather than the intended 250 Hz,
+because `Thread.Sleep` granularity dominates a 4 ms wait — so it shows submissions are cheap, not
+that 250 Hz specifically is.) What the CPU is spent on is the keepalive replay below.
+
 VIIPER completes interrupt-IN transfers one of two ways
 (`internal/server/usb/server.go`, `startInWorker`). Devices that declare `NaksWhenIdle()` block on
 their input gate and go quiet when nothing changes. Everything else takes the keepalive path: a

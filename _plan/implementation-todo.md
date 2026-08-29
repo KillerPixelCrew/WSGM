@@ -414,6 +414,13 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
         placeholders carrying nothing, ~200 wasted completions/second, which PR #2 removes. Whether
         the controller endpoint should NAK when idle needs measurement against a real Steam claim, not
         an assumption: a real Deck appears to stream continuously.
+      - **Measured, and it is not the cost it was treated as.** An attached idle virtual Deck costs
+        **6.6% of one core — 0.82% of the machine** on the reference Claw's eight. Without PR #2 it is
+        8.3% of a core, so that patch is worth carrying at about a fifth of the cost, but only paired
+        interleaved runs show it: a single sample is inside the run-to-run spread. The inherited
+        "6–8%" figure lands on the patched build's own per-core number, so it was measuring this same
+        thing per-core all along. Submissions are not the cost; the keepalive replay is. Numbers and
+        method in `third_party/controller/README.md`.
       - **The backend now works end to end against the real driver.** Every entry point the binding
         uses returns success, and the attach is real rather than nominal: while attached Windows
         enumerates `USB\VID_28DE&PID_1205` with the expected three interfaces, and teardown leaves no
