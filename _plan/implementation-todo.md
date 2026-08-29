@@ -642,13 +642,17 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
 - [x] Stage only App, DeviceHost, the one plugin, optional Device Lab, and required controller
       dependencies; remove package catalogs and side-by-side versions.
 - [ ] Install everything VIIPER needs, as an explicit user-approved elevated installer step — never
-      from the running shell (INV-020). Detail in `third_party/controller/viiper/README.md`:
-      **usbip-win2** for the generic signed kernel-mode USBIP driver and its VHCI device (already
-      pinned and signature-verified), **`libviiper`** built from the pinned revision with WSGM's
-      patches, and **HidHide** as today. The installer verifies each locked component identity before
-      installing it, and a machine where usbip-win2 is absent or declined must still install and run
-      WSGM with controller management simply unavailable. VIIPER's GPL-3.0 server licensing (its
-      client libraries are MIT) has to be settled deliberately before the installer ships it.
+      from the running shell (INV-020). Detail in `third_party/controller/viiper/README.md`.
+      Done: `WSGM.iss` declares a `controller` component and ships `libviiper.dll` with its notices
+      and header, every entry `skipifsourcedoesntexist` because `build.ps1` skips the library loudly
+      when the release machine lacks a Go toolchain or C compiler.
+      Remaining: installing the **usbip-win2 driver**, which is the one step between here and a
+      working virtual controller — `viiper_device_attach` needs the VHCI device it provides.
+      `eng/acquire-controller-dependencies.ps1` already downloads the pinned installer and verifies
+      its hash and Authenticode signature; nothing yet stages it into `publish/` or runs it from
+      setup. It must run only for the `controller` component, re-verify the locked identity first,
+      and leave a declined or failed install as a machine that runs WSGM normally with controller
+      management unavailable.
 - [x] Standardize setup and managed maintenance on the fixed `.staging`/`.previous` siblings,
       reconcile the prior `.installed.previous` name, and serialize stop/recheck/publication with
       the exact global package-slot and hardware-owner objects so no DeviceHost can race replacement

@@ -36,6 +36,21 @@ Write-Host "== Building Steam Input Lease (Rust) ==" -ForegroundColor Cyan
 Write-Host "== Building radio helper (Rust) ==" -ForegroundColor Cyan
 & "$root\eng\build-radio.ps1"
 
+# The virtual controller library is the one component built from an external
+# pinned revision rather than from vendored source, so it needs a network clone
+# and two toolchains that are not otherwise required to build WSGM. It is also
+# optional: without it, controller management is simply unavailable, which is the
+# state every current release ships in. So this is best-effort by design — a
+# missing toolchain skips it loudly instead of failing an otherwise good release
+# build.
+Write-Host "== Building virtual controller library (Go) ==" -ForegroundColor Cyan
+if (Get-Command go -ErrorAction SilentlyContinue) {
+    & "$root\eng\build-viiper.ps1"
+}
+else {
+    Write-Warning "Go toolchain not found; skipping the virtual controller library. Controller management will be unavailable in this build."
+}
+
 Write-Host "== Publishing WSGM $version (NativeAOT) ==" -ForegroundColor Cyan
 # Clean first: dotnet publish overlays onto the previous output, so a DLL removed by
 # a dependency bump (or an old setup exe) would otherwise leak into the release.

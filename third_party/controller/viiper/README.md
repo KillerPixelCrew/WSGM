@@ -85,3 +85,18 @@ it is straightforward. Retain the upstream notices as for any other shipped comp
 The remaining installer requirement is ordinary failure handling: verify each locked component
 identity before installing it, and keep a machine where usbip-win2 is absent or declined installing
 and running WSGM normally, with controller management simply unavailable — exactly as today.
+
+### State of the installer work
+
+Done: `WSGM.iss` declares a `controller` component, and `libviiper.dll` plus its notices and header
+ship beside the executable. Every one of those entries is `skipifsourcedoesntexist`, because the
+library is only built when the release machine has a Go toolchain and a C compiler — `build.ps1`
+skips it loudly otherwise rather than failing an otherwise good release.
+
+Not done: installing the **usbip-win2 driver**. `eng\acquire-controller-dependencies.ps1` already
+downloads the pinned installer and verifies its hash and Authenticode signature, but nothing yet
+stages it into `publish\` or runs it from setup. That is the one step between here and a working
+virtual controller, because `viiper_device_attach` needs the VHCI device the driver provides. It
+must run as an explicit, user-approved, elevated setup action for the `controller` component only,
+must re-verify the locked identity before running, and must leave a declined or failed install as a
+machine that runs WSGM normally with controller management unavailable.

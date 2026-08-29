@@ -72,6 +72,7 @@ Name: "custom"; Description: "Custom"; Flags: iscustom
 Name: "core"; Description: "Core WSGM"; Types: core full custom; Flags: fixed
 Name: "device"; Description: "Device Integration runtime and one installed device package (remains disabled until enabled in WSGM Settings)"; Types: full
 Name: "devicelab"; Description: "Device Lab and offline device-development tools"; Types: custom
+Name: "controller"; Description: "Virtual controller support (requires the USBIP driver; remains disabled until enabled in WSGM Settings)"; Types: full
 
 [CustomMessages]
 english.SteamMissing=Steam was not found on this PC.%n%nWSGM is Steam-exclusive and boots straight into Steam Big Picture. Install Steam from steampowered.com, sign in once, and then run this setup again.
@@ -103,6 +104,12 @@ Source: "{#AppPublishDir}\SteamInputLease-*.md"; DestDir: "{app}"; Flags: ignore
 Source: "{#AppPublishDir}\LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
 ; Third-party license texts for managed packages (src\WSGM\Licenses\).
 Source: "{#AppPublishDir}\LoadingIndicators.Avalonia-UNLICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
+; VIIPER creates the virtual controller. Its notices ship beside the library the
+; *.dll glob above already carries. Both are skipifsourcedoesntexist because the
+; library is only built when the release machine has a Go toolchain; without it
+; controller management is simply unavailable, which is a supported state.
+Source: "{#AppPublishDir}\NOTICE.md"; DestDir: "{app}"; DestName: "VIIPER-NOTICE.md"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#AppPublishDir}\libviiper.h"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 ; DeviceHost and the one plugin package are administrator-protected. The package
 ; is explicit trusted hardware code and never loads from a user-writable path.
 ; This glob also carries the exact self-contained .NET runtime license/notices
