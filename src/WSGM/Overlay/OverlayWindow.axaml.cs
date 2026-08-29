@@ -617,6 +617,10 @@ public partial class OverlayWindow : Window
         // it and released the moment that page is left.
         UpdateGlyphInputObservation(section is DeviceOverlaySection.Glyphs);
         RefreshDevicePanel();
+
+        // The shared performance rows belong to one Device page, so entering or leaving any page
+        // changes whether they are on screen.
+        RefreshPerformancePanel();
         FocusFirstControl(DeviceCapabilityList);
     }
 
@@ -626,6 +630,7 @@ public partial class OverlayWindow : Window
         string? returnFocusKey = _navigation.Pop()
             ?? DeviceOverlaySectionPages.FocusKey(section);
         RefreshDevicePanel();
+        RefreshPerformancePanel();
         RestoreRootFocus(returnFocusKey);
     }
 
@@ -788,7 +793,7 @@ public partial class OverlayWindow : Window
 
         PlacePerformanceSection(_navigation.IsVisible(OverlayDestination.Device));
         PerformanceOverlaySnapshot? snapshot = _performanceSource?.Snapshot();
-        PerformanceSection.IsVisible = snapshot?.Visible is true;
+        PerformanceSection.IsVisible = snapshot?.Visible is true && PerformanceBelongsOnCurrentPage();
         PerformanceRows.Children.Clear();
         if (snapshot is not { Visible: true })
         {
@@ -841,19 +846,40 @@ public partial class OverlayWindow : Window
         restoreFocus?.Focus(NavigationMethod.Directional);
     }
 
+    /// <summary>Puts the shared performance rows where the user will look for them.</summary>
+    /// <param name="deviceVisible">Whether the Device destination exists in this session.</param>
+    /// <remarks>
+    /// With no Device destination the rows live on System, which is where they have always been.
+    /// With one, they belong on Device → Power and thermals, beside the power limit and AutoTDP:
+    /// a frame limit and a power limit are one decision, and splitting them across two destinations
+    /// makes the user reason about them separately.
+    /// <para>
+    /// The section is parented to Device but rendered only while that page is open, because Device
+    /// is a menu of pages now. Leaving it parented and visible put it above the section cards on
+    /// the root and kept it on screen inside every unrelated sub-page.
+    /// </para>
+    /// </remarks>
     private void PlacePerformanceSection(bool deviceVisible)
     {
         StackPanel target = deviceVisible ? PanelDevice : PanelSystem;
         int targetIndex = deviceVisible ? 2 : 3;
-        if (target.Children.Contains(PerformanceSection))
+        if (!target.Children.Contains(PerformanceSection))
         {
-            return;
+            PanelDevice.Children.Remove(PerformanceSection);
+            PanelSystem.Children.Remove(PerformanceSection);
+            target.Children.Insert(Math.Min(targetIndex, target.Children.Count), PerformanceSection);
         }
-
-        PanelDevice.Children.Remove(PerformanceSection);
-        PanelSystem.Children.Remove(PerformanceSection);
-        target.Children.Insert(Math.Min(targetIndex, target.Children.Count), PerformanceSection);
     }
+
+    /// <summary>Whether the performance rows belong on the page currently showing.</summary>
+    /// <remarks>
+    /// Always, when they live on System. On Device they belong to one page, so that everything on
+    /// Power and thermals is what moves the same thing and nothing else carries them.
+    /// </remarks>
+    private bool PerformanceBelongsOnCurrentPage() =>
+        !_navigation.IsVisible(OverlayDestination.Device)
+        || DeviceOverlaySectionPages.SectionFor(_navigation.Page)
+            is DeviceOverlaySection.PowerAndThermals;
 
     private static DescriptorStatus DeviceStatusFor(DeviceOverlayStatus status)
         => status switch
