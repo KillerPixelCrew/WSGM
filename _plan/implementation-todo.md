@@ -387,6 +387,23 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
 - [x] Keep persistent RGB desired state separate from temporary restoration.
 - [ ] Complete remaining power/fan/charge, controller, gyro, OEM suppression, rumble, RGB effect,
       glyph, suspend/resume, hotplug, conflict, and handoff hardware work.
+      Scoped down to what is actually missing. The plugin publishes twelve capabilities covering
+      power (sustained, boost, scenario), fan (mode, curve, measured RPM), lighting (brightness,
+      zone colour), rumble, motion source, controller source and temperature. Two named items have
+      no capability behind them:
+      - **Charge limit.** `ClawHardwareFacts.ChargeLimitAddress = 0xD7` is declared and unused, and
+        the SDK already carries `CapabilityRole.ChargeLimit` and `DisplayKey.ChargeLimit`, so the
+        descriptor is a few lines. What is missing is the one thing that must not be guessed: how
+        that byte encodes the limit. MSI firmware commonly packs an enable bit with the percentage,
+        and writing a wrong shape to a battery controller is not a mistake worth making from an
+        assumption.
+      - **RGB effect.** Lighting exposes brightness and zone colour but no effect or animation.
+      Both are blocked on the same read, and the blocker is elevation rather than hardware:
+      `MSI_ACPI` enumerates empty unelevated on this machine, so `Get_Data` cannot be called to see
+      the current values. One elevated PowerShell, with the device idle, settles both:
+      `$i = Get-CimInstance -Namespace root\WMI -ClassName MSI_ACPI | Where-Object Active;`
+      `0x50,0x51,0xD2,0xD4,0xD7,0x98 | ForEach-Object { '{0:X2} {1}' -f $_, (Invoke-CimMethod -InputObject $i -MethodName Get_Data -Arguments @{Data=[byte]$_}).Data }`
+      Reading is safe and changes nothing; the write path stays attended either way.
 - [ ] Verify that Device Integration off leaves no Claw activity and another manager can take over
       without WSGM killing or reconfiguring it.
 
@@ -994,21 +1011,40 @@ Only this list drives the next implementation work:
       The one `ControllerManager`, its `DeviceCoordinator` wiring, the unified make-safe sequence,
       direct global-plus-override target selection, and the wire-published haptic return path are
       complete with focused tests, diagnostics, and docs. **The backend is no longer blocked**: it is
-      VIIPER, implemented, and verified against the real library — see S7. What remains is installing
-      usbip-win2 so `device_attach` works, the idle-CPU measurement, switching the overlay surfaces
-      onto the managed UI source, and the attended reference-device acceptance in S7.
+      VIIPER, implemented, and verified end to end against the real library and the real driver — see
+      S7. Everything this item listed as remaining is done: setup installs usbip-win2 from an
+      explicitly ticked task, `device_attach` works and enumerates a real composite device, the idle
+      cost is measured at 0.82% of the machine rather than the inherited per-core figure, and every
+      navigation surface now runs on the managed UI source with SDL as a make-before-break fallback.
+      **What remains is only the attended reference-device acceptance in S7** — targets, per-app
+      selection, slots, duplicate input, suspend/resume, host fault and external owner, on hardware,
+      with someone watching.
 - [ ] **Q09 — Finish Steam/QAM/RTSS, the full-client unelevated Steam launch toggle, and implement
       the direct AutoTDP controller/replay.** The unelevated Steam toggle, the shared patch-evaluation
       helper, the device-verified RTSS frametime reader, the pure AutoTDP controller with trace
       replay, its session binding and user switch, and the deterministic TypeScript build with its
-      drift gate are done. What remains is the direct per-component QAM implementation, an AutoTDP
-      surface in QAM or the overlay, and the live Steam/RTSS/AutoTDP matrix.
+      drift gate are done. The per-component QAM implementation is done too — six independently
+      probed patches, each losing only its own control on a client whose shape does not match — and
+      AutoTDP has a surface in both places: a row on the overlay's Power and thermals page and a
+      Valve `ToggleField` in the native QAM beneath the limit it moves, both moving the one stored
+      setting through the one method. **What remains is the live Steam/RTSS/AutoTDP matrix**, which
+      is attended.
 - [ ] **Q10 — Finish static plugin glyph delivery and all WSGM/Steam consumers.** Delivery works and
       is live-verified: the plugin's profile becomes one WSGM-owned stylesheet, matching CSSLoader's
       mechanism so both can run at once. The four JS tier patches and the selector patch that nothing
-      consumed are gone. What remains is the static package simplification, the preview and
-      input-test surfaces, and visual acceptance with a real profile on a controller settings screen.
-- [ ] **Q11 — Finish the overlay, shutdown/installer, and focused release validation.**
+      consumed are gone. The preview and input-test surfaces are built: the plugin's artwork is drawn
+      with no SVG library, because the SDK normalizes it and the glyph service already turns that into
+      Avalonia geometry, and the input test lights a control from the unfiltered physical sample.
+      Navigation hints take the device's own button too. **What remains is visual acceptance with a
+      real profile on a controller settings screen**, which is attended.
+- [ ] **Q11 — Finish the overlay, shutdown/installer, and focused release validation.** The overlay
+      is finished: four destinations with a bounded page stack, Back, and focus and scroll
+      restoration; every Home/Steam/System action on its own page calling the owning service; all
+      eight Device sections navigable, including the ones that needed more than a capability list —
+      profile selection, the controller target, cycle recovery, and the glyph preview with its live
+      input test. The installer carries the controller component and its user-approved driver step.
+      **What remains is the release validation**, which is attended by definition, and the shutdown
+      path, which is unchanged and already covered by its own items.
 
 A checked architectural queue item has its code, focused tests, diagnostics, and documentation
 complete. Attended/live gates remain explicit and unchecked in the owning phase until they run on
