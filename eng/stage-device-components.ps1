@@ -209,6 +209,26 @@ try {
             Copy-Item -LiteralPath $metadataPath -Destination $packageDestination
         }
 
+        # Physical glyph artwork, if the package ships any. The importer discovers profiles purely
+        # by directory (glyphs/profiles/*.json, glyphs/assets/<sha256>.<ext>), so the layout is
+        # copied through verbatim; every file is checked for link redirection the same way the
+        # manifest and notices are, because these are read from the installed package at runtime.
+        $glyphSource = Join-Path $sourceDirectory "glyphs"
+        if (Test-Path -LiteralPath $glyphSource -PathType Container) {
+            $glyphFiles = @(Get-ChildItem -LiteralPath $glyphSource -File -Recurse)
+            foreach ($glyphFile in $glyphFiles) {
+                Assert-RegularSourceFile $glyphFile.FullName
+                $relative = [IO.Path]::GetRelativePath($sourceDirectory, $glyphFile.FullName)
+                $target = Join-Path $packageDestination $relative
+                $targetParent = Split-Path -Parent $target
+                if (-not (Test-Path -LiteralPath $targetParent -PathType Container)) {
+                    New-Item -ItemType Directory -Path $targetParent -Force | Out-Null
+                }
+                Copy-Item -LiteralPath $glyphFile.FullName -Destination $target -Force
+            }
+            Write-Host "  glyph assets staged: $($glyphFiles.Count) file(s)"
+        }
+
         # The built-in package is first-party GPL code. Materialize the package copy
         # from the repository's authoritative license instead of maintaining a duplicate.
         $licensePath = Join-Path $root "LICENSE"

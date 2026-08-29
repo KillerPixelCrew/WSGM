@@ -211,7 +211,7 @@ internal sealed record SteamInputGlyphPresentation(
         if (asset.Lock.Format is GlyphAssetFormat.Svg && asset.Vector is not null)
         {
             mediaType = "image/svg+xml";
-            bytes = asset.Vector.CanonicalSvgUtf8.Span;
+            bytes = asset.Vector.SvgUtf8.Span;
         }
         else if (asset.Lock.Format is GlyphAssetFormat.Png && !asset.RasterPng.IsEmpty)
         {

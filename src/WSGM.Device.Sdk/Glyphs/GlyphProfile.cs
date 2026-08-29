@@ -292,42 +292,52 @@ public sealed record GlyphControlAlias
     public required GlyphControlId PhysicalControl { get; init; }
 }
 
-/// <summary>One normalized path whose strings were produced by the loader's allowlisted parser.</summary>
+/// <summary>One path WSGM's renderer can draw, with the presentation that applies to it.</summary>
 public sealed record NormalizedGlyphPath
 {
-    /// <summary>Canonical SVG path data.</summary>
+    /// <summary>SVG path data, as authored.</summary>
     public required string Data { get; init; }
 
-    /// <summary>Canonical fill token: currentColor, none, or a hexadecimal color.</summary>
+    /// <summary>Fill, resolved through any enclosing groups.</summary>
     public required string Fill { get; init; }
 
-    /// <summary>Canonical stroke token: currentColor, none, or a hexadecimal color.</summary>
+    /// <summary>Stroke, resolved through any enclosing groups.</summary>
     public required string Stroke { get; init; }
 
     /// <summary>Stroke width in SVG coordinates.</summary>
     public decimal StrokeWidth { get; init; }
 
-    /// <summary>Canonical fill rule.</summary>
+    /// <summary>Fill rule.</summary>
     public required string FillRule { get; init; }
 
-    /// <summary>Canonical stroke-line cap.</summary>
+    /// <summary>Stroke-line cap.</summary>
     public required string StrokeLineCap { get; init; }
 
-    /// <summary>Canonical stroke-line join.</summary>
+    /// <summary>Stroke-line join.</summary>
     public required string StrokeLineJoin { get; init; }
 }
 
-/// <summary>Safe vector output re-emitted entirely from loader-owned data.</summary>
+/// <summary>An imported SVG asset: the author's bytes, plus the bounds read from them.</summary>
 public sealed record NormalizedGlyphSvg
 {
-    /// <summary>Validated coordinate bounds.</summary>
+    /// <summary>The author's own SVG bytes, unmodified.</summary>
+    /// <remarks>
+    /// Previously a canonical document rebuilt from an allowlisted subset of the source, which
+    /// silently discarded grouping and any attribute the allowlist had not anticipated. Artwork is a
+    /// drawing; re-drawing it was never WSGM's job.
+    /// </remarks>
+    public required ReadOnlyMemory<byte> SvgUtf8 { get; init; }
+
+    /// <summary>Coordinate bounds, from the view box or the intrinsic size.</summary>
     public required GlyphViewBox ViewBox { get; init; }
 
-    /// <summary>Allowlisted normalized paths.</summary>
-    public required IReadOnlyList<NormalizedGlyphPath> Paths { get; init; }
-
-    /// <summary>Canonical SVG bytes generated from the normalized model, never the plugin input.</summary>
-    public required ReadOnlyMemory<byte> CanonicalSvgUtf8 { get; init; }
+    /// <summary>The paths WSGM's own renderer can draw, which may be empty.</summary>
+    /// <remarks>
+    /// Extracted for Avalonia, which draws geometry rather than documents, and for nothing else —
+    /// Steam is handed <see cref="SvgUtf8"/>. Artwork whose paths cannot all be understood still
+    /// imports and still reaches Steam intact; only WSGM's own glyph rendering falls back.
+    /// </remarks>
+    public IReadOnlyList<NormalizedGlyphPath> Paths { get; init; } = [];
 }
 
 /// <summary>One imported, hash-linked asset safe for first-party consumers.</summary>
@@ -343,7 +353,7 @@ public sealed record ImportedGlyphAsset
     public ReadOnlyMemory<byte> RasterPng { get; init; }
 
     /// <summary>Approximate retained payload size used by bounded caches.</summary>
-    public int RetainedBytes => Vector?.CanonicalSvgUtf8.Length ?? RasterPng.Length;
+    public int RetainedBytes => Vector?.SvgUtf8.Length ?? RasterPng.Length;
 }
 
 /// <summary>Validated profile plus every imported hash-addressed asset.</summary>

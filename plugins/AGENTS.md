@@ -20,9 +20,10 @@ journal; its own controller artwork and glyph control map; and its declared depe
 ## What a plugin never does
 
 - Call HIDMaestro, own WSGM's Steam Input lease, or touch HidHide.
-- Supply XAML, HTML, CSS, JavaScript, URLs, Steam selectors, patch logic, arbitrary commands, or any
-  executable content. Artwork and the control map are **data**, validated and re-emitted by WSGM
-  before any surface sees them.
+- Supply XAML, HTML, CSS, JavaScript, URLs, Steam selectors, patch logic, or arbitrary commands.
+  Artwork and the control map are **data**: WSGM checks their integrity and ships the author's own
+  bytes. It does not re-emit them, and the boundary is about who owns the Steam surface, not about
+  containing a plugin — a plugin already runs as the user.
 - Install, repair, register, or restart a dependency at runtime. Declare it; a missing dependency
   makes the affected capability unavailable, and nothing more.
 - Perform UI work, or dispatch an action from a hook callback.

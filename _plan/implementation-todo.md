@@ -663,6 +663,73 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       The `RTSSSharedMemoryV2` layout was confirmed against a live RTSS 2.21 on the reference Claw on
       2026-08-29 rather than copied from a header; the offsets and the tick-based mean are recorded in
       `docs/rtss.md`.
+- [x] Make the native QAM actually reach the user. Live-verified on the reference Claw on
+      2026-08-29; every one of these was silent, and each was found by measuring the running Steam
+      rather than by reading the code.
+      - `appendControls` searched for Steam's `PanelSection` inside `performanceRoot(props)`, an
+        UNRENDERED element whose `props.children` holds only what was passed in. Steam's section
+        exists only after React renders it, so the walk ended on a childless root — measured as
+        `depthReached 0, sectionSeen false` with all five rows built and the section component
+        resolved. It would have failed the same way on SteamOS. WSGM now renders its own
+        `PanelSection` and appends it, depending on nothing about Steam's internal tree shape.
+      - The request context declared `PropertyNameCaseInsensitive = false` with no naming policy, so
+        the source generator matched PascalCase against the bootstrap's camelCase envelope and
+        NOTHING bound: `Version` arrived as 0 and every command was refused as a "schema version
+        mismatch" with an empty patch id. Every native-QAM command had been rejected since the
+        bridge was written, invisible because no row rendered to send one.
+      - Steam's localiser returns a React element wrapping a string, not a string, so `localizeOr`
+        fell back on every token and WSGM's rows rendered in English beside Steam's own in the
+        user's language.
+      - The sliders were controlled by the observed hardware value with a no-op `onChange`, so the
+        handle snapped back on every render: dragging did nothing and one press moved one step.
+      - `wsgm.native-qam.auto-tdp` was missing from the command allowlist that also gates
+        subscriptions, so the AutoTDP row threw on every render.
+      - Controller target ids were validated lowercase-only against `SteamDeckComposite`,
+        `Xbox360`, `DualShock4`.
+      - The bridge reused an installed bootstrap whenever the version and both Steam generations
+        matched, none of which change when WSGM updates, so a new build kept running the previous
+        build's injected script until Steam itself restarted. The asset's SHA-256 is now part of
+        that identity.
+- [x] Suppress Steam's own FPS counter rows in favour of WSGM's RTSS overlay. Matched by localising
+      `#QuickAccess_Tab_Perf_FPS_Corner` and `_FPS_Contrast` — the DOM classes are hashed per client
+      build and the visible text changes with the user's language, so the token is the only stable
+      handle. The rows sit about ten levels inside the panel behind component elements, so the
+      filter descends by wrapping each plain function component it meets, the mechanism Decky's
+      `createReactTreePatcher` uses on this same panel. Dropped only on the path that also appends
+      WSGM's rows, so the user never ends up with neither.
+- [x] Give the plugin a periodic observation refresh. It published capability state at start, at
+      resume and after a command and never again, so every readable capability expired against
+      WSGM's thirty-second freshness policy half a minute into the cycle and stayed expired until
+      the user changed something.
+- [x] Correct PL1's ceiling to 37 W. `_plan/claw-8-a2vm-plugin.md` recorded "8–30 W; stock read
+      30 W" for EC `0x50` — the stock value copied into the range field — and that reached both the
+      capability descriptor and the write validator. HandheldCompanion's `ClawA2VM` declares
+      `cTDP = { 8, 37 }` for the same board.
+- [ ] **Sweep the codebase for more pseudo-security like the glyph SVG sanitizer.** That one kept an
+      allowlist of permitted SVG root attributes, elements, path attributes and colour forms, and
+      shipped a canonical document re-serialized from what survived. It protected nothing: a plugin
+      is a .NET assembly DeviceHost loads and runs, already holding WMI, HID and EC access, and
+      free to open a socket to Steam's debug port and drive CEF itself. What it did do was refuse
+      all twenty glyphs of the first real profile for carrying a `width` attribute, and destroy the
+      controller illustration's `<g>` grouping. It is now a pass-through with an integrity check.
+      The test for this class of code: name the attacker, and say what they cannot already do
+      through a door that is standing open beside it. If that sentence cannot be written, the check
+      is costing capability and buying nothing. WSGM is a game mode for Steam on a single-user
+      handheld; the user is responsible for what they install.
+      Candidates to review against that test: the splash-theme extraction defence set in
+      `docs/ui.md`, the device-package validator's non-integrity checks, the Steam UI patch bounds,
+      and anything else framed as protecting WSGM from a component that already runs as the user.
+      Integrity checks are NOT the target — hash pinning, size bounds, CRCs and dimension
+      agreement catch corruption and stay.
+- [ ] **Ship a physical glyph profile for the Claw 8 A2VM.** The delivery stack works and is inert
+      for want of content: `Device glyph catalog: package=wsgm.device.msi.claw-8-a2vm, profiles=0,
+      rejected=0` — nothing malformed, nothing rejected, nothing present. The Steam Input page
+      therefore keeps Valve's Steam Deck artwork, and `SetGlyphDeliveryPatchStates` disables the
+      stylesheet patch because the resolved profile has neither stable resources nor controller
+      images. `_ref/handheld-controller-glyphs` is the artwork source. What this needs: the glyph
+      profile and control map in the plugin package, the assets it names, and the manifest entry the
+      catalog reads — then the existing importer, stylesheet patch and delivery gate carry it the
+      rest of the way unchanged.
 - [ ] **Replace WSGM's hand-rolled RTSS interop with `RTSSSharedMemoryNET`** — the library
       HandheldCompanion uses. There was never a decision to hand-roll this; it is an omission, and
       two of the three RTSS defects found on 2026-08-29 were in code the library already owns.
