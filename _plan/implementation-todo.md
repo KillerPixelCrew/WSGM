@@ -710,11 +710,11 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
 | SDK/Host | One public AOT-safe SDK, exact wire contract, one-package host lifecycle, shared ring, focused tests | Feature-specific controller/glyph consumers and attended fault/recovery acceptance |
 | Device Lab | One GUI/CLI app preserving inventory, capture, probes, scaffolding, testing, glyph import, validation, and packing | Attended reference-device acceptance for the explicit hardware action |
 | Claw | Direct hardware services, one command gate, one small plugin journal, exact WMI/HID facts and fixtures | Remaining hardware features plus attended acceptance/restoration |
-| Controller | One `ControllerManager` owning selection, target lifetime/replacement, owned-delta HidHide, UI capture, zero-output, the unified make-safe sequence, and a real haptic return path | Real backend, overlay consumption of the managed UI source, attended acceptance |
-| Steam/QAM | Persistent CDP, bootstrap, semantic QAM foundations, one shared patch-evaluation helper, user-owned unelevated client launch | Direct component implementation, TypeScript build, live matrix |
-| RTSS | Discovery/profile/control plus a device-verified shared-memory frametime reader | QAM/overlay binding of the frametime state |
-| AutoTDP | One pure controller, trace replay, the session binding, and the user switch | Live games/menus/scenes/suspend/manual-override acceptance on hardware |
-| Glyphs | Import/runtime/selection/Steam route foundations, active delivery of the two live-approved tiers | Static package simplification, inline/capability fingerprints, preview, visual acceptance |
+| Controller | `ControllerManager`, the unified make-safe sequence, a canonical model covering every control the targets express, and a VIIPER backend verified against the real library | Installing usbip-win2 so `device_attach` works, idle-CPU measurement, overlay consumption of the managed UI source, attended acceptance |
+| Steam/QAM | Persistent CDP, bootstrap, semantic QAM foundations, one shared patch-evaluation helper, a deterministic TypeScript build with a drift gate, user-owned unelevated client launch | Direct component implementation, the AutoTDP projection, live matrix |
+| RTSS | Discovery/profile/control plus a device-verified shared-memory frametime reader with the layout as an executable specification | QAM/overlay binding of the frametime state, and a read from an actually rendering game |
+| AutoTDP | One pure controller, trace replay, the session binding, and the user switch | A QAM/overlay surface, and live games/menus/scenes/suspend/manual-override acceptance |
+| Glyphs | Plugin-owned artwork delivered as CSS through one owned stylesheet, live-verified against the running client | Static package simplification, preview and input test, visual acceptance with a real profile |
 | Overlay | Navigation and partial Device projections | Complete destinations and handheld acceptance |
 | Shutdown | One deadline-driven coordinator and one installer completion channel | Live update/logoff/uninstall recovery acceptance |
 | Shell/Desktop | Explorer-first takeover plus a session-owned jobless shell anchor and verified-result transition API | Attended Process Explorer/MO2/repeated-transition acceptance |
@@ -741,19 +741,21 @@ Only this list drives the next implementation work:
 - [ ] **Q08 — Finish controller targets, per-app selection, UI capture, output, HidHide, and fallback.**
       The one `ControllerManager`, its `DeviceCoordinator` wiring, the unified make-safe sequence,
       direct global-plus-override target selection, and the wire-published haptic return path are
-      complete with focused tests, diagnostics, and docs. What remains is the blocked backend
-      decision, switching the overlay surfaces onto the managed UI source, and the attended
-      reference-device acceptance in S7.
+      complete with focused tests, diagnostics, and docs. **The backend is no longer blocked**: it is
+      VIIPER, implemented, and verified against the real library — see S7. What remains is installing
+      usbip-win2 so `device_attach` works, the idle-CPU measurement, switching the overlay surfaces
+      onto the managed UI source, and the attended reference-device acceptance in S7.
 - [ ] **Q09 — Finish Steam/QAM/RTSS, the full-client unelevated Steam launch toggle, and implement
       the direct AutoTDP controller/replay.** The unelevated Steam toggle, the shared patch-evaluation
       helper, the device-verified RTSS frametime reader, the pure AutoTDP controller with trace
-      replay, and its session binding and user switch are done. What remains is the deterministic
-      TypeScript build, the direct per-component QAM implementation, the QAM/overlay binding of the
-      frametime state, and the live Steam/RTSS/AutoTDP matrix.
-- [ ] **Q10 — Finish static plugin glyph delivery and all WSGM/Steam consumers.** Delivery is no
-      longer inert: the resolved profile now reaches the two live-approved tiers. What remains is the
-      static package simplification, the inline-SVG and capability-hiding fingerprints with their
-      direct patches, the preview/input-test surfaces, and visual acceptance.
+      replay, its session binding and user switch, and the deterministic TypeScript build with its
+      drift gate are done. What remains is the direct per-component QAM implementation, an AutoTDP
+      surface in QAM or the overlay, and the live Steam/RTSS/AutoTDP matrix.
+- [ ] **Q10 — Finish static plugin glyph delivery and all WSGM/Steam consumers.** Delivery works and
+      is live-verified: the plugin's profile becomes one WSGM-owned stylesheet, matching CSSLoader's
+      mechanism so both can run at once. The four JS tier patches and the selector patch that nothing
+      consumed are gone. What remains is the static package simplification, the preview and
+      input-test surfaces, and visual acceptance with a real profile on a controller settings screen.
 - [ ] **Q11 — Finish the overlay, shutdown/installer, and focused release validation.**
 
 A checked architectural queue item has its code, focused tests, diagnostics, and documentation
