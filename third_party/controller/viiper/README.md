@@ -69,8 +69,8 @@ VIIPER needs three things on Windows, and none of them may be installed by the r
 INV-020 keeps driver, service, and certificate installation in the installer, as an explicit,
 user-approved, elevated step that verifies the locked component identity first.
 
-1. **usbip-win2**, which supplies the generic signed kernel-mode USBIP driver and the VHCI device
-   VIIPER attaches to. Already pinned and signature-verified in `../controller-components.lock.json`
+1. **usbip-win2**, which supplies the generic signed kernel-mode USB/IP driver and the client device
+   VIIPER attaches to. Pinned and signature-verified in `../controller-components.lock.json`
    (`USBip-0.9.7.7-x64.exe`, publisher thumbprint `9AC56B6C…`). This is the one kernel component,
    it is generic, and it never needs to know about specific device types — which is the whole reason
    this approach avoids shipping a driver per controller.
@@ -88,15 +88,31 @@ and running WSGM normally, with controller management simply unavailable — exa
 
 ### State of the installer work
 
-Done: `WSGM.iss` declares a `controller` component, and `libviiper.dll` plus its notices and header
-ship beside the executable. Every one of those entries is `skipifsourcedoesntexist`, because the
-library is only built when the release machine has a Go toolchain and a C compiler — `build.ps1`
-skips it loudly otherwise rather than failing an otherwise good release.
+`WSGM.iss` declares a `controller` component; `libviiper.dll` with its notices and header, and the
+verified usbip-win2 installer, ship under it. Every one of those entries is
+`skipifsourcedoesntexist`, because they exist only when the release machine has a Go toolchain, a C
+compiler, and a network — `build.ps1` skips each loudly rather than failing an otherwise good
+release.
 
-Not done: installing the **usbip-win2 driver**. `eng\acquire-controller-dependencies.ps1` already
-downloads the pinned installer and verifies its hash and Authenticode signature, but nothing yet
-stages it into `publish\` or runs it from setup. That is the one step between here and a working
-virtual controller, because `viiper_device_attach` needs the VHCI device the driver provides. It
-must run as an explicit, user-approved, elevated setup action for the `controller` component only,
-must re-verify the locked identity before running, and must leave a declined or failed install as a
-machine that runs WSGM normally with controller management unavailable.
+The driver step is a separate ticked task, `Install-UsbipDriver.ps1`, run from `[Run]` before setup
+restarts anything of WSGM's. It prefers the staged installer and falls back to downloading the same
+pinned asset, re-verifies digest and signer on this disk either way, skips an install that is
+already present or newer, and confirms `usbip2_ude` is registered afterwards instead of trusting the
+exit code. Every failure is non-fatal: a machine without the driver runs WSGM normally with
+controller management unavailable.
+
+Two things learned by doing rather than reading, both of which would have produced a broken step:
+
+- The release asset is an **Inno Setup** installer, not NSIS. VIIPER's own `scripts/install.ps1`
+  passes `/S`, which Inno Setup does not recognise — that script pops the full interactive installer
+  instead of installing silently. The correct switches are `/VERYSILENT /SUPPRESSMSGBOXES
+  /NORESTART /NOCANCEL /SP-`.
+- **`System32\drivers\usbip2_ude.sys` does not exist even on a working install.** It is a universal
+  driver and lives in the driver store; on the reference Claw the real path is
+  `DriverStore\FileRepository\usbip2_ude.inf_amd64_…`, reached through the `ImagePath` of the
+  `usbip2_ude` service key. A file test — which is what VIIPER's script falls back to — reports "not
+  installed" on a machine where it is. `pnputil` is no substitute either: its output is localised,
+  and it prints German here.
+
+With the driver present, `viiper_device_attach` is the one entry point the binding has not yet been
+driven through. That is now testable on this machine, which already carries a usbip-win2 install.

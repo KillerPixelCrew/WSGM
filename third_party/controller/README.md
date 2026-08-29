@@ -121,30 +121,53 @@ two edits are reviewed by inspection and not yet compiled.
 ## Pinned primary sources
 
 - [HIDMaestro v1.7.0](https://github.com/hifihedgehog/HIDMaestro/releases/tag/v1.7.0), commit
-  `46054b862830fcec7bc98d72ccb7c4f0c0179fb1`. The release archive and
-  `HIDMaestro.Core.dll` hashes are locked in `controller-components.lock.json`.
+  `46054b862830fcec7bc98d72ccb7c4f0c0179fb1`. Reviewed as the alternative and not chosen, so it is
+  no longer a locked component: nothing in a WSGM build downloads, stages or installs it. The
+  analysis above stays because the comparison is what justifies the choice.
 - [usbip-win2 v.0.9.7.7](https://github.com/vadimgrn/usbip-win2/releases/tag/v.0.9.7.7), commit
-  `7c219953101cc5d0ec9a0bcb3eb87259cf72bedd`. HIDMaestro deliberately uses 0.9.7.7 instead of
-  0.9.7.8 because its upstream README records pool-corruption reports against 0.9.7.8.
+  `7c219953101cc5d0ec9a0bcb3eb87259cf72bedd`. WSGM stays on 0.9.7.7 for the same reason HIDMaestro
+  does, now checked directly rather than taken second-hand: usbip-win2 issues
+  [#180](https://github.com/vadimgrn/usbip-win2/issues/180) and
+  [#181](https://github.com/vadimgrn/usbip-win2/issues/181) are still open against 0.9.7.8, and #180
+  reports a pool-corruption BSOD on **every** attach on Windows 11 build 26200 — the build the
+  reference Claw runs. Neither reproducer is on WSGM's path (#180 needs a vendor-class WinUSB
+  device, #181 a USB-audio pin close on a composite DualSense; the `steamdeck` target is HID-class
+  with no audio endpoint), so this is caution rather than a known hit — but 0.9.7.8 offers WSGM
+  nothing it needs, so there is no reason to take the risk. Revisit when both issues close.
+  Verified on 2026-08-29: the 0.9.7.7 asset is an Inno Setup installer whose SHA-256 matches the
+  locked digest and whose EV signature matches the locked thumbprint.
 - [HidHide v1.5.230.0](https://github.com/nefarius/HidHide/releases/tag/v1.5.230.0), commit
   `722d997ce75db58f5aa36e40ca920f99022c020a`. WSGM's adapter uses the published `\\.\HidHide`
   IOCTL contract directly and preserves the exact external MULTI_SZ entry order.
 
-`eng/acquire-controller-dependencies.ps1` downloads those exact assets into an explicit artifact
-directory, verifies every locked hash, verifies the two signed installers, and extracts the pinned
-HIDMaestro SDK and its notices. It does not execute or install anything.
+`eng/acquire-controller-dependencies.ps1` reads this lock file rather than restating it, downloads
+the named assets into an explicit artifact directory, and verifies each one's SHA-256 and
+Authenticode signer before letting it exist there. It does not execute or install anything.
 `eng/checkout-controller-dependency-sources.ps1` checks out the exact reviewed source commits for
 independent inspection. It intentionally does not claim release-binary reproduction: publisher
-private keys and HIDMaestro's time-dependent INF stamping make byte-identical signed output
-unavailable from a clean public checkout.
+private keys make byte-identical signed output unavailable from a clean public checkout.
 
-## Architecture and future packaging
+## Packaging
 
-HIDMaestro is a managed JIT/WinRT SDK and must never be referenced by or staged beside WSGM's
-NativeAOT application. If all gates are later closed, the conditional component is reserved for
-`publish/ControllerHost` and installed root `ControllerHost/`; it remains separate from both `App`
-and the JIT-only plugin `DeviceHost`. The installer must verify the locked component identity and
-signatures before any explicit, user-approved install or repair operation.
+There is no ControllerHost process. VIIPER's `libviiper` is a flat C ABI over blittable types, so
+the NativeAOT WSGM executable binds it directly and the library ships beside `WSGM.exe` — the same
+arrangement as the Rust helpers. The reserved `publish/ControllerHost` staging root is not used.
+
+`build.ps1` builds `libviiper.dll` from the pinned VIIPER revision and stages the verified
+usbip-win2 installer into `publish/App`. Both steps are best-effort and skip loudly: a release
+machine without a Go toolchain, a C compiler, or a network still produces a good build, and the
+result is simply a WSGM whose controller management reports itself unavailable.
+
+Setup installs the driver from one place and one place only — an explicitly ticked task that runs
+`Install-UsbipDriver.ps1` while setup is on screen (INV-020). It re-verifies the pinned digest and
+signer on the user's disk before running anything, detects an existing install so it never
+reinstalls or downgrades one, confirms afterwards that `usbip2_ude` is actually registered rather
+than trusting an exit code, and treats every failure as non-fatal. `eng/assert-controller-pin.ps1`
+keeps the identity that script carries in step with this lock file.
+
+The USB hub restart is why this may never move into the running shell: installing the driver
+re-enumerates every USB 3.0 hub, which on a handheld drops the built-in controller, the touch
+digitiser and the keyboard at once.
 
 HidHide is mandatory only while controller management is active. Missing, inactive, inverse-mode,
 or unhealthy HidHide makes controller management unavailable without changing global HidHide state.

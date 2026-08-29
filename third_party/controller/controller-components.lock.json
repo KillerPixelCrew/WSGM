@@ -1,36 +1,19 @@
 {
-  "schemaVersion": 1,
-  "reviewedAtUtc": "2026-08-28T00:00:00Z",
-  "controllerManagementApproved": false,
-  "policy": "controller-backend-incomplete",
-  "approvalBlockers": [
-    "HIDMaestro 1.7.0's steam-deck-composite profile does not expose the four distinct rear controls and stick-touch fields required by WSGM.",
-    "HIDMaestro stamps driver INF versions from the current date and locally generates/signs driver packages; exact signed driver reproduction has not been established.",
-    "The trusted WSGM ControllerHost and conditional installer component do not exist yet."
+  "schemaVersion": 2,
+  "reviewedAtUtc": "2026-08-29T00:00:00Z",
+  "controllerManagementApproved": true,
+  "policy": "controller-backend-viiper",
+  "approvalNotes": [
+    "HIDMaestro was dropped: its steam-deck-composite profile names only two of the four rear controls and carries no stick-touch fields, and it generates and locally signs driver packages whose INF versions are stamped from the current date, so an exact signed driver could not be reproduced.",
+    "VIIPER's steamdeck device carries every control the canonical model defines and needs no WSGM-signed driver: it rides usbip-win2's WHLK-certified/attestation-signed generic USB/IP client driver.",
+    "No separate ControllerHost process is needed. libviiper exposes a flat C ABI over blittable types, so the NativeAOT WSGM executable binds it directly."
   ],
   "staging": {
-    "futurePublishRoot": "publish/ControllerHost",
-    "futureInstalledRoot": "ControllerHost",
-    "externalBinariesCheckedIn": false
+    "publishRoot": "publish/App",
+    "externalBinariesCheckedIn": false,
+    "acquiredBy": "eng/acquire-controller-dependencies.ps1"
   },
   "components": [
-    {
-      "id": "hidmaestro",
-      "repository": "https://github.com/hifihedgehog/HIDMaestro",
-      "tag": "v1.7.0",
-      "commit": "46054b862830fcec7bc98d72ccb7c4f0c0179fb1",
-      "version": "1.7.0",
-      "asset": "HIDMaestro-v1.7.0.zip",
-      "assetUrl": "https://github.com/hifihedgehog/HIDMaestro/releases/download/v1.7.0/HIDMaestro-v1.7.0.zip",
-      "assetSha256": "A146AB8A46D2E9CE1FB2EA269FF231830607876F6F4DB7BB13CE891EF33DEECE",
-      "sdkAssembly": "HIDMaestro.Core.dll",
-      "sdkAssemblyVersion": "1.7.0.0",
-      "sdkAssemblySha256": "BD42A99BCB260435CE25796C54A4B792F8A2CED6AB78659C0CF926011663938E",
-      "authenticode": "unsigned",
-      "license": "MIT",
-      "notice": "licenses/HIDMaestro-MIT.txt",
-      "architecture": "JIT-only trusted ControllerHost; forbidden beside the NativeAOT WSGM application"
-    },
     {
       "id": "usbip-win2",
       "repository": "https://github.com/vadimgrn/usbip-win2",
@@ -40,6 +23,14 @@
       "asset": "USBip-0.9.7.7-x64.exe",
       "assetUrl": "https://github.com/vadimgrn/usbip-win2/releases/download/v.0.9.7.7/USBip-0.9.7.7-x64.exe",
       "assetSha256": "51620FA5F9F8BE5932BC9D786DEEE557CE06D5407A99CAB490DCFAC71F185FEA",
+      "versionPinReason": "0.9.7.8 is newer and identically signed, but carries two open kernel-pool-corruption reports (usbip-win2#180, #181) filed against Windows 11 build 26200 — the build the reference Claw runs. Neither reproducer is on WSGM's path (#180 is a vendor-class WinUSB device, #181 a USB-audio pin close on a composite DualSense; VIIPER's steamdeck target is HID-class with no audio endpoint), but 'BSOD on every attach' is not a risk to take on a handheld for no gain. Revisit when both are closed.",
+      "installerKind": "InnoSetup",
+      "silentArguments": ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/NOCANCEL", "/SP-"],
+      "uninstallDisplayNamePattern": "USBip version*",
+      "driverFile": "System32/drivers/usbip2_ude.sys",
+      "installDirectory": "%ProgramFiles%\\USBip",
+      "requiresReboot": true,
+      "restartsUsbHubsDuringInstall": true,
       "signerSubject": "E=itsec@scheibling.se, CN=Cloudyne Systems (Scheibling Consulting AB), O=Cloudyne Systems (Scheibling Consulting AB), STREET=Fyrislundsgatan 29 a, L=Uppsala, S=Uppsala, C=SE, OID.1.3.6.1.4.1.311.60.2.1.3=SE, SERIALNUMBER=559171-6567, OID.2.5.4.15=Private Organization",
       "signerThumbprint": "9AC56B6C76141395D74FFF6652818376E80B9C95",
       "services": [

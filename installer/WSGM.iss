@@ -74,6 +74,17 @@ Name: "device"; Description: "Device Integration runtime and one installed devic
 Name: "devicelab"; Description: "Device Lab and offline device-development tools"; Types: custom
 Name: "controller"; Description: "Virtual controller support (requires the USBIP driver; remains disabled until enabled in WSGM Settings)"; Types: full
 
+[Tasks]
+; The one place the USB/IP driver may be installed from. It is a separate, visibly ticked line
+; rather than a silent consequence of the component because it installs a signed third-party kernel
+; driver, restarts every USB 3.0 hub while it runs, and needs a reboot afterwards. Unticking it
+; installs WSGM's controller bytes and leaves controller management reporting itself unavailable,
+; which is a supported state — so the choice is real in both directions.
+; It is never offered outside setup (INV-020): the hub restart drops the built-in controller, the
+; touch digitiser and the keyboard, which underneath a running game mode would leave the user with
+; no input and no way back.
+Name: "usbipdriver"; Description: "Install the usbip-win2 USB/IP driver (signed third-party kernel driver; USB devices restart briefly and a reboot is required)"; GroupDescription: "Virtual controller"; Components: controller
+
 [CustomMessages]
 english.SteamMissing=Steam was not found on this PC.%n%nWSGM is Steam-exclusive and boots straight into Steam Big Picture. Install Steam from steampowered.com, sign in once, and then run this setup again.
 german.SteamMissing=Steam wurde auf diesem PC nicht gefunden.%n%nWSGM funktioniert ausschließlich mit Steam und startet direkt in Steam Big Picture. Installiere Steam von steampowered.com, melde dich einmal an und führe dieses Setup danach erneut aus.
@@ -110,6 +121,17 @@ Source: "{#AppPublishDir}\LoadingIndicators.Avalonia-UNLICENSE.txt"; DestDir: "{
 ; controller management is simply unavailable, which is a supported state.
 Source: "{#AppPublishDir}\NOTICE.md"; DestDir: "{app}"; DestName: "VIIPER-NOTICE.md"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#AppPublishDir}\libviiper.h"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+; The driver step's script. It ships unconditionally rather than under the component so that a user
+; who adds the controller component to an existing install, or who needs to re-run the step after a
+; failure, already has it on disk. It does nothing unless invoked.
+Source: "Install-UsbipDriver.ps1"; DestDir: "{app}"; Flags: ignoreversion
+; The USB/IP driver installer itself, already verified against the reviewed digest and signer on the
+; release machine and verified again by the script before it is run. Carrying it means a freshly
+; imaged handheld can install the driver before its Wi-Fi is configured. skipifsourcedoesntexist
+; because a release machine without network cannot stage it; the script then downloads the identical
+; pinned asset. It ships under the controller component only — it is 26 MB nobody else needs.
+Source: "{#AppPublishDir}\USBip-0.9.7.7-x64.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist; Components: controller
+Source: "..\third_party\controller\licenses\usbip-win2-BSD-2-Clause.txt"; DestDir: "{app}"; Flags: ignoreversion; Components: controller
 ; DeviceHost and the one plugin package are administrator-protected. The package
 ; is explicit trusted hardware code and never loads from a user-writable path.
 ; This glob also carries the exact self-contained .NET runtime license/notices
@@ -133,6 +155,12 @@ Filename: "{app}\WSGM.exe"; Parameters: "--setup"; Flags: runhidden
 ; abandoned preview registration of the same name; PrepareToInstall already
 ; stopped it so [Files] could overwrite the binary).
 Filename: "{autopf}\WSGM\WSGM.LogonService.exe"; Parameters: "--install"; Flags: runhidden waituntilterminated
+; The USB/IP driver, only when its task was ticked, and deliberately BEFORE the restart entries
+; below: installing it restarts every USB 3.0 hub, so it has to finish while nothing of WSGM's is
+; running and the user is still looking at setup. The script exits 0 even when it fails — a machine
+; without the driver is a supported state where controller management reports itself unavailable —
+; so this can never strand a WSGM install on a driver problem.
+Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\Install-UsbipDriver.ps1"""; StatusMsg: "Installing the USB/IP driver for virtual controller support..."; Tasks: usbipdriver; Flags: runhidden waituntilterminated
 ; Update restart: if the shell was running it comes back as the shell; a plain
 ; settings instance comes back as settings (no args = DecideMode).
 Filename: "{app}\WSGM.exe"; Parameters: "--shell"; Flags: nowait; Check: WasShellRunning

@@ -11,15 +11,24 @@ public static class DeviceFeatureAvailability
 {
     /// <summary>Whether the controller component ships in this build.</summary>
     /// <remarks>
-    /// The capability gate is now only about installation, not capability. The VIIPER backend
-    /// carries every control the virtual targets define, and rides <c>usbip-win2</c>'s signed
-    /// generic driver rather than one WSGM would have to build and sign. What is missing is the
-    /// packaged component: the native library staged beside WSGM and the installer step that
-    /// installs the USBIP driver on request. Until both ship, this stays closed.
+    /// Both conditions this gate was waiting on now ship. <c>libviiper.dll</c> is built from source
+    /// on every release build and staged beside <c>WSGM.exe</c>, and setup carries an explicitly
+    /// ticked task that installs the <c>usbip-win2</c> USB/IP driver the backend attaches through.
+    /// <para>
+    /// This constant answers only whether the component exists in the build. Whether it works on
+    /// the machine in front of the user is a runtime question with several distinct answers — no
+    /// library, no driver, attach refused, host faulted — and belongs where they can be told apart
+    /// and reported truthfully, which is <c>ControllerManagerStatus</c>. Do not fold a machine
+    /// probe back in here.
+    /// </para>
     /// </remarks>
-    public const bool ControllerManagement = false;
+    public const bool ControllerManagement = true;
 
-    /// <summary>User-safe reason controller management is excluded from this release.</summary>
+    /// <summary>User-safe reason controller management is unavailable when the gate is closed.</summary>
+    /// <remarks>
+    /// Retained for the gate-closed projection and for the unavailable native QAM service. With the
+    /// gate open this text is reached only by a build that deliberately excludes the component.
+    /// </remarks>
     public const string ControllerManagementDetail =
         "Controller management is unavailable: the virtual controller component is not installed "
         + "in this build.";

@@ -532,7 +532,13 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       choice cannot apply to one and not the other. Every launch logs
       `Steam launch integrity: …`, including a requested de-elevation that was unavailable.
       Live acceptance stays in the S8 validation item below.
-- [ ] Keep RTSS controls working when Device Integration is off.
+- [x] Keep RTSS controls working when Device Integration is off. Nothing on the RTSS path was ever
+      routed through the device platform, and `PerformanceIndependenceTests` now pins that rather
+      than leaving it as an accident of the current wiring: the service, the overlay projection and
+      the observation lease are constructed with no coordinator, plugin or capability in reach, so
+      introducing a device dependency into that path stops the tests compiling. `ShellSession`
+      constructs `PerformanceService` unconditionally, before and outside the device branch, and the
+      only switch that empties the rows is the performance policy's own `Enabled`.
 - [x] Reduce performance state to the verified current frametime/metrics required by overlay, QAM,
       diagnostics, and AutoTDP; do not build a general metrics platform. `Core/RtssFrametimeReader.cs`
       reads exactly one thing — the per-application mean frametime — from RTSS's own shared memory.
@@ -687,11 +693,30 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       `WSGM.exe`.
 - [x] Stage only App, DeviceHost, the one plugin, optional Device Lab, and required controller
       dependencies; remove package catalogs and side-by-side versions.
-- [ ] Install everything VIIPER needs, as an explicit user-approved elevated installer step — never
+- [x] Install everything VIIPER needs, as an explicit user-approved elevated installer step — never
       from the running shell (INV-020). Detail in `third_party/controller/viiper/README.md`.
-      Done: `WSGM.iss` declares a `controller` component and ships `libviiper.dll` with its notices
-      and header, every entry `skipifsourcedoesntexist` because `build.ps1` skips the library loudly
-      when the release machine lacks a Go toolchain or C compiler.
+      `WSGM.iss` ships `libviiper.dll` with its notices and header and the verified usbip-win2
+      installer under the `controller` component, and a separately ticked task runs
+      `Install-UsbipDriver.ps1` from `[Run]`, before setup restarts anything of WSGM's. The step
+      re-verifies the pinned digest and signer on the user's disk, skips an install that is already
+      present or newer, confirms `usbip2_ude` is registered afterwards rather than trusting the exit
+      code, and is non-fatal in every failure mode — a machine without the driver runs WSGM normally
+      with controller management unavailable. `eng/acquire-controller-dependencies.ps1` now reads
+      the lock file instead of restating it, and `eng/assert-controller-pin.ps1` (wired into
+      `verify.ps1`) fails the build if the identity the shipped script carries drifts from the
+      reviewed one.
+      Two findings that would each have shipped a broken step. The asset is an **Inno Setup**
+      installer, so VIIPER's own `/S` is ignored and pops the interactive installer; and
+      `System32\drivers\usbip2_ude.sys` **does not exist even on a working install** — it is a
+      universal driver in the driver store, so the file test VIIPER's script falls back to reports
+      "not installed" on a machine where it is. Detection is the `usbip2_ude` service key instead.
+      The pin stays at 0.9.7.7 rather than the newer 0.9.7.8: usbip-win2 #180 and #181 are still
+      open against 0.9.7.8, and #180 is a pool-corruption BSOD on *every* attach on Windows 11
+      build 26200 — this machine's build. Neither reproducer is on WSGM's path, and 0.9.7.8 offers
+      nothing WSGM needs, so there is no reason to take it.
+      With that shipping, both conditions `DeviceFeatureAvailability.ControllerManagement` was
+      waiting on are met and the gate is open. Whether the controller works on a given machine stays
+      a runtime question with distinguishable answers in `ControllerManagerStatus`, not a constant.
       Remaining: installing the **usbip-win2 driver**, which is the one step between here and a
       working virtual controller — `viiper_device_attach` needs the VHCI device it provides.
       `eng/acquire-controller-dependencies.ps1` already downloads the pinned installer and verifies

@@ -40,13 +40,17 @@ internal sealed record ControllerSelection(
     {
         ArgumentNullException.ThrowIfNull(config);
         bool requested = config.Enabled && config.ControllerManagementEnabled;
-        return new(
-            requested && DeviceFeatureAvailability.ControllerManagement,
-            config.ControllerTarget,
-            config.ControllerTargets,
-            requested
+        bool enabled = requested && DeviceFeatureAvailability.ControllerManagement;
+
+        // Three distinct answers, not two. The detail has to say which of them applies, because
+        // "you turned it off" and "this build excludes it" are not the same problem and a user who
+        // reads the wrong one goes looking in the wrong place.
+        string detail = enabled
+            ? string.Empty
+            : requested
                 ? DeviceFeatureAvailability.ControllerManagementDetail
-                : "Controller management is off.");
+                : "Controller management is off.";
+        return new(enabled, config.ControllerTarget, config.ControllerTargets, detail);
     }
 }
 

@@ -120,6 +120,21 @@ if (-not (Test-Path "$appPublish\WSGM.LogonService.exe")) { throw "Logon service
 # compile-time symptom at all, so it is checked here against the finished publish layout.
 & "$root\eng\check-aot-isolation.ps1" -OutputDirectory $appPublish
 
+# The USB/IP driver installer the virtual controller attaches through. It is a third-party asset
+# fetched from its pinned release and verified here — on the release machine — against the reviewed
+# digest and signer, so the copy the installer ships has already been checked by the time a user's
+# setup re-checks it. Staging it is best-effort for the same reason the Go library is: a release
+# machine without network still produces a good build, and the setup step then falls back to
+# downloading the identical pinned asset itself.
+Write-Host "== Staging the USB/IP driver installer ==" -ForegroundColor Cyan
+try {
+    & "$root\eng\acquire-controller-dependencies.ps1" -Destination $appPublish -Component 'usbip-win2'
+}
+catch {
+    Write-Warning "Could not stage the USB/IP driver installer: $($_.Exception.Message)"
+    Write-Warning "Setup will download it instead, and machines without network will report controller management as unavailable."
+}
+
 Write-Host "== Publishing isolated device components ==" -ForegroundColor Cyan
 & "$root\eng\stage-device-components.ps1" `
     -OutputRoot "$root\publish" `

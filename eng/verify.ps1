@@ -51,6 +51,11 @@ try {
     # %LOCALAPPDATA%\WSGM directory is a defect regardless of whether it compiles.
     & "$PSScriptRoot\check-no-live-data-paths.ps1"
 
+    # The setup step that installs the USB/IP driver carries its own copy of the pinned identity,
+    # because it runs where the lock file does not exist. This is what stops the two drifting into
+    # a setup that installs a version nobody reviewed.
+    & "$PSScriptRoot\assert-controller-pin.ps1"
+
     # The vendored Rust libraries are validated and built before the .NET build,
     # which needs their staged output present. -Validate adds each library's own
     # gates (clippy as errors, unit tests) so a change there fails here rather than
