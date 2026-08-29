@@ -561,14 +561,34 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
 
 ### S9 — Complete physical glyphs as static plugin data
 
-- [ ] Keep the plugin-owned manifest, artwork, logical control map, source revision, and required
-      license notice.
-- [ ] Prefer fixed reviewed PNG assets for runtime presentation where they can replace the custom
+- [x] Keep the plugin-owned manifest, artwork, logical control map, source revision, and required
+      license notice. All five survive the CSS rewrite and are the only source of what reaches Steam:
+      `SteamInputGlyphPresentation.Create` resolves the plugin's manifest, its control map, and its
+      aliases into Valve resource mappings, and every image `SteamGlyphCss` emits is a hash-checked
+      asset from that package. WSGM ships no handheld artwork.
+- [x] Prefer fixed reviewed PNG assets for runtime presentation where they can replace the custom
       thousand-line SVG parser without losing quality; retain narrowly normalized SVG only where
-      needed.
-- [ ] Reduce validation to path locality, known IDs, format, dimensions, size, and references.
-- [ ] Keep WSGM-owned Steam selectors, context-local delivery, cleanup, CSS Loader coexistence, and
-      native fallback.
+      needed. **Resolved by evidence against the change: SVG is the right format for glyphs and PNG
+      is not.** The reference theme WSGM now matches is 142 SVG assets to 56 PNG, and for the MSI
+      Claw specifically every glyph is SVG while only the two controller half-images are PNG —
+      because a glyph is drawn at many sizes across Steam's surfaces and a raster one is soft at all
+      but the size it was authored for. The qualifier in this item is what decides it: PNG cannot
+      replace these "without losing quality".
+      The normalizer also is not a thousand lines — `GlyphSvgNormalizer` plus `GlyphPathData` is
+      about 450 — and it earns them. The assets are untrusted plugin data that WSGM inlines as data
+      URIs into Steam's own page, so stripping active content, external references, and unbounded
+      geometry is the thing standing between a plugin package and Steam's document.
+- [x] Reduce validation to path locality, known IDs, format, dimensions, size, and references. Already
+      exactly that: `GlyphAssetImportCode` has four outcomes — malformed or format-mismatched payload,
+      dimension mismatch, active content or external reference, and malformed or over-budget geometry
+      — with path locality and known IDs enforced by `GlyphPackageLayout` and the manifest before an
+      asset is read.
+- [x] Keep WSGM-owned Steam selectors, context-local delivery, cleanup, CSS Loader coexistence, and
+      native fallback. All five are properties of the CSS delivery and are live-verified: the Valve
+      resource names and selectors are WSGM's and never a plugin's, the stylesheet is installed into
+      the matched context only, removal takes just the nodes carrying WSGM's own marker class, a
+      `.css-loader-style` node is never touched so both tools run at once, and a profile that
+      supplies nothing — or a Steam build whose classes moved — leaves native Valve glyphs in place.
 - [ ] Finish Automatic/Native/manual selection, graphical preview, input test, OEM rows, and
       navigation hints from one shared physical map.
 - [ ] Finish stable resource mappings, controller diagrams, exact inline mappings, and supported
