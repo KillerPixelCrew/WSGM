@@ -407,6 +407,15 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             writer.WriteNumber("version", SchemaVersion);
             writer.WriteString("namespace", Namespace);
             writer.WriteString("binding", BindingName);
+
+            // The bootstrap reuses an already-installed bridge when the version and both Steam
+            // generations match, and neither of those changes when WSGM is updated. So a new WSGM
+            // build kept running the PREVIOUS build's injected script until Steam itself restarted:
+            // a fix to the bootstrap appeared to have no effect, and the only clue was a diagnostic
+            // field that was missing from output the new code would have produced. Pinning the
+            // asset's own hash makes a changed script replace the bridge on the next
+            // synchronization, which is what "the bootstrap was updated" has to mean.
+            writer.WriteString("assetHash", SteamUiAssetCatalog.NativeQamBootstrapSha256);
             writer.WriteNumber("contextGeneration", generations.ExecutionContext);
             writer.WriteNumber("documentGeneration", generations.Document);
             writer.WriteNumber("maximumPending", 32);

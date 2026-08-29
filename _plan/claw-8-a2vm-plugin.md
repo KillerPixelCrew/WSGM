@@ -175,9 +175,15 @@ timeouts, cancellation, length/status validation, and contextual logs.
 
 ### Confirmed data addresses
 
+A stock read is what the firmware ships at, not what the register accepts. PL1 was recorded here as
+"8–30 W" when 30 W was only its stock value, and that range reached the capability descriptor and
+the write validator, so the QAM's TDP slider stopped at 30 W on a device whose ceiling is 37 W.
+Record the two separately, and where the accepted range has not been measured, say so rather than
+copying the stock value into it.
+
 | Address | Meaning | Reference/allowed value |
 | ---: | --- | --- |
-| `0x50` | PL1 / sustained power | 8–30 W; stock read 30 W |
+| `0x50` | PL1 / sustained power | 8–37 W; stock read 30 W |
 | `0x51` | PL2 / short power | 8–37 W; stock read 37 W |
 | `0x52` | PL3 / peak field | Stock 0; do not write on A2VM |
 | `0x98` | Full-speed flag | Bit 7; preserve lower bits |

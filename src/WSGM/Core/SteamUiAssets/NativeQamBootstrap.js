@@ -5,6 +5,9 @@
   if (
     prior &&
     prior.version === config.version &&
+    // Neither generation changes when WSGM is updated, so without the asset hash a new build kept
+    // running the previous build's script until Steam itself restarted.
+    prior.assetHash === config.assetHash &&
     prior.contextGeneration === config.contextGeneration &&
     prior.documentGeneration === config.documentGeneration &&
     prior.nativeComponents &&
@@ -117,6 +120,7 @@
   };
   const bridge = Object.freeze({
     version: config.version,
+    assetHash: config.assetHash,
     contextGeneration: config.contextGeneration,
     documentGeneration: config.documentGeneration,
     request,
@@ -160,6 +164,15 @@
     // it and the device had nothing to show".
     const renderOutcomes = {};
     const note = (kind, reason) => {
+      // "no state" is what every render sees while a delivery is being rejected, and the wrapper
+      // re-renders on each host notification, so the generic reason must not overwrite the precise
+      // one the subscription recorded.
+      if (
+        reason === "no state" &&
+        renderOutcomes[kind] === "state received but rejected by validation"
+      ) {
+        return null;
+      }
       renderOutcomes[kind] = reason;
       return null;
     };
@@ -359,7 +372,11 @@
         if (!item || typeof item !== "object") return null;
         const id = normalizeText(item.id);
         const label = normalizeText(item.label);
-        if (!/^[a-z0-9._-]{1,64}$/.test(id) || !label || ids.has(id)) return null;
+        // Uppercase is allowed because the ids WSGM actually sends are PascalCase —
+        // SteamDeckComposite, Xbox360, DualShock4. A lowercase-only pattern rejected every one of
+        // them, so the whole state normalised to null and the controller row never drew, with
+        // nothing anywhere saying a state had been received and thrown away.
+        if (!/^[A-Za-z0-9._-]{1,64}$/.test(id) || !label || ids.has(id)) return null;
         ids.add(id);
         targets.push(Object.freeze({ id, label, available: item.available !== false }));
       }
@@ -494,7 +511,18 @@
       const definition = definitions[kind];
       const [state, setState] = controlRuntime.react.useState(null);
       controlRuntime.react.useEffect(
-        () => subscribe(definition.patchId, (value) => setState(normalize(value))),
+        () =>
+          subscribe(definition.patchId, (value) => {
+            const normalized = normalize(value);
+            // A state that arrives and fails validation is not the same as one that never
+            // arrived, and both used to end as a null the control returned on. The controller row
+            // was invisible for exactly this reason: WSGM sends PascalCase target ids and the
+            // validator only accepted lowercase, so every delivery was discarded in silence.
+            if (normalized === null && value) {
+              renderOutcomes[kind] = "state received but rejected by validation";
+            }
+            setState(normalized);
+          }),
         [],
       );
       return state;
@@ -798,7 +826,24 @@
         { key: "wsgm-native-qam-section" },
         ...controls,
       );
-      lastAppend = { controls: controls.length, inserted: true, ownSection: true };
+      // Shape of what Steam's performance root returned, so the rows it renders can be identified
+      // without guessing. Needed to suppress Steam's own FPS counter rows in favour of WSGM's
+      // RTSS overlay: their DOM classes are hashed per client build and unusable as selectors.
+      const describe = (element, depth) => {
+        if (!controlRuntime.react.isValidElement(element)) return typeof element;
+        const t = element.type;
+        const name = typeof t === "string" ? t : t?.displayName || t?.name || "anonymous";
+        const kids = controlRuntime.react.Children.toArray(element.props?.children);
+        return depth >= 2 || !kids.length
+          ? name
+          : { [name]: kids.map((k) => describe(k, depth + 1)) };
+      };
+      lastAppend = {
+        controls: controls.length,
+        inserted: true,
+        ownSection: true,
+        tree: JSON.stringify(describe(tree, 0)).slice(0, 600),
+      };
       return controlRuntime.react.createElement(controlRuntime.react.Fragment, null, tree, own);
     };
     const ensurePatched = () => {
