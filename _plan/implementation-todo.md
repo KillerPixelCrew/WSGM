@@ -392,14 +392,49 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
 
 ### S7 — Complete controller management directly
 
-- [ ] Finish a technically acceptable HIDMaestro/usbip backend; controller support may not be cut
-      because the current dependency misses mandatory fields. This is the one remaining hard blocker
-      for the phase: the pinned HIDMaestro `steam-deck-composite` profile carries neither the four
-      distinct rear controls nor the stick-touch fields, and its driver build stamps INF versions
-      from the current date and creates local signing material, so a clean checkout cannot reproduce
-      the signed artifacts. Closing it needs a product decision (extend upstream, or own a
-      WSGM-side backend behind the existing `IHidBackend` seam), not a further refactor.
-      `HidMaestroProductionBackend` reports the closed gate and creates nothing.
+- [ ] Finish a technically acceptable virtual-controller backend. Scope is fixed: nothing here may be
+      cut. **Backend decided 2026-08-29 — VIIPER, not HIDMaestro.** Full evidence in
+      `third_party/controller/README.md`. VIIPER's `device/steamdeck` natively carries the whole
+      Neptune frame including all four rear controls and stick touch (bit map agreed exactly by
+      VIIPER, HandheldCompanion, and `hhd`: L5 15, R5 16, L4 41, R4 42, pad touch 19/20, stick touch
+      46/47), and it rides `usbip-win2`'s already-pinned signed kernel driver, so the missing-fields
+      and driver-reproducibility gates both disappear.
+      - The three fixes merged into `Valkirie/VIIPER` are carried onto corando98's `viiper-controller`
+        branch in `_ref/VIIPER`: PR #4 (SDL3 `ucLength` 64) was already present; PR #3 (stick-Y
+        clamp) and PR #2 (placeholder endpoints must stay pending) are applied, #2 adapted to this
+        branch's `device.BlockUntilDeadline`. Not compiled — **a Go toolchain is not installed on
+        this machine** and is now a prerequisite for this work.
+      - **The one real cost is CPU and it must be fixed, not accepted.** VIIPER driving a virtual Deck
+        in HandheldCompanion measured a constant 6–8%. Mechanism identified: the Deck does not declare
+        `NaksWhenIdle`, so all three streaming endpoints take the keepalive path and replay the last
+        report every `bInterval` forever — and two of them (keyboard, mouse) are descriptor
+        placeholders carrying nothing, ~200 wasted completions/second, which PR #2 removes. Whether
+        the controller endpoint should NAK when idle needs measurement against a real Steam claim, not
+        an assumption: a real Deck appears to stream continuously.
+      Superseded HIDMaestro analysis, kept because it stays accurate and the component remains pinned
+      as the alternative:
+      - **Rear controls close without any upstream change.** `HMButton` already carries four paddles;
+        only the profile's 64-bit mask names two of them. The missing positions are sourced from
+        `hhd`'s virtual Steam Deck (the implementation HIDMaestro's own profile cites): L5 at bit 15,
+        R5 at 16, **L4 at 41, R4 at 42**, cross-checked against three positions the two projects
+        already agree on. WSGM ships its own profile naming all four and loads it with
+        `LoadProfilesFromDirectory`. A profile is data; shipping data is not forking HIDMaestro.
+      - **Stick touch does not close that way.** `HMGamepadState` has no capacitive stick-touch field
+        and `hhd` does not emulate one, so there is no bit to name. The Steam Deck target must
+        declare that truthfully instead of letting `VirtualTargetProfile.Consume` pass a control the
+        backend then drops silently. Not a Claw blocker — it has no capacitive sticks.
+      - **The remaining gate is installation, not capability.** v1.7.0 is UMDF2 user-mode with a
+        locally trusted self-signed certificate and no `testsigning`, so the kernel-driver and
+        EV-cert concerns are gone. Driver and certificate installation still must not happen at
+        runtime (INV-020); it belongs to the installer as an explicit, user-approved, elevated step
+        that verifies the locked component identity first.
+      Next implementation steps, in order: install a Go toolchain and build the patched branch;
+      measure the idle CPU of the virtual Deck with PR #2 applied, and again with `VIIPER_NAK_IDLE`
+      forced, against a Steam client that has actually claimed the device; then replace
+      `HidMaestroProductionBackend` with a VIIPER-backed `IHidBackend` implementation. The VIIPER
+      server is a separate process with MIT-licensed client libraries, so it does not need to live
+      inside the NativeAOT `WSGM.exe`; its GPL-3.0 server licensing has to be settled before the
+      installer ships it.
 - [x] Keep one `ControllerManager` owning Steam Deck Composite, Xbox 360, DualShock 4, target
       replacement, output, HidHide, local UI capture, and fallback. `Shell/ControllerManager.cs` is
       that owner: selection, target lifetime and replacement, owned-delta HidHide, reference-counted
@@ -588,6 +623,14 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       `WSGM.exe`.
 - [x] Stage only App, DeviceHost, the one plugin, optional Device Lab, and required controller
       dependencies; remove package catalogs and side-by-side versions.
+- [ ] Install everything VIIPER needs, as an explicit user-approved elevated installer step — never
+      from the running shell (INV-020). Detail in `third_party/controller/viiper/README.md`:
+      **usbip-win2** for the generic signed kernel-mode USBIP driver and its VHCI device (already
+      pinned and signature-verified), **`libviiper`** built from the pinned revision with WSGM's
+      patches, and **HidHide** as today. The installer verifies each locked component identity before
+      installing it, and a machine where usbip-win2 is absent or declined must still install and run
+      WSGM with controller management simply unavailable. VIIPER's GPL-3.0 server licensing (its
+      client libraries are MIT) has to be settled deliberately before the installer ships it.
 - [x] Standardize setup and managed maintenance on the fixed `.staging`/`.previous` siblings,
       reconcile the prior `.installed.previous` name, and serialize stop/recheck/publication with
       the exact global package-slot and hardware-owner objects so no DeviceHost can race replacement

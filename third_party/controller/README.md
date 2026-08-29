@@ -6,17 +6,117 @@ into the repository or copied into an application publish directory.
 
 ## Current release decision
 
-Controller management is **not approved**. The pinned backend does not yet satisfy the mandatory
-controller contract, so WSGM leaves controller management unavailable while Device Integration,
-SDL input, and the Steam Input lease remain usable. `HidMaestroProductionBackend` implements that
+Controller management is **not approved yet**. `HidMaestroProductionBackend` implements that
 capability-specific failure and never loads HIDMaestro, launches a helper, installs a driver, or
-creates a virtual target.
+creates a virtual target, so Device Integration, SDL input, and the Steam Input lease stay usable.
 
-The reviewed HIDMaestro `steam-deck-composite` profile does not encode the four distinct rear
-controls or stick-touch fields required by WSGM's controller contract. Its driver build also stamps
-INF versions from the current date and creates local signing material, so a clean checkout cannot
-reproduce the exact signed driver artifacts. These are mandatory release gates, not best-effort
-diagnostics.
+### What the rear-control gate actually is, and how it closes
+
+**Source-reviewed 2026-08-29 against the pinned v1.7.0 tree, checked out at `_ref/HIDMaestro`.** The
+original gate said the `steam-deck-composite` profile "does not encode the four distinct rear
+controls or stick-touch fields". That is accurate but was too pessimistic about what it implies: the
+two halves have different answers, and the rear-control half is WSGM's to fix.
+
+The SDK's own canonical state is not the problem. `HMButton` already carries four rear controls —
+`LeftPaddle`/`RightPaddle` (upper) and `LeftPaddle2`/`RightPaddle2` (lower). What is short is the
+**profile**, which is plain JSON: its `extendedReport` button mask names 64 bit positions and leaves
+the two upper paddles as unnamed `_` slots, so `SubmitState` has nowhere to put them.
+
+The missing positions are known. `hhd`'s virtual Steam Deck (`_ref/hhd`,
+`src/hhd/controller/virtual/sd/const.py`) is the same implementation HIDMaestro's profile cites for
+its attribute values, and it maps all four. Converting its `BM((byte << 3) + bitFromMsb)` form into
+the profile's 64-bit little-endian numbering, counting from the mask's base at byte 8:
+
+| Control | `hhd` name | Byte, bit-from-MSB | Mask bit | In HIDMaestro v1.7.0 |
+| --- | --- | --- | --- | --- |
+| L5 (lower left) | `extra_l2` | 9, 0 | 15 | named `LeftPaddle` |
+| R5 (lower right) | `extra_r2` | 10, 7 | 16 | named `RightPaddle` |
+| L4 (upper left) | `extra_l1` | 13, 6 | **41** | unnamed `_` |
+| R4 (upper right) | `extra_r1` | 13, 5 | **42** | unnamed `_` |
+
+`hhd` treats `extra_l1`/`extra_r1` as the top pair, which its own noob-mode and
+`paddles_to_clicks == "top"` handling confirm. The bit arithmetic is cross-checked against three
+positions HIDMaestro and `hhd` already agree on: `share`/`Misc1` at 50, `rs`/`RightStick` at 26, and
+`ls`/`LeftStick` at 22.
+
+So the rear-control gate closes without any upstream change: WSGM ships its own profile naming all
+four, loaded through `LoadProfilesFromDirectory`. WSGM does not need to fork HIDMaestro, and must
+not — a profile is data, and shipping data is not shipping a driver.
+
+**Stick touch is a separate matter and does not close this way.** `HMGamepadState` has no capacitive
+stick-touch field and `HMButton` has no bit for it, so the SDK cannot express it at all; `hhd` does
+not emulate it either, so there is no sourced bit position to name. Whatever WSGM declares for the
+Steam Deck target must therefore say so truthfully rather than let `VirtualTargetProfile.Consume`
+silently drop a control a plugin published. This is not a blocker for the Claw, which has no
+capacitive sticks, but it is a real limit of the target and belongs in its declared capabilities.
+
+### The backend is VIIPER, not HIDMaestro
+
+**Decided 2026-08-29.** VIIPER (`_ref/VIIPER`, corando98's `viiper-controller` branch) creates
+virtual USB devices in userspace over USBIP, and it wins on both halves of the gate above.
+
+- **Nothing is missing.** Its `device/steamdeck` carries the whole Neptune frame natively, including
+  all four rear controls and capacitive stick touch. The bit map is settled by three independent
+  implementations that agree exactly — VIIPER's `device/steamdeck/const.go`, HandheldCompanion's
+  `SteamDeckTarget`, and `hhd`'s virtual Deck: L5 at bit 15, R5 at 16, L4 at 41, R4 at 42, pad touch
+  at 19/20, and **stick touch at 46 and 47**. No profile authoring and no upstream extension is
+  needed to satisfy WSGM's controller contract.
+- **The driver problem disappears.** VIIPER rides `usbip-win2`'s signed kernel driver — the exact
+  component already pinned and signature-verified in `controller-components.lock.json`, publisher
+  thumbprint `9AC56B6C…`. There is no locally built driver, no self-signed certificate to trust, and
+  no INF date stamping, so the reproducibility gate that blocked HIDMaestro does not arise. WSGM
+  still installs it only through the installer, as an explicit user-approved elevated step, because
+  INV-020 forbids the runtime from installing a driver whatever its provenance.
+
+HIDMaestro stays reviewed and pinned as the alternative, and its analysis above stays accurate. It
+is not the chosen path.
+
+### The one real cost, and where it comes from
+
+VIIPER driving a virtual Steam Deck in HandheldCompanion measured a **constant 6–8% CPU**. On a
+handheld that is a battery cost, not a rounding error, and it was the original reason to prefer
+HIDMaestro. It has to be fixed rather than accepted, and the mechanism is now identified rather than
+guessed.
+
+VIIPER completes interrupt-IN transfers one of two ways
+(`internal/server/usb/server.go`, `startInWorker`). Devices that declare `NaksWhenIdle()` block on
+their input gate and go quiet when nothing changes. Everything else takes the keepalive path: a
+per-attempt deadline of one `bInterval`, and on expiry the **last report is replayed** so the
+endpoint completes on every poll forever. Only the Xbox family declares `NaksWhenIdle`; the Steam
+Deck does not, so all three of its streaming endpoints complete continuously:
+
+| Interface | `bInterval` | Carries |
+| --- | --- | --- |
+| Controller (EP 3) | 6 | The real 64-byte Neptune frame |
+| Keyboard (EP 1) | 10 | Nothing — descriptor placeholder |
+| Mouse (EP 2) | 10 | Nothing — descriptor placeholder |
+
+Two of the three carried no data at all and still completed roughly 200 transfers per second between
+them. That is the first cut, and it is what merged PR #2 removes.
+
+Whether the controller endpoint itself should NAK when idle is a separate question that needs
+evidence, not a switch flip. A real Deck appears to stream continuously — its `packetNum` rolls
+constantly, and HIDMaestro's own profile sets `alwaysArmed` with a 4 ms idle frame interval for the
+same reason — so declaring `NaksWhenIdle` for the Deck would deviate from the hardware Steam thinks
+it is talking to. VIIPER already allows forcing it per run (`VIIPER_NAK_IDLE`, `IdleMode`), so the
+experiment is cheap; it just has to be measured against Steam actually claiming the device rather
+than assumed.
+
+### Applied to the branch
+
+The three fixes merged into `Valkirie/VIIPER` are carried onto corando98's `viiper-controller`
+branch, which is well ahead of that fork:
+
+| PR | Fix | State on this branch |
+| --- | --- | --- |
+| #4 | `ucLength` must be 64 or SDL3 discards every report | already present |
+| #3 | Clamp stick Y off `-32768`, which SDL3 negates back to itself | applied |
+| #2 | Placeholder mouse/keyboard endpoints must stay pending, not complete with idle input | applied |
+
+PR #2 needed adapting: this branch has replaced the inline `ctx.Done()` waits with
+`device.BlockUntilDeadline`, so the merged shape becomes one combined case that blocks and returns
+no data. Building VIIPER needs a Go toolchain, which is **not installed on this machine**, so these
+two edits are reviewed by inspection and not yet compiled.
 
 ## Pinned primary sources
 
