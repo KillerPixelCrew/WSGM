@@ -1,0 +1,4 @@
+# Patch files must keep LF endings. `git apply` and `patch` compare line content byte for byte, so a
+# CRLF-converted patch fails to apply against an LF upstream tree — which is every tree these target.
+*.patch -text diff=diff
+*.diff -text diff=diff
