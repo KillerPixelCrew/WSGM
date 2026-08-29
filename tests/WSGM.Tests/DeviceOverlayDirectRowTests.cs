@@ -182,6 +182,64 @@ public sealed class DeviceOverlayDirectRowTests
             DeviceOverlaySectionPages.Build(snapshot).Select(entry => entry.Section).ToArray());
     }
 
+    [Fact]
+    public void WithNoProfilesTheRowSaysWhereToMakeOneRatherThanVanishing()
+    {
+        // Unlike recovery, this row is always present: profiles are a feature a user has to find
+        // before they can use it, and an absent row would read as the feature being missing.
+        DeviceOverlayProfile row = DeviceOverlayBridge.ProfileView([], selected: null);
+
+        Assert.False(row.CanCycle);
+        Assert.Equal("NONE", row.TrailingText);
+        Assert.Contains("Settings", row.Description, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ASelectedProfileIsNamedAndMarkedActive()
+    {
+        DeviceOverlayProfile row = DeviceOverlayBridge.ProfileView(["docked", "handheld"], "handheld");
+
+        Assert.Equal("HANDHELD", row.TrailingText);
+        Assert.Equal(DeviceOverlayStatus.Available, row.Status);
+        Assert.True(row.CanCycle);
+    }
+
+    [Fact]
+    public void ASelectionNamingAProfileThatNoLongerExistsReadsAsNone()
+    {
+        // Which is what it now behaves as: the resolver finds no value under that name and falls
+        // through to the power and global layers. Showing the stale name would claim otherwise.
+        DeviceOverlayProfile row = DeviceOverlayBridge.ProfileView(["docked"], "deleted");
+
+        Assert.Equal("NONE", row.TrailingText);
+        Assert.Equal(DeviceOverlayStatus.None, row.Status);
+    }
+
+    [Theory]
+    [InlineData(null, "docked")]
+    [InlineData("docked", "handheld")]
+    [InlineData("handheld", null)]
+    public void CyclingProfilesPassesThroughNoneSoDefaultsAreAlwaysReachable(
+        string? selected,
+        string? expected)
+    {
+        // None is a position in the cycle rather than a separate control, so the same button that
+        // applied a profile can always get back to unmodified defaults.
+        Assert.Equal(expected, DeviceOverlayBridge.NextProfile(["docked", "handheld"], selected));
+    }
+
+    [Fact]
+    public void CyclingFromAnUnknownSelectionLandsOnTheFirstProfileRatherThanStalling()
+    {
+        Assert.Equal("docked", DeviceOverlayBridge.NextProfile(["docked", "handheld"], "deleted"));
+    }
+
+    [Fact]
+    public void CyclingWithNoProfilesStaysAtNone()
+    {
+        Assert.Null(DeviceOverlayBridge.NextProfile([], "anything"));
+    }
+
     private static ControllerManagerStatus Status(
         ControllerManagementState state,
         ManagedControllerTarget? target,

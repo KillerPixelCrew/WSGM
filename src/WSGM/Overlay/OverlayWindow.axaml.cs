@@ -321,6 +321,27 @@ public partial class OverlayWindow : Window
             }
         }
 
+        // The selected hardware profile is stored configuration rather than a device capability, so
+        // it is a direct row for the same reason as the others on this surface.
+        if (section is DeviceOverlaySection.Profiles && snapshot.Profile is { } profile)
+        {
+            const string profileFocusKey = "device.hardware-profile";
+            DescriptorStatusRow row = new();
+            row.Apply(new DescriptorRow(
+                profileFocusKey,
+                profile.Title,
+                profile.Description,
+                profile.TrailingText,
+                profile.CanCycle,
+                DeviceStatusFor(profile.Status)));
+            row.Click += (_, _) => InvokeHardwareProfileCycle();
+            DeviceCapabilityList.Children.Add(row);
+            if (string.Equals(profileFocusKey, focusedKey, StringComparison.Ordinal))
+            {
+                restoreFocus = row;
+            }
+        }
+
         // The controller target is WSGM's own setting, not a plugin capability, so it is placed on
         // its page directly for the same reason AutoTDP and glyph selection are.
         if (section is DeviceOverlaySection.ControllerAndMotion
@@ -389,6 +410,10 @@ public partial class OverlayWindow : Window
     private void InvokeDeviceCycleRetry() => _ = RunDeviceCommandAsync(
         "Device integration retry",
         (bridge, token) => bridge.RetryDeviceCycleAsync(token));
+
+    private void InvokeHardwareProfileCycle() => _ = RunDeviceCommandAsync(
+        "Hardware profile change",
+        (bridge, token) => bridge.CycleHardwareProfileAsync(token));
 
     /// <summary>Runs one direct Device-surface command with the shared cancellation and logging.</summary>
     /// <param name="description">What the command is, for the log line if it fails.</param>

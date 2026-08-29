@@ -1585,18 +1585,114 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// <summary>Queues one whole per-device desired profile through the coalescing store.</summary>
     internal void QueueDesiredProfile(DeviceDesiredProfile profile) => _profiles.Queue(profile);
 
-    private void UpdateCapabilityDesiredContext()
+    /// <summary>The stored profile for the device this session is talking to, when there is one.</summary>
+    /// <remarks>
+    /// Keyed by the machine identity rather than by the package, so a user who swaps plugins keeps
+    /// the values they set for this machine. Null before an identity is known, which is why every
+    /// caller has to tolerate a missing profile rather than creating one eagerly.
+    /// </remarks>
+    private DeviceDesiredProfile? CurrentProfile
     {
-        DeviceDesiredProfile? profile = null;
-        if (_identity is not null)
+        get
         {
+            if (_identity is null)
+            {
+                return null;
+            }
+
             string identityKey = DeviceMachineIdentity.StableKey(_identity);
-            profile = _config.DeviceIntegration.Profiles.FirstOrDefault(item => string.Equals(
+            return _config.DeviceIntegration.Profiles.FirstOrDefault(item => string.Equals(
                 item.DeviceIdentityKey,
                 identityKey,
                 StringComparison.Ordinal));
         }
+    }
 
+    /// <summary>The named hardware profiles this machine's stored values actually define.</summary>
+    /// <remarks>
+    /// Derived rather than declared. A profile exists exactly when some capability stores a value
+    /// under its name, so there is no separate catalog to keep in step with the values — and a
+    /// profile cannot be offered for selection while it would change nothing.
+    /// </remarks>
+    internal IReadOnlyList<string> HardwareProfileIds
+    {
+        get
+        {
+            DeviceDesiredProfile? profile = CurrentProfile;
+            if (profile is null)
+            {
+                return [];
+            }
+
+            return profile.Capabilities
+                .SelectMany(capability => capability.HardwareProfiles)
+                .Select(value => value.ProfileId)
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(id => id, StringComparer.Ordinal)
+                .Take(32)
+                .ToArray();
+        }
+    }
+
+    /// <summary>The named hardware profile currently selected, or null for none.</summary>
+    internal string? SelectedHardwareProfileId => CurrentProfile?.SelectedHardwareProfileId;
+
+    /// <summary>Selects a named hardware profile, or none, and persists the choice.</summary>
+    /// <param name="profileId">The profile to select, or null to select none.</param>
+    /// <param name="cancellationToken">Cancels the change.</param>
+    /// <returns>A task completing once the choice is persisted and applied.</returns>
+    /// <remarks>
+    /// The stored profile is created if this machine has none, because selecting is the first thing
+    /// a user can do and refusing until some other write happened first would be arbitrary. Applying
+    /// is `UpdateCapabilityDesiredContext`, which is the same path a configuration reload takes.
+    /// </remarks>
+    internal async Task SelectHardwareProfileAsync(
+        string? profileId,
+        CancellationToken cancellationToken = default)
+    {
+        if (_identity is null)
+        {
+            return;
+        }
+
+        string identityKey = DeviceMachineIdentity.StableKey(_identity);
+        string? normalized = string.IsNullOrWhiteSpace(profileId) ? null : profileId.Trim();
+        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            AppConfig persisted = await Task.Run(
+                () => ConfigStore.Mutate(config =>
+                {
+                    DeviceDesiredProfile? stored = config.DeviceIntegration.Profiles
+                        .FirstOrDefault(item => string.Equals(
+                            item.DeviceIdentityKey,
+                            identityKey,
+                            StringComparison.Ordinal));
+                    if (stored is null)
+                    {
+                        stored = new DeviceDesiredProfile { DeviceIdentityKey = identityKey };
+                        config.DeviceIntegration.Profiles.Add(stored);
+                    }
+
+                    stored.SelectedHardwareProfileId = normalized;
+                }),
+                cancellationToken).ConfigureAwait(false);
+            _config = persisted;
+            ConfigurationChanged?.Invoke();
+            UpdateCapabilityDesiredContext();
+            UpdateOemConfiguration();
+            Log.Info($"Hardware profile selected: {normalized ?? "(none)"}.");
+        }
+        finally
+        {
+            _transitionGate.Release();
+        }
+    }
+
+    private void UpdateCapabilityDesiredContext()
+    {
+        DeviceDesiredProfile? profile = CurrentProfile;
         bool onAcPower = !NativeMethods.GetSystemPowerStatus(out NativeMethods.SystemPowerStatus power)
             || power.ACLineStatus != 0;
         _capabilities.UpdateDesiredContext(
@@ -1608,16 +1704,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
 
     private void UpdateOemConfiguration()
     {
-        DeviceDesiredProfile? profile = null;
-        if (_identity is not null)
-        {
-            string identityKey = DeviceMachineIdentity.StableKey(_identity);
-            profile = _config.DeviceIntegration.Profiles.FirstOrDefault(item => string.Equals(
-                item.DeviceIdentityKey,
-                identityKey,
-                StringComparison.Ordinal));
-        }
-
+        DeviceDesiredProfile? profile = CurrentProfile;
         _oemActions.UpdateConfiguration(
             profile,
             EffectiveControllerManagement(_config),

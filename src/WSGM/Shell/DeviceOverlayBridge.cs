@@ -104,6 +104,19 @@ internal sealed record DeviceOverlayController(
     string TrailingText,
     bool CanCycle);
 
+/// <summary>The named-hardware-profile row on the Profiles page.</summary>
+/// <param name="Status">Whether a profile is in effect.</param>
+/// <param name="Title">Row title.</param>
+/// <param name="Description">Which profiles exist, or where they are authored.</param>
+/// <param name="TrailingText">The selected profile, or NONE.</param>
+/// <param name="CanCycle">Whether selecting the row changes the profile.</param>
+internal sealed record DeviceOverlayProfile(
+    DeviceOverlayStatus Status,
+    string Title,
+    string Description,
+    string TrailingText,
+    bool CanCycle);
+
 /// <summary>The one recovery action the Diagnostics page offers, when there is one.</summary>
 /// <remarks>
 /// Deliberately a single row rather than a panel of buttons. A faulted device cycle has exactly one
@@ -131,7 +144,8 @@ internal sealed record DeviceOverlaySnapshot(
     IReadOnlyList<DeviceOverlayCapability> Capabilities,
     DeviceOverlayAutoTdp? AutoTdp = null,
     DeviceOverlayController? Controller = null,
-    DeviceOverlayRecovery? Recovery = null);
+    DeviceOverlayRecovery? Recovery = null,
+    DeviceOverlayProfile? Profile = null);
 
 /// <summary>Closed semantic source consumed by the Device overlay destination.</summary>
 internal interface IDeviceOverlaySource : IDisposable
@@ -165,6 +179,11 @@ internal interface IDeviceOverlaySource : IDisposable
     /// <param name="cancellationToken">Cancels the attempt.</param>
     /// <returns>A task completing once the attempt has been made.</returns>
     Task RetryDeviceCycleAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Moves to the next named hardware profile, or to none, and persists it.</summary>
+    /// <param name="cancellationToken">Cancels the change.</param>
+    /// <returns>A task completing once the new selection is persisted and applied.</returns>
+    Task CycleHardwareProfileAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -209,6 +228,9 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         DeviceOverlayController? controller = ControllerView(
             _coordinator.ControllerManagementEnabled,
             _coordinator.ControllerStatus);
+        DeviceOverlayProfile profile = ProfileView(
+            _coordinator.HardwareProfileIds,
+            _coordinator.SelectedHardwareProfileId);
 
         if (package is { Valid: false })
         {
@@ -260,7 +282,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             capabilities,
             autoTdp,
             controller,
-            recovery);
+            recovery,
+            profile);
     }
 
     /// <summary>Projects controller management into the Controller and motion page's own row.</summary>
@@ -319,6 +342,83 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             // Only when a change can actually take effect. Cycling into a target the backend cannot
             // bring up would replace one broken state with another.
             CanCycle: status.State is not ControllerManagementState.Unavailable);
+    }
+
+    /// <summary>Projects named hardware profiles into the Profiles page's own row.</summary>
+    /// <param name="profileIds">The profiles this machine's stored values define.</param>
+    /// <param name="selected">The profile currently selected, or null for none.</param>
+    /// <returns>The row.</returns>
+    /// <remarks>
+    /// Always present, unlike the recovery row. Profiles are a feature a user has to find before
+    /// they can use it, so the row says where to author one when none exists yet — an absent row
+    /// would just look like the feature is missing.
+    /// </remarks>
+    internal static DeviceOverlayProfile ProfileView(
+        IReadOnlyList<string> profileIds,
+        string? selected)
+    {
+        ArgumentNullException.ThrowIfNull(profileIds);
+        if (profileIds.Count == 0)
+        {
+            return new DeviceOverlayProfile(
+                DeviceOverlayStatus.None,
+                "Hardware profile",
+                "No profiles are defined · add profile values in Settings",
+                "NONE",
+                CanCycle: false);
+        }
+
+        bool active = selected is { Length: > 0 } && profileIds.Contains(selected, StringComparer.Ordinal);
+        string description = active
+            ? $"1 of {profileIds.Count} · overrides power and battery defaults while selected"
+            : $"{profileIds.Count} defined · none selected";
+        return new DeviceOverlayProfile(
+            active ? DeviceOverlayStatus.Available : DeviceOverlayStatus.None,
+            "Hardware profile",
+            description,
+            // A selection naming a profile that no longer defines anything reads as NONE, which is
+            // what it now behaves as: the resolver finds no value under that name and falls through.
+            active ? selected!.ToUpperInvariant() : "NONE",
+            CanCycle: true);
+    }
+
+    /// <summary>The next profile in the cycle, with none between the last and the first.</summary>
+    /// <param name="profileIds">The profiles in presentation order.</param>
+    /// <param name="selected">The current selection.</param>
+    /// <returns>The next selection, or null for none.</returns>
+    /// <remarks>
+    /// None is a position in the cycle rather than a separate control, so a user can always get back
+    /// to unmodified defaults with the same button that got them here.
+    /// </remarks>
+    internal static string? NextProfile(IReadOnlyList<string> profileIds, string? selected)
+    {
+        ArgumentNullException.ThrowIfNull(profileIds);
+        if (profileIds.Count == 0)
+        {
+            return null;
+        }
+
+        int index = selected is null
+            ? -1
+            : IndexOfOrdinal(profileIds, selected);
+
+        // An unknown selection behaves as none, so cycling from it lands on the first profile
+        // rather than doing nothing.
+        int next = index + 1;
+        return next >= profileIds.Count ? null : profileIds[next];
+    }
+
+    private static int IndexOfOrdinal(IReadOnlyList<string> values, string value)
+    {
+        for (int index = 0; index < values.Count; index++)
+        {
+            if (string.Equals(values[index], value, StringComparison.Ordinal))
+            {
+                return index;
+            }
+        }
+
+        return -1;
     }
 
     /// <summary>Projects the device cycle's recoverable state into the Diagnostics page's own row.</summary>
@@ -436,6 +536,11 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 
     public Task RetryDeviceCycleAsync(CancellationToken cancellationToken = default) =>
         _coordinator.RetryAfterFaultAsync(cancellationToken);
+
+    public Task CycleHardwareProfileAsync(CancellationToken cancellationToken = default) =>
+        _coordinator.SelectHardwareProfileAsync(
+            NextProfile(_coordinator.HardwareProfileIds, _coordinator.SelectedHardwareProfileId),
+            cancellationToken);
 
     /// <summary>The next target in the cycle order.</summary>
     /// <param name="current">The target in effect, or null when none is.</param>
@@ -808,6 +913,10 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
     private int _glyphSelection;
     private bool _autoTdp;
     private ManagedControllerTarget _controllerTarget = ManagedControllerTarget.SteamDeckComposite;
+    private string? _hardwareProfile;
+
+    /// <summary>Two named profiles, so the preview shows the cycle rather than a single state.</summary>
+    private static readonly string[] PreviewProfiles = ["handheld", "docked"];
 
     public event Action? Changed;
 
@@ -855,6 +964,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 DeviceCycleState.Faulted,
                 DateTimeOffset.UtcNow.AddMinutes(-1),
                 DateTimeOffset.UtcNow),
+            Profile: DeviceOverlayBridge.ProfileView(PreviewProfiles, _hardwareProfile),
             Capabilities:
             [
                 new DeviceOverlayCapability(
@@ -965,6 +1075,14 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
     {
         cancellationToken.ThrowIfCancellationRequested();
         _controllerTarget = DeviceOverlayBridge.NextTarget(_controllerTarget);
+        Changed?.Invoke();
+        return Task.CompletedTask;
+    }
+
+    public Task CycleHardwareProfileAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _hardwareProfile = DeviceOverlayBridge.NextProfile(PreviewProfiles, _hardwareProfile);
         Changed?.Invoke();
         return Task.CompletedTask;
     }

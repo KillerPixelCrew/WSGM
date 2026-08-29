@@ -150,6 +150,11 @@ internal static class DeviceOverlaySectionPages
             AddDirectRow(DeviceOverlaySection.Diagnostics, recovery.Status);
         }
 
+        if (snapshot.Profile is { } profile)
+        {
+            AddDirectRow(DeviceOverlaySection.Profiles, profile.Status);
+        }
+
         List<DeviceOverlaySectionEntry> entries = [];
         foreach (DeviceOverlaySection section in Order)
         {

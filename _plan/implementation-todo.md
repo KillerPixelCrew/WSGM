@@ -749,7 +749,16 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       holding only one of them had a count of zero and was dropped from the menu — which made the row
       unreachable. That was already latent for AutoTDP on a device publishing no power capability,
       and would have been immediate for the controller target, since no plugin publishes one.
-      Remaining: profile selection, and glyph preview and input test.
+      Profiles now carries the selection row. The list of profiles is derived rather than declared —
+      a named profile exists exactly when some capability stores a value under its name — so there
+      is no catalog to keep in step with the values, and a profile is never offered while selecting
+      it would change nothing. None is a position in the cycle rather than a separate control, so
+      the button that applied a profile always gets back to unmodified defaults, and a selection
+      naming a profile that no longer defines anything reads as NONE, which is what it now behaves
+      as. Unlike recovery the row is always present: profiles have to be found before they can be
+      used, so with none defined it says where to author one instead of vanishing.
+      The identity-keyed profile lookup was duplicated in the coordinator and is now one property.
+      Remaining: glyph preview and input test.
 - [ ] Bind every overlay and QAM control to the same direct runtime service. AutoTDP now has a
       surface: the Device → Power and thermals page carries a row beside the power limit it moves,
       reporting what AutoTDP is actually doing rather than merely that it is on — controlling with
