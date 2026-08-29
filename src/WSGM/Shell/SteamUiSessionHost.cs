@@ -18,7 +18,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private const string FrameLimitPatchId = "wsgm.native-qam.frame-limit";
     private const string OverlayLevelPatchId = "wsgm.native-qam.overlay-level";
     private const string ControllerTargetPatchId = "wsgm.native-qam.controller-target";
-    private const string GlyphSelectorPatchId = "wsgm.steam-input.handheld-glyphs";
     private const string GlyphStylePatchId = SteamInputGlyphStylePatch.PatchId;
     private readonly PersistentSteamUiTransport _transport;
     private readonly CancellationTokenSource _shutdown = new();
@@ -41,7 +40,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private int _publicationPending;
     private IDisposable? _performanceObservation;
     private volatile bool _enabled;
-    private volatile bool _glyphSelectorEnabled;
+    private volatile bool _glyphsEnabled;
     private volatile bool _glyphDeliveryEnabled;
     private volatile bool _disposed;
 
@@ -66,10 +65,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _patches.Register(new NativeQamFrameLimitPatch());
         _patches.Register(new NativeQamOverlayLevelPatch());
         _patches.Register(new NativeQamControllerTargetPatch());
-        _patches.Register(new SteamInputHandheldGlyphPatch());
         _patches.Register(new SteamInputGlyphStylePatch(_glyphDeliveryState));
         SetPatchStates(bootstrap: false, components: false);
-        _patches.SetPatchEnabled(GlyphSelectorPatchId, false);
         SetGlyphDeliveryPatchStates();
         _patches.SetGlobalEnabled(false);
         _bridge.RequestReceived += OnRequestReceived;
@@ -103,45 +100,31 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         QueueSynchronization();
     }
 
-    internal void ApplyGlyphSelector(bool enabled)
-    {
-        if (_disposed || _glyphSelectorEnabled == enabled)
-        {
-            return;
-        }
-
-        _glyphSelectorEnabled = enabled;
-        if (enabled)
-        {
-            _patches.SetGlobalEnabled(true);
-        }
-        _patches.SetPatchEnabled(GlyphSelectorPatchId, enabled);
-        SetGlyphDeliveryPatchStates();
-        QueueSynchronization();
-    }
-
     /// <summary>
-    /// Publishes the active handheld glyph profile for delivery.
+    /// Applies handheld glyph presentation: whether it is on, and what to draw.
     /// </summary>
-    /// <param name="profile">The resolved profile, or null for native Steam presentation.</param>
+    /// <param name="enabled">Whether WSGM presents handheld glyphs at all.</param>
+    /// <param name="profile">The resolved plugin profile, or null for native Steam glyphs.</param>
     /// <remarks>
-    /// The profile is the plugin's, and it is the only source of artwork. WSGM turns it into a
-    /// stylesheet and installs that; a null profile removes WSGM's stylesheet and leaves native
-    /// Valve glyphs in place.
+    /// One call because there is one thing to install. The profile is the plugin's and is the only
+    /// source of artwork; WSGM turns it into a stylesheet. Either switch off, or a profile that
+    /// supplies nothing to draw, removes WSGM's stylesheet and leaves native Valve glyphs in place.
     /// </remarks>
-    internal void ApplyGlyphDeliveryProfile(ImportedGlyphProfile? profile)
+    internal void ApplyGlyphs(bool enabled, ImportedGlyphProfile? profile)
     {
         if (_disposed)
         {
             return;
         }
 
-        _glyphDeliveryState.Update(profile);
+        _glyphsEnabled = enabled;
+        _glyphDeliveryState.Update(enabled ? profile : null);
         SetGlyphDeliveryPatchStates();
         if (_glyphDeliveryEnabled)
         {
             _patches.SetGlobalEnabled(true);
         }
+
         QueueSynchronization();
     }
 
@@ -153,11 +136,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
 
         _enabled = false;
-        _glyphSelectorEnabled = false;
+        _glyphsEnabled = false;
         CancelAllInflightRequests();
         ReleasePerformanceObservation();
         SetPatchStates(bootstrap: true, components: false);
-        _patches.SetPatchEnabled(GlyphSelectorPatchId, false);
         SetGlyphDeliveryPatchStates();
         await _patches.SynchronizeAsync(_shutdown.Token).ConfigureAwait(false);
         _glyphDeliveryState.Update(null);
@@ -173,7 +155,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             ReleasePerformanceObservation();
         }
 
-        if ((_enabled || _glyphSelectorEnabled || _glyphDeliveryEnabled)
+        if ((_enabled || _glyphsEnabled || _glyphDeliveryEnabled)
             && snapshot.Role == SteamUiTargetRole.SharedJsContext)
         {
             QueueSynchronization();
@@ -211,7 +193,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 {
                     ReleasePerformanceObservation();
                     SetPatchStates(bootstrap: false, components: false);
-                    _patches.SetGlobalEnabled(_glyphSelectorEnabled || _glyphDeliveryEnabled);
+                    _patches.SetGlobalEnabled(_glyphsEnabled || _glyphDeliveryEnabled);
                     await _patches.SynchronizeAsync(_shutdown.Token).ConfigureAwait(false);
                 }
             }
@@ -308,7 +290,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private void SetGlyphDeliveryPatchStates()
     {
         SteamInputGlyphPresentation? presentation = _glyphDeliveryState.Current;
-        bool deliver = _glyphSelectorEnabled
+        bool deliver = _glyphsEnabled
             && presentation is not null
             && (presentation.StableResources.Count > 0
                 || presentation.ControllerImages.Count > 0);

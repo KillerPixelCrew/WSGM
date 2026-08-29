@@ -615,13 +615,14 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       live-approved tiers are requested; the inline-SVG and capability-hiding tiers stay fail-closed
       until their fingerprints exist, so enabling them would produce a permanent patch failure rather
       than a feature.
-- [ ] Merge `SteamInputHandheldGlyphPatch` — a full probe/apply/verify/remove patch that installs
-      only a route-predicate object — into the delivery patch that consumes it, and share the
-      selector-namespace constant duplicated across both files. The duplicated constant is gone: the
-      selector patch owns `SelectorNamespace` and the tier base references it. The merge itself is
-      deliberately held until the item above resolves the tier structure — all four tiers consume the
-      selector, so merging it into one of them now would either bury shared infrastructure inside an
-      arbitrary tier or duplicate the installer four ways when the base class is replaced.
+- [x] Merge `SteamInputHandheldGlyphPatch` — a full probe/apply/verify/remove patch that installs
+      only a route-predicate object — into the delivery patch that consumes it. **Deleted rather than
+      merged: once delivery became CSS, nothing consumed it.** The stylesheet is matched by Steam's
+      own selectors and never reads a WSGM `window` object, so the selector patch was injecting a
+      property into SharedJSContext that nothing read, on every session, with its own build-coupled
+      probe to keep working. Removing it drops injected surface, a cleanup path, and a compatibility
+      gate. `ApplyGlyphSelector` and `ApplyGlyphDeliveryProfile` collapse into one `ApplyGlyphs`,
+      because there is now one thing to install.
 - [x] Replace the `"wsgm.glyph.selection"` pseudo-capability that `DeviceOverlayBridge` synthesizes
       and special-cases in `InvokeAsync` with a direct overlay command to
       `DeviceCoordinator.CyclePhysicalGlyphSelectionAsync`, keeping one dispatch path for real

@@ -1759,7 +1759,7 @@ public sealed class ShellSession : IAsyncDisposable
         _ = ObserveDeviceConfigAsync(coordinator, config);
     }
 
-    private static bool GlyphSelectorEnabled(AppConfig config) =>
+    private static bool GlyphsEnabled(AppConfig config) =>
         config.Cef.Enabled
         && config.DeviceIntegration.Enabled
         && config.DeviceIntegration.GlyphSelection is not DeviceGlyphSelection.NativeSteam;
@@ -1813,10 +1813,10 @@ public sealed class ShellSession : IAsyncDisposable
             return;
         }
 
-        bool selector = GlyphSelectorEnabled(config);
-        steamUi.ApplyGlyphSelector(selector);
-        steamUi.ApplyGlyphDeliveryProfile(
-            selector ? _deviceCoordinator?.PhysicalGlyphSelectionSnapshot().Profile : null);
+        bool enabled = GlyphsEnabled(config);
+        steamUi.ApplyGlyphs(
+            enabled,
+            enabled ? _deviceCoordinator?.PhysicalGlyphSelectionSnapshot().Profile : null);
     }
 
     private void ApplyPerformanceConfig(AppConfig config)
