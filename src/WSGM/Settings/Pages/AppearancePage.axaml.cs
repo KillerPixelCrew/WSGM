@@ -13,7 +13,6 @@ using Avalonia.Media.Imaging;
 using Avalonia.Media.Immutable;
 using Avalonia.Platform.Storage;
 using WSGM.Core;
-using WSGM.Shell;
 using WSGM.Themes;
 using ShapePath = Avalonia.Controls.Shapes.Path;
 

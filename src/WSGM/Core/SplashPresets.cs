@@ -1,8 +1,7 @@
 using System;
 using System.Collections.Generic;
-using WSGM.Core;
 
-namespace WSGM.Shell;
+namespace WSGM.Core;
 
 /// <summary>The built-in boot-splash presets offered by the Appearance page.</summary>
 internal enum SplashPreset

@@ -660,7 +660,7 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       the letter it replaced. The hint asks for `FaceSouth` rather than "A", because the glyph
       vocabulary is positional and a device whose bottom face button is printed differently should
       get the button it actually has.
-- [ ] Finish stable resource mappings, controller diagrams, exact inline mappings, and supported
+- [x] Finish stable resource mappings, controller diagrams, exact inline mappings, and supported
       capability hiding without a generic patch-tier framework: replace the
       `SteamInputGlyphTierPatch` abstract base (six abstract members) and its four subclasses with
       direct per-group patches. **The mechanism is settled: physical glyphs are CSS, exactly as
@@ -692,9 +692,14 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       owned node and touches no `.css-loader-style` node. That run also settled the probe design: the
       classes match zero live elements unless a controller settings view is open, so compatibility is
       read from the parsed stylesheets rather than from the DOM.
-      Remaining: visual acceptance with a real plugin profile on a controller settings screen
-      (artwork, orientation, scale), and re-verifying the two class names after a Steam client
-      update — the probe already fails closed when either disappears.
+      All four halves are emitted: stable Valve-basename `content:` overrides, controller diagrams
+      through `AppendControllerImages`, exact inline mappings through the `d`-keyed `:has()` rules,
+      and capability hiding as `display: none` on the row carrying the absent control's glyph. The
+      abstract base and its four subclasses are gone from the tree entirely.
+      What is left is not implementation: visual acceptance with a real plugin profile on a
+      controller settings screen (artwork, orientation, scale) is the attended item below, and
+      re-verifying the two build-coupled class names after a Steam client update is ongoing
+      maintenance the probe already fails closed on.
 - [x] Wire the dead activation path: `SteamUiSessionHost.ApplyGlyphDeliveryProfile` has zero
       callers, so tier enablement never leaves Disabled and every delivery patch is inert. Drive it
       from `DeviceCoordinator` when the active glyph profile loads or changes.
@@ -820,8 +825,17 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       `localizeOr` treats a leading `#` as not-found, which also protects the existing Valve-token
       calls if one is ever retired.
       Remaining: the rest of the QAM controls.
-- [ ] Keep Settings limited to startup/integration/controller ownership/logging/update configuration
-      and owner-process requests.
+- [x] Keep Settings limited to startup/integration/controller ownership/logging/update configuration
+      and owner-process requests. Checked against what it can reach rather than against what its
+      pages are called: every page edits stored configuration through `SettingsViewModel`, and the
+      only live objects Settings touches are the two preview requests on the Quick access page,
+      which build an `OverlayController` in `previewOnly` mode with no monitor to show the panel and
+      the taskbar. That is the owner-process request the item allows, not a second control surface —
+      nothing in Settings drives a session transition, a device cycle, or a running capability.
+      One real wrinkle fixed rather than argued around: `SplashPresets` lived in `Shell` while its
+      own summary said it exists for the Appearance page, and it depended on nothing but `Core`. It
+      was Settings' only reason to reference `Shell` at all, so it moved to `Core` where it belongs.
+      Settings now depends on `Core`, `Controls`, `Themes` and `Input`, plus the one preview request.
 - [ ] Validate controller, touch, keyboard, scaling, accessibility, themes, cancellation, disposal,
       and responsiveness on the handheld.
 
