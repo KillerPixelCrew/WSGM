@@ -35,6 +35,61 @@ candidate cross-route capability-control set did not produce a unique positive r
 hiding remains disabled. The one known inline shape still has no audited catalog mapping from its
 Valve path hash to reviewed device artwork, so that tier also remains disabled.
 
+### Physical glyphs are CSS, exactly like CSSLoader's Handheld Controller Glyphs
+
+**Settled 2026-08-29 against the reference theme, checked out at `_ref/handheld-controller-glyphs`
+(victor-borges/handheld-controller-glyphs), and the loader itself at `_ref/SDH-CssLoader`.** That
+theme already does the whole job correctly on Decky and CSSLoader-Desktop, it covers the MSI Claw,
+and WSGM matches its mechanism rather than inventing one.
+
+Both remaining "tiers" are **presentation overrides written in CSS**. Nothing patches Steam's data
+model, and nothing needs to:
+
+- **Glyph replacement is `content:` on the image.** Valve renders each glyph as
+  `<img src="/steaminputglyphs/<name>.svg">`, and the theme overrides it with
+  `img[src="/steaminputglyphs/shared_color_button_a.svg"] { content: url(<asset>); }`. The Valve
+  basename is the stable key; several Valve names map onto one physical control (`ps_button_x`,
+  `shared_button_a`, and `shared_color_button_a` are all the south face button).
+- **Inline Valve SVG is the same idea for the glyphs Valve draws as inline `<svg><path d="…">`
+  instead of an `<img>`** — the Steam logo in particular. The theme matches
+  `:has(svg path[d="M21.8011 11.5C…"])`, hides the inner `svg`, and paints the replacement as a
+  `background` on the container. So this tier is real and needed; it is keyed by the `d` attribute,
+  not by a webpack factory.
+- **Capability hiding is `display: none` on the row.** For a control the handheld does not have, the
+  theme hides the row that carries that control's glyph, for example
+  `._2mL2HfT5AkDXRi1YBnRWKa:has(> div > img[src="/steaminputglyphs/shared_gyro.svg"])`, plus the
+  long structural selectors for the configurator and layout screens. Every hiding rule is wrapped in
+  `@container style(--hiding-enabled: 1)` against an `@property --hiding-enabled` declaration, which
+  is how the theme makes hiding switchable without shipping two stylesheets.
+
+The device-specific half of the theme is nothing but custom properties. `themes/msi/claw.css` is
+seventeen lines that point `--controller-image`, `--button-guide-image`, `--button-l4-image`,
+`--button-r4-image` and friends at assets; every selector lives in the shared stylesheets. That is
+the shape WSGM's plugin-owned glyph package should produce: assets plus a control map, with the
+selectors owned by WSGM.
+
+Injection is equally plain, and worth copying exactly because it is what makes coexistence work.
+CSSLoader attaches to CDP tabs matched by title/URL/`documentElement` class, appends
+`<style id="…" class="css-loader-style">` to `document.head`, and removes by id or by that class
+(`_ref/SDH-CssLoader/css_browserhook.py`). WSGM does the same with its **own** marker class
+`wsgm-glyph-style`, never touches a `.css-loader-style` node, and removes only its own — a user
+running both is the normal case, not an edge case.
+
+**WSGM's implementation.** `Core/SteamGlyphCss.cs` emits the stylesheet and
+`Core/SteamInputGlyphStylePatch.cs` installs it as the single owned `<style>` element. The ownership
+split is the whole design and must not blur: WSGM owns the method — the Valve resource names, the
+selectors, the stylesheet shape, and the injection — while the device plugin owns the glyphs. Every
+image in the sheet comes from the active plugin's imported profile as a hash-checked data URI, and a
+plugin never supplies a selector, a URL, or stylesheet text. WSGM ships no handheld artwork and no
+per-device stylesheet, because maintaining either would put it back in the business of tracking
+hardware it does not own.
+
+Two of WSGM's selectors are Steam-generated class names (the inline-logo container and the
+configurator control row) and are therefore coupled to a Steam build, exactly as the reference theme
+is. The patch probe checks both before installing anything, so a Steam rebuild that renames them
+disables glyph delivery and keeps native Valve rendering instead of installing rules that match
+nothing.
+
 The tier payload builder accepts only already-imported reviewed profiles, resolves Valve resource
 names through WSGM's compiled semantic map, and re-emits only the importer's hash-checked SVG/PNG
 bytes as bounded data references. It never accepts a plugin path, URL, stylesheet, selector, or

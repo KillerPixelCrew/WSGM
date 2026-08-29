@@ -508,10 +508,31 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
 - [ ] Finish stable resource mappings, controller diagrams, exact inline mappings, and supported
       capability hiding without a generic patch-tier framework: replace the
       `SteamInputGlyphTierPatch` abstract base (six abstract members) and its four subclasses with
-      direct per-group patches. The current inline-SVG and capability-hiding tiers are hardcoded
-      stubs (`{ok:false}` with no emitted mappings), not completed features; obtain their live Steam
-      fingerprints and implement the required direct patches before release rather than deleting or
-      indefinitely deferring either outcome.
+      direct per-group patches. **The mechanism is settled: physical glyphs are CSS, exactly as
+      CSSLoader's Handheld Controller Glyphs theme already does it.** That theme is checked out at
+      `_ref/handheld-controller-glyphs` (it covers the MSI Claw) and the loader at
+      `_ref/SDH-CssLoader`; `docs/steam-cef.md` records the details. Nothing patches Steam's data
+      model and nothing needs a new framework:
+      - Glyph replacement is `img[src="/steaminputglyphs/<name>.svg"] { content: url(<asset>) }`,
+        keyed by the stable Valve basename, with several Valve names mapping onto one control.
+      - Inline Valve SVG is the same for glyphs Valve draws as `<svg><path d="…">` rather than an
+        `<img>`: match `:has(svg path[d="…"])`, hide the inner `svg`, paint the asset as a
+        background. Keyed by the `d` attribute.
+      - Capability hiding is `display: none` on the row carrying the absent control's glyph, wrapped
+        in an `@container style(--hiding-enabled: 1)` query so it stays switchable.
+      - The device half is only custom properties — `themes/msi/claw.css` is seventeen lines of
+        `--button-*-image` — which is the shape the plugin-owned glyph package should produce.
+      Done: the four JS mapping-namespace tiers are deleted and replaced by `Core/SteamGlyphCss.cs`
+      (the emitter) plus `Core/SteamInputGlyphStylePatch.cs` (one owned `<style>` appended to
+      `document.head`, carrying WSGM's `wsgm-glyph-style` class, removed only by that class and never
+      touching a `.css-loader-style` node). `SteamUiSessionHost` registers one glyph patch with one
+      switch instead of four. The ownership split is enforced by construction: **WSGM owns the
+      method** — Valve resource names, selectors, stylesheet shape, injection — and **the plugin owns
+      the glyphs**, with every emitted image coming from its imported profile as a data URI. WSGM
+      ships no handheld artwork and no per-device stylesheet.
+      Remaining: visual acceptance on the reference unit, and re-verifying the two generated Steam
+      class names (`InlineLogoContainerClass`, `ControlRowClass`) after a Steam client update — the
+      patch probe already fails closed when either disappears.
 - [x] Wire the dead activation path: `SteamUiSessionHost.ApplyGlyphDeliveryProfile` has zero
       callers, so tier enablement never leaves Disabled and every delivery patch is inert. Drive it
       from `DeviceCoordinator` when the active glyph profile loads or changes.

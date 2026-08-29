@@ -19,10 +19,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private const string OverlayLevelPatchId = "wsgm.native-qam.overlay-level";
     private const string ControllerTargetPatchId = "wsgm.native-qam.controller-target";
     private const string GlyphSelectorPatchId = "wsgm.steam-input.handheld-glyphs";
-    private const string GlyphResourcePatchId = "wsgm.steam-input.glyph-resources";
-    private const string GlyphControllerImagePatchId = "wsgm.steam-input.controller-images";
-    private const string GlyphInlineSvgPatchId = "wsgm.steam-input.inline-svg";
-    private const string GlyphCapabilityPatchId = "wsgm.steam-input.capability-hiding";
+    private const string GlyphStylePatchId = SteamInputGlyphStylePatch.PatchId;
     private readonly PersistentSteamUiTransport _transport;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly SemaphoreSlim _synchronizeSignal = new(0, 1);
@@ -46,8 +43,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private volatile bool _enabled;
     private volatile bool _glyphSelectorEnabled;
     private volatile bool _glyphDeliveryEnabled;
-    private SteamInputGlyphTierEnablement _glyphTierEnablement =
-        SteamInputGlyphTierEnablement.Disabled;
     private volatile bool _disposed;
 
     internal SteamUiSessionHost(
@@ -72,13 +67,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _patches.Register(new NativeQamOverlayLevelPatch());
         _patches.Register(new NativeQamControllerTargetPatch());
         _patches.Register(new SteamInputHandheldGlyphPatch());
-        _patches.Register(new SteamInputStableResourceGlyphPatch(_glyphDeliveryState));
-        _patches.Register(new SteamInputControllerImageGlyphPatch(_glyphDeliveryState));
-        _patches.Register(new SteamInputInlineValveSvgGlyphPatch(_glyphDeliveryState));
-        _patches.Register(new SteamInputCapabilityHidingGlyphPatch(_glyphDeliveryState));
+        _patches.Register(new SteamInputGlyphStylePatch(_glyphDeliveryState));
         SetPatchStates(bootstrap: false, components: false);
         _patches.SetPatchEnabled(GlyphSelectorPatchId, false);
-        SetGlyphDeliveryPatchStates(SteamInputGlyphTierEnablement.Disabled);
+        SetGlyphDeliveryPatchStates();
         _patches.SetGlobalEnabled(false);
         _bridge.RequestReceived += OnRequestReceived;
         _transport.GenerationChanged += OnGenerationChanged;
@@ -124,32 +116,20 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _patches.SetGlobalEnabled(true);
         }
         _patches.SetPatchEnabled(GlyphSelectorPatchId, enabled);
-        SetGlyphDeliveryPatchStates(_glyphTierEnablement);
+        SetGlyphDeliveryPatchStates();
         QueueSynchronization();
     }
 
     /// <summary>
-    /// Publishes the active handheld glyph profile to the delivery tiers.
+    /// Publishes the active handheld glyph profile for delivery.
     /// </summary>
     /// <param name="profile">The resolved profile, or null for native Steam presentation.</param>
     /// <remarks>
-    /// Only the two live-approved tiers are ever requested. The inline-Valve-SVG and
-    /// capability-hiding tiers still probe fail-closed against the current Steam build, so asking
-    /// for them would produce a permanent patch failure rather than a feature; they are enabled
-    /// once their exact live fingerprints exist.
+    /// The profile is the plugin's, and it is the only source of artwork. WSGM turns it into a
+    /// stylesheet and installs that; a null profile removes WSGM's stylesheet and leaves native
+    /// Valve glyphs in place.
     /// </remarks>
-    internal void ApplyGlyphDeliveryProfile(ImportedGlyphProfile? profile) =>
-        ApplyGlyphDeliveryProfile(
-            profile,
-            new SteamInputGlyphTierEnablement(
-                StableResources: profile is not null,
-                ControllerImages: profile is not null,
-                InlineValveSvg: false,
-                CapabilityHiding: false));
-
-    internal void ApplyGlyphDeliveryProfile(
-        ImportedGlyphProfile? profile,
-        SteamInputGlyphTierEnablement tierEnablement)
+    internal void ApplyGlyphDeliveryProfile(ImportedGlyphProfile? profile)
     {
         if (_disposed)
         {
@@ -157,8 +137,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
 
         _glyphDeliveryState.Update(profile);
-        _glyphTierEnablement = tierEnablement;
-        SetGlyphDeliveryPatchStates(tierEnablement);
+        SetGlyphDeliveryPatchStates();
         if (_glyphDeliveryEnabled)
         {
             _patches.SetGlobalEnabled(true);
@@ -175,12 +154,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
         _enabled = false;
         _glyphSelectorEnabled = false;
-        _glyphTierEnablement = SteamInputGlyphTierEnablement.Disabled;
         CancelAllInflightRequests();
         ReleasePerformanceObservation();
         SetPatchStates(bootstrap: true, components: false);
         _patches.SetPatchEnabled(GlyphSelectorPatchId, false);
-        SetGlyphDeliveryPatchStates(SteamInputGlyphTierEnablement.Disabled);
+        SetGlyphDeliveryPatchStates();
         await _patches.SynchronizeAsync(_shutdown.Token).ConfigureAwait(false);
         _glyphDeliveryState.Update(null);
         SetPatchStates(bootstrap: false, components: false);
@@ -319,28 +297,23 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _patches.SetPatchEnabled(ControllerTargetPatchId, components);
     }
 
-    private void SetGlyphDeliveryPatchStates(SteamInputGlyphTierEnablement requested)
+    /// <summary>
+    /// Enables the one glyph stylesheet when the active plugin profile supplies something to draw.
+    /// </summary>
+    /// <remarks>
+    /// One switch, because there is one stylesheet. The previous four independent tier switches
+    /// existed to gate four separate mapping namespaces; a single stylesheet either has rules or it
+    /// does not, and the patch itself refuses to apply an empty one.
+    /// </remarks>
+    private void SetGlyphDeliveryPatchStates()
     {
         SteamInputGlyphPresentation? presentation = _glyphDeliveryState.Current;
-        bool selectorEnabled = _glyphSelectorEnabled;
-        bool resources = selectorEnabled
-            && requested.StableResources
-            && presentation?.StableResources.Count > 0;
-        bool images = selectorEnabled
-            && requested.ControllerImages
-            && presentation?.ControllerImages.Count > 0;
-        bool inline = selectorEnabled
-            && requested.InlineValveSvg
-            && presentation?.InlineMappings.Count > 0;
-
-        // Capability hiding remains fail-closed until the current Steam build has an exact
-        // semantic-control result fingerprint. Profile absence alone never authorizes hiding.
-        bool capabilities = false;
-        _patches.SetPatchEnabled(GlyphResourcePatchId, resources);
-        _patches.SetPatchEnabled(GlyphControllerImagePatchId, images);
-        _patches.SetPatchEnabled(GlyphInlineSvgPatchId, inline);
-        _patches.SetPatchEnabled(GlyphCapabilityPatchId, capabilities);
-        _glyphDeliveryEnabled = resources || images || inline || capabilities;
+        bool deliver = _glyphSelectorEnabled
+            && presentation is not null
+            && (presentation.StableResources.Count > 0
+                || presentation.ControllerImages.Count > 0);
+        _patches.SetPatchEnabled(GlyphStylePatchId, deliver);
+        _glyphDeliveryEnabled = deliver;
     }
 
     private void UpdatePerformanceObservation()
