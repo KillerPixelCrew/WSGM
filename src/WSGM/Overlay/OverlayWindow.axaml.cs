@@ -215,6 +215,22 @@ public partial class OverlayWindow : Window
 
     private void OnDeviceChanged() => Dispatcher.UIThread.Post(RefreshDevicePanel);
 
+    /// <summary>
+    /// Redraws the written activation hints as the device's own buttons, where one resolved.
+    /// </summary>
+    /// <remarks>
+    /// Written letters stay in the markup and remain the fallback, so this only ever adds. That
+    /// matters on the two machines it will not resolve for — one with no glyph profile, and one
+    /// where the input actually reaching WSGM is not the managed handheld's — because a hint showing
+    /// a Claw button while the user holds an Xbox pad is worse than the letter it replaced.
+    /// </remarks>
+    private void RefreshNavigationHints()
+    {
+        // FaceSouth rather than "A": the glyph vocabulary is positional, so a device whose bottom
+        // face button is printed with something else gets the button it actually has.
+        HomeAppButton.TrailingGlyph = _deviceBridge?.NavigationHint(GlyphControlId.FaceSouth);
+    }
+
     private void OnPerformanceChanged() => Dispatcher.UIThread.Post(RefreshPerformancePanel);
 
     private void RefreshDevicePanel()
@@ -226,6 +242,7 @@ public partial class OverlayWindow : Window
 
         DeviceOverlaySnapshot snapshot = _deviceBridge?.Snapshot()
             ?? new DeviceOverlaySnapshot(false, "Device integration off", string.Empty, null, []);
+        RefreshNavigationHints();
         ConfigureTabs(snapshot.Visible);
         DeviceStatusTitle.Text = snapshot.Status;
         DeviceStatusDetail.Text = snapshot.Detail;

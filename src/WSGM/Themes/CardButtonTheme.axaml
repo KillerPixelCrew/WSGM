@@ -81,11 +81,22 @@
                                              VerticalAlignment="Center"
                                              Fill="{TemplateBinding StatusBrush}"
                                              IsVisible="{TemplateBinding StatusBrush, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                    <!-- The device's own glyph when one resolved, otherwise the
+                                         letter. Both bind the same trailing slot, and exactly one
+                                         is visible, so a Claw shows its printed button and a
+                                         machine with no glyph profile still shows something. -->
+                                    <c:PhysicalGlyphImage Name="PART_TrailingGlyph"
+                                                          Width="18"
+                                                          Height="18"
+                                                          VerticalAlignment="Center"
+                                                          Foreground="{TemplateBinding Foreground}"
+                                                          Plan="{TemplateBinding TrailingGlyph}"
+                                                          IsVisible="{TemplateBinding TrailingGlyph, Converter={x:Static ObjectConverters.IsNotNull}}" />
                                     <TextBlock Name="PART_Trailing"
                                                FontWeight="SemiBold"
                                                VerticalAlignment="Center"
                                                Text="{TemplateBinding TrailingText}"
-                                               IsVisible="{TemplateBinding TrailingText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                               IsVisible="{TemplateBinding ShowTrailingText}" />
                                 </StackPanel>
                             </Grid>
                         </Border>

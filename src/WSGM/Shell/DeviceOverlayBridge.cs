@@ -189,6 +189,17 @@ internal interface IDeviceOverlaySource : IDisposable
     /// </remarks>
     event Action<CanonicalControllerSample>? PhysicalSampleReceived;
 
+    /// <summary>The device's own glyph for one navigation hint, when one applies.</summary>
+    /// <param name="control">The control the hint names.</param>
+    /// <returns>The glyph to draw, or null to keep the written letter.</returns>
+    /// <remarks>
+    /// Null is the normal answer on most machines, and the caller must treat it as "show the letter"
+    /// rather than "show nothing". The hint is only replaced when the input actually reaching WSGM
+    /// is the managed handheld's, because a hint showing a Claw button while the user is holding an
+    /// Xbox pad is worse than the letter it replaced.
+    /// </remarks>
+    PhysicalGlyphRenderPlan? NavigationHint(GlyphControlId control);
+
     /// <summary>Starts delivering physical samples for the glyph input test.</summary>
     /// <returns>A lease that stops delivery when disposed.</returns>
     /// <remarks>
@@ -700,6 +711,28 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         _coordinator.SelectHardwareProfileAsync(
             NextProfile(_coordinator.HardwareProfileIds, _coordinator.SelectedHardwareProfileId),
             cancellationToken);
+
+    /// <inheritdoc/>
+    public PhysicalGlyphRenderPlan? NavigationHint(GlyphControlId control)
+    {
+        if (_disposed)
+        {
+            return null;
+        }
+
+        // The NavigationHint surface carries its own authorization: the service refuses it unless
+        // the active input source is the managed handheld, which is exactly the condition under
+        // which replacing a written letter with a device glyph is correct.
+        PhysicalGlyphRenderPlan plan = _glyphs.Resolve(
+            _coordinator.PhysicalGlyphSelectionSnapshot(),
+            control,
+            PhysicalGlyphSurface.NavigationHint,
+            _coordinator.ControllerStatus.UiSource is UiInputSource.ManagedCanonical,
+            steamRouteSubjectIsHandheld: false,
+            PhysicalGlyphTheme.Dark,
+            scale: 1);
+        return plan.UsesDeviceArtwork ? plan : null;
+    }
 
     /// <inheritdoc/>
     public event Action<CanonicalControllerSample>? PhysicalSampleReceived;
@@ -1313,6 +1346,11 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
         Changed?.Invoke();
         return Task.CompletedTask;
     }
+
+    /// <summary>Preview-only: no profile is loaded, so the written letters stand.</summary>
+    /// <param name="control">The control the hint names.</param>
+    /// <returns>Always null.</returns>
+    public PhysicalGlyphRenderPlan? NavigationHint(GlyphControlId control) => null;
 
     /// <summary>Never raised: the preview reads no device, so there is nothing to observe.</summary>
     public event Action<CanonicalControllerSample>? PhysicalSampleReceived

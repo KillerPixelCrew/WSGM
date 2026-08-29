@@ -41,6 +41,17 @@ public class CardButton : Button
         AvaloniaProperty.Register<CardButton, string?>(nameof(TrailingText));
 
     /// <summary>
+    /// Defines the <see cref="TrailingGlyph"/> property.
+    /// </summary>
+    /// <remarks>
+    /// Internal, unlike the rest of this control's properties, because the render plan it carries is
+    /// internal: the glyph pipeline is not a public API and nothing outside this assembly should be
+    /// handing a card one. The XAML template resolves it because it compiles into this assembly.
+    /// </remarks>
+    internal static readonly StyledProperty<PhysicalGlyphRenderPlan?> TrailingGlyphProperty =
+        AvaloniaProperty.Register<CardButton, PhysicalGlyphRenderPlan?>(nameof(TrailingGlyph));
+
+    /// <summary>
     /// Defines the <see cref="StatusBrush"/> property.
     /// </summary>
     public static readonly StyledProperty<IBrush?> StatusBrushProperty =
@@ -87,6 +98,51 @@ public class CardButton : Button
     {
         get => GetValue(TrailingTextProperty);
         set => SetValue(TrailingTextProperty, value);
+    }
+
+    /// <summary>
+    /// Gets or sets the device's own glyph for the activation hint, drawn instead of
+    /// <see cref="TrailingText"/> when one resolved.
+    /// </summary>
+    /// <remarks>
+    /// The text is the fallback rather than the default: a machine with no glyph profile, or one
+    /// whose active input is not the managed handheld, still shows the letter. Setting this never
+    /// removes the text — the two share the trailing slot and exactly one is visible — so clearing
+    /// it restores the letter without the caller having to remember what it was.
+    /// </remarks>
+    internal PhysicalGlyphRenderPlan? TrailingGlyph
+    {
+        get => GetValue(TrailingGlyphProperty);
+        set => SetValue(TrailingGlyphProperty, value);
+    }
+
+    /// <summary>
+    /// Defines the <see cref="ShowTrailingText"/> property.
+    /// </summary>
+    public static readonly DirectProperty<CardButton, bool> ShowTrailingTextProperty =
+        AvaloniaProperty.RegisterDirect<CardButton, bool>(
+            nameof(ShowTrailingText),
+            button => button.ShowTrailingText);
+
+    /// <summary>
+    /// Gets whether the trailing letter is the thing being shown in the trailing slot.
+    /// </summary>
+    /// <remarks>
+    /// Computed rather than bound with a converter because it depends on two properties at once,
+    /// which is the case a <c>TemplateBinding</c> converter cannot express. The glyph wins when it
+    /// resolved, so the two never draw over each other.
+    /// </remarks>
+    public bool ShowTrailingText =>
+        TrailingGlyph is null && !string.IsNullOrEmpty(TrailingText);
+
+    /// <inheritdoc/>
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+        if (change.Property == TrailingGlyphProperty || change.Property == TrailingTextProperty)
+        {
+            RaisePropertyChanged(ShowTrailingTextProperty, !ShowTrailingText, ShowTrailingText);
+        }
     }
 
     /// <summary>

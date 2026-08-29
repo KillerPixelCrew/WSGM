@@ -644,8 +644,22 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       the matched context only, removal takes just the nodes carrying WSGM's own marker class, a
       `.css-loader-style` node is never touched so both tools run at once, and a profile that
       supplies nothing — or a Steam build whose classes moved — leaves native Valve glyphs in place.
-- [ ] Finish Automatic/Native/manual selection, graphical preview, input test, OEM rows, and
-      navigation hints from one shared physical map.
+- [x] Finish Automatic/Native/manual selection, graphical preview, input test, OEM rows, and
+      navigation hints from one shared physical map. All five read the same
+      `PhysicalGlyphService.Resolve`, differing only in the surface they ask for, so there is one
+      selection policy and one geometry cache behind every one of them.
+      Selection cycles Automatic, Native Steam and manual on the Glyphs page. The preview and the
+      input test are one surface — the same picture answering whether the artwork resolves and
+      whether pressing a control reaches WSGM as the control the artwork claims. OEM rows arrive
+      through the capability list on their own page.
+      Navigation hints replace the written activation letter with the device's own button, on the
+      `NavigationHint` surface, which the service refuses unless the input actually reaching WSGM is
+      the managed handheld's. The letter stays in the markup and remains the fallback, so this can
+      only ever add: a machine with no profile, or one where an Xbox pad is what is being held,
+      keeps the letter — showing a Claw button to someone holding an Xbox pad would be worse than
+      the letter it replaced. The hint asks for `FaceSouth` rather than "A", because the glyph
+      vocabulary is positional and a device whose bottom face button is printed differently should
+      get the button it actually has.
 - [ ] Finish stable resource mappings, controller diagrams, exact inline mappings, and supported
       capability hiding without a generic patch-tier framework: replace the
       `SteamInputGlyphTierPatch` abstract base (six abstract members) and its four subclasses with
