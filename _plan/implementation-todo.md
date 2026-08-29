@@ -406,6 +406,17 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       Reading is safe and changes nothing; the write path stays attended either way.
 - [ ] Verify that Device Integration off leaves no Claw activity and another manager can take over
       without WSGM killing or reconfiguring it.
+      The decidable half is now pinned by `DeviceIntegrationOffTests`. The master switch decides
+      regardless of what the child preferences hold, so turning integration off cannot leave WSGM
+      creating a virtual controller, hiding the physical one, or writing a power limit — while the
+      child preference is still remembered, which is what makes the switch reversible without
+      setting everything up again. The make-safe ordering is pinned in both directions: nothing is
+      removed before the plugin has handed its devices back, and WSGM's HidHide entries outlive the
+      virtual target, because removing them first would expose the physical controller alongside the
+      virtual one and whatever takes over would see both at once.
+      What is left is the observation itself: another manager driving the Claw with WSGM installed
+      and integration off, and nothing of WSGM's moving. That needs the hardware and a second
+      manager, so it stays attended.
 
 ### S7 — Complete controller management directly
 
