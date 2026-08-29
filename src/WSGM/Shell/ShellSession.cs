@@ -225,6 +225,9 @@ public sealed class ShellSession : IAsyncDisposable
                             token),
                     TargetFrametimeMs);
                 _autoTdp.Apply(_config.DeviceIntegration.AutoTdpEnabled);
+                // The coordinator surfaces AutoTDP on the Device page but never owns its lifetime;
+                // it only reads the state to render a row.
+                deviceCoordinator.AttachAutoTdpStatus(() => _autoTdp!.Status);
             }
 
             _runningApplicationTargets = new RunningApplicationCoordinator(

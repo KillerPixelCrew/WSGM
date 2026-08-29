@@ -45,6 +45,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private DeviceHostClient? _client;
     private long _cycleGeneration;
     private string? _runningApplicationId;
+    private Func<AutoTdpStatus>? _autoTdpStatus;
     private bool _intentionalStop;
     private bool _faultRecoveryPending;
     private int _automaticRestartAttempts;
@@ -1452,6 +1453,49 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             _config = persisted;
             ConfigurationChanged?.Invoke();
             Log.Info($"Physical glyph presentation changed: {next}.");
+        }
+        finally
+        {
+            _transitionGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Reports AutoTDP's live state for the Device surface.
+    /// </summary>
+    /// <param name="status">Provider owned by the session, or null when AutoTDP is not running.</param>
+    /// <remarks>
+    /// A provider rather than a reference because AutoTDP is composed later than this coordinator
+    /// and depends on the performance service; the coordinator only needs to read its state, never
+    /// to own its lifetime.
+    /// </remarks>
+    internal void AttachAutoTdpStatus(Func<AutoTdpStatus>? status) => _autoTdpStatus = status;
+
+    /// <summary>Current AutoTDP state, or null when the service is not running.</summary>
+    internal AutoTdpStatus? AutoTdpStatus => _autoTdpStatus?.Invoke();
+
+    /// <summary>Whether AutoTDP is switched on in the persisted configuration.</summary>
+    internal bool AutoTdpEnabled => _config.DeviceIntegration.AutoTdpEnabled;
+
+    /// <summary>Turns AutoTDP on or off and persists the choice.</summary>
+    /// <param name="cancellationToken">Cancels the change.</param>
+    /// <returns>A task completing once the new setting is persisted.</returns>
+    /// <remarks>
+    /// Persisted rather than session-only, and applied by the ordinary configuration reload, so the
+    /// overlay switch and the Settings checkbox are the same setting reached two ways.
+    /// </remarks>
+    internal async Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default)
+    {
+        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            bool next = !_config.DeviceIntegration.AutoTdpEnabled;
+            AppConfig persisted = await Task.Run(
+                () => ConfigStore.Mutate(config => config.DeviceIntegration.AutoTdpEnabled = next),
+                cancellationToken).ConfigureAwait(false);
+            _config = persisted;
+            ConfigurationChanged?.Invoke();
+            Log.Info($"AutoTDP switched {(next ? "on" : "off")} from the Device surface.");
         }
         finally
         {

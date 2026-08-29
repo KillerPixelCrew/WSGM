@@ -644,7 +644,16 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       rather than empty, and Back leaves a section page to its card.
       Remaining: the page-specific surfaces that are richer than a capability-row list — profile
       selection, glyph preview and input test, and diagnostics/recovery actions.
-- [ ] Bind every overlay and QAM control to the same direct runtime service.
+- [ ] Bind every overlay and QAM control to the same direct runtime service. AutoTDP now has a
+      surface: the Device → Power and thermals page carries a row beside the power limit it moves,
+      reporting what AutoTDP is actually doing rather than merely that it is on — controlling with
+      its settled watts and the frametime against its deadline, paused by a manual change, waiting
+      for a game, or unable to find a power limit. Toggling persists
+      `DeviceIntegration.AutoTdpEnabled` through `DeviceCoordinator.ToggleAutoTdpAsync`, so the
+      overlay switch and the Settings checkbox are the same setting reached two ways. It is a direct
+      command like glyph selection, not a synthesized pseudo-capability, so the capability invoke
+      keeps one dispatch path.
+      Remaining: the native QAM projection of the same state, and the rest of the QAM controls.
 - [ ] Keep Settings limited to startup/integration/controller ownership/logging/update configuration
       and owner-process requests.
 - [ ] Validate controller, touch, keyboard, scaling, accessibility, themes, cancellation, disposal,

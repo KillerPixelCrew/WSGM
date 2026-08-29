@@ -300,6 +300,27 @@ public partial class OverlayWindow : Window
             }
         }
 
+        // AutoTDP moves the power limit rather than being one, so it sits with the limit it moves
+        // instead of arriving through the capability list.
+        if (section is DeviceOverlaySection.PowerAndThermals && snapshot.AutoTdp is { } autoTdp)
+        {
+            const string autoTdpFocusKey = "device.auto-tdp";
+            DescriptorStatusRow row = new();
+            row.Apply(new DescriptorRow(
+                autoTdpFocusKey,
+                autoTdp.Title,
+                autoTdp.Description,
+                autoTdp.TrailingText,
+                autoTdp.CanToggle,
+                DeviceStatusFor(autoTdp.Status)));
+            row.Click += (_, _) => InvokeAutoTdpToggle();
+            DeviceCapabilityList.Children.Add(row);
+            if (string.Equals(autoTdpFocusKey, focusedKey, StringComparison.Ordinal))
+            {
+                restoreFocus = row;
+            }
+        }
+
         // Glyph selection is WSGM's own control rather than a plugin capability, so it is placed
         // here explicitly rather than arriving through the capability list.
         if (section is DeviceOverlaySection.Glyphs && snapshot.GlyphSelection is { } glyphSelection)
@@ -314,6 +335,29 @@ public partial class OverlayWindow : Window
         }
 
         return restoreFocus;
+    }
+
+    private void InvokeAutoTdpToggle() => _ = ToggleAutoTdpAsync();
+
+    private async Task ToggleAutoTdpAsync()
+    {
+        IDeviceOverlaySource? bridge = _deviceBridge;
+        if (bridge is null || _closed)
+        {
+            return;
+        }
+
+        try
+        {
+            await bridge.ToggleAutoTdpAsync(_deviceLifetime.Token);
+        }
+        catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"AutoTDP switch failed: {ex.Message}");
+        }
     }
 
     private void EnterDeviceSection(DeviceOverlaySection section)

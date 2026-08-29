@@ -77,13 +77,27 @@ internal sealed record DeviceOverlayGlyphSelection(
     string TrailingText,
     bool CanCycle);
 
+/// <summary>Presentation-only state for the WSGM-owned AutoTDP switch.</summary>
+/// <remarks>
+/// AutoTDP is WSGM's, not a plugin capability: it moves the plugin's power limit rather than being
+/// one. It gets its own row for the same reason glyph selection does — synthesizing a pseudo
+/// capability would need a second dispatch path through the capability invoke.
+/// </remarks>
+internal sealed record DeviceOverlayAutoTdp(
+    DeviceOverlayStatus Status,
+    string Title,
+    string Description,
+    string TrailingText,
+    bool CanToggle);
+
 /// <summary>Complete bounded Device-surface snapshot produced from coordinator-owned state.</summary>
 internal sealed record DeviceOverlaySnapshot(
     bool Visible,
     string Status,
     string Detail,
     DeviceOverlayGlyphSelection? GlyphSelection,
-    IReadOnlyList<DeviceOverlayCapability> Capabilities);
+    IReadOnlyList<DeviceOverlayCapability> Capabilities,
+    DeviceOverlayAutoTdp? AutoTdp = null);
 
 /// <summary>Closed semantic source consumed by the Device overlay destination.</summary>
 internal interface IDeviceOverlaySource : IDisposable
@@ -97,6 +111,11 @@ internal interface IDeviceOverlaySource : IDisposable
         CancellationToken cancellationToken = default);
 
     Task CyclePhysicalGlyphSelectionAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Turns AutoTDP on or off and persists the choice.</summary>
+    /// <param name="cancellationToken">Cancels the change.</param>
+    /// <returns>A task completing once the new setting is persisted.</returns>
+    Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -132,6 +151,9 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         DeviceOverlayGlyphSelection glyphSelection = PhysicalGlyphSelectionView(
             _coordinator.PhysicalGlyphSelection,
             _coordinator.PhysicalGlyphSelectionSnapshot());
+        DeviceOverlayAutoTdp autoTdp = AutoTdpView(
+            _coordinator.AutoTdpEnabled,
+            _coordinator.AutoTdpStatus);
         DateTimeOffset? retryAt = _coordinator.ManualRetryAvailableAt;
         ScheduleRetryRefresh(retryAt);
         if (retryAt is not null)
@@ -198,7 +220,54 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             LifecycleLabel(state),
             detail,
             glyphSelection,
-            capabilities);
+            capabilities,
+            autoTdp);
+    }
+
+    /// <summary>Projects AutoTDP's switch and live state into one row.</summary>
+    /// <param name="enabled">The persisted setting.</param>
+    /// <param name="status">Live state, or null when the service is not running.</param>
+    /// <returns>The row.</returns>
+    /// <remarks>
+    /// The row reports what AutoTDP is actually doing, not merely that it is switched on. A user who
+    /// turned it on and sees nothing happening needs to know whether it is waiting for a game, held
+    /// by a manual power change, or unable to find a power limit at all.
+    /// </remarks>
+    internal static DeviceOverlayAutoTdp AutoTdpView(bool enabled, AutoTdpStatus? status)
+    {
+        if (!enabled)
+        {
+            return new DeviceOverlayAutoTdp(
+                DeviceOverlayStatus.None,
+                "AutoTDP",
+                "Move the power limit from measured frame delivery",
+                "OFF",
+                CanToggle: true);
+        }
+
+        string detail = status?.Detail ?? "Starting.";
+        string trailing = status?.Watts is { } watts
+            ? watts.ToString(CultureInfo.InvariantCulture) + " W"
+            : "ON";
+        DeviceOverlayStatus health = status?.State switch
+        {
+            AutoTdpState.Controlling => DeviceOverlayStatus.Available,
+            AutoTdpState.Paused => DeviceOverlayStatus.Warning,
+            AutoTdpState.Unavailable => DeviceOverlayStatus.Unsupported,
+            AutoTdpState.Idle => DeviceOverlayStatus.Stale,
+            _ => DeviceOverlayStatus.None,
+        };
+        if (status?.FrametimeMs is { } frametime && status.TargetFrametimeMs is { } target)
+        {
+            // Invariant, like the watts above it. The surrounding sentence is English, and a row
+            // that mixed a comma decimal separator with a full stop in one line would read as a
+            // formatting bug rather than as localisation.
+            detail = string.Create(
+                CultureInfo.InvariantCulture,
+                $"{frametime:F1} ms against a {target:F1} ms deadline · {detail}");
+        }
+
+        return new DeviceOverlayAutoTdp(health, "AutoTDP", detail, trailing, CanToggle: true);
     }
 
     public async Task InvokeAsync(
@@ -227,6 +296,9 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 
     public Task CyclePhysicalGlyphSelectionAsync(CancellationToken cancellationToken = default) =>
         _coordinator.CyclePhysicalGlyphSelectionAsync(cancellationToken);
+
+    public Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default) =>
+        _coordinator.ToggleAutoTdpAsync(cancellationToken);
 
     public void Dispose()
     {
@@ -581,6 +653,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
     private bool _lighting = true;
     private int _fanMode;
     private int _glyphSelection;
+    private bool _autoTdp;
 
     public event Action? Changed;
 
@@ -602,6 +675,17 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     _ => "REVIEWED",
                 },
                 CanCycle: true),
+            AutoTdp: DeviceOverlayBridge.AutoTdpView(
+                _autoTdp,
+                _autoTdp
+                    ? new AutoTdpStatus(
+                        AutoTdpState.Controlling,
+                        15,
+                        14.2,
+                        16.6,
+                        "steam:preview",
+                        "Preview only; no power write is made.")
+                    : null),
             Capabilities:
             [
                 new DeviceOverlayCapability(
@@ -688,6 +772,14 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 break;
         }
 
+        Changed?.Invoke();
+        return Task.CompletedTask;
+    }
+
+    public Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _autoTdp = !_autoTdp;
         Changed?.Invoke();
         return Task.CompletedTask;
     }
