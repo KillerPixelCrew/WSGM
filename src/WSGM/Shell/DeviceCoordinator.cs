@@ -63,7 +63,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         _diagnostics = new DeviceCoordinatorDiagnosticsServer(sessionId, DiagnosticsSnapshot);
         _hapticSink = new DeviceHostHapticSink(ApplyHapticOutputAsync);
         _controllers = new ControllerManager(
-            new HidMaestroProductionBackend(),
+            new ViiperControllerBackend(),
             _hapticSink,
             new HidHideOwnedDeltaManager(
                 new WindowsHidHideAdapter(),

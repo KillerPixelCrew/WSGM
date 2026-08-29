@@ -431,11 +431,28 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
         EV-cert concerns are gone. Driver and certificate installation still must not happen at
         runtime (INV-020); it belongs to the installer as an explicit, user-approved, elevated step
         that verifies the locked component identity first.
-      Next implementation steps, in order: measure the idle CPU of the virtual Deck with the patch
-      applied, and again with `VIIPER_NAK_IDLE` forced, against a Steam client that has actually
-      claimed the device; then replace `HidMaestroProductionBackend` with a VIIPER-backed
-      `IHidBackend` implementation. Licensing is settled — WSGM and the VIIPER server are both
-      GPL-3.0, so shipping it is straightforward.
+      Implemented since: `Input/ViiperControllerBackend.cs` replaces the HIDMaestro stub as the
+      production `IHidBackend`, over `Interop/NativeViiper.cs` — a flat blittable C ABI the NativeAOT
+      executable binds directly, so no helper process is needed. `Input/SteamDeckNeptuneReport.cs`
+      packs the 64-byte frame, and the rumble return path is wired through VIIPER's feedback callback.
+      `eng/build-viiper.ps1` checks out the pinned revision, applies WSGM's patches, runs the Deck
+      tests, builds `libviiper.dll`, and stages it; `WSGM.csproj` ships it beside the executable.
+      The binding is verified against the real library on the reference Claw, not merely compiled:
+      init, bus create, device add, fast handle, a 64-byte frame submit, remove, and shutdown all
+      succeed. Licensing is settled — both projects are GPL-3.0.
+      Remaining: `viiper_device_attach` needs usbip-win2 installed, so the installer work below is
+      the next step; then measure idle CPU with and without `VIIPER_NAK_IDLE` against a Steam client
+      that has actually claimed the device, and open `DeviceFeatureAvailability.ControllerManagement`.
+- [x] Define every control the virtual targets can express in the canonical model, once, rather than
+      extending it each time a plugin needs a button. The API version is an exact integer match
+      across WSGM, DeviceHost, Device Lab, and every installed plugin, so a later addition is a
+      breaking rebuild for every plugin that exists — and the target set is fixed and its control
+      surface knowable today. `CanonicalButtons` gained trackpad touch and click, and quick access;
+      `CanonicalControllerSample` gained the two touch contacts with position and force plus both
+      stick forces. `CanonicalSampleCodec` is version 2 at 128 bytes.
+      `SteamDeckNeptuneReport.Supported` shows the Deck target now drops nothing the model defines,
+      and `VirtualTargetProfile.Consume` strips the new controls for targets that lack them rather
+      than remapping them.
 - [x] Keep one `ControllerManager` owning Steam Deck Composite, Xbox 360, DualShock 4, target
       replacement, output, HidHide, local UI capture, and fallback. `Shell/ControllerManager.cs` is
       that owner: selection, target lifetime and replacement, owned-delta HidHide, reference-counted

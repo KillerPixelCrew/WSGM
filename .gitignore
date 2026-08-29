@@ -19,6 +19,7 @@
 # the library source in native/SteamInput is the tracked copy.
 /src/WSGM/Native/SteamInputLease/
 /src/WSGM/Native/Radio/
+/src/WSGM/Native/Viiper/
 
 # The vendored Rust library's own build output.
 /native/SteamInput/target/

@@ -81,6 +81,21 @@ public enum CanonicalButtons : uint
 
     /// <summary>Right stick capacitive touch.</summary>
     RightStickTouch = 1 << 20,
+
+    /// <summary>Left trackpad capacitive touch.</summary>
+    LeftPadTouch = 1 << 21,
+
+    /// <summary>Right trackpad capacitive touch.</summary>
+    RightPadTouch = 1 << 22,
+
+    /// <summary>Left trackpad click.</summary>
+    LeftPadClick = 1 << 23,
+
+    /// <summary>Right trackpad click.</summary>
+    RightPadClick = 1 << 24,
+
+    /// <summary>Dedicated quick-access button.</summary>
+    QuickAccess = 1 << 25,
 }
 
 /// <summary>
@@ -125,6 +140,19 @@ public enum SampleQuality
 /// full state is corrected by the next one. Axes are normalized so no consumer needs to know the
 /// device's raw ranges, centres, or inversions — that translation is the plugin's, and it is the
 /// only place that knows them.
+/// <para>
+/// <b>This model is deliberately complete rather than minimal.</b> It defines every control the
+/// virtual targets WSGM presents can express — Steam Deck Composite, Xbox 360, and DualShock 4 —
+/// even where no plugin reports one yet. That is the opposite of the usual rule for this SDK, and
+/// the reason is the API version: it is an exact integer match across WSGM, DeviceHost, Device Lab,
+/// and every installed plugin, so adding one control later is a breaking rebuild for every plugin
+/// that exists. The target set is fixed and its control surface is knowable today, so the contract
+/// is settled once here instead of a button at a time.
+/// </para>
+/// <para>
+/// A plugin reports only what its hardware has and leaves the rest alone; a target renders only what
+/// it can represent, dropping the rest rather than remapping it. Neither side invents a control.
+/// </para>
 /// </remarks>
 public sealed record CanonicalControllerSample
 {
@@ -157,6 +185,37 @@ public sealed record CanonicalControllerSample
 
     /// <summary>Right trigger, from 0 to 1.</summary>
     public float RightTrigger { get; init; }
+
+    /// <summary>Left touch contact position on the horizontal axis, from -1 to 1.</summary>
+    /// <remarks>
+    /// The touch surface is expressed as two independent contacts, left and right, because that
+    /// covers both shapes WSGM's virtual targets present: the Steam Deck's two separate trackpads
+    /// map one contact each, and the DualShock 4's single two-finger touchpad maps its first finger
+    /// to the left contact and its second to the right. A device with neither leaves these zero and
+    /// never reports a touch.
+    /// </remarks>
+    public float LeftPadX { get; init; }
+
+    /// <summary>Left touch contact position on the vertical axis, from -1 to 1, positive up.</summary>
+    public float LeftPadY { get; init; }
+
+    /// <summary>Left touch contact pressure, from 0 to 1.</summary>
+    public float LeftPadForce { get; init; }
+
+    /// <summary>Right touch contact position on the horizontal axis, from -1 to 1.</summary>
+    public float RightPadX { get; init; }
+
+    /// <summary>Right touch contact position on the vertical axis, from -1 to 1, positive up.</summary>
+    public float RightPadY { get; init; }
+
+    /// <summary>Right touch contact pressure, from 0 to 1.</summary>
+    public float RightPadForce { get; init; }
+
+    /// <summary>Left stick capacitive contact strength, from 0 to 1.</summary>
+    public float LeftStickForce { get; init; }
+
+    /// <summary>Right stick capacitive contact strength, from 0 to 1.</summary>
+    public float RightStickForce { get; init; }
 
     /// <summary>Motion, when the device has a sensor and it is available.</summary>
     public MotionSample? Motion { get; init; }

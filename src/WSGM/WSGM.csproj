@@ -65,6 +65,17 @@
           Link="%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" />
+    <!-- Virtual controller targets. VIIPER presents a virtual USB device in
+         userspace over usbip-win2's generic signed kernel driver, so WSGM ships
+         no driver of its own and needs no kernel code per controller type. Its
+         flat C ABI is what lets this NativeAOT executable drive it directly.
+         Staged by eng\build-viiper.ps1 from a pinned external revision; absent
+         until that component is built, which simply leaves controller
+         management unavailable. -->
+    <None Include="Native\Viiper\*"
+          Link="%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
     <!-- Third-party license texts for managed packages we redistribute. Same
          ship-beside-the-exe pattern as the SteamInputLease license files above;
          the installer lists them explicitly in [Files]. -->

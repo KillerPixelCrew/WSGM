@@ -47,7 +47,9 @@ public sealed class NativeQamSemanticServicesTests
         Assert.Empty(state.Targets);
         Assert.Empty(state.SelectedTarget);
         Assert.Empty(state.ObservedTarget);
-        Assert.Contains("pinned HIDMaestro", state.StatusText, StringComparison.Ordinal);
+        // The reason is surfaced verbatim rather than replaced with a generic message, so a user
+        // reading native QAM learns why controller management is off.
+        Assert.Equal(DeviceFeatureAvailability.ControllerManagementDetail, state.StatusText);
     }
 
     [Fact]

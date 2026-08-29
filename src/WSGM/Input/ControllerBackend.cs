@@ -44,6 +44,9 @@ public sealed record VirtualTargetProfile
     /// <summary>Whether the target reports capacitive stick touch.</summary>
     public bool SupportsStickTouch { get; init; }
 
+    /// <summary>Whether the target has a dedicated quick-access button.</summary>
+    public bool SupportsQuickAccess { get; init; }
+
     /// <summary>The Steam Deck composite target.</summary>
     public static VirtualTargetProfile SteamDeck { get; } = new()
     {
@@ -52,6 +55,7 @@ public sealed record VirtualTargetProfile
         SupportsMotion = true,
         SupportsTouchpads = true,
         SupportsStickTouch = true,
+        SupportsQuickAccess = true,
     };
 
     /// <summary>The Xbox 360 target.</summary>
@@ -88,6 +92,17 @@ public sealed record VirtualTargetProfile
         if (!SupportsStickTouch)
         {
             buttons &= ~(CanonicalButtons.LeftStickTouch | CanonicalButtons.RightStickTouch);
+        }
+
+        if (!SupportsTouchpads)
+        {
+            buttons &= ~(CanonicalButtons.LeftPadTouch | CanonicalButtons.RightPadTouch
+                | CanonicalButtons.LeftPadClick | CanonicalButtons.RightPadClick);
+        }
+
+        if (!SupportsQuickAccess)
+        {
+            buttons &= ~CanonicalButtons.QuickAccess;
         }
 
         return buttons;

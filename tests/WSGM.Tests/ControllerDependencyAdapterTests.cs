@@ -7,37 +7,18 @@ namespace WSGM.Tests;
 public sealed class ControllerDependencyAdapterTests
 {
     [Fact]
-    public async Task PinnedHidMaestroFailsClosedWithoutAdvertisingTargets()
+    public async Task ATargetTheBackendCannotPresentIsRefusedBeforeAnyNativeCall()
     {
-        await using HidMaestroProductionBackend backend = new();
-
-        HidBackendHealth health = await backend.DiscoverAsync(CancellationToken.None);
-        IReadOnlyDictionary<string, string> diagnostics = await backend.GetDiagnosticsAsync(
-            CancellationToken.None);
-
-        Assert.Equal(HidBackendHealthState.Incompatible, health.State);
-        Assert.Null(health.Capabilities);
-        Assert.Equal("controller-backend-incomplete", diagnostics["policy"]);
-        Assert.Equal(bool.FalseString, diagnostics["controllerManagementApproved"]);
-        Assert.Contains("four-rear-control", health.Detail);
-    }
-
-    [Fact]
-    public async Task PinnedHidMaestroRefusesTargetCreationWhileReleaseGateIsClosed()
-    {
-        await using HidMaestroProductionBackend backend = new();
+        await using ViiperControllerBackend backend = new();
         CanonicalControllerSample neutral = CanonicalControllerSample.Neutral(
             0,
             1,
             DateTimeOffset.UnixEpoch);
 
         InvalidOperationException error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            backend.CreateTargetAsync(
-                VirtualTargetKind.Xbox360,
-                neutral,
-                CancellationToken.None));
+            backend.CreateTargetAsync(VirtualTargetKind.Xbox360, neutral, CancellationToken.None));
 
-        Assert.Contains("pinned HIDMaestro", error.Message, StringComparison.Ordinal);
+        Assert.Contains("Xbox360", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]

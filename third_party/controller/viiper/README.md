@@ -30,10 +30,33 @@ PR #2 needed adapting rather than applying verbatim: this branch replaced the in
 waits with `device.BlockUntilDeadline`, so the two endpoint cases collapse into one that blocks and
 returns no data.
 
+## How WSGM builds and binds it
+
+`eng\build-viiper.ps1` checks the pinned revision out, applies the patches, optionally runs the Deck
+device tests, builds `libviiper.dll` with `go build -buildmode=c-shared ./clib`, and stages it with
+its header and licences into `src\WSGM\Native\Viiper`. `WSGM.csproj` copies that beside the
+executable. The staging directory is generated and is not committed.
+
+Two toolchains are required and the script names them rather than failing obscurely: Go, and a C
+compiler for cgo. Without a C compiler Go quietly sets `CGO_ENABLED=0` and then reports "build
+constraints exclude all Go files", which says nothing about the real cause.
+
+The library exposes a flat C ABI over blittable types, so WSGM's NativeAOT executable binds it
+directly through `LibraryImport` — the same arrangement as the Rust helpers, and the reason no helper
+process is needed for a virtual controller.
+
 ## Build baseline
 
-Verified with Go 1.27.0 on the reference Claw, 2026-08-29. `go build ./...` succeeds for the whole
-tree, and `go test ./device/steamdeck/...` passes with the patch applied.
+Verified with Go 1.27.0 and WinLibs GCC on the reference Claw, 2026-08-29. `go build ./...` succeeds
+for the whole tree, `go test ./device/steamdeck/...` passes with the patch applied, and
+`eng\build-viiper.ps1 -Validate` runs the whole sequence end to end.
+
+**The binding is verified against the real library, not just compiled.** Driving it through the same
+entry points WSGM uses — `viiper_init`, `viiper_bus_create`, `viiper_device_add("steamdeck")`,
+`viiper_device_open_fast`, `viiper_device_set_input_fast` with a 64-byte Neptune frame,
+`viiper_device_remove`, `viiper_shutdown` — every call returned success. That covers everything short
+of `viiper_device_attach`, which needs the usbip-win2 driver installed and is therefore the first
+step once the installer work lands.
 
 Three packages fail on this branch **before** any WSGM patch and are the accepted baseline:
 `device/xboxelite2`, `device/xboxgip`, and `internal/server/api` (build failure). None is touched by

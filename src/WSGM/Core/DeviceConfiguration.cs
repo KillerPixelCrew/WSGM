@@ -9,14 +9,20 @@ namespace WSGM.Core;
 /// <summary>Compile-time release gates for optional device-platform features.</summary>
 public static class DeviceFeatureAvailability
 {
-    /// <summary>Whether the reviewed controller backend passed every mandatory release gate.</summary>
+    /// <summary>Whether the controller component ships in this build.</summary>
+    /// <remarks>
+    /// The capability gate is now only about installation, not capability. The VIIPER backend
+    /// carries every control the virtual targets define, and rides <c>usbip-win2</c>'s signed
+    /// generic driver rather than one WSGM would have to build and sign. What is missing is the
+    /// packaged component: the native library staged beside WSGM and the installer step that
+    /// installs the USBIP driver on request. Until both ship, this stays closed.
+    /// </remarks>
     public const bool ControllerManagement = false;
 
     /// <summary>User-safe reason controller management is excluded from this release.</summary>
     public const string ControllerManagementDetail =
-        "Controller management is unavailable: the pinned HIDMaestro release "
-        + "does not pass the four-rear-control/stick-touch profile gate, and exact signed "
-        + "driver reproduction is not established.";
+        "Controller management is unavailable: the virtual controller component is not installed "
+        + "in this build.";
 }
 
 /// <summary>Persisted settings for the optional production device platform.</summary>

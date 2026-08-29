@@ -8,13 +8,19 @@ namespace WSGM.Device.Sdk.Ipc;
 public static class CanonicalSampleCodec
 {
     private const CanonicalButtons KnownButtons =
-        (CanonicalButtons)((1U << 21) - 1);
+        (CanonicalButtons)((1U << 26) - 1);
 
     /// <summary>Exact payload size stored in each shared-memory ring slot.</summary>
-    public const int PayloadBytes = 96;
+    public const int PayloadBytes = 128;
 
     /// <summary>Current fixed-layout codec version.</summary>
-    public const int Version = 1;
+    /// <remarks>
+    /// Version 2 added the touch-contact and stick-force block at offset 96 and the trackpad and
+    /// quick-access button flags, completing the canonical model against every control WSGM's
+    /// virtual targets can express. There is no version 1 in the wild to interoperate with: the
+    /// API version is an exact match across every component, so they are always built together.
+    /// </remarks>
+    public const int Version = 2;
 
     /// <summary>Encodes a sample without allocation.</summary>
     /// <param name="sample">Canonical input sample.</param>
@@ -54,6 +60,15 @@ public static class CanonicalSampleCodec
             WriteSingle(destination[84..], motion.AccelY);
             WriteSingle(destination[88..], motion.AccelZ);
         }
+
+        WriteSingle(destination[96..], sample.LeftPadX);
+        WriteSingle(destination[100..], sample.LeftPadY);
+        WriteSingle(destination[104..], sample.LeftPadForce);
+        WriteSingle(destination[108..], sample.RightPadX);
+        WriteSingle(destination[112..], sample.RightPadY);
+        WriteSingle(destination[116..], sample.RightPadForce);
+        WriteSingle(destination[120..], sample.LeftStickForce);
+        WriteSingle(destination[124..], sample.RightStickForce);
     }
 
     /// <summary>Decodes and validates a fixed-layout sample.</summary>
@@ -98,6 +113,21 @@ public static class CanonicalSampleCodec
             return false;
         }
 
+        float leftPadX = ReadSingle(source[96..]);
+        float leftPadY = ReadSingle(source[100..]);
+        float leftPadForce = ReadSingle(source[104..]);
+        float rightPadX = ReadSingle(source[108..]);
+        float rightPadY = ReadSingle(source[112..]);
+        float rightPadForce = ReadSingle(source[116..]);
+        float leftStickForce = ReadSingle(source[120..]);
+        float rightStickForce = ReadSingle(source[124..]);
+        if (!IsAxis(leftPadX) || !IsAxis(leftPadY) || !IsAxis(rightPadX) || !IsAxis(rightPadY)
+            || !IsTrigger(leftPadForce) || !IsTrigger(rightPadForce)
+            || !IsTrigger(leftStickForce) || !IsTrigger(rightStickForce))
+        {
+            return false;
+        }
+
         bool hasMotion = source[64] == 1;
         float gyroX = ReadSingle(source[68..]);
         float gyroY = ReadSingle(source[72..]);
@@ -128,6 +158,14 @@ public static class CanonicalSampleCodec
             RightStickY = rightY,
             LeftTrigger = leftTrigger,
             RightTrigger = rightTrigger,
+            LeftPadX = leftPadX,
+            LeftPadY = leftPadY,
+            LeftPadForce = leftPadForce,
+            RightPadX = rightPadX,
+            RightPadY = rightPadY,
+            RightPadForce = rightPadForce,
+            LeftStickForce = leftStickForce,
+            RightStickForce = rightStickForce,
             Motion = hasMotion ? new MotionSample
             {
                 HasGyro = source[65] != 0,
