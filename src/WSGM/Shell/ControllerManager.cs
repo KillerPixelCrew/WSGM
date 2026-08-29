@@ -101,6 +101,14 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// <summary>Raised for each canonical sample WSGM's own surfaces should navigate from.</summary>
     internal event Action<CanonicalControllerSample>? UiSampleReceived;
 
+    /// <summary>Every physical sample, unfiltered, for diagnostics only.</summary>
+    /// <remarks>
+    /// Raised before routing and never used to drive input. It exists so a surface can show what
+    /// the plugin actually reports — which is not what <see cref="UiSampleReceived"/> carries, since
+    /// that one has the controls the UI is using filtered out.
+    /// </remarks>
+    internal event Action<CanonicalControllerSample>? PhysicalSampleObserved;
+
     /// <summary>Current state of controller management.</summary>
     internal ControllerManagementState State { get; private set; } = ControllerManagementState.Off;
 
@@ -298,6 +306,14 @@ internal sealed class ControllerManager : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(sample);
+
+        // Raised before any routing decision and deliberately unfiltered, because this is what the
+        // plugin reported. The filtered stream that follows is what the UI may act on; a diagnostic
+        // that showed only that would hide the controls the UI had swallowed, which are exactly the
+        // ones someone checking a mapping needs to see. Read-only: an observer cannot change what
+        // is routed, so it is not a second input path.
+        PhysicalSampleObserved?.Invoke(sample);
+
         bool toUi;
         CanonicalButtons uiButtons;
         lock (_stateGate)

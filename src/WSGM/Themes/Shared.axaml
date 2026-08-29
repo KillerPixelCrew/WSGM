@@ -3,7 +3,8 @@
      hc-* card/footer classes. Accent-family tokens are consumed via
      DynamicResource (runtime accent pipeline); everything else StaticResource. -->
 <Styles xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:c="clr-namespace:WSGM.Controls">
     <Styles.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
@@ -133,5 +134,29 @@
         <Setter Property="Orientation" Value="Horizontal" />
         <Setter Property="Spacing" Value="8" />
         <Setter Property="Margin" Value="10,0,10,10" />
+    </Style>
+    <!-- Glyph preview tiles. The lit state is the accent, matching every other
+         "this is the one" signal on these surfaces, so the input test reads the
+         same way as focus and selection do rather than inventing a third colour.
+         The tiles are not focus stops, so the border is free to mean only that. -->
+    <Style Selector="Border.glyph-tile">
+        <Setter Property="Background" Value="{DynamicResource HcControlBrush}" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="2" />
+    </Style>
+    <Style Selector="Border.glyph-tile > StackPanel > TextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource HcTextMutedBrush}" />
+    </Style>
+    <Style Selector="Border.glyph-tile > StackPanel > c|PhysicalGlyphImage">
+        <Setter Property="Foreground" Value="{DynamicResource HcTextSecondaryBrush}" />
+    </Style>
+    <Style Selector="Border.glyph-tile.pressed">
+        <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
+    </Style>
+    <Style Selector="Border.glyph-tile.pressed > StackPanel > TextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource HcTextPrimaryBrush}" />
+    </Style>
+    <Style Selector="Border.glyph-tile.pressed > StackPanel > c|PhysicalGlyphImage">
+        <Setter Property="Foreground" Value="{DynamicResource HcAccentBrush}" />
     </Style>
 </Styles>

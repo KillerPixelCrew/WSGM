@@ -3,10 +3,14 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Glyphs;
+using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Input;
 
@@ -104,6 +108,31 @@ internal sealed record DeviceOverlayController(
     string TrailingText,
     bool CanCycle);
 
+/// <summary>One control in the glyph preview.</summary>
+/// <param name="Control">The physical control this glyph stands for.</param>
+/// <param name="Label">Human-readable control name.</param>
+/// <param name="Plan">The resolved artwork, or a plan that carries none.</param>
+internal sealed record DeviceOverlayGlyphPreviewItem(
+    GlyphControlId Control,
+    string Label,
+    PhysicalGlyphRenderPlan Plan);
+
+/// <summary>The glyph preview and its live input test.</summary>
+/// <remarks>
+/// One projection for both, because they are the same picture answering two questions: whether the
+/// plugin's artwork resolves at all, and whether pressing a control reaches WSGM as the control the
+/// artwork claims. Separating them would mean drawing the same map twice.
+/// </remarks>
+/// <param name="ProfileName">The profile supplying the artwork, or why none is.</param>
+/// <param name="Detail">One line about the profile's provenance.</param>
+/// <param name="Items">Every control the profile maps, in canonical order.</param>
+/// <param name="InputTestAvailable">Whether physical input is reaching the surface.</param>
+internal sealed record DeviceOverlayGlyphPreview(
+    string ProfileName,
+    string Detail,
+    IReadOnlyList<DeviceOverlayGlyphPreviewItem> Items,
+    bool InputTestAvailable);
+
 /// <summary>The named-hardware-profile row on the Profiles page.</summary>
 /// <param name="Status">Whether a profile is in effect.</param>
 /// <param name="Title">Row title.</param>
@@ -145,12 +174,28 @@ internal sealed record DeviceOverlaySnapshot(
     DeviceOverlayAutoTdp? AutoTdp = null,
     DeviceOverlayController? Controller = null,
     DeviceOverlayRecovery? Recovery = null,
-    DeviceOverlayProfile? Profile = null);
+    DeviceOverlayProfile? Profile = null,
+    DeviceOverlayGlyphPreview? GlyphPreview = null);
 
 /// <summary>Closed semantic source consumed by the Device overlay destination.</summary>
 internal interface IDeviceOverlaySource : IDisposable
 {
     event Action? Changed;
+
+    /// <summary>Raised for each physical sample while the glyph input test is observing.</summary>
+    /// <remarks>
+    /// Separate from <see cref="Changed"/> because it fires at input rate. A consumer must treat it
+    /// as a hint to update one visual state, never as a reason to rebuild a page.
+    /// </remarks>
+    event Action<CanonicalControllerSample>? PhysicalSampleReceived;
+
+    /// <summary>Starts delivering physical samples for the glyph input test.</summary>
+    /// <returns>A lease that stops delivery when disposed.</returns>
+    /// <remarks>
+    /// Leased rather than always-on: the samples exist to light a preview that is on one page, and
+    /// nothing else on the Device surface wants an input-rate event.
+    /// </remarks>
+    IDisposable ObservePhysicalSamples();
 
     DeviceOverlaySnapshot Snapshot();
 
@@ -192,7 +237,10 @@ internal interface IDeviceOverlaySource : IDisposable
 internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 {
     private readonly DeviceCoordinator _coordinator;
+    private readonly PhysicalGlyphService _glyphs;
     private readonly object _retryGate = new();
+    private readonly object _sampleGate = new();
+    private int _sampleObservers;
     private Timer? _retryTimer;
     private DateTimeOffset? _scheduledRetryAt;
     private bool _disposed;
@@ -201,6 +249,9 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     {
         ArgumentNullException.ThrowIfNull(coordinator);
         _coordinator = coordinator;
+        // One service over the coordinator's catalog, so its bounded geometry cache is shared by
+        // every preview and is invalidated by the same catalog change that replaces the profiles.
+        _glyphs = new PhysicalGlyphService(coordinator.PhysicalGlyphCatalog);
         _coordinator.StateChanged += OnStateChanged;
         _coordinator.CapabilityViewsChanged += OnCapabilityViewsChanged;
         _coordinator.ConfigurationChanged += OnConfigurationChanged;
@@ -231,6 +282,12 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         DeviceOverlayProfile profile = ProfileView(
             _coordinator.HardwareProfileIds,
             _coordinator.SelectedHardwareProfileId);
+        DeviceOverlayGlyphPreview? glyphPreview = GlyphPreview(
+            _coordinator.PhysicalGlyphSelectionSnapshot(),
+            _glyphs,
+            // The input test is live only while the plugin's canonical samples are actually
+            // reaching WSGM. Offering it otherwise would show a map that can never light up.
+            _coordinator.ControllerStatus.UiSource is UiInputSource.ManagedCanonical);
 
         if (package is { Valid: false })
         {
@@ -283,7 +340,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             autoTdp,
             controller,
             recovery,
-            profile);
+            profile,
+            glyphPreview);
     }
 
     /// <summary>Projects controller management into the Controller and motion page's own row.</summary>
@@ -343,6 +401,107 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             // bring up would replace one broken state with another.
             CanCycle: status.State is not ControllerManagementState.Unavailable);
     }
+
+    /// <summary>Builds the glyph preview from the resolved profile and the glyph service.</summary>
+    /// <param name="selection">The resolved physical-glyph selection.</param>
+    /// <param name="glyphs">The service that turns the profile's artwork into drawable geometry.</param>
+    /// <param name="inputTestAvailable">Whether physical input is reaching the surface.</param>
+    /// <returns>The preview, or null when no profile supplies anything to draw.</returns>
+    /// <remarks>
+    /// Only controls the profile says are present are shown. A profile that declares a control
+    /// absent is describing the hardware — an MSI Claw has no trackpads — so drawing a placeholder
+    /// for it would contradict the thing the preview exists to confirm.
+    /// <para>
+    /// The service is asked with the <c>DeviceDescription</c> surface, which is authorized
+    /// unconditionally, because this preview is a description of the device rather than a
+    /// navigation hint or a Steam route: it has to render the plugin's artwork even when the active
+    /// input source is not the managed handheld, which is exactly when someone is checking it.
+    /// </para>
+    /// </remarks>
+    internal static DeviceOverlayGlyphPreview? GlyphPreview(
+        PhysicalGlyphSelectionResult selection,
+        PhysicalGlyphService glyphs,
+        bool inputTestAvailable)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        ArgumentNullException.ThrowIfNull(glyphs);
+        if (selection.Profile is not { } profile)
+        {
+            return null;
+        }
+
+        List<DeviceOverlayGlyphPreviewItem> items = [];
+        foreach (GlyphControlMapping mapping in profile.Manifest.Controls)
+        {
+            if (mapping.Presence is not GlyphControlPresence.Present)
+            {
+                continue;
+            }
+
+            PhysicalGlyphRenderPlan plan = glyphs.Resolve(
+                selection,
+                mapping.Control,
+                PhysicalGlyphSurface.DeviceDescription,
+                activeInputSourceIsManagedHandheld: true,
+                steamRouteSubjectIsHandheld: true,
+                PhysicalGlyphTheme.Dark,
+                scale: 1);
+            if (!plan.UsesDeviceArtwork)
+            {
+                continue;
+            }
+
+            items.Add(new DeviceOverlayGlyphPreviewItem(
+                mapping.Control,
+                // The label printed on the device wins over the canonical name: the preview exists
+                // to be compared against the hardware in the user's hands.
+                string.IsNullOrWhiteSpace(mapping.PhysicalLabel)
+                    ? ControlLabel(mapping.Control)
+                    : mapping.PhysicalLabel,
+                plan));
+        }
+
+        if (items.Count == 0)
+        {
+            return null;
+        }
+
+        return new DeviceOverlayGlyphPreview(
+            profile.Manifest.DisplayName,
+            $"{items.Count} controls · revision {profile.Manifest.Revision} · source {Short(profile.Manifest.SourceRevision)}",
+            items,
+            inputTestAvailable);
+    }
+
+    /// <summary>Turns a canonical control id into a readable name.</summary>
+    /// <param name="control">The control.</param>
+    /// <returns>The name, with word boundaries restored.</returns>
+    /// <remarks>
+    /// Derived from the enum rather than tabulated, so a control added to the SDK gets a sensible
+    /// name here without a second list to forget to update. A profile that prints its own label on
+    /// the device overrides this anyway.
+    /// </remarks>
+    internal static string ControlLabel(GlyphControlId control)
+    {
+        string name = control.ToString();
+        StringBuilder text = new(name.Length + 4);
+        for (int index = 0; index < name.Length; index++)
+        {
+            char character = name[index];
+            if (index > 0 && char.IsUpper(character) && !char.IsUpper(name[index - 1]))
+            {
+                text.Append(' ');
+            }
+
+            text.Append(character);
+        }
+
+        return text.ToString();
+    }
+
+    private static string Short(string revision) => revision.Length <= 12
+        ? revision
+        : revision[..12];
 
     /// <summary>Projects named hardware profiles into the Profiles page's own row.</summary>
     /// <param name="profileIds">The profiles this machine's stored values define.</param>
@@ -542,6 +701,61 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             NextProfile(_coordinator.HardwareProfileIds, _coordinator.SelectedHardwareProfileId),
             cancellationToken);
 
+    /// <inheritdoc/>
+    public event Action<CanonicalControllerSample>? PhysicalSampleReceived;
+
+    /// <inheritdoc/>
+    public IDisposable ObservePhysicalSamples()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        lock (_sampleGate)
+        {
+            if (_sampleObservers++ == 0)
+            {
+                _coordinator.PhysicalSampleObserved += OnPhysicalSample;
+            }
+        }
+
+        return new SampleLease(this);
+    }
+
+    private void ReleasePhysicalSamples()
+    {
+        lock (_sampleGate)
+        {
+            if (_sampleObservers == 0 || --_sampleObservers > 0)
+            {
+                return;
+            }
+
+            _coordinator.PhysicalSampleObserved -= OnPhysicalSample;
+        }
+    }
+
+    private void OnPhysicalSample(CanonicalControllerSample sample) =>
+        PhysicalSampleReceived?.Invoke(sample);
+
+    /// <summary>One observer's claim on the physical sample stream.</summary>
+    /// <remarks>
+    /// Idempotent, because a surface torn down twice — closed and then disposed — must not push the
+    /// count below zero and detach a subscription another surface still holds.
+    /// </remarks>
+    private sealed class SampleLease(DeviceOverlayBridge owner) : IDisposable
+    {
+        private bool _released;
+
+        public void Dispose()
+        {
+            if (_released)
+            {
+                return;
+            }
+
+            _released = true;
+            owner.ReleasePhysicalSamples();
+        }
+    }
+
     /// <summary>The next target in the cycle order.</summary>
     /// <param name="current">The target in effect, or null when none is.</param>
     /// <returns>The target the row moves to.</returns>
@@ -575,6 +789,19 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         _coordinator.StateChanged -= OnStateChanged;
         _coordinator.CapabilityViewsChanged -= OnCapabilityViewsChanged;
         _coordinator.ConfigurationChanged -= OnConfigurationChanged;
+
+        lock (_sampleGate)
+        {
+            if (_sampleObservers > 0)
+            {
+                _coordinator.PhysicalSampleObserved -= OnPhysicalSample;
+                _sampleObservers = 0;
+            }
+        }
+
+        // The service subscribed to the catalog's change event, so it has to be released here or it
+        // keeps this bridge's geometry cache alive for the rest of the session.
+        _glyphs.Dispose();
     }
 
     private void OnStateChanged(DeviceCycleState _) => Changed?.Invoke();
@@ -1085,6 +1312,25 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
         _hardwareProfile = DeviceOverlayBridge.NextProfile(PreviewProfiles, _hardwareProfile);
         Changed?.Invoke();
         return Task.CompletedTask;
+    }
+
+    /// <summary>Never raised: the preview reads no device, so there is nothing to observe.</summary>
+    public event Action<CanonicalControllerSample>? PhysicalSampleReceived
+    {
+        add { }
+        remove { }
+    }
+
+    /// <inheritdoc/>
+    public IDisposable ObservePhysicalSamples() => EmptyLease.Instance;
+
+    private sealed class EmptyLease : IDisposable
+    {
+        internal static readonly EmptyLease Instance = new();
+
+        public void Dispose()
+        {
+        }
     }
 
     /// <summary>Preview-only: there is no device cycle to recover, so this reports and does nothing.</summary>

@@ -727,7 +727,7 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       memory stores, and each handler calls the owning service rather than restating it — the shared
       performance projection is reparented between System and Device rather than duplicated, and its
       source keeps RTSS lifetime and state while the window only observes and invokes rows.
-- [ ] Complete Device Overview, Profiles, Power/Thermals, Controller/Motion, OEM,
+- [x] Complete Device Overview, Profiles, Power/Thermals, Controller/Motion, OEM,
       Lighting/Features, Glyph Preview/Input Test, and Diagnostics/Recovery. The eight sections now
       exist as navigable pages rather than headings in one scrolling list: `DeviceOverlaySection`
       splits the combined OEM-and-lighting section and adds Profiles and Glyphs,
@@ -758,7 +758,24 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       as. Unlike recovery the row is always present: profiles have to be found before they can be
       used, so with none defined it says where to author one instead of vanishing.
       The identity-keyed profile lookup was duplicated in the coordinator and is now one property.
-      Remaining: glyph preview and input test.
+      Glyphs now carries the graphical preview and the live input test, which are one surface because
+      they are the same picture answering the two questions a glyph profile can fail at: whether the
+      plugin's artwork resolves at all, and whether pressing a control reaches WSGM as the control
+      the artwork claims. Neither is answerable from a list of names.
+      It needed no SVG library. The SDK's loader already normalizes the plugin's SVG into a path
+      model and `PhysicalGlyphService` — written for this and left unwired pending the Steam gates —
+      already turns that into Avalonia geometry, so `Controls/PhysicalGlyphImage` is a transform and
+      a fill with no parser or decoder inside the NativeAOT executable.
+      The input test reads `ControllerManager.PhysicalSampleObserved`, which is raised before routing
+      and deliberately unfiltered: the stream the UI acts on has the controls the UI is using removed
+      from it, which are exactly the ones someone checking a mapping needs to see. It is read-only
+      and cannot change what is routed, so it is not a second input path. The stream is leased only
+      while the page that draws it is showing, and the pressed set is compared before posting to the
+      dispatcher, so a controller sitting still costs nothing.
+      `Overlay/GlyphInputTestMap` is the one place the canonical button vocabulary meets the glyph
+      one. They stay separate deliberately — a device can report a control it has no artwork for, and
+      a profile can carry artwork for a control the plugin never reports — and that gap is precisely
+      what the test makes visible.
 - [ ] Bind every overlay and QAM control to the same direct runtime service. AutoTDP now has a
       surface: the Device → Power and thermals page carries a row beside the power limit it moves,
       reporting what AutoTDP is actually doing rather than merely that it is on — controlling with

@@ -1515,6 +1515,17 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         remove => _controllers.StatusChanged -= value;
     }
 
+    /// <summary>Every physical sample, unfiltered, for diagnostics only.</summary>
+    /// <remarks>
+    /// Forwarded from <see cref="ControllerManager"/> for the glyph input test. Never a way to drive
+    /// input: a subscriber sees what the plugin reported and cannot change what is routed.
+    /// </remarks>
+    internal event Action<CanonicalControllerSample>? PhysicalSampleObserved
+    {
+        add => _controllers.PhysicalSampleObserved += value;
+        remove => _controllers.PhysicalSampleObserved -= value;
+    }
+
     /// <summary>The current controller-management projection.</summary>
     internal ControllerManagerStatus ControllerStatus => _controllers.Snapshot();
 
@@ -1607,6 +1618,14 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 StringComparison.Ordinal));
         }
     }
+
+    /// <summary>The catalog holding the installed package's glyph profiles.</summary>
+    /// <remarks>
+    /// Exposed so one <c>PhysicalGlyphService</c> can be built over it and share its invalidation.
+    /// The catalog is immutable data plus a change event; handing it out does not let a consumer
+    /// load, replace or reach past a profile.
+    /// </remarks>
+    internal PhysicalGlyphCatalog PhysicalGlyphCatalog => _physicalGlyphs;
 
     /// <summary>The named hardware profiles this machine's stored values actually define.</summary>
     /// <remarks>

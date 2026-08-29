@@ -15,6 +15,8 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Core;
+using WSGM.Device.Sdk.Glyphs;
+using WSGM.Device.Sdk.Input;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
@@ -80,6 +82,17 @@ public partial class OverlayWindow : Window
     private readonly OverlayNavigation _navigation = new();
     private static readonly OverlayFocusMemory FocusMemory = new();
     private IDeviceOverlaySource? _deviceBridge;
+
+    /// <summary>Preview tiles by control, rebuilt with the Glyphs page and empty elsewhere.</summary>
+    /// <remarks>
+    /// Held so the input test can light a tile without re-rendering the page on every sample. The
+    /// tiles are owned by the visual tree; this only points at them, and is cleared whenever the
+    /// page that made them is replaced.
+    /// </remarks>
+    private readonly Dictionary<GlyphControlId, Border> _glyphTiles = [];
+
+    private HashSet<GlyphControlId> _pressedGlyphControls = [];
+    private IDisposable? _glyphInputObservation;
     private IPerformanceOverlaySource? _performanceSource;
     private IDisposable? _performanceObservation;
 
@@ -139,6 +152,9 @@ public partial class OverlayWindow : Window
             return;
         }
 
+        // Released against the outgoing bridge, before the field moves. Doing it after would leave
+        // the old bridge holding a subscription and an observer count nothing can reach any more.
+        UpdateGlyphInputObservation(false);
         if (_deviceBridge is not null)
         {
             _deviceBridge.Changed -= OnDeviceChanged;
@@ -149,6 +165,8 @@ public partial class OverlayWindow : Window
             _deviceBridge.Changed += OnDeviceChanged;
         }
 
+        UpdateGlyphInputObservation(
+            DeviceOverlaySectionPages.SectionFor(_navigation.Page) is DeviceOverlaySection.Glyphs);
         RefreshDevicePanel();
     }
 
@@ -216,6 +234,10 @@ public partial class OverlayWindow : Window
             ? focused.Tag as string
             : null;
         DeviceCapabilityList.Children.Clear();
+
+        // The tiles belong to the tree that was just cleared. Dropping the references here, before
+        // anything can rebuild them, is what stops the input test writing to detached controls.
+        _glyphTiles.Clear();
         if (snapshot.Capabilities.Count == 0 && snapshot.GlyphSelection is null)
         {
             DeviceCapabilityList.Children.Add(new TextBlock
@@ -398,7 +420,103 @@ public partial class OverlayWindow : Window
             }
         }
 
+        // After the selection row it is the result of, so changing the selection and seeing what it
+        // produced reads top to bottom.
+        if (section is DeviceOverlaySection.Glyphs && snapshot.GlyphPreview is { } preview)
+        {
+            RenderGlyphPreview(preview);
+        }
+
         return restoreFocus;
+    }
+
+    /// <summary>
+    /// Draws the plugin's own glyphs, and lights the one being pressed.
+    /// </summary>
+    /// <param name="preview">The resolved preview.</param>
+    /// <remarks>
+    /// The preview answers the two questions a glyph profile can fail at, and it answers them with
+    /// the same picture: whether the artwork resolves at all, and whether pressing a control reaches
+    /// WSGM as the control the artwork claims. Neither is answerable from a list of names.
+    /// <para>
+    /// The tiles are not focusable. This is something to look at while pressing buttons on the
+    /// device, so making it a focus stop would put a wall of stops between the selection row above
+    /// it and whatever follows, for controls that do nothing when activated.
+    /// </para>
+    /// </remarks>
+    private void RenderGlyphPreview(DeviceOverlayGlyphPreview preview)
+    {
+        TextBlock caption = new()
+        {
+            Text = $"{preview.ProfileName} · {preview.Detail}",
+            Margin = new Thickness(2, 6, 2, 2),
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+        };
+        caption.Classes.Add("caption");
+        DeviceCapabilityList.Children.Add(caption);
+
+        TextBlock hint = new()
+        {
+            Text = preview.InputTestAvailable
+                ? "Press a control on the device to light it here."
+                : "Input test unavailable · WSGM is not reading this device's controls.",
+            Margin = new Thickness(2, 0, 2, 4),
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+        };
+        hint.Classes.Add("caption");
+        DeviceCapabilityList.Children.Add(hint);
+
+        WrapPanel tiles = new() { Margin = new Thickness(2, 0, 2, 4) };
+        foreach (DeviceOverlayGlyphPreviewItem item in preview.Items)
+        {
+            Border tile = new()
+            {
+                Width = 64,
+                Height = 72,
+                Margin = new Thickness(0, 0, 6, 6),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(4),
+            };
+            tile.Classes.Add("glyph-tile");
+            StackPanel stack = new() { Spacing = 2 };
+            PhysicalGlyphImage image = new()
+            {
+                Plan = item.Plan,
+                Width = 40,
+                Height = 40,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+            };
+            stack.Children.Add(image);
+            TextBlock label = new()
+            {
+                Text = item.Label,
+                FontSize = 10,
+                TextAlignment = Avalonia.Media.TextAlignment.Center,
+                TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                MaxLines = 2,
+                TextTrimming = Avalonia.Media.TextTrimming.CharacterEllipsis,
+            };
+            stack.Children.Add(label);
+            tile.Child = stack;
+            tiles.Children.Add(tile);
+            _glyphTiles[item.Control] = tile;
+        }
+
+        DeviceCapabilityList.Children.Add(tiles);
+        ApplyGlyphInputTest();
+    }
+
+    /// <summary>Applies the last physical sample to the preview tiles.</summary>
+    /// <remarks>
+    /// Class-based rather than by setting a brush, so the lit appearance lives in the theme with
+    /// every other visual state instead of as a literal colour here.
+    /// </remarks>
+    private void ApplyGlyphInputTest()
+    {
+        foreach ((GlyphControlId control, Border tile) in _glyphTiles)
+        {
+            tile.Classes.Set("pressed", _pressedGlyphControls.Contains(control));
+        }
     }
 
     private void InvokeAutoTdpToggle() => _ = ToggleAutoTdpAsync();
@@ -478,16 +596,84 @@ public partial class OverlayWindow : Window
             return;
         }
 
+        // The sample stream fires at input rate, so it is leased only for the one page that draws
+        // it and released the moment that page is left.
+        UpdateGlyphInputObservation(section is DeviceOverlaySection.Glyphs);
         RefreshDevicePanel();
         FocusFirstControl(DeviceCapabilityList);
     }
 
     private void LeaveDeviceSection(DeviceOverlaySection section)
     {
+        UpdateGlyphInputObservation(false);
         string? returnFocusKey = _navigation.Pop()
             ?? DeviceOverlaySectionPages.FocusKey(section);
         RefreshDevicePanel();
         RestoreRootFocus(returnFocusKey);
+    }
+
+    /// <summary>Starts or stops the glyph input test's sample observation.</summary>
+    /// <param name="observe">Whether the page that draws the samples is showing.</param>
+    /// <remarks>
+    /// Idempotent in both directions, because the page can be entered and left by several paths —
+    /// the section card, Back, a destination change, and the overlay closing — and each of them
+    /// calls this without knowing what the others did.
+    /// </remarks>
+    private void UpdateGlyphInputObservation(bool observe)
+    {
+        if (observe == (_glyphInputObservation is not null))
+        {
+            return;
+        }
+
+        if (!observe)
+        {
+            if (_deviceBridge is not null)
+            {
+                _deviceBridge.PhysicalSampleReceived -= OnPhysicalGlyphSample;
+            }
+
+            _glyphInputObservation?.Dispose();
+            _glyphInputObservation = null;
+            _pressedGlyphControls = [];
+            return;
+        }
+
+        IDeviceOverlaySource? bridge = _deviceBridge;
+        if (bridge is null || _closed)
+        {
+            return;
+        }
+
+        bridge.PhysicalSampleReceived += OnPhysicalGlyphSample;
+        _glyphInputObservation = bridge.ObservePhysicalSamples();
+    }
+
+    /// <summary>Marshals one physical sample onto the UI thread and lights what it presses.</summary>
+    /// <param name="sample">The unfiltered sample the plugin reported.</param>
+    /// <remarks>
+    /// The set is compared before posting, so a controller sitting still — which is most samples —
+    /// costs one set comparison on the sampling thread and nothing on the UI thread. Without that,
+    /// a 250 Hz stream would post 250 dispatcher items a second to change nothing.
+    /// </remarks>
+    private void OnPhysicalGlyphSample(CanonicalControllerSample sample)
+    {
+        HashSet<GlyphControlId> pressed = GlyphInputTestMap.Pressed(sample);
+        if (pressed.SetEquals(_pressedGlyphControls))
+        {
+            return;
+        }
+
+        _pressedGlyphControls = pressed;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_closed)
+            {
+                return;
+            }
+
+            ApplyGlyphInputTest();
+        });
     }
 
     private DescriptorStatusRow CreateDeviceCapabilityRow(
@@ -895,6 +1081,10 @@ public partial class OverlayWindow : Window
     private void OnClosed(object? sender, EventArgs e)
     {
         RememberDestinationState(_navigation.Destination);
+
+        // Before _closed, because releasing reads the bridge, and after it the guard inside would
+        // skip the release and leave the subscription attached to a dead window.
+        UpdateGlyphInputObservation(false);
         _closed = true;
         _deviceLifetime.Cancel();
         if (_deviceBridge is not null)
@@ -1145,6 +1335,10 @@ public partial class OverlayWindow : Window
         LeaveArtworkSubView();
         LeaveLaunchWrapperSubView();
         LeaveWakeLockSubView();
+
+        // The Device sections are not sub-views with hosts of their own, so leaving them is only
+        // this: dropping the one thing a section page holds beyond its rendered controls.
+        UpdateGlyphInputObservation(false);
     }
 
     private static void FocusFirstControl(Control panel)
