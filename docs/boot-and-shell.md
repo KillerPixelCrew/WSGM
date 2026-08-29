@@ -90,6 +90,20 @@ likewise not a recovery settlement; the anchor keeps serving its authenticated p
 exact-process liveness observation, and otherwise waits for explicit stop instead of abandoning the
 session or starting Explorer beside an owner it could not classify.
 
+**Does the retained handle stay a valid designated parent after that process exits?** The API
+documentation does not say, so it was measured. On Windows 11 25H2 build 26200.9168 (2026-08-29),
+with a throwaway `cmd.exe` standing in for Explorer so nothing about the real shell was disturbed:
+with the designated parent already exited and only its handle retained, the handle stays signalled,
+`GetExitCodeProcess` still answers, `CreateProcessW` with `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS`
+succeeds, and the child's **recorded parent is the dead process**, not the caller. Reproduced across
+three runs, each with a live-parent control proving the harness itself works.
+
+That settles creation and reparenting. It does **not** settle the half the mechanism depends on:
+whether a dead parent still supplies the medium token and the job association, or only the recorded
+parent pid. Discriminating those needs a parent at a different integrity level from the caller,
+which needs an elevated run. Until that is answered the anchor stays the normal path — so a
+`CreateProcessW` that merely succeeds is not evidence the token came from where it was supposed to.
+
 The transition completes only after `GetShellWindow` and `Shell_TrayWnd` have the same resulting
 owner for a stable 500 ms and that owner again passes image/session/integrity/job inspection. The
 PID returned by process creation is diagnostic only; it is never the success condition. An

@@ -176,6 +176,19 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
 - [ ] Prove on the supported Windows 11 builds whether the retained handle remains a valid
       process-creation parent after the old Explorer exits; the API documentation does not document
       that lifetime. The implemented anchor is the normal path until this attended proof exists.
+      **Half of it is answered, and the answer is yes.** Measured on Windows 11 25H2, build
+      26200.9168, on 2026-08-29, without touching Explorer: the question is about the Win32
+      attribute, so it was asked with a throwaway `cmd.exe` as designated parent and another as the
+      child. With the designated parent already exited and only its handle retained, the handle
+      stays signalled, `GetExitCodeProcess` still answers, `CreateProcessW` with
+      `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS` succeeds, and the child's recorded parent is the dead
+      process rather than the caller. Reproduced across three runs, with a live-parent control in
+      each proving the harness itself works.
+      What that does **not** yet establish is the half the mechanism actually depends on: whether a
+      dead parent still supplies the medium token and the job association, rather than only the
+      recorded parent pid. Discriminating that needs a parent at a different integrity level from the
+      caller, which needs an elevated run — so this stays open, now on a much narrower question, and
+      the anchor stays the normal path until it is answered.
 - [x] If a terminated Explorer cannot remain the designated parent reliably, start a minimal
       fixed-purpose medium/jobless shell anchor through that parent before the orderly exit. Give it
       only an authenticated per-session command to start the fixed Windows Explorer path; never
