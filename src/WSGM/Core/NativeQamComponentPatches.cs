@@ -171,6 +171,49 @@ public sealed class NativeQamValveResetPatch : NativeQamComponentPatch
 }
 
 /// <summary>
+/// Mounts Valve's refresh-rate row into Quick Settings.
+/// </summary>
+/// <remarks>
+/// Quick Settings rather than Performance, per S14: resolution and refresh rate are display
+/// controls, not performance ones. The component reads
+/// <c>limits.display_refresh_manual_hz_min/max</c> from <c>SystemPerfStore</c>, which the
+/// projection supplies only under <c>FrameLimitOnly</c> — under the pairing strategies the frame
+/// cap owns the refresh rate, so the row hides itself through the state and needs no gate here.
+/// </remarks>
+public sealed class NativeQamValveRefreshRatePatch : NativeQamComponentPatch
+{
+    private static readonly string[] RequiredCounts =
+    [
+        "performanceActions",
+        "performanceRoot",
+        "nativeFields",
+        "nativeLayout",
+        "localization",
+        "react",
+    ];
+
+    /// <inheritdoc />
+    public override string Id => "wsgm.native-qam.valve-refresh-rate";
+
+    /// <inheritdoc />
+    public override int Version => 1;
+
+    /// <inheritdoc />
+    protected override string ComponentKind => "valveRefreshRate";
+
+    /// <inheritdoc />
+    protected override string StructuralFingerprint =>
+        "native-qam-valve-refresh-rate-v1:performance-actions+performance-root+valve-refresh";
+
+    /// <inheritdoc />
+    protected override IReadOnlyList<string> RequiredUniqueCounts => RequiredCounts;
+
+    /// <inheritdoc />
+    protected override string ProbeExpression => PerformanceProbeExpression(
+        "wsgm_native_valve_refresh_probe_");
+}
+
+/// <summary>
 /// Adds a display-resolution row, which this client has no component for.
 /// </summary>
 /// <remarks>

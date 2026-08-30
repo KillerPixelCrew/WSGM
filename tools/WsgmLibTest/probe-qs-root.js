@@ -1,22 +1,23 @@
-// Probe: the Quick Settings panel's own root, so a row can be appended there rather than to the
-// Performance root. Reads module factory sources; resolves nothing by loop, constructs nothing.
+// Probe: what DT and l8 in 79476 actually are, and where the QS tab's panel element comes from.
+// Reads sources of named modules; constructs nothing.
 (() => {
   let req;
-  window.webpackChunksteamui.push([["wsgm_qs_" + Date.now()], {}, (r) => { req = r; }]);
-  const sources = Object.entries(req.m).map(([id, f]) => [id, String(f)]);
+  window.webpackChunksteamui.push([["wsgm_qs3_" + Date.now()], {}, (r) => { req = r; }]);
+  const mod = req("79476");
   const out = {};
-
-  // Every Quick Settings localization token, to learn what the panel is built from.
-  const tokens = new Set();
-  for (const [, s] of sources) {
-    for (const m of s.matchAll(/#QuickAccess_Tab_Settings[A-Za-z0-9_]*/g)) tokens.add(m[0]);
+  for (const key of Object.keys(mod)) {
+    const v = mod[key];
+    out[key] = {
+      type: typeof v,
+      head: typeof v === "function" ? String(v).slice(0, 260) : String(v).slice(0, 120),
+    };
   }
-  out.tokens = [...tokens].sort().slice(0, 30);
-
-  // Which module carries the panel itself: the brightness slider and the airplane toggle are both
-  // on it, so a module holding both is the root's own.
-  out.candidates = sources
-    .filter(([, s]) => s.includes("#QuickAccess_Tab_Settings") && s.includes("Brightness"))
-    .map(([id, s]) => ({ id, len: s.length, onFrame: s.includes("TS.ON_FRAME") }));
+  // Who imports 79476? The tabs module that builds the QAM tab list references its panel export.
+  const importers = [];
+  for (const [id, f] of Object.entries(req.m)) {
+    const s = String(f);
+    if (/r\(79476\)|\(79476\)/.test(s)) importers.push({ id, len: s.length, qamTitle: s.includes("#QuickAccess_Tab_Settings_Title") });
+  }
+  out.importers = importers.slice(0, 6);
   return JSON.stringify(out);
 })();

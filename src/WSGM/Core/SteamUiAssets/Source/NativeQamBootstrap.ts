@@ -986,21 +986,35 @@ interface Window {
     // not at all. And Valve's reset button. Both are additive: WSGM built neither.
     let valveProfileHeaderControl;
     let valveResetControl;
+    let valveRefreshRateControl;
     let performanceRoot;
+
+    // The Quick Settings tab's own panel root, wrapped exactly like the performance root so rows
+    // can be appended to the tab they belong in: S14 puts resolution and refresh rate in Quick
+    // Settings, not Performance. Identified live 2026-08-30 as the export whose props are the QAM
+    // tab-panel signature ({active, embeddedView, expanded, visible, vr}) in the module that
+    // carries the Quick Settings section titles.
+    let quickSettingsRoot;
     let originalUseMemo;
     let patchedUseMemo;
     let disposedHost = false;
 
     // What the last append attempt actually did, surfaced through status(). Without it a panel that
     // inserted nothing was indistinguishable from a bridge that never ran.
-    let lastAppend: {
+    type AppendDiagnostics = {
       controls: number;
       inserted: boolean;
       ownSection: boolean;
       tree?: string;
       nativeFiltered?: boolean;
       nativeRowsHidden?: number;
-    } | null = null;
+    } | null;
+    // One entry per wrapped tab, because "the perf panel appended fine" and "Quick Settings never
+    // rendered" are different facts that a single field could only report as one.
+    const appendDiagnostics: { perf: AppendDiagnostics; quickSettings: AppendDiagnostics } = {
+      perf: null,
+      quickSettings: null,
+    };
 
     // Why each control did or did not draw. A control that renders null leaves no trace anywhere:
     // the row is built and appended, the panel simply has one fewer child, and every other signal
@@ -1066,7 +1080,19 @@ interface Window {
         patchId: "wsgm.native-qam.valve-reset",
         command: "",
       }),
+      // Valve's own refresh-rate row, mounted into Quick Settings per S14. It reads
+      // limits.display_refresh_manual_hz_* from SystemPerfStore, which the projection supplies only
+      // under FrameLimitOnly — the strategy gate is the state, not a check here.
+      valveRefreshRate: Object.freeze({
+        patchId: "wsgm.native-qam.valve-refresh-rate",
+        command: "",
+      }),
     });
+
+    // Which tab each kind renders in. Everything defaults to the Performance panel; Quick Settings
+    // holds the display controls S14 puts there. A kind listed nowhere renders nowhere, which is
+    // the honest failure for a typo.
+    const quickSettingsKinds = new Set(["resolution", "valveRefreshRate"]);
 
     const nextActionGeneration = (patchId) => {
       const next = (actionGenerations.get(patchId) || 0) + 1;
@@ -1838,14 +1864,19 @@ interface Window {
       return controlRuntime.react.createElement(filteredNative.component, tree.props);
     };
 
-    const appendControls = (controlRuntime, tree) => {
+    const appendControls = (controlRuntime, tree, placement = "perf") => {
       // Rendered React elements from Steam's own untyped runtime.
       const controls: unknown[] = [];
+      // A kind renders in exactly one tab. Registration says the host backs it; placement says
+      // where it belongs, and the two are deliberately separate questions.
+      const wants = (kind) =>
+        registrations.has(kind) &&
+        (quickSettingsKinds.has(kind) ? "quickSettings" : "perf") === placement;
 
       // First, because it names the profile everything below it edits. Valve's own header carries
       // the per-game toggle inside it, so mounting this is what gives the panel a per-application
       // profile concept at all.
-      if (registrations.has("valveProfileHeader") && valveProfileHeaderControl) {
+      if (wants("valveProfileHeader") && valveProfileHeaderControl) {
         controls.push(
           controlRuntime.react.createElement(
             controlRuntime.row,
@@ -1854,7 +1885,7 @@ interface Window {
           ),
         );
       }
-      if (registrations.has("tdp")) {
+      if (wants("tdp")) {
         controls.push(
           controlRuntime.react.createElement(
             controlRuntime.row,
@@ -1865,7 +1896,7 @@ interface Window {
       }
       // Straight after the power limit, because AutoTDP is what moves it. A user who sees the
       // slider change on its own finds the explanation in the next row rather than hunting for it.
-      if (registrations.has("autoTdp")) {
+      if (wants("autoTdp")) {
         controls.push(
           controlRuntime.react.createElement(
             controlRuntime.row,
@@ -1874,7 +1905,7 @@ interface Window {
           ),
         );
       }
-      if (registrations.has("frameLimit")) {
+      if (wants("frameLimit")) {
         controls.push(
           controlRuntime.react.createElement(
             controlRuntime.row,
@@ -1889,7 +1920,7 @@ interface Window {
       // Valve's own component, not a WSGM row. It draws nothing when the state omits
       // is_vrr_supported, which is what hides it on a device with no VRR capability — no extra
       // check here, because that gate is the state itself.
-      if (registrations.has("valveVrr") && valveVrrControl) {
+      if (wants("valveVrr") && valveVrrControl) {
         controls.push(
           controlRuntime.react.createElement(
             controlRuntime.row,
@@ -1898,7 +1929,7 @@ interface Window {
           ),
         );
       }
-      if (registrations.has("resolution")) {
+      if (wants("resolution")) {
         controls.push(
           controlRuntime.react.createElement(
             controlRuntime.row,
@@ -1907,7 +1938,19 @@ interface Window {
           ),
         );
       }
-      if (registrations.has("overlayLevel")) {
+      // Valve's refresh-rate row follows resolution in Quick Settings: the two describe the same
+      // display, and reading them apart would separate cause from consequence under the pairing
+      // strategies.
+      if (wants("valveRefreshRate") && valveRefreshRateControl) {
+        controls.push(
+          controlRuntime.react.createElement(
+            controlRuntime.row,
+            { key: "wsgm-native-qam-valve-refresh-rate" },
+            controlRuntime.react.createElement(valveRefreshRateControl),
+          ),
+        );
+      }
+      if (wants("overlayLevel")) {
         controls.push(
           controlRuntime.react.createElement(
             controlRuntime.row,
@@ -1916,7 +1959,7 @@ interface Window {
           ),
         );
       }
-      if (registrations.has("controllerTarget")) {
+      if (wants("controllerTarget")) {
         controls.push(
           controlRuntime.react.createElement(
             controlRuntime.row,
@@ -1928,7 +1971,7 @@ interface Window {
 
       // Last, because it undoes everything above it. A reset sitting among the controls it clears
       // is one mis-aimed press away from wiping a profile the user was in the middle of tuning.
-      if (registrations.has("valveReset") && valveResetControl) {
+      if (wants("valveReset") && valveResetControl) {
         controls.push(
           controlRuntime.react.createElement(
             controlRuntime.row,
@@ -1938,8 +1981,30 @@ interface Window {
         );
       }
       if (!controls.length) {
-        lastAppend = { controls: 0, inserted: false, ownSection: false };
+        appendDiagnostics[placement] = { controls: 0, inserted: false, ownSection: false };
         return tree;
+      }
+
+      // Quick Settings takes a plain appended section and nothing else. The native-row filtering
+      // below is about Steam's FPS counter rows on the PERFORMANCE panel; running it against a
+      // different tab's tree would be hiding rows this code has never even looked at.
+      if (placement === "quickSettings") {
+        const section = controlRuntime.react.createElement(
+          controlRuntime.section,
+          { key: "wsgm-native-qam-quick-settings-section" },
+          ...controls,
+        );
+        appendDiagnostics[placement] = {
+          controls: controls.length,
+          inserted: true,
+          ownSection: true,
+        };
+        return controlRuntime.react.createElement(
+          controlRuntime.react.Fragment,
+          null,
+          tree,
+          section,
+        );
       }
 
       // WSGM's rows go into a PanelSection of their own, appended after whatever the native
@@ -1977,7 +2042,7 @@ interface Window {
       // Steam's FPS rows are suppressed only on this path, which runs when WSGM has rows of its own
       // to put in their place. Hiding them and then rendering nothing would leave the user neither.
       const native = withNativeRowsHidden(controlRuntime, tree);
-      lastAppend = {
+      appendDiagnostics.perf = {
         controls: controls.length,
         inserted: true,
         ownSection: true,
@@ -2030,6 +2095,31 @@ interface Window {
       valveResetControl = perfExports
         ? uniqueFunction(perfExports, ["#QuickAccess_Tab_Perf_ResetToDefault"])
         : null;
+      valveRefreshRateControl = perfExports
+        ? uniqueFunction(perfExports, ["#QuickAccess_Tab_Perf_RefreshRate"])
+        : null;
+
+      // The Quick Settings panel root. Best-effort on purpose: a build whose shape moved loses the
+      // Quick Settings rows and nothing else, and the status reports quickSettingsRootResolved so
+      // that loss is attributable rather than silent.
+      const quickSettingsFactory = uniqueFactory([
+        "#QuickAccess_Tab_Settings_Section_Other_Title",
+        "#QuickAccess_Tab_Settings_Section_Brightness_Title",
+      ]);
+      // The root is the export taking the QAM tab-panel props; "embeddedView" and the focus-scroll
+      // pair identify it uniquely among this module's exports (live-verified 2026-08-30).
+      quickSettingsRoot = quickSettingsFactory
+        ? uniqueFunction(runtime(quickSettingsFactory[0]), ["embeddedView", "scrollIntoView"])
+        : null;
+
+      function WsgmNativeQamQuickSettingsRoot(props) {
+        const [, setRevision] = controlRuntime.react.useState(0);
+        controlRuntime.react.useEffect(
+          () => subscribeHost(() => setRevision((value) => value + 1)),
+          [],
+        );
+        return appendControls(controlRuntime, quickSettingsRoot(props), "quickSettings");
+      }
       function WsgmNativeQamPerformanceRoot(props) {
         const [, setRevision] = controlRuntime.react.useState(0);
         controlRuntime.react.useEffect(
@@ -2039,25 +2129,48 @@ interface Window {
         return appendControls(controlRuntime, performanceRoot(props));
       }
       originalUseMemo = controlRuntime.react.useMemo;
+      // One wrapper per wrapped tab, matched by root identity in the same memoized tab array.
+      // Each root must match exactly once or it is left alone — the discipline that kept the
+      // performance wrap honest, applied per root rather than to the array as a whole.
+      const wrappers = [
+        {
+          root: performanceRoot,
+          component: WsgmNativeQamPerformanceRoot,
+          fallbackKey: "wsgm-native-qam-performance-root",
+        },
+        ...(quickSettingsRoot
+          ? [
+              {
+                root: quickSettingsRoot,
+                component: WsgmNativeQamQuickSettingsRoot,
+                fallbackKey: "wsgm-native-qam-quick-settings-root",
+              },
+            ]
+          : []),
+      ];
       patchedUseMemo = function WsgmNativeQamUseMemo(factory, dependencies) {
         const value = originalUseMemo(factory, dependencies);
         if (!Array.isArray(value)) return value;
-        const matches = value.filter(
-          (item) =>
-            item &&
-            typeof item === "object" &&
-            controlRuntime.react.isValidElement(item.panel) &&
-            item.panel.type === performanceRoot,
-        );
-        if (matches.length !== 1) return value;
-        return value.map((item) => {
-          if (item !== matches[0]) return item;
-          const panel = controlRuntime.react.createElement(WsgmNativeQamPerformanceRoot, {
-            ...item.panel.props,
-            key: item.panel.key ?? "wsgm-native-qam-performance-root",
+        let result = value;
+        for (const wrapper of wrappers) {
+          const matches = result.filter(
+            (item) =>
+              item &&
+              typeof item === "object" &&
+              controlRuntime.react.isValidElement(item.panel) &&
+              item.panel.type === wrapper.root,
+          );
+          if (matches.length !== 1) continue;
+          result = result.map((item) => {
+            if (item !== matches[0]) return item;
+            const panel = controlRuntime.react.createElement(wrapper.component, {
+              ...item.panel.props,
+              key: item.panel.key ?? wrapper.fallbackKey,
+            });
+            return { ...item, panel };
           });
-          return { ...item, panel };
-        });
+        }
+        return result;
       };
       controlRuntime.react.useMemo = patchedUseMemo;
       return controlRuntime.react.useMemo === patchedUseMemo;
@@ -2098,7 +2211,9 @@ interface Window {
         !!controlRuntime && !!patchedUseMemo && controlRuntime.react.useMemo === patchedUseMemo,
       // Everything above can be true while the panel still shows nothing, because insertion
       // depends on the shape of the tree Steam renders. This is the part that says so.
-      lastAppend,
+      lastAppend: appendDiagnostics.perf,
+      lastAppendQuickSettings: appendDiagnostics.quickSettings,
+      quickSettingsRootResolved: !!quickSettingsRoot,
       // And this says which rows drew, and why the others did not.
       renderOutcomes,
       toggleResolved: !!(controlRuntime && controlRuntime.toggle),

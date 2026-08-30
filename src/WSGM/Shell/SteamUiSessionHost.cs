@@ -129,6 +129,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _patches.Register(new NativeQamValveVrrPatch());
         _patches.Register(new NativeQamValveProfileHeaderPatch());
         _patches.Register(new NativeQamValveResetPatch());
+        _patches.Register(new NativeQamValveRefreshRatePatch());
         if (_resolution is not null)
         {
             _patches.Register(new NativeQamResolutionPatch());
