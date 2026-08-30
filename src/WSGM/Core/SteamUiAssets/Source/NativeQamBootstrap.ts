@@ -1131,6 +1131,12 @@ interface Window {
     // active — which reads as "no default device" and disables the volume slider. Each GUID gets a
     // stable small number for Steam's side of the wire, translated back on every command.
     const NO_DEVICE = 4294967295;
+
+    // The key m_mapVolumes is keyed by, and the second argument of both SetDeviceVolume and
+    // OnAudioDeviceVolumeChanged. Named because it was silently confused with the volume itself in
+    // both directions: as a map key it left the slider with no value, and as a volume it turned
+    // every drag into 100% or 0%.
+    const AudioDirection = Object.freeze({ Output: 0, Input: 1 });
     const deviceNumbers = new Map();
     const deviceGuids = new Map();
     let nextDeviceNumber = 1;
@@ -1216,15 +1222,16 @@ interface Window {
       }
       for (const device of state.devices) {
         if (callbacks.deviceAdded) callbacks.deviceAdded(toDevice(device, flVolume));
-        // Construction ingests flOutputVolume/flInputVolume, but re-registering an existing entry
-        // does not refresh them (verified live: stale entries kept null volumes through a
-        // RegisterOrUpdateDevice). Runtime changes travel the store's own changed-callback,
-        // OnAudioDeviceVolumeChanged(id, volume, direction) — direction 1 is AllOutput, 0 is
-        // Input, read off the constructed volume map.
-        if (volumeChanged && callbacks.deviceVolumeChanged) {
+        // (deviceId, DIRECTION, volume) — in that order. Read off the store's own methods
+        // 2026-08-30: OnAudioDeviceVolumeChanged(e,t,r) forwards to OnVolumeUpdated(t,r), which is
+        // m_mapVolumes.set(t, r). The direction is the KEY and the volume is the VALUE, and WSGM
+        // was passing them the other way round — every entry it wrote was keyed by a float volume
+        // with 1 or 0 as its value, so getDeviceVolume(direction) found nothing and the slider had
+        // no number to sit on.
+        if (callbacks.deviceVolumeChanged) {
           const id = numberFor(device.id);
-          callbacks.deviceVolumeChanged(id as never, flVolume as never, 1 as never);
-          callbacks.deviceVolumeChanged(id as never, flVolume as never, 0 as never);
+          callbacks.deviceVolumeChanged(id as never, AudioDirection.Output as never, flVolume as never);
+          callbacks.deviceVolumeChanged(id as never, AudioDirection.Input as never, flVolume as never);
         }
       }
       known = seen;
@@ -1240,14 +1247,19 @@ interface Window {
         }
         for (const device of state.devices) {
           store.RegisterOrUpdateDevice(toDevice(device, flVolume));
-          // Same fact as the callback above, on the direct path: a running store registered its
-          // volume callback against a namespace that did not exist yet, so nothing ever fires it,
-          // and re-registering an existing entry does not refresh its volumes. Gated on an actual
-          // change for the same reason as above — Steam shows its volume OSD on every dispatch.
-          if (volumeChanged) {
-            store.OnAudioDeviceVolumeChanged?.(numberFor(device.id), flVolume, 1);
-            store.OnAudioDeviceVolumeChanged?.(numberFor(device.id), flVolume, 0);
-          }
+          // ALWAYS, not only on a change. Update() copies the name, the directions and the CEC
+          // flags and nothing else — read live 2026-08-30 — so registration never fills
+          // m_mapVolumes at all, and the only path into it is this one. Gating it on a change left
+          // the map permanently empty: the first publish is never a "change" by construction, so
+          // the slider started with no value and stayed that way.
+          //
+          // The volume OSD that forced the earlier gate is suppressed around the write instead,
+          // which is the store's own mechanism for exactly this.
+          const deviceId = numberFor(device.id);
+          if (!volumeChanged) store.SuppressVolumeOverlay?.();
+          store.OnAudioDeviceVolumeChanged?.(deviceId, AudioDirection.Output, flVolume);
+          store.OnAudioDeviceVolumeChanged?.(deviceId, AudioDirection.Input, flVolume);
+          if (!volumeChanged) store.UnSuppressVolumeOverlay?.();
         }
         // The running store learns the defaults from nothing else: a store constructed before the
         // namespace existed has 0xFFFFFFFF in both, which the settings page renders as "no default
@@ -1300,10 +1312,26 @@ interface Window {
           // Steam hands back the number this side minted; the host only knows the GUID.
           const guid = guidFor(id);
           if (!guid) return Promise.resolve();
-          return request(patchId, "setDefaultDevice", { id: guid, input: direction === 1 }, 0);
+          return request(patchId, "setDefaultDevice", {
+            id: guid,
+            input: direction === AudioDirection.Input,
+          });
         },
-        SetDeviceVolume: (id, volume) =>
-          request(patchId, "setVolume", { percent: Math.round((volume ?? 0) * 100) }, 0),
+        // (deviceId, DIRECTION, volume) — three arguments. Read off the store's own device class
+        // 2026-08-30: setDeviceVolume(e,t) calls SetDeviceVolume(this.m_id, e, t). WSGM declared
+        // two parameters and so read the DIRECTION as the volume: dragging the slider sent
+        // Math.round(1 * 100) or Math.round(0 * 100), which is why every drag set 100% or 0% and
+        // the log showed "Taskbar volume set to 100%" the moment the slider was touched.
+        //
+        // Only the output direction is forwarded. WSGM's backend moves the default endpoint's
+        // volume, which is the output one; forwarding the microphone's slider to it would have the
+        // two controls fight over the same number.
+        SetDeviceVolume: (id, direction, volume) => {
+          if (direction !== AudioDirection.Output) return Promise.resolve();
+          return request(patchId, "setVolume", {
+            percent: Math.round(Math.min(1, Math.max(0, Number(volume) || 0)) * 100),
+          });
+        },
         SetAppVolume: () => Promise.resolve(),
         ClearDefaultDeviceOverride: () => Promise.resolve(),
         RegisterForServiceConnectionStateChanges: register("serviceConnection"),

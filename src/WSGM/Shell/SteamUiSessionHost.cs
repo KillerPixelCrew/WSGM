@@ -583,13 +583,16 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             else if (request.PatchId == TdpPatchId
                 && request.Command == "setPrimaryLimit")
             {
-                if (!TryReadIntegerPayload(request.Payload, "watts", out int watts))
+                // Not TryReadIntegerPayload: that one requires the payload to carry EXACTLY one
+                // property, and this command carries two. Valve's rows model the limit as a value
+                // and a switch, so the switch has to ride along — and reusing the single-property
+                // reader made the host refuse every forward as "invalid" while Steam happily
+                // showed the number the user had chosen and the EC stayed at its stock 30 W.
+                if (!TryReadPowerLimitPayload(request.Payload, out int watts, out bool limitOn))
                 {
                     error = "The primary power-limit payload is invalid.";
                 }
-                else if (request.Payload.ValueKind is JsonValueKind.Object
-                    && request.Payload.TryGetProperty("enabled", out JsonElement limitEnabled)
-                    && limitEnabled.ValueKind is JsonValueKind.False)
+                else if (!limitOn)
                 {
                     // Valve's rows model "off" as a toggle beside the slider, so a switched-off
                     // limit still carries the watts the slider is sitting on. Applying them would
@@ -961,6 +964,37 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 _requestTasks.Remove(task);
             }
         }
+    }
+
+    /// <summary>Reads the power-limit payload: the watts and the switch beside them.</summary>
+    /// <param name="payload">The request payload.</param>
+    /// <param name="watts">The limit the slider is sitting on, when this returns true.</param>
+    /// <param name="enabled">Whether the limit applies at all, when this returns true.</param>
+    /// <returns>Whether the payload was readable.</returns>
+    /// <remarks>
+    /// Its own reader because this command carries two fields. The switch is not optional: a limit
+    /// switched off still carries the watts the slider holds, and reading only the number would
+    /// apply a cap the user had just turned off.
+    /// </remarks>
+    private static bool TryReadPowerLimitPayload(
+        JsonElement payload,
+        out int watts,
+        out bool enabled)
+    {
+        watts = default;
+        enabled = false;
+        if (payload.ValueKind != JsonValueKind.Object
+            || !payload.TryGetProperty("watts", out JsonElement wattsProperty)
+            || wattsProperty.ValueKind != JsonValueKind.Number
+            || !wattsProperty.TryGetInt32(out watts)
+            || !payload.TryGetProperty("enabled", out JsonElement enabledProperty)
+            || enabledProperty.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        {
+            return false;
+        }
+
+        enabled = enabledProperty.ValueKind is JsonValueKind.True;
+        return true;
     }
 
     private static bool TryReadIntegerPayload(
