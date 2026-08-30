@@ -100,6 +100,13 @@ public sealed class SteamUiBridgeAuthorizer
             // vocabulary under wsgm.native-qam.tdp above.
             ["wsgm.native-qam.valve-tdp"] = [],
 
+            // The brightness gate was availability-only until 2026-08-30, when the device disproved
+            // its founding assumption: Steam's SetBrightness is a stub on Windows and
+            // RegisterForBrightnessChanges never fires, so the revealed slider sat at a default and
+            // moved nothing. WSGM is the backend now — the gate forwards the slider's writes here
+            // and subscribes to this id for the level to show, so the id needs both halves.
+            ["wsgm.steam-display.brightness"] = ["setBrightness"],
+
             // Not controls: these report when Steam's own network UI starts and stops looking for
             // networks, so WSGM can scan for exactly that long. Scanning on WSGM's own schedule
             // would either waste power or show a list that went stale while the page was open.

@@ -1323,7 +1323,12 @@ internal sealed class UnavailableNativeQamControllerTargetService
     }
 }
 
+/// <summary>The panel backlight level Steam's brightness slider shows.</summary>
+/// <param name="Percent">The level, 0 to 100, read from the panel itself.</param>
+internal sealed record SteamBrightnessState(int Percent);
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(SteamBrightnessState))]
 [JsonSerializable(typeof(NativeQamTdpState))]
 [JsonSerializable(typeof(NativeQamAutoTdpState))]
 [JsonSerializable(typeof(NativeQamControllerTargetState))]

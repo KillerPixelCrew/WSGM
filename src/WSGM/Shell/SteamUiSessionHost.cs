@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
+using WSGM.Interop;
 
 namespace WSGM.Shell;
 
@@ -30,6 +31,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private const string AudioPatchId = "wsgm.native-qam.audio";
     private const string NetworkGatePatchId = "wsgm.steam-network.gate";
     private const string BluetoothPatchId = "wsgm.steam-bluetooth.service";
+    private const string BrightnessPatchId = "wsgm.steam-display.brightness";
     private const string GlyphStylePatchId = SteamInputGlyphStylePatch.PatchId;
     private readonly PersistentSteamUiTransport _transport;
     private readonly CancellationTokenSource _shutdown = new();
@@ -41,6 +43,14 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly HashSet<Task> _requestTasks = [];
     private readonly Func<CancellationToken, Task<bool>> _toggleQuickAccess;
     private readonly INativeQamTdpService _tdp;
+
+    /// <summary>
+    /// Watches the panel backlight for changes made outside Steam, so the revealed slider follows
+    /// them. Field-rooted for its lifetime and disposed with the host, per the long-lived-callback
+    /// rule; the read is one ioctl on a handle opened and closed per poll.
+    /// </summary>
+    private readonly Timer _backlightPoll;
+    private int _lastPolledBacklight = -1;
 
     /// <summary>
     /// Null when no audio manager exists for this session, which is the overlay-test case.
@@ -181,6 +191,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         SetGlyphDeliveryPatchStates();
         _patches.SetGlobalEnabled(false);
         _bridge.RequestReceived += OnRequestReceived;
+        _backlightPoll = new Timer(OnBacklightPoll, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
         _transport.GenerationChanged += OnGenerationChanged;
         _tdp.StateChanged += OnSemanticStateChanged;
         _autoTdp.StateChanged += OnSemanticStateChanged;
@@ -372,6 +383,18 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                     NativeQamSemanticJsonContext.Default.NativeQamVrrState);
                 await _bridge.PublishStateAsync(VrrPatchId, vrr, _shutdown.Token)
                     .ConfigureAwait(false);
+                // The panel's real level, so the revealed slider has a number to sit on and follows
+                // changes made outside Steam. A panel with no readable backlight publishes nothing,
+                // and the slider stays at whatever the store holds — the honest outcome on a
+                // machine where the gate should not have applied anyway.
+                if (NativeBacklight.TryReadBrightness(out int backlightPercent))
+                {
+                    JsonElement brightness = JsonSerializer.SerializeToElement(
+                        new SteamBrightnessState(backlightPercent),
+                        NativeQamSemanticJsonContext.Default.SteamBrightnessState);
+                    await _bridge.PublishStateAsync(BrightnessPatchId, brightness, _shutdown.Token)
+                        .ConfigureAwait(false);
+                }
                 // Its own serializer context: these are Valve's protobuf field names, so the
                 // camelCase policy the semantic states use would rename every one of them and each
                 // renamed field is silently a control that does not render.
@@ -423,6 +446,29 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     }
 
     private void OnSemanticStateChanged() => QueueStatePublication();
+
+    /// <remarks>
+    /// Queues a publication only on an actual level change, so a stable backlight costs one ioctl
+    /// every two seconds and no bridge traffic at all. Steam's slider writes land back here too —
+    /// that is one transition per drag, which keeps the slider and the panel agreeing without a
+    /// second mechanism.
+    /// </remarks>
+    private void OnBacklightPoll(object? state)
+    {
+        if (_disposed || !_enabled)
+        {
+            return;
+        }
+
+        if (!NativeBacklight.TryReadBrightness(out int percent)
+            || percent == Interlocked.Exchange(ref _lastPolledBacklight, percent))
+        {
+            return;
+        }
+
+        Log.Change("display.backlight", $"Panel backlight at {percent}%.");
+        QueueStatePublication();
+    }
 
     private void QueueStatePublication()
     {
@@ -689,6 +735,23 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                         requestCancellation.Token).ConfigureAwait(false);
                     succeeded = result.Succeeded;
                     error = result.Error;
+                }
+            }
+            else if (request.PatchId == BrightnessPatchId
+                && request.Command == "setBrightness")
+            {
+                if (!TryReadIntegerPayload(request.Payload, "percent", out int brightnessPercent)
+                    || brightnessPercent is < 0 or > 100)
+                {
+                    error = "The brightness payload is invalid.";
+                }
+                else
+                {
+                    succeeded = NativeBacklight.TrySetBrightness(brightnessPercent);
+                    if (!succeeded)
+                    {
+                        error = "The panel backlight refused the write.";
+                    }
                 }
             }
             else if (request.PatchId == VrrPatchId
@@ -1553,6 +1616,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
         await DisableAsync().ConfigureAwait(false);
         _disposed = true;
+        _backlightPoll.Dispose();
         _transport.GenerationChanged -= OnGenerationChanged;
         _bridge.RequestReceived -= OnRequestReceived;
         _tdp.StateChanged -= OnSemanticStateChanged;

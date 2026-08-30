@@ -105,8 +105,11 @@ public sealed class SteamBrightnessGatePatch : ISteamUiPatch
         CancellationToken cancellationToken) =>
         EvaluateAsync(
             context,
+            // The setter too: a revealed slider whose writes still reach the native stub is the
+            // exact broken state this gate shipped with, and "installed" alone reported it healthy.
             "const status=bridge.brightness.status();"
-            + "return JSON.stringify({ok:status.installed&&status.available,status});",
+            + "return JSON.stringify({ok:status.installed&&status.available&&status.setterOwned,"
+            + "status});",
             "Brightness gate verification failed.",
             cancellationToken);
 
