@@ -129,6 +129,28 @@ to take effect. `IPolicyConfig` is the route that works.
 HDMI CEC (`SetHdmiCecEnabled`, `SendHdmiCecVolume`) reaches the same service and stays unsupported;
 those controls simply do not appear.
 
+## The audio manager's lifetime is the blocker
+
+Found while wiring the session host, and it is a real constraint rather than an oversight in the
+plan: **`AudioManager` is taskbar-scoped, not session-scoped.** `OverlayController` creates
+`SystemStatus` — which owns the manager — when the taskbar opens, and disposes it when the taskbar
+closes. Steam's audio namespace has to answer for the whole session, including while the taskbar is
+shut.
+
+Two ways out, and only one of them is acceptable:
+
+- **Hoist the manager to session scope** and hand the same instance to both the taskbar's status
+  cluster and the Steam host. This is the correct fix and is a lifetime change to
+  `SystemStatus`/`OverlayController` ownership, not to the audio code itself.
+- **Give the Steam host its own manager.** Rejected: two managers mean two endpoint enumerations and
+  two ideas of which device is default, which is exactly the disagreement the adapter exists to
+  prevent. It would also double the WASAPI work on every device change.
+
+Until the first is done, `SteamUiSessionHost` takes an optional manager, nothing passes one, and the
+audio patch is simply not registered — so Steam's store stays unavailable and no half-supplied
+namespace exists. That is the honest degradation, but it does mean audio is **built and unreachable**
+rather than working.
+
 ## Implementation slices
 
 1. Supply `SteamClient.System.Audio` over `AudioManager`, devices and volume and mute only.
