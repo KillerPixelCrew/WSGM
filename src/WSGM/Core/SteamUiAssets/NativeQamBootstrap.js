@@ -835,6 +835,11 @@
     // now supplies, so mounting it needs no props and no shim of its own — which is the entire
     // point of reactivating a component instead of hand-building a row that looks like it.
     let valveVrrControl;
+    // Valve's profile header, which carries the per-game profile toggle inside it — probed
+    // 2026-08-30: the toggle is not a separately mountable export, so the two arrive together or
+    // not at all. And Valve's reset button. Both are additive: WSGM built neither.
+    let valveProfileHeaderControl;
+    let valveResetControl;
     let performanceRoot;
     let originalUseMemo;
     let patchedUseMemo;
@@ -1643,6 +1648,18 @@
     const appendControls = (controlRuntime, tree) => {
       // Rendered React elements from Steam's own untyped runtime.
       const controls = [];
+      // First, because it names the profile everything below it edits. Valve's own header carries
+      // the per-game toggle inside it, so mounting this is what gives the panel a per-application
+      // profile concept at all.
+      if (registrations.has("valveProfileHeader") && valveProfileHeaderControl) {
+        controls.push(
+          controlRuntime.react.createElement(
+            controlRuntime.row,
+            { key: "wsgm-native-qam-valve-profile-header" },
+            controlRuntime.react.createElement(valveProfileHeaderControl),
+          ),
+        );
+      }
       if (registrations.has("tdp")) {
         controls.push(
           controlRuntime.react.createElement(
@@ -1711,6 +1728,17 @@
             controlRuntime.row,
             { key: "wsgm-native-qam-controller-target" },
             controlRuntime.react.createElement(controllerControl),
+          ),
+        );
+      }
+      // Last, because it undoes everything above it. A reset sitting among the controls it clears
+      // is one mis-aimed press away from wiping a profile the user was in the middle of tuning.
+      if (registrations.has("valveReset") && valveResetControl) {
+        controls.push(
+          controlRuntime.react.createElement(
+            controlRuntime.row,
+            { key: "wsgm-native-qam-valve-reset" },
+            controlRuntime.react.createElement(valveResetControl),
           ),
         );
       }
@@ -1794,8 +1822,15 @@
         "#QuickAccess_Tab_Perf_EnableVRR",
         "#QuickAccess_Tab_Perf_LimitFrameRate",
       ]);
-      valveVrrControl = perfComponents
-        ? uniqueFunction(runtime(perfComponents[0]), ["#QuickAccess_Tab_Perf_EnableVRR"])
+      const perfExports = perfComponents ? runtime(perfComponents[0]) : null;
+      valveVrrControl = perfExports
+        ? uniqueFunction(perfExports, ["#QuickAccess_Tab_Perf_EnableVRR"])
+        : null;
+      valveProfileHeaderControl = perfExports
+        ? uniqueFunction(perfExports, ["#QuickAccess_Tab_Perf_GameSpecificSettings"])
+        : null;
+      valveResetControl = perfExports
+        ? uniqueFunction(perfExports, ["#QuickAccess_Tab_Perf_ResetToDefault"])
         : null;
       function WsgmNativeQamPerformanceRoot(props) {
         const [, setRevision] = controlRuntime.react.useState(0);

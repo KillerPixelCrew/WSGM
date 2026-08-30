@@ -127,6 +127,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // whether the perf state carries is_vrr_supported, which follows the device's published
         // capability, so a machine without VRR needs no separate decision here.
         _patches.Register(new NativeQamValveVrrPatch());
+        _patches.Register(new NativeQamValveProfileHeaderPatch());
+        _patches.Register(new NativeQamValveResetPatch());
         if (_resolution is not null)
         {
             _patches.Register(new NativeQamResolutionPatch());

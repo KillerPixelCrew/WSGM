@@ -90,6 +90,87 @@ public sealed class NativeQamValveVrrPatch : NativeQamComponentPatch
 }
 
 /// <summary>
+/// Mounts Valve's profile header, which carries the per-game profile toggle inside it.
+/// </summary>
+/// <remarks>
+/// The toggle is not separately mountable — probed 2026-08-30, its token resolves to the same
+/// export as the header — so the two arrive together or not at all. Mounting this is what gives the
+/// panel a per-application profile concept, since it is the control that creates and removes one.
+/// </remarks>
+public sealed class NativeQamValveProfileHeaderPatch : NativeQamComponentPatch
+{
+    private static readonly string[] RequiredCounts =
+    [
+        "performanceActions",
+        "performanceRoot",
+        "nativeFields",
+        "nativeLayout",
+        "localization",
+        "react",
+    ];
+
+    /// <inheritdoc />
+    public override string Id => "wsgm.native-qam.valve-profile-header";
+
+    /// <inheritdoc />
+    public override int Version => 1;
+
+    /// <inheritdoc />
+    protected override string ComponentKind => "valveProfileHeader";
+
+    /// <inheritdoc />
+    protected override string StructuralFingerprint =>
+        "native-qam-valve-profile-header-v1:performance-actions+performance-root+valve-header";
+
+    /// <inheritdoc />
+    protected override IReadOnlyList<string> RequiredUniqueCounts => RequiredCounts;
+
+    /// <inheritdoc />
+    protected override string ProbeExpression => PerformanceProbeExpression(
+        "wsgm_native_valve_header_probe_");
+}
+
+/// <summary>
+/// Mounts Valve's reset-to-default button.
+/// </summary>
+/// <remarks>
+/// Rendered last, because it undoes everything above it: a reset sitting among the controls it
+/// clears is one mis-aimed press away from wiping a profile the user was in the middle of tuning.
+/// </remarks>
+public sealed class NativeQamValveResetPatch : NativeQamComponentPatch
+{
+    private static readonly string[] RequiredCounts =
+    [
+        "performanceActions",
+        "performanceRoot",
+        "nativeFields",
+        "nativeLayout",
+        "localization",
+        "react",
+    ];
+
+    /// <inheritdoc />
+    public override string Id => "wsgm.native-qam.valve-reset";
+
+    /// <inheritdoc />
+    public override int Version => 1;
+
+    /// <inheritdoc />
+    protected override string ComponentKind => "valveReset";
+
+    /// <inheritdoc />
+    protected override string StructuralFingerprint =>
+        "native-qam-valve-reset-v1:performance-actions+performance-root+valve-reset";
+
+    /// <inheritdoc />
+    protected override IReadOnlyList<string> RequiredUniqueCounts => RequiredCounts;
+
+    /// <inheritdoc />
+    protected override string ProbeExpression => PerformanceProbeExpression(
+        "wsgm_native_valve_reset_probe_");
+}
+
+/// <summary>
 /// Adds a display-resolution row, which this client has no component for.
 /// </summary>
 /// <remarks>
