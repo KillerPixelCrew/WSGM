@@ -437,3 +437,80 @@ context/document, and replay before dispatch. There is no generic evaluation, fi
 device, plugin, or privileged-operation endpoint. Unsupported semantic services fail closed. On
 generation replacement or disable, pending calls are rejected and WSGM removes only its binding and
 namespace. `Cef.NativeQuickAccess` is an independent kill switch under the existing CEF master.
+
+## Valve's own surfaces are present on Windows; only their backends are absent
+
+**Live-probed 2026-08-30 against the local Windows Steam client.** This is the finding the QAM,
+Quick Settings, Internet, Bluetooth and audio work all rest on, and it is the opposite of what the
+shape of the client suggests: the components are not gated off, they are wired to nothing.
+
+The performance store is the clearest case. `window.SystemPerfStore` is one MobX observable whose
+entire state is `m_msgState`, and its constructor reads:
+
+```js
+(SteamClient.System.Perf?.RegisterForDiagnosticInfoChanges(this.OnDiagnosticInfoChanged),
+  SteamClient.System.Perf?.RegisterForStateChanges(this.OnStateChanged));
+```
+
+`SteamClient.System` has no `Perf` namespace on Windows, so the optional chaining no-ops, the state
+stays `{}`, and every control renders `null`. Writes are identical: each setter builds a protobuf
+delta and hands it to `SteamClient.System.Perf?.UpdateSettings(...)`.
+
+**Availability is read from that same absent state, so hiding is free.** For example the VRR hook is
+`[limits?.is_vrr_supported ?? false, per_app?.is_vrr_enabled ?? false, SetVRREnabled]`. Omit a
+`limits` field and Valve's own wrapper renders nothing — no CSS, no patching. Two layers are needed
+even so, because some hooks hardcode `available: true` (both scaling ones do) and can never be
+hidden by state; the first and primary layer is simply not mounting a component at all.
+
+### Four gates, and the one that must never be touched
+
+| Gate                     | Example                                   | Response                          |
+| ------------------------ | ----------------------------------------- | --------------------------------- |
+| Absent JS namespace      | `SteamClient.System.Perf`, `System.Audio` | Supply it                         |
+| Absent RPC response      | `SteamOSService/State/Manager`            | Supply it                         |
+| RPC stub with no backend | `BluetoothManagerService`                 | Replace the stub's methods        |
+| Deck-only store getter   | `networkManagementAvailable`              | Override that one getter          |
+| Global platform constant | `TS.IS_STEAMOS`                           | **Never** — this is the D16 spoof |
+
+The distinction is concrete, not academic: `networkManagementAvailable` is literally
+`get networkManagementAvailable(){return TS.IS_STEAMOS}`, so overriding the getter and setting the
+constant produce the same Wi-Fi row, while one touches a single store and the other changes
+unrelated client behaviour everywhere.
+
+### Three performance backend families, only one of which is reachable
+
+Steam carries three generations of performance control and they are easy to confuse:
+
+- **The perf store** (`CMsgSystemPerfState`, modules `74514`/`83571`) — per-app profiles,
+  `fps_limit_options` notches, frame limit, overlay level, refresh, VRR, basic/advanced, reset.
+  Backed by `SteamClient.System.Perf`, which is the absent namespace above. **This is the reachable
+  one.** Its message shape is
+  `{limits, settings:{global, per_app}, current_game_id, active_profile_game_id}`, and per-game
+  profiles are exactly `current_game_id == active_profile_game_id` plus
+  `per_app.is_game_perf_profile_enabled`.
+- **The SteamOS Manager family** (`steamos_tdp_limit*`, `steamos_manual_gpu_clock*`) — client
+  settings whose availability comes from a WebUI transport RPC. This is where TDP and charge limit
+  live; there is **no** TDP component in the perf store at all.
+- **The gamescope family** (`gamescope_app_target_framerate` and friends) — behind a gamescope
+  feature gate and not reachable on Windows at all.
+
+Bluetooth is its own service, `BluetoothManagerService`, and does **not** share the SteamOS Manager
+seam. Its `GetState` round-trips successfully on Windows and returns
+`{is_service_available:false, adapters:[], devices:[]}` — transport and message shapes present, only
+the backend missing. Its `*Handler` exports are message descriptors (`{name, request, response}`),
+not registration hooks, so the service cannot be implemented; the stub's methods are replaced
+instead.
+
+Wi-Fi is the one to be careful about. Steam's Windows backend does push real
+`CMsgNetworkDevicesData` reports — the store's `hasWirelessDevice` and `isWifiEnabled` are genuinely
+true — but every report carries an **empty `wireless.aps`**, so it never enumerates networks. Any
+access point visible in a live probe is WSGM's own synthetic one from
+`Core\SteamNetworkIndicator.cs` and is not evidence to the contrary.
+
+Audio is the cheapest gate in the project: the store's flag is literally
+`m_bAvailable = null != SteamClient.System.Audio`, so supplying that one namespace is the whole of
+it.
+
+**Do not set `force_deck_perf_tab`.** It is Valve's own gate override
+(`U(e) = e || force_deck_perf_tab`) and a persisted client setting, and it force-shows every row
+including the ones WSGM cannot back.
