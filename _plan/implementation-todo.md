@@ -1263,8 +1263,15 @@ hand-built rows with Valve's own and supplies `SteamClient.System.Perf`.
       `#QuickAccess_Tab_Perf_RefreshRate`, `#QuickAccess_Tab_Perf_EnableVRR`. Deliberately left
       hidden and confirmed present: `ScalingFilter`, `ScalingScaler`, `EnableTearing`,
       `ForceComposite`, `EnableCompositeDebug`, `DisableColorManagement`, the `FPS_*` overlay family.
-      **Correction to the export names in `_plan\qam-overhaul.md`**: those were minified identifiers
-      (`jw`, `mR`, `Mq`, …) and are not stable across builds. Select by localization token, which is.
+      **Every one of those eight tokens matches exactly one export** of module `83571` (36 exports;
+      `tools/WsgmLibTest/probe-perf-exports.js`), so a token identifies a component unambiguously and
+      is what mounting should select by — a minified export name is not stable across builds even
+      when it happens to be right today.
+      The names in `_plan\qam-overhaul.md` are in fact still correct for this build — `PZ`, `DJ`,
+      `Mq`, `gv`, `by`, `bh` all resolve — with one exception worth knowing before mounting:
+      **`mR` is wrong for the per-game toggle.** `#QuickAccess_Tab_Perf_GameSpecificSettings` lives
+      inside `jw`, the same export as the header, so the toggle is part of the profile header
+      component rather than a separately mountable row.
 - [ ] Project the same services onto the overlay, which stays the complete surface.
 - [x] Amend D16 in `_plan\2.0-decisions.md` to record that supplying an absent
       `SteamClient.System.Perf` for a device WSGM can service is in scope and is not the forbidden
