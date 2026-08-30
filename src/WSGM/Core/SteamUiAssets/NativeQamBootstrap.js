@@ -766,9 +766,16 @@
     // The one volume WSGM tracks, as the 0..1 float Steam's sliders use.
     const flVolumeOf = (state) =>
       Math.min(1, Math.max(0, (Number(state?.volumePercent) || 0) / 100));
+    // Volume-changed dispatches fire ONLY when the volume moved. Steam shows its volume OSD on
+    // every dispatch, and firing one per publish made the OSD pop up over and over while nothing
+    // had changed. Null means no volume has been reported yet, so the first publish never counts
+    // as a change either — construction already carries it.
+    let lastFlVolume = null;
     const onState = (state) => {
       if (!installed || !state || !Array.isArray(state.devices)) return;
       const flVolume = flVolumeOf(state);
+      const volumeChanged = lastFlVolume !== null && Math.abs(flVolume - lastFlVolume) > 0.004;
+      lastFlVolume = flVolume;
       // Numeric, because these ids flow to the store and its callbacks, and Steam's side of the
       // wire is numeric everywhere.
       const seen = state.devices.map((device) => numberFor(device.id));
@@ -784,7 +791,7 @@
         // RegisterOrUpdateDevice). Runtime changes travel the store's own changed-callback,
         // OnAudioDeviceVolumeChanged(id, volume, direction) — direction 1 is AllOutput, 0 is
         // Input, read off the constructed volume map.
-        if (callbacks.deviceVolumeChanged) {
+        if (volumeChanged && callbacks.deviceVolumeChanged) {
           const id = numberFor(device.id);
           callbacks.deviceVolumeChanged(id, flVolume, 1);
           callbacks.deviceVolumeChanged(id, flVolume, 0);
@@ -804,10 +811,12 @@
           store.RegisterOrUpdateDevice(toDevice(device, flVolume));
           // Same fact as the callback above, on the direct path: a running store registered its
           // volume callback against a namespace that did not exist yet, so nothing ever fires it,
-          // and re-registering an existing entry does not refresh its volumes. This is the only
-          // route a volume change has into an already-constructed entry.
-          store.OnAudioDeviceVolumeChanged?.(numberFor(device.id), flVolume, 1);
-          store.OnAudioDeviceVolumeChanged?.(numberFor(device.id), flVolume, 0);
+          // and re-registering an existing entry does not refresh its volumes. Gated on an actual
+          // change for the same reason as above — Steam shows its volume OSD on every dispatch.
+          if (volumeChanged) {
+            store.OnAudioDeviceVolumeChanged?.(numberFor(device.id), flVolume, 1);
+            store.OnAudioDeviceVolumeChanged?.(numberFor(device.id), flVolume, 0);
+          }
         }
         // The running store learns the defaults from nothing else: a store constructed before the
         // namespace existed has 0xFFFFFFFF in both, which the settings page renders as "no default
