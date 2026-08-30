@@ -177,6 +177,12 @@ availability from `SteamOSService/State/Manager` fetched over a WebUI transport 
 `GetState()` → `is_tdp_limit_available`, `tdp_limit_min`, `tdp_limit_max`. The perf-store family has
 no TDP component at all — zero `tdp` occurrences in `83571`.
 
+One correction, so it is not mistaken for a contradiction later: the perf **messages** do carry
+`tdp_limit_min`/`tdp_limit_max` in `CMsgSystemPerfLimits` and `tdp_limit`/`is_tdp_limit_enabled` in
+`CMsgSystemPerfSettingsPerApp` (read from the generated metadata in module `28013` on 2026-08-30).
+The fields exist; no component renders them. Supplying them would therefore change nothing, which is
+why the projection omits them and the RPC seam still owns the row.
+
 So this is a **second seam of a different shape**: an RPC service response rather than an absent JS
 namespace. WSGM supplies that response, exactly as it supplies `SteamClient.System.Perf`, and the
 row is reused rather than hand-built. The same seam carries `is_charge_limit_available` with

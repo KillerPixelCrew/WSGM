@@ -1229,11 +1229,23 @@ hand-built rows with Valve's own and supplies `SteamClient.System.Perf`.
       observer, so the coordinator's one-monitor rule stands. Steam wins whenever it names exactly
       one running application; the foreground fills only `Global`, never `Ambiguous` or
       `Unavailable`.
-- [ ] Implement the `SteamClient.System.Perf` shim: build `CMsgSystemPerfState` through the client's
-      own message classes, deliver it via the store's bound `OnStateChanged`, and route
-      `UpdateSettings` deltas to the same services the overlay uses. One patch per mounted
-      component, each with its own fingerprint, verification, removal, and kill switch. Never set
-      `force_deck_perf_tab`; it is a persisted client setting that force-shows unbackable rows.
+- [x] Implement the `SteamClient.System.Perf` shim and route `UpdateSettings` deltas to the same
+      services the overlay uses. `Core\NativeQamPerfState.cs` projects the state under Valve's own
+      protobuf field names — read out of the generated metadata in module `28013`, not guessed from
+      the minified hooks — with every field nullable and omitted when null, which is what hides a
+      control WSGM cannot back. `Core\NativeQamPerfDelta.cs` decodes the delta, treating a null
+      field as absent because `toObject()` emits the whole message and not only what the setter
+      touched. `NativeQamPerfPatch` owns the namespace; `SteamUiSessionHost` publishes the state and
+      applies changes through the existing performance service, and `ShellSession` supplies what the
+      device can back. `force_deck_perf_tab` is never set.
+      **Two deviations from the plan, both deliberate.** State is written into `m_msgState` directly
+      rather than pushed through `OnStateChanged`, which would mean building a `CMsgSystemPerfState`
+      in injected JavaScript for the store to immediately decode again; live-verified 2026-08-30
+      that the direct write is observed through every accessor the hooks use and restores cleanly.
+      And `UpdateSettings` forwards `toObject()`, because a jspb message's own JSON form is its
+      internal positional array.
+      **Still refused by name**: VRR, manual refresh rate, and profile reset, pending the device and
+      pairing seams. The panel hides all three anyway, because the projection omits their fields.
 - [ ] Supply the `SteamOSService/State/Manager` RPC response as a second seam so Valve's own TDP row
       is reused rather than hand-built: `GetState()` → `is_tdp_limit_available`, `tdp_limit_min`,
       `tdp_limit_max`, plus the `is_charge_limit_available` and `charge_limit_min/max/default` the
