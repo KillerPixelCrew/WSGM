@@ -22,6 +22,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private const string OverlayLevelPatchId = "wsgm.native-qam.overlay-level";
     private const string AutoTdpPatchId = "wsgm.native-qam.auto-tdp";
     private const string ControllerTargetPatchId = "wsgm.native-qam.controller-target";
+    private const string PerfPatchId = "wsgm.native-qam.perf";
     private const string AudioPatchId = "wsgm.native-qam.audio";
     private const string NetworkGatePatchId = "wsgm.steam-network.gate";
     private const string BluetoothPatchId = "wsgm.steam-bluetooth.service";
@@ -108,6 +109,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _patches.Register(new NativeQamFrameLimitPatch());
         _patches.Register(new NativeQamOverlayLevelPatch());
         _patches.Register(new NativeQamControllerTargetPatch());
+
+        // The backend behind Valve's own Performance tab. Registered unconditionally because the
+        // performance service always exists; what the panel then shows is decided entirely by which
+        // fields the projected state carries, not by whether this patch installed.
+        _patches.Register(new NativeQamPerfPatch());
         if (_audio is not null)
         {
             _patches.Register(new NativeQamAudioPatch());
@@ -315,6 +321,14 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                     _performance.OverlayLevel,
                     NativeQamSemanticJsonContext.Default.NativeQamOverlayLevelState);
                 await _bridge.PublishStateAsync(OverlayLevelPatchId, overlayLevel, _shutdown.Token)
+                    .ConfigureAwait(false);
+                // Its own serializer context: these are Valve's protobuf field names, so the
+                // camelCase policy the semantic states use would rename every one of them and each
+                // renamed field is silently a control that does not render.
+                JsonElement perf = JsonSerializer.SerializeToElement(
+                    _performance.PerfState,
+                    NativeQamPerfJsonContext.Default.NativeQamPerfState);
+                await _bridge.PublishStateAsync(PerfPatchId, perf, _shutdown.Token)
                     .ConfigureAwait(false);
                 JsonElement controllerTarget = JsonSerializer.SerializeToElement(
                     _controllerTarget.Current,
@@ -574,6 +588,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                     succeeded = result.Succeeded;
                     error = result.Error;
                 }
+            }
+            else if (request.PatchId == PerfPatchId && request.Command == "updateSettings")
+            {
+                (succeeded, error) = await ApplyPerfDeltaAsync(
+                    request,
+                    requestCancellation.Token).ConfigureAwait(false);
             }
             else if (request.PatchId == AudioPatchId && _audio is { } audio)
             {
@@ -1174,6 +1194,79 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             && persistence is PerformancePersistenceTarget.Automatic
                 or PerformancePersistenceTarget.Global
                 or PerformancePersistenceTarget.Application;
+    }
+
+    /// <summary>Applies one <c>UpdateSettings</c> call from Steam's own performance panel.</summary>
+    /// <param name="request">The forwarded request.</param>
+    /// <param name="cancellationToken">Cancels the applies.</param>
+    /// <returns>Whether every recognized change applied, and the first failure if not.</returns>
+    /// <remarks>
+    /// Every setter in Valve's store funnels through the one <c>UpdateSettings</c> method, so a
+    /// single call can carry several changes and each is applied in the order it arrived — a delta
+    /// that turns the cap on and sets it in one message must not apply the two out of order.
+    /// <para>
+    /// Failures are collected rather than aborting: refusing the rest of a delta because one field
+    /// has no backend would drop settings WSGM can honour, and the panel's own state would then
+    /// disagree with the device until the next publish.
+    /// </para>
+    /// </remarks>
+    private async Task<(bool Succeeded, string? Error)> ApplyPerfDeltaAsync(
+        SteamUiBridgeRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!NativeQamPerfDeltaReader.TryRead(
+                request.Payload,
+                out NativeQamPerfDelta delta,
+                out string? readError))
+        {
+            Log.Warn($"Native QAM performance delta refused: {readError}");
+            return (false, readError);
+        }
+
+        if (delta.Unsupported.Count > 0)
+        {
+            // Named, because the alternative is a control the user operates that quietly does
+            // nothing and cannot be diagnosed from a pasted log.
+            Log.Warn(
+                "Native QAM performance delta carried fields with no WSGM backend: "
+                + string.Join(", ", delta.Unsupported));
+        }
+
+        if (delta.ResetToDefault)
+        {
+            Log.Info(
+                "Native QAM performance reset requested for "
+                + $"{(delta.SteamAppId is { } id ? $"AppID {id}" : "the global profile")}; "
+                + "WSGM has no profile reset yet and the request was refused.");
+            return (false, "Resetting a performance profile is not supported yet.");
+        }
+
+        if (delta.Recognized.Count == 0)
+        {
+            Log.Info(
+                "Native QAM performance delta contained nothing WSGM backs; no change was made.");
+            return (false, "The performance delta carried no supported change.");
+        }
+
+        string? failure = null;
+        foreach (NativeQamPerfChange change in delta.Recognized)
+        {
+            NativeQamCommandResult result = await _performance.ApplyPerfChangeAsync(
+                change,
+                CorrelationId(request),
+                cancellationToken).ConfigureAwait(false);
+            if (result.Succeeded)
+            {
+                continue;
+            }
+
+            Log.Warn(
+                $"Native QAM performance change {change.Kind}={change.Value} failed: "
+                + (result.Error ?? "no reason reported"));
+            failure ??= result.Error;
+        }
+
+        return (failure is null, failure);
     }
 
     private static string CorrelationId(SteamUiBridgeRequest request) =>

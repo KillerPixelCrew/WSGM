@@ -157,6 +157,93 @@ internal sealed class PerformanceServiceNativeQamAdapter : IDisposable
         _service.Current,
         _service.Enabled);
 
+    /// <summary>
+    /// Supplies what the device can currently back, for the reactivated performance panel.
+    /// </summary>
+    /// <remarks>
+    /// Injected rather than read here because the frame-limit options come from display-mode
+    /// discovery and the VRR flag from the device plugin, neither of which this adapter owns. The
+    /// default reports nothing supported, which hides every control rather than showing one that
+    /// writes nowhere.
+    /// </remarks>
+    internal Func<NativeQamPerfSupport>? PerfSupport { get; set; }
+
+    /// <summary>The state Steam's own performance panel reads every control's value out of.</summary>
+    internal NativeQamPerfState PerfState
+    {
+        get
+        {
+            PerformanceState current = _service.Current;
+            NativeQamPerfSupport support = PerfSupport?.Invoke()
+                ?? new NativeQamPerfSupport([], false, false, null, null);
+
+            // Steam's per-game header needs an AppID, and only a Steam-launched title has one. A
+            // foreground-only identity still carries its profile; the projection presents it as the
+            // global one rather than naming a game WSGM cannot name.
+            uint? appId = current.Target is not null
+                && current.Target.ApplicationId.StartsWith("steam:", StringComparison.Ordinal)
+                && uint.TryParse(current.Target.ApplicationId[6..], out uint parsed)
+                    ? parsed
+                    : null;
+
+            return NativeQamPerfProjection.Project(
+                current.Desired,
+                support,
+                appId,
+                perApplicationProfileEnabled: current.Target is not null,
+                advancedSettingsEnabled: true,
+                variableRefreshRateEnabled: null,
+                refreshRateHz: null);
+        }
+    }
+
+    /// <summary>Applies one change from Steam's own performance panel.</summary>
+    /// <param name="change">The decoded change.</param>
+    /// <param name="correlationId">Correlates the command across the log.</param>
+    /// <param name="cancellationToken">Cancels the command.</param>
+    /// <returns>Whether the change was applied.</returns>
+    /// <remarks>
+    /// Only the settings behind a control WSGM mounts and can honour. Anything else is refused with
+    /// its name, never accepted-and-dropped: a control that appears to work and does nothing is
+    /// worse than one that never rendered.
+    /// </remarks>
+    internal Task<NativeQamCommandResult> ApplyPerfChangeAsync(
+        NativeQamPerfChange change,
+        string correlationId,
+        CancellationToken cancellationToken) => change.Kind switch
+        {
+            NativeQamPerfSetting.FrameLimit => SetAsync(
+                PerformanceControl.FrameLimit,
+                change.Value,
+                PerformancePersistenceTarget.Automatic,
+                correlationId,
+                cancellationToken),
+
+            // Steam models the cap and its switch separately; RTSS has one value where zero is off,
+            // so disabling writes zero and enabling is left to the cap that follows it in the same
+            // delta.
+            NativeQamPerfSetting.FrameLimitEnabled when !change.AsFlag => SetAsync(
+                PerformanceControl.FrameLimit,
+                0,
+                PerformancePersistenceTarget.Automatic,
+                correlationId,
+                cancellationToken),
+            NativeQamPerfSetting.FrameLimitEnabled => Task.FromResult(
+                new NativeQamCommandResult(true, null)),
+
+            NativeQamPerfSetting.OverlayLevel => SetAsync(
+                PerformanceControl.OverlayLevel,
+                change.Value,
+                PerformancePersistenceTarget.Automatic,
+                correlationId,
+                cancellationToken),
+
+            _ => Task.FromResult(
+                new NativeQamCommandResult(
+                    false,
+                    $"The performance setting {change.Kind} has no WSGM backend yet.")),
+        };
+
     internal IDisposable AcquireObservation()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
