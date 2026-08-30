@@ -44,6 +44,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private readonly object _backgroundGate = new();
     private readonly HashSet<Task> _backgroundTasks = [];
     private readonly DeviceCapabilityRouter _capabilities;
+    private readonly PluginSettingsCoordinator _pluginSettings;
     private readonly DeviceOemActionRouter _oemActions = new();
     private readonly DeviceCoordinatorDiagnosticsServer _diagnostics;
     private readonly DeviceProfileStore _profiles = new();
@@ -78,6 +79,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         _sessionId = sessionId;
         _ownerMutex = ownerMutex;
         _capabilities = new DeviceCapabilityRouter(0, postToUi);
+        _pluginSettings = new PluginSettingsCoordinator();
         _diagnostics = new DeviceCoordinatorDiagnosticsServer(sessionId, DiagnosticsSnapshot);
         _hapticSink = new DeviceHostHapticSink(ApplyHapticOutputAsync);
         _controllers = new ControllerManager(
@@ -303,6 +305,10 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                 Log.Warn(DeviceFeatureAvailability.ControllerManagementDetail);
             }
             ConfigurationChanged?.Invoke();
+
+            // Stored settings live in the configuration, so a reload can change what the plugin
+            // should be running with even though the plugin itself never changed.
+            _pluginSettings.ApplyConfig(config);
             UpdateCapabilityDesiredContext();
             UpdateOemConfiguration();
             await _controllers.ApplySelectionAsync(
@@ -525,6 +531,10 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             "controller management disposal",
             _controllers.DisposeAsync).ConfigureAwait(false);
         RetainDeviceShutdownFailure(shutdownFailures, "OEM action disposal", _oemActions.Dispose);
+        RetainDeviceShutdownFailure(
+            shutdownFailures,
+            "plugin settings disposal",
+            _pluginSettings.Dispose);
         RetainDeviceShutdownFailure(shutdownFailures, "glyph disposal", _physicalGlyphs.Dispose);
         RetainDeviceShutdownFailure(shutdownFailures, "lifetime disposal", _lifetime.Dispose);
         RetainDeviceShutdownFailure(shutdownFailures, "transition gate disposal", _transitionGate.Dispose);
@@ -783,6 +793,14 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             // Before the profiles load: glyph selection is gated on the matched device definition,
             // and a catalog that arrives first would be selected against a null id and rejected.
             SetDeviceDefinitionId(activation.DeviceDefinitionId);
+
+            // Attached after the definition is known, because stored values are keyed by it and by
+            // the package: a value authored for one device must never be handed to another.
+            _pluginSettings.Attach(
+                client,
+                activation.DeviceDefinitionId ?? string.Empty,
+                package.Manifest?.Id ?? string.Empty,
+                _config);
             LoadPhysicalGlyphProfiles(package);
             SetState(activation.State);
             Log.Info(
@@ -1427,6 +1445,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         // admission alone left one in flight toward a controller that had been handed back.
         await _hapticSink.WithdrawAsync().ConfigureAwait(false);
         _capabilities.Detach();
+        _pluginSettings.Detach();
         _oemActions.Detach();
     }
 
