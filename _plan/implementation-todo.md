@@ -763,6 +763,22 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       and anything else framed as protecting WSGM from a component that already runs as the user.
       Integrity checks are NOT the target — hash pinning, size bounds, CRCs and dimension
       agreement catch corruption and stay.
+      **Four sites swept so far, all cleared, with the sentence the test demands:**
+      - `Sdk\Glyphs\GlyphAssetValidation.cs` — already fixed; it now states in its own summary that
+        it deliberately does not sanitize.
+      - `Core\DevicePackagePolicy.IsX64ManagedAssembly` — not security. It refuses to *load* a
+        wrong-architecture or non-managed entry assembly, which is failing early with a reason
+        instead of late with a loader error. It claims to stop nobody.
+      - `Core\SteamUiBridge` command allowlist — real, and the sentence writes itself: the attacker
+        is any script running in Steam's CEF context, including another injector such as CSSLoader
+        or Decky, and what it cannot otherwise do is reach WSGM's privileged device commands. This
+        is the boundary that makes injected JS safe to run at all; do not remove it.
+      - `Shell\DeviceHostClient.WriteTrace` bounds — the same rationale as `PlainText`: it prevents
+        a malformed string corrupting a log line or hiding its own tail from whoever reads it. Not a
+        privilege boundary and not claimed as one.
+      **Still unswept:** the splash-theme extraction defence set, the remaining Steam UI patch
+      bounds, `PersistentSteamUiTransport`, `SdFormatManager`, `HidHideOwnership`, and
+      `Input\UiCapture`.
 - [x] **Ship a physical glyph profile for the Claw 8 A2VM.** Done and confirmed on the reference
       unit: the Steam Input page shows the Claw's buttons and its own illustration. The package
       carries a profile for `ms-1t52` with twenty control glyphs, both split controller images and
