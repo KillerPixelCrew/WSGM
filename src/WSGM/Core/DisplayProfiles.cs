@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
+using Microsoft.Win32;
 
 namespace WSGM.Core;
 
@@ -16,6 +17,8 @@ public static unsafe partial class DisplayProfiles
     private const uint CdsTest = 0x00000002;
     private const uint CdsNoReset = 0x10000000;
     private const uint DisplayDeviceActive = 0x00000001;
+    private const uint DisplayDevicePrimary = 0x00000004;
+    private const uint GetDeviceInterfaceName = 0x00000001;
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct DisplayDevice
@@ -218,6 +221,101 @@ public static unsafe partial class DisplayProfiles
 
         Log.Info($"Display modes: {current.DisplayFrequency} Hz -> {refreshHz} Hz (transient).");
         return true;
+    }
+
+    /// <summary>The refresh rate the primary display is running at.</summary>
+    /// <returns>The rate in Hz, or null when it cannot be read.</returns>
+    public static int? ReadCurrentRefreshRate()
+    {
+        var current = new DevMode { Size = (ushort)sizeof(DevMode) };
+        return EnumDisplaySettingsEx(null, EnumCurrentSettings, ref current, 0)
+            ? (int)current.DisplayFrequency
+            : null;
+    }
+
+    /// <summary>
+    /// The refresh rates the primary panel advertises in its own EDID.
+    /// </summary>
+    /// <returns>Advertised rates, ascending; empty when the EDID cannot be read.</returns>
+    /// <remarks>
+    /// Distinct from <see cref="EnumerateAcceptedRefreshRates"/>, and the difference is the point:
+    /// the driver accepts rates the panel never advertised, so only the EDID can say which modes are
+    /// the panel's own. An empty result makes the native-modes strategy offer nothing rather than
+    /// guess, which is the correct failure — a wrong list would pair caps against timings the panel
+    /// does not really have.
+    /// </remarks>
+    public static IReadOnlyList<int> ReadAdvertisedRefreshRates()
+    {
+        string? instance = ReadPrimaryMonitorInstanceId();
+        if (instance is null)
+        {
+            Log.Warn("Display modes: primary monitor instance unreadable; no advertised rates.");
+            return [];
+        }
+
+        try
+        {
+            using RegistryKey? key = Registry.LocalMachine.OpenSubKey(
+                $@"SYSTEM\CurrentControlSet\Enum\{instance}\Device Parameters");
+            if (key?.GetValue("EDID") is not byte[] edid)
+            {
+                Log.Warn($"Display modes: no EDID under '{instance}'.");
+                return [];
+            }
+
+            IReadOnlyList<int> rates = EdidModes.ReadAdvertisedRefreshRates(edid);
+            Log.Info($"Display modes: panel advertises [{string.Join(",", rates)}].");
+            return rates;
+        }
+        catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException)
+        {
+            Log.Warn($"Display modes: EDID unreadable for '{instance}': {ex.Message}");
+            return [];
+        }
+    }
+
+    /// <remarks>
+    /// The interface name is asked for specifically, because the default form of the monitor's
+    /// device id is a class path that does not identify the enum key the EDID lives under.
+    /// </remarks>
+    private static string? ReadPrimaryMonitorInstanceId()
+    {
+        for (uint i = 0; ; i++)
+        {
+            var device = new DisplayDevice { Size = (uint)sizeof(DisplayDevice) };
+            if (!EnumDisplayDevices(null, i, ref device, 0))
+            {
+                return null;
+            }
+
+            if ((device.StateFlags & DisplayDevicePrimary) == 0)
+            {
+                continue;
+            }
+
+            var monitor = new DisplayDevice { Size = (uint)sizeof(DisplayDevice) };
+            if (!EnumDisplayDevices(device.DeviceName, 0, ref monitor, GetDeviceInterfaceName))
+            {
+                return null;
+            }
+
+            // \\?\DISPLAY#CSW0801#4&8f346&1&UID8388688#{guid} -> DISPLAY\CSW0801\4&8f346&1&UID8388688
+            string id = FixedString(monitor.DeviceId, 128);
+            int start = id.IndexOf("DISPLAY#", StringComparison.OrdinalIgnoreCase);
+            if (start < 0)
+            {
+                return null;
+            }
+
+            string trimmed = id[start..];
+            int guid = trimmed.IndexOf("#{", StringComparison.Ordinal);
+            if (guid > 0)
+            {
+                trimmed = trimmed[..guid];
+            }
+
+            return trimmed.Replace('#', '\\');
+        }
     }
 
     private static bool TestRefreshRate(DevMode current, uint refreshHz)
