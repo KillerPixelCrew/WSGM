@@ -66,15 +66,20 @@ public sealed class NativeQamRefreshRateWriteTests
     [Fact]
     public async Task AnUnbackedSettingIsStillRefusedByName()
     {
+        // AdvancedSettingsEnabled is the last performance setting with no WSGM backend: it is
+        // Steam's own Basic/Advanced view state, which the store holds and WSGM does not drive.
+        // This test has already had to move twice as settings were implemented — if it moves again,
+        // check whether anything is genuinely unbacked before repointing it rather than deleting
+        // the coverage, because the refusal path is what keeps a dead control from looking alive.
         PerformanceServiceNativeQamAdapter adapter = Adapter(_ => true);
 
         NativeQamCommandResult result = await adapter.ApplyPerfChangeAsync(
-            new NativeQamPerfChange(NativeQamPerfSetting.PerApplicationProfileEnabled, 1),
+            new NativeQamPerfChange(NativeQamPerfSetting.AdvancedSettingsEnabled, 1),
             "test",
             CancellationToken.None);
 
         Assert.False(result.Succeeded);
-        Assert.Contains("PerApplicationProfileEnabled", result.Error);
+        Assert.Contains("AdvancedSettingsEnabled", result.Error);
     }
 
     [Theory]
