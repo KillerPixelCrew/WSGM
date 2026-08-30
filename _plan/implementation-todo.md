@@ -1162,11 +1162,15 @@ hand-built rows with Valve's own and supplies `SteamClient.System.Perf`.
       projects it. No device-specific detail enters the SDK. `CapabilityRole.VariableRefreshRate`
       pairs with `Boolean` in `DeviceCapabilityRouter`, and `DeviceOverlayBridge` places it in Power
       and thermals beside the frame-limit and power controls it interacts with.
-- [ ] Implement the Claw plugin's IGCL transport: dynamic `ControlLib.dll` load, Arc Sync capability
-      detection, read, write, and restore of the saved parameter struct on make-safe. Trace every
-      decision including each refusal with the values it was decided from. Both IGCL enumerations
-      are two-call, unattached outputs answer `CTL_RESULT_ERROR_KMD_CALL`, and IGCL's `bool` is one
-      byte so it is `byte` in C#. No Rust helper: IGCL is flat C with blittable structs.
+- [x] Implement the Claw plugin's IGCL transport: dynamic `ControlLib.dll` load, Arc Sync capability
+      detection, read, write, and restore of the saved parameter struct on make-safe.
+      `ArcSyncTransport.cs` binds by function pointer and reports unsupported when the library is
+      absent; `DisplayService` owns it for a cycle and restores on stop, outside the service loop,
+      because nothing `StopServicesAsync` releases owns the display. The descriptor is published
+      only when a capable panel answers, the write is reported verified only once the read-back
+      agrees, and the struct sizes are pinned by a test because IGCL refuses a `Size` mismatch in a
+      way indistinguishable from "no variable refresh here".
+      **Attended validation remains**: no automated test drives the real driver.
 - [x] Implement the Core per-application profile store keyed by app id, plus the three configurable
       frame-limit strategies — `FrameLimitOnly`, `NativeModes`, `FrameDoubling` — with runtime mode
       discovery validated by `ChangeDisplaySettingsEx(CDS_TEST)` and lowest-valid-multiple pairing.
