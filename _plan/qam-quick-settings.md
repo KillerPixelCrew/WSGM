@@ -104,6 +104,24 @@ Two constraints already established on hardware, which must not be rediscovered:
 `SetWifiEnabled` exists natively and is **untested** — whether it drives the Windows radio or is
 inert is one call, and it is a real radio mutation, so it stays attended.
 
+### Scanning has to follow Steam's surface, not WSGM's panel
+
+Established while wiring the list, and it decides the shape of the remaining work.
+`RadioManager.StartScanning`/`StopScanning` are driven by WSGM's own radio panel, and
+`RadioManager.Networks` is only fresh while scanning is on. Pushing that collection whenever it
+happens to hold something would put a **stale** list in Steam's UI, which is worse than an empty
+one: a user picks a network that is no longer there and the join fails for no visible reason.
+
+So the scan lifetime must be driven by Steam's surface. `SteamClient.System.Network` already carries
+`StartScanningForNetworks` and `StopScanningForNetworks`, and Steam's own UI calls them when its
+network page opens and closes. Intercepting those two calls and starting and stopping
+`RadioManager` scanning with them gives exactly the right lifetime — the radio scans while a network
+list is on screen and not otherwise, which is also the power-correct answer on a handheld.
+
+That leaves the remaining Wi-Fi work as: intercept the two scanning calls, drive `RadioManager` from
+them, and push through `SteamNetworkIndicator.PushNetworksAsync` on each scan result. The push path
+itself is built and live-verified; only its trigger is missing.
+
 ## Bluetooth: its own service, and fully revivable
 
 Bluetooth does **not** share the SteamOS Manager seam. It is its own WebUI transport service,

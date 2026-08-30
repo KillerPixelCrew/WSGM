@@ -1331,6 +1331,13 @@ single Deck-only store getter — but never set the global `TS.IS_STEAMOS`, whic
       does push real device reports, but every one carries an empty `wireless.aps`, so it never
       enumerates networks. The single access point visible in a live probe is WSGM's own synthetic
       one from `SteamNetworkIndicator`, not Steam's.
+      **The push path is built and live-verified**: `SteamNetworkIndicator.PushNetworksAsync` plus
+      resident v2 `applyNetworks`. **Its trigger is what remains**, and the shape is settled — scan
+      lifetime must follow Steam's surface, because `RadioManager.Networks` is only fresh while
+      scanning and scanning today follows WSGM's own panel. Intercept
+      `StartScanningForNetworks`/`StopScanningForNetworks`, which Steam's UI already calls when its
+      network page opens and closes, and drive `RadioManager` from them. A stale list is worse than
+      an empty one: the user picks a network that is gone and the join fails for no visible reason.
 - [ ] Feed the whole access-point list from `RadioManager` through the store's `SetDeviceInfo`
       ingestion path in the plain-object shape the protobuf decoder produces, and wire connect and
       forget to `ConnectAsync`/`ForgetAsync`. Two constraints are already device-verified and must
