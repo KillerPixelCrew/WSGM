@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:s="using:WSGM.Settings"
+             xmlns:c="using:WSGM.Controls"
              x:Class="WSGM.Settings.Pages.PluginSettingsPage"
              x:DataType="s:SettingsViewModel">
     <!--
@@ -22,6 +23,47 @@
                        IsVisible="{Binding !PluginSettingsAvailable}" />
 
             <ScrollViewer IsVisible="{Binding PluginSettingsAvailable}">
+              <StackPanel>
+                <!--
+                    Authoring only. Settings mode starts no DeviceHost, so there is no live
+                    temperature or RPM to plot against; the curve is checked against the device's
+                    own descriptor when the overlay applies it, not here.
+                -->
+                <Border Classes="section-header">
+                    <TextBlock Text="PROFILES" />
+                </Border>
+                <Border Classes="setting-row">
+                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+                        <ComboBox ItemsSource="{Binding DeviceProfiles}"
+                                  SelectedItem="{Binding SelectedDeviceProfile}"
+                                  DisplayMemberBinding="{Binding Name}"
+                                  MinWidth="180"
+                                  VerticalAlignment="Center" />
+                        <Button Grid.Column="1"
+                                Content="Add"
+                                Click="OnAddProfile"
+                                VerticalAlignment="Center" />
+                        <Button Grid.Column="2"
+                                Content="Remove"
+                                Click="OnRemoveProfile"
+                                IsEnabled="{Binding HasSelectedDeviceProfile}"
+                                VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+                <Border Classes="setting-row alt" IsVisible="{Binding HasSelectedDeviceProfile}">
+                    <StackPanel Spacing="8">
+                        <TextBox Text="{Binding SelectedDeviceProfile.Name}"
+                                 MaxLength="48"
+                                 PlaceholderText="Profile name" />
+                        <c:CurveEditor x:Name="ProfileCurve"
+                                       Height="220"
+                                       Points="{Binding SelectedDeviceProfile.Curve, Mode=TwoWay}" />
+                        <TextBlock Classes="caption"
+                                   TextWrapping="Wrap"
+                                   Text="Drag a point to move it, tap the plot to add one, Delete to remove the selected point. The device checks the curve against its own limits when the profile is applied." />
+                    </StackPanel>
+                </Border>
+
                 <ItemsControl ItemsSource="{Binding PluginSettingSections}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="s:PluginSettingSectionViewModel">
@@ -80,6 +122,7 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
+              </StackPanel>
             </ScrollViewer>
         </Panel>
     </Border>

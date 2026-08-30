@@ -257,6 +257,77 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private readonly Dictionary<string, CapabilityValue> _pluginSettingEdits =
         new(StringComparer.Ordinal);
 
+    /// <summary>Authored fan and lighting profiles for the installed device.</summary>
+    public ObservableCollection<DeviceProfileRowViewModel> DeviceProfiles { get; } = [];
+
+    private DeviceProfileRowViewModel? _selectedDeviceProfile;
+
+    /// <summary>Gets or sets the profile the curve editor is showing.</summary>
+    public DeviceProfileRowViewModel? SelectedDeviceProfile
+    {
+        get => _selectedDeviceProfile;
+        set
+        {
+            _selectedDeviceProfile = value;
+            Raise(nameof(SelectedDeviceProfile));
+            Raise(nameof(HasSelectedDeviceProfile));
+        }
+    }
+
+    /// <summary>Whether a profile is selected and the editor has something to draw.</summary>
+    public bool HasSelectedDeviceProfile => _selectedDeviceProfile is not null;
+
+    /// <summary>Whether the profile list was changed and should be written at save.</summary>
+    /// <remarks>
+    /// Tracked rather than always written, for the same reason the plugin settings are: a save
+    /// triggered by an unrelated page must not overwrite what another process put there.
+    /// </remarks>
+    private bool _deviceProfilesEdited;
+
+    /// <summary>Adds an empty fan curve the user can then shape.</summary>
+    /// <param name="capabilityId">The capability the new profile authors.</param>
+    /// <remarks>
+    /// Seeded with two points at the ends rather than none. A curve needs at least two to be valid,
+    /// and an editor opening on an empty plot gives the user nothing to grab.
+    /// </remarks>
+    internal void AddDeviceProfile(string capabilityId)
+    {
+        string id = $"profile-{Guid.NewGuid():N}"[..16];
+        DeviceProfileRowViewModel row = new(new DeviceAuthoredProfile
+        {
+            ProfileId = id,
+            Name = $"Profile {DeviceProfiles.Count + 1}",
+            CapabilityId = capabilityId,
+            Curve =
+            [
+                new AuthoredCurvePoint { Input = 0, Output = 0 },
+                new AuthoredCurvePoint { Input = 100, Output = 100 },
+            ],
+        });
+        DeviceProfiles.Add(row);
+        SelectedDeviceProfile = row;
+        _deviceProfilesEdited = true;
+    }
+
+    /// <summary>Removes the selected profile.</summary>
+    internal void RemoveSelectedDeviceProfile()
+    {
+        if (_selectedDeviceProfile is not { } row)
+        {
+            return;
+        }
+
+        int index = DeviceProfiles.IndexOf(row);
+        DeviceProfiles.Remove(row);
+        _deviceProfilesEdited = true;
+        SelectedDeviceProfile = DeviceProfiles.Count == 0
+            ? null
+            : DeviceProfiles[Math.Min(index, DeviceProfiles.Count - 1)];
+    }
+
+    /// <summary>Records that a profile's curve or name changed.</summary>
+    internal void NoteDeviceProfileEdited() => _deviceProfilesEdited = true;
+
     private string _pluginSettingsDevice = string.Empty;
     private string _pluginSettingsPlugin = string.Empty;
 
@@ -364,6 +435,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         _pluginSettingsDevice = scope.DeviceDefinitionId;
         _pluginSettingsPlugin = scope.PluginId;
         _pluginSettingEdits.Clear();
+        LoadDeviceProfiles(scope);
         SetPluginSettings(
             PluginSettingsCoordinator.Project(declaration, resolution),
             (settingId, value) => _pluginSettingEdits[settingId] = value);
@@ -373,6 +445,51 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             PluginSettingsEmptyReason =
                 "The installed device plugin declares no settings.";
         }
+    }
+
+    private void LoadDeviceProfiles(PluginSettingsScope scope)
+    {
+        DeviceProfiles.Clear();
+        foreach (DeviceAuthoredProfile profile in scope.Profiles)
+        {
+            DeviceProfiles.Add(new DeviceProfileRowViewModel(profile));
+        }
+
+        SelectedDeviceProfile = DeviceProfiles.FirstOrDefault();
+        _deviceProfilesEdited = false;
+    }
+
+    /// <summary>Writes the authored profiles into the configuration being saved.</summary>
+    /// <param name="config">The freshly loaded configuration the save is applied to.</param>
+    /// <remarks>
+    /// The whole list is replaced, not merged, because authoring is Settings-only (D22b) and this
+    /// window holds the complete set — but only when the user actually changed something, so an
+    /// unrelated save never overwrites profiles another process wrote.
+    /// </remarks>
+    internal void ApplyDeviceProfilesTo(AppConfig config)
+    {
+        if (!_deviceProfilesEdited
+            || _pluginSettingsDevice.Length == 0
+            || _pluginSettingsPlugin.Length == 0)
+        {
+            return;
+        }
+
+        List<PluginSettingsScope> scopes = config.DeviceIntegration.PluginSettings;
+        PluginSettingsScope? scope = scopes.FirstOrDefault(candidate =>
+            string.Equals(candidate.DeviceDefinitionId, _pluginSettingsDevice, StringComparison.Ordinal)
+            && string.Equals(candidate.PluginId, _pluginSettingsPlugin, StringComparison.Ordinal));
+        if (scope is null)
+        {
+            scope = new PluginSettingsScope
+            {
+                DeviceDefinitionId = _pluginSettingsDevice,
+                PluginId = _pluginSettingsPlugin,
+            };
+            scopes.Add(scope);
+        }
+
+        scope.Profiles = [.. DeviceProfiles.Select(row => row.ToStored())];
     }
 
     /// <summary>Writes the edited plugin settings into the configuration being saved.</summary>
@@ -1410,6 +1527,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         // Same rule as the three below, for the same reason: only settings this window actually
         // edited are written, so a running shell's own stores are not reverted by an unrelated save.
         ApplyPluginSettingsTo(config);
+        ApplyDeviceProfilesTo(config);
         // Only when this window actually changed them. All three are also owned by the running
         // shell — the overlay and the native quick-access menu persist AutoTDP, the controller
         // target and the glyph policy while Settings is open — so writing an unedited snapshot over

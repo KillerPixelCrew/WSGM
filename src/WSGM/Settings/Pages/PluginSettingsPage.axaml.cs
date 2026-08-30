@@ -1,4 +1,7 @@
+using System.Collections.Generic;
 using Avalonia.Controls;
+using Avalonia.Interactivity;
+using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Settings.Pages;
 
@@ -12,5 +15,48 @@ namespace WSGM.Settings.Pages;
 public partial class PluginSettingsPage : UserControl
 {
     /// <summary>Loads the compiled page XAML.</summary>
-    public PluginSettingsPage() => InitializeComponent();
+    public PluginSettingsPage()
+    {
+        InitializeComponent();
+        // The editor reports the edited curve; the row holds it and the view model records that the
+        // profile list is dirty. Without the last part a curve edit is discarded at save, because
+        // profiles are only written when this window actually changed them.
+        ProfileCurve.CurveChanged += OnCurveChanged;
+    }
+
+    private void OnCurveChanged(IReadOnlyList<CurvePoint> curve)
+    {
+        if (DataContext is not SettingsViewModel viewModel)
+        {
+            return;
+        }
+
+        if (viewModel.SelectedDeviceProfile is { } profile)
+        {
+            profile.Curve = curve;
+        }
+
+        viewModel.NoteDeviceProfileEdited();
+    }
+
+    private void OnAddProfile(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is SettingsViewModel viewModel)
+        {
+            // The fan curve is the only curve capability WSGM has a semantic role for, so it is the
+            // one a new profile authors until a plugin publishes another.
+            viewModel.AddDeviceProfile(FanCurveCapabilityId);
+        }
+    }
+
+    private void OnRemoveProfile(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is SettingsViewModel viewModel)
+        {
+            viewModel.RemoveSelectedDeviceProfile();
+        }
+    }
+
+    /// <summary>The capability a newly authored curve profile targets.</summary>
+    private const string FanCurveCapabilityId = "thermal.fan-curve";
 }
