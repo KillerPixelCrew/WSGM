@@ -853,6 +853,24 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             error = ex.Message;
         }
 
+        // Every refusal, named. The reason was built here and handed straight back to the injected
+        // side, which has nowhere to put it — so a control the user operated that quietly did
+        // nothing left no trace at all on this side of the bridge. That is exactly the defect the
+        // repository rules call the most expensive recurring one, and it cost a session: Steam had
+        // a 28 W limit stored, the gate had forwarded it, and the EC was still at 30 W with not one
+        // line saying why.
+        //
+        // Log.Change keyed per patch and command, because a gate can repeat a refused write on its
+        // own schedule: the first prints, the repeats are counted.
+        if (!succeeded)
+        {
+            Log.Change(
+                $"steam.ui.request.{request.PatchId}.{request.Command}",
+                $"Steam UI request {request.PatchId}/{request.Command} did nothing: "
+                    + (error ?? "no reason reported"),
+                "warn ");
+        }
+
         try
         {
             if (requestCancellation.IsCancellationRequested)

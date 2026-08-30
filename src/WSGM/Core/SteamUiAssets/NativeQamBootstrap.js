@@ -401,6 +401,9 @@
     };
     let lastSentWatts = null;
     let lastSentEnabled = null;
+    // One forward in flight at a time. The timer ticks every second and the host's own command
+    // budget is longer than that, so without this a slow write would be re-sent underneath itself.
+    let forwarding = false;
     const modules = () => {
       let req;
       window.webpackChunksteamui.push([
@@ -470,14 +473,25 @@
       const now = readSettings();
       if (!now) return;
       if (now.enabled === lastSentEnabled && now.watts === lastSentWatts) return;
-      lastSentEnabled = now.enabled;
-      lastSentWatts = now.watts;
+      if (forwarding) return;
+      forwarding = true;
       // The enabled flag rides along: a limit switched off is not the same as a limit of zero
       // watts, and WSGM has to release the cap rather than try to apply one.
-      void request(patchId, "setPrimaryLimit", {
-        watts: now.watts ?? 0,
-        enabled: now.enabled,
-      }).catch(() => {});
+      request(patchId, "setPrimaryLimit", { watts: now.watts ?? 0, enabled: now.enabled }).then(
+        () => {
+          // Latched on SUCCESS, never on the attempt. Recording the value before the answer meant a
+          // forward that failed — a host not ready yet, a bridge busy, a refusal — was remembered
+          // as sent and never tried again, so the limit stayed where it was with the row showing
+          // the number the user had chosen. The timer is what retries; this is what lets it.
+          lastSentEnabled = now.enabled;
+          lastSentWatts = now.watts;
+          forwarding = false;
+        },
+        (error) => {
+          lastError = "power limit forward failed: " + String(error);
+          forwarding = false;
+        },
+      );
     };
     const watchSettings = () => {
       // Steam's own change notification is the trigger, and a slow timer is the safety net. The
@@ -610,7 +624,12 @@
       available: latest.available,
       min: latest.min,
       max: latest.max,
+      // What the host ACCEPTED, not what was attempted, and what Steam has stored beside it. The
+      // pair is the diagnosis: two different numbers mean the forward is failing, and lastError
+      // says how.
       lastSentWatts,
+      lastSentEnabled,
+      storedSettings: readSettings(),
       lastError,
     });
     return { install, remove, status };
