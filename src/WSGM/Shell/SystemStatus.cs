@@ -16,9 +16,29 @@ namespace WSGM.Shell;
 /// instances back the taskbar tiles and their panels, so each pair stays in sync.</summary>
 public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
 {
+    /// <summary>
+    /// Creates a status cluster, optionally over an audio manager owned by someone else.
+    /// </summary>
+    /// <param name="audio">
+    /// A session-scoped audio manager to share, or null to create and own one.
+    /// </param>
+    /// <remarks>
+    /// The taskbar comes and goes while a session lasts, so anything that must answer for the whole
+    /// session — Steam's audio namespace, in particular — cannot depend on a manager this object
+    /// disposes when the taskbar closes. Sharing one instance rather than creating a second is the
+    /// point: two managers would enumerate endpoints twice and could disagree about which device is
+    /// default.
+    /// </remarks>
+    public SystemStatus(AudioManager? audio = null)
+    {
+        _ownsAudio = audio is null;
+        Audio = audio ?? new AudioManager();
+    }
+
     /// <summary>Raised after a status property changes.</summary>
     public event PropertyChangedEventHandler? PropertyChanged;
 
+    private readonly bool _ownsAudio;
     private DispatcherTimer? _timer;
     private bool _disposed;
 
@@ -76,8 +96,9 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
     public RadioManager Radios { get; } = new();
 
     /// <summary>Gets the master-volume and endpoint manager backing the taskbar's
-    /// audio tile and audio panel. Owned and disposed with this object.</summary>
-    public AudioManager Audio { get; } = new();
+    /// audio tile and audio panel. Disposed with this object only when this object
+    /// created it — a manager supplied by the session outlives every taskbar.</summary>
+    public AudioManager Audio { get; }
 
     /// <summary>Gets the removable-storage manager backing the taskbar's eject
     /// tile and the Safe Eject panel. Owned and disposed with this object.</summary>
@@ -117,7 +138,14 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
     {
         _disposed = true;
         Radios.Dispose();
-        Audio.Dispose();
+
+        // Only when this object created it. Disposing a session-scoped manager here would take
+        // audio away from everything else that holds it the moment the taskbar closes.
+        if (_ownsAudio)
+        {
+            Audio.Dispose();
+        }
+
         Drives.Dispose();
         if (_timer is null)
         {

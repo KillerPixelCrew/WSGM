@@ -78,6 +78,17 @@ public sealed class ShellSession : IAsyncDisposable
     private IDeviceOverlaySource? _deviceOverlay;
     private PerformanceService? _performance;
     private RefreshRatePairingService? _refreshPairing;
+
+    /// <summary>
+    /// The one audio manager for this session, shared by the taskbar's status cluster and Steam's
+    /// audio namespace.
+    /// </summary>
+    /// <remarks>
+    /// Session-scoped because the taskbar is not: it comes and goes, and Steam's audio store has to
+    /// answer for the whole session. A second manager would enumerate endpoints twice and could
+    /// disagree with the taskbar about which device is default.
+    /// </remarks>
+    private AudioManager? _audio;
     private int _pairedFrameLimit = -1;
     private PerformanceOverlayBridge? _performanceOverlay;
     private PersistentSteamUiTransport? _steamUiTransport;
@@ -292,6 +303,15 @@ public sealed class ShellSession : IAsyncDisposable
         _keepAwake.DownloadActivityChanged += OnDownloadActivityChanged;
         // --overlay-test shares the Settings preview's exposure: it has no boot takeover
         // and no watchdog behind it, so the mode row must not offer a real transition.
+        // Started here rather than by the taskbar, because Steam's audio namespace has to answer
+        // while the taskbar is closed. Overlay-test keeps the old behaviour and lets the status
+        // cluster own its own, since no Steam surface exists there to serve.
+        if (!_overlayTestOnly)
+        {
+            _audio = new AudioManager();
+            _audio.Start();
+        }
+
         _overlay = new OverlayController(
             _config,
             _monitor,
@@ -299,7 +319,8 @@ public sealed class ShellSession : IAsyncDisposable
             _keepAwake,
             previewOnly: _overlayTestOnly,
             device: _deviceOverlay,
-            performance: _performanceOverlay);
+            performance: _performanceOverlay,
+            audio: _audio);
 
         // WSGM's own navigation runs on the managed canonical stream when one is delivering, and on
         // SDL otherwise. Subscribed here rather than inside the overlay because this is where both
@@ -395,7 +416,8 @@ public sealed class ShellSession : IAsyncDisposable
                 return _overlay is not null;
             }, cancellationToken),
                 _deviceCoordinator,
-                _performance);
+                _performance,
+                _audio);
             _steamUi.Apply(_config.Cef.Enabled && _config.Cef.NativeQuickAccess);
             ApplyGlyphConfig(_config);
             if (_deviceCoordinator is not null)
@@ -1735,6 +1757,13 @@ public sealed class ShellSession : IAsyncDisposable
                 {
                     _ = _refreshPairing.Restore();
                     _refreshPairing = null;
+                }
+
+                // After the Steam host and the overlay, both of which hold it.
+                if (_audio is not null)
+                {
+                    _audio.Dispose();
+                    _audio = null;
                 }
                 _tabBootSyncCancellation.Dispose();
                 _downloadSortCancellation.Dispose();

@@ -24,6 +24,14 @@ public sealed class OverlayController : IDisposable
     private readonly KeepAwakeService? _keepAwake;
     private readonly IDeviceOverlaySource? _device;
     private readonly IPerformanceOverlaySource? _performance;
+
+    /// <summary>
+    /// The session's audio manager, shared with the taskbar's status cluster rather than owned.
+    /// </summary>
+    /// <remarks>
+    /// Null in overlay-test, where no session owns one and the cluster creates its own.
+    /// </remarks>
+    private readonly AudioManager? _sessionAudio;
     private readonly HotkeyService _hotkey;
     private readonly GamepadService _gamepad = new();
 
@@ -81,8 +89,10 @@ public sealed class OverlayController : IDisposable
 
     internal OverlayController(AppConfig config, SteamMonitor? monitor, SessionModes modes,
         KeepAwakeService? keepAwake, bool previewOnly, IDeviceOverlaySource? device,
-        IPerformanceOverlaySource? performance = null)
+        IPerformanceOverlaySource? performance = null,
+        AudioManager? audio = null)
     {
+        _sessionAudio = audio;
         _config = config;
         _monitor = monitor;
         _modes = modes;
@@ -1118,7 +1128,9 @@ public sealed class OverlayController : IDisposable
         OnTrayIconsChanged();
         // The bar's status cluster (clock/battery/Wi-Fi) lives only while the bar
         // is open; OnTaskbarClosed disposes it with the window.
-        _systemStatus = new SystemStatus();
+        // Shares the session's audio manager when there is one, so the taskbar's audio tile and
+        // Steam's audio namespace are the same state rather than two views that can disagree.
+        _systemStatus = new SystemStatus(_sessionAudio);
         _systemStatus.Start();
         _taskbar = new TaskbarWindow(vm, _systemStatus, UiScale());
         // The home button rides the existing surface handover: ShowOverlay closes
