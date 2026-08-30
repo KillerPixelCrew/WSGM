@@ -1315,6 +1315,13 @@ settings and profile authoring only — device control stays in the overlay.
 - [ ] Render one WSGM-owned Settings page from the declared manifest, gamepad and touch navigable,
       on the shared controls and themes. Sections are focus groups with stable semantic keys so the
       existing per-destination focus and scroll restoration survives a refresh.
+      Built: `Settings\Pages\PluginSettingsPage.axaml` renders sections and rows from
+      `PluginSettingsCoordinator.Project` — the same projection the overlay uses, so the two cannot
+      disagree about placement — with controls templated by visibility because a template selector
+      needs runtime type inspection NativeAOT does not have. The declaration is cached in
+      configuration (`PluginSettingsScope.Declaration`) because Settings starts no DeviceHost and a
+      manifest is published by plugin code rather than declared at rest. Edits are applied at save,
+      not written onto the configuration the page was built from, which the save discards.
 - [x] Build a reusable curve editor in `Controls\`. Two halves: `Controls\CurveEditing.cs` is the
       pure editing model, and every operation returns a curve satisfying the same contract
       `DeviceCapabilityRouter` validates — 1 to 64 points, inputs strictly ascending, inside the
@@ -1322,11 +1329,25 @@ settings and profile authoring only — device control stays in the overlay.
       `Controls\CurveEditor.cs` renders and drives it by touch, pointer, keyboard and gamepad, since
       game mode has no cursor. A dragged point stops against its neighbour instead of passing it,
       the endpoints keep their inputs, and only the inputs must ascend: a falling curve is legal.
-- [ ] Add device-keyed RGB and fan profile authoring to Settings, revalidated against the live
-      `FanCurve` descriptor before apply. Authoring only: `--settings` starts no DeviceHost, so the
-      editor has no live temperature or RPM readout in the first cut.
-- [ ] Let the overlay select those profiles globally or per application, extending the per-app
-      profile store from S12 rather than adding a second per-app mechanism.
+- [x] Add device-keyed fan profile authoring to Settings, revalidated against the live descriptor
+      before apply. `DeviceAuthoredProfile` stores them beside the plugin's settings;
+      `Core\DeviceProfileValidation.cs` is the check that needs the live device and runs immediately
+      before apply, not at load, because a curve authored with no plugin running was built against
+      the last known bounds. A bound the descriptor leaves unset is not invented. Authoring only, as
+      planned: no live temperature or RPM readout. **RGB profile authoring is not built** — the
+      colour half needs a picker the tree does not have, and the storage field for it is present but
+      unused.
+- [x] Let the overlay select those profiles globally or per application, extending the per-app
+      profile store rather than adding a second mechanism. `DeviceProfileSelection` carries the same
+      two layers and the same precedence as `DeviceCapabilityPreference` beside it and stores a
+      profile REFERENCE, so editing a profile changes every application already using it.
+      `Core\DeviceProfileSelectionResolver.cs` resolves it, `Shell\DeviceProfileApplier.cs` checks
+      and applies, `ShellSession` re-applies on the existing per-application hook so the fan curve
+      and controller target cannot disagree about what is running, and
+      `Shell\DeviceProfileSelectionStore.cs` is the read/write surface. A selection naming a deleted
+      profile is reported rather than downgraded to the global choice.
+      **The overlay's own rows are not built**: the surface that calls the store is still missing, so
+      selection currently has no user-facing entry point.
 - [x] Record the Settings/overlay boundary as a numbered decision in `_plan\2.0-decisions.md`. Now
       D22b, including the discriminator that makes it not a judgement call: a setting configures
       behaviour and WSGM stores it, a capability writes hardware and the device holds it, and
