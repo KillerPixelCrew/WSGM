@@ -129,7 +129,14 @@ to take effect. `IPolicyConfig` is the route that works.
 HDMI CEC (`SetHdmiCecEnabled`, `SendHdmiCecVolume`) reaches the same service and stays unsupported;
 those controls simply do not appear.
 
-## The audio manager's lifetime is the blocker
+## The audio manager's lifetime was the blocker — resolved
+
+**Resolved.** `ShellSession` now owns one manager for the session and hands the same instance to both
+the taskbar's status cluster and the Steam host; `SystemStatus` disposes it only when it created one
+itself, so overlay-test is unchanged. What follows is why, kept because the reasoning decides any
+future manager with the same shape.
+
+## The original finding
 
 Found while wiring the session host, and it is a real constraint rather than an oversight in the
 plan: **`AudioManager` is taskbar-scoped, not session-scoped.** `OverlayController` creates
@@ -146,10 +153,8 @@ Two ways out, and only one of them is acceptable:
   two ideas of which device is default, which is exactly the disagreement the adapter exists to
   prevent. It would also double the WASAPI work on every device change.
 
-Until the first is done, `SteamUiSessionHost` takes an optional manager, nothing passes one, and the
-audio patch is simply not registered — so Steam's store stays unavailable and no half-supplied
-namespace exists. That is the honest degradation, but it does mean audio is **built and unreachable**
-rather than working.
+`SteamUiSessionHost` still takes the manager as optional and registers the patch only when one
+exists, which is what keeps overlay-test free of a half-supplied namespace.
 
 ## Implementation slices
 
