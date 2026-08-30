@@ -1222,12 +1222,14 @@ settings and profile authoring only — device control stays in the overlay.
 - [ ] Keep sections scoped to the settings page and `Generic*` capabilities. A semantic role keeps
       the home WSGM gives it, so a plugin cannot scatter power or fan controls into invented
       groupings and break the cross-device consistency `DisplayKey` exists to protect.
-- [ ] Store settings values in WSGM configuration through the source-generated JSON path, keyed by
-      device definition id and plugin id. **Storage and normalization are done**
-      (`Core\DeviceConfiguration.cs`, `ConfigStore.NormalizeDeviceIntegration`): unmatchable scopes
-      and duplicates are dropped so the file cannot grow forever. **What remains** is revalidation
-      against the current manifest on load — a plugin update can narrow a range or drop an option —
-      falling back to the declared default and logging the stored value beside the declared bounds.
+- [x] Store settings values in WSGM configuration through the source-generated JSON path, keyed by
+      device definition id and plugin id, and revalidate against the current manifest on load.
+      `Core\DeviceConfiguration.cs` and `ConfigStore.NormalizeDeviceIntegration` drop unmatchable
+      scopes and duplicates so the file cannot grow forever; `Core\PluginSettingsResolver.cs`
+      reconciles what is left against the live declaration, falling back to the declared default and
+      reporting the stored value beside the declared bound so the rejection is diagnosable from a
+      user's log. A setting whose kind changed between plugin versions is rejected rather than
+      reinterpreted, and settings the manifest no longer declares come back as orphans.
 - [ ] Deliver settings to the plugin at start and on change over the existing wire contract. No new
       privileged channel.
 - [ ] Render one WSGM-owned Settings page from the declared manifest, gamepad and touch navigable,
