@@ -145,6 +145,7 @@ interface Window {
     latestStates.clear();
   };
 
+  const audioNamespace = createAudioNamespace();
   const bridge = Object.freeze({
     version: config.version,
     assetHash: config.assetHash,
@@ -159,6 +160,11 @@ interface Window {
       remove: nativeComponents.remove,
       status: nativeComponents.status,
     }),
+    audio: Object.freeze({
+      install: audioNamespace.install,
+      remove: audioNamespace.remove,
+      status: audioNamespace.status,
+    }),
   });
   Object.defineProperty(window, config.namespace, {
     value: bridge,
@@ -167,6 +173,158 @@ interface Window {
     writable: false,
   });
   return JSON.stringify({ ok: true, reused: false, version: config.version });
+
+  // Audio is supplied as the namespace Steam's own store looks for, rather than drawn as a row.
+  // The store's availability flag is literally `null != SteamClient.System.Audio`, so defining this
+  // object is the entire gate — there is nothing to patch and nothing to hide.
+  function createAudioNamespace() {
+    const patchId = "wsgm.native-qam.audio";
+    let installed = false;
+    let lastError = "";
+    let unsubscribe: (() => void) | null = null;
+
+    // Every registration Steam makes at construction. Held here so a state push can reach them and
+    // so removal drops them all rather than leaving callbacks pointed at a torn-down bridge.
+    const callbacks = {
+      serviceConnection: null as ((connected: boolean) => void) | null,
+      deviceAdded: null as ((device: unknown) => void) | null,
+      deviceRemoved: null as ((id: number) => void) | null,
+      deviceVolumeChanged: null as ((id: number, direction: number, volume: number) => void) | null,
+      volumeButtonPressed: null as ((pressed: unknown) => void) | null,
+      appAdded: null as ((app: unknown) => void) | null,
+      appRemoved: null as ((id: number) => void) | null,
+      appVolumeChanged: null as ((id: number, volume: number) => void) | null,
+    };
+    const register = (slot: keyof typeof callbacks) => (callback) => {
+      callbacks[slot] = typeof callback === "function" ? callback : null;
+      // Steam expects an unregister handle from every RegisterFor* call and stores it.
+      return { unregister: () => (callbacks[slot] = null) };
+    };
+
+    let known: string[] = [];
+    const toDevice = (entry) => ({
+      id: entry.id,
+      sName: entry.name,
+      bHasOutput: entry.hasOutput === true,
+      bHasInput: entry.hasInput === true,
+      // Speaker configuration and HDMI CEC reach a service WSGM does not supply. Reported empty and
+      // false rather than invented, so those controls simply do not appear.
+      currentConfig: {},
+      availableConfigs: [],
+      eConnectorType: 0,
+      eBus: 0,
+      bSupportsHdmiCec: false,
+      bHdmiCecEnabled: false,
+      bHdmiCecActive: false,
+    });
+
+    const onState = (state) => {
+      if (!installed || !state || !Array.isArray(state.devices)) return;
+      const seen = state.devices.map((device) => String(device.id));
+
+      // Removals first: a device that has gone must leave the store before a re-read of the device
+      // list can describe the set as complete, or the picker keeps an endpoint that is not there.
+      for (const id of known) {
+        if (!seen.includes(id) && callbacks.deviceRemoved) callbacks.deviceRemoved(id as never);
+      }
+      for (const device of state.devices) {
+        if (callbacks.deviceAdded) callbacks.deviceAdded(toDevice(device));
+      }
+      known = seen;
+    };
+
+    const install = () => {
+      if (installed) return { ok: true, alreadyInstalled: true };
+      const system = window.SteamClient?.System;
+      if (!system) {
+        lastError = "SteamClient.System unavailable";
+        return { ok: false, error: lastError };
+      }
+
+      // Never replace a real backend. On a client that grows one, WSGM must stand aside rather than
+      // shadow it with a projection of a different machine's audio.
+      if (system.Audio) {
+        lastError = "SteamClient.System.Audio already exists";
+        return { ok: false, error: lastError };
+      }
+
+      const api = {
+        GetDevices: () =>
+          request(patchId, "getDevices", null, 0).then((state: any) => ({
+            activeOutputDeviceId: state?.activeOutputDeviceId ?? "",
+            activeInputDeviceId: state?.activeInputDeviceId ?? "",
+            overrideOutputDeviceId: "",
+            overrideInputDeviceId: "",
+            vecDevices: Array.isArray(state?.devices) ? state.devices.map(toDevice) : [],
+          })),
+        // Empty until a session mixer exists. Steam then lists no per-application entries, which is
+        // the honest outcome rather than inventing volumes it cannot move.
+        GetApps: () => Promise.resolve({ rgApps: [] }),
+        SetDefaultDeviceOverride: (id, direction) =>
+          request(patchId, "setDefaultDevice", { id: String(id), input: direction === 1 }, 0),
+        SetDeviceVolume: (id, volume) =>
+          request(patchId, "setVolume", { percent: Math.round((volume ?? 0) * 100) }, 0),
+        SetAppVolume: () => Promise.resolve(),
+        ClearDefaultDeviceOverride: () => Promise.resolve(),
+        RegisterForServiceConnectionStateChanges: register("serviceConnection"),
+        RegisterForDeviceAdded: register("deviceAdded"),
+        RegisterForDeviceRemoved: register("deviceRemoved"),
+        RegisterForDeviceVolumeChanged: register("deviceVolumeChanged"),
+        RegisterForVolumeButtonPressed: register("volumeButtonPressed"),
+        RegisterForAppAdded: register("appAdded"),
+        RegisterForAppRemoved: register("appRemoved"),
+        RegisterForAppVolumeChanged: register("appVolumeChanged"),
+      };
+
+      try {
+        Object.defineProperty(system, "Audio", {
+          value: api,
+          configurable: true,
+          enumerable: true,
+          writable: false,
+        });
+      } catch (error) {
+        lastError = String(error);
+        return { ok: false, error: lastError };
+      }
+
+      installed = true;
+      lastError = "";
+      unsubscribe = subscribe(patchId, onState);
+      return { ok: true, installed: true };
+    };
+
+    const remove = () => {
+      if (!installed) return { ok: true, absent: true };
+      installed = false;
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = null;
+      }
+
+      for (const slot of Object.keys(callbacks)) callbacks[slot] = null;
+      known = [];
+      try {
+        delete window.SteamClient.System.Audio;
+      } catch (error) {
+        lastError = String(error);
+        return { ok: false, error: lastError };
+      }
+
+      return { ok: true, removed: true };
+    };
+
+    const status = () => ({
+      ok: true,
+      installed,
+      namespacePresent: !!window.SteamClient?.System?.Audio,
+      registrations: Object.keys(callbacks).filter((slot) => callbacks[slot] !== null),
+      knownDevices: known.length,
+      lastError,
+    });
+
+    return { install, remove, status };
+  }
 
   function createNativeComponentHost() {
     const registrations = new Map();
