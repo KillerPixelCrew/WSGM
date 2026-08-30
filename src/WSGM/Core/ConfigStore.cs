@@ -424,6 +424,52 @@ public static class ConfigStore
                     + $"{scope.DeviceDefinitionId} was dropped: {reason}");
                 scope.Declaration = null;
             }
+
+            // A profile with no id keys nothing and can never be selected, and one whose curve is
+            // not strictly ascending is refused by the device router on apply — keeping either
+            // would leave the user a profile that silently does nothing when chosen.
+            scope.Profiles ??= [];
+            scope.Profiles.RemoveAll(static profile => profile is null
+                || string.IsNullOrWhiteSpace(profile.ProfileId)
+                || string.IsNullOrWhiteSpace(profile.CapabilityId));
+            HashSet<string> profileIds = new(StringComparer.Ordinal);
+            scope.Profiles.RemoveAll(profile => !profileIds.Add(profile.ProfileId.Trim()));
+            foreach (DeviceAuthoredProfile profile in scope.Profiles)
+            {
+                profile.ProfileId = profile.ProfileId.Trim();
+                profile.CapabilityId = profile.CapabilityId.Trim();
+                profile.Name = string.IsNullOrWhiteSpace(profile.Name)
+                    ? profile.ProfileId
+                    : profile.Name.Trim();
+                if (profile.Name.Length > DeviceAuthoredProfile.MaxNameLength)
+                {
+                    profile.Name = profile.Name[..DeviceAuthoredProfile.MaxNameLength];
+                }
+
+                profile.Curve ??= [];
+                profile.Curve.RemoveAll(static point => point is null);
+            }
+
+            scope.Profiles.RemoveAll(static profile =>
+            {
+                if (profile.Curve.Count == 0)
+                {
+                    return false;
+                }
+
+                for (int index = 1; index < profile.Curve.Count; index++)
+                {
+                    if (profile.Curve[index].Input <= profile.Curve[index - 1].Input)
+                    {
+                        Log.Warn(
+                            $"Device profile '{profile.ProfileId}' was dropped: its curve inputs "
+                            + "are not strictly ascending.");
+                        return true;
+                    }
+                }
+
+                return false;
+            });
             scope.Values ??= [];
             scope.Values.RemoveAll(static value => value is null
                 || string.IsNullOrWhiteSpace(value.SettingId));

@@ -910,6 +910,8 @@ public sealed class CefConfig
 // than a WSGM-side copy that would have to be kept in step with it.
 [JsonSerializable(typeof(PluginSettingsManifest))]
 [JsonSerializable(typeof(PluginSettingValue))]
+[JsonSerializable(typeof(DeviceAuthoredProfile))]
+[JsonSerializable(typeof(AuthoredCurvePoint))]
 [JsonSerializable(typeof(PerformanceConfig))]
 [JsonSerializable(typeof(PerformanceApplicationConfig))]
 [JsonSerializable(typeof(FilterNode))]

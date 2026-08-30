@@ -123,6 +123,60 @@ public sealed class PluginSettingsScope
     /// </para>
     /// </remarks>
     public PluginSettingsManifest? Declaration { get; set; }
+
+    /// <summary>Named fan curves and lighting profiles the user authored for this device.</summary>
+    /// <remarks>
+    /// Device-keyed and stored beside the plugin's settings because they are authored the same way
+    /// and become meaningless against a different device. Authoring lives in Settings; choosing
+    /// which one is in force is the overlay's job (D22b), so nothing here records a selection.
+    /// </remarks>
+    public List<DeviceAuthoredProfile> Profiles { get; set; } = [];
+}
+
+/// <summary>One named profile the user authored for a device capability.</summary>
+/// <remarks>
+/// A profile is not a setting. A setting is one value WSGM keeps and hands the plugin; a profile is
+/// a named shape the user builds and then applies, globally or per application, from the overlay.
+/// That is why curves are refused as settings and live here instead — one home each.
+/// </remarks>
+public sealed class DeviceAuthoredProfile
+{
+    /// <summary>Longest accepted <see cref="Name"/>.</summary>
+    public const int MaxNameLength = 48;
+
+    /// <summary>Stable identifier the overlay selects by.</summary>
+    /// <remarks>
+    /// Separate from <see cref="Name"/> so renaming a profile does not detach every application
+    /// override that pointed at it.
+    /// </remarks>
+    public string ProfileId { get; set; } = string.Empty;
+
+    /// <summary>What the user called it.</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>The capability this profile authors, for example a fan curve or a lighting colour.</summary>
+    public string CapabilityId { get; set; } = string.Empty;
+
+    /// <summary>Curve points, ascending by input. Empty for a profile that is not a curve.</summary>
+    public List<AuthoredCurvePoint> Curve { get; set; } = [];
+
+    /// <summary>Packed colour for a lighting profile, or null when this is not one.</summary>
+    public int? Color { get; set; }
+}
+
+/// <summary>One authored curve point.</summary>
+/// <remarks>
+/// A mutable configuration class rather than the SDK's <c>CurvePoint</c> struct, matching every
+/// other stored shape in this file: configuration is deserialized, normalized in place, and
+/// re-serialized, and the SDK's value types exist for the wire rather than for that.
+/// </remarks>
+public sealed class AuthoredCurvePoint
+{
+    /// <summary>The input, for a fan curve a temperature.</summary>
+    public int Input { get; set; }
+
+    /// <summary>The output, for a fan curve a duty percentage.</summary>
+    public int Output { get; set; }
 }
 
 /// <summary>One stored plugin setting value.</summary>
