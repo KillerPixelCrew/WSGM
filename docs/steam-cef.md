@@ -537,6 +537,24 @@ the backend missing. Its `*Handler` exports are message descriptors (`{name, req
 not registration hooks, so the service cannot be implemented; the stub's methods are replaced
 instead.
 
+**The full Bluetooth settings page ships in the Windows client, and opening it was proven live on
+2026-08-30** (screenshot-confirmed: Valve's own page appears in the settings sidebar). Three facts a
+future search must not re-derive wrongly — two earlier theories in the same session were wrong
+because they tested invented token shapes:
+
+- The page's strings are the `#QuickAccess_Tab_Bluetooth_*` family (AddDevice, Pair, Forget,
+  Searching, No_Devices_Found, ToggleLabel, ShowAllDevices, …) in module `18931`; the settings page
+  reuses the QAM panel. There is no `#Settings_Bluetooth_Title` — the sidebar's tokens are not
+  shaped `#Settings_X_Title` for ANY page, so absence of such a token proves nothing.
+- The nav gate is `is_service_available` read through
+  `useQuery({queryKey:["BluetoothManagerService","State"], staleTime: 1/0})` (module `25467`; query
+  client is export `L` of `21371`). `staleTime: Infinity` means replacing the stub changes nothing
+  until that key is invalidated.
+- The chain that opens it — replace stub methods, publish a state with `available:true`, `onState`
+  rebuilds `latest` and invalidates the key — is exactly what the bootstrap already does. The
+  earlier "page missing" failures were the self-incompatibility teardown loop killing the bridge
+  before a bluetooth publication ever landed, not a missing mechanism.
+
 Wi-Fi is the one to be careful about. Steam's Windows backend does push real
 `CMsgNetworkDevicesData` reports — the store's `hasWirelessDevice` and `isWifiEnabled` are genuinely
 true — but every report carries an **empty `wireless.aps`**, so it never enumerates networks. Any
