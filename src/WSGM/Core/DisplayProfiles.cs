@@ -16,6 +16,12 @@ public static unsafe partial class DisplayProfiles
     private const uint CdsUpdateRegistry = 0x00000001;
     private const uint CdsTest = 0x00000002;
     private const uint CdsNoReset = 0x10000000;
+    /// <summary>Smallest resolution worth offering. Below this is legacy driver noise.</summary>
+    private const uint MinimumUsableWidth = 800;
+
+    /// <summary>Smallest resolution height worth offering.</summary>
+    private const uint MinimumUsableHeight = 600;
+
     private const uint DisplayDeviceActive = 0x00000001;
     private const uint DisplayDevicePrimary = 0x00000004;
     private const uint GetDeviceInterfaceName = 0x00000001;
@@ -130,6 +136,80 @@ public static unsafe partial class DisplayProfiles
     /// frame-limit strategies exist to serve.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Discovers the resolutions the driver accepts on the primary display, at its current refresh
+    /// rate and colour depth.
+    /// </summary>
+    /// <returns>
+    /// Accepted resolutions, ascending by pixel count and deduplicated. Empty when the display
+    /// cannot be read.
+    /// </returns>
+    /// <remarks>
+    /// The same discover-then-test discipline as <see cref="EnumerateAcceptedRefreshRates"/>, and
+    /// for the same reason: an enumerated mode is a claim, not a promise, and `CDS_TEST` changes
+    /// nothing so this is safe to call while a game is running.
+    /// <para>
+    /// Held at the current refresh rate on purpose. A resolution row that also moved the refresh
+    /// rate would fight the frame-limit pairing, which owns that axis; the two are separate
+    /// controls precisely so one change is one change.
+    /// </para>
+    /// <para>
+    /// Anything below 800x600 is dropped. Drivers enumerate legacy modes no handheld panel should
+    /// offer, and a resolution list whose first entry is 640x480 is a list the user has to scroll
+    /// past rather than one they can use.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<DisplayResolution> EnumerateAcceptedResolutions()
+    {
+        var current = new DevMode { Size = (ushort)sizeof(DevMode) };
+        if (!EnumDisplaySettingsEx(null, EnumCurrentSettings, ref current, 0))
+        {
+            Log.Warn("Display modes: current settings unreadable; no resolutions discovered.");
+            return [];
+        }
+
+        HashSet<(uint Width, uint Height)> enumerated = [];
+        for (uint index = 0; ; index++)
+        {
+            var mode = new DevMode { Size = (ushort)sizeof(DevMode) };
+            if (!EnumDisplaySettingsEx(null, index, ref mode, 0))
+            {
+                break;
+            }
+
+            if (mode.BitsPerPel == current.BitsPerPel
+                && mode.DisplayFrequency == current.DisplayFrequency
+                && mode.PelsWidth >= MinimumUsableWidth
+                && mode.PelsHeight >= MinimumUsableHeight)
+            {
+                enumerated.Add((mode.PelsWidth, mode.PelsHeight));
+            }
+        }
+
+        List<DisplayResolution> accepted = [];
+        List<string> refused = [];
+        foreach ((uint width, uint height) in enumerated
+            .OrderBy(mode => (long)mode.Width * mode.Height)
+            .ThenBy(mode => mode.Width))
+        {
+            bool isCurrent = width == current.PelsWidth && height == current.PelsHeight;
+            if (isCurrent || TestResolution(current, width, height))
+            {
+                accepted.Add(new DisplayResolution((int)width, (int)height));
+            }
+            else
+            {
+                refused.Add($"{width}x{height}");
+            }
+        }
+
+        Log.Info(
+            $"Display modes: {current.PelsWidth}x{current.PelsHeight} at {current.DisplayFrequency} Hz, "
+            + $"accepted resolutions [{string.Join(",", accepted)}]"
+            + (refused.Count is 0 ? "" : $", refused [{string.Join(",", refused)}]"));
+        return accepted;
+    }
+
     public static IReadOnlyList<int> EnumerateAcceptedRefreshRates()
     {
         var current = new DevMode { Size = (ushort)sizeof(DevMode) };
@@ -318,6 +398,15 @@ public static unsafe partial class DisplayProfiles
         }
     }
 
+    private static bool TestResolution(DevMode current, uint width, uint height)
+    {
+        var candidate = current;
+        candidate.Fields = DmPelsWidth | DmPelsHeight | DmDisplayFrequency;
+        candidate.PelsWidth = width;
+        candidate.PelsHeight = height;
+        return ChangeDisplaySettingsEx(null, &candidate, 0, CdsTest, 0) == 0;
+    }
+
     private static bool TestRefreshRate(DevMode current, uint refreshHz)
     {
         var candidate = current;
@@ -458,4 +547,14 @@ public static unsafe partial class DisplayProfiles
             : string.Equals(left.DeviceName, right.DeviceName, StringComparison.OrdinalIgnoreCase);
     private static DisplayModeValues Clone(DisplayModeValues value) => new() { Width = value.Width, Height = value.Height, RefreshRate = value.RefreshRate, DpiPercent = value.DpiPercent, HdrEnabled = value.HdrEnabled };
     private static string FixedString(char* value, int length) { var span = new ReadOnlySpan<char>(value, length); var end = span.IndexOf('\0'); return new string(end < 0 ? span : span[..end]); }
+}
+
+/// <summary>One display resolution the driver accepted.</summary>
+/// <param name="Width">Width in pixels.</param>
+/// <param name="Height">Height in pixels.</param>
+public readonly record struct DisplayResolution(int Width, int Height)
+{
+    /// <summary>Renders the resolution the way a user reads it.</summary>
+    /// <returns>Width and height separated by an <c>x</c>.</returns>
+    public override string ToString() => $"{Width}x{Height}";
 }
