@@ -21,6 +21,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private const string FrameLimitPatchId = "wsgm.native-qam.frame-limit";
     private const string OverlayLevelPatchId = "wsgm.native-qam.overlay-level";
     private const string VrrPatchId = "wsgm.native-qam.vrr";
+    private const string ValveTdpPatchId = "wsgm.native-qam.valve-tdp";
     private const string ValveOverlayLevelPatchId = "wsgm.native-qam.valve-overlay-level";
     private const string AutoTdpPatchId = "wsgm.native-qam.auto-tdp";
     private const string ControllerTargetPatchId = "wsgm.native-qam.controller-target";
@@ -119,7 +120,13 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _bridge = new SteamUiBridgeHost(_transport);
         _patches = new SteamUiPatchManager(_transport);
         _patches.Register(new NativeQamBootstrapPatch(_bridge));
-        _patches.Register(new NativeQamTdpPatch());
+        // The SteamOS Manager RPC seam and the rows it reveals, in place of the hand-rolled TDP
+        // row. The gate supplies the one answer the Windows client's service stub never fills in —
+        // is_tdp_limit_available and the watt range — and watches the steamos_tdp_limit client
+        // settings Valve's rows write, routing them to hardware. Both halves share the
+        // wsgm.native-qam.tdp id and its published state, so nothing else had to move.
+        _patches.Register(new NativeQamSteamOsManagerPatch());
+        _patches.Register(new NativeQamValveTdpPatch());
         _patches.Register(new NativeQamAutoTdpPatch());
         // The frame limit is WSGM's own row, deliberately, and this is the one place the Q12
         // retirement does not apply. Valve's component is a NOTCH slider fed by
@@ -434,6 +441,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     {
         _patches.SetPatchEnabled(BootstrapPatchId, bootstrap);
         _patches.SetPatchEnabled(TdpPatchId, components);
+        _patches.SetPatchEnabled(ValveTdpPatchId, components);
         _patches.SetPatchEnabled(AutoTdpPatchId, components);
         // Exactly the ids this constructor registers UNCONDITIONALLY, and no others:
         // SetPatchEnabled throws for an id that is not registered, and a retirement that left one
@@ -578,6 +586,32 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 if (!TryReadIntegerPayload(request.Payload, "watts", out int watts))
                 {
                     error = "The primary power-limit payload is invalid.";
+                }
+                else if (request.Payload.ValueKind is JsonValueKind.Object
+                    && request.Payload.TryGetProperty("enabled", out JsonElement limitEnabled)
+                    && limitEnabled.ValueKind is JsonValueKind.False)
+                {
+                    // Valve's rows model "off" as a toggle beside the slider, so a switched-off
+                    // limit still carries the watts the slider is sitting on. Applying them would
+                    // be the opposite of what the user asked for. The device's own ceiling is what
+                    // "no limit" means for a power-limit capability — it has no off — and the
+                    // slider keeps its number for when the toggle comes back on.
+                    if (_tdp.Current.MaximumWatts is not int ceiling)
+                    {
+                        error = "The device does not report a power-limit ceiling to release to.";
+                        Log.Warn($"Native QAM power limit release refused: {error}");
+                    }
+                    else
+                    {
+                        Log.Info(
+                            "Native QAM power limit released to the device ceiling "
+                            + $"{ceiling} W: Steam's TDP toggle is off (slider holds {watts} W).");
+                        NativeQamCommandResult released = await _tdp.SetPrimaryLimitAsync(
+                            ceiling,
+                            requestCancellation.Token).ConfigureAwait(false);
+                        succeeded = released.Succeeded;
+                        error = released.Error;
+                    }
                 }
                 else
                 {

@@ -49,6 +49,8 @@
     gateActionGenerations.set(patchId, next);
     return next;
   };
+  // The generation is optional: a gate has no user-initiated row action to number, and one is
+  // allocated for it above. Row controls pass their own so an echo can be matched to the write.
   const request = (patchId, command, payload, requestedGeneration) => {
     if (!allowed(patchId, command)) return Promise.reject(new Error("command not allowlisted"));
     if (pending.size >= config.maximumPending) return Promise.reject(new Error("bridge busy"));
@@ -398,6 +400,7 @@
       max: 0,
     };
     let lastSentWatts = null;
+    let lastSentEnabled = null;
     const modules = () => {
       let req;
       window.webpackChunksteamui.push([
@@ -441,35 +444,51 @@
       };
       invalidate(modules());
     };
-    // Valve's slider writes the chosen watts into the steamos_tdp_limit client setting; Steam
-    // persists it, and WSGM only has to see the number change to route it to hardware through the
-    // command the hand-rolled row already used. Observed through Steam's own
-    // RegisterForSettingsChanges — the same registration the settings store itself makes.
-    const forwardWatts = (watts) => {
-      if (!Number.isInteger(watts) || watts <= 0 || watts === lastSentWatts) return;
-      lastSentWatts = watts;
-      void request(patchId, "setPrimaryLimit", { watts }, 0).catch(() => {});
-    };
-    const readTdpFrom = (payload) => {
-      // The change payload's shape is Steam's; every plausible carrier of the setting is checked
-      // rather than one guessed one, and anything unreadable is simply not a TDP change.
+    // Valve's TDP rows do not call a namespace. The toggle and the slider are bound to the
+    // steamos_tdp_limit_enabled and steamos_tdp_limit CLIENT SETTINGS, Steam persists them, and
+    // WSGM's job is to notice the number and route it to hardware.
+    //
+    // Read from the settings store rather than from a change payload. Live-verified 2026-08-30:
+    // Valve's own hooks read (0,a.q3)(() => G.clientSettings[name]) off the store reachable as
+    // window.settingsStore, so that IS the value the rows are showing. Guessing at the shape of
+    // whatever RegisterForSettingsChanges hands back would have been a second, weaker source for
+    // the same fact.
+    const readSettings = () => {
       try {
-        const candidates = [payload, payload?.settings, ...(Array.isArray(payload) ? payload : [])];
-        for (const entry of candidates) {
-          if (!entry || typeof entry !== "object") continue;
-          if (Number.isInteger(entry.steamos_tdp_limit)) return entry.steamos_tdp_limit;
-          if (entry.name === "steamos_tdp_limit" && Number.isInteger(Number(entry.value)))
-            return Number(entry.value);
-        }
-      } catch {}
-      return null;
+        const settings = window.settingsStore?.clientSettings;
+        if (!settings) return null;
+        const watts = Number(settings.steamos_tdp_limit);
+        return {
+          watts: Number.isInteger(watts) && watts > 0 ? watts : null,
+          enabled: settings.steamos_tdp_limit_enabled === true,
+        };
+      } catch {
+        return null;
+      }
+    };
+    const forwardSettings = () => {
+      const now = readSettings();
+      if (!now) return;
+      if (now.enabled === lastSentEnabled && now.watts === lastSentWatts) return;
+      lastSentEnabled = now.enabled;
+      lastSentWatts = now.watts;
+      // The enabled flag rides along: a limit switched off is not the same as a limit of zero
+      // watts, and WSGM has to release the cap rather than try to apply one.
+      void request(patchId, "setPrimaryLimit", {
+        watts: now.watts ?? 0,
+        enabled: now.enabled,
+      }).catch(() => {});
     };
     const watchSettings = () => {
+      // Steam's own change notification is the trigger, and a slow timer is the safety net. The
+      // notification fires on the settings Steam persists, but its payload shape is Steam's and a
+      // release that changes it must not silently strand the power limit — which is the failure
+      // this whole surface exists to avoid. Both ends call the same reader, and forwardSettings
+      // only sends on an actual change, so the timer costs two property reads a second.
       try {
-        const handle = window.SteamClient?.Settings?.RegisterForSettingsChanges?.((payload) => {
-          const watts = readTdpFrom(payload);
-          if (watts !== null) forwardWatts(watts);
-        });
+        const handle = window.SteamClient?.Settings?.RegisterForSettingsChanges?.(() =>
+          forwardSettings(),
+        );
         if (handle && typeof handle.unregister === "function") {
           unsubscribeSettings = () => handle.unregister();
         }
@@ -478,6 +497,16 @@
         // hardware is lost, and the status says so.
         lastError = "settings watch unavailable: " + String(error);
       }
+      const timer = setInterval(forwardSettings, 1000);
+      const stopNotification = unsubscribeSettings;
+      unsubscribeSettings = () => {
+        clearInterval(timer);
+        if (stopNotification) stopNotification();
+      };
+      // The rows show what Steam persisted, so the hardware has to be brought to it rather than
+      // the other way round: without this a limit set in a previous session stays on screen and
+      // off the device until the user happens to move the slider.
+      forwardSettings();
     };
     const install = () => {
       if (installed) return { ok: true, alreadyInstalled: true };
@@ -1225,6 +1254,11 @@
     let valveRefreshRateControl;
     let valveFrameLimitControl;
     let valveOverlayLevelControl;
+    // Valve's power-limit pair. They arrive as two exports, not one row: the toggle reveals the
+    // slider through the steamos_tdp_limit_enabled setting, which is how SteamOS models "off" for
+    // this control and why the slider has no zero position.
+    let valveTdpToggleControl;
+    let valveTdpSliderControl;
     let performanceRoot;
     // The Quick Settings panel Steam rendered, captured at match time. S14 puts resolution and
     // refresh rate in Quick Settings, not Performance — but the panel is a LOCAL function of the
@@ -1327,6 +1361,13 @@
       }),
       valveOverlayLevel: Object.freeze({
         patchId: "wsgm.native-qam.valve-overlay-level",
+        command: "",
+      }),
+      // Valve's own power-limit toggle and slider, in place of the hand-rolled row. They carry no
+      // command for the same reason the rows above do not: they write the steamos_tdp_limit client
+      // settings, which the SteamOS Manager gate watches and forwards.
+      valveTdp: Object.freeze({
+        patchId: "wsgm.native-qam.valve-tdp",
         command: "",
       }),
     });
@@ -2370,6 +2411,28 @@
           ),
         );
       }
+      // Valve's own power-limit pair. Two rows, because that is how SteamOS models this control:
+      // the toggle is "off" and the slider only appears behind it, which is why the slider has no
+      // zero position. Both are gated on is_tdp_limit_available, which the SteamOS Manager gate
+      // supplies — this row does not exist until that RPC answers.
+      if (wants("valveTdp") && valveTdpToggleControl) {
+        controls.push(
+          controlRuntime.react.createElement(
+            controlRuntime.row,
+            { key: "wsgm-native-qam-valve-tdp-enabled" },
+            controlRuntime.react.createElement(valveTdpToggleControl),
+          ),
+        );
+      }
+      if (wants("valveTdp") && valveTdpSliderControl) {
+        controls.push(
+          controlRuntime.react.createElement(
+            controlRuntime.row,
+            { key: "wsgm-native-qam-valve-tdp" },
+            controlRuntime.react.createElement(valveTdpSliderControl),
+          ),
+        );
+      }
       if (wants("tdp")) {
         controls.push(
           controlRuntime.react.createElement(
@@ -2556,6 +2619,25 @@
         : null;
       valveOverlayLevelControl = perfExports
         ? uniqueFunction(perfExports, ["#QuickAccess_Tab_Perf_Overlay_Level"])
+        : null;
+      // A DIFFERENT module from the perf components above: the power-limit rows live with the
+      // GPU-clock and charge-limit rows, next to the SteamOS Manager hooks they read. Selected by
+      // the setting each one is bound to plus its own token, because both rows carry
+      // #QuickAccess_Tab_Perf_TDPLimitEnabled — the toggle as its label, the slider as its
+      // explainer title. Live-verified 2026-08-30 that each pair matches exactly one export.
+      const tdpComponents = uniqueFactory([
+        "#QuickAccess_Tab_Perf_TDPLimitEnabled",
+        "#QuickAccess_Tab_Perf_TDPLimitUnits",
+      ]);
+      const tdpExports = tdpComponents ? runtime(tdpComponents[0]) : null;
+      valveTdpToggleControl = tdpExports
+        ? uniqueFunction(tdpExports, [
+            '"steamos_tdp_limit_enabled"',
+            "#QuickAccess_Tab_Perf_TDPLimitEnabled",
+          ])
+        : null;
+      valveTdpSliderControl = tdpExports
+        ? uniqueFunction(tdpExports, ["#QuickAccess_Tab_Perf_TDPLimitUnits"])
         : null;
       function WsgmNativeQamPerformanceRoot(props) {
         const [, setRevision] = controlRuntime.react.useState(0);

@@ -334,6 +334,53 @@ public sealed class NativeQamResolutionPatch : NativeQamComponentPatch
 }
 
 /// <summary>
+/// Mounts Valve's own power-limit toggle and slider, retiring the hand-rolled TDP row.
+/// </summary>
+/// <remarks>
+/// Two rows rather than one, because that is how SteamOS models this control: the toggle is the
+/// off state and the slider only appears behind it, which is why the slider has no zero position.
+/// <para>
+/// Unlike every other reactivated row, this one is not gated by <c>SystemPerfStore</c> at all. Both
+/// halves read <c>is_tdp_limit_available</c> and the watt range out of the SteamOS Manager RPC, so
+/// they render only once <see cref="NativeQamSteamOsManagerPatch"/> has supplied that answer —
+/// and they write the <c>steamos_tdp_limit</c> client settings, which the same gate watches and
+/// forwards to hardware. The two patches are one mechanism in two halves.
+/// </para>
+/// </remarks>
+public sealed class NativeQamValveTdpPatch : NativeQamComponentPatch
+{
+    private static readonly string[] RequiredCounts =
+    [
+        "performanceActions",
+        "performanceRoot",
+        "nativeFields",
+        "nativeLayout",
+        "localization",
+        "react",
+    ];
+
+    /// <inheritdoc />
+    public override string Id => "wsgm.native-qam.valve-tdp";
+
+    /// <inheritdoc />
+    public override int Version => 1;
+
+    /// <inheritdoc />
+    protected override string ComponentKind => "valveTdp";
+
+    /// <inheritdoc />
+    protected override string StructuralFingerprint =>
+        "native-qam-valve-tdp-v1:performance-actions+performance-root+valve-tdp-pair";
+
+    /// <inheritdoc />
+    protected override IReadOnlyList<string> RequiredUniqueCounts => RequiredCounts;
+
+    /// <inheritdoc />
+    protected override string ProbeExpression => PerformanceProbeExpression(
+        "wsgm_native_valve_tdp_probe_");
+}
+
+/// <summary>
 /// Adds the variable-refresh switch, which Valve's own component cannot supply on this client.
 /// </summary>
 /// <remarks>

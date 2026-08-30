@@ -95,6 +95,11 @@ public sealed class SteamUiBridgeAuthorizer
             ["wsgm.native-qam.valve-frame-limit"] = [],
             ["wsgm.native-qam.valve-overlay-level"] = [],
 
+            // Valve's power-limit pair. No commands: they write the steamos_tdp_limit client
+            // settings, which the SteamOS Manager gate watches — that gate owns the setPrimaryLimit
+            // vocabulary under wsgm.native-qam.tdp above.
+            ["wsgm.native-qam.valve-tdp"] = [],
+
             // Not controls: these report when Steam's own network UI starts and stops looking for
             // networks, so WSGM can scan for exactly that long. Scanning on WSGM's own schedule
             // would either waste power or show a list that went stale while the page was open.

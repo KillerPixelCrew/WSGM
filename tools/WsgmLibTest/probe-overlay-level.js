@@ -1,14 +1,32 @@
-// Reads module 96555's display-info query: its key, its fetch, and what it currently answers.
-// Read-only.
+// Confirms each selector for Valve's TDP rows matches exactly one export of module 38747, and reads
+// the client settings the rows write. Read-only.
 (() => {
   const chunk = window.webpackChunksteamui;
   if (!chunk) return "no webpackChunksteamui";
   let runtime = null;
-  chunk.push([[Symbol("wsgm-vrr-query2-probe")], {}, (r) => { runtime = r; }]);
-  if (!runtime || !runtime.m) return "no runtime";
-  const src = String(runtime.m["96555"]);
-  const out = { length: src.length, queryKeys: [...new Set(src.match(/queryKey:[^,}]{0,160}/g) ?? [])] };
-  const at = src.indexOf("function y()");
-  out.around = src.slice(Math.max(0, at - 1800), at + 200);
+  chunk.push([[Symbol("wsgm-tdp-select-probe")], {}, (r) => { runtime = r; }]);
+  if (!runtime) return "no runtime";
+  const mod = runtime("38747");
+  const selectors = {
+    toggle: ['"steamos_tdp_limit_enabled"', "#QuickAccess_Tab_Perf_TDPLimitEnabled"],
+    slider: ["#QuickAccess_Tab_Perf_TDPLimitUnits"],
+  };
+  const out = { matches: {} };
+  for (const [name, tokens] of Object.entries(selectors)) {
+    const hits = [];
+    for (const key of Object.keys(mod)) {
+      let src = "";
+      try { src = String(mod[key]); } catch { continue; }
+      if (typeof mod[key] === "function" && tokens.every((t) => src.includes(t))) hits.push(key);
+    }
+    out.matches[name] = hits;
+  }
+  const cs = window.settingsStore?.clientSettings;
+  out.settings = cs
+    ? { tdp: cs.steamos_tdp_limit, enabled: cs.steamos_tdp_limit_enabled }
+    : "no settingsStore";
+  // Does the feature flag on those rows gate anything platform-shaped?
+  const featureSrc = String(runtime("38747").n1 ?? "");
+  out.featureProp = featureSrc.includes("feature:") ? "present" : "absent";
   return JSON.stringify(out, null, 1);
 })();
