@@ -285,6 +285,19 @@ Only this list drives the next implementation work:
       3160-line bootstrap, the else-if request router), and the four-phase migration —
       bootstrap-internal first, library tabs last — in `_plan\cef-simplification.md`. **What
       remains is all of it** — the plan document is the only artifact.
+- [ ] **Q17 — complete UI redesign of the WSGM overlay.** S10's structural completion stands —
+      navigation, page stack, focus memory, one service per action — but the presentation does not
+      match the maintainer's vision, and the **Device tab is the named mess**: it is a projection
+      of capability lists onto cards rather than a designed surface, and needs fundamental
+      restructuring, not another pass of polish. The first artifact is the design itself: capture
+      the envisioned structure with the maintainer in `_plan\overlay-redesign.md` — what each
+      destination presents, what the Device tab leads with versus what stays behind a page, how
+      plugin-published capabilities become something a person on a couch parses at a glance — and
+      only then rebuild against it. Rebuild on the existing owners (`OverlayNavigation`, the
+      one-service-per-action rule, `DeviceOverlayBridge` as projection): the redesign changes what
+      is drawn, never who owns the state. The S10 attended acceptance re-runs after this lands.
+      **What remains is all of it, including the design document — the vision is not yet written
+      down, and building ahead of it is how the current Device tab happened.**
 
 A checked architectural queue item has its code, focused tests, diagnostics, and documentation
 complete. Attended/live gates remain explicit and unchecked until they run on the reference device;
