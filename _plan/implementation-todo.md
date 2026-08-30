@@ -211,8 +211,8 @@ distilled record; do not re-litigate these.
 - [ ] **S8** — live Steam context churn, focus/navigation, RTSS external edits/restart, AutoTDP
       games/menus/scenes/suspend/manual override, performance, cleanup. (Frametime read from a
       rendering game still outstanding; AutoTDP loop writes power and stays attended.)
-- [ ] **S9** — visual acceptance of the A2VM profile, OEM sides, M1-left/M2-right orientation at
-      supported scales.
+- [x] **S9** — visual acceptance of the A2VM profile, OEM sides, M1-left/M2-right orientation at
+      supported scales. Accepted by the maintainer on the reference device, 2026-08-30.
 - [ ] **S10** — controller, touch, keyboard, scaling, accessibility, themes, cancellation,
       disposal, responsiveness on the handheld.
 - [ ] **S11** — atomic one-plugin update, rollback by reinstall, uninstall, external-state
@@ -246,7 +246,8 @@ Only this list drives the next implementation work:
       backend's real capability until they exist.
 - [ ] **Q09 — Steam/QAM/RTSS/AutoTDP.** Source-complete. Remains: the attended S8 matrix and the
       `RTSSSharedMemoryNET` swap above.
-- [ ] **Q10 — glyph delivery.** Source-complete and live-verified. Remains: S9 visual acceptance.
+- [x] **Q10 — glyph delivery.** Source-complete, live-verified, and visually accepted on the
+      reference device 2026-08-30.
 - [ ] **Q11 — overlay, shutdown/installer, release validation.** Source-complete. Remains: S10/S11
       attended validation.
 - [ ] **Q12 — per-application performance via Steam's own UI.** **Implemented 2026-08-30**, live on
@@ -269,11 +270,12 @@ Only this list drives the next implementation work:
       Bluetooth service over the radio backend, brightness with WSGM as the backend, resolution and
       refresh in Quick Settings. Remains: night mode (WSGM-owned, above) and the S14 attended
       matrix.
-- [ ] **Q15 — Steam audio settings.** **Working live 2026-08-30**: namespace supplied, devices and
-      default switching, output volume slider and hardware-button tracking — after the direction
-      enum (Input=0/Output=1) and 3-ary `SetDeviceVolume` were read out of the client. Remains:
-      the microphone/input backend, per-app volume, speaker configuration (all above), and S15
-      attended checks.
+- [x] **Q15 — Steam audio settings.** **Working live and accepted by the maintainer 2026-08-30**:
+      namespace supplied, devices and default switching, output volume slider and hardware-button
+      tracking — after the direction enum (Input=0/Output=1) and 3-ary `SetDeviceVolume` were read
+      out of the client. The one accepted gap is the microphone volume slider, tracked as its own
+      open item above; per-app volume and speaker configuration stay open as S15 platform gaps
+      (the latter blocked on multichannel hardware either way).
 - [ ] **Q16 — collapse the two CEF generations into one system.** Twelve generation-1 modules
       (badge, library tabs, download sort, network indicator, artwork, launch config, downloads,
       library folders/collections) still run one-shot `SteamCef` evals with three hand-rolled
