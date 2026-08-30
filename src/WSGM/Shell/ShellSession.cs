@@ -103,6 +103,7 @@ public sealed class ShellSession : IAsyncDisposable
     private PerformanceOverlayBridge? _performanceOverlay;
     private PersistentSteamUiTransport? _steamUiTransport;
     private RunningApplicationMonitor? _runningApplications;
+    private ForegroundWindowWatcher? _foregroundWindows;
     private AutoTdpService? _autoTdp;
     private RunningApplicationCoordinator? _runningApplicationTargets;
     private SteamUiSessionHost? _steamUi;
@@ -255,6 +256,13 @@ public sealed class ShellSession : IAsyncDisposable
             _steamUiTransport = new PersistentSteamUiTransport();
             _runningApplications = new RunningApplicationMonitor(
                 new SteamRunningApplicationProbe(_steamUiTransport));
+
+            // The second identity source. It feeds the same monitor rather than driving policy on
+            // its own, so per-application settings also work on the desktop and for titles Steam
+            // never launched — which is the only way the overlay's per-game rows mean anything
+            // outside a Steam game.
+            _foregroundWindows = new ForegroundWindowWatcher();
+            _foregroundWindows.ApplicationChanged += OnForegroundApplicationChanged;
             if (_deviceCoordinator is { } deviceCoordinator)
             {
                 _autoTdp = new AutoTdpService(
@@ -1321,6 +1329,16 @@ public sealed class ShellSession : IAsyncDisposable
         => Avalonia.Threading.Dispatcher.UIThread.Post(
             () => _deviceCoordinator?.NoteAutoTdpStatusChanged());
 
+    /// <summary>Hands a foreground application change to the running-application monitor.</summary>
+    /// <param name="executable">Foreground executable file name.</param>
+    /// <remarks>
+    /// Straight through, with no policy of its own: the monitor's projection decides whether this
+    /// identity is used at all, so the precedence between Steam and the foreground stays in the one
+    /// pure function that can be tested.
+    /// </remarks>
+    private void OnForegroundApplicationChanged(string executable)
+        => _runningApplications?.ReportForeground(executable);
+
     /// <summary>Starts or stops the game-mode card services from one shared policy.</summary>
     /// <remarks>
     /// Initial direct boot and a later desktop-to-game transition are separate entry
@@ -1736,6 +1754,12 @@ public sealed class ShellSession : IAsyncDisposable
                 {
                     await _runningApplicationTargets.DisposeAsync().ConfigureAwait(false);
                     _runningApplicationTargets = null;
+                }
+                if (_foregroundWindows is not null)
+                {
+                    _foregroundWindows.ApplicationChanged -= OnForegroundApplicationChanged;
+                    _foregroundWindows.Dispose();
+                    _foregroundWindows = null;
                 }
                 if (_runningApplications is not null)
                 {

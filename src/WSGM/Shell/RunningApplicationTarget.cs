@@ -58,6 +58,25 @@ internal sealed record SteamRunningAppProfile(
     string? RtssProfileName,
     string? Diagnostic);
 
+/// <summary>
+/// The application the user currently has in front of them, independent of Steam.
+/// </summary>
+/// <param name="ExecutableName">
+/// File name of the foreground process with its extension, or <see langword="null"/> when nothing
+/// usable is in front.
+/// </param>
+/// <remarks>
+/// This is the second identity source, and it exists so per-application policy works outside a
+/// Steam game: on the desktop, for a title launched from another launcher, or for anything the user
+/// picks a profile for from the overlay. It never competes with Steam — see
+/// <see cref="RunningApplicationTargetProjection"/> for the precedence rule.
+/// </remarks>
+internal sealed record ForegroundApplicationObservation(string? ExecutableName)
+{
+    /// <summary>Nothing usable in the foreground.</summary>
+    internal static ForegroundApplicationObservation None { get; } = new((string?)null);
+}
+
 /// <summary>Read-only Steam source used by the session-owned target monitor.</summary>
 internal interface IRunningApplicationProbe
 {
@@ -71,21 +90,70 @@ internal interface IRunningApplicationProbe
 }
 
 /// <summary>Pure projection that never carries a previous application's identity forward.</summary>
+/// <remarks>
+/// Two identity sources, one answer. Steam wins whenever it names exactly one running application,
+/// because that identity is the one its own launch went through and the one the shortcut's
+/// executable was resolved from; the foreground window can only ever agree with it or be wrong
+/// about it. The foreground fills every case where Steam names nothing — the desktop, another
+/// launcher, a title started outside Steam — which is the whole reason it exists.
+/// <para>
+/// Deliberately not a tie-break: when Steam reports more than one running application it stays
+/// ambiguous rather than letting the foreground pick a winner. The foreground says which window has
+/// focus, not which of two running games the user means to configure, and quietly choosing one
+/// would write a power limit against the other.
+/// </para>
+/// </remarks>
 internal static class RunningApplicationTargetProjection
 {
     internal static RunningApplicationTargetSnapshot Apply(
         RunningApplicationTargetSnapshot current,
         SteamRunningAppObservation observation,
         SteamRunningAppProfile? profile,
-        DateTimeOffset observedAt)
+        DateTimeOffset observedAt,
+        ForegroundApplicationObservation? foreground = null)
     {
         RunningApplicationTargetSnapshot candidate = Project(observation, profile, observedAt);
+        candidate = ApplyForeground(candidate, foreground);
         if (Equivalent(current, candidate))
         {
             return current with { ObservedAt = observedAt };
         }
 
         return candidate with { Generation = current.Generation + 1 };
+    }
+
+    /// <summary>Substitutes the foreground application where Steam supplied no identity.</summary>
+    private static RunningApplicationTargetSnapshot ApplyForeground(
+        RunningApplicationTargetSnapshot steam,
+        ForegroundApplicationObservation? foreground)
+    {
+        if (steam.State is not RunningApplicationTargetState.Global
+            || foreground?.ExecutableName is not { Length: > 0 } executable)
+        {
+            return steam;
+        }
+
+        // Global is the only state the foreground may fill. Active and IdentityOnly already have
+        // Steam's answer; Ambiguous must stay ambiguous; and Unavailable means the observation
+        // itself failed, where publishing an identity would claim knowledge WSGM does not have.
+        string profileName = executable.Trim();
+        if (ForegroundApplicationFilter.Classify(profileName)
+                is not ForegroundApplicationKind.Application
+            || profileName.Length > 128
+            || !profileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+        {
+            return steam;
+        }
+
+        return steam with
+        {
+            State = RunningApplicationTargetState.Active,
+            ApplicationId = $"process:{profileName.ToLowerInvariant()}",
+            SteamAppId = null,
+            ExecutablePath = null,
+            RtssProfileName = profileName,
+            Diagnostic = null,
+        };
     }
 
     private static RunningApplicationTargetSnapshot Project(
@@ -430,6 +498,8 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
     private RunningApplicationTargetSnapshot _current;
     private SteamRunningAppProfile? _profile;
     private uint? _profileAppId;
+    private SteamRunningAppObservation? _lastObservation;
+    private ForegroundApplicationObservation _foreground = ForegroundApplicationObservation.None;
     private int _observerCount;
     private bool _disposed;
 
@@ -456,6 +526,51 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
                 return _current;
             }
         }
+    }
+
+    /// <summary>Reports the application the user brought to the foreground.</summary>
+    /// <param name="executableName">Foreground executable file name, or null for none.</param>
+    /// <remarks>
+    /// Still one monitor and one projection: the foreground is an input to the same projection, not
+    /// a second observer publishing its own answer. It republishes against the last Steam
+    /// observation rather than re-reading Steam, because re-reading here would be exactly the
+    /// second CEF poll this class exists to avoid — and it would run on whatever thread the window
+    /// hook fired on.
+    /// </remarks>
+    internal void ReportForeground(string? executableName)
+    {
+        SteamRunningAppObservation? observation;
+        lock (_stateGate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            ForegroundApplicationObservation next = new(executableName);
+            if (string.Equals(
+                    _foreground.ExecutableName,
+                    next.ExecutableName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            _foreground = next;
+            observation = _lastObservation;
+        }
+
+        if (observation is null)
+        {
+            // Nothing has been observed from Steam yet, so there is no snapshot to re-project
+            // against. The next poll picks the foreground up from the field.
+            Log.Info(
+                $"Foreground application {executableName ?? "(none)"} recorded before the first "
+                + "Steam observation; it applies at the next poll.");
+            return;
+        }
+
+        Publish(observation, _profile);
     }
 
     internal IDisposable AcquireObservation()
@@ -571,11 +686,13 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
         bool changed;
         lock (_stateGate)
         {
+            _lastObservation = observation;
             next = RunningApplicationTargetProjection.Apply(
                 _current,
                 observation,
                 profile,
-                _timeProvider.GetUtcNow());
+                _timeProvider.GetUtcNow(),
+                _foreground);
             changed = next.Generation != _current.Generation;
             _current = next;
         }
@@ -600,6 +717,14 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
     {
         switch (target.State)
         {
+            case RunningApplicationTargetState.Active when target.SteamAppId is null:
+                // No AppID means the foreground supplied this identity, which is worth saying
+                // outright: it is the difference between "Steam launched this" and "this is simply
+                // what the user has in front of them".
+                Log.Info(
+                    $"Foreground application is active: {target.RtssProfileName}; "
+                    + "Steam reports no running application.");
+                break;
             case RunningApplicationTargetState.Active:
                 Log.Info(
                     $"Running application started: Steam AppID {target.SteamAppId}; "

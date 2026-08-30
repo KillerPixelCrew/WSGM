@@ -131,6 +131,123 @@ public sealed class RunningApplicationTargetTests : IDisposable
         Assert.NotNull(profile.Diagnostic);
     }
 
+    [Fact]
+    public void ForegroundApplicationSuppliesTheIdentitySteamDoesNotHave()
+    {
+        // The whole point of the second source: on the desktop, or for a title Steam never
+        // launched, per-application policy still has something to key on.
+        DateTimeOffset now = DateTimeOffset.Parse("2026-08-30T12:00:00Z");
+
+        RunningApplicationTargetSnapshot target = RunningApplicationTargetProjection.Apply(
+            RunningApplicationTargetSnapshot.Initial(now),
+            new SteamRunningAppObservation(true, [], 3, null),
+            null,
+            now,
+            new ForegroundApplicationObservation("Cyberpunk2077.exe"));
+
+        Assert.Equal(RunningApplicationTargetState.Active, target.State);
+        Assert.Equal("process:cyberpunk2077.exe", target.ApplicationId);
+        Assert.Equal("Cyberpunk2077.exe", target.RtssProfileName);
+        Assert.Null(target.SteamAppId);
+    }
+
+    [Fact]
+    public void SteamsIdentityOutranksTheForegroundWindow()
+    {
+        // Alt-tabbing out of a running Steam game must not retarget its profile: Steam's identity
+        // is the one the launch went through and the one the RTSS profile was resolved from.
+        DateTimeOffset now = DateTimeOffset.Parse("2026-08-30T12:00:00Z");
+
+        RunningApplicationTargetSnapshot target = RunningApplicationTargetProjection.Apply(
+            RunningApplicationTargetSnapshot.Initial(now),
+            new SteamRunningAppObservation(true, [42], 2, null),
+            new SteamRunningAppProfile(@"D:\Games\game.exe", "game.exe", null),
+            now,
+            new ForegroundApplicationObservation("chrome.exe"));
+
+        Assert.Equal("steam:42", target.ApplicationId);
+        Assert.Equal("game.exe", target.RtssProfileName);
+    }
+
+    [Fact]
+    public void AmbiguousSteamStateIsNotBrokenByTheForegroundWindow()
+    {
+        // The foreground says which window has focus, not which of two running games the user
+        // means; choosing one here would write a power limit against the other.
+        DateTimeOffset now = DateTimeOffset.Parse("2026-08-30T12:00:00Z");
+
+        RunningApplicationTargetSnapshot target = RunningApplicationTargetProjection.Apply(
+            RunningApplicationTargetSnapshot.Initial(now),
+            new SteamRunningAppObservation(true, [42, 43], 2, null),
+            null,
+            now,
+            new ForegroundApplicationObservation("game.exe"));
+
+        Assert.Equal(RunningApplicationTargetState.Ambiguous, target.State);
+        Assert.Null(target.ApplicationId);
+    }
+
+    [Fact]
+    public void AnUnreachableSteamStaysUnavailableRatherThanGuessingFromFocus()
+    {
+        // Unavailable means the observation failed. Publishing an identity from focus would claim
+        // knowledge WSGM does not have about whether a game is running.
+        DateTimeOffset now = DateTimeOffset.Parse("2026-08-30T12:00:00Z");
+
+        RunningApplicationTargetSnapshot target = RunningApplicationTargetProjection.Apply(
+            RunningApplicationTargetSnapshot.Initial(now),
+            new SteamRunningAppObservation(false, [], 0, "Steam is unreachable."),
+            null,
+            now,
+            new ForegroundApplicationObservation("game.exe"));
+
+        Assert.Equal(RunningApplicationTargetState.Unavailable, target.State);
+        Assert.Null(target.RtssProfileName);
+    }
+
+    [Theory]
+    [InlineData("wsgm.exe")]
+    [InlineData("explorer.exe")]
+    [InlineData("readme.txt")]
+    [InlineData("")]
+    public void ForegroundWindowsThatAreNotApplicationsLeavePolicyGlobal(string executable)
+    {
+        DateTimeOffset now = DateTimeOffset.Parse("2026-08-30T12:00:00Z");
+
+        RunningApplicationTargetSnapshot target = RunningApplicationTargetProjection.Apply(
+            RunningApplicationTargetSnapshot.Initial(now),
+            new SteamRunningAppObservation(true, [], 3, null),
+            null,
+            now,
+            new ForegroundApplicationObservation(executable));
+
+        Assert.Equal(RunningApplicationTargetState.Global, target.State);
+        Assert.Null(target.ApplicationId);
+    }
+
+    [Fact]
+    public void ReturningToTheSameForegroundApplicationDoesNotChurnTheGeneration()
+    {
+        DateTimeOffset now = DateTimeOffset.Parse("2026-08-30T12:00:00Z");
+        SteamRunningAppObservation idle = new(true, [], 3, null);
+        ForegroundApplicationObservation foreground = new("game.exe");
+
+        RunningApplicationTargetSnapshot first = RunningApplicationTargetProjection.Apply(
+            RunningApplicationTargetSnapshot.Initial(now),
+            idle,
+            null,
+            now,
+            foreground);
+        RunningApplicationTargetSnapshot second = RunningApplicationTargetProjection.Apply(
+            first,
+            idle,
+            null,
+            now.AddSeconds(2),
+            foreground);
+
+        Assert.Equal(first.Generation, second.Generation);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_tempDirectory))
