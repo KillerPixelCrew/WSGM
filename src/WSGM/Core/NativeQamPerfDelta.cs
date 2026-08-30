@@ -85,8 +85,24 @@ internal static class NativeQamPerfDeltaReader
         error = null;
 
         if (payload.ValueKind is not JsonValueKind.Object
-            || !payload.TryGetProperty("delta", out JsonElement message)
-            || message.ValueKind is not JsonValueKind.Object)
+            || !payload.TryGetProperty("delta", out JsonElement message))
+        {
+            error = "The performance delta payload carried no delta object.";
+            return false;
+        }
+
+        if (message.ValueKind is JsonValueKind.String)
+        {
+            // Named separately because it is one specific regression, not a malformed payload:
+            // every SystemPerfStore setter calls UpdateSettings with serializeBase64String(), so a
+            // string here means the injected shim stopped decoding it and EVERY performance control
+            // has silently stopped working. Saying so beats "no delta object".
+            error = "The performance delta arrived undecoded; the injected shim did not deserialize "
+                + "the update-settings message.";
+            return false;
+        }
+
+        if (message.ValueKind is not JsonValueKind.Object)
         {
             error = "The performance delta payload carried no delta object.";
             return false;
@@ -136,11 +152,16 @@ internal static class NativeQamPerfDeltaReader
 
             NativeQamPerfSetting? kind = property.Name switch
             {
-                "fps_limit" => NativeQamPerfSetting.FrameLimit,
+                // The `_external` names are the same settings, written by the same controls when
+                // Steam classifies the panel's display as external — which the Claw's built-in one
+                // reports itself as. A delta carries one twin or the other, never both, because the
+                // control reads and writes whichever side its own display test selected.
+                "fps_limit" or "fps_limit_external" => NativeQamPerfSetting.FrameLimit,
                 "is_fps_limit_enabled" => NativeQamPerfSetting.FrameLimitEnabled,
                 "perf_overlay_level" => NativeQamPerfSetting.OverlayLevel,
                 "is_vrr_enabled" => NativeQamPerfSetting.VariableRefreshRate,
-                "display_refresh_manual_hz" => NativeQamPerfSetting.RefreshRateHz,
+                "display_refresh_manual_hz" or "display_external_refresh_manual_hz" =>
+                    NativeQamPerfSetting.RefreshRateHz,
                 "is_game_perf_profile_enabled" => NativeQamPerfSetting.PerApplicationProfileEnabled,
                 "is_advanced_settings_enabled" => NativeQamPerfSetting.AdvancedSettingsEnabled,
                 _ => null,

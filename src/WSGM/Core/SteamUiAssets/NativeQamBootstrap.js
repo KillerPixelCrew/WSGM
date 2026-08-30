@@ -200,6 +200,29 @@
     let lastError = "";
     let unsubscribe = null;
     const store = () => window.SystemPerfStore ?? null;
+    // The message class is never named here — it is taken from an instance the store builds, so
+    // this stays correct across minification and client updates. An object argument is still
+    // accepted because that is what a caller other than the store would pass, and an
+    // undecodable one is forwarded as-is so WSGM logs a readable rejection instead of nothing.
+    const decodeSettingsUpdate = (payload) => {
+      if (typeof payload !== "string") return payload?.toObject?.() ?? payload ?? {};
+      try {
+        const constructor = store()?.CreateSettingsUpdateRequest?.()?.constructor;
+        if (typeof constructor?.deserializeBinary !== "function") {
+          lastError = "settings update could not be decoded: no deserializeBinary";
+          return {};
+        }
+        const binary = atob(payload);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) {
+          bytes[index] = binary.charCodeAt(index);
+        }
+        return constructor.deserializeBinary(bytes).toObject();
+      } catch (error) {
+        lastError = "settings update could not be decoded: " + String(error);
+        return {};
+      }
+    };
     const onState = (state) => {
       if (!installed || !state) return;
       const target = store();
@@ -240,12 +263,16 @@
       // where all of them arrive. The delta is decoded on WSGM's side rather than here, because the
       // message shapes belong to the client and this half only forwards.
       const api = {
-        // toObject() first, always. The argument is a protobuf message whose own JSON form is
-        // jspb's internal positional array, so forwarding it verbatim would send tag-indexed
-        // nesting with no field names and WSGM would have to reimplement the wire format to read
-        // its own client's message back.
+        // Decode first, always. SystemPerfStore's setters all end in
+        // `UpdateSettings(request.serializeBase64String())`, so what arrives here is a BASE64
+        // STRING, not the message — live-verified 2026-08-30 by round-tripping a request built by
+        // the store itself. Forwarding it verbatim made WSGM's reader reject every write as
+        // "carried no delta object", which is why no control on the Performance tab did anything:
+        // the overlay-level selector snapped back to off, the frame cap never took, VRR never
+        // toggled. Decoding through the message's OWN deserializeBinary keeps the wire format the
+        // client's business; toObject() then emits snake_case field names, which is what WSGM reads.
         UpdateSettings: (payload) =>
-          request(patchId, "updateSettings", { delta: payload?.toObject?.() ?? payload ?? {} }, 0),
+          request(patchId, "updateSettings", { delta: decodeSettingsUpdate(payload) }, 0),
         RegisterForStateChanges: () => ({ unregister: () => {} }),
         RegisterForDiagnosticInfoChanges: () => ({ unregister: () => {} }),
       };

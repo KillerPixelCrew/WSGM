@@ -75,6 +75,23 @@ internal sealed record NativeQamPerfLimits
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<int>? FpsLimitOptions { get; init; }
 
+    /// <summary>The same notches, for a display Steam considers external.</summary>
+    /// <remarks>
+    /// EVERY display field in this message has an <c>_external</c> twin, and Valve's controls pick
+    /// which one to read from whether Steam thinks the panel is external — the Claw's built-in
+    /// panel reports <c>bDisplayIsExternal: true</c>, so on this hardware the external twin is the
+    /// one that renders and the internal one is dead weight. Supplying only the internal fields is
+    /// what left the frame-limit slider a grey bar with a label: the component rendered with an
+    /// empty notch list.
+    /// <para>
+    /// WSGM manages one display and cannot tell the two cases apart usefully, so both carry the
+    /// same values rather than guessing which Steam will read.
+    /// </para>
+    /// </remarks>
+    [JsonPropertyName("fps_limit_options_external")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<int>? FpsLimitOptionsExternal { get; init; }
+
     /// <summary>Whether the panel supports variable refresh rate.</summary>
     [JsonPropertyName("is_vrr_supported")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -89,6 +106,16 @@ internal sealed record NativeQamPerfLimits
     [JsonPropertyName("display_refresh_manual_hz_min")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? DisplayRefreshManualHzMin { get; init; }
+
+    /// <summary>Lowest selectable refresh rate, for an externally-reported display.</summary>
+    [JsonPropertyName("display_external_refresh_manual_hz_min")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? DisplayExternalRefreshManualHzMin { get; init; }
+
+    /// <summary>Highest selectable refresh rate, for an externally-reported display.</summary>
+    [JsonPropertyName("display_external_refresh_manual_hz_max")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? DisplayExternalRefreshManualHzMax { get; init; }
 
     /// <summary>Highest selectable refresh rate in Hz.</summary>
     [JsonPropertyName("display_refresh_manual_hz_max")]
@@ -118,6 +145,11 @@ internal sealed record NativeQamPerfApplicationSettings
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? FpsLimit { get; init; }
 
+    /// <summary>The same cap, for a display Steam considers external. See the limits twin.</summary>
+    [JsonPropertyName("fps_limit_external")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? FpsLimitExternal { get; init; }
+
     /// <summary>Whether the frame cap is applied at all.</summary>
     [JsonPropertyName("is_fps_limit_enabled")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -132,6 +164,11 @@ internal sealed record NativeQamPerfApplicationSettings
     [JsonPropertyName("display_refresh_manual_hz")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? DisplayRefreshManualHz { get; init; }
+
+    /// <summary>The same rate, for a display Steam considers external.</summary>
+    [JsonPropertyName("display_external_refresh_manual_hz")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? DisplayExternalRefreshManualHz { get; init; }
 
     /// <summary>Whether this application keeps its own profile rather than using the global one.</summary>
     [JsonPropertyName("is_game_perf_profile_enabled")]
@@ -202,19 +239,40 @@ internal static class NativeQamPerfProjection
         string gameId = steamAppId is { } appId ? appId.ToString() : NoGame;
         bool perGame = perApplicationProfileEnabled && gameId != NoGame;
 
+        IReadOnlyList<int>? frameLimitOptions = support.FrameLimitOptions.Count > 0
+            ? [.. support.FrameLimitOptions.Where(option => option > 0).Distinct().Order()]
+            : null;
+        int? frameLimit = frameLimitOptions is not null
+            ? values.FrameLimit ?? LowestOption(support.FrameLimitOptions)
+            : null;
+        bool? frameLimitEnabled = frameLimitOptions is not null ? values.FrameLimit is > 0 : null;
+        int? manualRefreshHz = support.RefreshRatesSelectable
+            ? refreshRateHz ?? support.RefreshRateMaxHz ?? 0
+            : null;
+
         return new NativeQamPerfState
         {
             Limits = new NativeQamPerfLimits
             {
-                FpsLimitOptions = support.FrameLimitOptions.Count > 0
-                    ? [.. support.FrameLimitOptions.Where(option => option > 0).Distinct().Order()]
-                    : null,
+                // Both twins carry the same values. Valve's controls read the internal or the
+                // external set depending on how Steam classifies the panel, and the Claw's built-in
+                // display reports as EXTERNAL — so on this hardware the external twin is the one
+                // that renders. Supplying only the internal set gave the frame-limit slider an
+                // empty notch list, which is the grey bar with a label.
+                FpsLimitOptions = frameLimitOptions,
+                FpsLimitOptionsExternal = frameLimitOptions,
                 IsVrrSupported = support.VariableRefreshRateSupported ? true : null,
                 IsManualDisplayRefreshRateAvailable = support.RefreshRatesSelectable ? true : null,
                 DisplayRefreshManualHzMin = support.RefreshRatesSelectable
                     ? support.RefreshRateMinHz
                     : null,
                 DisplayRefreshManualHzMax = support.RefreshRatesSelectable
+                    ? support.RefreshRateMaxHz
+                    : null,
+                DisplayExternalRefreshManualHzMin = support.RefreshRatesSelectable
+                    ? support.RefreshRateMinHz
+                    : null,
+                DisplayExternalRefreshManualHzMax = support.RefreshRatesSelectable
                     ? support.RefreshRateMaxHz
                     : null,
             },
@@ -238,21 +296,20 @@ internal static class NativeQamPerfProjection
                 // The lowest offered notch when no cap is set, never 0: zero is filtered out of the
                 // options above, so reporting it would put the slider at a value outside its own
                 // range. "Off" is carried by the flag below, which is how Valve's row models it.
-                FpsLimit = support.FrameLimitOptions.Count > 0
-                    ? values.FrameLimit ?? LowestOption(support.FrameLimitOptions)
-                    : null,
+                //
+                // The `_external` twins carry the same value for the same reason the limits do: the
+                // control reads one or the other, and on this hardware it reads the external one.
+                FpsLimit = frameLimit,
+                FpsLimitExternal = frameLimit,
                 // Steam draws the cap and its on/off state from two fields. Without the flag the
                 // slider renders at the cap but reads as disabled, so an unset cap is off and any
                 // cap at all is on.
-                IsFpsLimitEnabled = support.FrameLimitOptions.Count > 0
-                    ? values.FrameLimit is > 0
-                    : null,
+                IsFpsLimitEnabled = frameLimitEnabled,
                 IsVrrEnabled = support.VariableRefreshRateSupported
                     ? variableRefreshRateEnabled ?? false
                     : null,
-                DisplayRefreshManualHz = support.RefreshRatesSelectable
-                    ? refreshRateHz ?? support.RefreshRateMaxHz ?? 0
-                    : null,
+                DisplayRefreshManualHz = manualRefreshHz,
+                DisplayExternalRefreshManualHz = manualRefreshHz,
                 IsGamePerfProfileEnabled = gameId == NoGame ? null : perApplicationProfileEnabled,
             },
             CurrentGameId = gameId,
