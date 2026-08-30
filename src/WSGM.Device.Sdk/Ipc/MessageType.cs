@@ -63,6 +63,23 @@ public enum DeviceMessageType : ushort
     /// <summary>A request to abandon an in-flight command.</summary>
     CancelCommand = 24,
 
+    // Plugin settings.
+
+    /// <summary>The host declares the settings its plugin wants WSGM to draw and store.</summary>
+    /// <remarks>
+    /// A declaration, not UI: typed elements and the sections they belong to. WSGM draws, validates,
+    /// localizes and stores them, which is what keeps every device speaking the same language and
+    /// keeps the plugin free of presentation code.
+    /// </remarks>
+    SettingsManifest = 25,
+
+    /// <summary>WSGM hands the host the effective value of every declared setting.</summary>
+    /// <remarks>
+    /// Sent once at start and again whenever a value changes, so the plugin never has to ask and
+    /// never holds a value WSGM has since rejected against a narrowed declaration.
+    /// </remarks>
+    SettingsValues = 26,
+
     // Controller.
 
     /// <summary>Physical device identities WSGM needs in order to write HidHide entries.</summary>

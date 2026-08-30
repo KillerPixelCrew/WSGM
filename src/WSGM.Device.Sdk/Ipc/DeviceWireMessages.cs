@@ -5,6 +5,7 @@ using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Identity;
 using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Device.Sdk.Settings;
 
 namespace WSGM.Device.Sdk.Ipc;
 
@@ -142,6 +143,30 @@ public sealed record DeviceOemControlsNotification
 {
     /// <summary>Logical controls assignable by WSGM.</summary>
     public IReadOnlyList<OemControlDescriptor> Controls { get; init; } = [];
+}
+
+/// <summary>The settings a plugin declares for WSGM to draw, validate, store, and localize.</summary>
+public sealed record DeviceSettingsManifestNotification
+{
+    /// <summary>The declaration itself.</summary>
+    public required PluginSettingsManifest Manifest { get; init; }
+}
+
+/// <summary>One effective plugin setting value travelling to the host.</summary>
+/// <param name="SettingId">The declared setting the value belongs to.</param>
+/// <param name="Value">The value, already validated against the current declaration.</param>
+public readonly record struct DeviceSettingValue(string SettingId, CapabilityValue Value);
+
+/// <summary>The effective value of every declared setting.</summary>
+/// <remarks>
+/// A complete set rather than a delta, for the same reason a descriptor set is: a plugin that missed
+/// one update would otherwise act on a value WSGM no longer believes, and there is no way for it to
+/// discover that it had.
+/// </remarks>
+public sealed record DeviceSettingsValuesNotification
+{
+    /// <summary>Every declared setting's effective value, in declaration order.</summary>
+    public IReadOnlyList<DeviceSettingValue> Values { get; init; } = [];
 }
 
 /// <summary>Identifies one in-flight semantic command to cancel.</summary>

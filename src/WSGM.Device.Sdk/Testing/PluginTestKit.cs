@@ -6,6 +6,7 @@ using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Ipc;
 using WSGM.Device.Sdk.Plugin;
+using WSGM.Device.Sdk.Settings;
 
 namespace WSGM.Device.Sdk.Testing;
 
@@ -20,6 +21,7 @@ public sealed class TestPluginHostAdapter : IPluginHostAdapter
     private readonly List<CanonicalControllerSample> _controllerSamples = [];
     private readonly List<IReadOnlyList<OemControlDescriptor>> _oemControlSets = [];
     private readonly List<OemControlEvent> _oemEvents = [];
+    private readonly List<PluginSettingsManifest> _settingsManifests = [];
     private readonly List<(DeviceTraceLevel Level, string Scope, string Message)> _traces = [];
 
     /// <summary>Creates an adapter for one cycle generation.</summary>
@@ -54,6 +56,9 @@ public sealed class TestPluginHostAdapter : IPluginHostAdapter
 
     /// <summary>OEM-control events in publication order.</summary>
     public IReadOnlyList<OemControlEvent> OemEvents => Snapshot(_oemEvents);
+
+    /// <summary>Settings manifests the plugin declared, in publication order.</summary>
+    public IReadOnlyList<PluginSettingsManifest> SettingsManifests => Snapshot(_settingsManifests);
 
     /// <summary>Trace lines in emission order.</summary>
     /// <remarks>
@@ -113,6 +118,12 @@ public sealed class TestPluginHostAdapter : IPluginHostAdapter
         OemControlEvent controlEvent,
         CancellationToken cancellationToken) =>
         RecordAsync(_oemEvents, controlEvent, cancellationToken);
+
+    /// <inheritdoc />
+    public ValueTask PublishSettingsManifestAsync(
+        PluginSettingsManifest manifest,
+        CancellationToken cancellationToken) =>
+        RecordAsync(_settingsManifests, manifest, cancellationToken);
 
     /// <inheritdoc />
     public void Trace(DeviceTraceLevel level, string scope, string message)

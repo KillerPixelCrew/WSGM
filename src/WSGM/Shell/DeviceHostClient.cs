@@ -16,6 +16,7 @@ using WSGM.Device.Sdk.Identity;
 using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Ipc;
 using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Device.Sdk.Settings;
 
 namespace WSGM.Shell;
 
@@ -36,6 +37,7 @@ internal sealed class DeviceHostClient : IAsyncDisposable
     private string? _protocolFaultDetail;
     private long _lastSampleSequence;
     private int _sampleDispatching;
+    private int _samplePending;
     private bool _disposed;
 
     private DeviceHostClient(
@@ -80,6 +82,13 @@ internal sealed class DeviceHostClient : IAsyncDisposable
     public event Action<OemControlEvent>? OemEventReceived;
 
     public event Action<CanonicalControllerSample>? ControllerSampleReceived;
+
+    /// <summary>Raised with a plugin's settings declaration once it has been accepted.</summary>
+    /// <remarks>
+    /// Only a manifest that validates is published. A refused one leaves the page as it was rather
+    /// than half-drawn, and the reason is logged with the offending identifier in it.
+    /// </remarks>
+    public event Action<PluginSettingsManifest>? SettingsManifestReceived;
 
     public static async Task<DeviceHostClient> StartAsync(
         InstalledDevicePackage package,
@@ -309,6 +318,31 @@ internal sealed class DeviceHostClient : IAsyncDisposable
             DeviceWireJsonContext.Default.DeviceOperationAck);
     }
 
+    /// <summary>
+    /// Hands the plugin the effective value of every setting it declared.
+    /// </summary>
+    /// <param name="values">Effective values, in declaration order.</param>
+    /// <param name="cancellationToken">Cancels the exchange.</param>
+    /// <returns>A task that completes when the host acknowledges.</returns>
+    /// <remarks>
+    /// Sent at start and again on every change, as a complete set rather than a delta: a plugin that
+    /// missed one update would otherwise act on a value WSGM no longer believes, with no way to
+    /// discover it had.
+    /// </remarks>
+    public async Task ApplySettingsValuesAsync(
+        IReadOnlyList<DeviceSettingValue> values,
+        CancellationToken cancellationToken)
+    {
+        DeviceFrame response = await RequestAsync(
+            DeviceMessageType.SettingsValues,
+            new DeviceSettingsValuesNotification { Values = values },
+            DeviceWireJsonContext.Default.DeviceSettingsValuesNotification,
+            DateTimeOffset.UtcNow.AddSeconds(2),
+            cancellationToken).ConfigureAwait(false);
+        _ = RequireResponse(response, DeviceMessageType.OperationAck,
+            DeviceWireJsonContext.Default.DeviceOperationAck);
+    }
+
     public async Task ApplyHapticOutputAsync(
         HapticOutputFrame output,
         CancellationToken cancellationToken)
@@ -384,40 +418,96 @@ internal sealed class DeviceHostClient : IAsyncDisposable
         return CanonicalSampleCodec.TryRead(payload, out sample);
     }
 
+    /// <summary>Dispatches every sample the ring holds that has not been seen yet.</summary>
+    /// <remarks>
+    /// The state event is auto-reset and its wait callbacks can overlap, so a notification raised
+    /// while a previous callback is still running is consumed by that callback's early return. If
+    /// the running one had already read the ring, the newer sample — typically the final
+    /// button-release packet — waited for some unrelated later input, leaving the virtual
+    /// controller on stale state. The pending flag records that overlap and the loop below drains
+    /// it, so the last sample published always gets dispatched.
+    /// </remarks>
     private void DispatchLatestSample()
     {
-        if (_disposed || Interlocked.Exchange(ref _sampleDispatching, 1) != 0)
+        if (_disposed)
+        {
+            return;
+        }
+
+        Volatile.Write(ref _samplePending, 1);
+        if (Interlocked.Exchange(ref _sampleDispatching, 1) != 0)
         {
             return;
         }
 
         try
         {
-            if (!TryReadLatestSample(out CanonicalControllerSample? sample, out long sequence)
+            while (Interlocked.Exchange(ref _samplePending, 0) != 0 && !_disposed)
+            {
+                if (!TryReadLatestSample(out CanonicalControllerSample? sample, out long sequence)
+                    || sample is null
+                    || sequence <= Interlocked.Read(ref _lastSampleSequence))
+                {
+                    continue;
+                }
+
+                long previous = Interlocked.Exchange(ref _lastSampleSequence, sequence);
+                long missed = previous <= 0 ? 0 : Math.Max(0, sequence - previous - 1);
+                if (missed > 0)
+                {
+                    // The ring runs at the pad's report rate, so a steady skip rate logged 6,382
+                    // lines in one session while saying the same thing each time. The count is what
+                    // matters and it is in the message, so a change in it still gets a line.
+                    Log.Change(
+                        "controller.ring.skips",
+                        $"Controller state ring skipped {missed} superseded samples.",
+                        "warn ");
+                }
+
+                ControllerSampleReceived?.Invoke(sample);
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Warn($"Controller state-ring notification was rejected: {ex.Message}");
+        }
+        finally
+        {
+            Volatile.Write(ref _sampleDispatching, 0);
+            // One last look: a notification that arrived between the loop's exit and clearing the
+            // gate would otherwise be the one that is lost.
+            if (Volatile.Read(ref _samplePending) != 0
+                && Interlocked.Exchange(ref _sampleDispatching, 1) == 0)
+            {
+                DispatchPendingTail();
+            }
+        }
+    }
+
+    /// <summary>Drains a notification that raced the end of a dispatch.</summary>
+    /// <remarks>
+    /// Entered with the dispatch gate already taken, so it cannot recurse: the tail either finds
+    /// nothing pending or dispatches once and returns.
+    /// </remarks>
+    private void DispatchPendingTail()
+    {
+        try
+        {
+            if (Interlocked.Exchange(ref _samplePending, 0) == 0
+                || _disposed
+                || !TryReadLatestSample(out CanonicalControllerSample? sample, out long sequence)
                 || sample is null
                 || sequence <= Interlocked.Read(ref _lastSampleSequence))
             {
                 return;
             }
 
-            long previous = Interlocked.Exchange(ref _lastSampleSequence, sequence);
-            long missed = previous <= 0 ? 0 : Math.Max(0, sequence - previous - 1);
-            if (missed > 0)
-            {
-                // The ring runs at the pad's report rate, so a steady skip rate logged 6,382 lines
-                // in one session while saying the same thing each time. The count is what matters
-                // and it is in the message, so a change in it still gets a line.
-                Log.Change(
-                    "controller.ring.skips",
-                    $"Controller state ring skipped {missed} superseded samples.",
-                    "warn ");
-            }
-
+            Interlocked.Exchange(ref _lastSampleSequence, sequence);
             ControllerSampleReceived?.Invoke(sample);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            Log.Warn($"Controller state-ring notification was rejected: {ex.Message}");
+            Log.Warn($"Controller state-ring tail notification was rejected: {ex.Message}");
         }
         finally
         {
@@ -764,6 +854,11 @@ internal sealed class DeviceHostClient : IAsyncDisposable
             case DeviceMessageType.OemEvent:
                 OemEventReceived?.Invoke(Deserialize(frame, DeviceWireJsonContext.Default.OemControlEvent));
                 break;
+            case DeviceMessageType.SettingsManifest:
+                DispatchSettingsManifest(Deserialize(
+                    frame,
+                    DeviceWireJsonContext.Default.DeviceSettingsManifestNotification));
+                break;
             case DeviceMessageType.Trace:
                 WriteTrace(Deserialize(frame, DeviceWireJsonContext.Default.DeviceTraceMessage));
                 break;
@@ -771,6 +866,32 @@ internal sealed class DeviceHostClient : IAsyncDisposable
                 Log.Warn($"DeviceHost notification ignored: type={(ushort)frame.Header.MessageType}.");
                 break;
         }
+    }
+
+    /// <summary>
+    /// Accepts a plugin's settings declaration, or refuses it with the reason.
+    /// </summary>
+    /// <remarks>
+    /// Validated here rather than trusted from the wire, because the sender is the party being
+    /// diagnosed. A refusal names the offending identifier and leaves the previous declaration in
+    /// place: a page that half-draws is worse than one that does not change, and a manifest that
+    /// silently did nothing is the defect this repository pays for most often.
+    /// </remarks>
+    private void DispatchSettingsManifest(DeviceSettingsManifestNotification notification)
+    {
+        PluginSettingsManifest manifest = notification.Manifest;
+        if (!manifest.TryValidate(out string? error))
+        {
+            Log.Warn(
+                $"Plugin settings manifest refused: {error} "
+                + $"({manifest.Sections.Count} sections, {manifest.Settings.Count} settings).");
+            return;
+        }
+
+        Log.Info(
+            $"Plugin settings manifest accepted: {manifest.Sections.Count} sections, "
+            + $"{manifest.Settings.Count} settings.");
+        SettingsManifestReceived?.Invoke(manifest);
     }
 
     /// <summary>

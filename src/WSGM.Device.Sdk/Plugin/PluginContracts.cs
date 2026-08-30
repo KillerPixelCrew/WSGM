@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Identity;
 using WSGM.Device.Sdk.Input;
+using WSGM.Device.Sdk.Ipc;
 using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Device.Sdk.Plugin;
@@ -42,6 +43,24 @@ public interface IDevicePlugin : IAsyncDisposable
     ValueTask<CapabilityCommandResult> ExecuteCommandAsync(
         CapabilityCommand command,
         CancellationToken cancellationToken);
+
+    /// <summary>Receives the effective value of every setting the plugin declared.</summary>
+    /// <param name="values">Every declared setting's value, already validated by WSGM.</param>
+    /// <param name="cancellationToken">Cancels application.</param>
+    /// <returns>A task completing when the plugin has taken the values into account.</returns>
+    /// <remarks>
+    /// Called once after start and again on every change, always as a complete set. A plugin that
+    /// declares no settings never sees this, so the default implementation does nothing rather than
+    /// forcing every plugin to carry an empty override.
+    /// <para>
+    /// These are preferences, not hardware commands: applying one may change how the plugin behaves
+    /// but must not become a hidden path for writing device state that WSGM cannot see.
+    /// </para>
+    /// </remarks>
+    ValueTask ApplySettingsAsync(
+        IReadOnlyList<DeviceSettingValue> values,
+        CancellationToken cancellationToken
+    ) => ValueTask.CompletedTask;
 
     /// <summary>Quiesces volatile work for suspend or session lock.</summary>
     /// <param name="context">Bounded quiescence deadline.</param>

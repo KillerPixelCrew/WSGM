@@ -41,4 +41,6 @@ namespace WSGM.Device.Sdk.Ipc;
 [JsonSerializable(typeof(IReadOnlyList<OemControlDescriptor>))]
 [JsonSerializable(typeof(PluginManifest))]
 [JsonSerializable(typeof(GlyphProfileManifest))]
+[JsonSerializable(typeof(DeviceSettingsManifestNotification))]
+[JsonSerializable(typeof(DeviceSettingsValuesNotification))]
 public sealed partial class DeviceWireJsonContext : JsonSerializerContext;

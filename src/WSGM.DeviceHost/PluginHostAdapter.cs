@@ -6,6 +6,7 @@ using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Ipc;
 using WSGM.Device.Sdk.Plugin;
+using WSGM.Device.Sdk.Settings;
 
 namespace WSGM.DeviceHost;
 
@@ -175,6 +176,36 @@ internal sealed class PluginHostAdapter : IPluginHostAdapter, IDisposable
             FrameFlags.None,
             controlEvent,
             DeviceWireJsonContext.Default.OemControlEvent,
+            _protocolVersion,
+            cancellationToken);
+    }
+
+    /// <remarks>
+    /// Validated here as well as in WSGM. The host is the party that can name the plugin in a log
+    /// line, and a manifest refused only at the far end would tell the plugin author nothing.
+    /// </remarks>
+    /// <inheritdoc />
+    public ValueTask PublishSettingsManifestAsync(
+        PluginSettingsManifest manifest,
+        CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(manifest);
+        if (!manifest.TryValidate(out string? error))
+        {
+            Trace(
+                DeviceTraceLevel.Warn,
+                "settings",
+                $"Settings manifest not published: {error}");
+            return ValueTask.CompletedTask;
+        }
+
+        return _sender.SendAsync(
+            DeviceMessageType.SettingsManifest,
+            0,
+            FrameFlags.None,
+            new DeviceSettingsManifestNotification { Manifest = manifest },
+            DeviceWireJsonContext.Default.DeviceSettingsManifestNotification,
             _protocolVersion,
             cancellationToken);
     }

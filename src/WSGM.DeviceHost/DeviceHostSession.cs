@@ -219,6 +219,9 @@ internal sealed class DeviceHostSession : IAsyncDisposable
             case DeviceMessageType.DiagnosticsRequest:
                 StartOperation(() => DiagnosticsAsync(frame, sessionToken));
                 break;
+            case DeviceMessageType.SettingsValues:
+                StartOperation(() => SettingsValuesAsync(frame, sessionToken));
+                break;
             default:
                 StartOperation(() => SendErrorAsync(
                     frame.Header.RequestId,
@@ -614,6 +617,15 @@ internal sealed class DeviceHostSession : IAsyncDisposable
     {
         HapticOutputFrame output = Deserialize(frame, DeviceWireJsonContext.Default.HapticOutputFrame);
         await Plugin.ApplyHapticOutputAsync(output, sessionToken).ConfigureAwait(false);
+        await SendAckAsync(frame.Header.RequestId, true, null, sessionToken).ConfigureAwait(false);
+    }
+
+    private async Task SettingsValuesAsync(DeviceFrame frame, CancellationToken sessionToken)
+    {
+        DeviceSettingsValuesNotification notification = Deserialize(
+            frame,
+            DeviceWireJsonContext.Default.DeviceSettingsValuesNotification);
+        await Plugin.ApplySettingsAsync(notification.Values, sessionToken).ConfigureAwait(false);
         await SendAckAsync(frame.Header.RequestId, true, null, sessionToken).ConfigureAwait(false);
     }
 

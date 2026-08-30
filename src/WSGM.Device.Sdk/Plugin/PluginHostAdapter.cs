@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Ipc;
+using WSGM.Device.Sdk.Settings;
 
 namespace WSGM.Device.Sdk.Plugin;
 
@@ -67,6 +68,22 @@ public interface IPluginHostAdapter
     /// <returns>A task completing after DeviceHost accepted it.</returns>
     ValueTask PublishOemEventAsync(
         OemControlEvent controlEvent,
+        CancellationToken cancellationToken);
+
+    /// <summary>Declares the settings WSGM should draw, validate, store, and localize.</summary>
+    /// <param name="manifest">Typed elements and the sections they belong to.</param>
+    /// <param name="cancellationToken">Cancels publication.</param>
+    /// <returns>A task completing after DeviceHost accepted it.</returns>
+    /// <remarks>
+    /// A declaration, never UI. WSGM refuses a manifest that does not validate and keeps the
+    /// previous one, so a plugin cannot half-draw a page by publishing a broken replacement.
+    /// <para>
+    /// Settings are preferences WSGM stores and hands back; anything that writes hardware when the
+    /// user moves it is a capability and belongs in the descriptor set instead.
+    /// </para>
+    /// </remarks>
+    ValueTask PublishSettingsManifestAsync(
+        PluginSettingsManifest manifest,
         CancellationToken cancellationToken);
 
     /// <summary>Writes one diagnostic line into WSGM's log.</summary>
