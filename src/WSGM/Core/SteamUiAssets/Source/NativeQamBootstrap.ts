@@ -147,6 +147,7 @@ interface Window {
 
   const audioNamespace = createAudioNamespace();
   const networkGate = createNetworkGate();
+  const bluetoothService = createBluetoothService();
   const bridge = Object.freeze({
     version: config.version,
     assetHash: config.assetHash,
@@ -171,6 +172,11 @@ interface Window {
       remove: networkGate.remove,
       status: networkGate.status,
     }),
+    bluetooth: Object.freeze({
+      install: bluetoothService.install,
+      remove: bluetoothService.remove,
+      status: bluetoothService.status,
+    }),
   });
   Object.defineProperty(window, config.namespace, {
     value: bridge,
@@ -179,6 +185,151 @@ interface Window {
     writable: false,
   });
   return JSON.stringify({ ok: true, reused: false, version: config.version });
+
+  // Bluetooth is a WebUI transport service whose backend does not exist on Windows. The service,
+  // its message shapes and every operation are present — GetState round-trips and answers
+  // is_service_available:false with empty adapters and devices — so WSGM replaces the stub's
+  // methods rather than implementing the service. `*Handler` exports are message descriptors,
+  // not registration hooks, so implementing it is not on offer.
+  //
+  // The second gate matters here as much as the first: availability is read through react-query
+  // with staleTime Infinity, so replacing the methods changes nothing until that cache is
+  // invalidated. Live-verified 2026-08-30 that RF's methods are writable and configurable and that
+  // the query client's invalidateQueries is reachable.
+  function createBluetoothService() {
+    const patchId = "wsgm.steam-bluetooth.service";
+    const queryKey = ["BluetoothManagerService", "State"];
+    const originals = new Map<string, unknown>();
+    let installed = false;
+    let lastError = "";
+    let unsubscribe: (() => void) | null = null;
+    // Steam's own device and adapter shapes, which are not ours to describe: the store reads them
+    // and WSGM only carries them through from the state it was given.
+    let latest: {
+      is_service_available: boolean;
+      adapters: any[];
+      devices: any[];
+    } = { is_service_available: false, adapters: [], devices: [] };
+
+    const modules = () => {
+      let req;
+      window.webpackChunksteamui.push([
+        ["wsgm_bluetooth_" + Date.now()],
+        {},
+        (r) => {
+          req = r;
+        },
+      ]);
+      return req;
+    };
+
+    // Steam reads a transport reply, never a bare value: BSuccess decides whether the caller
+    // proceeds at all, and Body().toObject() is what the store consumes.
+    const reply = (body) => ({
+      BSuccess: () => true,
+      BFailed: () => false,
+      GetEResult: () => 1,
+      Body: () => ({ ...body, toObject: () => body }),
+    });
+
+    const invalidate = (req) => {
+      try {
+        req?.("21371")?.L?.invalidateQueries({ queryKey });
+      } catch {
+        // A client whose query layer moved keeps the stale answer; the row simply does not update.
+      }
+    };
+
+    const onState = (state) => {
+      if (!installed || !state) return;
+      latest = {
+        is_service_available: state.available === true,
+        adapters: Array.isArray(state.adapters) ? state.adapters : [],
+        devices: Array.isArray(state.devices) ? state.devices : [],
+      };
+      invalidate(modules());
+    };
+
+    const install = () => {
+      if (installed) return { ok: true, alreadyInstalled: true };
+      const req = modules();
+      const RF = req?.("60517")?.RF;
+      if (!RF || typeof RF.GetState !== "function") {
+        lastError = "BluetoothManagerService stub unavailable";
+        return { ok: false, error: lastError };
+      }
+
+      const forward = (command) => (payload) =>
+        request(patchId, command, payload ?? null, 0).then(
+          () => reply({ success: true }),
+          () => reply({ success: false }),
+        );
+      const replace = (name, replacement) => {
+        originals.set(name, RF[name]);
+        RF[name] = replacement;
+      };
+
+      try {
+        replace("GetState", () => Promise.resolve(reply(latest)));
+        replace("GetDeviceDetails", (payload) => {
+          const id = payload?.id;
+          const device = latest.devices.find((entry) => entry.id === id) ?? null;
+          return Promise.resolve(reply({ device }));
+        });
+        replace("GetAdapterDetails", () =>
+          Promise.resolve(reply({ adapter: latest.adapters[0] ?? null })),
+        );
+        replace("SetDiscovering", forward("setDiscovering"));
+        replace("Pair", forward("pair"));
+        replace("CancelPair", forward("cancelPair"));
+        replace("Connect", forward("connect"));
+        replace("Disconnect", forward("disconnect"));
+        replace("Forget", forward("forget"));
+        replace("SetTrusted", forward("setTrusted"));
+        replace("SetWakeAllowed", forward("setWakeAllowed"));
+      } catch (error) {
+        lastError = String(error);
+        return { ok: false, error: lastError };
+      }
+
+      installed = true;
+      lastError = "";
+      unsubscribe = subscribe(patchId, onState);
+      invalidate(req);
+      return { ok: true, installed: true, replaced: originals.size };
+    };
+
+    const remove = () => {
+      if (!installed) return { ok: true, absent: true };
+      installed = false;
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = null;
+      }
+
+      const req = modules();
+      const RF = req?.("60517")?.RF;
+      if (RF) {
+        for (const [name, original] of originals) RF[name] = original;
+      }
+
+      originals.clear();
+      latest = { is_service_available: false, adapters: [], devices: [] };
+      invalidate(req);
+      return { ok: true, removed: true };
+    };
+
+    const status = () => ({
+      ok: true,
+      installed,
+      replaced: originals.size,
+      available: latest.is_service_available,
+      devices: latest.devices.length,
+      lastError,
+    });
+
+    return { install, remove, status };
+  }
 
   // Wi-Fi is hidden by one getter, not by an absent backend. Steam's Windows client genuinely
   // tracks the wireless device — hasWirelessDevice and isWifiEnabled are true here without any

@@ -65,6 +65,21 @@ public sealed class SteamUiBridgeAuthorizer
             // networks, so WSGM can scan for exactly that long. Scanning on WSGM's own schedule
             // would either waste power or show a list that went stale while the page was open.
             ["wsgm.steam-network.gate"] = ["startScan", "stopScan"],
+
+            // The operations Valve's own pairing UI offers, and nothing beyond them. Reads are not
+            // here: GetState and the details calls are answered from the state WSGM already pushed,
+            // so the panel never waits on a round trip to draw.
+            ["wsgm.steam-bluetooth.service"] =
+            [
+                "setDiscovering",
+                "pair",
+                "cancelPair",
+                "connect",
+                "disconnect",
+                "forget",
+                "setTrusted",
+                "setWakeAllowed",
+            ],
         };
 
     private readonly object _sync = new();
