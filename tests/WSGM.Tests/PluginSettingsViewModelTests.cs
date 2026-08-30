@@ -2,6 +2,7 @@ using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
 using WSGM.Settings;
+using WSGM.Shell;
 
 namespace WSGM.Tests;
 
@@ -18,14 +19,21 @@ public sealed class PluginSettingsViewModelTests
         SectionId = sectionId,
     };
 
-    private static PluginSettingsPage Page(PluginSettingsManifest manifest, params string[] ids) =>
-        PluginSettingsPageLayout.Build(
+    /// <remarks>
+    /// Through the one shared projection, not a Settings-specific copy: the overlay draws from the
+    /// same call, so a second arrangement here would let the two surfaces disagree about where a
+    /// plugin's settings live.
+    /// </remarks>
+    private static PluginSettingsView Page(PluginSettingsManifest manifest, params string[] ids) =>
+        PluginSettingsCoordinator.Project(
             manifest,
-            [.. ids.Select(id => new EffectivePluginSetting(
-                id,
-                new CapabilityValue { Kind = CapabilityValueKind.Boolean },
-                PluginSettingOrigin.Default,
-                null))]);
+            new PluginSettingsResolution(
+                [.. ids.Select(id => new EffectivePluginSetting(
+                    id,
+                    new CapabilityValue { Kind = CapabilityValueKind.Boolean },
+                    PluginSettingOrigin.Default,
+                    null))],
+                []));
 
     [Fact]
     public void APageWithNoSectionsReportsItselfUnavailableRatherThanDrawingNothing()

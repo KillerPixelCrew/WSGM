@@ -40,7 +40,13 @@ internal readonly record struct PluginSettingsView(
 internal sealed class PluginSettingsCoordinator : IDisposable
 {
     /// <summary>Section id used for a setting that names one the manifest never declared.</summary>
-    internal const string FallbackSectionId = "wsgm.other";
+    /// <remarks>
+    /// The colon is load-bearing: <see cref="PlainText.IsIdentifier"/> does not accept one, so no
+    /// plugin can declare this id and take the fallback group over. A dotted name would be a legal
+    /// plugin section id and the collision would be silent — the plugin's own section and WSGM's
+    /// leftovers would merge into one heading.
+    /// </remarks>
+    internal const string FallbackSectionId = "wsgm:other";
 
     private readonly object _gate = new();
     private DeviceHostClient? _client;

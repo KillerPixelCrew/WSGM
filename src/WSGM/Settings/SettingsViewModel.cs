@@ -10,6 +10,7 @@ using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
 using WSGM.Input;
+using WSGM.Shell;
 using WSGM.Themes;
 
 namespace WSGM.Settings;
@@ -268,7 +269,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     }
 
     /// <summary>Replaces the plugin settings page content.</summary>
-    /// <param name="page">The projected page.</param>
+    /// <param name="view">The projected sections and their settings, in draw order.</param>
     /// <param name="onEdited">Called with the setting id and new value after each edit.</param>
     /// <remarks>
     /// Rebuilt wholesale rather than reconciled in place: the manifest changes only when a plugin is
@@ -280,17 +281,24 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// </para>
     /// </remarks>
     internal void SetPluginSettings(
-        PluginSettingsPage page,
+        PluginSettingsView view,
         Action<string, CapabilityValue> onEdited)
     {
         ArgumentNullException.ThrowIfNull(onEdited);
         PluginSettingSections.Clear();
-        foreach (PluginSettingsSection section in page.Sections)
+        foreach (PluginSettingSection section in view.Sections)
         {
-            List<PluginSettingRowViewModel> rows = [];
-            foreach (PluginSettingsRow row in section.Rows)
+            if (!view.Settings.TryGetValue(
+                    section.SectionId,
+                    out IReadOnlyList<PluginSettingView>? settings))
             {
-                PluginSettingRowViewModel model = new(row.Descriptor, row.Value);
+                continue;
+            }
+
+            List<PluginSettingRowViewModel> rows = [];
+            foreach (PluginSettingView setting in settings)
+            {
+                PluginSettingRowViewModel model = new(setting.Descriptor, setting.Value);
                 model.Edited += onEdited;
                 rows.Add(model);
             }
@@ -309,7 +317,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// <see cref="PluginSettingSection"/>; it is rendered as text and never as markup. A keyed title
     /// is WSGM's, which is the entire reason the key exists.
     /// </remarks>
-    private static string SectionTitle(PluginSettingsSection section) =>
+    private static string SectionTitle(PluginSettingSection section) =>
         section.Key is SettingSectionKey.Custom
             ? (section.CustomTitle ?? section.SectionId).ToUpperInvariant()
             : section.Key.ToString().ToUpperInvariant();
