@@ -230,6 +230,19 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
                 SteamUiCdpConnection connection;
                 lock (channel.Sync)
                 {
+                    // The owner may have gone away while this connect was in flight. Publishing
+                    // here regardless left a live CEF socket and its callbacks running after the
+                    // last subscription was released or the transport was disposed, because the
+                    // cleanup paths only dispose the connection they can see at that moment.
+                    if (Volatile.Read(ref _disposed) != 0 || channel.Subscribers == 0)
+                    {
+                        Log.Info(
+                            $"Steam UI {channel.Role} connection completed after its owner left; "
+                            + "discarding it.");
+                        throw new OperationCanceledException(
+                            "The Steam UI channel lost its last subscriber while connecting.");
+                    }
+
                     var generations = channel.Generations;
                     if (!string.Equals(channel.BrowserId, endpoint.BrowserId, StringComparison.Ordinal))
                     {

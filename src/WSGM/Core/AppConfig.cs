@@ -875,6 +875,8 @@ public sealed class CefConfig
 [JsonSerializable(typeof(DeviceIntegrationConfig))]
 [JsonSerializable(typeof(DeviceDesiredProfile))]
 [JsonSerializable(typeof(DeviceCapabilityPreference))]
+[JsonSerializable(typeof(PluginSettingsScope))]
+[JsonSerializable(typeof(PluginSettingValue))]
 [JsonSerializable(typeof(PerformanceConfig))]
 [JsonSerializable(typeof(PerformanceApplicationConfig))]
 [JsonSerializable(typeof(FilterNode))]

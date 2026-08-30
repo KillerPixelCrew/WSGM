@@ -356,6 +356,27 @@ internal sealed class PerformanceService : IAsyncDisposable
 
         try
         {
+            // Rechecked after the wait, not only before it. A Settings or config update can switch
+            // RTSS integration off while this command is queued, and that path takes no adapter
+            // gate of its own — with a disabled policy there are no desired values to apply — so
+            // without this the queued command still wrote its value into a switched-off feature.
+            lock (_stateGate)
+            {
+                enabled = _policy.Enabled;
+            }
+
+            if (!enabled)
+            {
+                return UpdateCommand(new(
+                    sequence,
+                    origin,
+                    correlationId,
+                    control,
+                    value,
+                    PerformanceCommandPhase.Rejected,
+                    "RTSS integration was switched off while the command was queued."));
+            }
+
             using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(
                 cancellationToken,
                 _disposeCts.Token);

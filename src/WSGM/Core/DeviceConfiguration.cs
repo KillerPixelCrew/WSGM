@@ -78,6 +78,54 @@ public sealed class DeviceIntegrationConfig
 
     /// <summary>Desired semantic profiles keyed by stable local device identity.</summary>
     public List<DeviceDesiredProfile> Profiles { get; set; } = [];
+
+    /// <summary>Stored values for the settings a plugin declares for itself.</summary>
+    /// <remarks>
+    /// Keyed by device definition and plugin, so a value authored for one plugin never reaches
+    /// another that happens to reuse the setting identifier. Values are revalidated against the
+    /// current manifest on load, because a plugin update can narrow a range or drop an option.
+    /// </remarks>
+    public List<PluginSettingsScope> PluginSettings { get; set; } = [];
+}
+
+/// <summary>The stored settings of one plugin on one device definition.</summary>
+public sealed class PluginSettingsScope
+{
+    /// <summary>Device definition the values were authored against.</summary>
+    public string DeviceDefinitionId { get; set; } = string.Empty;
+
+    /// <summary>Plugin that declared the settings.</summary>
+    public string PluginId { get; set; } = string.Empty;
+
+    /// <summary>The values, one per declared setting the user has changed.</summary>
+    public List<PluginSettingValue> Values { get; set; } = [];
+}
+
+/// <summary>One stored plugin setting value.</summary>
+/// <remarks>
+/// Mirrors the value shapes the SDK allows a setting to take. There is no curve field: a curve is
+/// authored as a named profile with its own storage, so a curve-shaped setting is refused at
+/// declaration rather than given a second home here.
+/// </remarks>
+public sealed class PluginSettingValue
+{
+    /// <summary>Which declared setting this is the value of.</summary>
+    public string SettingId { get; set; } = string.Empty;
+
+    /// <summary>Value of a boolean setting.</summary>
+    public bool? Boolean { get; set; }
+
+    /// <summary>Value of an integer setting.</summary>
+    public int? Integer { get; set; }
+
+    /// <summary>Selected option of a choice setting.</summary>
+    public string? Choice { get; set; }
+
+    /// <summary>Packed 24-bit RGB of a colour setting.</summary>
+    public int? Color { get; set; }
+
+    /// <summary>Value of a text setting.</summary>
+    public string? Text { get; set; }
 }
 
 /// <summary>Controller identity exposed to applications while management is active.</summary>

@@ -96,6 +96,14 @@ public sealed record PluginSettingDescriptor
             return false;
         }
 
+        // A curve is authored, not toggled: it belongs to a named profile with its own storage and
+        // its own editor, so letting one masquerade as a preference would give curves two homes.
+        if (ValueKind is CapabilityValueKind.Curve)
+        {
+            error = $"setting '{SettingId}' may not be a curve; declare a profile instead.";
+            return false;
+        }
+
         if (ValueKind is CapabilityValueKind.Integer
             && (Minimum is null || Maximum is null || Minimum > Maximum || Step is <= 0))
         {

@@ -255,17 +255,23 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
 
             entry.Subscription ??= await _transport.SubscribeAsync(
                 patch.TargetRole, cancellationToken).ConfigureAwait(false);
-            using var phase = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            phase.CancelAfter(patch.Bounds.OperationTimeout);
             SteamUiPatchProbeResult probe;
-            try
+            // One timeout per phase, as the bound is documented. A single source spanning probe,
+            // apply and verify meant a reachable but slow client that spent most of the budget
+            // probing had its otherwise in-budget apply or verification cancelled underneath it,
+            // and the patch dropped to Retrying with nothing actually wrong.
+            using (CancellationTokenSource probePhase =
+                NewPhaseTimeout(cancellationToken, patch.Bounds.OperationTimeout))
             {
-                probe = await patch.ProbeAsync(context, phase.Token).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                SetState(entry, SteamUiPatchState.Degraded, null, ex.Message);
-                return;
+                try
+                {
+                    probe = await patch.ProbeAsync(context, probePhase.Token).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    SetState(entry, SteamUiPatchState.Degraded, null, ex.Message);
+                    return;
+                }
             }
 
             if (!probe.TargetPresent)
@@ -281,18 +287,54 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
             }
 
             SetState(entry, SteamUiPatchState.Applying, probe.Fingerprint, null);
-            var applied = await patch.ApplyAsync(context, phase.Token).ConfigureAwait(false);
+            SteamUiPatchOperationResult applied;
+            using (CancellationTokenSource applyPhase =
+                NewPhaseTimeout(cancellationToken, patch.Bounds.OperationTimeout))
+            {
+                applied = await patch.ApplyAsync(context, applyPhase.Token).ConfigureAwait(false);
+            }
+
             if (!applied.Succeeded)
             {
                 SetState(entry, SteamUiPatchState.Degraded, probe.Fingerprint, applied.Diagnostic);
                 return;
             }
+
             SetState(entry, SteamUiPatchState.Applied, probe.Fingerprint, null);
-            var verified = await patch.VerifyAsync(context, phase.Token).ConfigureAwait(false);
-            SetState(entry,
-                verified.Succeeded ? SteamUiPatchState.Verified : SteamUiPatchState.Degraded,
+            SteamUiPatchOperationResult verified;
+            using (CancellationTokenSource verifyPhase =
+                NewPhaseTimeout(cancellationToken, patch.Bounds.OperationTimeout))
+            {
+                verified = await patch.VerifyAsync(context, verifyPhase.Token).ConfigureAwait(false);
+            }
+
+            if (verified.Succeeded)
+            {
+                SetState(entry, SteamUiPatchState.Verified, probe.Fingerprint, null);
+                return;
+            }
+
+            // An applied-but-unverified mutation is not left in the client. It cannot be shown to
+            // do what it claims, and leaving it there keeps Valve's own UI replaced by something
+            // unproven while later synchronization probes and reapplies over it. Removal restores
+            // the native surface; if that cannot be verified either, the patch says so.
+            Log.Warn(
+                $"Steam UI patch {patch.Id} applied but did not verify; removing it: "
+                + $"{verified.Diagnostic ?? "no detail"}");
+            SteamUiPatchOperationResult removed;
+            using (CancellationTokenSource removePhase =
+                NewPhaseTimeout(cancellationToken, patch.Bounds.OperationTimeout))
+            {
+                removed = await patch.RemoveAsync(context, removePhase.Token).ConfigureAwait(false);
+            }
+
+            SetState(
+                entry,
+                removed.Succeeded ? SteamUiPatchState.Degraded : SteamUiPatchState.RemoveFailed,
                 probe.Fingerprint,
-                verified.Succeeded ? null : verified.Diagnostic);
+                removed.Succeeded
+                    ? verified.Diagnostic
+                    : $"{verified.Diagnostic} Removal also failed: {removed.Diagnostic}");
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -307,6 +349,20 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
         {
             resourceGate.Release();
         }
+    }
+
+    /// <summary>Creates a cancellation source giving one patch phase its declared budget.</summary>
+    /// <param name="cancellationToken">The synchronization's own cancellation.</param>
+    /// <param name="timeout">The per-phase bound the patch declared.</param>
+    /// <returns>A linked source the caller disposes when the phase ends.</returns>
+    private static CancellationTokenSource NewPhaseTimeout(
+        CancellationToken cancellationToken,
+        TimeSpan timeout)
+    {
+        CancellationTokenSource phase =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        phase.CancelAfter(timeout);
+        return phase;
     }
 
     private async Task RemovePatchAsync(

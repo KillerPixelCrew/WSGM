@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
+using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Core;
 
@@ -70,7 +71,14 @@ public static class ConfigStore
         return Normalize(config);
     }
 
-    private static AppConfig? DeserializeConfig(string json)
+    /// <summary>Deserializes one configuration document, repairing unknown enum names first.</summary>
+    /// <param name="json">The raw file contents.</param>
+    /// <returns>The configuration, before normalization.</returns>
+    /// <remarks>
+    /// Internal because the repair pass is the part worth testing: a value it fails to repair makes
+    /// the retry throw, and <see cref="Load"/> then sets the entire file aside.
+    /// </remarks>
+    internal static AppConfig? DeserializeConfig(string json)
     {
         try
         {
@@ -109,7 +117,83 @@ public static class ConfigStore
                     RepairEnum(wrapper, "Kind", LaunchConfigurationKind.Wrapper);
                 }
             }
+            // Every enum in this file is written by name (UseStringEnumConverter), so an unknown
+            // name throws here before Normalize can apply its Enum.IsDefined fallbacks. Repairing
+            // only the older fields meant one mistyped or unrecognised device value — from a hand
+            // edit, or from a configuration written by a newer build — made the retry throw as
+            // well, and Load then moved the whole otherwise-valid file aside, taking the registry
+            // recovery snapshots and every unrelated setting with it.
+            if (root["DeviceIntegration"] is JsonObject device)
+            {
+                RepairEnum(device, "ControllerTarget", ManagedControllerTarget.SteamDeckComposite);
+                RepairEnum(device, "GlyphSelection", DeviceGlyphSelection.Automatic);
+                RepairEnum(device, "DiagnosticLevel", DeviceDiagnosticLevel.Standard);
+                if (device["ControllerTargets"] is JsonArray targets)
+                {
+                    foreach (var target in targets.OfType<JsonObject>())
+                    {
+                        RepairEnum(target, "Target", ManagedControllerTarget.SteamDeckComposite);
+                    }
+                }
+                if (device["Profiles"] is JsonArray profiles)
+                {
+                    foreach (var profile in profiles.OfType<JsonObject>())
+                    {
+                        RepairDeviceProfileJson(profile);
+                    }
+                }
+            }
             return JsonSerializer.Deserialize(root.ToJsonString(), ConfigJsonContext.Default.AppConfig);
+        }
+    }
+
+    /// <summary>Repairs the enum-bearing members of one persisted device profile.</summary>
+    /// <param name="profile">The stored profile object, straight from the file.</param>
+    private static void RepairDeviceProfileJson(JsonObject profile)
+    {
+        if (profile["OemAssignments"] is JsonArray assignments)
+        {
+            foreach (var assignment in assignments.OfType<JsonObject>())
+            {
+                RepairEnum(assignment, "Action", OemAction.Disabled);
+            }
+        }
+
+        if (profile["Capabilities"] is not JsonArray capabilities)
+        {
+            return;
+        }
+
+        foreach (var capability in capabilities.OfType<JsonObject>())
+        {
+            RepairCapabilityValueJson(capability["GlobalDefault"] as JsonObject);
+            RepairCapabilityValueJson(capability["AcPolicy"] as JsonObject);
+            RepairCapabilityValueJson(capability["DcPolicy"] as JsonObject);
+            foreach (var named in (capability["HardwareProfiles"] as JsonArray ?? [])
+                .OfType<JsonObject>())
+            {
+                RepairCapabilityValueJson(named["Value"] as JsonObject);
+            }
+            foreach (var application in (capability["ApplicationOverrides"] as JsonArray ?? [])
+                .OfType<JsonObject>())
+            {
+                RepairCapabilityValueJson(application["Value"] as JsonObject);
+            }
+        }
+    }
+
+    /// <summary>Repairs the value-kind discriminator of one stored capability value.</summary>
+    /// <param name="value">The stored value object, or null when the layer carries none.</param>
+    /// <remarks>
+    /// Repaired to <see cref="CapabilityValueKind.None"/> rather than guessing from the populated
+    /// field: a value whose kind cannot be read is not a value, and the desired-state resolver
+    /// treats it as absent instead of writing something arbitrary to hardware.
+    /// </remarks>
+    private static void RepairCapabilityValueJson(JsonObject? value)
+    {
+        if (value is not null)
+        {
+            RepairEnum(value, "Kind", CapabilityValueKind.None);
         }
     }
 
@@ -306,6 +390,33 @@ public static class ConfigStore
         {
             target.ApplicationId = target.ApplicationId.Trim();
         }
+
+        // A scope with no device, no plugin, or no values keys nothing and can never be matched, so
+        // it would sit in the file forever growing it. Values are only shape-checked here; whether
+        // one still satisfies its declared bounds is decided against the live manifest on load,
+        // because a plugin update can narrow a range after the value was stored.
+        device.PluginSettings ??= [];
+        device.PluginSettings.RemoveAll(static scope => scope is null
+            || string.IsNullOrWhiteSpace(scope.DeviceDefinitionId)
+            || string.IsNullOrWhiteSpace(scope.PluginId));
+        foreach (PluginSettingsScope scope in device.PluginSettings)
+        {
+            scope.DeviceDefinitionId = scope.DeviceDefinitionId.Trim();
+            scope.PluginId = scope.PluginId.Trim();
+            scope.Values ??= [];
+            scope.Values.RemoveAll(static value => value is null
+                || string.IsNullOrWhiteSpace(value.SettingId));
+            HashSet<string> settingIds = new(StringComparer.Ordinal);
+            scope.Values.RemoveAll(value => !settingIds.Add(value.SettingId.Trim()));
+            foreach (PluginSettingValue value in scope.Values)
+            {
+                value.SettingId = value.SettingId.Trim();
+            }
+        }
+
+        HashSet<string> scopeKeys = new(StringComparer.Ordinal);
+        device.PluginSettings.RemoveAll(
+            scope => !scopeKeys.Add($"{scope.DeviceDefinitionId} {scope.PluginId}"));
 
         device.Profiles ??= [];
         device.Profiles.RemoveAll(static profile => profile is null

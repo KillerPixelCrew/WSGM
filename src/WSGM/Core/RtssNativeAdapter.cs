@@ -22,22 +22,37 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         _discovery = discovery ?? new RtssDiscovery();
     }
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Every entry point of this adapter runs on the thread pool. All of the work below is
+    /// synchronous — registry reads, filesystem and signature checks, PE-export inspection, process
+    /// enumeration, and the profile API's own blocking calls — and the callers reach it from a
+    /// completed semaphore wait on an overlay or QAM click handler, which is the Avalonia UI
+    /// thread. Without the hop, interacting with a performance control froze the UI for as long as
+    /// discovery took.
+    /// </remarks>
     public Task<RtssProbe> ProbeAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ObjectDisposedException.ThrowIf(_disposed, this);
+        return Task.Run(() => ProbeCore(cancellationToken), cancellationToken);
+    }
+
+    private RtssProbe ProbeCore(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         RtssProbe probe = _discovery.Probe();
         if (probe.Availability != RtssAvailability.AdapterUnavailable
             || probe.ExecutablePath is null)
         {
             ReleaseApi();
-            return Task.FromResult(probe);
+            return probe;
         }
 
         try
         {
             EnsureApi(probe);
-            return Task.FromResult(probe with
+            return probe with
             {
                 Availability = RtssAvailability.Ready,
                 Capabilities = new RtssCapabilities(
@@ -47,16 +62,16 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
                     FrameLimitReadback: true,
                     OverlayLevelReadback: true),
                 Diagnostic = "RTSS profile API is ready.",
-            });
+            };
         }
         catch (Exception ex)
         {
             ReleaseApi();
-            return Task.FromResult(probe with
+            return probe with
             {
                 Availability = RtssAvailability.Degraded,
                 Diagnostic = $"RTSS profile API load failed: {ex.Message}",
-            });
+            };
         }
     }
 
@@ -66,6 +81,13 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         CancellationToken cancellationToken)
     {
         await RequireReadyAsync(generation, cancellationToken).ConfigureAwait(false);
+        return await Task.Run(
+            () => ReadCore(rtssProfileName),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private RtssReadback ReadCore(string rtssProfileName)
+    {
         RtssProfileApi api = _api
             ?? throw new InvalidOperationException("RTSS profile API is not loaded.");
         api.LoadProfile(rtssProfileName);
@@ -107,6 +129,11 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         }
 
         await RequireReadyAsync(request.Generation, cancellationToken).ConfigureAwait(false);
+        return await Task.Run(() => ApplyCore(request), cancellationToken).ConfigureAwait(false);
+    }
+
+    private RtssApplyResult ApplyCore(RtssApplyRequest request)
+    {
         RtssProfileApi api = _api
             ?? throw new InvalidOperationException("RTSS profile API is not loaded.");
         api.LoadProfile(request.RtssProfileName);

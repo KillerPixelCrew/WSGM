@@ -113,7 +113,10 @@ internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState sta
                 result.Error ?? "Steam SharedJSContext is unavailable.");
         }
 
-        bool compatible = SteamUiPatchEvaluation.IsSuccessful(result.Value);
+        // Both selector classes are required, not just ok. They are build-coupled: the rules this
+        // patch installs are written against them, so a client that renamed either one would accept
+        // a stylesheet that matches nothing while the patch reported itself compatible and unique.
+        bool compatible = SteamUiPatchEvaluation.IsSuccessful(result.Value, "rowClass", "logoClass");
         return new SteamUiPatchProbeResult(
             true,
             compatible,

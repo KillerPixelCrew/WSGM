@@ -101,6 +101,46 @@ internal static class SteamUiPatchEvaluation
         && value.TryGetInt32(out int count)
         && count == 1;
 
+    /// <summary>Whether a probe reported success and every named boolean was true.</summary>
+    /// <param name="value">The raw probe result.</param>
+    /// <param name="requiredFlags">Boolean properties that must all be present and true.</param>
+    /// <returns><see langword="true"/> when the target is genuinely compatible.</returns>
+    /// <remarks>
+    /// A probe that reports its own structural findings alongside <c>ok</c> has to have them read.
+    /// The glyph-style probe returned whether each build-coupled selector class still exists while
+    /// only <c>ok</c> — which is <c>!!document.head</c> — decided compatibility, so a Steam build
+    /// that renamed one of them was still called compatible and the patch installed rules that
+    /// could no longer match anything, instead of falling back to Valve's native rendering.
+    /// </remarks>
+    internal static bool IsSuccessful(string value, params string[] requiredFlags)
+    {
+        ArgumentNullException.ThrowIfNull(requiredFlags);
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(value);
+            JsonElement root = document.RootElement;
+            if (!root.TryGetProperty("ok", out JsonElement ok) || ok.ValueKind != JsonValueKind.True)
+            {
+                return false;
+            }
+
+            foreach (string flag in requiredFlags)
+            {
+                if (!root.TryGetProperty(flag, out JsonElement reported)
+                    || reported.ValueKind != JsonValueKind.True)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>Truncates a page-supplied diagnostic to a bounded length.</summary>
     /// <param name="value">The raw diagnostic.</param>
     /// <returns>The bounded diagnostic, or null when there was nothing to report.</returns>
