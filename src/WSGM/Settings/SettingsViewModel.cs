@@ -7,6 +7,8 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Avalonia;
 using WSGM.Core;
+using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Settings;
 using WSGM.Input;
 using WSGM.Themes;
 
@@ -242,6 +244,75 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     /// <summary>Editable per-monitor display profiles.</summary>
     public ObservableCollection<DisplayProfileRow> DisplayProfiles { get; } = [];
+
+    /// <summary>Sections the installed plugin declares, in render order.</summary>
+    public ObservableCollection<PluginSettingSectionViewModel> PluginSettingSections { get; } = [];
+
+    /// <summary>Whether the plugin settings page has anything to draw.</summary>
+    public bool PluginSettingsAvailable => PluginSettingSections.Count > 0;
+
+    private string _pluginSettingsEmptyReason =
+        "No device plugin is installed, so there are no plugin settings to show.";
+
+    /// <summary>
+    /// Why the plugin settings page is empty.
+    /// </summary>
+    /// <remarks>
+    /// Shown instead of a blank page. A plugin that declares no settings and a machine with no
+    /// plugin at all look identical otherwise, and the user cannot tell whether something failed.
+    /// </remarks>
+    public string PluginSettingsEmptyReason
+    {
+        get => _pluginSettingsEmptyReason;
+        set { _pluginSettingsEmptyReason = value; Raise(nameof(PluginSettingsEmptyReason)); }
+    }
+
+    /// <summary>Replaces the plugin settings page content.</summary>
+    /// <param name="page">The projected page.</param>
+    /// <param name="onEdited">Called with the setting id and new value after each edit.</param>
+    /// <remarks>
+    /// Rebuilt wholesale rather than reconciled in place: the manifest changes only when a plugin is
+    /// installed or updated, so the simple path is also the correct one, and a partial reconcile
+    /// would have to answer what happens to a row whose declared kind changed underneath it.
+    /// <para>
+    /// Section ids are kept on the section view models so the window's focus and scroll restoration
+    /// still has a stable key after a rebuild.
+    /// </para>
+    /// </remarks>
+    internal void SetPluginSettings(
+        PluginSettingsPage page,
+        Action<string, CapabilityValue> onEdited)
+    {
+        ArgumentNullException.ThrowIfNull(onEdited);
+        PluginSettingSections.Clear();
+        foreach (PluginSettingsSection section in page.Sections)
+        {
+            List<PluginSettingRowViewModel> rows = [];
+            foreach (PluginSettingsRow row in section.Rows)
+            {
+                PluginSettingRowViewModel model = new(row.Descriptor, row.Value);
+                model.Edited += onEdited;
+                rows.Add(model);
+            }
+
+            PluginSettingSections.Add(new PluginSettingSectionViewModel(
+                section.SectionId,
+                SectionTitle(section),
+                rows));
+        }
+
+        Raise(nameof(PluginSettingsAvailable));
+    }
+
+    /// <remarks>
+    /// A custom title is the plugin's own untrusted plain text, already bounded and validated by
+    /// <see cref="PluginSettingSection"/>; it is rendered as text and never as markup. A keyed title
+    /// is WSGM's, which is the entire reason the key exists.
+    /// </remarks>
+    private static string SectionTitle(PluginSettingsSection section) =>
+        section.Key is SettingSectionKey.Custom
+            ? (section.CustomTitle ?? section.SectionId).ToUpperInvariant()
+            : section.Key.ToString().ToUpperInvariant();
 
     private int _displayManagementModeIndex;
     /// <summary>Selected <see cref="DisplayManagementMode"/> index.</summary>

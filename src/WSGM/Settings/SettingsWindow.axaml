@@ -88,6 +88,7 @@
             <pages:QuickAccessPage x:Name="PageQuickAccess" IsVisible="False" />
             <pages:DisplayPage x:Name="PageDisplay" IsVisible="False" />
             <pages:AppearancePage x:Name="PageAppearance" IsVisible="False" />
+            <pages:PluginSettingsPage x:Name="PagePluginSettings" IsVisible="False" />
         </Grid>
 
         <Border Grid.Row="2" Classes="hc-footer">

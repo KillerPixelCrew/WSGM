@@ -83,6 +83,10 @@ public partial class SettingsWindow : Window
             new("Quick access", Icons.Panel, 5),
             new("Display", Icons.Monitor, 6),
             new("Appearance", Icons.Palette, 7),
+            // Last, because its content belongs to whichever plugin is installed: WSGM's own pages
+            // keep their positions on every machine rather than shifting around a tab that may not
+            // be there.
+            new("Plugin", Icons.Wrench, 8),
         };
         Tabs.SelectionChanged += OnTabSelectionChanged;
 
@@ -201,6 +205,7 @@ public partial class SettingsWindow : Window
         PageQuickAccess.IsVisible = e.NewIndex == 5;
         PageDisplay.IsVisible = e.NewIndex == 6;
         PageAppearance.IsVisible = e.NewIndex == 7;
+        PagePluginSettings.IsVisible = e.NewIndex == 8;
 
         // Land controller focus inside the newly shown page — without this the
         // next D-pad press falls back to the window's first focusable, which is
@@ -214,7 +219,8 @@ public partial class SettingsWindow : Window
             4 => PageStartup,
             5 => PageQuickAccess,
             6 => PageDisplay,
-            _ => PageAppearance,
+            7 => PageAppearance,
+            _ => PagePluginSettings,
         };
         FocusFirstControl(page);
     }

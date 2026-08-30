@@ -1,0 +1,86 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:s="using:WSGM.Settings"
+             x:Class="WSGM.Settings.Pages.PluginSettingsPage"
+             x:DataType="s:SettingsViewModel">
+    <!--
+        Every row on this page is declared by the installed device plugin, so nothing here is a
+        fixed control: the shape comes from PluginSettingsPageLayout and the controls template by
+        visibility, each binding the one property its value kind uses. A DataTemplate selector would
+        need runtime type inspection, which NativeAOT does not give us.
+    -->
+    <Border Padding="16,10,16,10">
+        <Panel>
+            <!--
+                Shown instead of an empty page. A plugin that declares no settings and a machine
+                with no plugin at all look identical otherwise, and the user cannot tell whether
+                something failed.
+            -->
+            <TextBlock Text="{Binding PluginSettingsEmptyReason}"
+                       Classes="caption"
+                       TextWrapping="Wrap"
+                       IsVisible="{Binding !PluginSettingsAvailable}" />
+
+            <ScrollViewer IsVisible="{Binding PluginSettingsAvailable}">
+                <ItemsControl ItemsSource="{Binding PluginSettingSections}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="s:PluginSettingSectionViewModel">
+                            <StackPanel Margin="0,0,0,8">
+                                <Border Classes="section-header">
+                                    <TextBlock Text="{Binding Title}" />
+                                </Border>
+                                <ItemsControl ItemsSource="{Binding Rows}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="s:PluginSettingRowViewModel">
+                                            <Border Classes="setting-row">
+                                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                                    <TextBlock Text="{Binding Label}"
+                                                               Classes="setting-title"
+                                                               VerticalAlignment="Center"
+                                                               TextWrapping="Wrap" />
+                                                    <ToggleSwitch Grid.Column="1"
+                                                                  IsChecked="{Binding BooleanValue}"
+                                                                  IsVisible="{Binding IsToggle}"
+                                                                  VerticalAlignment="Center" />
+                                                    <StackPanel Grid.Column="1"
+                                                                Orientation="Horizontal"
+                                                                Spacing="8"
+                                                                IsVisible="{Binding IsRange}"
+                                                                VerticalAlignment="Center">
+                                                        <Slider Width="220"
+                                                                Minimum="{Binding Minimum}"
+                                                                Maximum="{Binding Maximum}"
+                                                                TickFrequency="{Binding Step}"
+                                                                IsSnapToTickEnabled="True"
+                                                                Value="{Binding IntegerValue}"
+                                                                VerticalAlignment="Center" />
+                                                        <TextBlock Text="{Binding IntegerValue}"
+                                                                   Classes="caption"
+                                                                   MinWidth="40"
+                                                                   VerticalAlignment="Center" />
+                                                    </StackPanel>
+                                                    <ComboBox Grid.Column="1"
+                                                              MinWidth="180"
+                                                              ItemsSource="{Binding Choices}"
+                                                              SelectedItem="{Binding SelectedChoice}"
+                                                              IsVisible="{Binding IsChoice}"
+                                                              VerticalAlignment="Center" />
+                                                    <TextBox Grid.Column="1"
+                                                             MinWidth="180"
+                                                             MaxLength="{Binding MaximumLength}"
+                                                             Text="{Binding TextValue}"
+                                                             IsVisible="{Binding IsText}"
+                                                             VerticalAlignment="Center" />
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Panel>
+    </Border>
+</UserControl>

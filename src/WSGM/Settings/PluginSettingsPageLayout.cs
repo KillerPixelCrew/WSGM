@@ -92,7 +92,7 @@ internal static class PluginSettingsPageLayout
         foreach (PluginSettingDescriptor setting in manifest.Settings)
         {
             int index = declaredIndex++;
-            if (!resolved.TryGetValue(setting.SettingId, out CapabilityValue value))
+            if (!resolved.TryGetValue(setting.SettingId, out CapabilityValue? value))
             {
                 diagnostics.Add(
                     $"Setting '{setting.SettingId}' has no reconciled value and was not drawn.");
