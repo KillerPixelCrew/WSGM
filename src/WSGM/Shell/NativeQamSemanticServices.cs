@@ -11,6 +11,25 @@ namespace WSGM.Shell;
 
 internal sealed record NativeQamCommandResult(bool Succeeded, string? Error);
 
+/// <summary>The display-resolution row's state, for the native quick-access menu.</summary>
+/// <param name="Available">Whether the row can be drawn at all.</param>
+/// <param name="Options">
+/// Resolutions to offer, as <c>WIDTHxHEIGHT</c>. Empty hides the row: a picker with nothing to pick
+/// is worse than no picker.
+/// </param>
+/// <param name="Current">The resolution in force, or empty when it cannot be read.</param>
+/// <param name="StatusText">Why the row is unavailable, when it is.</param>
+/// <remarks>
+/// Hand-built rather than reactivated, unlike the frame limit and VRR rows: SteamOS drives
+/// resolution through gamescope and this client ships no component for it, so there is nothing to
+/// mount and the row is WSGM's own.
+/// </remarks>
+internal sealed record NativeQamResolutionState(
+    bool Available,
+    IReadOnlyList<string> Options,
+    string Current,
+    string StatusText);
+
 internal sealed record NativeQamFrameLimitState(
     bool Available,
     int? MinimumFps,
@@ -1040,6 +1059,7 @@ internal sealed class UnavailableNativeQamControllerTargetService
 [JsonSerializable(typeof(NativeQamAutoTdpState))]
 [JsonSerializable(typeof(NativeQamControllerTargetState))]
 [JsonSerializable(typeof(NativeQamFrameLimitState))]
+[JsonSerializable(typeof(NativeQamResolutionState))]
 [JsonSerializable(typeof(NativeQamOverlayLevelState))]
 [JsonSerializable(typeof(SteamBluetoothState))]
 [JsonSerializable(typeof(SteamBluetoothDevice))]
