@@ -1,4 +1,3 @@
-using System.Linq;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
