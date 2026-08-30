@@ -1,9 +1,6 @@
-using System.Collections.Generic;
-using System.Linq;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
-using Xunit;
 
 namespace WSGM.Tests;
 

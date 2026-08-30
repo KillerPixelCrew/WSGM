@@ -543,6 +543,19 @@ public sealed class PerformanceConfig
     /// <summary>Global performance-overlay level when the adapter advertises a verified mapping.</summary>
     public int? OverlayLevel { get; set; }
 
+    /// <summary>How a frame limit relates to the panel's refresh rate.</summary>
+    /// <remarks>
+    /// Global rather than per-application: it decides whether WSGM changes display modes at all,
+    /// which is a tolerance for mode-change risk the user holds once, not per game.
+    /// </remarks>
+    public FrameLimitStrategy FrameLimitStrategy { get; set; } = FrameLimitStrategy.FrameLimitOnly;
+
+    /// <summary>Global sustained power limit in watts, or null to leave it to the device.</summary>
+    public int? TdpWatts { get; set; }
+
+    /// <summary>Global variable-refresh preference, or null to leave the panel as found.</summary>
+    public bool? VariableRefreshRate { get; set; }
+
     /// <summary>Per-application overrides keyed by WSGM's canonical application identity.</summary>
     public List<PerformanceApplicationConfig> Applications { get; set; } = [];
 }
@@ -561,6 +574,22 @@ public sealed class PerformanceApplicationConfig
 
     /// <summary>Application overlay-level override, or null to inherit global policy.</summary>
     public int? OverlayLevel { get; set; }
+
+    /// <summary>
+    /// Whether this application's own values apply at all.
+    /// </summary>
+    /// <remarks>
+    /// The switch behind Steam's "Use per-game profile". Off keeps the stored values so turning it
+    /// back on restores what the user set up rather than starting from the global defaults again —
+    /// the same reversibility the device master switch has.
+    /// </remarks>
+    public bool UsePerGameProfile { get; set; }
+
+    /// <summary>Application sustained power limit in watts, or null to inherit.</summary>
+    public int? TdpWatts { get; set; }
+
+    /// <summary>Application variable-refresh preference, or null to inherit.</summary>
+    public bool? VariableRefreshRate { get; set; }
 }
 
 /// <summary>Persisted user settings and exact Windows-state snapshots for WSGM.</summary>
