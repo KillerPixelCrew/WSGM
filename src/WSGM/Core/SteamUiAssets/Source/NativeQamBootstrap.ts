@@ -251,8 +251,15 @@ interface Window {
         // Windows exposes no adapter identity WSGM could pass through truthfully.
         adapters:
           state.available === true
-            ? [{ id: 1, mac: "", name: "Bluetooth", is_enabled: state.enabled === true,
-                is_discovering: state.discovering === true }]
+            ? [
+                {
+                  id: 1,
+                  mac: "",
+                  name: "Bluetooth",
+                  is_enabled: state.enabled === true,
+                  is_discovering: state.discovering === true,
+                },
+              ]
             : [],
         devices: devices.map((device) => ({
           id: device.id,
