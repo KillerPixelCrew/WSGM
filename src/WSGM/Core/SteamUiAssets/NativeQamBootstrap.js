@@ -636,6 +636,12 @@
   }
   function createBrightnessGate() {
     const field = "is_display_brightness_available";
+    // A string key on the settings message, because the probe reads it from a separate CDP
+    // evaluation where nothing from this scope is reachable. Without it this gate ran the
+    // self-incompatibility teardown loop the audio namespace already paid for: the probe required
+    // the flag to be hidden, a successful apply made it visible, and the patch manager tore down
+    // its own work every poll — the row flickered in and out on a ~25-second cycle on the device.
+    const revealedMarker = "__wsgmBrightnessRevealed";
     let originalValue;
     let installed = false;
     let lastError = "";
@@ -662,14 +668,24 @@
         return { ok: false, error: lastError };
       }
       // A client already reporting brightness available needs nothing from WSGM, and overwriting
-      // the flag would mean restoring a value that was never ours to change.
-      if (message[field] === true) {
+      // the flag would mean restoring a value that was never ours to change. Available AND MARKED
+      // is different: that is this gate's own earlier reveal, surviving a bridge replaced in
+      // place, and refusing it is the teardown trap.
+      if (message[field] === true && message[revealedMarker] !== true) {
         lastError = "brightness already available";
         return { ok: false, error: lastError };
       }
       try {
-        originalValue = message[field];
+        if (message[revealedMarker] !== true) {
+          originalValue = message[field];
+        }
         message[field] = true;
+        Object.defineProperty(message, revealedMarker, {
+          value: true,
+          configurable: true,
+          enumerable: false,
+          writable: false,
+        });
       } catch (error) {
         lastError = String(error);
         return { ok: false, error: lastError };
@@ -685,6 +701,7 @@
       if (!message) return { ok: true, removed: true, storeGone: true };
       try {
         message[field] = originalValue;
+        delete message[revealedMarker];
       } catch (error) {
         lastError = String(error);
         return { ok: false, error: lastError };

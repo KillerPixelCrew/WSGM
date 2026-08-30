@@ -63,8 +63,10 @@ public sealed class SteamBrightnessGatePatch : ISteamUiPatch
             bool fieldPresent =
                 root.TryGetProperty("fieldPresent", out JsonElement present)
                 && present.ValueKind is JsonValueKind.True;
-            bool currentlyHidden =
-                root.TryGetProperty("currentlyHidden", out JsonElement hidden)
+            // Hidden or already ours — never "hidden" alone, which is the pre-patch condition a
+            // successful apply invalidates. See the probe expression for the loop that caused.
+            bool revealable =
+                root.TryGetProperty("revealable", out JsonElement hidden)
                 && hidden.ValueKind is JsonValueKind.True;
 
             // The backend has to be there too. Revealing the row without it would produce a slider
@@ -73,7 +75,7 @@ public sealed class SteamBrightnessGatePatch : ISteamUiPatch
                 root.TryGetProperty("backendPresent", out JsonElement backend)
                 && backend.ValueKind is JsonValueKind.True;
 
-            bool compatible = fieldPresent && currentlyHidden && backendPresent;
+            bool compatible = fieldPresent && revealable && backendPresent;
             return new SteamUiPatchProbeResult(
                 true,
                 compatible,
@@ -130,7 +132,12 @@ public sealed class SteamBrightnessGatePatch : ISteamUiPatch
           const display=window.SteamClient&&SteamClient.System&&SteamClient.System.Display;
           return JSON.stringify({
             fieldPresent:'is_display_brightness_available' in settings,
-            currentlyHidden:settings.is_display_brightness_available!==true,
+            // Hidden, or visible because WSGM's own gate revealed it. Requiring hidden alone was
+            // the self-incompatibility teardown loop: a successful apply made this false, the next
+            // poll declared the patch incompatible, and the manager removed the reveal it had just
+            // verified — the row flickered on a ~25-second cycle on the device (2026-08-30).
+            revealable:settings.is_display_brightness_available!==true
+              ||settings.__wsgmBrightnessRevealed===true,
             backendPresent:!!display&&typeof display.SetBrightness==='function'
               &&typeof display.RegisterForBrightnessChanges==='function'
           });
