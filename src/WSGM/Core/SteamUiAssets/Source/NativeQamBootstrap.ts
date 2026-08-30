@@ -257,7 +257,17 @@ interface Window {
       // where all of them arrive. The delta is decoded on WSGM's side rather than here, because the
       // message shapes belong to the client and this half only forwards.
       const api = {
-        UpdateSettings: (payload) => request(patchId, "updateSettings", { delta: payload }, 0),
+        // toObject() first, always. The argument is a protobuf message whose own JSON form is
+        // jspb's internal positional array, so forwarding it verbatim would send tag-indexed
+        // nesting with no field names and WSGM would have to reimplement the wire format to read
+        // its own client's message back.
+        UpdateSettings: (payload) =>
+          request(
+            patchId,
+            "updateSettings",
+            { delta: payload?.toObject?.() ?? payload ?? {} },
+            0,
+          ),
         RegisterForStateChanges: () => ({ unregister: () => {} }),
         RegisterForDiagnosticInfoChanges: () => ({ unregister: () => {} }),
       };

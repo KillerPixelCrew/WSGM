@@ -1,0 +1,238 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.Json.Serialization;
+
+namespace WSGM.Core;
+
+/// <summary>
+/// The performance state WSGM supplies in place of Steam's absent <c>SteamClient.System.Perf</c>.
+/// </summary>
+/// <remarks>
+/// The field names are Valve's, taken from the generated protobuf metadata in the client's own
+/// bundle (<c>CMsgSystemPerfLimits</c>, <c>CMsgSystemPerfSettingsGlobal</c>,
+/// <c>CMsgSystemPerfSettingsPerApp</c>), because the store's controls read them by name. They are
+/// spelled out here rather than derived from a naming policy: the outer object is camelCase for the
+/// injected bootstrap and the inner objects are the protobuf's snake_case, so one policy cannot
+/// serve both and a wrong name is silently a missing control.
+/// <para>
+/// <b>Every field is nullable and omitted when null, and that is the safety property.</b> Control
+/// availability is read straight out of this state — <c>msgLimits?.is_vrr_supported ?? false</c> —
+/// so a field WSGM cannot back is left out and Valve's own wrapper renders nothing. Hiding costs no
+/// CSS and no patching; adding a field is what makes a control appear.
+/// </para>
+/// </remarks>
+internal sealed record NativeQamPerfState
+{
+    /// <summary>Bounds and support flags. Omitted fields hide their controls.</summary>
+    [JsonPropertyName("limits")]
+    public NativeQamPerfLimits? Limits { get; init; }
+
+    /// <summary>Settings that apply to every application.</summary>
+    [JsonPropertyName("global")]
+    public NativeQamPerfGlobalSettings? Global { get; init; }
+
+    /// <summary>Settings for the application the profile is currently being edited for.</summary>
+    [JsonPropertyName("perApp")]
+    public NativeQamPerfApplicationSettings? PerApp { get; init; }
+
+    /// <summary>
+    /// The running application's Steam AppID as a string, or <c>"0"</c> for none.
+    /// </summary>
+    /// <remarks>
+    /// Steam decides the per-game profile is in use by comparing this with
+    /// <see cref="ActiveProfileGameId"/>; equal and non-zero means the running game's own profile is
+    /// the one on screen.
+    /// </remarks>
+    [JsonPropertyName("currentGameId")]
+    public string CurrentGameId { get; init; } = "0";
+
+    /// <summary>The AppID whose profile is being edited, or <c>"0"</c> for the global profile.</summary>
+    [JsonPropertyName("activeProfileGameId")]
+    public string ActiveProfileGameId { get; init; } = "0";
+}
+
+/// <summary>Bounds and support flags for the performance controls WSGM can back.</summary>
+/// <remarks>
+/// Deliberately partial. The message also carries CPU governor bounds, FSR sharpness bounds, split
+/// scaling filters and scalers, external-display refresh bounds, and
+/// <c>is_dynamic_refresh_rate_in_steam_supported</c>; none is supplied, so none of those controls
+/// renders. That is the first of the two hiding layers described in <c>_plan\qam-overhaul.md</c>.
+/// <para>
+/// <c>tdp_limit_min</c>/<c>tdp_limit_max</c> exist in this message and are still not supplied: no
+/// component in the performance bundle renders a TDP control, so the fields would be read by
+/// nothing. Valve's TDP row comes from the SteamOS Manager RPC seam instead, which is a separate
+/// patch.
+/// </para>
+/// </remarks>
+internal sealed record NativeQamPerfLimits
+{
+    /// <summary>The frame caps the slider offers, as its notches, in ascending order.</summary>
+    /// <remarks>
+    /// The slider's labels are <c>value.toString()</c> over this array, so the notches and the
+    /// options are the same list; there is no separate label channel to fill.
+    /// </remarks>
+    [JsonPropertyName("fps_limit_options")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<int>? FpsLimitOptions { get; init; }
+
+    /// <summary>Whether the panel supports variable refresh rate.</summary>
+    [JsonPropertyName("is_vrr_supported")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? IsVrrSupported { get; init; }
+
+    /// <summary>Whether a refresh rate can be chosen by hand.</summary>
+    [JsonPropertyName("is_manual_display_refresh_rate_available")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? IsManualDisplayRefreshRateAvailable { get; init; }
+
+    /// <summary>Lowest selectable refresh rate in Hz.</summary>
+    [JsonPropertyName("display_refresh_manual_hz_min")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? DisplayRefreshManualHzMin { get; init; }
+
+    /// <summary>Highest selectable refresh rate in Hz.</summary>
+    [JsonPropertyName("display_refresh_manual_hz_max")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? DisplayRefreshManualHzMax { get; init; }
+}
+
+/// <summary>Performance settings that are not per-application.</summary>
+internal sealed record NativeQamPerfGlobalSettings
+{
+    /// <summary>The performance overlay level, which WSGM maps onto RTSS.</summary>
+    [JsonPropertyName("perf_overlay_level")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? PerfOverlayLevel { get; init; }
+
+    /// <summary>Whether the panel shows its advanced rows.</summary>
+    [JsonPropertyName("is_advanced_settings_enabled")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? IsAdvancedSettingsEnabled { get; init; }
+}
+
+/// <summary>Performance settings for one application, or for the global profile.</summary>
+internal sealed record NativeQamPerfApplicationSettings
+{
+    /// <summary>The frame cap in FPS.</summary>
+    [JsonPropertyName("fps_limit")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? FpsLimit { get; init; }
+
+    /// <summary>Whether the frame cap is applied at all.</summary>
+    [JsonPropertyName("is_fps_limit_enabled")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? IsFpsLimitEnabled { get; init; }
+
+    /// <summary>Whether variable refresh rate is on.</summary>
+    [JsonPropertyName("is_vrr_enabled")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? IsVrrEnabled { get; init; }
+
+    /// <summary>The chosen refresh rate in Hz.</summary>
+    [JsonPropertyName("display_refresh_manual_hz")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? DisplayRefreshManualHz { get; init; }
+
+    /// <summary>Whether this application keeps its own profile rather than using the global one.</summary>
+    [JsonPropertyName("is_game_perf_profile_enabled")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? IsGamePerfProfileEnabled { get; init; }
+}
+
+/// <summary>What the device can currently back, as far as the performance panel is concerned.</summary>
+/// <param name="FrameLimitOptions">Frame caps to offer, or empty to hide the slider.</param>
+/// <param name="VariableRefreshRateSupported">Whether the panel supports VRR.</param>
+/// <param name="RefreshRatesSelectable">
+/// Whether the user may choose a refresh rate by hand. False under the pairing strategies, where
+/// WSGM owns the refresh rate and a manual row would fight it.
+/// </param>
+/// <param name="RefreshRateMinHz">Lowest selectable refresh rate.</param>
+/// <param name="RefreshRateMaxHz">Highest selectable refresh rate.</param>
+internal readonly record struct NativeQamPerfSupport(
+    IReadOnlyList<int> FrameLimitOptions,
+    bool VariableRefreshRateSupported,
+    bool RefreshRatesSelectable,
+    int? RefreshRateMinHz,
+    int? RefreshRateMaxHz);
+
+/// <summary>Builds the performance state from what WSGM knows, supplying only backed fields.</summary>
+internal static class NativeQamPerfProjection
+{
+    /// <summary>The AppID Steam uses to mean "no game".</summary>
+    private const string NoGame = "0";
+
+    /// <summary>Projects WSGM's performance state into Valve's state message shape.</summary>
+    /// <param name="values">The resolved frame limit and overlay level for the active profile.</param>
+    /// <param name="support">What the device can back.</param>
+    /// <param name="steamAppId">The running Steam AppID, or null when none is running.</param>
+    /// <param name="perApplicationProfileEnabled">
+    /// Whether the running application keeps its own profile.
+    /// </param>
+    /// <param name="advancedSettingsEnabled">Whether the advanced rows are shown.</param>
+    /// <param name="variableRefreshRateEnabled">Current VRR state, or null when unsupported.</param>
+    /// <param name="refreshRateHz">Current refresh rate, or null when WSGM owns it.</param>
+    /// <returns>The state to publish to the injected shim.</returns>
+    /// <remarks>
+    /// Pure, and the only place that decides what the panel shows. A field is supplied when WSGM can
+    /// both report and honour it; anything else is left null so the control does not render at all,
+    /// which is safer than rendering a control whose writes go nowhere.
+    /// </remarks>
+    internal static NativeQamPerfState Project(
+        PerformanceValues values,
+        NativeQamPerfSupport support,
+        uint? steamAppId,
+        bool perApplicationProfileEnabled,
+        bool advancedSettingsEnabled,
+        bool? variableRefreshRateEnabled,
+        int? refreshRateHz)
+    {
+        // A foreground-only identity has no AppID, and Steam's per-game header is built entirely
+        // from one. The profile still applies — it is simply presented as the global one, because
+        // claiming an AppID WSGM does not have would put the wrong game's name in Valve's header.
+        string gameId = steamAppId is { } appId ? appId.ToString() : NoGame;
+        bool perGame = perApplicationProfileEnabled && gameId != NoGame;
+
+        return new NativeQamPerfState
+        {
+            Limits = new NativeQamPerfLimits
+            {
+                FpsLimitOptions = support.FrameLimitOptions.Count > 0
+                    ? [.. support.FrameLimitOptions.Where(option => option > 0).Distinct().Order()]
+                    : null,
+                IsVrrSupported = support.VariableRefreshRateSupported ? true : null,
+                IsManualDisplayRefreshRateAvailable = support.RefreshRatesSelectable ? true : null,
+                DisplayRefreshManualHzMin = support.RefreshRatesSelectable
+                    ? support.RefreshRateMinHz
+                    : null,
+                DisplayRefreshManualHzMax = support.RefreshRatesSelectable
+                    ? support.RefreshRateMaxHz
+                    : null,
+            },
+            Global = new NativeQamPerfGlobalSettings
+            {
+                PerfOverlayLevel = values.OverlayLevel,
+                IsAdvancedSettingsEnabled = advancedSettingsEnabled,
+            },
+            PerApp = new NativeQamPerfApplicationSettings
+            {
+                FpsLimit = values.FrameLimit,
+                // Steam draws the cap and its on/off state from two fields. Without the flag the
+                // slider renders at the cap but reads as disabled, so an unset cap is off and any
+                // cap at all is on.
+                IsFpsLimitEnabled = values.FrameLimit is > 0,
+                IsVrrEnabled = support.VariableRefreshRateSupported
+                    ? variableRefreshRateEnabled ?? false
+                    : null,
+                DisplayRefreshManualHz = support.RefreshRatesSelectable ? refreshRateHz : null,
+                IsGamePerfProfileEnabled = gameId == NoGame ? null : perApplicationProfileEnabled,
+            },
+            CurrentGameId = gameId,
+            ActiveProfileGameId = perGame ? gameId : NoGame,
+        };
+    }
+}
+
+/// <summary>Serializes the performance state with the client's own field names.</summary>
+[JsonSerializable(typeof(NativeQamPerfState))]
+internal sealed partial class NativeQamPerfJsonContext : JsonSerializerContext;
