@@ -1338,14 +1338,18 @@ single Deck-only store getter — but never set the global `TS.IS_STEAMOS`, whic
       `StartScanningForNetworks`/`StopScanningForNetworks`, which Steam's UI already calls when its
       network page opens and closes, and drive `RadioManager` from them. A stale list is worse than
       an empty one: the user picks a network that is gone and the join fails for no visible reason.
-- [ ] Feed the whole access-point list from `RadioManager` through the store's `SetDeviceInfo`
+- [x] Feed the whole access-point list from `RadioManager` through the store's `SetDeviceInfo`
       ingestion path in the plain-object shape the protobuf decoder produces, and wire connect and
       forget to `ConnectAsync`/`ForgetAsync`. Two constraints are already device-verified and must
       not be rediscovered: replacing the store's report handler does not work, because the backend
       holds the bound callback registered at store init; and backend reports expire unknown entries
       through `MarkAsNotPresent()`, so injected entries need the same no-op pin
-      `SteamNetworkIndicator` already uses. `SetWifiEnabled` exists natively, is untested, is a real
-      radio mutation, and stays attended.
+      `SteamNetworkIndicator` already uses. Done: resident v2 `applyNetworks` publishes the list —
+      one `SetDeviceInfo` call per access point, since a map entry is one AP keyed by its own
+      `m_DeviceWapId` — and `SteamUiSessionHost` drives the sweep from Steam's own
+      `StartScanningForNetworks`/`StopScanningForNetworks`, collapsing each burst onto one push.
+      `SetWifiEnabled` exists natively, is untested, is a real radio mutation, and stays attended,
+      as does confirming the list appears on Steam's page.
 - [ ] Revive Bluetooth pair and connect in Steam directly by replacing the `BluetoothManagerService`
       stub methods on the plain object `RF` exported by module `60517`, routing them to the existing
       radio backend. The service round-trips on Windows — `GetState` succeeds and returns
