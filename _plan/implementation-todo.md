@@ -324,6 +324,32 @@ Only this list drives the next implementation work:
       stays uninitialized, everything through injected config and temp dirs. Attended device
       acceptance stays what it is — this replaces the maintainer as the *first* checker, not as the
       release gate. **What remains is all of it.**
+- [ ] **Q19 — spike: the rest of Chrome DevTools against Steam's CEF, to make CEF work easier.**
+      Everything today rides one CDP method — `Runtime.evaluate` with hand-written probe scripts —
+      while the same port serves the protocol's full surface and the DevTools frontend itself.
+      Evaluate what earns adoption into `tools/WsgmLibTest` and the dev workflow, in this order of
+      expected payoff:
+      - **`Page.captureScreenshot` on the MainWindow target** — the CEF twin of Q18's screenshot
+        harness: capture the QAM/Settings surface as a PNG so an agent sees the grey slider, the
+        missing row, the wrong order itself, instead of asking the maintainer. First concrete
+        experiment; if it works, wire it into the harness as `qam-harness screenshot`.
+      - **`DOM.*`/`CSS.*` domains** — inspect the rendered tree and matched styles directly rather
+        than reconstructing them through evaluated JS; would have shortened the glyph-CSS and
+        row-hiding battles considerably.
+      - **The DevTools frontend for humans** — `http://127.0.0.1:8080` in a browser gives the full
+        inspector against any target; document the workflow (which target is which, the
+        SharedJSContext vs MainWindow split) in the harness README so it stops being tribal
+        knowledge.
+      - **`Debugger` domain + source maps for the bootstrap** — breakpoints in the injected
+        TypeScript instead of `status()` archaeology; check whether the asset build can emit a
+        source map without breaking the hash/drift gate (dev-only emission if need be).
+      - **React DevTools backend injection** — component-tree inspection for the panel-wrap and
+        row-mount work; strictly a dev-machine tool, never shipped.
+      Constraints stand: the port stays loopback-only, the destructive-probe rules in
+      `docs/steam-cef.md` bind (inspection is read-only; never iterate the module registry
+      constructing exports), and nothing here ships in the product — this is developer/agent
+      tooling beside Q16, whose findings land in the harness README and `docs/steam-cef.md`.
+      **What remains is all of it.**
 
 A checked architectural queue item has its code, focused tests, diagnostics, and documentation
 complete. Attended/live gates remain explicit and unchecked until they run on the reference device;
