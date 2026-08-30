@@ -286,11 +286,12 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     /// <summary>Adds an empty fan curve the user can then shape.</summary>
     /// <param name="capabilityId">The capability the new profile authors.</param>
+    /// <param name="color">Whether to author a colour rather than a curve.</param>
     /// <remarks>
     /// Seeded with two points at the ends rather than none. A curve needs at least two to be valid,
     /// and an editor opening on an empty plot gives the user nothing to grab.
     /// </remarks>
-    internal void AddDeviceProfile(string capabilityId)
+    internal void AddDeviceProfile(string capabilityId, bool color = false)
     {
         string id = $"profile-{Guid.NewGuid():N}"[..16];
         DeviceProfileRowViewModel row = new(new DeviceAuthoredProfile
@@ -298,11 +299,18 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             ProfileId = id,
             Name = $"Profile {DeviceProfiles.Count + 1}",
             CapabilityId = capabilityId,
-            Curve =
-            [
-                new AuthoredCurvePoint { Input = 0, Output = 0 },
-                new AuthoredCurvePoint { Input = 100, Output = 100 },
-            ],
+            // One or the other, never both: the capability being authored decides which, and a
+            // profile carrying an unused half would let a capability change silently resurrect a
+            // value the user set for something else.
+            Curve = color
+                ?
+                []
+                :
+                [
+                    new AuthoredCurvePoint { Input = 0, Output = 0 },
+                    new AuthoredCurvePoint { Input = 100, Output = 100 },
+                ],
+            Color = color ? 0xFF9D3D : null,
         });
         DeviceProfiles.Add(row);
         SelectedDeviceProfile = row;

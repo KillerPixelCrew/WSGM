@@ -39,10 +39,14 @@
                                   DisplayMemberBinding="{Binding Name}"
                                   MinWidth="180"
                                   VerticalAlignment="Center" />
-                        <Button Grid.Column="1"
-                                Content="Add"
-                                Click="OnAddProfile"
-                                VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                            <Button Content="Add curve"
+                                    Click="OnAddProfile"
+                                    VerticalAlignment="Center" />
+                            <Button Content="Add colour"
+                                    Click="OnAddColorProfile"
+                                    VerticalAlignment="Center" />
+                        </StackPanel>
                         <Button Grid.Column="2"
                                 Content="Remove"
                                 Click="OnRemoveProfile"
@@ -57,10 +61,16 @@
                                  PlaceholderText="Profile name" />
                         <c:CurveEditor x:Name="ProfileCurve"
                                        Height="220"
+                                       IsVisible="{Binding SelectedDeviceProfile.IsCurveProfile}"
                                        Points="{Binding SelectedDeviceProfile.Curve, Mode=TwoWay}" />
                         <TextBlock Classes="caption"
                                    TextWrapping="Wrap"
+                                   IsVisible="{Binding SelectedDeviceProfile.IsCurveProfile}"
                                    Text="Drag a point to move it, tap the plot to add one, Delete to remove the selected point. The device checks the curve against its own limits when the profile is applied." />
+                        <ColorPicker x:Name="ProfileColor"
+                                     HorizontalAlignment="Left"
+                                     IsVisible="{Binding SelectedDeviceProfile.IsColorProfile}"
+                                     ColorChanged="OnProfileColorChanged" />
                     </StackPanel>
                 </Border>
 

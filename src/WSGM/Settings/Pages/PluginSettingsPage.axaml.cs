@@ -49,6 +49,31 @@ public partial class PluginSettingsPage : UserControl
         }
     }
 
+    private void OnAddColorProfile(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is SettingsViewModel viewModel)
+        {
+            viewModel.AddDeviceProfile(LightingCapabilityId, color: true);
+        }
+    }
+
+    /// <remarks>
+    /// The picker carries an alpha channel WSGM has no use for; the row masks it off. Storing one
+    /// would read as a wildly different colour when the value is later unpacked as RGB.
+    /// </remarks>
+    private void OnProfileColorChanged(object? sender, ColorChangedEventArgs e)
+    {
+        if (DataContext is not SettingsViewModel viewModel
+            || viewModel.SelectedDeviceProfile is not { } profile
+            || !profile.IsColorProfile)
+        {
+            return;
+        }
+
+        profile.Color = (e.NewColor.R << 16) | (e.NewColor.G << 8) | e.NewColor.B;
+        viewModel.NoteDeviceProfileEdited();
+    }
+
     private void OnRemoveProfile(object? sender, RoutedEventArgs e)
     {
         if (DataContext is SettingsViewModel viewModel)
@@ -59,4 +84,7 @@ public partial class PluginSettingsPage : UserControl
 
     /// <summary>The capability a newly authored curve profile targets.</summary>
     private const string FanCurveCapabilityId = "thermal.fan-curve";
+
+    /// <summary>The capability a newly authored colour profile targets.</summary>
+    private const string LightingCapabilityId = "lighting.color";
 }

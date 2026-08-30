@@ -154,4 +154,54 @@ public sealed class DeviceProfileAuthoringTests
         Assert.Equal([20, 80], stored.Curve.Select(point => point.Input));
         Assert.Equal([30, 70], stored.Curve.Select(point => point.Output));
     }
+
+    [Fact]
+    public void AColourProfileCarriesAColourAndNoCurve()
+    {
+        // One or the other, never both: a profile carrying an unused half would let a capability
+        // change silently resurrect a value the user set for something else.
+        SettingsViewModel viewModel = new(Config());
+
+        viewModel.AddDeviceProfile("lighting.color", color: true);
+
+        DeviceProfileRowViewModel row = Assert.Single(viewModel.DeviceProfiles);
+        Assert.True(row.IsColorProfile);
+        Assert.False(row.IsCurveProfile);
+        Assert.Empty(row.ToStored().Curve);
+        Assert.NotNull(row.ToStored().Color);
+    }
+
+    [Fact]
+    public void ACurveProfileIsNotMistakenForAColourOne()
+    {
+        // "Has no curve" would class a half-built profile as a colour one and put a picker in front
+        // of a fan curve.
+        SettingsViewModel viewModel = new(Config(Stored("quiet", "Quiet")));
+
+        Assert.False(viewModel.DeviceProfiles[0].IsColorProfile);
+        Assert.True(viewModel.DeviceProfiles[0].IsCurveProfile);
+    }
+
+    [Fact]
+    public void AColourIsMaskedToTwentyFourBits()
+    {
+        // The picker hands back an alpha channel WSGM has no use for, and a stored value carrying
+        // one reads as a wildly different colour when it is later unpacked as RGB.
+        SettingsViewModel viewModel = new(Config());
+        viewModel.AddDeviceProfile("lighting.color", color: true);
+
+        viewModel.DeviceProfiles[0].Color = unchecked((int)0xFFFF9D3D);
+
+        Assert.Equal(0xFF9D3D, viewModel.DeviceProfiles[0].Color);
+    }
+
+    [Fact]
+    public void AColourProfileRoundTripsThroughTheStoredShape()
+    {
+        SettingsViewModel viewModel = new(Config());
+        viewModel.AddDeviceProfile("lighting.color", color: true);
+        viewModel.DeviceProfiles[0].Color = 0x102030;
+
+        Assert.Equal(0x102030, viewModel.DeviceProfiles[0].ToStored().Color);
+    }
 }

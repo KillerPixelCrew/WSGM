@@ -17,6 +17,7 @@ public sealed class DeviceProfileRowViewModel : INotifyPropertyChanged
 {
     private string _name;
     private IReadOnlyList<CurvePoint> _curve;
+    private int? _color;
 
     /// <summary>Creates a row from a stored profile.</summary>
     /// <param name="profile">The stored profile.</param>
@@ -31,6 +32,7 @@ public sealed class DeviceProfileRowViewModel : INotifyPropertyChanged
         [
             .. profile.Curve.Select(point => new CurvePoint(point.Input, point.Output)),
         ];
+        _color = profile.Color;
     }
 
     /// <inheritdoc />
@@ -75,6 +77,41 @@ public sealed class DeviceProfileRowViewModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>Gets or sets the packed 24-bit colour of a lighting profile.</summary>
+    /// <remarks>
+    /// Null for a profile that is not a lighting one. A profile carries a curve or a colour, never
+    /// both: the capability it authors decides which, and storing the unused half would let a
+    /// capability change silently resurrect a value the user set for something else.
+    /// </remarks>
+    public int? Color
+    {
+        get => _color;
+        set
+        {
+            // Masked to 24 bits on the way in. The picker hands back an alpha channel WSGM has no
+            // use for, and a stored value carrying one reads as a wildly different colour when it
+            // is later unpacked as RGB.
+            int? bounded = value is { } packed ? packed & 0xFFFFFF : null;
+            if (_color == bounded)
+            {
+                return;
+            }
+
+            _color = bounded;
+            Raise(nameof(Color));
+        }
+    }
+
+    /// <summary>Whether this profile authors a colour.</summary>
+    /// <remarks>
+    /// Decided by what the profile actually carries, not by what it lacks. "Has no curve" would
+    /// class a half-built profile as a colour one and put a picker in front of a fan curve.
+    /// </remarks>
+    public bool IsColorProfile => _color is not null;
+
+    /// <summary>Whether this profile authors a curve.</summary>
+    public bool IsCurveProfile => _curve.Count > 0;
+
     /// <summary>Converts back to the stored shape.</summary>
     /// <returns>The profile to persist.</returns>
     /// <remarks>
@@ -94,6 +131,7 @@ public sealed class DeviceProfileRowViewModel : INotifyPropertyChanged
                 Output = point.Output,
             }),
         ],
+        Color = _color,
     };
 
     private void Raise(string name) =>
