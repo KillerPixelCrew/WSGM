@@ -450,6 +450,33 @@ public static class ConfigStore
                 profile.Curve.RemoveAll(static point => point is null);
             }
 
+            // A selection naming no capability resolves nothing. One naming a profile that no
+            // longer exists is deliberately KEPT: the resolver reports it by name, and dropping it
+            // here would turn a diagnosable mistake into a per-application override that vanished
+            // without explanation.
+            scope.ProfileSelections ??= [];
+            scope.ProfileSelections.RemoveAll(static selection => selection is null
+                || string.IsNullOrWhiteSpace(selection.CapabilityId));
+            HashSet<string> selectionCapabilities = new(StringComparer.Ordinal);
+            scope.ProfileSelections.RemoveAll(
+                selection => !selectionCapabilities.Add(selection.CapabilityId.Trim()));
+            foreach (DeviceProfileSelection selection in scope.ProfileSelections)
+            {
+                selection.CapabilityId = selection.CapabilityId.Trim();
+                selection.ApplicationOverrides ??= [];
+                selection.ApplicationOverrides.RemoveAll(static entry => entry is null
+                    || string.IsNullOrWhiteSpace(entry.ApplicationId)
+                    || string.IsNullOrWhiteSpace(entry.ProfileId));
+                HashSet<string> applications = new(StringComparer.Ordinal);
+                selection.ApplicationOverrides.RemoveAll(
+                    entry => !applications.Add(entry.ApplicationId.Trim()));
+                foreach (DeviceApplicationProfileSelection entry in selection.ApplicationOverrides)
+                {
+                    entry.ApplicationId = entry.ApplicationId.Trim();
+                    entry.ProfileId = entry.ProfileId.Trim();
+                }
+            }
+
             scope.Profiles.RemoveAll(static profile =>
             {
                 if (profile.Curve.Count == 0)

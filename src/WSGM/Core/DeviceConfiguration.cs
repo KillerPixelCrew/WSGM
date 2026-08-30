@@ -131,6 +131,43 @@ public sealed class PluginSettingsScope
     /// which one is in force is the overlay's job (D22b), so nothing here records a selection.
     /// </remarks>
     public List<DeviceAuthoredProfile> Profiles { get; set; } = [];
+
+    /// <summary>Which authored profile is in force, globally and per application.</summary>
+    /// <remarks>
+    /// Selections reference a profile by id rather than copying its curve, so editing a profile
+    /// changes every application already using it. Copying would silently strand every override on
+    /// the shape the profile had when it was chosen.
+    /// </remarks>
+    public List<DeviceProfileSelection> ProfileSelections { get; set; } = [];
+}
+
+/// <summary>Which authored profile is in force for one capability.</summary>
+/// <remarks>
+/// The same two layers, and the same precedence, as
+/// <see cref="DeviceCapabilityPreference"/>: an application override outranks the global choice.
+/// This is deliberately not a second per-application mechanism — it stores a profile reference
+/// where that one stores a value, and both resolve against the same running-application identity.
+/// </remarks>
+public sealed class DeviceProfileSelection
+{
+    /// <summary>The capability the selection applies to.</summary>
+    public string CapabilityId { get; set; } = string.Empty;
+
+    /// <summary>Profile in force when no application override matches, or null for none.</summary>
+    public string? GlobalProfileId { get; set; }
+
+    /// <summary>Per-application selections, at the higher precedence.</summary>
+    public List<DeviceApplicationProfileSelection> ApplicationOverrides { get; set; } = [];
+}
+
+/// <summary>One per-application profile choice.</summary>
+public sealed class DeviceApplicationProfileSelection
+{
+    /// <summary>The canonical running-application identity this applies to.</summary>
+    public string ApplicationId { get; set; } = string.Empty;
+
+    /// <summary>The authored profile chosen for it.</summary>
+    public string ProfileId { get; set; } = string.Empty;
 }
 
 /// <summary>One named profile the user authored for a device capability.</summary>
