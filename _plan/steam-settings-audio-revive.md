@@ -46,6 +46,36 @@ store patching, no getter override, no platform constant. Same category as
 The device model needs `HasDirection(Input\|Output)`, per-direction volumes, and an original name,
 which `AudioEndpointEntry` already carries per flow.
 
+### The exact payload shapes, live-probed 2026-08-30
+
+Guessing these would produce a namespace that exists and feeds the store nonsense, which is worse
+than leaving it absent, so they were read off the store's own consumers rather than inferred.
+
+`GetDevices()` resolves to:
+
+```
+{ activeOutputDeviceId, activeInputDeviceId, overrideOutputDeviceId, overrideInputDeviceId,
+  vecDevices: [ device, … ] }
+```
+
+Each `device` is read by the store's `RegisterOrUpdateDevice` into its device class:
+
+```
+{ id, sName, bHasOutput, bHasInput, currentConfig, availableConfigs,
+  eConnectorType, eBus, bSupportsHdmiCec, bHdmiCecEnabled, bHdmiCecActive }
+```
+
+`currentConfig` and `availableConfigs` belong to speaker configuration and the three HDMI CEC fields
+to a service WSGM does not supply, so those are reported empty and false rather than invented — the
+affected controls then do not appear, which is the intended outcome.
+
+`GetApps()` resolves to `{ rgApps: [{ id, strName, flVolume, unPID }] }`. Until the WASAPI session
+mixer exists this returns an empty list, which is why Steam's per-app mixer shows nothing rather than
+misbehaving.
+
+`UpdateDefaultDevices` re-reads `GetDevices()` after every device add or removal, so the response
+must stay cheap: it is called on hardware churn, not once at startup.
+
 ## Per-application volume
 
 WSGM has no per-app session control. This is wanted for the custom taskbar independently of Steam,
