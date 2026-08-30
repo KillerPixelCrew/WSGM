@@ -776,9 +776,23 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       - `Shell\DeviceHostClient.WriteTrace` bounds — the same rationale as `PlainText`: it prevents
         a malformed string corrupting a log line or hiding its own tail from whoever reads it. Not a
         privilege boundary and not claimed as one.
-      **Still unswept:** the splash-theme extraction defence set, the remaining Steam UI patch
-      bounds, `PersistentSteamUiTransport`, `SdFormatManager`, `HidHideOwnership`, and
-      `Input\UiCapture`.
+      **Four more swept, all cleared:**
+      - `Shell\SdFormatManager.SanitizeLabel` — the label is interpolated into a generated diskpart
+        script, so this is the repository's own "never concatenate untrusted input into a command
+        line" rule, not a trust boundary. The thing it stops is a stray quote producing a malformed
+        command against a physical disk. It does cost capability — no non-ASCII card names — but the
+        diskpart constraint is real. Keep.
+      - `Core\PersistentSteamUiTransport` and `Core\SteamUiPatchManager` target allowlists — these
+        name which CDP target a patch may attach to. Not defence: attaching a QAM patch to a store
+        page would simply be a bug. Keep as correctness.
+      - `Shell\HidHideOwnership` allowlist — functional, not protective. It decides which processes
+        still see a hidden controller, and its own comment records the incident where DeviceHost
+        was allowlisted too late and the plugin enumerated nothing.
+      - `Input\UiCapture` — the allowlisted host is the mechanism by which WSGM's own surfaces stay
+        readable while excluded from ordinary capture. Removing it would break the feature, not
+        loosen a boundary.
+      **Still unswept:** the splash-theme extraction defence set in `docs\ui.md`, which is the
+      largest remaining candidate and the one the original item named first.
 - [x] **Ship a physical glyph profile for the Claw 8 A2VM.** Done and confirmed on the reference
       unit: the Steam Input page shows the Claw's buttons and its own illustration. The package
       carries a profile for `ms-1t52` with twenty control glyphs, both split controller images and
