@@ -339,6 +339,15 @@ Only this list drives the next implementation work:
         Steam (the probe rules bind — read-only inspection, no navigation, no clicking around a
         live client). If it attaches cleanly, the harness keeps only what the MCP cannot do (the
         bridge-host role, allowlist-aware publish/deliver).
+      - **Playwright over the same port** as the library-shaped alternative:
+        `chromium.connectOverCDP('http://127.0.0.1:8080')` hands back the pages with screenshots,
+        `evaluate`, locators and waiting built in — a `run-file.mjs` successor rather than an
+        agent-tool layer, and the natural base if Q19 tooling ever grows scripted assertions
+        (\"after publish, the row exists and its label reads X\"). Its `connectOverCDP` is
+        historically laxer about Chromium version skew than Puppeteer's pin, so if the MCP refuses
+        Steam's 126 this is the fallback to test next; a Playwright MCP server also exists if the
+        agent-tool shape wins but the Google one cannot attach. Same discipline: connect, look,
+        evaluate — never navigate or synthesize input against the live client.
       - **`Page.captureScreenshot` on the MainWindow target** — the CEF twin of Q18's screenshot
         harness: capture the QAM/Settings surface as a PNG so an agent sees the grey slider, the
         missing row, the wrong order itself, instead of asking the maintainer. First concrete
