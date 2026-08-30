@@ -747,7 +747,7 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       WSGM surface on a hardware button. A first attempt at this added a WSGM action that
       synthesized Ctrl+1 into Steam — the same boundary violation wearing a different hat — and was
       reverted.
-- [ ] **Sweep the codebase for more pseudo-security like the glyph SVG sanitizer.** That one kept an
+- [x] **Sweep the codebase for more pseudo-security like the glyph SVG sanitizer.** That one kept an
       allowlist of permitted SVG root attributes, elements, path attributes and colour forms, and
       shipped a canonical document re-serialized from what survived. It protected nothing: a plugin
       is a .NET assembly DeviceHost loads and runs, already holding WMI, HID and EC access, and
@@ -791,8 +791,17 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
       - `Input\UiCapture` — the allowlisted host is the mechanism by which WSGM's own surfaces stay
         readable while excluded from ordinary capture. Removing it would break the feature, not
         loosen a boundary.
-      **Still unswept:** the splash-theme extraction defence set in `docs\ui.md`, which is the
-      largest remaining candidate and the one the original item named first.
+      **The splash-theme defence set is cleared, and it is the case that shows the test working.**
+      `.wsgmsplash` files are *shared between users*, so the attacker is whoever authored a theme
+      someone downloaded — not the user, and not a plugin. That author holds no other access at all,
+      which is exactly the sentence the glyph sanitizer could not produce: there a plugin already had
+      WMI, HID and EC access, so an SVG allowlist bought nothing. Here the same shape of check buys
+      everything. Zip-slip out of the staging directory, decompression bombs against lying
+      central-directory sizes, a UNC image path making Settings touch a remote host while
+      thumbnailing, and decode bombs via declared pixel dimensions are all things a theme author
+      could otherwise do and cannot. Keep the set intact.
+      **Sweep complete.** Nine sites reviewed, none removed, two reclassified as do-not-remove
+      boundaries (`SteamUiBridge`, splash extraction) that had been listed as removal candidates.
 - [x] **Ship a physical glyph profile for the Claw 8 A2VM.** Done and confirmed on the reference
       unit: the Steam Input page shows the Claw's buttons and its own illustration. The package
       carries a profile for `ms-1t52` with twenty control glyphs, both split controller images and
