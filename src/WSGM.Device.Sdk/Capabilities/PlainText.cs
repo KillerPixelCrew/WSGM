@@ -58,6 +58,40 @@ public static class PlainText
     }
 
     /// <summary>
+    /// Whether a value is usable as a stable identifier.
+    /// </summary>
+    /// <param name="value">The candidate identifier.</param>
+    /// <param name="maximumLength">Longest accepted length, in characters.</param>
+    /// <returns><see langword="true"/> when the value is a legal identifier.</returns>
+    /// <remarks>
+    /// Identifiers are matched, logged, and used as keys, so they are restricted to a shape that
+    /// survives all three: letters, digits, dot, underscore, and hyphen. Uppercase is allowed
+    /// because the identifiers WSGM itself sends are PascalCase.
+    /// </remarks>
+    public static bool IsIdentifier(string? value, int maximumLength)
+    {
+        if (string.IsNullOrEmpty(value) || value.Length > maximumLength)
+        {
+            return false;
+        }
+
+        foreach (char c in value)
+        {
+            bool legal =
+                c is >= 'a' and <= 'z'
+                || c is >= 'A' and <= 'Z'
+                || c is >= '0' and <= '9'
+                || c is '.' or '_' or '-';
+            if (!legal)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// Whether a character would corrupt a log line or misrepresent the rest of the string.
     /// </summary>
     /// <param name="c">The character to judge.</param>
