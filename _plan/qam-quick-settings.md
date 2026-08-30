@@ -169,11 +169,17 @@ default-endpoint switching.
 
 ## Brightness, night mode, resolution
 
-- **Brightness** reuses Valve's row. `SteamClient.System.Display.SetBrightness` exists and the
-  availability flag defaults true, so the Steam path is tried first. If it does not move the panel,
-  the fallback is the driver: IGCL exports `ctlGetBrightnessSetting` and `ctlSetBrightnessSetting`,
-  which makes it a device transport and therefore **plugin-owned** under the standing boundary rule,
-  beside Arc Sync.
+- **Brightness** reuses Valve's row, and the earlier claim here that its availability flag "defaults
+  true" was **wrong** — measured on 2026-08-30, `is_display_brightness_available` is explicitly
+  `false` in a populated settings message, so the hook's `?? true` never applies and the row is
+  hidden. That is a second gate of the same family as the others, and the flag is writable and
+  restores cleanly.
+  The backend underneath it already works: Steam tracks the real panel brightness
+  (`m_flDisplayBrightness` read back `0.806`), and both `SetBrightness` and
+  `RegisterForBrightnessChanges` exist on Windows. So this is one flag away, not a transport away.
+  If the Steam path turns out not to move the panel, the fallback is the driver: IGCL exports
+  `ctlGetBrightnessSetting` and `ctlSetBrightnessSetting`, which makes it a device transport and
+  therefore **plugin-owned** under the standing boundary rule, beside Arc Sync.
 - **Night mode** is `IN_GAMESCOPE` only, so the row is reused and backed by Windows Night Light.
   This is a WSGM display concern, not a device one.
 - **Resolution** appears nowhere in this tab; SteamOS drives it through gamescope. It is added as a
