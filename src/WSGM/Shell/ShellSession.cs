@@ -77,6 +77,8 @@ public sealed class ShellSession : IAsyncDisposable
     private DeviceCoordinator? _deviceCoordinator;
     private IDeviceOverlaySource? _deviceOverlay;
     private PerformanceService? _performance;
+    private RefreshRatePairingService? _refreshPairing;
+    private int _pairedFrameLimit = -1;
     private PerformanceOverlayBridge? _performanceOverlay;
     private PersistentSteamUiTransport? _steamUiTransport;
     private RunningApplicationMonitor? _runningApplications;
@@ -218,6 +220,15 @@ public sealed class ShellSession : IAsyncDisposable
             _overlayTestOnly ? PersistSimulatedPerformancePolicyAsync : PersistPerformancePolicyAsync,
             BuildPerformancePolicy(_config, forceEnabled: _overlayTestOnly));
         _performanceOverlay = new PerformanceOverlayBridge(_performance);
+
+        // Overlay-test runs without a real display to move, and pairing is the one performance
+        // concern that changes hardware state rather than an RTSS profile.
+        if (!_overlayTestOnly)
+        {
+            _refreshPairing = new RefreshRatePairingService();
+            _refreshPairing.SetStrategy(_config.Performance.FrameLimitStrategy);
+            _performance.StateChanged += OnPerformanceStateForPairing;
+        }
         if (!_overlayTestOnly)
         {
             _steamUiTransport = new PersistentSteamUiTransport();
@@ -1712,8 +1723,18 @@ public sealed class ShellSession : IAsyncDisposable
                 }
                 if (_performance is not null)
                 {
+                    _performance.StateChanged -= OnPerformanceStateForPairing;
                     await _performance.DisposeAsync().ConfigureAwait(false);
                     _performance = null;
+                }
+
+                // Before the session ends, not after: the applied rate is transient and would
+                // heal on its own eventually, but leaving the desktop at 48 Hz until something
+                // else resets it is a change the user never made and would have to hunt for.
+                if (_refreshPairing is not null)
+                {
+                    _ = _refreshPairing.Restore();
+                    _refreshPairing = null;
                 }
                 _tabBootSyncCancellation.Dispose();
                 _downloadSortCancellation.Dispose();
@@ -1995,9 +2016,45 @@ public sealed class ShellSession : IAsyncDisposable
             return;
         }
 
+        _refreshPairing?.SetStrategy(config.Performance.FrameLimitStrategy);
         _ = ObservePerformanceConfigAsync(
             performance,
             BuildPerformancePolicy(config, forceEnabled: _overlayTestOnly));
+    }
+
+    /// <remarks>
+    /// Runs off the state event rather than inside <see cref="PerformanceService"/>, because that
+    /// service owns RTSS profiles and this changes a display mode — two different pieces of hardware
+    /// with different failure modes and different restore obligations.
+    /// <para>
+    /// Only an actual change is acted on. The state event fires on every poll, and re-applying the
+    /// same mode repeatedly would put a driver round trip on a two-second timer forever.
+    /// </para>
+    /// </remarks>
+    private void OnPerformanceStateForPairing(PerformanceState state)
+    {
+        if (_refreshPairing is not { } pairing)
+        {
+            return;
+        }
+
+        int limit = state.Desired.FrameLimit ?? 0;
+        if (limit == _pairedFrameLimit)
+        {
+            return;
+        }
+
+        _pairedFrameLimit = limit;
+
+        // Uncapped hands the display back: there is no cadence left to pair against, and holding a
+        // reduced refresh rate after the cap is gone would cap frames by the back door.
+        if (limit <= 0)
+        {
+            _ = pairing.Restore();
+            return;
+        }
+
+        _ = pairing.ApplyForCap(limit);
     }
 
     private static async Task ObservePerformanceConfigAsync(
