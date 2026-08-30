@@ -62,8 +62,9 @@ maintainer follows a deliberately simpler flow — do not import the PR ceremony
   is wanted. The 2.0 rework lives on the long-running `2.0` branch (PR #19) until it merges; after
   that, work returns to committing directly to `master`.
 - **Commit after each completed task, and push periodically — standing maintainer authorization.**
-  Do not hold a day's work for one big push. Tagging and publishing remain explicit: never tag or
-  publish a release on your own initiative.
+  Do not hold a day's work for one big push. A per-task commit does not require a local gate run —
+  see "Batch the gates". Tagging and publishing remain explicit: never tag or publish a release on
+  your own initiative.
 - **Know what automation actually runs.** Codex reviews **pull requests only** — while work rides
   the `2.0` branch, every push triggers a fresh Codex pass on PR #19; a push to `master` gets no
   review from it. A push also triggers `.github\workflows\ci.yml` (it fires on both `push` and
@@ -73,7 +74,8 @@ maintainer follows a deliberately simpler flow — do not import the PR ceremony
 - Version numbers stay user-owned — see the `<Version>` rule under Build and packaging.
 - **Iterate by file swap, hand off by installer.** During feature work on this machine, deploy with
   `eng\dev-deploy.ps1` (see "Dev environment reality") — do not rerun the installer per iteration.
-  A completed implementation task still ends with `./build.ps1` and the installer copied to `Z:\`.
+  A milestone hand-off ends with `./build.ps1` and the installer copied to `Z:\` — per milestone,
+  not per task (see "Batch the gates").
 - `_plan\implementation-todo.md` is the only progress tracker; record completed and newly-found
   work there, not in a second list.
 
@@ -92,9 +94,8 @@ auto-detected from the registry (`Core\Steam.cs`), never configured by path.
 
 `docs\` holds the device- and live-verified behaviour behind each subsystem: what was measured, on
 what hardware, and which alternatives were tried and failed. **Read the relevant file before
-changing anything it covers.** Sections marked device-verified or live-verified encode constraints
-that only appear on real hardware or against a live Steam client; changing one without
-re-verification is grounds for refusing a change on its own.
+changing anything it covers.** The device-verified refusal rule under "Contributor instructions"
+applies to all work here, not only to PRs.
 
 | Doc | Read before touching |
 | --- | --- |
@@ -196,12 +197,18 @@ installed app lives there; Program Files holds only the logon service and device
 restarts WSGM `--shell` followed by Steam. Rerunning setup per change wastes minutes and churns
 installer state for nothing.
 
-**Batch the gates**: do not run builds, tests, or `eng\verify.ps1` after every edit — build and
-verify once per coherent slice, and always before a commit that claims the gates pass.
+**Batch the gates — milestones only (hard, maintainer-mandated).** Never run builds, tests, or
+`eng\verify.ps1` after individual edits, and not per completed task either — repeated local gate
+runs have wasted hours of real working time. Run the gates only at a major milestone: a feature or
+worklist slice is finished, an installer hand-off is being prepared, or the maintainer asks. In
+between, commit and push without local gate runs — CI runs the same `eng\verify.ps1` on every push,
+so nothing goes unchecked. A commit message or report may claim the gates pass only when a
+milestone run actually did.
 
-For every **completed** implementation task, run `./build.ps1` before handing it off. After a
-successful build, copy the freshly produced `publish\WSGM-Setup-*.exe` installer to `Z:\`. Use
-PowerShell to select the newest matching installer and overwrite the matching artifact on `Z:\`:
+`./build.ps1` and the installer hand-off are milestone work, not per-task work. At a milestone, run
+`./build.ps1`; after a successful build, copy the freshly produced `publish\WSGM-Setup-*.exe`
+installer to `Z:\`. Use PowerShell to select the newest matching installer and overwrite the
+matching artifact on `Z:\`:
 
 ```powershell
 $setup = Get-ChildItem -LiteralPath .\publish -Filter 'WSGM-Setup-*.exe' |
@@ -393,11 +400,18 @@ on Avalonia windows or controls.
 
 # Agent Review Rules
 
-Use this section for every requested code review, pull-request review, changeset audit, or review
-comment. The objective is complete, evidence-backed defect discovery—not stylistic preference or a
-quick scan of the diff.
+Use this section only when the user explicitly requests a code review, pull-request review,
+changeset audit, or review comment. Finishing implementation work is never a review trigger:
+implementation is checked by "Batch the gates", and rolling completed work into a self-initiated
+audit is scope creep, not diligence. Within a requested review, the objective is complete,
+evidence-backed defect discovery—not stylistic preference or a quick scan of the diff.
 
 ## Required review scope
+
+The scope is the changeset the user pointed at — a PR, a commit range, the staged or working-tree
+diff. It is never the whole branch history unless the user explicitly asks for that; on the
+long-running `2.0` branch in particular, "review the changes" means the diff under discussion, not
+a fresh audit of the entire rework.
 
 1. Read every changed file and every changed hunk, including generated-input definitions, project
    files, build scripts, installer changes, tests, native ABI layers, and documentation that changes
@@ -464,8 +478,13 @@ boundary, ownership change, or test adjustment needed to resolve it.
 - If no defects are found, state `No findings` and list the code paths and failure modes actually
   reviewed, plus any residual device-only validation that could not be performed. Do not imply that
   unreviewed code is approved.
-- Re-review changed fixes and all paths they affect. A finding is closed only when the correction,
-  regression coverage, and relevant recovery/cleanup behavior have been checked.
+- **A review is bounded: one full pass over the requested scope, then one re-review pass limited
+  to the changed fixes and the paths they affect.** A finding is closed only when the correction,
+  regression coverage, and relevant recovery/cleanup behavior have been checked; whatever is still
+  open after the re-review pass is reported as residual risk with the evidence gathered so far.
+  Never start another sweep, audit round, or gate re-run on your own initiative — a review ends by
+  reporting, not by iterating to zero findings. One agent session was lost to five hours of
+  exactly that loop.
 - Keep review feedback separate from implementation changes unless the user explicitly requests the
   fixes. A review reports evidence first; it does not silently mutate the reviewed code.
 
@@ -475,7 +494,8 @@ Generic rules for the languages and tooling in this repo. They apply only where 
 guidance above does not say otherwise — on any conflict, the project sections win. Known overrides:
 WSGM's `Log` is the only logging subsystem (no Serilog or Console output); the Rust code deliberately
 has no `cargo fmt` gate; device-only flows are never automated no matter what coverage goals say;
-version numbers are user-owned.
+version numbers are user-owned; builds, tests, and `eng\verify.ps1` run at milestones only (see
+"Batch the gates"), never per edit or per commit.
 
 ## Coding conventions
 
@@ -512,9 +532,9 @@ version numbers are user-owned.
   deterministic; mock external dependencies through seams; cover edge cases and error paths, not
   just the happy path.
 - When a bug is found, write the failing test that reproduces it first, then fix.
-- Tests stay independent of each other and of machine state. Run the full suite (via
-  `eng\verify.ps1`) before committing; never merge with failing tests, and fix flaky tests instead
-  of exempting them.
+- Tests stay independent of each other and of machine state. The full suite runs at milestones per
+  "Batch the gates", not before every commit; never merge with failing tests, and fix flaky tests
+  instead of exempting them.
 - xUnit: `[Fact]` for single cases, `[Theory]` + `[InlineData]`/`[MemberData]` for parameterized;
   test names follow `MethodName_Scenario_ExpectedBehavior` and are the executable specification.
 
