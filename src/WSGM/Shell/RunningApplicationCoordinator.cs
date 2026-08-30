@@ -145,6 +145,15 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
         }
     }
 
+    /// <summary>Whether a newer snapshot is already waiting.</summary>
+    private bool Superseded()
+    {
+        lock (_gate)
+        {
+            return _pending is not null || _disposed;
+        }
+    }
+
     private async Task ApplyPendingAsync()
     {
         while (true)
@@ -167,6 +176,18 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
                 token => _setTargetAsync(Project(snapshot), token),
                 "RTSS",
                 snapshot).ConfigureAwait(false);
+            // Rechecked between consumers. A slow RTSS apply for one application could otherwise be
+            // followed by replacing the managed controller with that application's target after it
+            // had already exited and the next one was published — a target swap during a launch,
+            // and the opposite of the latest-identity coalescing this class exists to provide.
+            if (Superseded())
+            {
+                Log.Info(
+                    $"Running-application apply for {snapshot.ApplicationId ?? "(none)"} stopped "
+                    + "before the controller target: a newer snapshot is already queued.");
+                continue;
+            }
+
             if (_setControllerTargetAsync is { } applyController)
             {
                 await ApplyAsync(

@@ -20,6 +20,8 @@ internal sealed class DeviceHostHapticSink : IPhysicalHapticSink
     private readonly object _gate = new();
     private HapticCapabilities? _capabilities;
     private long _sourceGeneration;
+    private int _framesInFlight;
+    private TaskCompletionSource? _drained;
 
     internal DeviceHostHapticSink(Func<HapticOutputFrame, CancellationToken, Task> applyAsync)
     {
@@ -79,12 +81,27 @@ internal sealed class DeviceHostHapticSink : IPhysicalHapticSink
         }
     }
 
-    /// <summary>Withdraws ownership so no further frame is delivered.</summary>
-    internal void Withdraw()
+    /// <summary>Withdraws ownership and waits for every already-admitted frame to finish.</summary>
+    /// <returns>A task completing once no frame can still reach the plugin.</returns>
+    /// <remarks>
+    /// Two steps, in this order. Closing admission under the lock stops any new frame; awaiting the
+    /// drain covers the ones that already passed the ownership check, because the write itself is
+    /// asynchronous and used to be started outside the lock. A frame that arrives after the plugin
+    /// handed its controller back reaches whatever owner took it next, and the plugin latches the
+    /// last rumble values it was given, so a late frame leaves the motors running.
+    /// </remarks>
+    internal Task WithdrawAsync()
     {
         lock (_gate)
         {
             _capabilities = null;
+            if (_framesInFlight == 0)
+            {
+                return Task.CompletedTask;
+            }
+
+            _drained ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            return _drained.Task;
         }
     }
 
@@ -92,22 +109,60 @@ internal sealed class DeviceHostHapticSink : IPhysicalHapticSink
     public Task ApplyAsync(HapticOutputFrame frame, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(frame);
-        return IsOwned ? _applyAsync(frame, cancellationToken) : Task.CompletedTask;
+        return TryAdmit() ? TrackAsync(_applyAsync(frame, cancellationToken)) : Task.CompletedTask;
     }
 
     /// <inheritdoc/>
     public Task StopAsync(long targetGeneration, string reason, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reason);
-        if (!IsOwned)
+        if (!TryAdmit())
         {
             return Task.CompletedTask;
         }
 
         // An explicit silent frame, not merely the absence of frames: the plugin latches the last
         // rumble values it was given, so stopping without one leaves the motors running.
-        return _applyAsync(
+        return TrackAsync(_applyAsync(
             HapticOutputFrame.Stop(targetGeneration, DateTimeOffset.UtcNow),
-            cancellationToken);
+            cancellationToken));
+    }
+
+    /// <summary>Admits one frame while ownership holds, counting it as in flight.</summary>
+    /// <returns><see langword="true"/> when the frame may be written.</returns>
+    private bool TryAdmit()
+    {
+        lock (_gate)
+        {
+            if (_capabilities is null)
+            {
+                return false;
+            }
+
+            _framesInFlight++;
+            return true;
+        }
+    }
+
+    private async Task TrackAsync(Task write)
+    {
+        try
+        {
+            await write.ConfigureAwait(false);
+        }
+        finally
+        {
+            TaskCompletionSource? drained = null;
+            lock (_gate)
+            {
+                if (--_framesInFlight == 0)
+                {
+                    drained = _drained;
+                    _drained = null;
+                }
+            }
+
+            drained?.TrySetResult();
+        }
     }
 }

@@ -17,6 +17,21 @@ using WSGM.Interop;
 
 namespace WSGM.Shell;
 
+/// <summary>Who asked for a capability command.</summary>
+/// <remarks>
+/// The only thing this decides is whether AutoTDP steps aside. A power limit the user moved is an
+/// instruction; the one AutoTDP wrote itself is the controller's own output, and treating it as a
+/// manual override would pause the feature on its first tick.
+/// </remarks>
+internal enum CapabilityCommandOrigin
+{
+    /// <summary>A person moved this control on a WSGM surface.</summary>
+    User,
+
+    /// <summary>An automatic controller inside WSGM wrote it.</summary>
+    AutomaticControl,
+}
+
 /// <summary>Authoritative process-long owner of the machine-wide hardware cycle.</summary>
 public sealed class DeviceCoordinator : IAsyncDisposable
 {
@@ -47,6 +62,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private long _cycleGeneration;
     private string? _runningApplicationId;
     private Func<AutoTdpStatus>? _autoTdpStatus;
+    private Action<int>? _autoTdpManualOverride;
     private bool _intentionalStop;
     private bool _faultRecoveryPending;
     private int _automaticRestartAttempts;
@@ -910,7 +926,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             }
             _client = null;
             IReadOnlyList<Exception> cleanupFailures = await RunHostExitOwnerCleanupAsync(
-                () => Detach(client),
+                () => DetachAsync(client),
                 client.DisposeAsync).ConfigureAwait(false);
             foreach (Exception cleanupFailure in cleanupFailures)
             {
@@ -976,17 +992,17 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     }
 
     internal static async ValueTask<IReadOnlyList<Exception>> RunHostExitOwnerCleanupAsync(
-        Action detach,
+        Func<ValueTask> detachAsync,
         Func<ValueTask> disposeAsync)
     {
-        ArgumentNullException.ThrowIfNull(detach);
+        ArgumentNullException.ThrowIfNull(detachAsync);
         ArgumentNullException.ThrowIfNull(disposeAsync);
         List<Exception> failures = [];
         try
         {
             try
             {
-                detach();
+                await detachAsync().ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
@@ -1130,7 +1146,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                     reason,
                     deadline,
                     token),
-                () => Detach(client),
+                () => DetachAsync(client),
                 client.DisposeAsync,
                 cancellationToken).ConfigureAwait(false);
             ownerTeardown = result;
@@ -1212,13 +1228,13 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     internal static async Task<DeviceClientTeardownResult> RunClientTeardownAsync(
         Func<CancellationToken, Task<DeviceControllerHandoffResponse>> releaseControllerAsync,
         Func<CancellationToken, Task<DeviceLifecycleNotification>> stopAsync,
-        Action detach,
+        Func<ValueTask> detachAsync,
         Func<ValueTask> disposeAsync,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(releaseControllerAsync);
         ArgumentNullException.ThrowIfNull(stopAsync);
-        ArgumentNullException.ThrowIfNull(detach);
+        ArgumentNullException.ThrowIfNull(detachAsync);
         ArgumentNullException.ThrowIfNull(disposeAsync);
         List<Exception> failures = [];
         try
@@ -1277,7 +1293,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             {
                 try
                 {
-                    detach();
+                    await detachAsync().ConfigureAwait(false);
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
@@ -1349,10 +1365,42 @@ public sealed class DeviceCoordinator : IAsyncDisposable
                     token),
                 cancellationToken).ConfigureAwait(false);
             Log.Info($"Controller management disabled: {handoff.Step}, {handoff.Result}.");
+
+            // After the verified handoff, and never instead of it: the plugin remembers its
+            // acquisition policy. Releasing the controller without telling it the feature is off
+            // left ControllerService.Enabled true, so the next suspend/resume of the same cycle
+            // reacquired and switched the physical controller against the persisted setting —
+            // with no WSGM target left to receive it.
+            try
+            {
+                await client.SetControllerManagementAsync(
+                    enabled: false,
+                    Interlocked.Read(ref _cycleGeneration),
+                    DateTimeOffset.UtcNow.AddSeconds(6),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Log.Warn(
+                    "The plugin was not told that controller management is off; it may reacquire "
+                    + $"on resume: {ex.Message}");
+            }
+
             return;
         }
 
+        // Before the plugin is asked to acquire, exactly as at cycle start: it cannot discover an
+        // interface another application's HidHide allowlist is hiding from DeviceHost, and adding
+        // the allowance afterwards does nothing for the acquisition that already failed.
+        await _controllers.EnsureHidHideReadableAsync(true, cancellationToken).ConfigureAwait(false);
         long generation = Interlocked.Increment(ref _cycleGeneration);
+        // The consumers move to the new cycle with the host, the same way resume does. DeviceHost
+        // advances the plugin adapter to this generation, which resets the descriptor generation it
+        // accepts; leaving the capability router and the OEM router on the previous one made the
+        // plugin's first state after acquisition arrive against a cycle nothing was listening for.
+        _capabilities.MarkCycleGenerationChanged(generation);
+        UpdateCapabilityDesiredContext();
+        _oemActions.Reset(generation);
         await client.SetControllerManagementAsync(
             enabled: true,
             generation,
@@ -1368,14 +1416,16 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         client.ControllerSampleReceived += _controllers.Submit;
     }
 
-    private void Detach(DeviceHostClient client)
+    private async ValueTask DetachAsync(DeviceHostClient client)
     {
         client.LifecycleStateReceived -= OnLifecycleState;
         client.PhysicalIdentitiesReceived -= OnPhysicalIdentities;
         client.ControllerSampleReceived -= _controllers.Submit;
         // The plugin no longer owns the controller, so no further output frame may be written to
-        // it. Withdrawing here closes that window before the routers are torn down.
-        _hapticSink.Withdraw();
+        // it. Withdrawing here closes that window before the routers are torn down, and the await
+        // covers the frames that were already admitted: the write is asynchronous, so closing
+        // admission alone left one in flight toward a controller that had been handed back.
+        await _hapticSink.WithdrawAsync().ConfigureAwait(false);
         _capabilities.Detach();
         _oemActions.Detach();
     }
@@ -1479,8 +1529,33 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// </remarks>
     internal void AttachAutoTdpStatus(Func<AutoTdpStatus>? status) => _autoTdpStatus = status;
 
+    /// <summary>
+    /// Attaches the hook that pauses AutoTDP after a user-originated power-limit write.
+    /// </summary>
+    /// <param name="note">Receives the accepted wattage, or null when AutoTDP is not running.</param>
+    /// <remarks>
+    /// Attached here because this is the one path every surface's power write already goes through.
+    /// The overlay row and the native-QAM TDP control each called <see cref="ExecuteCapabilityAsync"/>
+    /// directly, so a manual change reached AutoTDP as ordinary telemetry and the next tick
+    /// overwrote it — the documented permanent-until-resume override existed with nothing invoking
+    /// it.
+    /// </remarks>
+    internal void AttachAutoTdpManualOverride(Action<int>? note) => _autoTdpManualOverride = note;
+
     /// <summary>Current AutoTDP state, or null when the service is not running.</summary>
     internal AutoTdpStatus? AutoTdpStatus => _autoTdpStatus?.Invoke();
+
+    /// <summary>Raised when AutoTDP's own projection changed, rather than the device's.</summary>
+    /// <remarks>
+    /// Separate from <see cref="CapabilityViewsChanged"/>: AutoTDP moves between idle, controlling
+    /// and paused, and its frametime detail changes, without any capability view changing at all.
+    /// Both consumers render that state, so both need the transition.
+    /// </remarks>
+    internal event Action? AutoTdpStatusChanged;
+
+    /// <summary>Reports that the session's AutoTDP service published a new projection.</summary>
+    /// <remarks>Called by the session, which owns the service; the coordinator only reads it.</remarks>
+    internal void NoteAutoTdpStatusChanged() => AutoTdpStatusChanged?.Invoke();
 
     /// <summary>Whether AutoTDP is switched on in the persisted configuration.</summary>
     internal bool AutoTdpEnabled => _config.DeviceIntegration.AutoTdpEnabled;
@@ -1492,18 +1567,38 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// Persisted rather than session-only, and applied by the ordinary configuration reload, so the
     /// overlay switch and the Settings checkbox are the same setting reached two ways.
     /// </remarks>
-    internal async Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default)
+    internal Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default) =>
+        SetAutoTdpEnabledAsync(!_config.DeviceIntegration.AutoTdpEnabled, cancellationToken);
+
+    /// <summary>Sets AutoTDP to an explicit state and persists the choice.</summary>
+    /// <param name="enabled">The state the caller asked for.</param>
+    /// <param name="cancellationToken">Cancels the change.</param>
+    /// <returns>A task completing once the setting is persisted.</returns>
+    /// <remarks>
+    /// The comparison happens inside the transition gate, so a command carrying an explicit value
+    /// cannot land as its inverse. A toggle read outside the gate — which is what the native-QAM
+    /// switch used to send — inverts whatever another surface persisted in between and still
+    /// reports success.
+    /// </remarks>
+    internal async Task SetAutoTdpEnabledAsync(
+        bool enabled,
+        CancellationToken cancellationToken = default)
     {
         await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            bool next = !_config.DeviceIntegration.AutoTdpEnabled;
+            if (_config.DeviceIntegration.AutoTdpEnabled == enabled)
+            {
+                Log.Info($"AutoTDP is already {(enabled ? "on" : "off")}; nothing to persist.");
+                return;
+            }
+
             AppConfig persisted = await Task.Run(
-                () => ConfigStore.Mutate(config => config.DeviceIntegration.AutoTdpEnabled = next),
+                () => ConfigStore.Mutate(config => config.DeviceIntegration.AutoTdpEnabled = enabled),
                 cancellationToken).ConfigureAwait(false);
             _config = persisted;
             ConfigurationChanged?.Invoke();
-            Log.Info($"AutoTDP switched {(next ? "on" : "off")} from the Device surface.");
+            Log.Info($"AutoTDP switched {(enabled ? "on" : "off")} from the Device surface.");
         }
         finally
         {
@@ -1550,6 +1645,10 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// <summary>The current controller-management projection.</summary>
     internal ControllerManagerStatus ControllerStatus => _controllers.Snapshot();
 
+    /// <summary>Controller targets the backend on this machine can actually create.</summary>
+    internal IReadOnlyList<ManagedControllerTarget> SupportedControllerTargets =>
+        _controllers.SupportedTargets;
+
     /// <summary>Whether controller management may run in this build and configuration.</summary>
     internal bool ControllerManagementEnabled =>
         EffectiveControllerManagement(_config) && _config.DeviceIntegration.Enabled;
@@ -1590,18 +1689,63 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     }
 
     /// <summary>Routes one semantic capability command through current validation and serialization.</summary>
-    internal Task<CapabilityCommandResult> ExecuteCapabilityAsync(
+    /// <param name="capabilityId">The capability being commanded.</param>
+    /// <param name="instanceId">Its instance, or null for a single-instance capability.</param>
+    /// <param name="value">The requested value, or null for an action.</param>
+    /// <param name="timeout">How long the command may take.</param>
+    /// <param name="origin">Who asked for it, which decides whether AutoTDP steps aside.</param>
+    /// <param name="cancellationToken">Cancels the command.</param>
+    /// <returns>The command result reported by the plugin.</returns>
+    internal async Task<CapabilityCommandResult> ExecuteCapabilityAsync(
         string capabilityId,
         string? instanceId,
         CapabilityValue? value,
         TimeSpan timeout,
-        CancellationToken cancellationToken = default) =>
-        _capabilities.ExecuteAsync(
+        CapabilityCommandOrigin origin = CapabilityCommandOrigin.User,
+        CancellationToken cancellationToken = default)
+    {
+        CapabilityCommandResult result = await _capabilities.ExecuteAsync(
             capabilityId,
             instanceId,
             value,
             timeout,
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
+        if (origin is CapabilityCommandOrigin.User)
+        {
+            NotifyManualPowerChange(capabilityId, instanceId, value, result);
+        }
+
+        return result;
+    }
+
+    private void NotifyManualPowerChange(
+        string capabilityId,
+        string? instanceId,
+        CapabilityValue? value,
+        CapabilityCommandResult result)
+    {
+        if (_autoTdpManualOverride is not { } note
+            || value?.IntegerValue is not { } watts
+            || result.Outcome is not (CommandOutcome.AppliedVerified
+                or CommandOutcome.AppliedUnverified))
+        {
+            return;
+        }
+
+        bool primaryPowerLimit = CapabilitySnapshot().Any(view =>
+            view.Descriptor.Role is CapabilityRole.PowerSustainedLimit
+            && string.Equals(view.Descriptor.CapabilityId, capabilityId, StringComparison.Ordinal)
+            && string.Equals(view.Descriptor.InstanceId, instanceId, StringComparison.Ordinal));
+        if (!primaryPowerLimit)
+        {
+            return;
+        }
+
+        // Permanent until the user resumes control, by specification: quietly taking the limit back
+        // a few seconds after they set it by hand would make the manual control look broken.
+        Log.Info($"AutoTDP paused: the sustained power limit was set to {watts} W by hand.");
+        note(watts);
+    }
 
     /// <summary>Sets or clears a session-only desired value.</summary>
     internal void SetTemporaryDesired(
@@ -1728,6 +1872,115 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         {
             _transitionGate.Release();
         }
+
+        // Outside the transition gate on purpose: this writes to hardware, one bounded command per
+        // capability, and holding the gate across them would block every other transition for as
+        // long as the device takes. Selecting a profile used to end at the projection above, so the
+        // Profiles page reported the profile active while the hardware kept its previous values.
+        await ReconcileDesiredValuesAsync(
+            $"hardware profile {normalized ?? "(none)"}",
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Writes every persistent desired value the hardware does not already hold.</summary>
+    /// <param name="reason">What asked for the reconciliation, for the log.</param>
+    /// <param name="cancellationToken">Cancels the remaining commands.</param>
+    /// <returns>A task completing once every affected capability has been attempted.</returns>
+    /// <remarks>
+    /// Per-capability and independent: one refusal must not stop the rest, because a profile that
+    /// applied its fan curve but not its power limit is still better than one that applied nothing.
+    /// A temporary session value is skipped — it is already what the user asked for right now — and
+    /// so is a value the device already reports, so reselecting the active profile is free.
+    /// </remarks>
+    private async Task ReconcileDesiredValuesAsync(string reason, CancellationToken cancellationToken)
+    {
+        int applied = 0;
+        int unchanged = 0;
+        int refused = 0;
+        int skipped = 0;
+        foreach (DeviceCapabilityView view in CapabilitySnapshot())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!view.Descriptor.SupportsWrite
+                || view.Projection.DesiredValue is not { } desired
+                || view.Projection.DesiredSource is DesiredValueSource.None
+                    or DesiredValueSource.TemporaryRequest)
+            {
+                continue;
+            }
+
+            if (!view.Projection.State.Available || view.Projection.DesiredValueOutOfRange)
+            {
+                skipped++;
+                Log.Warn(
+                    $"Desired value not applied for {view.Descriptor.CapabilityId}"
+                    + $"{Instance(view.Descriptor.InstanceId)} ({reason}): available="
+                    + $"{view.Projection.State.Available}, outOfRange="
+                    + $"{view.Projection.DesiredValueOutOfRange}.");
+                continue;
+            }
+
+            if (view.Projection.State.ObservedValue is { } observed && SameValue(observed, desired))
+            {
+                unchanged++;
+                continue;
+            }
+
+            CapabilityCommandResult result = await ExecuteCapabilityAsync(
+                view.Descriptor.CapabilityId,
+                view.Descriptor.InstanceId,
+                desired,
+                TimeSpan.FromSeconds(5),
+                // The user chose this profile, so its values are theirs: a power limit it carries
+                // overrides automatic control exactly as moving the slider would.
+                CapabilityCommandOrigin.User,
+                cancellationToken).ConfigureAwait(false);
+            if (result.Outcome is CommandOutcome.AppliedVerified or CommandOutcome.AppliedUnverified)
+            {
+                applied++;
+                continue;
+            }
+
+            refused++;
+            Log.Warn(
+                $"Desired value refused for {view.Descriptor.CapabilityId}"
+                + $"{Instance(view.Descriptor.InstanceId)} ({reason}): outcome={result.Outcome}, "
+                + $"{result.Reason?.Detail ?? "no detail"}.");
+        }
+
+        Log.Info(
+            $"Desired-value reconciliation ({reason}): applied={applied}, unchanged={unchanged}, "
+            + $"refused={refused}, skipped={skipped}.");
+    }
+
+    private static string Instance(string? instanceId) =>
+        instanceId is { Length: > 0 } id ? $"/{id}" : string.Empty;
+
+    /// <summary>Compares two capability values, including curves, by content.</summary>
+    /// <param name="observed">What the device reports.</param>
+    /// <param name="desired">What WSGM wants.</param>
+    /// <returns><see langword="true"/> when a write would change nothing.</returns>
+    private static bool SameValue(CapabilityValue observed, CapabilityValue desired)
+    {
+        if (observed.Kind != desired.Kind)
+        {
+            return false;
+        }
+
+        // Field by field rather than record equality: CurveValue is compared by reference there,
+        // which would report every curve as different and rewrite a fan table on each pass.
+        return observed.Kind switch
+        {
+            CapabilityValueKind.Boolean => observed.BooleanValue == desired.BooleanValue,
+            CapabilityValueKind.Integer => observed.IntegerValue == desired.IntegerValue,
+            CapabilityValueKind.Choice => string.Equals(
+                observed.ChoiceValue,
+                desired.ChoiceValue,
+                StringComparison.Ordinal),
+            CapabilityValueKind.Color => observed.ColorValue == desired.ColorValue,
+            CapabilityValueKind.Curve => observed.CurveValue.SequenceEqual(desired.CurveValue),
+            _ => false,
+        };
     }
 
     private void UpdateCapabilityDesiredContext()

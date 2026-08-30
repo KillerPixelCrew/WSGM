@@ -207,6 +207,14 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         }
 
         BuildStartupSuggestions();
+
+        // Seeding the properties above set these; only what the user does from here counts as an
+        // edit. Without the distinction, a save of any unrelated setting wrote this window's
+        // startup snapshot of AutoTDP, the controller target and the glyph policy over whatever the
+        // running shell had persisted while the window was open.
+        _deviceAutoTdpEdited = false;
+        _deviceControllerTargetEdited = false;
+        _deviceGlyphSelectionEdited = false;
     }
 
     // --- Commands (bound by the Settings pages; bodies stay on the named methods) ---
@@ -375,6 +383,12 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private int _deviceDiagnosticLevelIndex = (int)DeviceDiagnosticLevel.Standard;
     private string _deviceOwnerStatusText = "No running device coordinator detected.";
 
+    // Set by the property setters, cleared once after the constructor's own seeding, so they mean
+    // "the user changed this here" rather than "this window has a value for it".
+    private bool _deviceAutoTdpEdited;
+    private bool _deviceControllerTargetEdited;
+    private bool _deviceGlyphSelectionEdited;
+
     /// <summary>Gets or sets the optional production Device Integration master switch.</summary>
     public bool DeviceIntegrationEnabled
     {
@@ -402,12 +416,19 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     }
 
     /// <summary>Gets or sets whether AutoTDP controls the primary power limit.</summary>
+    /// <remarks>
+    /// One of the three device settings the running shell also owns: the overlay and the native
+    /// quick-access menu persist all of them while this window is open. Each records whether it was
+    /// edited here, because a save merges over a fresh load and an untouched snapshot would
+    /// otherwise revert whatever the running session had changed. See <see cref="DeviceEditsMade"/>.
+    /// </remarks>
     public bool DeviceAutoTdpEnabled
     {
         get => _deviceAutoTdpEnabled;
         set
         {
             _deviceAutoTdpEnabled = value;
+            _deviceAutoTdpEdited = true;
             Raise(nameof(DeviceAutoTdpEnabled));
         }
     }
@@ -416,15 +437,33 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     public int DeviceControllerTargetIndex
     {
         get => _deviceControllerTargetIndex;
-        set { _deviceControllerTargetIndex = value; Raise(nameof(DeviceControllerTargetIndex)); }
+        set
+        {
+            _deviceControllerTargetIndex = value;
+            _deviceControllerTargetEdited = true;
+            Raise(nameof(DeviceControllerTargetIndex));
+        }
     }
 
     /// <summary>Selected physical glyph-policy index.</summary>
     public int DeviceGlyphSelectionIndex
     {
         get => _deviceGlyphSelectionIndex;
-        set { _deviceGlyphSelectionIndex = value; Raise(nameof(DeviceGlyphSelectionIndex)); }
+        set
+        {
+            _deviceGlyphSelectionIndex = value;
+            _deviceGlyphSelectionEdited = true;
+            Raise(nameof(DeviceGlyphSelectionIndex));
+        }
     }
+
+    /// <summary>Which runtime-owned device settings this window actually edited.</summary>
+    /// <remarks>
+    /// Exposed for tests: the merge behaviour it drives is the whole point of the flags, and it
+    /// cannot be observed from the saved configuration without a real config file.
+    /// </remarks>
+    internal (bool AutoTdp, bool ControllerTarget, bool GlyphSelection) DeviceEditsMade =>
+        (_deviceAutoTdpEdited, _deviceControllerTargetEdited, _deviceGlyphSelectionEdited);
 
     /// <summary>Selected sanitized Device diagnostics level index.</summary>
     public int DeviceDiagnosticLevelIndex
@@ -1174,15 +1213,30 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.SteamInputManagementEnabled = SteamInputManagementEnabled;
         config.DeviceIntegration.Enabled = DeviceIntegrationEnabled;
         config.DeviceIntegration.ControllerManagementEnabled = DeviceControllerManagementEnabled;
-        config.DeviceIntegration.AutoTdpEnabled = DeviceAutoTdpEnabled;
-        config.DeviceIntegration.ControllerTarget = (ManagedControllerTarget)Math.Clamp(
-            DeviceControllerTargetIndex,
-            0,
-            Enum.GetValues<ManagedControllerTarget>().Length - 1);
-        config.DeviceIntegration.GlyphSelection = (DeviceGlyphSelection)Math.Clamp(
-            DeviceGlyphSelectionIndex,
-            0,
-            Enum.GetValues<DeviceGlyphSelection>().Length - 1);
+        // Only when this window actually changed them. All three are also owned by the running
+        // shell — the overlay and the native quick-access menu persist AutoTDP, the controller
+        // target and the glyph policy while Settings is open — so writing an unedited snapshot over
+        // the fresh load silently reverted the active policy on the next unrelated save.
+        if (_deviceAutoTdpEdited)
+        {
+            config.DeviceIntegration.AutoTdpEnabled = DeviceAutoTdpEnabled;
+        }
+
+        if (_deviceControllerTargetEdited)
+        {
+            config.DeviceIntegration.ControllerTarget = (ManagedControllerTarget)Math.Clamp(
+                DeviceControllerTargetIndex,
+                0,
+                Enum.GetValues<ManagedControllerTarget>().Length - 1);
+        }
+
+        if (_deviceGlyphSelectionEdited)
+        {
+            config.DeviceIntegration.GlyphSelection = (DeviceGlyphSelection)Math.Clamp(
+                DeviceGlyphSelectionIndex,
+                0,
+                Enum.GetValues<DeviceGlyphSelection>().Length - 1);
+        }
         config.DeviceIntegration.DiagnosticLevel = (DeviceDiagnosticLevel)Math.Clamp(
             DeviceDiagnosticLevelIndex,
             0,

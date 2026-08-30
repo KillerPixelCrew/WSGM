@@ -66,13 +66,17 @@ public sealed class UiInputRouter : IUiButtonSource, IDisposable
             return;
         }
 
+        GamepadButtons held = CanonicalButtonSource.Translate(sample);
         if (!_managedHealthy)
         {
             _managedHealthy = true;
-            BeginSwitch(UiInputSource.ManagedCanonical);
+            // Seeded from this sample, not from the managed source's held state: this is the first
+            // sample it has ever seen, so that state is empty and the mask captured nothing. A
+            // control the user was already holding when management came online then arrived as a
+            // fresh press and could activate or dismiss whatever had focus.
+            BeginSwitch(UiInputSource.ManagedCanonical, held);
         }
 
-        GamepadButtons held = CanonicalButtonSource.Translate(sample);
         if (_current is not UiInputSource.ManagedCanonical)
         {
             // Still tracked while the fallback is current, so the state is already correct at the
@@ -114,7 +118,13 @@ public sealed class UiInputRouter : IUiButtonSource, IDisposable
         _managed.ButtonPressed -= OnManagedPressed;
     }
 
-    private void BeginSwitch(UiInputSource to)
+    /// <summary>Switches the current source and suppresses whatever is held across the switch.</summary>
+    /// <param name="to">The source taking over.</param>
+    /// <param name="incomingHeld">
+    /// Controls the incoming source reports as held right now, when the caller already knows them.
+    /// Null falls back to what the managed source has accumulated.
+    /// </param>
+    private void BeginSwitch(UiInputSource to, GamepadButtons? incomingHeld = null)
     {
         if (_current == to)
         {
@@ -122,7 +132,9 @@ public sealed class UiInputRouter : IUiButtonSource, IDisposable
         }
 
         // What the outgoing source had held is what must not produce edges on the incoming one.
-        _suppressed = to is UiInputSource.ManagedCanonical ? _managed.Held : 0;
+        _suppressed = to is UiInputSource.ManagedCanonical
+            ? incomingHeld ?? _managed.Held
+            : 0;
         _switchedAt = _time.GetUtcNow();
         if (_current is UiInputSource.ManagedCanonical)
         {

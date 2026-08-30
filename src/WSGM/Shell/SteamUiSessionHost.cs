@@ -305,10 +305,16 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private void SetGlyphDeliveryPatchStates()
     {
         SteamInputGlyphPresentation? presentation = _glyphDeliveryState.Current;
+        // Absent controls count as rules. A reviewed profile may legitimately carry nothing but
+        // them — hiding trackpad or extra-paddle rows on a handheld that has neither, while keeping
+        // Valve's own artwork — and SteamGlyphCss.Build emits real hiding rules for exactly that.
+        // Requiring a resource or an image left those profiles with no stylesheet at all, so the
+        // controls the device does not have stayed on screen.
         bool deliver = _glyphsEnabled
             && presentation is not null
             && (presentation.StableResources.Count > 0
-                || presentation.ControllerImages.Count > 0);
+                || presentation.ControllerImages.Count > 0
+                || presentation.AbsentControls.Count > 0);
 
         // Three independent conditions, and failing any of them leaves the Steam Input page showing
         // Valve's Steam Deck artwork instead of the handheld's own. The patch then reports itself
@@ -319,7 +325,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             $"Steam Input glyph delivery {(deliver ? "enabled" : "disabled")}: "
                 + $"setting={_glyphsEnabled}, profile={presentation is not null}, "
                 + $"stableResources={presentation?.StableResources.Count ?? 0}, "
-                + $"controllerImages={presentation?.ControllerImages.Count ?? 0}",
+                + $"controllerImages={presentation?.ControllerImages.Count ?? 0}, "
+                + $"absentControls={presentation?.AbsentControls.Count ?? 0}",
             deliver ? "info " : "warn ");
         _patches.SetPatchEnabled(GlyphStylePatchId, deliver);
         _glyphDeliveryEnabled = deliver;

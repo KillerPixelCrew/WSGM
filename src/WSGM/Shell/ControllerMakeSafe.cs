@@ -57,12 +57,19 @@ internal sealed class ControllerMakeSafeSequence
     internal bool CanRemoveHidHide => _targetRemoved;
 
     /// <summary>Records that routing, output, and the virtual target are all quiet.</summary>
-    internal void RecordNeutralized()
+    /// <param name="verified">Whether the neutral state was actually written and confirmed.</param>
+    /// <remarks>
+    /// The step advances either way — the handoff has to keep going, and the plugin must still be
+    /// asked to let go — but an unverified neutralization is carried into the result. A target that
+    /// could not be quietened may still be holding a control.
+    /// </remarks>
+    internal void RecordNeutralized(bool verified)
     {
         Require(
             Step is ControllerHandoffStep.NotStarted,
             $"Make-safe cannot neutralize from {Step}.");
         Step = ControllerHandoffStep.VirtualTargetNeutralized;
+        _unverified |= !verified;
     }
 
     /// <summary>Records the plugin's own release acknowledgment.</summary>
@@ -95,10 +102,17 @@ internal sealed class ControllerMakeSafeSequence
     }
 
     /// <summary>Records removal of the virtual target.</summary>
-    internal void RecordTargetRemoved()
+    /// <param name="verified">Whether the removal completed without a reported failure.</param>
+    /// <remarks>
+    /// The flag exists so the sequence may continue to HidHide cleanup after a failed removal —
+    /// leaving WSGM's entries in place would hide the physical controller with nothing driving it —
+    /// while the result still says the removal was not verified.
+    /// </remarks>
+    internal void RecordTargetRemoved(bool verified)
     {
         Require(CanRemoveTarget, "The virtual target cannot be removed before the physical release.");
         _targetRemoved = true;
+        _unverified |= !verified;
     }
 
     /// <summary>Records removal of WSGM's own HidHide entries.</summary>

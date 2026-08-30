@@ -56,10 +56,14 @@
                 <Border Classes="setting-row alt" IsVisible="{Binding DeviceControllerManagementAvailable}">
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                         <TextBlock Text="Managed controller target" Classes="setting-title" VerticalAlignment="Center" />
+                        <!-- The other two targets stay listed and disabled: the setting and the
+                             overlay's own selector both understand them, but the virtual-controller
+                             backend has no encoder for them yet, and a selectable target that the
+                             backend then refuses leaves controller management unavailable. -->
                         <ComboBox Grid.Column="1" Width="190" SelectedIndex="{Binding DeviceControllerTargetIndex}">
                             <ComboBoxItem Content="Steam Deck Composite" />
-                            <ComboBoxItem Content="Xbox 360" />
-                            <ComboBoxItem Content="DualShock 4" />
+                            <ComboBoxItem Content="Xbox 360 (not available yet)" IsEnabled="False" />
+                            <ComboBoxItem Content="DualShock 4 (not available yet)" IsEnabled="False" />
                         </ComboBox>
                     </Grid>
                 </Border>

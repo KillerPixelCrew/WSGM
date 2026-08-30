@@ -70,9 +70,11 @@ internal sealed class AutoTdpService : IAsyncDisposable
     private readonly object _gate = new();
 
     private Task _worker = Task.CompletedTask;
+    private CancellationTokenSource? _generation;
     private RunningApplicationTargetSnapshot? _running;
     private int? _restoreTo;
     private bool _enabled;
+    private bool _resync;
     private bool _disposed;
 
     internal AutoTdpService(
@@ -105,8 +107,17 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
     /// <summary>Enables or disables automatic control.</summary>
     /// <param name="enabled">Whether AutoTDP should run.</param>
+    /// <remarks>
+    /// One tick loop exists at a time, and disabling ends the current one before the previous limit
+    /// is restored. Leaving the loop alive across a disable let the next enable start a second one
+    /// against the same flag: every off/on cycle then multiplied the policy rate and its hardware
+    /// writes, and a tick already inside <see cref="TickAsync"/> could write AutoTDP's own value
+    /// after the restore and leave it latched while the feature was off.
+    /// </remarks>
     internal void Apply(bool enabled)
     {
+        Task worker;
+        CancellationTokenSource? generation;
         lock (_gate)
         {
             if (_disposed || _enabled == enabled)
@@ -117,12 +128,24 @@ internal sealed class AutoTdpService : IAsyncDisposable
             _enabled = enabled;
             if (enabled)
             {
-                _worker = Task.Run(() => RunAsync(_shutdown.Token));
+                _resync = false;
+                // The token is taken from a local, not from the field: a later disable clears the
+                // field, and a worker that read it there would dereference null on the thread pool
+                // instead of running.
+                CancellationTokenSource started =
+                    CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
+                _generation = started;
+                _worker = Task.Run(() => RunAsync(started.Token), started.Token);
                 return;
             }
+
+            worker = _worker;
+            generation = _generation;
+            _worker = Task.CompletedTask;
+            _generation = null;
         }
 
-        Observe(StopAsync(CancellationToken.None), "AutoTDP stop");
+        Observe(StopGenerationAsync(worker, generation), "AutoTDP stop");
     }
 
     /// <summary>Records the running application whose frames are being judged.</summary>
@@ -168,6 +191,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         Task worker;
+        CancellationTokenSource? generation;
         lock (_gate)
         {
             if (_disposed)
@@ -176,13 +200,34 @@ internal sealed class AutoTdpService : IAsyncDisposable
             }
 
             _disposed = true;
+            _enabled = false;
             worker = _worker;
+            generation = _generation;
+            _worker = Task.CompletedTask;
+            _generation = null;
         }
 
-        // Restoration first, while the write path still works: exiting with WSGM's probe value
-        // latched would leave the user's handheld on a limit they never chose.
-        await StopAsync(CancellationToken.None).ConfigureAwait(false);
+        // The tick loop ends first and the restore follows, while the write path still works:
+        // exiting with WSGM's probe value latched would leave the user's handheld on a limit they
+        // never chose, and a surviving tick could re-latch it after the restore.
+        await StopGenerationAsync(worker, generation).ConfigureAwait(false);
         await _shutdown.CancelAsync().ConfigureAwait(false);
+
+        (_frametimes as IDisposable)?.Dispose();
+        _write.Dispose();
+        _shutdown.Dispose();
+    }
+
+    /// <summary>Ends one enable generation and restores the limit it took over from.</summary>
+    /// <param name="worker">The tick loop that generation started.</param>
+    /// <param name="generation">Its cancellation source, or null when none was running.</param>
+    private async Task StopGenerationAsync(Task worker, CancellationTokenSource? generation)
+    {
+        if (generation is not null)
+        {
+            await generation.CancelAsync().ConfigureAwait(false);
+        }
+
         try
         {
             await worker.ConfigureAwait(false);
@@ -190,10 +235,15 @@ internal sealed class AutoTdpService : IAsyncDisposable
         catch (OperationCanceledException)
         {
         }
+        catch (Exception ex)
+        {
+            // The restore below still has to run: a worker that died is exactly when the hardware
+            // is most likely to be sitting on AutoTDP's last value.
+            Log.Error("The AutoTDP tick loop ended with a failure", ex);
+        }
 
-        (_frametimes as IDisposable)?.Dispose();
-        _write.Dispose();
-        _shutdown.Dispose();
+        generation?.Dispose();
+        await StopAsync(CancellationToken.None).ConfigureAwait(false);
     }
 
     private async Task RunAsync(CancellationToken cancellationToken)
@@ -254,11 +304,19 @@ internal sealed class AutoTdpService : IAsyncDisposable
         double target = _targetFrametimeMs();
         string context = ContextKey(running, frametime);
         AutoTdpDecision decision;
+        bool rebased;
         lock (_gate)
         {
-            if (_restoreTo is null)
+            rebased = _resync && _restoreTo is not null;
+            if (_restoreTo is null || _resync)
             {
-                _restoreTo = current;
+                // Either the first window of this generation, or the window after a write that
+                // never reached hardware. Re-basing on the value just observed is the only honest
+                // way back from the second: continuing would judge frames against a limit the
+                // device never took. The captured restore value is deliberately not moved — the
+                // user's own limit is still what a stop has to return to.
+                _restoreTo ??= current;
+                _resync = false;
                 _controller.Start(current, limits, context);
             }
 
@@ -267,9 +325,22 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 limits);
         }
 
-        if (decision.RequiresWrite)
+        if (rebased)
         {
-            await WriteAsync(power, decision, cancellationToken).ConfigureAwait(false);
+            Log.Info($"AutoTDP re-based on the observed limit of {current} W after an unapplied write.");
+        }
+
+        if (decision.RequiresWrite
+            && !await WriteAsync(power, decision, cancellationToken).ConfigureAwait(false))
+        {
+            Publish(
+                AutoTdpState.Unavailable,
+                current,
+                frametime.MeanFrametimeMs,
+                target,
+                running?.ApplicationId,
+                "The power limit did not accept the last write; control holds for one window.");
+            return;
         }
 
         Publish(
@@ -281,7 +352,18 @@ internal sealed class AutoTdpService : IAsyncDisposable
             decision.Reason);
     }
 
-    private async Task WriteAsync(
+    /// <summary>Writes one power limit and reports whether it reached the hardware.</summary>
+    /// <param name="power">The primary power-limit capability.</param>
+    /// <param name="decision">The decision being applied.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns><see langword="true"/> when the device accepted the value.</returns>
+    /// <remarks>
+    /// The outcome is acted on, not merely logged. <see cref="AutoTdpController"/> has already moved
+    /// its believed wattage by the time this runs, so a refused, timed-out or indeterminate write
+    /// leaves every later decision resting on a limit the device may never have taken; the resync
+    /// flag makes the next window re-base on what the hardware actually reports.
+    /// </remarks>
+    private async Task<bool> WriteAsync(
         DeviceCapabilityView power,
         AutoTdpDecision decision,
         CancellationToken cancellationToken)
@@ -292,7 +374,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
         if (!await _write.WaitAsync(0, cancellationToken).ConfigureAwait(false))
         {
             Log.Warn("AutoTDP skipped a power write: an earlier write is still in flight.");
-            return;
+            MarkWriteUnapplied();
+            return false;
         }
 
         try
@@ -306,17 +389,45 @@ internal sealed class AutoTdpService : IAsyncDisposable
                     IntegerValue = decision.Watts,
                 },
                 cancellationToken).ConfigureAwait(false);
+            bool applied = IsApplied(result.Outcome);
             Log.Info(
                 $"AutoTDP {decision.Action}: {decision.Watts} W ({decision.Reason}), "
-                + $"outcome={result.Outcome}.");
+                + $"outcome={result.Outcome}, applied={applied}.");
+            if (!applied)
+            {
+                MarkWriteUnapplied();
+            }
+
+            return applied;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Log.Warn($"AutoTDP power write failed: {ex.Message}");
+            MarkWriteUnapplied();
+            return false;
         }
         finally
         {
             _write.Release();
+        }
+    }
+
+    /// <summary>Whether an outcome means the value reached the device.</summary>
+    /// <param name="outcome">The capability command outcome.</param>
+    /// <returns><see langword="true"/> for a written value, verified or not.</returns>
+    /// <remarks>
+    /// <see cref="CommandOutcome.AppliedUnverified"/> counts: a device with no readback for its
+    /// power limit is normal, and refusing to trust it would disable AutoTDP on that hardware.
+    /// Everything else — queued, refused, timed out, interrupted — did not demonstrably arrive.
+    /// </remarks>
+    private static bool IsApplied(CommandOutcome outcome) =>
+        outcome is CommandOutcome.AppliedVerified or CommandOutcome.AppliedUnverified;
+
+    private void MarkWriteUnapplied()
+    {
+        lock (_gate)
+        {
+            _resync = true;
         }
     }
 
@@ -332,13 +443,33 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
         if (restoreTo is not { } watts || power is null)
         {
+            if (restoreTo is not null && power is null)
+            {
+                // The capability went away before the limit could be handed back — during a device
+                // fault, or a shutdown that retired the coordinator first. Nothing can be done about
+                // it here, but a handheld left on AutoTDP's last value must not be silent.
+                Log.Warn(
+                    $"AutoTDP could not restore {restoreTo} W: the primary power limit is no "
+                    + "longer available.");
+            }
+
             Publish(AutoTdpState.Off, null, null, null, "AutoTDP is off.");
             return;
         }
 
         AutoTdpDecision decision = _controller.Stop(watts);
-        await WriteAsync(power, decision, cancellationToken).ConfigureAwait(false);
-        Publish(AutoTdpState.Off, watts, null, null, "AutoTDP is off; the previous limit was restored.");
+        // Reported from the write's own outcome. Saying "restored" for a value that was refused,
+        // timed out, or skipped is the one message that makes the handheld's real state
+        // undiagnosable from a log.
+        bool restored = await WriteAsync(power, decision, cancellationToken).ConfigureAwait(false);
+        Publish(
+            AutoTdpState.Off,
+            watts,
+            null,
+            null,
+            restored
+                ? "AutoTDP is off; the previous limit was restored."
+                : $"AutoTDP is off; restoring {watts} W was not confirmed.");
     }
 
     private DeviceCapabilityView? FindPowerCapability() => _capabilities()

@@ -84,6 +84,9 @@ public sealed class ShellSession : IAsyncDisposable
     private RunningApplicationCoordinator? _runningApplicationTargets;
     private SteamUiSessionHost? _steamUi;
     private MessageWindow? _messageWindow;
+    private readonly object _devicePowerGate = new();
+    private Task _devicePowerWork = Task.CompletedTask;
+    private bool _deviceSuspended;
     private bool _disposed;
 
     /// <summary>Creates the shell session without performing any Windows state changes.</summary>
@@ -188,6 +191,14 @@ public sealed class ShellSession : IAsyncDisposable
         {
             _messageWindow = MessageWindow.Create();
             _messageWindow.SessionEnding += OnSessionEnding;
+            // The device cycle follows the session it belongs to. Without these the Claw's
+            // controller, motion, OEM and suppressor services stayed live across a lock and a
+            // system sleep, and the fresh cycle generation the resume contract requires was never
+            // established afterwards.
+            _messageWindow.SessionLocked += OnSessionLocked;
+            _messageWindow.SessionUnlocked += OnSessionUnlocked;
+            _messageWindow.SystemSuspending += OnSystemSuspending;
+            _messageWindow.SystemResumed += OnSystemResumed;
             if (_deviceCoordinator is not null)
             {
                 _deviceOverlay = new DeviceOverlayBridge(_deviceCoordinator);
@@ -223,12 +234,21 @@ public sealed class ShellSession : IAsyncDisposable
                             instanceId,
                             value,
                             TimeSpan.FromSeconds(5),
+                            CapabilityCommandOrigin.AutomaticControl,
                             token),
                     TargetFrametimeMs);
                 _autoTdp.Apply(_config.DeviceIntegration.AutoTdpEnabled);
                 // The coordinator surfaces AutoTDP on the Device page but never owns its lifetime;
                 // it only reads the state to render a row.
                 deviceCoordinator.AttachAutoTdpStatus(() => _autoTdp!.Status);
+                // A power limit the user set by hand pauses control permanently. The hook is rooted
+                // here because this is where both objects exist; every surface's write already goes
+                // through the coordinator, so this is the one place that sees all of them.
+                deviceCoordinator.AttachAutoTdpManualOverride(watts => _autoTdp?.NoteManualChange(watts));
+                // Without this the Device page and the native QAM row only refreshed when some
+                // unrelated device event happened to arrive, so an AutoTDP transition — including
+                // the pause above — could sit invisible for as long as the session stayed quiet.
+                _autoTdp.StatusChanged += OnAutoTdpStatusChanged;
             }
 
             _runningApplicationTargets = new RunningApplicationCoordinator(
@@ -277,12 +297,33 @@ public sealed class ShellSession : IAsyncDisposable
         // router falls back to SDL, which never stopped running.
         if (_deviceCoordinator is { } canonicalSource && _overlay is { } overlay)
         {
-            canonicalSource.UiSampleReceived += overlay.SubmitCanonicalSample;
+            // Posted, never called inline. This event is raised from DeviceHostClient's registered
+            // ThreadPool wait and runs straight into GamepadNavigation, which reads window
+            // visibility and mutates Avalonia focus and controls — UI-thread-owned state that a
+            // worker thread must not touch. The rate is bounded by design: the manager raises this
+            // only while a WSGM surface has captured input.
+            canonicalSource.UiSampleReceived += sample =>
+                Avalonia.Threading.Dispatcher.UIThread.Post(
+                    () => overlay.SubmitCanonicalSample(sample));
             canonicalSource.StateChanged += state =>
             {
                 if (state is not DeviceCycleState.Active)
                 {
-                    overlay.ManagedInputLost();
+                    Avalonia.Threading.Dispatcher.UIThread.Post(overlay.ManagedInputLost);
+                }
+            };
+            // The cycle staying Active is not the same as samples still arriving. Disabling
+            // controller management runs make-safe and leaves the cycle Active while the plugin
+            // stops publishing, so without this the router waited on a source that had gone quiet
+            // and WSGM's own surfaces stopped answering a controller SDL could already see.
+            canonicalSource.ControllerStatusChanged += status =>
+            {
+                if (status.State is not ControllerManagementState.Active)
+                {
+                    Log.Info(
+                        $"Managed UI input falls back to SDL: controller management is "
+                        + $"{status.State} ({status.Detail}).");
+                    Avalonia.Threading.Dispatcher.UIThread.Post(overlay.ManagedInputLost);
                 }
             };
         }
@@ -1149,6 +1190,87 @@ public sealed class ShellSession : IAsyncDisposable
         => Avalonia.Threading.Dispatcher.UIThread.Post(
             () => _displayMute?.SetDownloadActive(active));
 
+    private void OnSessionLocked() => QueueDevicePowerTransition(suspend: true, "session locked");
+
+    private void OnSessionUnlocked() => QueueDevicePowerTransition(suspend: false, "session unlocked");
+
+    private void OnSystemSuspending() => QueueDevicePowerTransition(suspend: true, "system suspending");
+
+    private void OnSystemResumed() => QueueDevicePowerTransition(suspend: false, "system resumed");
+
+    /// <summary>Quiesces or revives the device cycle with the session it belongs to.</summary>
+    /// <param name="suspend">Whether the cycle should quiesce.</param>
+    /// <param name="reason">The notification that asked for it, for the log.</param>
+    /// <remarks>
+    /// Edge-triggered and serialized, because the four notifications overlap: a sleep started from
+    /// the lock screen delivers a lock and a suspend, and Windows sends both resume events for one
+    /// wake. Neither coordinator call is idempotent — resume advances the cycle generation — so
+    /// only a real transition is forwarded, and each one waits for the previous to finish.
+    /// </remarks>
+    private void QueueDevicePowerTransition(bool suspend, string reason)
+    {
+        if (_deviceCoordinator is not { } coordinator)
+        {
+            return;
+        }
+
+        lock (_devicePowerGate)
+        {
+            if (_deviceSuspended == suspend)
+            {
+                Log.Info(
+                    $"Device cycle {(suspend ? "suspend" : "resume")} skipped ({reason}): the "
+                    + $"cycle is already {(suspend ? "suspended" : "running")}.");
+                return;
+            }
+
+            _deviceSuspended = suspend;
+            _devicePowerWork = ApplyDevicePowerTransitionAsync(
+                _devicePowerWork,
+                coordinator,
+                suspend,
+                reason);
+        }
+    }
+
+    private static async Task ApplyDevicePowerTransitionAsync(
+        Task previous,
+        DeviceCoordinator coordinator,
+        bool suspend,
+        string reason)
+    {
+        // Never faults: the continuation below reports its own failures and returns normally, so
+        // awaiting the previous transition cannot throw here.
+        await previous.ConfigureAwait(false);
+        try
+        {
+            if (suspend)
+            {
+                await coordinator.SuspendAsync().ConfigureAwait(false);
+            }
+            else
+            {
+                await coordinator.ResumeAsync().ConfigureAwait(false);
+            }
+
+            Log.Info($"Device cycle {(suspend ? "suspended" : "resumed")}: {reason}.");
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error($"Device cycle {(suspend ? "suspend" : "resume")} failed ({reason})", ex);
+        }
+    }
+
+    /// <summary>Forwards an AutoTDP transition to the surfaces that render it.</summary>
+    /// <param name="status">The projection AutoTDP just published.</param>
+    /// <remarks>
+    /// Raised from AutoTDP's own tick loop, so it is posted to the dispatcher before the overlay
+    /// bridge and the native-QAM row rebuild anything: both are UI-owned.
+    /// </remarks>
+    private void OnAutoTdpStatusChanged(AutoTdpStatus status)
+        => Avalonia.Threading.Dispatcher.UIThread.Post(
+            () => _deviceCoordinator?.NoteAutoTdpStatusChanged());
+
     /// <summary>Starts or stops the game-mode card services from one shared policy.</summary>
     /// <remarks>
     /// Initial direct boot and a later desktop-to-game transition are separate entry
@@ -1453,6 +1575,29 @@ public sealed class ShellSession : IAsyncDisposable
         // If the outer owner reaches its deadline, process exit still closes DeviceHost's job
         // while the shell anchor remains available for owner-loss desktop recovery.
         Exception? deviceCleanupFailure = null;
+        // Before the coordinator, deliberately. AutoTDP restores the limit it took over from
+        // through that coordinator's capability path, so disposing it afterwards issued the restore
+        // into an already-disconnected host and left the handheld on the last automatically
+        // selected wattage on every exit, update, uninstall and session end.
+        if (_autoTdp is not null)
+        {
+            _autoTdp.StatusChanged -= OnAutoTdpStatusChanged;
+            try
+            {
+                await _autoTdp.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Log.Error("AutoTDP restoration was unverified during application shutdown", ex);
+            }
+            finally
+            {
+                _autoTdp = null;
+                _deviceCoordinator?.AttachAutoTdpStatus(null);
+                _deviceCoordinator?.AttachAutoTdpManualOverride(null);
+            }
+        }
+
         if (_deviceCoordinator is not null)
         {
             DeviceStopReason deviceReason = reason switch
@@ -1535,11 +1680,8 @@ public sealed class ShellSession : IAsyncDisposable
                     _desktopHost = null;
                 }
 
-                if (_autoTdp is not null)
-                {
-                    await _autoTdp.DisposeAsync().ConfigureAwait(false);
-                    _autoTdp = null;
-                }
+                // AutoTDP is already gone: it is disposed before the device coordinator, above,
+                // because its restoration needs that coordinator's write path.
                 if (_runningApplicationTargets is not null)
                 {
                     await _runningApplicationTargets.DisposeAsync().ConfigureAwait(false);
@@ -1673,6 +1815,10 @@ public sealed class ShellSession : IAsyncDisposable
         if (_messageWindow is not null)
         {
             _messageWindow.SessionEnding -= OnSessionEnding;
+            _messageWindow.SessionLocked -= OnSessionLocked;
+            _messageWindow.SessionUnlocked -= OnSessionUnlocked;
+            _messageWindow.SystemSuspending -= OnSystemSuspending;
+            _messageWindow.SystemResumed -= OnSystemResumed;
         }
         _messageWindow = null;
         _overlay?.Dispose();

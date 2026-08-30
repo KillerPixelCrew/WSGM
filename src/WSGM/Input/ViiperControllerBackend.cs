@@ -51,6 +51,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
     private uint _fastHandle;
     private long _generation;
     private HidTargetHandle? _target;
+    private long? _removalUnverifiedGeneration;
     private bool _disposed;
 
     /// <inheritdoc/>
@@ -169,6 +170,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
             return false;
         }
 
+        bool lost;
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -177,20 +179,49 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 return false;
             }
 
-            return SubmitUnderGate(sample);
+            if (SubmitUnderGate(sample))
+            {
+                return true;
+            }
+
+            // The device stopped accepting input, so this target is gone whatever WSGM still
+            // believes. Dropping it here is what turns a silent retry loop into the router's
+            // fault path: it stops output, detaches, and lets the manager run make-safe.
+            lost = true;
+            _target = null;
         }
         finally
         {
             _gate.Release();
         }
+
+        // Raised outside the gate: the handler stops the output sink, which comes back through
+        // this backend.
+        if (lost)
+        {
+            TargetLost?.Invoke(this, target.Generation);
+        }
+
+        return false;
     }
 
     /// <inheritdoc/>
-    public Task NeutralizeAsync(
+    /// <remarks>
+    /// A neutral packet that was not written is a failure, not a dropped sample: the caller is
+    /// asking for the target to be left quiet before a handoff, and reporting success for a report
+    /// the device never took is how a held control survives make-safe.
+    /// </remarks>
+    public async Task NeutralizeAsync(
         HidTargetHandle target,
         CanonicalControllerSample neutralState,
-        CancellationToken cancellationToken) =>
-        PublishAsync(target, neutralState, cancellationToken).AsTask();
+        CancellationToken cancellationToken)
+    {
+        if (!await PublishAsync(target, neutralState, cancellationToken).ConfigureAwait(false))
+        {
+            throw new InvalidOperationException(
+                "The controller backend could not write a neutral report to the virtual target.");
+        }
+    }
 
     /// <inheritdoc/>
     public async Task RemoveTargetAsync(HidTargetHandle target, CancellationToken cancellationToken)
@@ -204,8 +235,13 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 return;
             }
 
-            RemoveDeviceUnderGate();
+            bool removed = RemoveDeviceUnderGate();
             _target = null;
+            // Remembered so removal is reported from what the library actually did rather than from
+            // the fact that WSGM stopped tracking the target. The handle is dropped either way — a
+            // target WSGM can no longer address must not keep being written to — and the router's
+            // own removal check is what turns this into a faulted, unverified handoff.
+            _removalUnverifiedGeneration = removed ? null : target.Generation;
         }
         finally
         {
@@ -219,6 +255,11 @@ internal sealed class ViiperControllerBackend : IHidBackend
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(target);
+        if (_removalUnverifiedGeneration == target.Generation)
+        {
+            return Task.FromResult(false);
+        }
+
         return Task.FromResult(_target?.Generation != target.Generation);
     }
 
@@ -421,26 +462,63 @@ internal sealed class ViiperControllerBackend : IHidBackend
     {
         Span<byte> frame = stackalloc byte[SteamDeckNeptuneReport.Length];
         SteamDeckNeptuneReport.Write(sample, frame);
+        int status;
         fixed (byte* data = frame)
         {
-            return NativeViiper.DeviceSetInputFast(_fastHandle, data, frame.Length)
-                == NativeViiper.Ok;
+            status = NativeViiper.DeviceSetInputFast(_fastHandle, data, frame.Length);
         }
+
+        if (status == NativeViiper.Ok)
+        {
+            return true;
+        }
+
+        // A rejected submission means the device is gone or the attachment was lost, and the host
+        // keeps whatever report it last accepted — a held button included. Returning false without
+        // saying so left the target Active and the router retrying forever against nothing.
+        Log.Change(
+            "controller.viiper.submit",
+            $"VIIPER rejected an input frame on device {BusId}:{_deviceId}: status={status}, "
+                + $"{NativeViiper.TakeLastError()}.",
+            "warn ");
+        return false;
     }
 
-    private void RemoveDeviceUnderGate()
+    /// <summary>Removes the VIIPER device and reports whether the library confirmed it.</summary>
+    /// <returns><see langword="true"/> when removal was accepted.</returns>
+    /// <remarks>
+    /// The status is read, not discarded. Clearing the managed identifiers and then throwing the
+    /// return value away meant <see cref="WaitForRemovalAsync"/> reported success from WSGM's own
+    /// bookkeeping alone, so a refused detach could leave the old virtual controller enumerated
+    /// while replacement and HidHide cleanup carried on around it.
+    /// </remarks>
+    private bool RemoveDeviceUnderGate()
     {
         if (_deviceId == 0)
         {
-            return;
+            return true;
         }
 
         uint deviceId = _deviceId;
         _deviceId = 0;
         _fastHandle = 0;
+        bool removed = false;
         SafeNative(
-            () => NativeViiper.DeviceRemove(BusId, deviceId),
+            () =>
+            {
+                int status = NativeViiper.DeviceRemove(BusId, deviceId);
+                removed = status == NativeViiper.Ok;
+                if (!removed)
+                {
+                    Log.Warn(
+                        $"VIIPER refused to remove device {BusId}:{deviceId}: status={status}, "
+                        + $"{NativeViiper.TakeLastError()}.");
+                }
+
+                return status;
+            },
             $"remove VIIPER device {BusId}:{deviceId}");
+        return removed;
     }
 
     private static void Check(int result, string operation)

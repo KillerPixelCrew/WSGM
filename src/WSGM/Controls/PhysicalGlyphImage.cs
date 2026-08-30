@@ -57,6 +57,38 @@ internal sealed class PhysicalGlyphImage : Control
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// The decoded bitmap is native memory, and it used to be released only when this same control
+    /// decoded a different PNG. Rebuilding a glyph preview clears the visual tree and creates new
+    /// instances, so every discarded one held its bitmap until finalization and repeated
+    /// capability-state refreshes in the resident shell accumulated them.
+    /// </remarks>
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnDetachedFromVisualTree(e);
+        ReleaseRaster();
+    }
+
+    /// <inheritdoc/>
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+        // A plan that no longer draws a raster has no use for the decoded bitmap either.
+        if (change.Property == PlanProperty
+            && change.GetNewValue<PhysicalGlyphRenderPlan?>()?.RasterPng.IsEmpty is not false)
+        {
+            ReleaseRaster();
+        }
+    }
+
+    private void ReleaseRaster()
+    {
+        _raster?.Dispose();
+        _raster = null;
+        _rasterSource = default;
+    }
+
+    /// <inheritdoc/>
     public override void Render(DrawingContext context)
     {
         PhysicalGlyphRenderPlan? plan = Plan;

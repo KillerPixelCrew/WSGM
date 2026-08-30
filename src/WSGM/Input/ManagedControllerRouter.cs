@@ -324,6 +324,20 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
                 await _sinkGate.WaitAsync(_lifetime.Token).ConfigureAwait(false);
                 try
                 {
+                    // Rechecked inside the gate, not only before waiting for it. Stop bumps the
+                    // route generation under _gate and then takes this one separately, so a stop
+                    // that won the race would send its silent frame and this stale non-silent one
+                    // would land on top of it — and the plugin latches what it is given, leaving
+                    // the motors running after the controller was supposedly neutralized.
+                    lock (_gate)
+                    {
+                        if (_routeGeneration != routeGeneration || !MatchesRouteUnderGate(output))
+                        {
+                            DroppedFrames++;
+                            continue;
+                        }
+                    }
+
                     await _sink.ApplyAsync(frame, _lifetime.Token).ConfigureAwait(false);
                     _lastDispatchTimestamp = _timeProvider.GetTimestamp();
                     State = frame.IsSilent ? ControllerOutputState.Stopped : ControllerOutputState.Active;
@@ -405,6 +419,14 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
         _output = new(backend, hapticSink, _timeProvider);
         _backend.TargetLost += OnTargetLost;
     }
+
+    /// <summary>Raised when the backend lost the target and this router faulted.</summary>
+    /// <remarks>
+    /// The owner needs this to stop reporting controller management as active: the target is gone,
+    /// output has been stopped and the handle detached, so every further sample would be written
+    /// into nothing while WSGM's surfaces waited on a source that had stopped delivering.
+    /// </remarks>
+    internal event Action<string>? TargetFaulted;
 
     internal ManagedTargetState State { get; private set; } = ManagedTargetState.Absent;
 
@@ -707,6 +729,8 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
         _target = null;
         _neutral = true;
         _ = ObserveTargetLossStopAsync(stop);
+        Log.Warn($"Managed controller target generation {generation} was lost; routing stopped.");
+        TargetFaulted?.Invoke("The virtual controller target was lost.");
     }
 
     private static async Task ObserveTargetLossStopAsync(Task stop)

@@ -288,7 +288,14 @@ internal sealed class PluginSettingsCoordinator : IDisposable
         }
     }
 
-    private static PluginSettingsView Project(
+    /// <summary>
+    /// Arranges a declaration and its resolved values into what a surface draws.
+    /// </summary>
+    /// <param name="manifest">The plugin's declaration.</param>
+    /// <param name="resolution">The values in force.</param>
+    /// <returns>Sections in draw order, with their settings grouped underneath.</returns>
+    /// <remarks>Internal so the placement and ordering rules can be pinned without a device.</remarks>
+    internal static PluginSettingsView Project(
         PluginSettingsManifest manifest,
         PluginSettingsResolution resolution
     )

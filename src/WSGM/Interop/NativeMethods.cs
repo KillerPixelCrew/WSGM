@@ -672,6 +672,17 @@ internal static partial class NativeMethods
     /// <summary>PBT_POWERSETTINGCHANGE — wParam of a power-setting notification.</summary>
     internal const nint PbtPowerSettingChange = 0x8013;
 
+    /// <summary>PBT_APMSUSPEND — the system is about to enter a suspended state.</summary>
+    internal const nint PbtApmSuspend = 0x4;
+
+    /// <summary>PBT_APMRESUMESUSPEND — the system resumed from a normal suspend.</summary>
+    internal const nint PbtApmResumeSuspend = 0x7;
+
+    /// <summary>PBT_APMRESUMEAUTOMATIC — the system resumed, possibly with no user present.
+    /// Windows always sends this one on resume and adds PBT_APMRESUMESUSPEND when the user
+    /// caused it, so both must be treated as the same "hardware is back" signal.</summary>
+    internal const nint PbtApmResumeAutomatic = 0x12;
+
     /// <summary>GUID_SESSION_DISPLAY_STATUS {2B84C20E-AD23-4DDF-93DB-05FFBD7EFCA5}: the
     /// display of the CALLING SESSION turned on or off. Microsoft documents this as the
     /// one interactive user-mode applications must use — GUID_CONSOLE_DISPLAY_STATE is
@@ -806,6 +817,9 @@ internal static partial class NativeMethods
 
     /// <summary>WM_WTSSESSION_CHANGE.</summary>
     internal const uint WmWtsSessionChange = 0x02B1;
+
+    /// <summary>WTS_SESSION_LOCK — the session's desktop was locked.</summary>
+    internal const nint WtsSessionLock = 0x7;
 
     /// <summary>WTS_SESSION_UNLOCK — the session's desktop was unlocked.</summary>
     internal const nint WtsSessionUnlock = 0x8;

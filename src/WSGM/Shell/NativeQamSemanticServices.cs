@@ -411,6 +411,8 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : INativeQamTdpServic
                 IntegerValue = watts,
             },
             CommandTimeout,
+            // A person moved the TDP control in the Steam menu, so AutoTDP steps aside for it.
+            CapabilityCommandOrigin.User,
             cancellationToken).ConfigureAwait(false);
         bool succeeded = result.Outcome is
             CommandOutcome.AppliedVerified or CommandOutcome.AppliedUnverified;
@@ -609,6 +611,10 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : INativeQamAutoT
         _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
         _coordinator.ConfigurationChanged += OnChanged;
         _coordinator.CapabilityViewsChanged += OnCapabilityViewsChanged;
+        // The setting is not the state: AutoTDP moves between idle, controlling and paused, and its
+        // wattage and frametime detail change, with the stored setting and every capability view
+        // untouched. Without this the row rendered whatever it last saw.
+        _coordinator.AutoTdpStatusChanged += OnChanged;
     }
 
     /// <inheritdoc/>
@@ -633,15 +639,12 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : INativeQamAutoT
             return new NativeQamCommandResult(false, state.StatusText);
         }
 
-        if (state.Enabled == enabled)
-        {
-            // Idempotent rather than an error: the page and the store can disagree for one frame
-            // after a change made somewhere else, and re-sending the value it already has is the
-            // harmless way that resolves.
-            return new NativeQamCommandResult(true, null);
-        }
-
-        await _coordinator.ToggleAutoTdpAsync(cancellationToken).ConfigureAwait(false);
+        // Idempotent rather than an error: the page and the store can disagree for one frame after
+        // a change made somewhere else, and re-sending the value it already has is the harmless way
+        // that resolves. The coordinator compares and sets under its own transition gate, so the
+        // requested value is what lands even when another surface changed it in between — a toggle
+        // decided from the snapshot above would invert that newer value instead.
+        await _coordinator.SetAutoTdpEnabledAsync(enabled, cancellationToken).ConfigureAwait(false);
         return new NativeQamCommandResult(true, null);
     }
 
@@ -656,6 +659,7 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : INativeQamAutoT
         _disposed = true;
         _coordinator.ConfigurationChanged -= OnChanged;
         _coordinator.CapabilityViewsChanged -= OnCapabilityViewsChanged;
+        _coordinator.AutoTdpStatusChanged -= OnChanged;
     }
 
     /// <summary>Projects the stored setting and live status into the menu's vocabulary.</summary>
@@ -773,7 +777,8 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService
     public NativeQamControllerTargetState Current => Project(
         _coordinator.ControllerManagementEnabled,
         _coordinator.ControllerStatus,
-        _coordinator.InstalledPackage is not null);
+        _coordinator.InstalledPackage is not null,
+        _coordinator.SupportedControllerTargets);
 
     /// <inheritdoc/>
     public async Task<NativeQamCommandResult> SetTargetAsync(
@@ -819,13 +824,16 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService
     /// <param name="enabled">Whether controller management may run at all.</param>
     /// <param name="status">The manager's current truthful state.</param>
     /// <param name="packageInstalled">Whether a device package is installed.</param>
+    /// <param name="supportedTargets">Targets the backend on this machine can create.</param>
     /// <returns>The state the menu renders.</returns>
     internal static NativeQamControllerTargetState Project(
         bool enabled,
         ControllerManagerStatus status,
-        bool packageInstalled)
+        bool packageInstalled,
+        IReadOnlyList<ManagedControllerTarget> supportedTargets)
     {
         ArgumentNullException.ThrowIfNull(status);
+        ArgumentNullException.ThrowIfNull(supportedTargets);
         if (!enabled)
         {
             return new NativeQamControllerTargetState(
@@ -838,14 +846,23 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService
                 false);
         }
 
-        // Every target is offered whenever management runs. They are WSGM's own virtual devices, not
-        // hardware, so which ones exist does not depend on the machine — only on whether the backend
-        // came up at all, which Available already says.
+        // Only what the backend can actually build. These are WSGM's own virtual devices rather
+        // than hardware, but a target still needs an encoder behind it: offering one that has none
+        // meant the selection persisted, target creation was refused, and controller management
+        // reported itself unavailable until the user found their way back to the setting.
         NativeQamControllerTargetOption[] targets =
         [
-            new(nameof(ManagedControllerTarget.SteamDeckComposite), "Steam Deck", true),
-            new(nameof(ManagedControllerTarget.Xbox360), "Xbox 360", true),
-            new(nameof(ManagedControllerTarget.DualShock4), "DualShock 4", true),
+            .. new[]
+            {
+                (Target: ManagedControllerTarget.SteamDeckComposite, Label: "Steam Deck"),
+                (Target: ManagedControllerTarget.Xbox360, Label: "Xbox 360"),
+                (Target: ManagedControllerTarget.DualShock4, Label: "DualShock 4"),
+            }
+                .Where(option => supportedTargets.Contains(option.Target))
+                .Select(option => new NativeQamControllerTargetOption(
+                    option.Target.ToString(),
+                    option.Label,
+                    true)),
         ];
 
         bool available = status.State is

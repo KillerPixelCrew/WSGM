@@ -44,8 +44,31 @@ public sealed unsafe class MessageWindow : IDisposable
     /// notification is delivered.</summary>
     public event Action? SessionUnlocked;
 
+    /// <summary>Raised on the Avalonia UI thread when this session's desktop is locked.</summary>
+    /// <remarks>
+    /// The counterpart to <see cref="SessionUnlocked"/>, and the point at which anything holding
+    /// hardware the user is no longer in front of should let go of it.
+    /// </remarks>
+    public event Action? SessionLocked;
+
     /// <summary>Raised on the Avalonia UI thread when this interactive session logs off.</summary>
     public event Action? SessionEnding;
+
+    /// <summary>Raised on the Avalonia UI thread when the system is about to suspend.</summary>
+    /// <remarks>
+    /// Delivered before the machine goes down and on a deadline Windows does not extend, so
+    /// subscribers must start their work and return rather than block this notification.
+    /// </remarks>
+    public event Action? SystemSuspending;
+
+    /// <summary>Raised on the Avalonia UI thread when the system resumed from suspend.</summary>
+    /// <remarks>
+    /// Raised for PBT_APMRESUMEAUTOMATIC and PBT_APMRESUMESUSPEND alike. Windows sends the first
+    /// on every resume and adds the second only when the user caused it, so a subscriber that
+    /// listened for one of them would miss half the wakes; it can fire twice for one resume and
+    /// subscribers must be idempotent.
+    /// </remarks>
+    public event Action? SystemResumed;
 
     /// <summary>Raised on the Avalonia UI thread for a shell-hook notification.
     /// Its delegate receives the HSHELL_* event code followed by the event-specific
@@ -352,8 +375,26 @@ public sealed unsafe class MessageWindow : IDisposable
             }
             return 1;
         }
+        if (msg == NativeMethods.WmPowerBroadcast
+            && wParam == NativeMethods.PbtApmSuspend)
+        {
+            Dispatcher.UIThread.Post(() => instance.SystemSuspending?.Invoke());
+            return 1;
+        }
+        if (msg == NativeMethods.WmPowerBroadcast
+            && (wParam == NativeMethods.PbtApmResumeAutomatic
+                || wParam == NativeMethods.PbtApmResumeSuspend))
+        {
+            Dispatcher.UIThread.Post(() => instance.SystemResumed?.Invoke());
+            return 1;
+        }
         if (msg == NativeMethods.WmWtsSessionChange && instance._sessionNotify)
         {
+            if (wParam == NativeMethods.WtsSessionLock)
+            {
+                Dispatcher.UIThread.Post(() => instance.SessionLocked?.Invoke());
+                return 0;
+            }
             if (wParam == NativeMethods.WtsSessionUnlock)
             {
                 Dispatcher.UIThread.Post(() => instance.SessionUnlocked?.Invoke());
