@@ -1334,9 +1334,11 @@ settings and profile authoring only — device control stays in the overlay.
       `Core\DeviceProfileValidation.cs` is the check that needs the live device and runs immediately
       before apply, not at load, because a curve authored with no plugin running was built against
       the last known bounds. A bound the descriptor leaves unset is not invented. Authoring only, as
-      planned: no live temperature or RPM readout. **RGB profile authoring is not built** — the
-      colour half needs a picker the tree does not have, and the storage field for it is present but
-      unused.
+      planned: no live temperature or RPM readout. RGB profiles are authored the same way, on
+      `Avalonia.Controls.ColorPicker`, which the tree already referenced and the Appearance page
+      already drives — an earlier note here claimed that picker did not exist, which was wrong. A
+      profile carries a curve or a colour and never both, because a profile holding an unused half
+      would let a capability change resurrect a value the user set for something else.
 - [x] Let the overlay select those profiles globally or per application, extending the per-app
       profile store rather than adding a second mechanism. `DeviceProfileSelection` carries the same
       two layers and the same precedence as `DeviceCapabilityPreference` beside it and stores a

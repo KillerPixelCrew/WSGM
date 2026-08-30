@@ -234,9 +234,19 @@ Applying counts `AppliedUnverified` as success: many EC writes have no readback,
 confirmation as failure would report every one of them as broken. A timeout does not count — whether
 it was written is unknown, and claiming success there is the one answer that misleads.
 
-**Not built yet:** RGB profile authoring (the colour storage field exists and is unused; the picker
-does not exist) and the overlay rows that call the selection store, so selection has no user-facing
-entry point.
+A profile carries a curve **or** a colour, never both. The capability being authored decides which,
+and a profile holding an unused half would let a capability change resurrect a value the user set
+for something else. Colours are masked to 24 bits on the way in: the picker returns an alpha channel
+WSGM has no use for, and a stored value carrying one reads as a wildly different colour when it is
+later unpacked as RGB.
+
+The overlay's row states the **scope** of the current choice, not only its name — "Quiet, for this
+game" and "Quiet, for everything" read identically otherwise, and that difference is what the row is
+opened mid-game to check. Pressing it scopes the change to the running application when there is one
+and globally otherwise, persisting before applying so a failed save cannot leave the device on a
+profile the configuration does not name. Cycling wraps through "none", and a selection whose profile
+was deleted reads `MISSING` and stays cyclable, because pressing out of that state is faster than
+opening Settings mid-game.
 
 ## Device Lab and UI ownership
 
