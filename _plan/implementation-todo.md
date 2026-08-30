@@ -1215,12 +1215,11 @@ hand-built rows with Valve's own and supplies `SteamClient.System.Perf`.
       `SteamClient.System.Perf` for a device WSGM can service is in scope and is not the forbidden
       global SteamOS/Deck spoof. D16 now carries the four-gate table and the rule that the forbidden
       thing is the global claim, never the local answer.
-- [ ] Record the device- and live-verified findings in `docs\steam-cef.md` and
+- [x] Record the device- and live-verified findings in `docs\steam-cef.md` and
       `docs\power-and-display.md`: the absent-backend seam, the three Steam performance backend
-      families, Arc Sync read/write/restore, and driver-synthesized modes outside the EDID.
-      **`docs\power-and-display.md` is done** — advertised versus accepted refresh rates, the
-      transient-apply property that makes a game-scoped change safe, and the four IGCL facts.
-      **`docs\steam-cef.md` remains**: the absent-backend seam and the three backend families.
+      families, Arc Sync read/write/restore, and driver-synthesized modes outside the EDID. Both
+      written, including the four-gate table, the Wi-Fi trap that a probed access point is WSGM's own
+      synthetic one, and the rule against `force_deck_perf_tab`.
 - [ ] Validate on the reference device: the live Steam matrix with the panel mounted, per-game
       profile switching against a real game, each frame-limit strategy including an
       exclusive-fullscreen title across a mode change, VRR toggling with a rendering game, and
