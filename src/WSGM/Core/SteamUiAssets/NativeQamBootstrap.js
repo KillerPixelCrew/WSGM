@@ -121,6 +121,7 @@
   const audioNamespace = createAudioNamespace();
   const networkGate = createNetworkGate();
   const bluetoothService = createBluetoothService();
+  const brightnessGate = createBrightnessGate();
   const bridge = Object.freeze({
     version: config.version,
     assetHash: config.assetHash,
@@ -150,6 +151,11 @@
       remove: bluetoothService.remove,
       status: bluetoothService.status,
     }),
+    brightness: Object.freeze({
+      install: brightnessGate.install,
+      remove: brightnessGate.remove,
+      status: brightnessGate.status,
+    }),
   });
   Object.defineProperty(window, config.namespace, {
     value: bridge,
@@ -158,6 +164,81 @@
     writable: false,
   });
   return JSON.stringify({ ok: true, reused: false, version: config.version });
+  // Brightness is one flag away, not a transport away. Steam already tracks the real panel
+  // brightness on Windows and both SetBrightness and RegisterForBrightnessChanges exist; the system
+  // settings message simply reports is_display_brightness_available as false, and the hook reads
+  // `?? true` which never applies to an explicit false. Live-verified 2026-08-30: the flag is
+  // writable, flips the answer, and restores.
+  //
+  // Nothing else is touched. This does not supply a backend, because there already is one.
+  function createBrightnessGate() {
+    const field = "is_display_brightness_available";
+    let originalValue;
+    let installed = false;
+    let lastError = "";
+    const settings = () => {
+      try {
+        let req;
+        window.webpackChunksteamui.push([
+          ["wsgm_brightness_" + Date.now()],
+          {},
+          (r) => {
+            req = r;
+          },
+        ]);
+        return req?.("59547")?.mG?.Get?.()?.m_msgSettings ?? null;
+      } catch {
+        return null;
+      }
+    };
+    const install = () => {
+      if (installed) return { ok: true, alreadyInstalled: true };
+      const message = settings();
+      if (!message || !(field in message)) {
+        lastError = "display settings message unavailable";
+        return { ok: false, error: lastError };
+      }
+      // A client already reporting brightness available needs nothing from WSGM, and overwriting
+      // the flag would mean restoring a value that was never ours to change.
+      if (message[field] === true) {
+        lastError = "brightness already available";
+        return { ok: false, error: lastError };
+      }
+      try {
+        originalValue = message[field];
+        message[field] = true;
+      } catch (error) {
+        lastError = String(error);
+        return { ok: false, error: lastError };
+      }
+      installed = true;
+      lastError = "";
+      return { ok: true, installed: true, available: message[field] === true };
+    };
+    const remove = () => {
+      if (!installed) return { ok: true, absent: true };
+      const message = settings();
+      installed = false;
+      if (!message) return { ok: true, removed: true, storeGone: true };
+      try {
+        message[field] = originalValue;
+      } catch (error) {
+        lastError = String(error);
+        return { ok: false, error: lastError };
+      }
+      return { ok: true, removed: true };
+    };
+    const status = () => {
+      const message = settings();
+      return {
+        ok: true,
+        installed,
+        available: message ? message[field] === true : false,
+        lastError,
+      };
+    };
+    return { install, remove, status };
+  }
   // Bluetooth is a WebUI transport service whose backend does not exist on Windows. The service,
   // its message shapes and every operation are present — GetState round-trips and answers
   // is_service_available:false with empty adapters and devices — so WSGM replaces the stub's

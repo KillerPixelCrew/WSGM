@@ -121,6 +121,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _patches.Register(new SteamBluetoothServicePatch());
         }
 
+        // No backend of WSGM's behind it: Steam's own brightness backend already works on Windows,
+        // and only its availability flag says otherwise. Registered unconditionally for that
+        // reason — it depends on nothing WSGM has to supply.
+        _patches.Register(new SteamBrightnessGatePatch());
         _patches.Register(new SteamInputGlyphStylePatch(_glyphDeliveryState));
         SetPatchStates(bootstrap: false, components: false);
         SetGlyphDeliveryPatchStates();
