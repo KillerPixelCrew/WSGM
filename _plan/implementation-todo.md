@@ -1152,6 +1152,567 @@ tree position is useful diagnostic evidence, but parent-tree appearance is not i
 - [x] Run `eng/verify.ps1 -Fix`, `build.ps1`, copy the newest installer to `Z:\`, and verify matching
       SHA-256 hashes for the final handoff.
 
+### S12 — Per-application profiles by reactivating Steam's own performance UI
+
+Full plan and the live-probe evidence behind every claim here: `_plan\qam-overhaul.md`. The
+components already ship in the Windows client; only their backend is absent, so this replaces
+hand-built rows with Valve's own and supplies `SteamClient.System.Perf`.
+
+- [x] Add a VRR capability role and display key to the SDK so the plugin publishes it and WSGM only
+      projects it. No device-specific detail enters the SDK. `CapabilityRole.VariableRefreshRate`
+      pairs with `Boolean` in `DeviceCapabilityRouter`, and `DeviceOverlayBridge` places it in Power
+      and thermals beside the frame-limit and power controls it interacts with.
+- [ ] Implement the Claw plugin's IGCL transport: dynamic `ControlLib.dll` load, Arc Sync capability
+      detection, read, write, and restore of the saved parameter struct on make-safe. Trace every
+      decision including each refusal with the values it was decided from. Both IGCL enumerations
+      are two-call, unattached outputs answer `CTL_RESULT_ERROR_KMD_CALL`, and IGCL's `bool` is one
+      byte so it is `byte` in C#. No Rust helper: IGCL is flat C with blittable structs.
+- [ ] Implement the Core per-application profile store keyed by app id, plus the three configurable
+      frame-limit strategies — `FrameLimitOnly`, `NativeModes`, `FrameDoubling` — with runtime mode
+      discovery validated by `ChangeDisplaySettingsEx(CDS_TEST)` and lowest-valid-multiple pairing.
+      Modes are discovered, never hardcoded; changes are dynamic, never `CDS_UPDATEREGISTRY`, so
+      exit, crash, and reboot self-heal. `FrameLimitOnly` is the default because a mode change can
+      hitch or drop an exclusive-fullscreen title.
+- [ ] Implement the `SteamClient.System.Perf` shim: build `CMsgSystemPerfState` through the client's
+      own message classes, deliver it via the store's bound `OnStateChanged`, and route
+      `UpdateSettings` deltas to the same services the overlay uses. One patch per mounted
+      component, each with its own fingerprint, verification, removal, and kill switch. Never set
+      `force_deck_perf_tab`; it is a persisted client setting that force-shows unbackable rows.
+- [ ] Supply the `SteamOSService/State/Manager` RPC response as a second seam so Valve's own TDP row
+      is reused rather than hand-built: `GetState()` → `is_tdp_limit_available`, `tdp_limit_min`,
+      `tdp_limit_max`, plus the `is_charge_limit_available` and `charge_limit_min/max/default` the
+      same service carries. Its own patch id, fingerprint, verification, removal, and kill switch,
+      so a changed service shape loses that row and nothing else.
+- [ ] Mount only the components WSGM can back, and retire the hand-built rows they replace. Keep GPU
+      clock, scaling mode/filter/sharpness, half-rate shading, tearing, force composite, and Steam's
+      own FPS overlay hidden.
+- [ ] Project the same services onto the overlay, which stays the complete surface.
+- [ ] Amend D16 in `_plan\2.0-decisions.md` to record that supplying an absent
+      `SteamClient.System.Perf` for a device WSGM can service is in scope and is not the forbidden
+      global SteamOS/Deck spoof.
+- [ ] Record the device- and live-verified findings in `docs\steam-cef.md` and
+      `docs\power-and-display.md`: the absent-backend seam, the three Steam performance backend
+      families, Arc Sync read/write/restore, and driver-synthesized modes outside the EDID.
+- [ ] Validate on the reference device: the live Steam matrix with the panel mounted, per-game
+      profile switching against a real game, each frame-limit strategy including an
+      exclusive-fullscreen title across a mode change, VRR toggling with a rendering game, and
+      recovery when Steam restarts underneath the shim.
+
+### S13 — Plugin-driven settings page, sections, and profile authoring
+
+Full plan: `_plan\plugin-driven-settings-page.md`. A plugin declares typed elements and sections;
+WSGM draws, validates, stores, and localizes them. The plugin ships no UI. Settings holds plugin
+settings and profile authoring only — device control stays in the overlay.
+
+- [x] Add `CapabilityValueKind.Text` with `CustomLabel`'s exact treatment: declared maximum length,
+      control characters and bidirectional overrides rejected, escaped at every sink, never a format
+      string or localization key. The rule now lives once in `Capabilities\PlainText.cs` with
+      `CustomLabel` refactored onto it, rather than in two copies. `GenericText` is its role, and a
+      text descriptor must declare its own bound while nothing else may.
+- [x] Add the plugin settings descriptor and manifest, separate from the capability manifest: stable
+      id, value kind, `CapabilityDisplay`, default, section assignment, sort order, and per-kind
+      bounds. `Sdk\Settings\PluginSettingsManifest.cs`. Curve-shaped settings are refused, because a
+      curve is authored as a named profile with its own storage and would otherwise have two homes.
+- [x] Add the section descriptor and its WSGM-owned display key with a bounded `Custom` title,
+      mirroring `CapabilityDisplay` rather than inventing a looser rule. Bound the section and
+      element counts, reject duplicate ids naming the offender, and break sort ties on declaration
+      order. `Sdk\Settings\PluginSettingSection.cs`. An element naming an unknown section validates
+      deliberately, so the renderer can fall it back rather than drop it; the fallback placement,
+      the skipped empty section, and the sort decisions are the renderer's to log when it is built.
+- [ ] Keep sections scoped to the settings page and `Generic*` capabilities. A semantic role keeps
+      the home WSGM gives it, so a plugin cannot scatter power or fan controls into invented
+      groupings and break the cross-device consistency `DisplayKey` exists to protect.
+- [ ] Store settings values in WSGM configuration through the source-generated JSON path, keyed by
+      device definition id and plugin id. **Storage and normalization are done**
+      (`Core\DeviceConfiguration.cs`, `ConfigStore.NormalizeDeviceIntegration`): unmatchable scopes
+      and duplicates are dropped so the file cannot grow forever. **What remains** is revalidation
+      against the current manifest on load — a plugin update can narrow a range or drop an option —
+      falling back to the declared default and logging the stored value beside the declared bounds.
+- [ ] Deliver settings to the plugin at start and on change over the existing wire contract. No new
+      privileged channel.
+- [ ] Render one WSGM-owned Settings page from the declared manifest, gamepad and touch navigable,
+      on the shared controls and themes. Sections are focus groups with stable semantic keys so the
+      existing per-destination focus and scroll restoration survives a refresh.
+- [ ] Build a reusable curve editor in `Controls\`. None exists in the tree: `FanCurve` and
+      `CapabilityValueKind.Curve` are declared, validated, and projected, and rendered by nothing.
+- [ ] Add device-keyed RGB and fan profile authoring to Settings, revalidated against the live
+      `FanCurve` descriptor before apply. Authoring only: `--settings` starts no DeviceHost, so the
+      editor has no live temperature or RPM readout in the first cut.
+- [ ] Let the overlay select those profiles globally or per application, extending the per-app
+      profile store from S12 rather than adding a second per-app mechanism.
+- [ ] Record the Settings/overlay boundary as a numbered decision in `_plan\2.0-decisions.md`. It is
+      enforced today only by a sentence in `Settings\Pages\DeviceOwnershipPage.axaml` and appears in
+      no design document, which is why it is easy to propose violating.
+- [ ] Give the `WSGM.DeviceLab\Testing` synthetic plugin fixture a settings manifest so the page is
+      exercised without hardware.
+- [ ] Validate on the reference device: the page rendered from the Claw plugin's real manifest,
+      gamepad and touch navigation across sections, a curve authored in Settings then applied from
+      the overlay, and behaviour after a plugin update narrows a range a stored value no longer
+      satisfies.
+
+### S14 — Revive Quick Settings, Internet, and Bluetooth
+
+Full plan: `_plan\qam-quick-settings.md`. Same principle as S12, with a gate taxonomy that governs
+all Steam UI revival: supply an absent JS namespace, supply an absent RPC response, override a
+single Deck-only store getter — but never set the global `TS.IS_STEAMOS`, which is the D16 spoof.
+
+- [ ] Read `Core\SteamNetworkIndicator.cs`, `Shell\NetworkIndicatorService.cs` and
+      `Shell\RadioManager.cs` first. The backend is finished — `SetRadioAsync`, `ConnectAsync`,
+      `DisconnectAsync`, `ForgetAsync`, `SetAudioConnectionAsync`, `UnpairAsync`,
+      `RespondToPairing`, scanning and PIN prompts all exist — and part of this surface is already
+      revived. Everything below is an adapter over that, not an implementation.
+- [ ] Override the `networkManagementAvailable` getter — it is literally `return TS.IS_STEAMOS`.
+      Expect a Wi-Fi row and Internet page over an **empty** network list: Steam's Windows backend
+      does push real device reports, but every one carries an empty `wireless.aps`, so it never
+      enumerates networks. The single access point visible in a live probe is WSGM's own synthetic
+      one from `SteamNetworkIndicator`, not Steam's.
+- [ ] Feed the whole access-point list from `RadioManager` through the store's `SetDeviceInfo`
+      ingestion path in the plain-object shape the protobuf decoder produces, and wire connect and
+      forget to `ConnectAsync`/`ForgetAsync`. Two constraints are already device-verified and must
+      not be rediscovered: replacing the store's report handler does not work, because the backend
+      holds the bound callback registered at store init; and backend reports expire unknown entries
+      through `MarkAsNotPresent()`, so injected entries need the same no-op pin
+      `SteamNetworkIndicator` already uses. `SetWifiEnabled` exists natively, is untested, is a real
+      radio mutation, and stays attended.
+- [ ] Revive Bluetooth pair and connect in Steam directly by replacing the `BluetoothManagerService`
+      stub methods on the plain object `RF` exported by module `60517`, routing them to the existing
+      radio backend. The service round-trips on Windows — `GetState` succeeds and returns
+      `is_service_available: false` with empty adapters and devices — so the transport and message
+      shapes are present and only the backend is missing. Cover `GetState`, `GetAdapterDetails`,
+      `GetDeviceDetails`, `NotifyStateChanged`, `SetDiscovering`, `SetLoginAdvertising`, `Pair`,
+      `CancelPair`, `Forget`, `Connect`, `Disconnect`, `SetWakeAllowed`, `SetTrusted`, each
+      returning the transport result shape (`BSuccess()` plus `Body().toObject()`). `*Handler` is a
+      message descriptor, not a registration hook, so implementing the service is not an option.
+      Land it after Wi-Fi so the narrower gate override is proven first.
+- [ ] Audio has its own plan and its own phase: see `_plan\steam-settings-audio-revive.md` and S15.
+- [ ] Reuse Valve's brightness row over `SteamClient.System.Display.SetBrightness`, which exists and
+      whose availability flag defaults true. If it does not move the panel, fall back to the driver
+      through IGCL `ctlGetBrightnessSetting`/`ctlSetBrightnessSetting`, which makes it a device
+      transport and therefore plugin-owned beside Arc Sync.
+- [ ] Back night mode with Windows Night Light; its Steam gate is `IN_GAMESCOPE` only.
+- [ ] Add a resolution row, which exists nowhere in the tab because SteamOS drives it through
+      gamescope, from the same runtime mode discovery the frame-limit strategies use.
+- [ ] Mount the Performance tab's refresh-rate component here, shown only when the frame-limit
+      strategy is `FrameLimitOnly`; under `NativeModes` or `FrameDoubling` the pairing policy owns
+      the refresh and a second control would fight it.
+- [ ] Leave the natively working rows alone: controller list with battery and Identify, reorder
+      controllers, game recording, and display scaling over `SetUnderscanLevel`.
+- [ ] Validate attended on the reference device: Wi-Fi enumerate/connect/forget/airplane, Bluetooth
+      pair through forget including a controller over Bluetooth, audio device switching while a game
+      runs, brightness across both paths, night mode, a resolution change with a game running, and
+      recovery of every one when Steam restarts underneath the patches.
+
+### S15 — Revive Steam's audio settings
+
+Full plan: `_plan\steam-settings-audio-revive.md`. The backend already exists — `AudioManager`,
+`NativeVolumeControl`, `native\VolumeControl` — so this is an adapter plus one new capability.
+
+- [ ] Supply `SteamClient.System.Audio` over `Shell\AudioManager.cs`,
+      `Interop\NativeVolumeControl.cs` and `Shell\VolumeButtonService.cs`. The cheapest gate in the
+      project: the store's flag is literally `m_bAvailable = null != SteamClient.System.Audio`, so
+      supplying the namespace is the whole of it. Implement `GetDevices`,
+      `SetDefaultDeviceOverride`, `SetDeviceVolume`, and the `DeviceAdded`/`DeviceRemoved`/
+      `DeviceVolumeChanged`/`VolumeButtonPressed`/`ServiceConnectionStateChanges` registrations.
+      HDMI CEC reaches a different service and stays unsupported.
+- [ ] Report no audio apps until the mixer exists: `SetAppVolume`, `RegisterForAppAdded` and
+      `RegisterForAppRemoved` have no backend, and `Shell\VolumeAppCommands.cs` is media-key
+      decoding, not a mixer. Steam's per-app mixer then lists nothing rather than misbehaving.
+- [ ] Add WASAPI audio-session enumeration and per-session volume to `native\VolumeControl`, exposed
+      through `AudioManager`. This serves the custom taskbar as much as Steam — one backend, two
+      surfaces — so it is its own item, not folded into the Steam adapter.
+- [ ] Close two unknowns before building speaker configuration, both needing multichannel hardware
+      that is not currently available: whether a 5.1 or 7.1 configuration can be read and written at
+      all (the reference Claw exposes one stereo Realtek endpoint, and `PhysicalSpeakers` is absent
+      on all six persisted render endpoints), and whether a re-enumerated HDMI endpoint keeps a
+      stable identity across a display change — which decides whether reapply-on-churn can key on
+      the endpoint id or needs a fuzzier match.
+- [ ] Implement speaker configuration through `IPolicyConfig::SetDeviceFormat`, which
+      `native\VolumeControl\VolumeControl.cpp` **already declares** with the correct vtable ordering
+      and already uses for `SetDefaultEndpoint`. Do not write
+      `PKEY_AudioEndpoint_PhysicalSpeakers` or `PKEY_AudioEngine_DeviceFormat` through
+      `IPropertyStore`: the store does open `STGM_READWRITE`, but Microsoft documents those as
+      service-owned and read-only for clients, and device-format writes are reported not to take
+      effect. The point of the feature is that Windows loses the configuration across display
+      changes, so WSGM persists the choice per endpoint and reapplies it on endpoint churn, the same
+      shape as display profiles.
+- [ ] Replace the `CAudio_SetSpeakerConfiguration` stub (`sink_id`, `config` → `config`, `channels`,
+      `sdescription`) and `CAudio_PlaySpeakerTestOnChannel` so Steam's own dropdown and per-channel
+      speaker test drive it.
+- [ ] Validate attended: device switching while a game runs, volume buttons, per-app volume against
+      a real mixer, and — once multichannel hardware exists — 5.1 and 7.1 selection, the per-channel
+      test, and a display change with the configuration restored afterwards.
+
+## Verified review findings from PR #19
+
+Codex left 51 inline findings on PR #19 across seven review passes (commits `75494c6` … `e7386e2`).
+Every one was re-checked against this branch's HEAD; the five listed under "checked and not carried"
+at the end are not defects here and are recorded so they are not re-litigated. Line anchors are the
+current tree, not the reviewed commit.
+
+**All 43 are fixed.** Each item below is checked in the sense this file defines: source, focused
+tests where the behaviour is deterministically testable, diagnostics, and comments complete, with
+`eng\verify.ps1`'s automated gates passing. Every entry keeps the defect it describes so the fix has
+its reason attached. The device and Steam ones do not carry their own attended gates — they inherit
+the existing ones in S7 (controller acceptance), S8 (live Steam/RTSS/AutoTDP matrix), S9 (glyph
+visual acceptance) and S10, which stay unchecked until they run on the reference device. Three
+changes touch paths that only reveal their constraints there and must be re-verified before release:
+the persistent-lighting rollback, the gyroscope staleness bound, and the two Steam UI patch changes
+(the glyph probe's selector requirement and removing an applied patch that failed verification).
+
+### AutoTDP
+
+- [x] **One AutoTDP worker per lifetime.** `AutoTdpService.Apply(false)` clears `_enabled` and starts
+      `StopAsync`, but never cancels `RunAsync` — the loop only ends on `_shutdown`, which fires in
+      `DisposeAsync`. `Apply(true)` then starts a second loop and overwrites `_worker`
+      (`src\WSGM\Shell\AutoTdpService.cs:110-121`). Every off→on cycle adds another one-second timer,
+      so the controller evaluates the same window several times, reaches raise/probe thresholds early
+      and races its own restoration; an already-admitted tick can also write after `StopAsync`
+      restored the prior limit. Keep one lifetime worker, or cancel and await the previous generation
+      before restoring and before starting another.
+- [x] **Stop controlling when a power write is not applied.** `WriteAsync` logs `result.Outcome` and
+      does nothing else (`src\WSGM\Shell\AutoTdpService.cs:281-315`) even though
+      `AutoTdpController` has already advanced its believed wattage, so `Rejected`, `TimedOut` and
+      `Indeterminate` all leave later decisions resting on a limit that may never have reached
+      hardware. `StopAsync` then publishes "the previous limit was restored" unconditionally
+      (`:337`) — including when `_write.WaitAsync(0)` refused the restore write outright because a
+      tick write was still in flight. Inspect the outcome, pause or degrade after an unverified
+      write, and report restoration only after a successful result.
+- [x] **Route manual power writes through `NoteManualChange`.** It has no production caller: the
+      overlay path (`src\WSGM\Shell\DeviceOverlayBridge.cs:692`) and the native-QAM TDP setter both
+      call `DeviceCoordinator.ExecuteCapabilityAsync` directly, and only
+      `tests\WSGM.Tests\AutoTdpServiceTests.cs:118` invokes the hook. A user's successful manual PL1
+      change is therefore ordinary telemetry and the next tick overwrites it, contradicting the
+      documented permanent-until-resume override. Send user-originated primary-limit writes through
+      one shared path that pauses control, and rebase `_restoreTo` to the accepted manual value so a
+      later disable does not restore the pre-AutoTDP limit over the user's own choice.
+- [x] **Restore AutoTDP before the device coordinator is retired.** `ShellSession` awaits
+      `_deviceCoordinator.ShutdownAsync` at `src\WSGM\Shell\ShellSession.cs:1471` and only disposes
+      `_autoTdp` at `:1538`. AutoTDP's write delegate is that coordinator's
+      `ExecuteCapabilityAsync`, so on application exit, update, uninstall and session end the
+      restoration is issued into an already-disconnected capability path and the handheld is left on
+      the last automatically selected wattage. Dispose AutoTDP and verify its restore first.
+- [x] **Publish AutoTDP status changes to the surfaces that render them.**
+      `AutoTdpService.StatusChanged` has no subscriber anywhere in production; `AttachAutoTdpStatus`
+      gives the coordinator a snapshot getter only (`src\WSGM\Shell\ShellSession.cs:231`), and both
+      the overlay bridge and native QAM refresh on coordinator configuration/capability events.
+      State, watts, frametime and detail therefore stay stale on both surfaces until an unrelated
+      device event happens to arrive. Root a subscription in `ShellSession`, marshal it to the
+      dispatcher, and unsubscribe during teardown.
+- [x] **Set the requested AutoTDP state instead of toggling it.**
+      `NativeQamSemanticServices.SetEnabledAsync` reads `Current`, returns early when it already
+      matches, then calls the blind `DeviceCoordinator.ToggleAutoTdpAsync`
+      (`src\WSGM\Shell\NativeQamSemanticServices.cs:625-646`, `DeviceCoordinator.cs:1495`). A change
+      from another surface between the read and the gate acquisition inverts the newer value and
+      still reports success. Add an idempotent coordinator setter that compares and sets while
+      holding `_transitionGate`.
+
+### Controller management
+
+- [x] **Serialize sample publication with UI neutralization.** `ControllerManager.RouteAsync` decides
+      `toUi` under `_stateGate` and then publishes outside it
+      (`src\WSGM\Shell\ControllerManager.cs:344-376`). A surface claim racing that decision can write
+      its neutral packet first and have this stale live sample written after it; every later sample
+      goes only to the UI, so the game keeps that press until capture is released. Revalidate a
+      capture generation immediately before publication, or share the gate.
+- [x] **Close sample admission before make-safe neutralizes.** `MakeSafeUnderGateAsync` awaits
+      `_router.NeutralizeAsync` and only afterwards sets `_zeroTriggers |= TargetRemoved` under
+      `_stateGate` (`src\WSGM\Shell\ControllerManager.cs:522-536`). A sample arriving in that window
+      sees no trigger and no capture, finds the router `Neutral`, re-activates the source and
+      publishes a non-neutral report; the handoff then proceeds as if the target were quiet. Set the
+      trigger first and drain already-admitted routes under the same gate.
+- [x] **Do not record a failed virtual-target removal as successful.** When `_router.RemoveAsync`
+      throws, the catch logs and `sequence.RecordTargetRemoved()` still runs
+      (`src\WSGM\Shell\ControllerManager.cs:552-563`), and that method sets `_targetRemoved` without
+      touching `_unverified` (`ControllerMakeSafeSequence.cs`), so `Complete()` can return
+      `ReleasedVerified` while the virtual controller is still enumerated beside the newly exposed
+      physical one. The same applies to a failed `NeutralizeAsync` before `RecordNeutralized()`.
+      Keep continuing the sequence — that ordering is deliberate — but force the unverified result.
+- [x] **Check the VIIPER removal status before forgetting the target.**
+      `RemoveDeviceUnderGate` clears `_deviceId`/`_fastHandle` and then discards
+      `viiper_device_remove`'s status through the `Func<int>` overload of `SafeNative`
+      (`src\WSGM\Input\ViiperControllerBackend.cs:431-443`, `:465`), so a nonzero result is neither
+      logged nor acted on. `WaitForRemovalAsync` reports success purely from the cleared managed
+      state (`:214-220`), which lets a failed detach leave the old virtual controller enumerated
+      while replacement and HidHide cleanup proceed. Use `Check`, log the status, and hold an
+      unverified target state until removal is observed.
+- [x] **Fault the target when VIIPER rejects an input frame.** `SubmitUnderGate` returns false on a
+      nonzero `viiper_device_set_input_fast` (`src\WSGM\Input\ViiperControllerBackend.cs:420-429`)
+      and `ManagedControllerRouter.RouteAsync` simply propagates that false
+      (`src\WSGM\Input\ManagedControllerRouter.cs:525-532`): the target stays `Active`, nothing is
+      logged, no `TargetLost` is raised, and the host keeps the last successful report — a held
+      button included — while WSGM still reports controller management active. Treat a rejected
+      submission as target loss, emit the diagnostic, and run make-safe.
+- [x] **Recheck the haptic route after acquiring `_sinkGate`.** The output worker validates
+      `_routeGeneration` under `_gate` and then awaits `_sinkGate` without rechecking
+      (`src\WSGM\Input\ManagedControllerRouter.cs:314-330`), while `StopAsync` bumps that generation
+      under `_gate` and takes `_sinkGate` separately (`:174-204`). If stop wins the gate, its silent
+      frame is followed by this stale non-silent one and the plugin latches it, so vibration
+      survives the neutralization. Recheck inside the gate or serialize invalidation, stop and apply
+      under one admission mechanism.
+- [x] **Close haptic admission before ownership is withdrawn.** `DeviceHostHapticSink.ApplyAsync`
+      reads `IsOwned` (taking and releasing `_gate`) and then invokes the asynchronous DeviceHost
+      write outside it (`src\WSGM\Shell\DeviceHostHapticSink.cs:91-95`), so a `Withdraw` from
+      `DeviceCoordinator.Detach` can complete while an admitted frame is still in flight to a plugin
+      that has already handed the controller back — and the plugin latches the last rumble values.
+      Serialize admission and completion with withdrawal, or cancel and await admitted frames before
+      reporting ownership withdrawn.
+- [x] **Drain a sample that arrives while dispatch is running.**
+      `DeviceHostClient.DispatchLatestSample` returns immediately when `_sampleDispatching` is
+      already set (`src\WSGM\Shell\DeviceHostClient.cs:387-392`), and the auto-reset state event has
+      already been consumed by that callback. If the first callback read the ring before the newer
+      sample was written, that sample — typically the final button-release packet — waits for some
+      later input, leaving the virtual controller on stale state. Record a pending notification or
+      loop until the sequence stops advancing before clearing the gate.
+- [x] **Tell the plugin when controller management is disabled.**
+      `SetControllerManagementUnderGateAsync` runs make-safe and returns without ever sending
+      `SetControllerManagementAsync(enabled: false)` (`src\WSGM\Shell\DeviceCoordinator.cs:1341-1353`).
+      The Claw plugin keeps `ControllerService.Enabled = true`, so after a suspend/resume of the same
+      host cycle `ResumeServicesAsync` reacquires and switches the physical controller against the
+      persisted setting, with no WSGM target to receive it. Send the disable after the verified
+      handoff.
+- [x] **Transition capability consumers when controller management is enabled mid-cycle.**
+      `DeviceHostSession.ControllerManagementAsync` calls
+      `_adapter.SetCycleGeneration(request.CycleGeneration)`
+      (`src\WSGM.DeviceHost\DeviceHostSession.cs:833`), which resets `_descriptorGeneration` to zero
+      (`PluginHostAdapter.cs:245-254`). The plugin then acquires the controller and calls
+      `PublishCapabilityStatesAsync`, which still stamps `_descriptorSet.Generation`
+      (`plugins\WSGM.Device.Msi.Claw8A2Vm\Claw8A2VmPlugin.cs:1332`), so the adapter rejects the first
+      state as stale and the enable request faults *after* hardware acquisition; WSGM's
+      `DeviceCapabilityRouter` is also still attached at the old cycle generation, and an identical
+      config reload does not retry. Republish descriptors for the new cycle and move the consumers
+      onto it before accepting states.
+- [x] **Run the HidHide readability check on the mid-cycle enable path too.** Cycle start now calls
+      `EnsureHidHideReadableAsync` before `client.StartAsync`
+      (`src\WSGM\Shell\DeviceCoordinator.cs:758`), but enabling controller management inside a
+      running cycle goes straight to `client.SetControllerManagementAsync(enabled: true)` (`:1355`)
+      and asks the plugin to discover an interface another application's HidHide allowlist may still
+      be hiding from DeviceHost. Add the same pre-acquisition allowance and report existing HidHide
+      blocking explicitly.
+- [x] **Stop advertising controller targets the backend cannot create.** The overlay cycles all three
+      (`src\WSGM\Shell\DeviceOverlayBridge.cs:802-804`), native QAM lists Xbox 360 and DualShock 4 as
+      available (`src\WSGM\Shell\NativeQamSemanticServices.cs:847-848`) and Settings exposes the same
+      indices, but `ViiperControllerBackend.Supported` is `[SteamDeckComposite]` and
+      `CreateTargetAsync` throws for the other two (`src\WSGM\Input\ViiperControllerBackend.cs:42`,
+      `:93-96`). Selecting an advertised target therefore leaves controller management
+      `Unavailable`. Implement the two encoders (they are fixed 2.0 scope, see S7) or gate the
+      selectable values on the backend's real capability until they exist.
+
+### Managed UI input
+
+- [x] **Marshal managed controller samples to the UI thread.** The subscription at
+      `src\WSGM\Shell\ShellSession.cs:280` is raised from `DeviceHostClient`'s registered ThreadPool
+      wait and runs synchronously through `ControllerManager.RouteAsync` →
+      `OverlayController.SubmitCanonicalSample` → `UiInputRouter.Submit` →
+      `GamepadNavigation.OnButtons`, which reads `_window.IsVisible` and mutates Avalonia focus,
+      ComboBoxes and windows directly. With managed input active, any button press on a visible WSGM
+      surface performs UI work off the dispatcher. Post the sample to `Dispatcher.UIThread` once
+      before it enters the navigation pipeline.
+- [x] **Suppress controls already held on the first managed sample.** `UiInputRouter.Submit` calls
+      `BeginSwitch` before `_managed.Submit(sample)`, so the suppression mask is taken from a
+      `_managed.Held` that is still zero (`src\WSGM\Input\UiInputRouter.cs:61-85`, `:114-140`). A
+      button held while controller management comes online is delivered as a fresh press and can
+      activate or dismiss whatever has focus. Initialize suppression from the translated first
+      incoming sample and hold it until release.
+- [x] **Fall back to SDL whenever controller management leaves Active.** `ShellSession` drives
+      `ManagedInputLost()` from the device-cycle state only
+      (`src\WSGM\Shell\ShellSession.cs:281-288`), but disabling controller management runs make-safe
+      and leaves the cycle Active while the plugin stops publishing samples. `ControllerManager`
+      raises `ControllerStatusChanged` (forwarded at `DeviceCoordinator.cs:1520`) and nothing
+      subscribes, so `UiInputRouter` stays on the silent managed source and WSGM's surfaces stop
+      responding to a controller that SDL can already see. Drive the fallback from every controller
+      status other than Active.
+
+### Device cycle and plugin
+
+- [x] **Apply profile values when a hardware profile is selected.**
+      `SelectHardwareProfileAsync` persists the choice and calls `UpdateCapabilityDesiredContext`
+      (`src\WSGM\Shell\DeviceCoordinator.cs:1723`), which only republishes the router's desired-value
+      projection (`DeviceCapabilityRouter.UpdateDesiredContext`); no `ExecuteAsync` runs for any
+      affected capability and nothing else reconciles desired values onto hardware. The Profiles page
+      reports the profile active and claims it overrides power/battery defaults while the device
+      keeps its previous values. Reconcile the newly resolved values through the serialized command
+      path, retaining per-capability failures.
+- [x] **Wire device suspend and resume into the session.** `DeviceCoordinator.SuspendAsync` and
+      `ResumeAsync` (`src\WSGM\Shell\DeviceCoordinator.cs:353`, `:376`) have no production callers,
+      and `MessageWindow` raises only `SessionUnlocked`/`SessionEnding`
+      (`src\WSGM\Interop\MessageWindow.cs:45-48`), of which `ShellSession` subscribes to the latter.
+      The Claw's controller, motion, OEM and suppressor services therefore stay live across lock and
+      system sleep and no fresh cycle generation is established afterwards. Subscribe the session
+      root to lock/suspend and resume/unlock, observe both asynchronous calls, and unsubscribe during
+      teardown.
+- [x] **Degrade malformed WMI responses instead of faulting the whole cycle.**
+      `MsiWmiPlatform` throws `InvalidDataException` for an invalid `Package_32` payload, a bad
+      status or multiple active `MSI_ACPI` instances (`:158`, `:166`, `:171`, `:191`), but the
+      recoverable filter at `plugins\WSGM.Device.Msi.Claw8A2Vm\MsiWmiPlatform.cs:249` catches only
+      `ManagementException`, `IOException`, `UnauthorizedAccessException` and a foreign
+      `OperationCanceledException` — `InvalidDataException` derives from `SystemException`, so it
+      escapes `WindowsClawIdentityReader.ReadAsync`, fails plugin startup and takes down controller,
+      motion and OEM services that never needed WMI. The comment in that branch already says a
+      malformed response is meant to land there; include it.
+- [x] **Expire stalled gyroscope samples before forwarding them.**
+      `PublishControllerSampleAsync` attaches `_motion.Latest` to every controller sample
+      unconditionally (`plugins\WSGM.Device.Msi.Claw8A2Vm\ClawResources.cs:889-891`). If the WinRT
+      sensor stops raising `ReadingChanged` while DirectInput keeps reporting, the last non-zero
+      angular velocity is replayed through the virtual Deck indefinitely. `SensorTimestamp` is
+      already carried (`WindowsMotionSource.cs:109`) and unused here. Drop motion older than a
+      bounded sensor interval, report the degraded motion service, and re-verify the combined
+      controller path on the reference device.
+- [x] **Roll back an unverified persistent lighting write.** When the MCU accepts the 32-byte profile
+      but the readback differs, the command returns `Indeterminate` with
+      `Rollback = RollbackResult.NotRequired` and no restore
+      (`plugins\WSGM.Device.Msi.Claw8A2Vm\ClawCapabilities.cs:613-622`). That profile persists across
+      reboot, so a partial or normalized write leaves an unintended profile permanently active while
+      the UI reports failure. Retain the exact pre-write profile, restore and verify it on mismatch
+      or a post-write exception, and report the resulting rollback status. Attended hardware
+      verification before this is called done.
+
+### Steam UI, RTSS and performance
+
+- [x] **Require both glyph selector classes in the compatibility probe.** The probe returns
+      `rowClass` and `logoClass` alongside `ok`
+      (`src\WSGM\Core\SteamInputGlyphStylePatch.cs:80-121`), but `SteamUiPatchEvaluation.IsSuccessful`
+      inspects only `ok` (`SteamUiPatchEvaluation.cs:76-88`), which is `!!document.head`. A Steam
+      build that renamed either build-coupled class is still reported compatible and unique, so rules
+      that can no longer match are installed instead of taking the documented native-rendering
+      fallback. Parse the result and require both booleans. Live re-verification against a running
+      client before this is called done.
+- [x] **Give each Steam UI patch phase its own timeout.** `OperationTimeout` is documented as the
+      maximum duration of *one* phase (`src\WSGM\Core\SteamUiPatchManager.cs:44`), but a single
+      linked source spans probe, apply and verify (`:258-294`). A reachable but slow target that
+      spends most of the budget probing has its otherwise in-budget apply or verification cancelled,
+      and the patch drops to `Retrying`. Create a fresh linked timeout per phase.
+- [x] **Remove a Steam UI patch after verification fails.** A successful `ApplyAsync` followed by a
+      failed `VerifyAsync` only marks the patch `Degraded` (`src\WSGM\Core\SteamUiPatchManager.cs:290-295`);
+      `RemoveAsync` is never attempted, so the unverified stylesheet or QAM bridge stays live instead
+      of falling back to Valve's native UI, and later synchronization probes and reapplies over it.
+      Attempt removal immediately, surface `RemoveFailed` when cleanup cannot be verified, and
+      live-verify the apply/fail/remove sequence.
+- [x] **Deliver glyph rules for absent-control-only profiles.**
+      `SetGlyphDeliveryPatchStates` enables the stylesheet only when `StableResources` or
+      `ControllerImages` are non-empty (`src\WSGM\Shell\SteamUiSessionHost.cs:307-311`), but
+      `SteamGlyphCss.Build(..., hideAbsentControls: true)` emits real rules for a profile that only
+      declares `AbsentControls` — a valid profile that hides trackpad or extra-paddle affordances
+      while keeping Valve's artwork. Those controls stay visible. Include `AbsentControls.Count > 0`
+      in the predicate (the patch already refuses an empty stylesheet).
+- [x] **Reject a CEF connection completed after its last subscriber left.**
+      `PersistentSteamUiTransport.ConnectAsync` assigns `channel.Connection`, sets `Ready` and calls
+      `connection.Start()` inside `lock (channel.Sync)` without consulting `Subscribers`, `_disposed`
+      or the cancelled reconnect generation (`src\WSGM\Core\PersistentSteamUiTransport.cs:230-270`),
+      while `ReleaseAsync` and `DisposeAsync` only dispose whatever is stored at that moment
+      (`:355-378`, `:420-445`). An in-flight connect therefore publishes a live socket and callbacks
+      after its owner has gone. Revalidate ownership before assigning and dispose the stale wire.
+- [x] **Move RTSS discovery off the UI-thread command path.**
+      `RtssNativeAdapter.ProbeAsync` is fully synchronous — `RtssDiscovery.Probe()` then
+      `Task.FromResult` (`src\WSGM\Core\RtssNativeAdapter.cs:25-61`) — and does registry, filesystem,
+      signature, PE-export and process inspection. An overlay row's `Click` handler awaits
+      `IPerformanceOverlaySource.InvokeAsync` on the UI thread
+      (`src\WSGM\Overlay\OverlayWindow.axaml.cs:832-843`), and the uncontended
+      `_adapterGate.WaitAsync` in `PerformanceService` completes synchronously
+      (`PerformanceService.cs:343`), so the whole probe runs inline on the dispatcher. Run the
+      adapter's blocking discovery and profile work off-thread at the service boundary.
+- [x] **Recheck RTSS enablement after waiting for the adapter.** `PerformanceService` reads
+      `_policy.Enabled` under `_stateGate` and then awaits `_adapterGate`
+      (`src\WSGM\Core\PerformanceService.cs:324-343`) without rechecking. A Settings or config update
+      that disables RTSS integration meanwhile takes no adapter gate of its own, so the queued
+      command still persists and writes its value after the integration was switched off. Recheck
+      after acquiring the gate, or route enablement changes through the same gate.
+- [x] **Skip superseded running-application snapshots.**
+      `RunningApplicationCoordinator.ApplyPendingAsync` takes one snapshot and then applies it to
+      both consumers with no recheck of `_pending` between them
+      (`src\WSGM\Shell\RunningApplicationCoordinator.cs:146-175`). A slow RTSS apply for application
+      A can be followed by replacing the managed controller with A's per-application target after A
+      has already exited and B was published, contradicting the class's latest-identity coalescing
+      contract and disturbing controller enumeration during a launch. Track an apply generation or
+      recheck `_pending` before each side effect.
+
+### Settings, glyph presentation and SDK
+
+- [x] **Preserve runtime-owned device values across a Settings save.** `SaveMerged` deliberately
+      applies UI-owned fields over a fresh load, but `AutoTdpEnabled`, `ControllerTarget` and
+      `GlyphSelection` are written unconditionally from the view model's construction-time snapshot
+      (`src\WSGM\Settings\SettingsViewModel.cs:1177-1186`). In game mode the overlay and native QAM
+      persist all three at runtime — `ToggleAutoTdpAsync`, the controller-target cycle and
+      `CyclePhysicalGlyphSelectionAsync` — so saving any unrelated Settings field silently reverts
+      whichever of them changed while the window was open, restarting or stopping hardware power
+      control and reverting the active artwork and target policy. Track per-field local edits, or
+      merge the freshly loaded runtime-owned values.
+- [x] **Dispose raster glyphs when their control leaves the visual tree.** `PhysicalGlyphImage`
+      disposes `_raster` only when the same control decodes a different PNG
+      (`src\WSGM\Controls\PhysicalGlyphImage.cs:198-216`), while `RefreshDevicePanel` rebuilds the
+      preview by clearing the visual tree and creating new instances. Each discarded raster-backed
+      preview keeps its decoded native bitmap alive until finalization, so repeated capability-state
+      refreshes in the resident shell accumulate native image memory. Release it on detach and when
+      the plan stops being raster-backed.
+- [x] **Repair the new device string enums before the second deserialize.**
+      `ConfigJsonContext` sets `UseStringEnumConverter = true`
+      (`src\WSGM\Core\AppConfig.cs:882`), so an unknown or hand-mistyped `ControllerTarget`,
+      `GlyphSelection`, `DiagnosticLevel`, nested `ControllerTargets[].Target` or `OemAction` throws
+      before `Normalize` can apply its `Enum.IsDefined` fallbacks. The `JsonException` recovery pass
+      repairs only the older fields (`ConfigStore.cs:78-111`), so the retry throws too and `Load`
+      moves the whole otherwise-valid file aside — including the registry recovery snapshots the
+      preserve step exists for — and replaces every unrelated setting with defaults. Extend the
+      repair pass to the device enums.
+- [x] **Dispose mappings opened by `SharedStateRing.Open`.** `Open` constructs the ring with
+      `ownsFile: false` (`src\WSGM.Device.Sdk\Ipc\SharedStateRing.cs:114-117`) and `Dispose` releases
+      `_file` only for the `Create` path (`:241-244`), yet `MemoryMappedFile.OpenExisting` returns a
+      handle the opener owns. Every open/dispose cycle leaks a section handle until the process
+      exits, which SDK consumers that reopen rings in one process see first. Dispose it on both
+      paths — the distinction governs mapping creation, not ownership of the wrapper.
+- [x] **Let the glyph importer see an over-limit package.**
+      `ImmutableGlyphPackageDirectorySource.EnumerateProfileIds` truncates with `.Take(32)`
+      (`src\WSGM.Device.Sdk\Glyphs\ImmutableGlyphPackageDirectorySource.cs:56`), while
+      `GlyphPackageImporter` detects the condition only through `discovered.Count > MaxProfiles`
+      (`GlyphPackageImporter.cs:130`), which that truncation makes unreachable. A package with 33 or
+      more profile manifests validates as conforming after silently dropping the extras. Return a
+      sentinel past the limit, or let the importer truncate after recording the error.
+- [x] **Reject sanitized fixture-name collisions.** `FixtureExtractionWorkflow` keys streams and
+      analysis outputs by `SafeName(...)` (`src\WSGM.DeviceLab\Fixtures\FixtureExtractionWorkflow.cs:65`,
+      `:78`), so two distinct source ids that normalize to the same name overwrite each other
+      silently. The fixture then validates while omitting source data and expected results, and
+      replay no longer represents the imported capture. Include a stable index or hash in generated
+      names, or detect the collision and refuse extraction.
+
+### Build and installer
+
+- [x] **Restore the stopped runtime when post-install publication aborts.**
+      `CurStepChanged(ssInstall)` sets `SetupInstallStarted := True`
+      (`installer\WSGM.iss:831-834`), and `SetupShutdownApplied` is only cleared on the success path
+      after `ReplaceDevicePluginSlot()` (`:838-840`). Any later failure — notably that procedure's
+      `RaiseException` during `ssPostInstall` — reaches `DeinitializeSetup`, which skips
+      `RestoreStoppedSetupRuntime()` because installation had started (`:1386-1392`), while the
+      `[Run]` restart entries never executed. A failed update therefore leaves the previously running
+      shell/Settings instance and the logon service stopped. Restore on every unsuccessful
+      termination and suppress it only once publication has actually succeeded.
+- [x] **Decide explicitly what to do about USB/IP versions above the pin.**
+      `Install-UsbipDriver.ps1` treats `$installed -ge $RequiredVersion` as "already present" and
+      exits 0 (`installer\Install-UsbipDriver.ps1:194-197`), so a machine carrying 0.9.7.8 keeps the
+      build the same file says was excluded for open kernel-pool-corruption reports (`:54-56`) — and
+      the patched VIIPER backend attaches to it happily. Either require the exact pin, or report the
+      unreviewed driver and leave controller management unavailable; silently accepting it is the one
+      option that hides the decision.
+- [x] **Skip the optional VIIPER build when its toolchain is incomplete.** `build.ps1` gates the
+      step on `Get-Command go` alone (`build.ps1:47-52`), but `eng\build-viiper.ps1` throws when
+      `git` or a cgo-capable `gcc` is missing (`:53-75`), which under `$ErrorActionPreference =
+      'Stop'` aborts the whole release build — contradicting the best-effort behavior the surrounding
+      comment states. Include the C compiler and git in the optional prerequisite check, or catch and
+      warn.
+
+### Checked and not carried
+
+- `src\WSGM\Core\SteamUiAssetCatalog.cs:18` — the pinned bootstrap hash matches the checked-in
+  `NativeQamBootstrap.js` at HEAD (`981D696A…`); fixed since the reviewed commit.
+- `src\WSGM\Shell\ControllerManager.cs:365` — `UiSampleReceived` now has its production subscriber at
+  `src\WSGM\Shell\ShellSession.cs:280`, feeding `OverlayController.SubmitCanonicalSample`.
+- `src\WSGM\Shell\DeviceCoordinator.cs:1433` — glyph identity is no longer passed as null;
+  `PhysicalGlyphCatalog.SelectProfile` resolves against `_activeDeviceId`, set from the activation's
+  `DeviceDefinitionId` (`DeviceCoordinator.cs:768`).
+- `src\WSGM\Shell\DeviceCoordinator.cs:1360` — the cycle-start half of the HidHide finding is fixed
+  (`:758`, before `client.StartAsync`); only the mid-cycle enable path remains, tracked above.
+- `src\WSGM\Controls\PhysicalGlyphService.cs:132` — not accepted as an ownership violation. Both
+  authorization inputs are resolved in Shell and passed in as booleans; the switch only maps a
+  surface to which already-resolved input applies, which is presentation selection, not device or
+  Steam policy.
+
 ## Current feature state to preserve through simplification
 
 | Area | Existing useful work | Still required |
@@ -1225,6 +1786,52 @@ Only this list drives the next implementation work:
       input test. The installer carries the controller component and its user-approved driver step.
       **What remains is the release validation**, which is attended by definition, and the shutdown
       path, which is unchanged and already covered by its own items.
+- [ ] **Q12 — Add per-application performance profiles by reactivating Steam's own performance UI.**
+      Live probing on 2026-08-30 settled the whole approach: the SteamOS Performance tab ships in
+      the Windows client and is not gated — `SteamClient.System.Perf` is simply absent, so the
+      store's optional-chained registration no-ops and every control renders null. Supplying that
+      one namespace turns Valve's own per-game profile toggle, profile header, frame-limit slider,
+      overlay level, refresh rate, VRR, basic/advanced view and reset back on, with their localized
+      explainers, and makes hiding free because availability is read from the `limits` WSGM
+      supplies. VRR is proven on the reference unit through IGCL Arc Sync — read, write, verified
+      read-back and exact restore, unelevated — and belongs to the Device Plugin under the standing
+      boundary rule. Frame limiting ships as three user-configurable strategies:
+      `FrameLimitOnly`, `NativeModes`, and full granular `FrameDoubling` over runtime-discovered
+      modes, which are real: 48 Hz applied on a panel whose EDID lists only 60 and 120, with DWM
+      reporting 47.997 Hz. See `_plan\qam-overhaul.md` and S12. **What remains is all of it** — no
+      code has been written; the probes are throwaways plus the retained
+      `tools\WsgmLibTest\probe-perf-*.js` evidence.
+- [ ] **Q13 — Let a plugin declare its own settings page, in sections, and author profiles.** The
+      declarative vocabulary is mostly already there and already wired — `GenericToggle`,
+      `GenericChoice`, `GenericRange`, `GenericAction`, `GenericReadOnly`, `Color` and `Curve` are
+      validated by `DeviceCapabilityRouter` and projected by `DeviceOverlayBridge`. Three things are
+      missing: a text kind, a way to declare sections and assign elements to them, and a Settings
+      surface. The boundary is fixed and is what shapes the work: a plugin **setting** configures
+      plugin behaviour and is stored by WSGM, a **capability** writes hardware and stays in the
+      overlay. Settings additionally gains RGB and fan profile authoring with a curve editor, which
+      exists nowhere in the tree today even though `FanCurve` is declared and projected. See
+      `_plan\plugin-driven-settings-page.md` and S13. **What remains is all of it** — no code has
+      been written.
+- [ ] **Q14 — Revive Steam's Quick Settings tab, Internet page, and Bluetooth.** Live probing on
+      2026-08-30 produced the gate taxonomy that governs every Steam UI revival: supply an absent JS
+      namespace, supply an absent RPC response, or override one Deck-only store getter — never the
+      global `TS.IS_STEAMOS`, which is the D16 spoof. Wi-Fi is close to free: Steam's network
+      subsystem already runs on Windows with a live wireless device and access points, and only
+      `get networkManagementAvailable(){return TS.IS_STEAMOS}` hides it. Bluetooth rides the same
+      SteamOS Manager RPC seam as TDP. Brightness, display scaling, controllers and game recording
+      are natively backed; audio, night mode and resolution are backed by mechanisms WSGM already
+      owns. See `_plan\qam-quick-settings.md` and S14. **What remains is all of it.**
+- [ ] **Q15 — Revive Steam's audio settings.** The store's availability flag is literally
+      `m_bAvailable = null != SteamClient.System.Audio`, so supplying that one namespace is the
+      whole gate — the cheapest in the project — and it runs over `AudioManager` and
+      `native\VolumeControl`, which already own devices, volume, mute and default-endpoint
+      switching. Two additions: per-application volume, wanted by the custom taskbar as much as by
+      Steam, so one WASAPI backend serves both; and speaker configuration through
+      `IPolicyConfig::SetDeviceFormat`, which the helper already declares and already uses for
+      `SetDefaultEndpoint`. That last one exists because Windows loses the configuration across
+      display changes, so WSGM persists and reapplies it — but it is blocked on multichannel
+      hardware to prove 5.1/7.1 at all, and on whether HDMI endpoint identity survives a display
+      change. See `_plan\steam-settings-audio-revive.md` and S15. **What remains is all of it.**
 
 A checked architectural queue item has its code, focused tests, diagnostics, and documentation
 complete. Attended/live gates remain explicit and unchecked in the owning phase until they run on
