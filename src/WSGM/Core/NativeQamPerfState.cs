@@ -215,6 +215,11 @@ internal sealed record NativeQamPerfApplicationSettings
 /// "60 FPS (60 Hz)" — while the user is still dragging, before anything has been applied.
 /// </para>
 /// </param>
+/// <param name="RefreshRates">
+/// Every rate the display actually accepted, ascending. Windows takes a mode or it does not —
+/// there is no continuum to slide along — so the unified row's refresh mode is NOTCHED to exactly
+/// these, unlike its frame-cap mode, where the limiter really does hold any integer.
+/// </param>
 internal readonly record struct NativeQamPerfSupport(
     IReadOnlyList<int> FrameLimitOptions,
     bool VariableRefreshRateSupported,
@@ -223,7 +228,8 @@ internal readonly record struct NativeQamPerfSupport(
     int? RefreshRateMaxHz,
     bool VariableRefreshRateEnabled = false,
     int? CurrentRefreshRateHz = null,
-    IReadOnlyDictionary<int, int>? RefreshForCap = null);
+    IReadOnlyDictionary<int, int>? RefreshForCap = null,
+    IReadOnlyList<int>? RefreshRates = null);
 
 /// <summary>Builds the performance state from what WSGM knows, supplying only backed fields.</summary>
 internal static class NativeQamPerfProjection

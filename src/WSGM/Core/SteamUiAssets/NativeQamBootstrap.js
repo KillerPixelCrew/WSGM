@@ -1628,7 +1628,19 @@
         value.currentRefreshHz === null ? null : Number(value.currentRefreshHz);
       // The refresh half is a pair like the cap half, and it is OPTIONAL: a display that offers no
       // rates leaves the row with only its frame-limit mode rather than rejecting the state.
+      // The stops the refresh mode slides between. Windows takes a MODE or refuses: a panel that
+      // has 60 and 75 does not have 72, so this mode is notched to exactly what the display
+      // accepted, unlike the frame cap, where the limiter really does hold any integer.
+      const refreshRates = [];
+      if (Array.isArray(value.refreshRates)) {
+        for (const item of value.refreshRates) {
+          const hz = Number(item);
+          if (Number.isInteger(hz) && hz > 0 && !refreshRates.includes(hz)) refreshRates.push(hz);
+        }
+        refreshRates.sort((left, right) => left - right);
+      }
       const refreshUsable =
+        refreshRates.length > 0 &&
         refreshMinHz !== null &&
         refreshMaxHz !== null &&
         currentRefreshHz !== null &&
@@ -1648,6 +1660,7 @@
         refreshMinHz: refreshUsable ? refreshMinHz : null,
         refreshMaxHz: refreshUsable ? refreshMaxHz : null,
         currentRefreshHz: refreshUsable ? currentRefreshHz : null,
+        refreshRates: refreshUsable ? Object.freeze(refreshRates) : Object.freeze([]),
       });
     };
     const normalizeOverlayLevelState = (value) => {
@@ -1935,15 +1948,29 @@
           layout: "below",
         });
       };
+    // Which notch the display is currently sitting on. A rate that is not one of the listed modes —
+    // something else can leave the panel on one — takes the nearest notch at or below it rather
+    // than snapping the handle to the start and reporting a rate the display is not at.
+    const currentRefreshNotch = (state) => {
+      if (!state || !state.refreshRates || state.refreshRates.length === 0) return null;
+      const current = state.currentRefreshHz;
+      if (!Number.isInteger(current)) return null;
+      let notch = 0;
+      for (let index = 0; index < state.refreshRates.length; index += 1) {
+        if (state.refreshRates[index] <= current) notch = index;
+      }
+      return notch;
+    };
     const createFrameLimitControl = (controlRuntime) =>
       function WsgmNativeFrameLimitControl() {
         const state = useSemanticState(controlRuntime, "frameLimit", normalizeFrameLimitState);
         const value = state ? (state.observedFps ?? state.desiredFps) : null;
         const echoed = useEchoedValue(controlRuntime, value);
         // Its own echo, because the two modes are two different numbers on one slider: reusing one
-        // would make the handle jump to a frame cap the moment the rate mode took over.
+        // would make the handle jump to a frame cap the moment the rate mode took over. It echoes
+        // the notch INDEX, which is what a notch slider reports while it is being dragged.
         // Unconditional, ahead of every early return — these are hooks.
-        const refreshEchoed = useEchoedValue(controlRuntime, state ? state.currentRefreshHz : null);
+        const refreshEchoed = useEchoedValue(controlRuntime, currentRefreshNotch(state));
         if (!state) return note("frameLimit", "no state");
         if (!state.available)
           return note("frameLimit", "unavailable: " + (state.statusText || "no reason"));
@@ -1966,15 +1993,12 @@
             return;
           send(definition.command, nextValue);
         };
-        const setRefresh = (nextValue) => {
-          if (
-            !Number.isInteger(nextValue) ||
-            state.refreshMinHz === null ||
-            nextValue < state.refreshMinHz ||
-            nextValue > state.refreshMaxHz
-          )
-            return;
-          send(definition.refreshCommand, nextValue);
+        // Takes a NOTCH INDEX, not a rate: the refresh mode is a notch slider, so what the control
+        // hands back is a position in the accepted list.
+        const setRefresh = (notchIndex) => {
+          const hz = state.refreshRates[notchIndex];
+          if (!Number.isInteger(hz)) return;
+          send(definition.refreshCommand, hz);
         };
         // Off is zero, and the slider never shows it: the cap the user chose has to survive being
         // switched off and back on, so the switch below writes zero and the slider keeps sitting
@@ -1989,8 +2013,8 @@
         // is presented at are the same frametime question, and vsync is what makes the pacing hold.
         // Switching the cap off does not leave a dead control behind, it hands the same slider over
         // to the rate.
-        const refreshMode = !capped && state.refreshMinHz !== null;
-        const sliderValue = refreshMode ? refreshEchoed.value : cappedValue;
+        const refreshMode = !capped && state.refreshRates.length > 0;
+        const sliderValue = refreshMode ? (refreshEchoed.value ?? 0) : cappedValue;
         // Guarded like the AutoTDP row: a client whose ToggleField cannot be located loses the
         // switch and keeps the slider, rather than losing the whole row silently.
         const disableSwitch = controlRuntime.toggle
@@ -2019,17 +2043,30 @@
                 "#QuickAccess_Tab_Perf_LimitFrameRate",
                 "Frame rate limit",
               ),
-          min: refreshMode ? state.refreshMinHz : state.minimumFps,
-          max: refreshMode ? state.refreshMaxHz : state.maximumFps,
+          // The two modes are two different sliders sharing one row. The frame cap is NOTCHLESS
+          // under every strategy — the limiter holds any integer and the pairing is what snaps —
+          // while the refresh rate is notched to exactly the modes the display accepted, because
+          // Windows takes a mode or refuses and there is no continuum between 60 and 75.
+          min: 0,
+          max: refreshMode ? state.refreshRates.length - 1 : state.maximumFps,
+          ...(refreshMode
+            ? {
+                notchCount: state.refreshRates.length,
+                notchLabels: state.refreshRates.map((hz, notchIndex) => ({
+                  notchIndex,
+                  label: `${hz}`,
+                  value: hz,
+                })),
+                notchTicksVisible: true,
+              }
+            : { min: state.minimumFps }),
           step: 1,
           value: sliderValue,
-          // Notchless under EVERY strategy, and the pairing is what snaps: the user picks any cap
-          // and WSGM answers with the mode that presents it, which the suffix names the way
-          // SteamOS's unified row does — "60 FPS (60 Hz)". Cadence-exact stops were the older
-          // split-slider model, and the whole point of the merge was to remove them.
+          // "60 FPS (60 Hz)" is how SteamOS's unified row names a cap and the rate it will be
+          // presented at. In refresh mode the notch label already carries the number.
           valueSuffix: refreshMode ? " Hz" : pairedHz ? ` FPS (${pairedHz} Hz)` : " FPS",
-          showValue: true,
-          showBookendLabels: true,
+          showValue: !refreshMode,
+          showBookendLabels: !refreshMode,
           disabled: isBusy(state.progress),
           description: state.fault || state.statusText || undefined,
           onChange: refreshMode ? refreshEchoed.onChange : echoed.onChange,

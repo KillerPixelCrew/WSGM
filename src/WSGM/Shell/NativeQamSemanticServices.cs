@@ -56,7 +56,8 @@ internal sealed record NativeQamFrameLimitState(
     IReadOnlyDictionary<int, int>? RefreshForCap = null,
     int? RefreshMinHz = null,
     int? RefreshMaxHz = null,
-    int? CurrentRefreshHz = null);
+    int? CurrentRefreshHz = null,
+    IReadOnlyList<int>? RefreshRates = null);
 
 internal sealed record NativeQamOverlayLevelState(
     bool Available,
@@ -533,7 +534,10 @@ internal sealed class PerformanceServiceNativeQamAdapter : IDisposable
             // is nothing to fight.
             support?.RefreshRateMinHz,
             support?.RefreshRateMaxHz,
-            support?.CurrentRefreshRateHz);
+            support?.CurrentRefreshRateHz,
+            // The stops that mode slides between. Windows accepts a MODE, not a rate: it either
+            // has 75 Hz or it does not, and asking for 72 gets a refusal, not the nearest thing.
+            support?.RefreshRates);
     }
 
     internal static NativeQamOverlayLevelState ProjectOverlayLevel(

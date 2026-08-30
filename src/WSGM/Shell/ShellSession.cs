@@ -1466,11 +1466,19 @@ public sealed class ShellSession : IAsyncDisposable
     /// </remarks>
     private bool ApplyManualRefreshRate(int refreshHz)
     {
-        if (_config.Performance.FrameLimitStrategy is not FrameLimitStrategy.FrameLimitOnly)
+        // A pairing strategy owns the refresh rate only while there is a CAP for it to own one
+        // against. With the frame limit off there is no cadence to pair to and the unified row's
+        // slider becomes the rate itself, so refusing there rejected the very writes that row
+        // exists to make — "Manual refresh rate 72 Hz refused" against a strategy that was, at that
+        // moment, pairing nothing.
+        int cap = _performance?.Current.Desired.FrameLimit ?? 0;
+        if (cap > 0
+            && !FrameLimitPairing.RefreshRateIsUserOwned(_config.Performance.FrameLimitStrategy))
         {
             Log.Warn(
                 $"Manual refresh rate {refreshHz} Hz refused: the "
-                + $"{_config.Performance.FrameLimitStrategy} strategy owns the refresh rate.");
+                + $"{_config.Performance.FrameLimitStrategy} strategy owns the refresh rate while a "
+                + $"{cap} FPS cap is set.");
             return false;
         }
 
@@ -1529,7 +1537,8 @@ public sealed class ShellSession : IAsyncDisposable
             refreshRates.Count > 0 ? refreshRates.Max() : null,
             vrrEnabled,
             refreshRates.Count > 0 ? DisplayProfiles.ReadCurrentRefreshRate() : null,
-            ReadPairedRefreshRates(pairing, options, manualRefresh));
+            ReadPairedRefreshRates(pairing, options, manualRefresh),
+            refreshRates);
     }
 
     /// <summary>The refresh rate each offered cap will be presented at.</summary>
