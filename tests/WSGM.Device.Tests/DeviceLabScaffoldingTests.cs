@@ -89,6 +89,13 @@ public sealed class DeviceLabScaffoldingTests
         startInfo.Environment["DOTNET_CLI_HOME"] = temporary.GetPath("dotnet-home");
         startInfo.Environment["DOTNET_SKIP_FIRST_TIME_EXPERIENCE"] = "1";
         startInfo.Environment["DOTNET_NOLOGO"] = "1";
+        // Without this the SDK's first run in a fresh CLI home appends
+        // "<home>\.dotnet\tools" to the USER's persisted PATH — not just this child process's.
+        // DOTNET_SKIP_FIRST_TIME_EXPERIENCE stopped suppressing that in .NET 6, so every run of
+        // this test left one more dead temp path behind: 55 of them had accumulated on the
+        // development machine, taking PATH past 6.8 KB and breaking VsDevCmd.bat, which is what
+        // both build.ps1 and eng\verify.ps1 use to export-check the Steam Input gate.
+        startInfo.Environment["DOTNET_ADD_GLOBAL_TOOLS_TO_PATH"] = "false";
         startInfo.Environment["NUGET_PACKAGES"] = temporary.GetPath("nuget-packages");
         startInfo.ArgumentList.Add("build");
         startInfo.ArgumentList.Add(projectPath);

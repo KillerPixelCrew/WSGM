@@ -10,6 +10,24 @@ namespace WSGM.Device.Tests;
 public sealed class SdkTransportTests
 {
     [Fact]
+    public void StateRing_DisposingAnOpenedRing_ReleasesItsMappingHandleToo()
+    {
+        // OpenExisting hands back a handle the opener owns, exactly as CreateNew does. Releasing
+        // only the created one leaked a section handle on every open/dispose cycle, and the mapping
+        // stayed alive after both owners were gone — visible here as an open that should have
+        // failed and did not.
+        string name = $"wsgm-test-ring-{Guid.NewGuid():N}";
+        SharedStateRing creator = SharedStateRing.Create(name, 4, 16);
+        SharedStateRing opener = SharedStateRing.Open(name, 4, 16);
+
+        opener.Dispose();
+        creator.Dispose();
+
+        Assert.Throws<FileNotFoundException>(
+            () => System.IO.MemoryMappedFiles.MemoryMappedFile.OpenExisting(name));
+    }
+
+    [Fact]
     public void FrameHeader_ExactApiVersion_WritesTheFixedLayout()
     {
         FrameHeader original = new()

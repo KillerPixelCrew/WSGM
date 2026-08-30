@@ -127,11 +127,63 @@ public sealed class SdkGlyphTests
         return new DictionaryGlyphSource(manifest.ProfileId, files);
     }
 
+    [Fact]
+    public void Import_MoreProfilesThanTheLimit_IsReportedRatherThanSilentlyTruncated()
+    {
+        // A source that cut its enumeration at exactly the limit made this unreachable, so a
+        // package carrying more profiles than the format allows validated as conforming with the
+        // extras quietly dropped — indistinguishable, in the installed-package diagnostics, from
+        // one that never had them.
+        string[] identifiers =
+        [
+            .. Enumerable.Range(0, GlyphProfileLimits.MaxProfiles + 1)
+                .Select(index => $"profile-{index:D2}"),
+        ];
+
+        GlyphPackageImportResult result = GlyphPackageImporter.Import(
+            new EmptyGlyphSource(identifiers));
+
+        Assert.False(result.IsValid);
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                $"more than {GlyphProfileLimits.MaxProfiles} glyph profiles",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void DirectorySource_EnumeratesOnePastTheLimitSoTheImporterCanSeeIt()
+    {
+        using TemporaryDirectory root = new();
+        string profiles = Path.Combine(root.Root, "glyphs", "profiles");
+        Directory.CreateDirectory(profiles);
+        for (int index = 0; index < GlyphProfileLimits.MaxProfiles + 5; index++)
+        {
+            File.WriteAllText(Path.Combine(profiles, $"profile-{index:D2}.json"), "{}");
+        }
+
+        ImmutableGlyphPackageDirectorySource source = new(root.Root);
+
+        Assert.Equal(GlyphProfileLimits.MaxProfiles + 1, source.EnumerateProfileIds().Count);
+    }
+
     private static byte[] Svg(string content) => Encoding.UTF8.GetBytes(
         $"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\">{content}</svg>");
 
     private static string Describe(GlyphPackageImportResult result) =>
         string.Join("; ", result.Errors.Select(error => $"{error.Path}: {error.Message}"));
+
+    /// <summary>A source that advertises identifiers and holds no files for any of them.</summary>
+    private sealed class EmptyGlyphSource(IReadOnlyList<string> profileIds) : IGlyphPackageSource
+    {
+        public IReadOnlyList<string> EnumerateProfileIds() => profileIds;
+
+        public bool TryRead(string relativePath, int maximumBytes, out byte[] bytes)
+        {
+            bytes = [];
+            return false;
+        }
+    }
 
     private sealed class DictionaryGlyphSource(
         string profileId,
