@@ -1026,10 +1026,12 @@
     // stable small number for Steam's side of the wire, translated back on every command.
     const NO_DEVICE = 4294967295;
     // The key m_mapVolumes is keyed by, and the second argument of both SetDeviceVolume and
-    // OnAudioDeviceVolumeChanged. Named because it was silently confused with the volume itself in
-    // both directions: as a map key it left the slider with no value, and as a volume it turned
-    // every drag into 100% or 0%.
-    const AudioDirection = Object.freeze({ Output: 0, Input: 1 });
+    // OnAudioDeviceVolumeChanged. INPUT IS ZERO — read out of the client's own enum (module 74362:
+    // Input=0, Output=1) on 2026-08-30, after assuming the opposite: with the values swapped the
+    // output slider's writes were filtered out as "input" and the speaker volume was stored under
+    // the input key, which put it on the microphone slider. Named because it has now been confused
+    // with the volume itself AND mirrored, and neither mistake may recur silently.
+    const AudioDirection = Object.freeze({ Input: 0, Output: 1 });
     // Below one step of a hardware volume button, so a genuine press always counts and float
     // round-tripping through a whole-number percent never does.
     const VolumeEpsilon = 0.004;
