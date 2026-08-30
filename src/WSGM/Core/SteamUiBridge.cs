@@ -53,6 +53,13 @@ public sealed class SteamUiBridgeAuthorizer
             ["wsgm.native-qam.controller-target"] = ["setControllerTarget"],
             ["wsgm.native-qam.performance-data"] = ["subscribe", "unsubscribe"],
             ["wsgm.native-qam.shell"] = ["toggleQuickAccess"],
+
+            // Audio is supplied as a namespace rather than drawn as a row, so its vocabulary is the
+            // set of operations Steam's own audio store calls: the device list it asks for once at
+            // construction, and the two changes its device picker and volume slider can make.
+            // Registration is not a command — the store subscribes to this patch id for state, and
+            // the JS gate checks the id for subscriptions as well as commands.
+            ["wsgm.native-qam.audio"] = ["getDevices", "setDefaultDevice", "setVolume"],
         };
 
     private readonly object _sync = new();
