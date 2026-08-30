@@ -1234,8 +1234,13 @@ settings and profile authoring only — device control stays in the overlay.
       reporting the stored value beside the declared bound so the rejection is diagnosable from a
       user's log. A setting whose kind changed between plugin versions is rejected rather than
       reinterpreted, and settings the manifest no longer declares come back as orphans.
-- [ ] Deliver settings to the plugin at start and on change over the existing wire contract. No new
-      privileged channel.
+- [x] Deliver settings to the plugin at start and on change over the existing wire contract. No new
+      privileged channel: `SettingsManifest` and `SettingsValues` join the closed
+      `DeviceMessageType` enumeration, with `IPluginHostAdapter.PublishSettingsManifestAsync` and a
+      defaulted `IDevicePlugin.ApplySettingsAsync` so a plugin declaring nothing carries no empty
+      override. Values travel as a complete set, and the manifest is validated at both ends so a
+      refusal names the plugin where its author will read it and leaves the previous declaration
+      standing.
 - [ ] Render one WSGM-owned Settings page from the declared manifest, gamepad and touch navigable,
       on the shared controls and themes. Sections are focus groups with stable semantic keys so the
       existing per-destination focus and scroll restoration survives a refresh.
