@@ -190,6 +190,54 @@ that as a capability-specific failure and never loads HIDMaestro, launches a hel
 driver, or creates a target. `third_party/controller/README.md` holds the pinned sources and the
 gate.
 
+## Authored profiles
+
+A **setting** is one value WSGM keeps and hands the plugin. A **profile** is a named shape the user
+builds and then applies. They are different records with different homes on purpose, and a curve is
+refused as a setting (`PluginSettingDescriptor.TryValidate`) precisely so it cannot acquire two.
+
+Authoring is Settings' job and selection is the overlay's (D22b), which is why
+`DeviceProfileSelectionStore` writes only _which_ profile is chosen and never a profile's contents:
+the two surfaces cannot fight over one record.
+
+The chain, and what each link exists to prevent:
+
+| Step    | Owner                                                       | Prevents                                                                                                                   |
+| ------- | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Author  | `Settings\Pages\PluginSettingsPage`, `Controls\CurveEditor` | A gesture producing a curve the router refuses — every edit goes through `CurveEditing`, so an invalid one cannot be built |
+| Store   | `DeviceAuthoredProfile`, `ConfigStore` normalization        | A profile that keys nothing or whose inputs do not ascend surviving to be chosen                                           |
+| Select  | `DeviceProfileSelection`, `DeviceProfileSelectionStore`     | A per-game change silently widening to every game; an override stranded on a stale copy of a curve                         |
+| Resolve | `DeviceProfileSelectionResolver`                            | A deleted profile quietly falling back to someone else's curve                                                             |
+| Check   | `DeviceProfileValidation`                                   | A curve authored against bounds the device no longer has                                                                   |
+| Apply   | `Shell\DeviceProfileApplier`, `ShellSession`                | The fan curve and the controller target disagreeing about what is running                                                  |
+
+**Selections reference a profile by id, never by copy.** Editing a profile has to change every
+application already using it; copying the curve at selection time would strand every override on the
+shape the profile happened to have that day.
+
+**The pre-apply check is not redundant with storage normalization.** Normalization sees only a
+profile's internal shape. Profiles are authored with no plugin running — `--settings` starts no
+DeviceHost — so a curve is built against the last known bounds and the device can be updated,
+swapped, or downgraded before it is applied. The descriptor is therefore read at apply time and
+never cached: a plugin republishes its capabilities across a cycle.
+
+**A bound the descriptor leaves unset is not invented.** An absent minimum means the device declared
+no limit there, and supplying one would refuse a curve it would have accepted.
+
+Two refusals are deliberately _not_ symmetrical with the rest. A selection naming a deleted profile
+is **kept** by normalization rather than pruned, because the resolver reports it by name and pruning
+would turn a diagnosable mistake into a per-application override that vanished without explanation.
+And it resolves to nothing rather than falling back to the global choice, because falling back hides
+that the user's intent for that application is gone while the fans quietly run another curve.
+
+Applying counts `AppliedUnverified` as success: many EC writes have no readback, and treating absent
+confirmation as failure would report every one of them as broken. A timeout does not count — whether
+it was written is unknown, and claiming success there is the one answer that misleads.
+
+**Not built yet:** RGB profile authoring (the colour storage field exists and is unused; the picker
+does not exist) and the overlay rows that call the selection store, so selection has no user-facing
+entry point.
+
 ## Device Lab and UI ownership
 
 Device Lab is one optional developer-tools application with GUI and CLI modes over the same internal
