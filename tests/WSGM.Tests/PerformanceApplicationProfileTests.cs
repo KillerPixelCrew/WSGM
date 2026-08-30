@@ -68,6 +68,57 @@ public sealed class PerformanceApplicationProfileTests
     }
 
     [Fact]
+    public async Task ResetClearsTheGlobalProfileWhenNothingIsRunning()
+    {
+        PerformanceService service = Service(Global(60));
+        using IDisposable observation = service.AcquireObservation();
+
+        Assert.True(await service.ResetProfileAsync());
+        Assert.Null(service.Current.Desired.FrameLimit);
+    }
+
+    [Fact]
+    public async Task ResetClearsTheApplicationProfileWhenOneIsInForce()
+    {
+        // With a per-application profile active the user is looking at that profile; clearing the
+        // global one underneath it would appear to do nothing.
+        PerformanceService service = Service(new PerformancePolicy(
+            new PerformanceValues(60, 2),
+            [new PerformanceApplicationPolicy("steam:42", "game.exe", new PerformanceValues(30, 1))]));
+        using IDisposable observation = service.AcquireObservation();
+        await service.SetTargetAsync(new RtssApplicationTarget("steam:42", "game.exe"));
+
+        Assert.True(await service.ResetProfileAsync());
+        // Falls through to the global layer, which is what an emptied application profile means.
+        Assert.Equal(60, service.Current.Desired.FrameLimit);
+    }
+
+    [Fact]
+    public async Task ResetKeepsThePerGameProfileItself()
+    {
+        // Removing the entry is what the toggle means; reset must not turn that toggle off as a
+        // side effect.
+        PerformanceService service = Service(new PerformancePolicy(
+            new PerformanceValues(60, 2),
+            [new PerformanceApplicationPolicy("steam:42", "game.exe", new PerformanceValues(30, 1))]));
+        using IDisposable observation = service.AcquireObservation();
+        await service.SetTargetAsync(new RtssApplicationTarget("steam:42", "game.exe"));
+        await service.ResetProfileAsync();
+
+        // Still enabled, so enabling again is not a change.
+        Assert.False(await service.SetApplicationProfileEnabledAsync(true));
+    }
+
+    [Fact]
+    public async Task ResettingAnAlreadyDefaultProfileChangesNothing()
+    {
+        PerformanceService service = Service(PerformancePolicy.Empty);
+        using IDisposable observation = service.AcquireObservation();
+
+        Assert.False(await service.ResetProfileAsync());
+    }
+
+    [Fact]
     public async Task AnotherApplicationsProfileIsLeftAlone()
     {
         PerformanceService service = Service(new PerformancePolicy(

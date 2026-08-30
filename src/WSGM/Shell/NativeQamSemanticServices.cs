@@ -344,6 +344,20 @@ internal sealed class PerformanceServiceNativeQamAdapter : IDisposable
     /// "no application is running" is exactly the case a user hits by opening the menu on the
     /// desktop.
     /// </remarks>
+    /// <summary>Resets the profile in force to its defaults.</summary>
+    /// <param name="cancellationToken">Cancels the reset.</param>
+    /// <returns>Whether anything changed.</returns>
+    /// <remarks>
+    /// A reset that changes nothing because the profile is already at defaults is reported as a
+    /// success, unlike the toggle: the user asked for a state and that state is what they have.
+    /// </remarks>
+    internal async Task<NativeQamCommandResult> ResetProfileAsync(
+        CancellationToken cancellationToken)
+    {
+        await _service.ResetProfileAsync(cancellationToken).ConfigureAwait(false);
+        return new NativeQamCommandResult(true, null);
+    }
+
     private async Task<NativeQamCommandResult> ApplyProfileToggleAsync(
         bool enabled,
         CancellationToken cancellationToken)

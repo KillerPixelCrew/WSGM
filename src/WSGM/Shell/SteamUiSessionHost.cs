@@ -1311,9 +1311,13 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             Log.Info(
                 "Native QAM performance reset requested for "
-                + $"{(delta.SteamAppId is { } id ? $"AppID {id}" : "the global profile")}; "
-                + "WSGM has no profile reset yet and the request was refused.");
-            return (false, "Resetting a performance profile is not supported yet.");
+                + $"{(delta.SteamAppId is { } id ? $"AppID {id}" : "the global profile")}.");
+            NativeQamCommandResult reset = await _performance.ResetProfileAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            // A reset arrives on its own, not alongside value changes: Valve's button sends only
+            // this flag. Returning here rather than falling through keeps that explicit.
+            return (reset.Succeeded, reset.Error);
         }
 
         if (delta.Recognized.Count == 0)

@@ -225,6 +225,66 @@ internal sealed class PerformanceService : IAsyncDisposable
         return new ObservationLease(this);
     }
 
+    /// <summary>Resets the profile currently in force to its defaults.</summary>
+    /// <param name="cancellationToken">Cancels the apply that follows.</param>
+    /// <returns>Whether anything changed.</returns>
+    /// <remarks>
+    /// Resets whichever layer is actually in force, which is the only reading that matches what the
+    /// user sees: with a per-application profile active they are looking at that profile, and
+    /// clearing the global one underneath it would appear to do nothing.
+    /// <para>
+    /// The application's entry is kept and its values emptied, rather than the entry being removed.
+    /// Removing it is what the per-game toggle means; reset must not silently turn that toggle off
+    /// as a side effect.
+    /// </para>
+    /// </remarks>
+    internal async Task<bool> ResetProfileAsync(CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        PerformancePolicy policy;
+        RtssApplicationTarget? target;
+        lock (_stateGate)
+        {
+            policy = _policy;
+            target = _state.Target;
+        }
+
+        PerformanceApplicationPolicy? application = target is null
+            ? null
+            : policy.Applications.FirstOrDefault(entry => string.Equals(
+                entry.ApplicationId,
+                target.ApplicationId,
+                StringComparison.Ordinal));
+
+        if (application is not null)
+        {
+            if (application.Values == PerformanceValues.Empty)
+            {
+                return false;
+            }
+
+            List<PerformanceApplicationPolicy> applications = [.. policy.Applications];
+            applications[applications.IndexOf(application)] =
+                application with { Values = PerformanceValues.Empty };
+            Log.Info($"Performance profile reset for {application.ApplicationId}.");
+            await UpdatePolicyAsync(
+                policy with { Applications = applications },
+                cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+
+        if (policy.Global == PerformanceValues.Empty)
+        {
+            return false;
+        }
+
+        Log.Info("Global performance profile reset.");
+        await UpdatePolicyAsync(
+            policy with { Global = PerformanceValues.Empty },
+            cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
     /// <summary>
     /// Gives the running application its own performance profile, or takes it away.
     /// </summary>
