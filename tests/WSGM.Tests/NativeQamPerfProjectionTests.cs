@@ -14,6 +14,48 @@ public sealed class NativeQamPerfProjectionTests
     private static string Serialize(NativeQamPerfState state) =>
         JsonSerializer.Serialize(state, NativeQamPerfJsonContext.Default.NativeQamPerfState);
 
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public void EveryAdvertisedControlAlsoCarriesAValue(bool refreshSelectable, bool vrr)
+    {
+        // THE rule this file exists to protect. Hiding a control by omitting its limits field is
+        // safe; advertising it in limits and omitting its settings value is not — Valve's component
+        // renders, finds no value and throws inside Steam's error boundary, which took the whole
+        // Performance tab down on 2026-08-30.
+        //
+        // Values are deliberately all null here: an untouched profile is exactly the case that
+        // shipped broken.
+        NativeQamPerfState state = NativeQamProjection(
+            PerformanceValues.Empty,
+            Support(vrr: vrr, refreshSelectable: refreshSelectable));
+
+        Assert.Equal(state.Limits?.FpsLimitOptions is not null, state.PerApp?.FpsLimit is not null);
+        Assert.Equal(
+            state.Limits?.FpsLimitOptions is not null,
+            state.PerApp?.IsFpsLimitEnabled is not null);
+        Assert.Equal(
+            state.Limits?.IsManualDisplayRefreshRateAvailable is not null,
+            state.PerApp?.DisplayRefreshManualHz is not null);
+        Assert.Equal(
+            state.Limits?.IsVrrSupported is not null,
+            state.PerApp?.IsVrrEnabled is not null);
+        // Always mounted, so it always needs a number.
+        Assert.NotNull(state.Global?.PerfOverlayLevel);
+    }
+
+    private static NativeQamPerfState NativeQamProjection(
+        PerformanceValues values,
+        NativeQamPerfSupport support) =>
+        NativeQamPerfProjection.Project(
+            values,
+            support,
+            steamAppId: null,
+            perApplicationProfileEnabled: false,
+            advancedSettingsEnabled: false,
+            variableRefreshRateEnabled: null,
+            refreshRateHz: support.CurrentRefreshRateHz);
+
     [Fact]
     public void UnsupportedControlsAreOmittedEntirelySoValvesWrapperRendersNothing()
     {

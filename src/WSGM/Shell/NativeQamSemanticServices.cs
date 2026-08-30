@@ -229,7 +229,9 @@ internal sealed class PerformanceServiceNativeQamAdapter : IDisposable
                 perApplicationProfileEnabled: current.Target is not null,
                 advancedSettingsEnabled: true,
                 variableRefreshRateEnabled: support.VariableRefreshRateEnabled,
-                refreshRateHz: null);
+                // Was hardcoded null, which advertised the manual refresh row in `limits` while
+                // giving it no value in `settings` — half of what crashed the Performance tab.
+                refreshRateHz: support.CurrentRefreshRateHz);
         }
     }
 

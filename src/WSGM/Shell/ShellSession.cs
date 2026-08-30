@@ -1506,7 +1506,8 @@ public sealed class ShellSession : IAsyncDisposable
             manualRefresh && refreshRates.Count > 0,
             refreshRates.Count > 0 ? refreshRates.Min() : null,
             refreshRates.Count > 0 ? refreshRates.Max() : null,
-            vrrEnabled);
+            vrrEnabled,
+            manualRefresh ? DisplayProfiles.ReadCurrentRefreshRate() : null);
     }
 
     /// <summary>Starts or stops the game-mode card services from one shared policy.</summary>

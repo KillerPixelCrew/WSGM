@@ -152,13 +152,18 @@ internal sealed record NativeQamPerfApplicationSettings
 /// </param>
 /// <param name="RefreshRateMinHz">Lowest selectable refresh rate.</param>
 /// <param name="RefreshRateMaxHz">Highest selectable refresh rate.</param>
+/// <param name="CurrentRefreshRateHz">
+/// The rate in force, which the manual refresh row needs a concrete value for. Null only when that
+/// row is not offered.
+/// </param>
 internal readonly record struct NativeQamPerfSupport(
     IReadOnlyList<int> FrameLimitOptions,
     bool VariableRefreshRateSupported,
     bool RefreshRatesSelectable,
     int? RefreshRateMinHz,
     int? RefreshRateMaxHz,
-    bool VariableRefreshRateEnabled = false);
+    bool VariableRefreshRateEnabled = false,
+    int? CurrentRefreshRateHz = null);
 
 /// <summary>Builds the performance state from what WSGM knows, supplying only backed fields.</summary>
 internal static class NativeQamPerfProjection
@@ -215,25 +220,63 @@ internal static class NativeQamPerfProjection
             },
             Global = new NativeQamPerfGlobalSettings
             {
-                PerfOverlayLevel = values.OverlayLevel,
+                // Always a number. This control is always mounted, so an absent value leaves it
+                // rendering with nothing to show — see the pairing rule below.
+                PerfOverlayLevel = values.OverlayLevel ?? 0,
                 IsAdvancedSettingsEnabled = advancedSettingsEnabled,
             },
             PerApp = new NativeQamPerfApplicationSettings
             {
-                FpsLimit = values.FrameLimit,
+                // LIMITS AND SETTINGS ARE A PAIR, and getting this wrong crashed the whole
+                // Performance tab on 2026-08-30. Hiding a control by omitting its `limits` field is
+                // safe; advertising it in `limits` and then omitting its `settings` value is not —
+                // Valve's component renders, finds no value, and throws inside Steam's error
+                // boundary, taking the tab with it.
+                //
+                // So every field here is supplied exactly when the limits field that reveals its
+                // control is, and carries a concrete value rather than null.
+                // The lowest offered notch when no cap is set, never 0: zero is filtered out of the
+                // options above, so reporting it would put the slider at a value outside its own
+                // range. "Off" is carried by the flag below, which is how Valve's row models it.
+                FpsLimit = support.FrameLimitOptions.Count > 0
+                    ? values.FrameLimit ?? LowestOption(support.FrameLimitOptions)
+                    : null,
                 // Steam draws the cap and its on/off state from two fields. Without the flag the
                 // slider renders at the cap but reads as disabled, so an unset cap is off and any
                 // cap at all is on.
-                IsFpsLimitEnabled = values.FrameLimit is > 0,
+                IsFpsLimitEnabled = support.FrameLimitOptions.Count > 0
+                    ? values.FrameLimit is > 0
+                    : null,
                 IsVrrEnabled = support.VariableRefreshRateSupported
                     ? variableRefreshRateEnabled ?? false
                     : null,
-                DisplayRefreshManualHz = support.RefreshRatesSelectable ? refreshRateHz : null,
+                DisplayRefreshManualHz = support.RefreshRatesSelectable
+                    ? refreshRateHz ?? support.RefreshRateMaxHz ?? 0
+                    : null,
                 IsGamePerfProfileEnabled = gameId == NoGame ? null : perApplicationProfileEnabled,
             },
             CurrentGameId = gameId,
             ActiveProfileGameId = perGame ? gameId : NoGame,
         };
+    }
+
+    /// <summary>The lowest cap actually offered, or zero when none is.</summary>
+    /// <remarks>
+    /// Mirrors the filter applied to <c>fps_limit_options</c> above, so the value reported can never
+    /// be one the slider does not have a notch for.
+    /// </remarks>
+    private static int LowestOption(IReadOnlyList<int> options)
+    {
+        int lowest = 0;
+        foreach (int option in options)
+        {
+            if (option > 0 && (lowest == 0 || option < lowest))
+            {
+                lowest = option;
+            }
+        }
+
+        return lowest;
     }
 }
 
