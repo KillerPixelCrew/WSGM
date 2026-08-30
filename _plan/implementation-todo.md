@@ -1366,11 +1366,17 @@ single Deck-only store getter — but never set the global `TS.IS_STEAMOS`, whic
 Full plan: `_plan\steam-settings-audio-revive.md`. The backend already exists — `AudioManager`,
 `NativeVolumeControl`, `native\VolumeControl` — so this is an adapter plus one new capability.
 
-      **The WSGM half is done**: `Shell\NativeQamAudioService.cs` projects `AudioManager` into
-      Steam's device/volume shape and accepts default-device and volume changes through the same
-      manager property the taskbar sets, so the two surfaces cannot disagree. **What remains is the
-      injected half** — defining the namespace in the bootstrap and routing its twelve methods
-      through the bridge.
+      **Nearly done.** `Shell\NativeQamAudioService.cs` projects `AudioManager` into Steam's
+      device/volume shape through the same manager property the taskbar sets, so the two surfaces
+      cannot disagree; the bootstrap supplies `SteamClient.System.Audio` and also writes the running
+      store, because its `m_bAvailable` is computed once at construction and WSGM attaches to a
+      client that is already up; `Core\NativeQamAudioPatch.cs` installs, verifies and removes it with
+      its own resource key. Payload shapes were read off the store's own consumers, and a store
+      driven by them reports available with both devices present and a dual-direction headset read
+      correctly. **What remains is registering the patch and service in the session composition, and
+      confirming on a live tab that the Audio section actually renders** — the section gate is
+      `!IN_VR && bAvailable`, and satisfying a data gate is never proof that the render gate above it
+      opened.
 - [ ] Supply `SteamClient.System.Audio` over `Shell\AudioManager.cs`,
       `Interop\NativeVolumeControl.cs` and `Shell\VolumeButtonService.cs`. The cheapest gate in the
       project: the store's flag is literally `m_bAvailable = null != SteamClient.System.Audio`, so
