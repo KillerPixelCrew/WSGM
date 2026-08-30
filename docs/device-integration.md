@@ -135,7 +135,31 @@ The target is chosen by exactly two stored layers: one global default plus per-a
 overrides, both kept directly under device integration rather than under a per-device profile.
 Overrides are keyed by the canonical running-application identity from the one
 `RunningApplicationMonitor`, which also resolves the RTSS profile, so the controller target and the
-performance profile can never disagree about which application is running. The semantic capabilities
+performance profile can never disagree about which application is running.
+
+That identity has two sources, and only one of them is Steam. The monitor also takes the foreground
+application — a WinEvent hook plus a two-second poll, because a hook alone misses focus changes
+across a lock or an elevation transition, and a UWP window is resolved through
+`ApplicationFrameWindow` to the process that actually owns a child window, or every UWP application
+would share one profile. It is an input to the same projection rather than a second observer,
+which is what keeps the one-monitor rule above intact.
+
+Steam wins whenever it names exactly one running application: that identity is the one its launch
+went through and the one the shortcut's executable was resolved from, so alt-tabbing out of a
+running game does not retarget its profile. The foreground fills only the case where Steam names
+nothing — the desktop, another launcher, a title started outside Steam — which is what makes the
+overlay's per-application rows mean anything outside a Steam game. It deliberately does not break a
+tie: when Steam reports two running applications the state stays ambiguous, because focus says which
+window the user is looking at, not which of two games they meant to configure, and when the
+observation itself failed the state stays unavailable rather than claiming an application is
+running.
+
+A foreground window that is not an application — WSGM's own surfaces included, since the overlay
+takes focus by design at exactly the moment the user is most likely editing that profile — leaves
+the previous application in force rather than dropping to the global profile. An unreadable process,
+which is ordinary for anything elevated or protected, is treated the same way.
+
+The semantic capabilities
 keep their five desired-state layers because hardware limits genuinely differ on battery and per
 profile; a controller target does not.
 

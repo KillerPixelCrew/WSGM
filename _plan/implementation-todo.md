@@ -1220,6 +1220,15 @@ hand-built rows with Valve's own and supplies `SteamClient.System.Perf`.
       logs both what was accepted and what was refused. `TryApplyTransientRefreshRate` omits
       `CDS_UPDATEREGISTRY` so exit, crash, and reboot self-heal, and stays separate from the
       display-profile path that persists on purpose. `FrameLimitOnly` is the default.
+- [x] Give per-application policy a second identity source so it works outside a Steam game.
+      `Core\ForegroundApplicationFilter.cs` decides whether a foreground window is an application at
+      all — its restricted answer is not "no application", so the overlay taking focus leaves the
+      running game's profile in force — and `Interop\ForegroundWindowWatcher.cs` observes the
+      foreground with a WinEvent hook plus a slow poll, resolving UWP windows through the host to
+      the real process. It feeds `RunningApplicationMonitor.ReportForeground`, not a second
+      observer, so the coordinator's one-monitor rule stands. Steam wins whenever it names exactly
+      one running application; the foreground fills only `Global`, never `Ambiguous` or
+      `Unavailable`.
 - [ ] Implement the `SteamClient.System.Perf` shim: build `CMsgSystemPerfState` through the client's
       own message classes, deliver it via the store's bound `OnStateChanged`, and route
       `UpdateSettings` deltas to the same services the overlay uses. One patch per mounted
