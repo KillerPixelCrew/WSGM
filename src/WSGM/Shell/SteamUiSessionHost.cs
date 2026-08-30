@@ -19,6 +19,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private const string OverlayLevelPatchId = "wsgm.native-qam.overlay-level";
     private const string AutoTdpPatchId = "wsgm.native-qam.auto-tdp";
     private const string ControllerTargetPatchId = "wsgm.native-qam.controller-target";
+    private const string AudioPatchId = "wsgm.native-qam.audio";
     private const string GlyphStylePatchId = SteamInputGlyphStylePatch.PatchId;
     private readonly PersistentSteamUiTransport _transport;
     private readonly CancellationTokenSource _shutdown = new();
@@ -30,6 +31,17 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly HashSet<Task> _requestTasks = [];
     private readonly Func<CancellationToken, Task<bool>> _toggleQuickAccess;
     private readonly INativeQamTdpService _tdp;
+
+    /// <summary>
+    /// Null when no audio manager exists for this session, which is the overlay-test case.
+    /// </summary>
+    /// <remarks>
+    /// Unlike the semantic services above there is no "unavailable" stand-in, because audio is
+    /// supplied as a namespace rather than drawn as a row: with nothing to supply, the right
+    /// behaviour is to leave the namespace absent so Steam's own store stays unavailable, not to
+    /// install one that answers with nothing.
+    /// </remarks>
+    private readonly INativeQamAudioService? _audio;
     private readonly PerformanceServiceNativeQamAdapter _performance;
     private readonly INativeQamAutoTdpService _autoTdp;
     private readonly INativeQamControllerTargetService _controllerTarget;
@@ -50,7 +62,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         PersistentSteamUiTransport transport,
         Func<CancellationToken, Task<bool>> toggleQuickAccess,
         DeviceCoordinator? deviceCoordinator,
-        PerformanceService performance)
+        PerformanceService performance,
+        AudioManager? audio = null)
     {
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         ArgumentNullException.ThrowIfNull(toggleQuickAccess);
@@ -65,6 +78,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _controllerTarget = deviceCoordinator is null
             ? new UnavailableNativeQamControllerTargetService()
             : new DeviceCoordinatorNativeQamControllerTargetService(deviceCoordinator);
+        _audio = audio is null ? null : new AudioManagerNativeQamAudioService(audio);
         _bridge = new SteamUiBridgeHost(_transport);
         _patches = new SteamUiPatchManager(_transport);
         _patches.Register(new NativeQamBootstrapPatch(_bridge));
@@ -73,6 +87,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _patches.Register(new NativeQamFrameLimitPatch());
         _patches.Register(new NativeQamOverlayLevelPatch());
         _patches.Register(new NativeQamControllerTargetPatch());
+        if (_audio is not null)
+        {
+            _patches.Register(new NativeQamAudioPatch());
+        }
+
         _patches.Register(new SteamInputGlyphStylePatch(_glyphDeliveryState));
         SetPatchStates(bootstrap: false, components: false);
         SetGlyphDeliveryPatchStates();
@@ -83,6 +102,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _autoTdp.StateChanged += OnSemanticStateChanged;
         _performance.StateChanged += OnSemanticStateChanged;
         _controllerTarget.StateChanged += OnSemanticStateChanged;
+        if (_audio is not null)
+        {
+            _audio.StateChanged += OnSemanticStateChanged;
+        }
+
         _synchronization = Task.Run(SynchronizeLoopAsync);
         _publication = Task.Run(PublishLoopAsync);
     }
@@ -402,6 +426,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
         bool succeeded = false;
         string? error = null;
+        JsonElement? responsePayload = null;
         try
         {
             if (!_enabled)
@@ -508,6 +533,49 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                     error = result.Error;
                 }
             }
+            else if (request.PatchId == AudioPatchId && _audio is { } audio)
+            {
+                switch (request.Command)
+                {
+                    case "getDevices":
+                        // The only request that answers with data rather than an outcome. Steam
+                        // re-reads it after every device add or removal, so it stays a projection of
+                        // state already held rather than an enumeration.
+                        responsePayload = SerializeAudioState(audio.Current);
+                        succeeded = true;
+                        break;
+                    case "setDefaultDevice":
+                        if (!TryReadAudioDevicePayload(request.Payload, out string id, out bool input))
+                        {
+                            error = "The audio device payload is invalid.";
+                            break;
+                        }
+
+                        NativeQamCommandResult device = await audio.SetDefaultDeviceAsync(
+                            id,
+                            input,
+                            requestCancellation.Token).ConfigureAwait(false);
+                        succeeded = device.Succeeded;
+                        error = device.Error;
+                        break;
+                    case "setVolume":
+                        if (!TryReadAudioVolumePayload(request.Payload, out int percent))
+                        {
+                            error = "The audio volume payload is invalid.";
+                            break;
+                        }
+
+                        NativeQamCommandResult volume = await audio.SetVolumeAsync(
+                            percent,
+                            requestCancellation.Token).ConfigureAwait(false);
+                        succeeded = volume.Succeeded;
+                        error = volume.Error;
+                        break;
+                    default:
+                        error = "The requested semantic service is not active.";
+                        break;
+                }
+            }
             else
             {
                 error = "The requested semantic service is not active.";
@@ -530,7 +598,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 return;
             }
 
-            await _bridge.RespondAsync(request, succeeded, null, error, requestCancellation.Token)
+            await _bridge.RespondAsync(
+                    request,
+                    succeeded,
+                    responsePayload,
+                    error,
+                    requestCancellation.Token)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (requestCancellation.IsCancellationRequested)
@@ -667,6 +740,66 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         return true;
     }
 
+    /// <summary>Reads the endpoint and direction of a default-device change.</summary>
+    /// <param name="payload">The request payload.</param>
+    /// <param name="id">The endpoint identifier.</param>
+    /// <param name="input">Whether the capture default is being set.</param>
+    /// <returns><see langword="true"/> when the payload is exactly the expected shape.</returns>
+    private static bool TryReadAudioDevicePayload(JsonElement payload, out string id, out bool input)
+    {
+        id = string.Empty;
+        input = false;
+        if (payload.ValueKind != JsonValueKind.Object
+            || !payload.TryGetProperty("id", out JsonElement idProperty)
+            || idProperty.ValueKind != JsonValueKind.String
+            || !payload.TryGetProperty("input", out JsonElement inputProperty)
+            || inputProperty.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        {
+            return false;
+        }
+
+        string? candidate = idProperty.GetString();
+        if (string.IsNullOrWhiteSpace(candidate) || candidate.Length > 512)
+        {
+            return false;
+        }
+
+        id = candidate;
+        input = inputProperty.ValueKind is JsonValueKind.True;
+        return true;
+    }
+
+    /// <summary>Reads the target volume of a volume change.</summary>
+    /// <param name="payload">The request payload.</param>
+    /// <param name="percent">The requested volume, 0-100.</param>
+    /// <returns><see langword="true"/> when the payload is exactly the expected shape.</returns>
+    private static bool TryReadAudioVolumePayload(JsonElement payload, out int percent)
+    {
+        percent = 0;
+        return payload.ValueKind is JsonValueKind.Object
+            && payload.TryGetProperty("percent", out JsonElement property)
+            && property.ValueKind is JsonValueKind.Number
+            && property.TryGetInt32(out percent)
+            && percent is >= 0 and <= 100;
+    }
+
+    /// <summary>Serializes the audio state into the shape Steam's store reads.</summary>
+    /// <param name="state">The state to send.</param>
+    /// <returns>The payload element.</returns>
+    /// <remarks>
+    /// The device shape here is deliberately WSGM's own; the bootstrap maps it into Steam's field
+    /// names. Emitting Steam's names on this side would put its schema in two places, and the one
+    /// that changes with a client rebuild is the injected half.
+    /// </remarks>
+    private static JsonElement SerializeAudioState(NativeQamAudioState state)
+    {
+        string json = JsonSerializer.Serialize(
+            state,
+            NativeQamSemanticJsonContext.Default.NativeQamAudioState);
+        using JsonDocument document = JsonDocument.Parse(json);
+        return document.RootElement.Clone();
+    }
+
     private static bool TryReadTargetPayload(JsonElement payload, out string target)
     {
         target = string.Empty;
@@ -766,6 +899,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _performance.StateChanged -= OnSemanticStateChanged;
         _autoTdp.StateChanged -= OnSemanticStateChanged;
         _controllerTarget.StateChanged -= OnSemanticStateChanged;
+        if (_audio is not null)
+        {
+            _audio.StateChanged -= OnSemanticStateChanged;
+        }
+
         _enabled = false;
         ReleasePerformanceObservation();
         CancelAllInflightRequests();
@@ -795,6 +933,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         await _patches.DisposeAsync().ConfigureAwait(false);
         await _bridge.DisposeAsync().ConfigureAwait(false);
         _autoTdp.Dispose();
+        _audio?.Dispose();
         _controllerTarget.Dispose();
         _performance.Dispose();
         _tdp.Dispose();

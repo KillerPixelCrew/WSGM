@@ -954,4 +954,6 @@ internal sealed class UnavailableNativeQamControllerTargetService
 [JsonSerializable(typeof(NativeQamControllerTargetState))]
 [JsonSerializable(typeof(NativeQamFrameLimitState))]
 [JsonSerializable(typeof(NativeQamOverlayLevelState))]
+[JsonSerializable(typeof(NativeQamAudioState))]
+[JsonSerializable(typeof(NativeQamAudioDevice))]
 internal sealed partial class NativeQamSemanticJsonContext : JsonSerializerContext;
