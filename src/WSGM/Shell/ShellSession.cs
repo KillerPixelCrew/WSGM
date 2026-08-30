@@ -89,6 +89,16 @@ public sealed class ShellSession : IAsyncDisposable
     /// disagree with the taskbar about which device is default.
     /// </remarks>
     private AudioManager? _audio;
+
+    /// <summary>
+    /// The one radio manager for this session, shared by the taskbar's status cluster and Steam's
+    /// network surface.
+    /// </summary>
+    /// <remarks>
+    /// Session-scoped for the same reason as the audio manager, and idle by default: scanning costs
+    /// power and only makes sense while a network list is on screen.
+    /// </remarks>
+    private RadioManager? _radios;
     private int _pairedFrameLimit = -1;
     private PerformanceOverlayBridge? _performanceOverlay;
     private PersistentSteamUiTransport? _steamUiTransport;
@@ -310,6 +320,11 @@ public sealed class ShellSession : IAsyncDisposable
         {
             _audio = new AudioManager();
             _audio.Start();
+
+            // Not started here: scanning is expensive and belongs to whichever surface is showing a
+            // network list. The manager exists for the whole session so Steam's Internet page can
+            // drive it, but it stays idle until something asks.
+            _radios = new RadioManager();
         }
 
         _overlay = new OverlayController(
@@ -320,7 +335,8 @@ public sealed class ShellSession : IAsyncDisposable
             previewOnly: _overlayTestOnly,
             device: _deviceOverlay,
             performance: _performanceOverlay,
-            audio: _audio);
+            audio: _audio,
+            radios: _radios);
 
         // WSGM's own navigation runs on the managed canonical stream when one is delivering, and on
         // SDL otherwise. Subscribed here rather than inside the overlay because this is where both
@@ -1759,11 +1775,17 @@ public sealed class ShellSession : IAsyncDisposable
                     _refreshPairing = null;
                 }
 
-                // After the Steam host and the overlay, both of which hold it.
+                // After the Steam host and the overlay, both of which hold them.
                 if (_audio is not null)
                 {
                     _audio.Dispose();
                     _audio = null;
+                }
+
+                if (_radios is not null)
+                {
+                    _radios.Dispose();
+                    _radios = null;
                 }
                 _tabBootSyncCancellation.Dispose();
                 _downloadSortCancellation.Dispose();

@@ -32,6 +32,14 @@ public sealed class OverlayController : IDisposable
     /// Null in overlay-test, where no session owns one and the cluster creates its own.
     /// </remarks>
     private readonly AudioManager? _sessionAudio;
+
+    /// <summary>
+    /// The session's radio manager, shared with the taskbar's status cluster rather than owned.
+    /// </summary>
+    /// <remarks>
+    /// Null in overlay-test, where no session owns one and the cluster creates its own.
+    /// </remarks>
+    private readonly RadioManager? _sessionRadios;
     private readonly HotkeyService _hotkey;
     private readonly GamepadService _gamepad = new();
 
@@ -90,9 +98,11 @@ public sealed class OverlayController : IDisposable
     internal OverlayController(AppConfig config, SteamMonitor? monitor, SessionModes modes,
         KeepAwakeService? keepAwake, bool previewOnly, IDeviceOverlaySource? device,
         IPerformanceOverlaySource? performance = null,
-        AudioManager? audio = null)
+        AudioManager? audio = null,
+        RadioManager? radios = null)
     {
         _sessionAudio = audio;
+        _sessionRadios = radios;
         _config = config;
         _monitor = monitor;
         _modes = modes;
@@ -1130,7 +1140,7 @@ public sealed class OverlayController : IDisposable
         // is open; OnTaskbarClosed disposes it with the window.
         // Shares the session's audio manager when there is one, so the taskbar's audio tile and
         // Steam's audio namespace are the same state rather than two views that can disagree.
-        _systemStatus = new SystemStatus(_sessionAudio);
+        _systemStatus = new SystemStatus(_sessionAudio, _sessionRadios);
         _systemStatus.Start();
         _taskbar = new TaskbarWindow(vm, _systemStatus, UiScale());
         // The home button rides the existing surface handover: ShowOverlay closes

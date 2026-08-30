@@ -22,6 +22,9 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
     /// <param name="audio">
     /// A session-scoped audio manager to share, or null to create and own one.
     /// </param>
+    /// <param name="radios">
+    /// A session-scoped radio manager to share, or null to create and own one.
+    /// </param>
     /// <remarks>
     /// The taskbar comes and goes while a session lasts, so anything that must answer for the whole
     /// session — Steam's audio namespace, in particular — cannot depend on a manager this object
@@ -29,16 +32,19 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
     /// point: two managers would enumerate endpoints twice and could disagree about which device is
     /// default.
     /// </remarks>
-    public SystemStatus(AudioManager? audio = null)
+    public SystemStatus(AudioManager? audio = null, RadioManager? radios = null)
     {
         _ownsAudio = audio is null;
         Audio = audio ?? new AudioManager();
+        _ownsRadios = radios is null;
+        Radios = radios ?? new RadioManager();
     }
 
     /// <summary>Raised after a status property changes.</summary>
     public event PropertyChangedEventHandler? PropertyChanged;
 
     private readonly bool _ownsAudio;
+    private readonly bool _ownsRadios;
     private DispatcherTimer? _timer;
     private bool _disposed;
 
@@ -92,8 +98,9 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
     }
 
     /// <summary>Gets the Wi-Fi and Bluetooth manager backing the taskbar's radio
-    /// tiles and the radio panel. Owned and disposed with this object.</summary>
-    public RadioManager Radios { get; } = new();
+    /// tiles and the radio panel. Disposed with this object only when this object
+    /// created it — a manager supplied by the session outlives every taskbar.</summary>
+    public RadioManager Radios { get; }
 
     /// <summary>Gets the master-volume and endpoint manager backing the taskbar's
     /// audio tile and audio panel. Disposed with this object only when this object
@@ -137,10 +144,14 @@ public sealed class SystemStatus : INotifyPropertyChanged, IDisposable
     public void Dispose()
     {
         _disposed = true;
-        Radios.Dispose();
 
-        // Only when this object created it. Disposing a session-scoped manager here would take
-        // audio away from everything else that holds it the moment the taskbar closes.
+        // Only when this object created them. Disposing a session-scoped manager here would take
+        // audio or the radios away from everything else holding them the moment the taskbar closes.
+        if (_ownsRadios)
+        {
+            Radios.Dispose();
+        }
+
         if (_ownsAudio)
         {
             Audio.Dispose();
