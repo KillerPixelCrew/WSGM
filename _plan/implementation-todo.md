@@ -1446,8 +1446,15 @@ single Deck-only store getter — but never set the global `TS.IS_STEAMOS`, whic
 - [ ] Mount the Performance tab's refresh-rate component here, shown only when the frame-limit
       strategy is `FrameLimitOnly`; under `NativeModes` or `FrameDoubling` the pairing policy owns
       the refresh and a second control would fight it.
-- [ ] Leave the natively working rows alone: controller list with battery and Identify, reorder
+- [x] Leave the natively working rows alone: controller list with battery and Identify, reorder
       controllers, game recording, and display scaling over `SetUnderscanLevel`.
+      Verified by enumerating everything the injected shim mutates, which is the whole of it: its own
+      `window` bridge namespace, the two absent `SteamClient.System` namespaces it supplies (`Perf`,
+      `Audio`), one network-availability prototype getter, the brightness availability field — saved
+      and restored on removal — and the Bluetooth stub's own methods. None of the named rows is
+      reachable from any of those, and no patch touches `SetUnderscanLevel`, the controller list, or
+      recording at all. Re-run that enumeration when adding a patch rather than assuming it still
+      holds: `grep -n "defineProperty\|delete window\|\.prototype\." NativeQamBootstrap.ts`.
 - [ ] Validate attended on the reference device: Wi-Fi enumerate/connect/forget/airplane, Bluetooth
       pair through forget including a controller over Bluetooth, audio device switching while a game
       runs, brightness across both paths, night mode, a resolution change with a game running, and
@@ -1477,9 +1484,13 @@ Full plan: `_plan\steam-settings-audio-revive.md`. The backend already exists �
       `SetDefaultDeviceOverride`, `SetDeviceVolume`, and the `DeviceAdded`/`DeviceRemoved`/
       `DeviceVolumeChanged`/`VolumeButtonPressed`/`ServiceConnectionStateChanges` registrations.
       HDMI CEC reaches a different service and stays unsupported.
-- [ ] Report no audio apps until the mixer exists: `SetAppVolume`, `RegisterForAppAdded` and
+- [x] Report no audio apps until the mixer exists: `SetAppVolume`, `RegisterForAppAdded` and
       `RegisterForAppRemoved` have no backend, and `Shell\VolumeAppCommands.cs` is media-key
       decoding, not a mixer. Steam's per-app mixer then lists nothing rather than misbehaving.
+      Done in the audio namespace: `GetApps` resolves an empty `rgApps`, `SetAppVolume` resolves
+      without doing anything, and the three app registrations return real handles that never fire.
+      Nothing can call `SetAppVolume` while the list is empty, so the no-op cannot be reached by a
+      user — it exists so an internal caller does not throw against a missing method.
 - [ ] Add WASAPI audio-session enumeration and per-session volume to `native\VolumeControl`, exposed
       through `AudioManager`. This serves the custom taskbar as much as Steam — one backend, two
       surfaces — so it is its own item, not folded into the Steam adapter.
