@@ -181,7 +181,7 @@ const install = async (session) => {
   console.log("bootstrap:", result);
 
   const bridge = `window[${JSON.stringify(configuration.namespace)}]`;
-  for (const gate of ["audio", "network", "bluetooth", "brightness", "perf"]) {
+  for (const gate of ["audio", "network", "bluetooth", "brightness", "perf", "steamOsManager"]) {
     const outcome = await session.evaluate(
       `(()=>{const b=${bridge};if(!b||!b.${gate})return 'absent';` +
         `try{return JSON.stringify(b.${gate}.install());}catch(e){return String(e);}})()`,

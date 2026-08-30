@@ -81,6 +81,14 @@ public sealed class ShellSession : IAsyncDisposable
     private RefreshRatePairingService? _refreshPairing;
     private DisplayResolutionService? _resolutions;
 
+    /// <summary>Accepted refresh rates, discovered once. Null until first read.</summary>
+    /// <remarks>
+    /// No display-change invalidation yet: the internal panel's modes do not change within a
+    /// session, and a dock/undock already goes through the display-profile path. If external
+    /// displays need live rates here, invalidate where the pairing service invalidates.
+    /// </remarks>
+    private IReadOnlyList<int>? _acceptedRefreshRates;
+
     /// <summary>
     /// The one audio manager for this session, shared by the taskbar's status cluster and Steam's
     /// audio namespace.
@@ -1497,8 +1505,12 @@ public sealed class ShellSession : IAsyncDisposable
             vrrEnabled = view?.Projection.State.ObservedValue?.BooleanValue ?? false;
         }
 
+        // Cached: this runs on every state publication, and enumerating plus CDS_TESTing every mode
+        // each time hammered the display driver and wrote the same "Display modes" line every two
+        // seconds — the log-flood defect the repository rules name. The rates only change with the
+        // display, which is what invalidates the cache.
         IReadOnlyList<int> refreshRates = manualRefresh
-            ? DisplayProfiles.EnumerateAcceptedRefreshRates()
+            ? _acceptedRefreshRates ??= DisplayProfiles.EnumerateAcceptedRefreshRates()
             : [];
         return new NativeQamPerfSupport(
             options,

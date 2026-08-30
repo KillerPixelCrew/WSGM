@@ -196,6 +196,32 @@ internal sealed class PerformanceServiceNativeQamAdapter : IDisposable
     /// </remarks>
     internal Func<int, bool>? ApplyRefreshRate { get; set; }
 
+    /// <summary>The cap the enable toggle applies when no cap is set yet.</summary>
+    /// <remarks>
+    /// The last cap the service still holds when there is one, else the lowest offered notch —
+    /// which is also the value the projection shows on the disabled slider, so the cap that takes
+    /// effect is the number the user was already looking at.
+    /// </remarks>
+    private int EnableFrameLimitWatts()
+    {
+        int desired = _service.Current.Desired.FrameLimit ?? 0;
+        if (desired > 0)
+        {
+            return desired;
+        }
+
+        int lowest = 0;
+        foreach (int option in PerfSupport?.Invoke().FrameLimitOptions ?? [])
+        {
+            if (option > 0 && (lowest == 0 || option < lowest))
+            {
+                lowest = option;
+            }
+        }
+
+        return lowest;
+    }
+
     /// <summary>Turns variable refresh rate on or off, when a device publishes it.</summary>
     /// <remarks>
     /// Unset on a machine whose plugin publishes no VRR capability, which is also when the
@@ -257,17 +283,22 @@ internal sealed class PerformanceServiceNativeQamAdapter : IDisposable
                 correlationId,
                 cancellationToken),
 
-            // Steam models the cap and its switch separately; RTSS has one value where zero is off,
-            // so disabling writes zero and enabling is left to the cap that follows it in the same
-            // delta.
+            // Steam models the cap and its switch separately; RTSS has one value where zero is off.
+            // Disabling writes zero. Enabling must WRITE A CAP: Valve's toggle sends only the flag,
+            // and treating it as a no-op left the slider grey with a switch that snapped straight
+            // back — there is no "enabled with no value" state on the RTSS side for it to mean.
             NativeQamPerfSetting.FrameLimitEnabled when !change.AsFlag => SetAsync(
                 PerformanceControl.FrameLimit,
                 0,
                 PerformancePersistenceTarget.Automatic,
                 correlationId,
                 cancellationToken),
-            NativeQamPerfSetting.FrameLimitEnabled => Task.FromResult(
-                new NativeQamCommandResult(true, null)),
+            NativeQamPerfSetting.FrameLimitEnabled => SetAsync(
+                PerformanceControl.FrameLimit,
+                EnableFrameLimitWatts(),
+                PerformancePersistenceTarget.Automatic,
+                correlationId,
+                cancellationToken),
 
             NativeQamPerfSetting.OverlayLevel => SetAsync(
                 PerformanceControl.OverlayLevel,

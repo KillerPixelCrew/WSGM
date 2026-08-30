@@ -158,6 +158,7 @@ interface Window {
   const networkGate = createNetworkGate();
   const bluetoothService = createBluetoothService();
   const brightnessGate = createBrightnessGate();
+  const steamOsManagerGate = createSteamOsManagerGate();
   const perfNamespace = createPerfNamespace();
   const bridge = Object.freeze({
     version: config.version,
@@ -192,6 +193,11 @@ interface Window {
       install: brightnessGate.install,
       remove: brightnessGate.remove,
       status: brightnessGate.status,
+    }),
+    steamOsManager: Object.freeze({
+      install: steamOsManagerGate.install,
+      remove: steamOsManagerGate.remove,
+      status: steamOsManagerGate.status,
     }),
     perf: Object.freeze({
       install: perfNamespace.install,
@@ -360,6 +366,202 @@ interface Window {
   // writable, flips the answer, and restores.
   //
   // Nothing else is touched. This does not supply a backend, because there already is one.
+  // The SteamOS Manager seam, which is what puts Valve's own TDP row on the Performance tab. The
+  // row binds two CLIENT SETTINGS (steamos_tdp_limit_enabled, steamos_tdp_limit — Steam persists
+  // them itself) and hides behind is_tdp_limit_available from the Manager service's GetState,
+  // cached by react-query with staleTime Infinity under ["SteamOSService","State","Manager"].
+  //
+  // So the gate does three things and no more: overlay the Manager GetState answer with the TDP
+  // fields, sourced from the same published state the hand-rolled row used; invalidate that query
+  // key when the state changes; and watch the one setting Valve writes so the chosen watts reach
+  // the device through the existing setPrimaryLimit command. Valve owns the row, the storage and
+  // the write UI — WSGM answers one RPC and observes one number. Live-mapped 2026-08-30: stub
+  // export Bd beside the Telemetry service, own-writable GetState, body nested under `state`.
+  function createSteamOsManagerGate() {
+    const patchId = "wsgm.native-qam.tdp";
+    const queryKey = ["SteamOSService", "State", "Manager"];
+    let installed = false;
+    let lastError = "";
+    let unsubscribe: (() => void) | null = null;
+    let unsubscribeSettings: (() => void) | null = null;
+    let originalGetState: any = null;
+    let manager: any = null;
+    let latest: { available: boolean; min: number; max: number } = {
+      available: false,
+      min: 0,
+      max: 0,
+    };
+    let lastSentWatts: number | null = null;
+
+    const modules = () => {
+      let req;
+      window.webpackChunksteamui.push([
+        ["wsgm_steamos_" + Date.now()],
+        {},
+        (r) => {
+          req = r;
+        },
+      ]);
+      return req;
+    };
+
+    // The Manager service, found structurally: the export whose surface has GetState and the
+    // screen-reader refresh no other service carries. Its sibling GV (Telemetry) also has
+    // GetState, which is why a bare GetState match is not enough.
+    const findManager = (req) => {
+      for (const value of Object.values(req?.("90389") ?? {})) {
+        if (
+          value &&
+          typeof value === "object" &&
+          typeof (value as any).GetState === "function" &&
+          typeof (value as any).RefreshScreenReaderAutoLocale === "function"
+        ) {
+          return value;
+        }
+      }
+      return null;
+    };
+
+    const invalidate = (req) => {
+      try {
+        req?.("21371")?.L?.invalidateQueries({ queryKey });
+      } catch {
+        // A moved query layer keeps the stale answer; the row simply does not appear.
+      }
+    };
+
+    const onState = (state) => {
+      if (!installed || !state) return;
+      latest = {
+        available: state.available === true && Number(state.minimumWatts) > 0,
+        min: Number(state.minimumWatts) || 0,
+        max: Number(state.maximumWatts) || 0,
+      };
+      invalidate(modules());
+    };
+
+    // Valve's slider writes the chosen watts into the steamos_tdp_limit client setting; Steam
+    // persists it, and WSGM only has to see the number change to route it to hardware through the
+    // command the hand-rolled row already used. Observed through Steam's own
+    // RegisterForSettingsChanges — the same registration the settings store itself makes.
+    const forwardWatts = (watts) => {
+      if (!Number.isInteger(watts) || watts <= 0 || watts === lastSentWatts) return;
+      lastSentWatts = watts;
+      void request(patchId, "setPrimaryLimit", { watts }, 0).catch(() => {});
+    };
+    const readTdpFrom = (payload) => {
+      // The change payload's shape is Steam's; every plausible carrier of the setting is checked
+      // rather than one guessed one, and anything unreadable is simply not a TDP change.
+      try {
+        const candidates = [payload, payload?.settings, ...(Array.isArray(payload) ? payload : [])];
+        for (const entry of candidates) {
+          if (!entry || typeof entry !== "object") continue;
+          if (Number.isInteger(entry.steamos_tdp_limit)) return entry.steamos_tdp_limit;
+          if (entry.name === "steamos_tdp_limit" && Number.isInteger(Number(entry.value)))
+            return Number(entry.value);
+        }
+      } catch {}
+      return null;
+    };
+    const watchSettings = () => {
+      try {
+        const handle = window.SteamClient?.Settings?.RegisterForSettingsChanges?.((payload) => {
+          const watts = readTdpFrom(payload);
+          if (watts !== null) forwardWatts(watts);
+        });
+        if (handle && typeof handle.unregister === "function") {
+          unsubscribeSettings = () => handle.unregister();
+        }
+      } catch (error) {
+        // The row still renders and Steam still persists the setting; only the routing to
+        // hardware is lost, and the status says so.
+        lastError = "settings watch unavailable: " + String(error);
+      }
+    };
+
+    const install = () => {
+      if (installed) return { ok: true, alreadyInstalled: true };
+      const req = modules();
+      manager = findManager(req);
+      if (!manager) {
+        lastError = "SteamOS Manager service stub unavailable";
+        return { ok: false, error: lastError };
+      }
+
+      originalGetState = manager.GetState;
+      manager.GetState = async (payload) => {
+        // The original answer is kept and overlaid, never replaced: it carries real fields —
+        // screen-reader support among them — that a fabricated reply would silently zero.
+        const result = await originalGetState.call(manager, payload ?? {});
+        try {
+          const body = result?.Body?.()?.toObject?.();
+          if (!body || !body.state) return result;
+          const merged = {
+            ...body,
+            state: {
+              ...body.state,
+              is_tdp_limit_available: latest.available,
+              tdp_limit_min: latest.min,
+              tdp_limit_max: latest.max,
+            },
+          };
+          return {
+            BSuccess: () => true,
+            BFailed: () => false,
+            GetEResult: () => 1,
+            Body: () => ({ ...merged, toObject: () => merged }),
+          };
+        } catch {
+          return result;
+        }
+      };
+
+      installed = true;
+      lastError = "";
+      unsubscribe = subscribe(patchId, onState);
+      watchSettings();
+      invalidate(req);
+      return { ok: true, installed: true };
+    };
+
+    const remove = () => {
+      if (!installed) return { ok: true, absent: true };
+      installed = false;
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = null;
+      }
+      if (unsubscribeSettings) {
+        unsubscribeSettings();
+        unsubscribeSettings = null;
+      }
+      if (manager && originalGetState) {
+        try {
+          manager.GetState = originalGetState;
+        } catch (error) {
+          lastError = String(error);
+          return { ok: false, error: lastError };
+        }
+      }
+      latest = { available: false, min: 0, max: 0 };
+      invalidate(modules());
+      return { ok: true, removed: true };
+    };
+
+    const status = () => ({
+      ok: true,
+      installed,
+      managerFound: !!manager,
+      available: latest.available,
+      min: latest.min,
+      max: latest.max,
+      lastSentWatts,
+      lastError,
+    });
+
+    return { install, remove, status };
+  }
+
   function createBrightnessGate() {
     const field = "is_display_brightness_available";
     let originalValue: unknown;
