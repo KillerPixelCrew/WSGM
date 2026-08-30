@@ -487,6 +487,17 @@ So each item needs three answers before it is called done: what supplies its dat
 caches the availability it derives from that data, and whether anything above it gates on a platform
 constant. Confirming only the first produces a working backend behind a control nobody can see.
 
+**A platform-constant gate is sometimes final.** Where the constant is read through a store getter —
+`networkManagementAvailable` returning `TS.IS_STEAMOS` — that getter is on a prototype, is
+configurable, and can be overridden narrowly. Where it is read through a _module export_, it may not
+be: night mode's support hook is `function(){return TS.IN_GAMESCOPE}` and its export descriptor is
+**non-configurable**, so there is no narrow override and the only route left is the global constant,
+which D16 forbids. Measured 2026-08-30.
+
+That is the difference between "hidden" and "unreachable", and it is worth checking before planning
+a revival: a non-configurable export means the row is a hide, and the feature has to be a WSGM-owned
+control rather than Valve's.
+
 ### Four gates, and the one that must never be touched
 
 | Gate                     | Example                                   | Response                          |

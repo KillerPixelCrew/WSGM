@@ -1378,7 +1378,13 @@ single Deck-only store getter — but never set the global `TS.IS_STEAMOS`, whic
       **Attended: whether the slider actually moves the panel.** If it does not, the fallback is
       IGCL `ctlGetBrightnessSetting`/`ctlSetBrightnessSetting`, which makes it a device transport
       and therefore plugin-owned beside Arc Sync.
-- [ ] Back night mode with Windows Night Light; its Steam gate is `IN_GAMESCOPE` only.
+- [ ] Back night mode with Windows Night Light. **Valve's row cannot be revived** — measured
+      2026-08-30, its support hook is `function(){return TS.IN_GAMESCOPE}` and that module export's
+      descriptor is non-configurable, so unlike `networkManagementAvailable` there is no narrow
+      override and the only route left is the global constant D16 forbids. Steam's own night-mode
+      settings and `SetNightModeEnabled` do exist, but reaching them would not make the row appear.
+      So this is a **WSGM-owned control** backed by Windows Night Light, in the shape TDP and AutoTDP
+      already use, not a revival. Re-scope before building.
 - [ ] Add a resolution row, which exists nowhere in the tab because SteamOS drives it through
       gamescope, from the same runtime mode discovery the frame-limit strategies use.
 - [ ] Mount the Performance tab's refresh-rate component here, shown only when the frame-limit
