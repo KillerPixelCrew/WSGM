@@ -119,6 +119,7 @@
     latestStates.clear();
   };
   const audioNamespace = createAudioNamespace();
+  const networkGate = createNetworkGate();
   const bridge = Object.freeze({
     version: config.version,
     assetHash: config.assetHash,
@@ -138,6 +139,11 @@
       remove: audioNamespace.remove,
       status: audioNamespace.status,
     }),
+    network: Object.freeze({
+      install: networkGate.install,
+      remove: networkGate.remove,
+      status: networkGate.status,
+    }),
   });
   Object.defineProperty(window, config.namespace, {
     value: bridge,
@@ -146,6 +152,88 @@
     writable: false,
   });
   return JSON.stringify({ ok: true, reused: false, version: config.version });
+  // Wi-Fi is hidden by one getter, not by an absent backend. Steam's Windows client genuinely
+  // tracks the wireless device — hasWirelessDevice and isWifiEnabled are true here without any
+  // help — and only `get networkManagementAvailable(){return TS.IS_STEAMOS}` keeps the UI away.
+  //
+  // Overriding that one property is narrow and reversible and affects one surface. Setting the
+  // constant it reads would produce the same row while changing unrelated client behaviour
+  // everywhere, which is the spoof D16 forbids. Live-verified 2026-08-30: the descriptor is
+  // configurable, the override flips the value, and restoring the saved descriptor puts it back.
+  function createNetworkGate() {
+    const property = "networkManagementAvailable";
+    let original;
+    let target = null;
+    let lastError = "";
+    const store = () => {
+      try {
+        let req;
+        window.webpackChunksteamui.push([
+          ["wsgm_network_store_" + Date.now()],
+          {},
+          (r) => {
+            req = r;
+          },
+        ]);
+        return req?.("77347")?.OQ?.Get() ?? null;
+      } catch {
+        return null;
+      }
+    };
+    const install = () => {
+      if (target) return { ok: true, alreadyInstalled: true };
+      const instance = store();
+      if (!instance) {
+        lastError = "network store unavailable";
+        return { ok: false, error: lastError };
+      }
+      // The getter lives on the prototype, so that is what is replaced and restored. Defining it
+      // on the instance would shadow rather than replace, and removal would leave the shadow.
+      const proto = Object.getPrototypeOf(instance);
+      const descriptor = Object.getOwnPropertyDescriptor(proto, property);
+      if (!descriptor || descriptor.configurable !== true) {
+        lastError = "network availability getter is not configurable";
+        return { ok: false, error: lastError };
+      }
+      try {
+        Object.defineProperty(proto, property, { get: () => true, configurable: true });
+      } catch (error) {
+        lastError = String(error);
+        return { ok: false, error: lastError };
+      }
+      original = descriptor;
+      target = proto;
+      lastError = "";
+      return { ok: true, installed: true, available: instance[property] === true };
+    };
+    const remove = () => {
+      if (!target || !original) return { ok: true, absent: true };
+      try {
+        Object.defineProperty(target, property, original);
+      } catch (error) {
+        lastError = String(error);
+        return { ok: false, error: lastError };
+      }
+      target = null;
+      original = undefined;
+      return { ok: true, removed: true };
+    };
+    const status = () => {
+      const instance = store();
+      return {
+        ok: true,
+        installed: !!target,
+        available: instance ? instance[property] === true : false,
+        // Reported because the row can be on while the list is empty: Steam's Windows backend
+        // never populates wireless.aps, so an access point count of zero here means WSGM has not
+        // supplied one, not that the machine cannot see any networks.
+        accessPoints: Array.isArray(instance?.accessPoints) ? instance.accessPoints.length : -1,
+        hasWirelessDevice: instance?.hasWirelessDevice === true,
+        lastError,
+      };
+    };
+    return { install, remove, status };
+  }
   // Audio is supplied as the namespace Steam's own store looks for, rather than drawn as a row.
   // The store's availability flag is literally `null != SteamClient.System.Audio`, so defining this
   // object is the entire gate — there is nothing to patch and nothing to hide.
