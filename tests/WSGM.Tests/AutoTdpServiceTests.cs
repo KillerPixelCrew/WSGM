@@ -161,6 +161,80 @@ public sealed class AutoTdpServiceTests
         await harness.Service.DisposeAsync();
     }
 
+    [Fact]
+    public async Task AWriteTheDeviceRefusedIsNotTreatedAsAppliedControl()
+    {
+        // The controller has already moved its believed wattage by the time the write returns, so
+        // an outcome that is not "written" leaves every later decision resting on a limit the
+        // hardware may never have taken.
+        Harness harness = new();
+        harness.Service.Apply(enabled: true);
+        harness.Frametimes.Live = [Rendering(22.0)];
+        harness.Outcome = CommandOutcome.Rejected;
+
+        for (int tick = 0; tick < AutoTdpController.SustainedMisses; tick++)
+        {
+            await harness.Service.TickAsync(CancellationToken.None);
+        }
+
+        Assert.Single(harness.Writes);
+        Assert.Equal(AutoTdpState.Unavailable, harness.Service.Status.State);
+        Assert.Contains("did not accept", harness.Service.Status.Detail, StringComparison.Ordinal);
+        await harness.Service.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task ControlResumesFromTheObservedLimitAfterAnUnappliedWrite()
+    {
+        // Re-basing costs one window and is the only honest way back: continuing would judge frames
+        // against a limit the device never took. Control is not abandoned either — once writes are
+        // accepted again the service goes on controlling from what the hardware reports.
+        Harness harness = new();
+        harness.Service.Apply(enabled: true);
+        harness.Frametimes.Live = [Rendering(22.0)];
+        harness.Outcome = CommandOutcome.TimedOut;
+        for (int tick = 0; tick < AutoTdpController.SustainedMisses; tick++)
+        {
+            await harness.Service.TickAsync(CancellationToken.None);
+        }
+
+        Assert.Single(harness.Writes);
+        Assert.Equal(AutoTdpState.Unavailable, harness.Service.Status.State);
+
+        harness.Outcome = CommandOutcome.AppliedVerified;
+        for (int tick = 0;
+            tick < AutoTdpController.SettleWindows + AutoTdpController.SustainedMisses;
+            tick++)
+        {
+            await harness.Service.TickAsync(CancellationToken.None);
+        }
+
+        Assert.Equal(2, harness.Writes.Count);
+        Assert.Equal(AutoTdpState.Controlling, harness.Service.Status.State);
+        await harness.Service.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task AnUnconfirmedRestoreIsNotReportedAsRestored()
+    {
+        // "The previous limit was restored" for a value the device refused is the one message that
+        // makes the handheld's real power state undiagnosable from a log.
+        Harness harness = new();
+        harness.Service.Apply(enabled: true);
+        harness.Frametimes.Live = [Rendering(22.0)];
+        for (int tick = 0; tick < AutoTdpController.SustainedMisses; tick++)
+        {
+            await harness.Service.TickAsync(CancellationToken.None);
+        }
+
+        harness.Outcome = CommandOutcome.Rejected;
+        await harness.Service.DisposeAsync();
+
+        Assert.Equal(15, harness.Writes[^1].Value.IntegerValue);
+        Assert.Equal(AutoTdpState.Off, harness.Service.Status.State);
+        Assert.Contains("was not confirmed", harness.Service.Status.Detail, StringComparison.Ordinal);
+    }
+
     private static async Task WaitForWriteCountAsync(Harness harness, int count)
     {
         for (int attempt = 0; attempt < 100 && harness.Writes.Count < count; attempt++)
@@ -209,7 +283,7 @@ public sealed class AutoTdpServiceTests
                     return Task.FromResult(new CapabilityCommandResult
                     {
                         CommandId = Guid.NewGuid(),
-                        Outcome = CommandOutcome.AppliedVerified,
+                        Outcome = Outcome,
                         ReadbackValue = value,
                         CompletedAt = DateTimeOffset.UtcNow,
                     });
@@ -218,6 +292,9 @@ public sealed class AutoTdpServiceTests
         }
 
         internal FakeFrametimeSource Frametimes { get; } = new();
+
+        /// <summary>What the capability layer reports for the next write.</summary>
+        internal CommandOutcome Outcome { get; set; } = CommandOutcome.AppliedVerified;
 
         internal List<Write> Writes { get; } = [];
 

@@ -9,11 +9,12 @@ public sealed class ControllerMakeSafeTests
     public void SequenceRefusesTargetRemovalBeforeThePhysicalReleaseConcludes()
     {
         ControllerMakeSafeSequence sequence = new();
-        sequence.RecordNeutralized();
+        sequence.RecordNeutralized(verified: true);
 
         Assert.False(sequence.CanRemoveTarget);
         Assert.True(sequence.HidHideMustRemain);
-        Assert.Throws<InvalidOperationException>(sequence.RecordTargetRemoved);
+        Assert.Throws<InvalidOperationException>(
+            () => sequence.RecordTargetRemoved(verified: true));
     }
 
     [Fact]
@@ -30,7 +31,7 @@ public sealed class ControllerMakeSafeTests
     public void CompleteVerifiedSequenceReportsAVerifiedRelease()
     {
         ControllerMakeSafeSequence sequence = Released(ControllerHandoffStep.TopologyVerified);
-        sequence.RecordTargetRemoved();
+        sequence.RecordTargetRemoved(verified: true);
         sequence.RecordHidHideRemoved(verified: true);
 
         Assert.Equal(ControllerHandoffResult.ReleasedVerified, sequence.Complete());
@@ -42,7 +43,7 @@ public sealed class ControllerMakeSafeTests
     public void AnUnverifiedPluginTopologyDowngradesTheResultButStillRemovesWsgmState()
     {
         ControllerMakeSafeSequence sequence = Released(ControllerHandoffStep.TopologyUnverified);
-        sequence.RecordTargetRemoved();
+        sequence.RecordTargetRemoved(verified: true);
         sequence.RecordHidHideRemoved(verified: true);
 
         Assert.Equal(ControllerHandoffResult.ReleasedUnverified, sequence.Complete());
@@ -54,12 +55,12 @@ public sealed class ControllerMakeSafeTests
     public void AnUnobservedPluginReleaseStillPermitsRemovalAndReportsUnverified()
     {
         ControllerMakeSafeSequence sequence = new();
-        sequence.RecordNeutralized();
+        sequence.RecordNeutralized(verified: true);
         sequence.RecordPluginReleaseUnobserved();
 
         Assert.True(sequence.CanRemoveTarget);
         Assert.Equal(ControllerHandoffStep.TopologyUnverified, sequence.Step);
-        sequence.RecordTargetRemoved();
+        sequence.RecordTargetRemoved(verified: true);
         sequence.RecordHidHideRemoved(verified: true);
         Assert.Equal(ControllerHandoffResult.ReleasedUnverified, sequence.Complete());
     }
@@ -68,7 +69,7 @@ public sealed class ControllerMakeSafeTests
     public void AnUnverifiedHidHideRemovalDowngradesAnOtherwiseCleanSequence()
     {
         ControllerMakeSafeSequence sequence = Released(ControllerHandoffStep.TopologyVerified);
-        sequence.RecordTargetRemoved();
+        sequence.RecordTargetRemoved(verified: true);
         sequence.RecordHidHideRemoved(verified: false);
 
         Assert.Equal(ControllerHandoffResult.ReleasedUnverified, sequence.Complete());
@@ -78,11 +79,11 @@ public sealed class ControllerMakeSafeTests
     public void APluginReportingAVerifiedTopologyWithAnUnverifiedResultIsNotTreatedAsClean()
     {
         ControllerMakeSafeSequence sequence = new();
-        sequence.RecordNeutralized();
+        sequence.RecordNeutralized(verified: true);
         sequence.RecordPluginRelease(
             ControllerHandoffStep.TopologyVerified,
             ControllerHandoffResult.ReleasedUnverified);
-        sequence.RecordTargetRemoved();
+        sequence.RecordTargetRemoved(verified: true);
         sequence.RecordHidHideRemoved(verified: true);
 
         Assert.Equal(ControllerHandoffResult.ReleasedUnverified, sequence.Complete());
@@ -97,7 +98,7 @@ public sealed class ControllerMakeSafeTests
             ControllerHandoffResult.ReleasedVerified));
 
         ControllerMakeSafeSequence fresh = new();
-        fresh.RecordNeutralized();
+        fresh.RecordNeutralized(verified: true);
         Assert.Throws<InvalidOperationException>(() => fresh.RecordPluginRelease(
             ControllerHandoffStep.VirtualTargetNeutralized,
             ControllerHandoffResult.ReleasedVerified));
@@ -107,7 +108,7 @@ public sealed class ControllerMakeSafeTests
     public void SequenceRefusesCompletionBeforeWsgmStateIsRemoved()
     {
         ControllerMakeSafeSequence sequence = Released(ControllerHandoffStep.TopologyVerified);
-        sequence.RecordTargetRemoved();
+        sequence.RecordTargetRemoved(verified: true);
 
         Assert.Throws<InvalidOperationException>(() => sequence.Complete());
         Assert.Equal(ControllerHandoffResult.InProgress, sequence.Result);
@@ -117,15 +118,41 @@ public sealed class ControllerMakeSafeTests
     public void SequenceRefusesNeutralizingTwice()
     {
         ControllerMakeSafeSequence sequence = new();
-        sequence.RecordNeutralized();
+        sequence.RecordNeutralized(verified: true);
 
-        Assert.Throws<InvalidOperationException>(sequence.RecordNeutralized);
+        Assert.Throws<InvalidOperationException>(
+            () => sequence.RecordNeutralized(verified: true));
+    }
+
+    [Fact]
+    public void AnUnverifiedNeutralizationDowngradesAnOtherwiseCleanSequence()
+    {
+        ControllerMakeSafeSequence sequence = new();
+        sequence.RecordNeutralized(verified: false);
+        sequence.RecordPluginRelease(
+            ControllerHandoffStep.TopologyVerified,
+            ControllerHandoffResult.ReleasedVerified);
+        sequence.RecordTargetRemoved(verified: true);
+        sequence.RecordHidHideRemoved(verified: true);
+
+        Assert.Equal(ControllerHandoffResult.ReleasedUnverified, sequence.Complete());
+    }
+
+    [Fact]
+    public void AFailedTargetRemovalStillRemovesHidHideButIsNeverReportedAsVerified()
+    {
+        ControllerMakeSafeSequence sequence = Released(ControllerHandoffStep.TopologyVerified);
+        sequence.RecordTargetRemoved(verified: false);
+        sequence.RecordHidHideRemoved(verified: true);
+
+        Assert.Equal(ControllerHandoffResult.ReleasedUnverified, sequence.Complete());
+        Assert.True(sequence.HidHideRemoved);
     }
 
     private static ControllerMakeSafeSequence Released(ControllerHandoffStep step)
     {
         ControllerMakeSafeSequence sequence = new();
-        sequence.RecordNeutralized();
+        sequence.RecordNeutralized(verified: true);
         sequence.RecordPluginRelease(
             step,
             step is ControllerHandoffStep.TopologyVerified

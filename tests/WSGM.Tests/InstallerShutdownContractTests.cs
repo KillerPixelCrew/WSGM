@@ -573,21 +573,29 @@ public sealed class InstallerShutdownContractTests
             prepare,
             "VerifyNoDeviceHostProcesses()",
             "SetupDeviceHostStateVerified := True;");
+        // Gated on the post-install having completed, not on installation having started. The
+        // [Run] restart entries execute only after a successful setup, so a failure during [Files]
+        // or a RaiseException out of ReplaceDevicePluginSlot must still restore the shell,
+        // Settings, and the logon service that setup stopped.
         AssertOrdered(
             deinitialize,
             "ReleaseDevicePublicationReservations();",
-            "if not SetupInstallStarted then");
+            "if not SetupPostInstallCompleted then");
         Assert.True(deinitialize.Contains(
             "RestoreStoppedSetupRuntime();",
             StringComparison.Ordinal));
-        AssertOrdered(
-            stepChanged,
-            "if CurStep = ssInstall then",
-            "SetupInstallStarted := True");
+        Assert.False(
+            deinitialize.Contains("SetupInstallStarted", StringComparison.Ordinal),
+            "Setup restoration must not be suppressed merely because installation began.");
         AssertOrdered(
             stepChanged,
             "ReplaceDevicePluginSlot();",
             "SetupShutdownApplied := False;");
+        // Both flags are set only on the success path, after publication actually returned.
+        AssertOrdered(
+            stepChanged,
+            "SetupShutdownApplied := False;",
+            "SetupPostInstallCompleted := True;");
     }
 
     private static string RepositoryRoot

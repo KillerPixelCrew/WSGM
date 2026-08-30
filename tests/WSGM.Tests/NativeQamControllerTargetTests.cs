@@ -30,13 +30,17 @@ public sealed class NativeQamControllerTargetTests
     }
 
     [Fact]
-    public void EveryTargetIsOfferedOnceManagementRuns()
+    public void EveryTargetTheBackendCanBuildIsOfferedOnceManagementRuns()
     {
-        // The targets are WSGM's own virtual devices, so which ones exist never depends on the
-        // machine — only on whether the backend came up, which Available already reports.
         NativeQamControllerTargetState state = Project(
             enabled: true,
-            Status(ControllerManagementState.Idle, ManagedControllerTarget.Xbox360));
+            Status(ControllerManagementState.Idle, ManagedControllerTarget.Xbox360),
+            supportedTargets:
+            [
+                ManagedControllerTarget.SteamDeckComposite,
+                ManagedControllerTarget.Xbox360,
+                ManagedControllerTarget.DualShock4,
+            ]);
 
         Assert.True(state.Available);
         Assert.Collection(
@@ -45,6 +49,23 @@ public sealed class NativeQamControllerTargetTests
             target => Assert.Equal(nameof(ManagedControllerTarget.Xbox360), target.Id),
             target => Assert.Equal(nameof(ManagedControllerTarget.DualShock4), target.Id));
         Assert.All(state.Targets, target => Assert.True(target.Available));
+    }
+
+    [Fact]
+    public void ATargetTheBackendCannotBuildIsNotOffered()
+    {
+        // Offering one is worse than offering fewer: the selection persists, target creation is
+        // refused, and controller management reports itself unavailable until the user finds the
+        // setting again. The production backend supports only the Deck composite today.
+        NativeQamControllerTargetState state = Project(
+            enabled: true,
+            Status(ControllerManagementState.Idle, ManagedControllerTarget.SteamDeckComposite),
+            supportedTargets: [ManagedControllerTarget.SteamDeckComposite]);
+
+        Assert.True(state.Available);
+        Assert.Collection(
+            state.Targets,
+            target => Assert.Equal(nameof(ManagedControllerTarget.SteamDeckComposite), target.Id));
     }
 
     [Fact]
@@ -156,8 +177,13 @@ public sealed class NativeQamControllerTargetTests
     private static NativeQamControllerTargetState Project(
         bool enabled,
         ControllerManagerStatus status,
-        bool packageInstalled = true) =>
-        DeviceCoordinatorNativeQamControllerTargetService.Project(enabled, status, packageInstalled);
+        bool packageInstalled = true,
+        IReadOnlyList<ManagedControllerTarget>? supportedTargets = null) =>
+        DeviceCoordinatorNativeQamControllerTargetService.Project(
+            enabled,
+            status,
+            packageInstalled,
+            supportedTargets ?? Enum.GetValues<ManagedControllerTarget>());
 
     private static ControllerManagerStatus Status(
         ControllerManagementState state,

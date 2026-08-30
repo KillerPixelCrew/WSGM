@@ -111,7 +111,11 @@ public sealed class DeviceCoordinatorConcurrencyTests
                 order.Add("stop");
                 return Task.FromResult(VerifiedStop());
             },
-            () => order.Add("detach"),
+            () =>
+            {
+                order.Add("detach");
+                return ValueTask.CompletedTask;
+            },
             () =>
             {
                 order.Add("dispose");
@@ -153,7 +157,11 @@ public sealed class DeviceCoordinatorConcurrencyTests
                         order.Add("stop");
                         return Task.FromResult(VerifiedStop());
                     },
-                    () => order.Add("detach"),
+                    () =>
+            {
+                order.Add("detach");
+                return ValueTask.CompletedTask;
+            },
                     () =>
                     {
                         order.Add("dispose");
@@ -280,7 +288,11 @@ public sealed class DeviceCoordinatorConcurrencyTests
             Task.FromException<DeviceHostExit>(monitorFailure));
         IReadOnlyList<Exception> cleanupFailures =
             await DeviceCoordinator.RunHostExitOwnerCleanupAsync(
-                () => order.Add("detach"),
+                () =>
+                {
+                    order.Add("detach");
+                    return ValueTask.CompletedTask;
+                },
                 () =>
                 {
                     order.Add("dispose-host-job");
@@ -377,7 +389,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
         DeviceClientTeardownResult teardown = await DeviceCoordinator.RunClientTeardownAsync(
             _ => Task.FromResult(handoff),
             _ => Task.FromResult(stopped),
-            static () => { },
+            static () => ValueTask.CompletedTask,
             () =>
             {
                 disposed = true;
@@ -412,7 +424,11 @@ public sealed class DeviceCoordinatorConcurrencyTests
                 order.Add("stop");
                 return Task.FromException<DeviceLifecycleNotification>(stopFailure);
             },
-            () => order.Add("detach"),
+            () =>
+            {
+                order.Add("detach");
+                return ValueTask.CompletedTask;
+            },
             () =>
             {
                 order.Add("dispose");
@@ -448,7 +464,11 @@ public sealed class DeviceCoordinatorConcurrencyTests
                 order.Add("stop");
                 return Task.FromCanceled<DeviceLifecycleNotification>(token);
             },
-            () => order.Add("detach"),
+            () =>
+            {
+                order.Add("detach");
+                return ValueTask.CompletedTask;
+            },
             () =>
             {
                 order.Add("dispose");

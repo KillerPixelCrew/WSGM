@@ -170,10 +170,32 @@ public sealed class UiInputRouterTests
     }
 
     [Fact]
-    public void ComingBackAfterAFallbackDoesNotSwallowTheFirstPress()
+    public void AControlAlreadyHeldWhenTheManagedSourceComesOnlineMakesNoPress()
     {
-        // The managed source's held state is stale once it stops being current. Keeping it would
-        // make the first press after it returns produce no edge at all.
+        // The sample that makes the managed source healthy is also the first sample it has ever
+        // seen, so its accumulated held state is empty. Taking the suppression mask from that
+        // state captured nothing, and a button the user was already holding when controller
+        // management came online arrived as a fresh press that could activate or dismiss whatever
+        // had focus. The mask has to come from the incoming sample itself.
+        FakeButtonSource sdl = new();
+        using UiInputRouter router = new(sdl);
+        List<GamepadButtons> seen = [];
+        router.ButtonPressed += seen.Add;
+
+        router.Submit(Sample(CanonicalButtons.A));
+
+        Assert.Equal(UiInputSource.ManagedCanonical, router.Current);
+        Assert.Empty(seen);
+    }
+
+    [Fact]
+    public void ComingBackAfterAFallbackDoesNotSwallowThePressAfterTheFirstSample()
+    {
+        // Two rules meet here. The managed source's held state is stale once it stops being
+        // current, so it is reset — keeping it would swallow every later press. And the sample
+        // that re-establishes the source is treated as held-across-the-switch, because nothing can
+        // tell "still down" from "just pressed" on the sample that establishes it. The press after
+        // the release is unambiguously the user's, and it lands.
         FakeButtonSource sdl = new();
         using UiInputRouter router = new(sdl);
         router.Submit(Sample(CanonicalButtons.A));
@@ -182,6 +204,10 @@ public sealed class UiInputRouterTests
         List<GamepadButtons> seen = [];
         router.ButtonPressed += seen.Add;
 
+        router.Submit(Sample(CanonicalButtons.A));
+        Assert.Empty(seen);
+
+        router.Submit(Sample(CanonicalButtons.None));
         router.Submit(Sample(CanonicalButtons.A));
 
         Assert.Equal([GamepadButtons.A], seen);

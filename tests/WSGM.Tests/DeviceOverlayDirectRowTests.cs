@@ -82,6 +82,26 @@ public sealed class DeviceOverlayDirectRowTests
         Assert.Equal(expected, DeviceOverlayBridge.NextTarget(current));
 
     [Fact]
+    public void CyclingSkipsTargetsTheBackendCannotBuild()
+    {
+        // With one supported target the row is a no-op rather than a way to persist a selection
+        // the backend refuses, which would leave controller management unavailable.
+        ManagedControllerTarget[] supported = [ManagedControllerTarget.SteamDeckComposite];
+
+        Assert.Equal(
+            ManagedControllerTarget.SteamDeckComposite,
+            DeviceOverlayBridge.NextTarget(ManagedControllerTarget.SteamDeckComposite, supported));
+        Assert.Equal(
+            ManagedControllerTarget.SteamDeckComposite,
+            DeviceOverlayBridge.NextTarget(ManagedControllerTarget.DualShock4, supported));
+        Assert.Equal(
+            ManagedControllerTarget.DualShock4,
+            DeviceOverlayBridge.NextTarget(
+                ManagedControllerTarget.SteamDeckComposite,
+                [ManagedControllerTarget.SteamDeckComposite, ManagedControllerTarget.DualShock4]));
+    }
+
+    [Fact]
     public void AHealthyCycleOffersNoRecoveryRow()
     {
         // A recovery control that is always present but almost always inert trains a user to ignore

@@ -10,6 +10,36 @@ namespace WSGM.Tests;
 // config.bad.json beside it. Constructing it here must never reach that directory.
 public sealed class SettingsViewModelSplashTests
 {
+    [Fact]
+    public void OpeningSettingsDoesNotCountAsEditingTheRuntimeOwnedDeviceValues()
+    {
+        // AutoTDP, the controller target and the glyph policy are also persisted by the running
+        // shell — the overlay and the native quick-access menu change all three while this window
+        // is open. A save merges over a fresh load, so writing this window's startup snapshot back
+        // unconditionally silently reverted whichever of them had changed in the meantime.
+        AppConfig config = new();
+        config.DeviceIntegration.AutoTdpEnabled = true;
+        config.DeviceIntegration.ControllerTarget = ManagedControllerTarget.DualShock4;
+        config.DeviceIntegration.GlyphSelection = DeviceGlyphSelection.NativeSteam;
+
+        SettingsViewModel viewModel = new(config);
+
+        Assert.True(viewModel.DeviceAutoTdpEnabled);
+        Assert.Equal((int)ManagedControllerTarget.DualShock4, viewModel.DeviceControllerTargetIndex);
+        Assert.Equal((int)DeviceGlyphSelection.NativeSteam, viewModel.DeviceGlyphSelectionIndex);
+        Assert.Equal((false, false, false), viewModel.DeviceEditsMade);
+    }
+
+    [Fact]
+    public void ChangingOneRuntimeOwnedDeviceValueMarksOnlyThatOne()
+    {
+        SettingsViewModel viewModel = new(new AppConfig());
+
+        viewModel.DeviceGlyphSelectionIndex = (int)DeviceGlyphSelection.ManualReviewedProfile;
+
+        Assert.Equal((false, false, true), viewModel.DeviceEditsMade);
+    }
+
     private static string Json(SplashConfig splash) =>
         JsonSerializer.Serialize(splash, ConfigJsonContext.Default.SplashConfig);
 

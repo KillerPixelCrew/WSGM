@@ -188,6 +188,172 @@ public sealed class SteamUiAssetTests
     }
 }
 
+public sealed class SteamUiPatchLifecycleTests
+{
+    [Theory]
+    [InlineData("""{"ok":true,"rowClass":true,"logoClass":true}""", true)]
+    [InlineData("""{"ok":true,"rowClass":false,"logoClass":true}""", false)]
+    [InlineData("""{"ok":true,"rowClass":true,"logoClass":false}""", false)]
+    [InlineData("""{"ok":true}""", false)]
+    [InlineData("""{"ok":false,"rowClass":true,"logoClass":true}""", false)]
+    public void ARequiredStructuralFlagIsPartOfCompatibilityRatherThanDecoration(
+        string probe,
+        bool expected)
+    {
+        // A probe that reports its own structural findings has to have them read. The glyph-style
+        // probe returned whether each build-coupled selector class still exists while only "ok" —
+        // which is !!document.head — decided compatibility, so a Steam build that renamed one was
+        // still called compatible and the patch installed rules matching nothing.
+        Assert.Equal(
+            expected,
+            SteamUiPatchEvaluation.IsSuccessful(probe, "rowClass", "logoClass"));
+    }
+
+    [Fact]
+    public async Task AnAppliedPatchThatDoesNotVerifyIsRemovedRatherThanLeftInTheClient()
+    {
+        await using SteamUiPatchManager manager = new(new SilentTransport());
+        RecordingPatch patch = new() { VerifySucceeds = false };
+        manager.Register(patch);
+
+        await manager.SynchronizeAsync();
+
+        SteamUiPatchSnapshot snapshot = Assert.Single(manager.GetSnapshots());
+        Assert.Equal(SteamUiPatchState.Degraded, snapshot.State);
+        Assert.Equal(1, patch.RemoveCalls);
+    }
+
+    [Fact]
+    public async Task APatchWhoseRemovalAlsoFailsReportsRemoveFailed()
+    {
+        await using SteamUiPatchManager manager = new(new SilentTransport());
+        RecordingPatch patch = new() { VerifySucceeds = false, RemoveSucceeds = false };
+        manager.Register(patch);
+
+        await manager.SynchronizeAsync();
+
+        SteamUiPatchSnapshot snapshot = Assert.Single(manager.GetSnapshots());
+        Assert.Equal(SteamUiPatchState.RemoveFailed, snapshot.State);
+    }
+
+    [Fact]
+    public async Task EveryPhaseGetsItsOwnDeclaredBudget()
+    {
+        // The bound is documented as the maximum duration of one phase. Sharing one source across
+        // probe, apply and verify let a slow client spend most of it probing and have its otherwise
+        // in-budget apply cancelled underneath it.
+        await using SteamUiPatchManager manager = new(new SilentTransport());
+        RecordingPatch patch = new()
+        {
+            Bounds = new SteamUiPatchBounds(TimeSpan.FromMilliseconds(400), 4096, 512),
+            PhaseDelay = TimeSpan.FromMilliseconds(250),
+        };
+        manager.Register(patch);
+
+        await manager.SynchronizeAsync();
+
+        SteamUiPatchSnapshot snapshot = Assert.Single(manager.GetSnapshots());
+        Assert.Equal(SteamUiPatchState.Verified, snapshot.State);
+    }
+
+    /// <summary>A patch whose phases are scripted, with no Steam and no evaluation.</summary>
+    private sealed class RecordingPatch : ISteamUiPatch
+    {
+        public string Id => "wsgm-test-patch";
+
+        public int Version => 1;
+
+        public SteamUiTargetRole TargetRole => SteamUiTargetRole.SharedJsContext;
+
+        public string ResourceKey => "test";
+
+        public SteamUiPatchBounds Bounds { get; init; } = SteamUiPatchBounds.Default;
+
+        internal bool VerifySucceeds { get; init; } = true;
+
+        internal bool RemoveSucceeds { get; init; } = true;
+
+        internal TimeSpan PhaseDelay { get; init; }
+
+        internal int RemoveCalls { get; private set; }
+
+        public async Task<SteamUiPatchProbeResult> ProbeAsync(
+            SteamUiPatchContext context,
+            CancellationToken cancellationToken)
+        {
+            await DelayAsync(cancellationToken);
+            return new SteamUiPatchProbeResult(true, true, true, "fingerprint", null);
+        }
+
+        public async Task<SteamUiPatchOperationResult> ApplyAsync(
+            SteamUiPatchContext context,
+            CancellationToken cancellationToken)
+        {
+            await DelayAsync(cancellationToken);
+            return new SteamUiPatchOperationResult(true, null);
+        }
+
+        public async Task<SteamUiPatchOperationResult> VerifyAsync(
+            SteamUiPatchContext context,
+            CancellationToken cancellationToken)
+        {
+            await DelayAsync(cancellationToken);
+            return new SteamUiPatchOperationResult(VerifySucceeds, VerifySucceeds ? null : "no proof");
+        }
+
+        public async Task<SteamUiPatchOperationResult> RemoveAsync(
+            SteamUiPatchContext context,
+            CancellationToken cancellationToken)
+        {
+            RemoveCalls++;
+            await DelayAsync(cancellationToken);
+            return new SteamUiPatchOperationResult(
+                RemoveSucceeds,
+                RemoveSucceeds ? null : "removal unverified");
+        }
+
+        private Task DelayAsync(CancellationToken cancellationToken) =>
+            PhaseDelay <= TimeSpan.Zero ? Task.CompletedTask : Task.Delay(PhaseDelay, cancellationToken);
+    }
+
+    /// <summary>A transport that subscribes and reports nothing, for patches that never evaluate.</summary>
+    private sealed class SilentTransport : ISteamUiTransport
+    {
+        public event EventHandler<SteamUiNotification>? NotificationReceived
+        {
+            add { }
+            remove { }
+        }
+
+        public event EventHandler<SteamUiTransportSnapshot>? GenerationChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public ValueTask<IAsyncDisposable> SubscribeAsync(
+            SteamUiTargetRole role,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<IAsyncDisposable>(new Lease());
+
+        public Task<SteamUiEvaluationResult> EvaluateAsync(
+            SteamUiTargetRole role,
+            string expression,
+            TimeSpan timeout,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(SteamUiEvaluationResult.Unavailable("not evaluated", default));
+
+        public IReadOnlyList<SteamUiTransportSnapshot> GetSnapshots() => [];
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        private sealed class Lease : IAsyncDisposable
+        {
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+    }
+}
+
 public sealed class NativeQamComponentPatchTests
 {
     [Fact]

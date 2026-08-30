@@ -69,7 +69,7 @@ public sealed class DeviceIntegrationOffTests
         // Switching integration off runs this. Pulling the virtual target while the plugin is still
         // releasing leaves the plugin talking to something that no longer exists.
         ControllerMakeSafeSequence sequence = new();
-        sequence.RecordNeutralized();
+        sequence.RecordNeutralized(verified: true);
 
         Assert.False(sequence.CanRemoveTarget);
         Assert.False(sequence.CanRemoveHidHide);
@@ -84,7 +84,7 @@ public sealed class DeviceIntegrationOffTests
     public void HidHideOutlivesTheTargetAndBothAreGoneAtTheEnd()
     {
         ControllerMakeSafeSequence sequence = new();
-        sequence.RecordNeutralized();
+        sequence.RecordNeutralized(verified: true);
         sequence.RecordPluginRelease(
             ControllerHandoffStep.TopologyVerified,
             ControllerHandoffResult.ReleasedVerified);
@@ -92,7 +92,7 @@ public sealed class DeviceIntegrationOffTests
         Assert.True(sequence.CanRemoveTarget);
         Assert.False(sequence.CanRemoveHidHide);
 
-        sequence.RecordTargetRemoved();
+        sequence.RecordTargetRemoved(verified: true);
         Assert.True(sequence.TargetRemoved);
         Assert.True(sequence.CanRemoveHidHide);
         Assert.False(sequence.HidHideMustRemain);

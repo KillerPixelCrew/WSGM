@@ -148,6 +148,85 @@ public sealed record PluginSettingDescriptor
         error = null;
         return true;
     }
+
+    /// <summary>
+    /// Whether a value satisfies what this setting currently declares.
+    /// </summary>
+    /// <param name="value">The value, typically one restored from configuration.</param>
+    /// <param name="error">Why it does not, naming the value and the declared bound.</param>
+    /// <returns><see langword="true"/> when the value is usable as-is.</returns>
+    /// <remarks>
+    /// Separate from <see cref="TryValidate"/> because the two answer different questions at
+    /// different times: whether the plugin's declaration is coherent, and whether a value stored
+    /// under a possibly older declaration still fits the current one.
+    /// </remarks>
+    public bool TryValidateValue(CapabilityValue? value, out string? error)
+    {
+        if (value is null || value.Kind != ValueKind)
+        {
+            error = $"value kind {value?.Kind.ToString() ?? "none"} does not match {ValueKind}.";
+            return false;
+        }
+
+        switch (ValueKind)
+        {
+            case CapabilityValueKind.Boolean when value.BooleanValue is null:
+                error = "boolean value is missing.";
+                return false;
+
+            case CapabilityValueKind.Integer:
+                if (value.IntegerValue is not { } integer)
+                {
+                    error = "integer value is missing.";
+                    return false;
+                }
+
+                if (integer < Minimum || integer > Maximum)
+                {
+                    error = $"{integer} is outside the declared range {Minimum}-{Maximum}.";
+                    return false;
+                }
+
+                if (Step is > 0 && (integer - (Minimum ?? 0)) % Step != 0)
+                {
+                    error = $"{integer} is not on the declared step of {Step}.";
+                    return false;
+                }
+
+                break;
+
+            case CapabilityValueKind.Choice:
+                if (value.ChoiceValue is not { Length: > 0 } choice)
+                {
+                    error = "choice value is missing.";
+                    return false;
+                }
+
+                if (!Choices.Any(item =>
+                    string.Equals(item.Value, choice, System.StringComparison.Ordinal)))
+                {
+                    error = $"'{choice}' is not one of the {Choices.Count} declared options.";
+                    return false;
+                }
+
+                break;
+
+            case CapabilityValueKind.Color when value.ColorValue is not (>= 0 and <= 0xFFFFFF):
+                error = "colour value is missing or outside 24-bit RGB.";
+                return false;
+
+            case CapabilityValueKind.Text:
+                return PlainText.TryValidate(
+                    value.TextValue,
+                    MaximumLength ?? 0,
+                    $"setting '{SettingId}' text",
+                    out error
+                );
+        }
+
+        error = null;
+        return true;
+    }
 }
 
 /// <summary>

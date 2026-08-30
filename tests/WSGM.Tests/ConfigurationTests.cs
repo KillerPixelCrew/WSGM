@@ -6,6 +6,62 @@ namespace WSGM.Tests;
 public sealed class ConfigurationTests
 {
     [Fact]
+    public void AnUnknownDeviceEnumNameIsRepairedInsteadOfDiscardingTheWholeFile()
+    {
+        // Every enum here is written by name, so an unrecognised one throws before Normalize can
+        // apply its Enum.IsDefined fallbacks. If the repair pass does not cover it, the retry
+        // throws too and Load moves the entire file aside — taking the registry recovery snapshots
+        // and every unrelated setting with it. The values below are what a hand edit, or a
+        // configuration written by a build that knows more names, looks like.
+        const string json = """
+        {
+          "AccentColor": "#FF00AA",
+          "DeviceIntegration": {
+            "Enabled": true,
+            "ControllerTarget": "NintendoSwitchPro",
+            "GlyphSelection": "SomethingElse",
+            "DiagnosticLevel": "Verbose",
+            "ControllerTargets": [
+              { "ApplicationId": "steam:70", "Target": "NotATarget" }
+            ],
+            "Profiles": [
+              {
+                "DeviceIdentityKey": "device",
+                "OemAssignments": [ { "ControlId": "oem1", "Action": "LaunchAnything" } ],
+                "Capabilities": [
+                  {
+                    "CapabilityId": "power.primary-limit",
+                    "GlobalDefault": { "Kind": "Wattage", "IntegerValue": 15 }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+        """;
+
+        AppConfig? config = ConfigStore.DeserializeConfig(json);
+
+        Assert.NotNull(config);
+        // The unrelated setting survived, which is the point of repairing rather than discarding.
+        Assert.Equal("#FF00AA", config.AccentColor);
+        Assert.True(config.DeviceIntegration.Enabled);
+        Assert.Equal(
+            ManagedControllerTarget.SteamDeckComposite,
+            config.DeviceIntegration.ControllerTarget);
+        Assert.Equal(DeviceGlyphSelection.Automatic, config.DeviceIntegration.GlyphSelection);
+        Assert.Equal(DeviceDiagnosticLevel.Standard, config.DeviceIntegration.DiagnosticLevel);
+        Assert.Equal(
+            ManagedControllerTarget.SteamDeckComposite,
+            Assert.Single(config.DeviceIntegration.ControllerTargets).Target);
+        DeviceDesiredProfile profile = Assert.Single(config.DeviceIntegration.Profiles);
+        Assert.Equal(OemAction.Disabled, Assert.Single(profile.OemAssignments).Action);
+        Assert.Equal(
+            WSGM.Device.Sdk.Capabilities.CapabilityValueKind.None,
+            Assert.Single(profile.Capabilities).GlobalDefault!.Kind);
+    }
+
+    [Fact]
     public void NormalizeRepairsEveryNullableCollectionAndNestedSection()
     {
         var config = new AppConfig
