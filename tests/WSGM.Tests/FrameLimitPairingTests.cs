@@ -43,23 +43,25 @@ public sealed class FrameLimitPairingTests
     }
 
     [Fact]
-    public void SelectRefreshHz_NativeModes_LeavesRefreshAloneWhenOnlyASynthesizedModeWouldFit()
+    public void SelectRefreshHz_NativeModes_FallsBackToAnAdvertisedModeWhenNoneIsAnExactMultiple()
     {
-        // 48 divides only the synthesized 48 Hz; neither advertised rate is a multiple of it.
-        // Note 24 would NOT do as an example here — 120 is an exact 5x of it, so the panel's own
-        // modes can hold a 24 FPS cadence perfectly well.
-        Assert.Null(FrameLimitPairing.SelectRefreshHz(
+        // 48 divides only the synthesized 48 Hz; neither advertised rate is a multiple of it. The
+        // panel is still set to the lowest advertised mode that can present the cap, because the
+        // slider names a rate for every cap and leaving 120 Hz up costs power for nothing.
+        Assert.Equal(60, FrameLimitPairing.SelectRefreshHz(
             FrameLimitStrategy.NativeModes, 48, ClawNative, ClawAccepted));
+
+        // Frame doubling has the synthesized mode and takes the exact cadence instead.
         Assert.Equal(48, FrameLimitPairing.SelectRefreshHz(
             FrameLimitStrategy.FrameDoubling, 48, ClawNative, ClawAccepted));
     }
 
     [Fact]
-    public void SelectRefreshHz_CapWithNoExactMultiple_LeavesRefreshAlone()
+    public void SelectRefreshHz_CapWithNoExactMultiple_TakesTheLowestModeThatCanPresentIt()
     {
-        // 45 divides none of 30/48/60/75/100/120, so forcing a mode would introduce judder rather
-        // than remove it.
-        Assert.Null(FrameLimitPairing.SelectRefreshHz(
+        // 45 divides none of 30/48/60/75/100/120. The cap is a free number now, so every cap gets a
+        // rate: the lowest one that can present it without dropping frames.
+        Assert.Equal(48, FrameLimitPairing.SelectRefreshHz(
             FrameLimitStrategy.FrameDoubling, 45, ClawNative, ClawAccepted));
     }
 
@@ -82,8 +84,14 @@ public sealed class FrameLimitPairingTests
             FrameLimitStrategy.FrameDoubling, 30, twoModes, twoModes));
         Assert.Equal(60, FrameLimitPairing.SelectRefreshHz(
             FrameLimitStrategy.FrameDoubling, 20, twoModes, twoModes));
-        Assert.Null(FrameLimitPairing.SelectRefreshHz(
+
+        // 40 divides neither, so it falls back to the lowest mode that can present it.
+        Assert.Equal(60, FrameLimitPairing.SelectRefreshHz(
             FrameLimitStrategy.FrameDoubling, 40, twoModes, twoModes));
+
+        // Nothing can present a cap above every mode, and that is still the one honest null.
+        Assert.Null(FrameLimitPairing.SelectRefreshHz(
+            FrameLimitStrategy.FrameDoubling, 90, twoModes, twoModes));
     }
 
     [Fact]
@@ -98,11 +106,13 @@ public sealed class FrameLimitPairingTests
     }
 
     [Fact]
-    public void FrameLimitOptions_CoupledStrategy_OffersOnlyCapsWithAnExactCadence()
+    public void FrameLimitOptions_CoupledStrategy_PairsEveryCapItOffers()
     {
         IReadOnlyList<int> options = FrameLimitPairing.FrameLimitOptions(
             FrameLimitStrategy.FrameDoubling, ClawNative, ClawAccepted);
 
+        // The row names a refresh rate beside every cap, so an offered cap with no rate behind it
+        // would leave the label half-written.
         foreach (int cap in options.Where(cap => cap != 0))
         {
             Assert.NotNull(FrameLimitPairing.SelectRefreshHz(
@@ -111,14 +121,32 @@ public sealed class FrameLimitPairingTests
     }
 
     [Fact]
-    public void FrameLimitOptions_CoupledStrategy_IncludesCapsDerivedFromUnusualModes()
+    public void FrameLimitOptions_CoupledStrategy_IsTheSameFreeRangeAsTheUncoupledOne()
     {
-        IReadOnlyList<int> options = FrameLimitPairing.FrameLimitOptions(
-            FrameLimitStrategy.FrameDoubling, ClawNative, ClawAccepted);
+        // The strategies differ in what the cap DOES to the display, not in which caps exist. A
+        // notch set derived from exact cadences was the old split-slider model.
+        Assert.Equal(
+            FrameLimitPairing.FrameLimitOptions(
+                FrameLimitStrategy.FrameLimitOnly, ClawNative, ClawAccepted),
+            FrameLimitPairing.FrameLimitOptions(
+                FrameLimitStrategy.FrameDoubling, ClawNative, ClawAccepted));
+    }
 
-        // 25 is only reachable because the driver accepts 75 Hz; a fixed ladder would have missed it.
-        Assert.Contains(25, options);
-        Assert.Contains(24, options);
+    [Fact]
+    public void FrameLimitRange_NativeModes_IsBoundedByWhatThePanelAdvertises()
+    {
+        // The accepted list reaches 120, but native modes may only use what the panel advertises.
+        Assert.Equal(
+            (30, 90),
+            FrameLimitPairing.FrameLimitRange(
+                FrameLimitStrategy.NativeModes, [60, 90], ClawAccepted));
+    }
+
+    [Fact]
+    public void FrameLimitRange_PanelBelowTheFloor_OffersNothing()
+    {
+        Assert.Null(FrameLimitPairing.FrameLimitRange(
+            FrameLimitStrategy.FrameDoubling, [24], [24]));
     }
 
     [Fact]
@@ -131,7 +159,7 @@ public sealed class FrameLimitPairingTests
     }
 
     [Fact]
-    public void FrameLimitOptions_UncoupledStrategy_OffersEveryIntegerFromThirtyToTheCeiling()
+    public void FrameLimitOptions_OffersEveryIntegerFromThirtyToTheCeiling()
     {
         IReadOnlyList<int> options = FrameLimitPairing.FrameLimitOptions(
             FrameLimitStrategy.FrameLimitOnly, ClawNative, ClawAccepted);

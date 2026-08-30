@@ -15,7 +15,7 @@ public static class SteamUiAssetCatalog
 
     /// <summary>Expected SHA-256 of the UTF-8 bootstrap source.</summary>
     public const string NativeQamBootstrapSha256 =
-        "DCC887FCA2DC72DF7758763ACCFBD22D533F0D64318AB7CE7E9ECB4AD8EEEBD8";
+        "722790F9B95D72699215AE6119AE056117F2018DB0362C129314AEC226CBE124";
 
     /// <summary>Loads and verifies the embedded native-QAM bootstrap.</summary>
     /// <returns>The exact repository-owned JavaScript source.</returns>

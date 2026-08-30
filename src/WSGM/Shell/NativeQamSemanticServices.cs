@@ -30,6 +30,13 @@ internal sealed record NativeQamResolutionState(
     string Current,
     string StatusText);
 
+/// <summary>The unified frame-limit row, shaped like SteamOS's own.</summary>
+/// <remarks>
+/// One continuous slider bookended by the panel's limits, plus a separate switch for off — verified
+/// against a Steam Deck showing "60 FPS (60 Hz)" between bookends 10 and 60. There are no notches
+/// under any strategy: the cap is a free number and the PAIRING is what snaps to a mode the panel
+/// can hold, which is exactly the merge Valve made when it unified the two rows.
+/// </remarks>
 internal sealed record NativeQamFrameLimitState(
     bool Available,
     int? MinimumFps,
@@ -44,7 +51,12 @@ internal sealed record NativeQamFrameLimitState(
     string AdapterAvailability,
     string Progress,
     string Fault,
-    string StatusText);
+    string StatusText,
+    bool LimitEnabled = false,
+    IReadOnlyDictionary<int, int>? RefreshForCap = null,
+    int? RefreshMinHz = null,
+    int? RefreshMaxHz = null,
+    int? CurrentRefreshHz = null);
 
 internal sealed record NativeQamOverlayLevelState(
     bool Available,
@@ -170,7 +182,8 @@ internal sealed class PerformanceServiceNativeQamAdapter : IDisposable
 
     internal NativeQamFrameLimitState FrameLimit => ProjectFrameLimit(
         _service.Current,
-        _service.Enabled);
+        _service.Enabled,
+        PerfSupport?.Invoke());
 
     internal NativeQamOverlayLevelState OverlayLevel => ProjectOverlayLevel(
         _service.Current,
@@ -195,6 +208,33 @@ internal sealed class PerformanceServiceNativeQamAdapter : IDisposable
     /// projection omits its limits.
     /// </remarks>
     internal Func<int, bool>? ApplyRefreshRate { get; set; }
+
+    /// <summary>Applies a refresh rate the user chose directly.</summary>
+    /// <param name="hz">The rate to apply.</param>
+    /// <param name="cancellationToken">Unused; the display call is synchronous.</param>
+    /// <returns>Whether the display took it.</returns>
+    /// <remarks>
+    /// The unified row's other mode. With the frame limit off there is no cap to pair a rate to, so
+    /// the slider becomes the refresh rate itself and writes here — which is why this is available
+    /// under every strategy, unlike the manual-refresh row, whose whole problem was fighting a
+    /// pairing that was still active.
+    /// </remarks>
+    internal Task<NativeQamCommandResult> ApplyRefreshRateAsync(
+        int hz,
+        CancellationToken cancellationToken)
+    {
+        _ = cancellationToken;
+        if (ApplyRefreshRate is not { } apply)
+        {
+            const string reason = "This session cannot change the refresh rate.";
+            Log.Warn($"Native QAM refresh rate {hz} Hz refused: {reason}");
+            return Task.FromResult(new NativeQamCommandResult(false, reason));
+        }
+
+        return Task.FromResult(apply(hz)
+            ? new NativeQamCommandResult(true, null)
+            : new NativeQamCommandResult(false, $"The display refused {hz} Hz."));
+    }
 
     /// <summary>The cap the enable toggle applies when no cap is set yet.</summary>
     /// <remarks>
@@ -424,17 +464,49 @@ internal sealed class PerformanceServiceNativeQamAdapter : IDisposable
                 $"The device refused to turn {what} {(enabled ? "on" : "off")}.");
     }
 
+    /// <param name="state">The performance service's current state.</param>
+    /// <param name="enabled">Whether RTSS control is switched on at all.</param>
+    /// <param name="support">
+    /// What the panel can hold. Its option list bookends the slider, because RTSS's own range is
+    /// 0-1000 and a slider spanning that is not a control anyone can aim — the display decides
+    /// what a cap can usefully be, not the limiter.
+    /// </param>
+    /// <returns>The row's state.</returns>
     internal static NativeQamFrameLimitState ProjectFrameLimit(
         PerformanceState state,
-        bool enabled)
+        bool enabled,
+        NativeQamPerfSupport? support = null)
     {
         RtssCapabilities? capabilities = state.Probe.Capabilities;
         bool supported = capabilities?.Supports(PerformanceControl.FrameLimit) == true;
         bool available = enabled
             && state.Probe.Availability == RtssAvailability.Ready
             && supported;
-        int? minimum = supported ? capabilities!.MinimumFrameLimit : null;
-        int? maximum = supported ? capabilities!.MaximumFrameLimit : null;
+
+        // Zero is "off" and is never a slider position, so it is filtered out of both bookends.
+        IReadOnlyList<int> caps = support?.FrameLimitOptions ?? [];
+        int panelMinimum = 0;
+        int panelMaximum = 0;
+        foreach (int cap in caps)
+        {
+            if (cap <= 0)
+            {
+                continue;
+            }
+
+            if (panelMinimum == 0 || cap < panelMinimum)
+            {
+                panelMinimum = cap;
+            }
+
+            if (cap > panelMaximum)
+            {
+                panelMaximum = cap;
+            }
+        }
+
+        int? minimum = panelMinimum > 0 ? panelMinimum : supported ? capabilities!.MinimumFrameLimit : null;
+        int? maximum = panelMaximum > 0 ? panelMaximum : supported ? capabilities!.MaximumFrameLimit : null;
         return new NativeQamFrameLimitState(
             available,
             minimum,
@@ -449,7 +521,19 @@ internal sealed class PerformanceServiceNativeQamAdapter : IDisposable
             AvailabilityText(state.Probe.Availability),
             ProgressText(state.Command, PerformanceControl.FrameLimit),
             FaultText(state.Command, PerformanceControl.FrameLimit),
-            StatusText(state, PerformanceControl.FrameLimit, available));
+            StatusText(state, PerformanceControl.FrameLimit, available),
+            // Off is a switch of its own, the way SteamOS's "Disable Frame Limit" is, so the
+            // slider never has to spend a position on it and the cap the user last chose survives
+            // being switched off and back on.
+            state.Desired.FrameLimit is > 0,
+            support?.RefreshForCap,
+            // The bounds of the row's OTHER mode. Present whenever the display has rates to offer,
+            // independent of RefreshRatesSelectable — that flag governs Valve's separate manual
+            // row, which must stay hidden while a cap owns the rate. Here the cap is off, so there
+            // is nothing to fight.
+            support?.RefreshRateMinHz,
+            support?.RefreshRateMaxHz,
+            support?.CurrentRefreshRateHz);
     }
 
     internal static NativeQamOverlayLevelState ProjectOverlayLevel(

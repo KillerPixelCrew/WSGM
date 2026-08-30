@@ -154,6 +154,12 @@ interface Window {
   // a separate CDP call, where a Symbol from this scope is not reachable.
   const ownedMarker = "__wsgmOwnedNamespace";
 
+  // The same idea one level down: a method WSGM overlaid rather than a namespace it defined. The
+  // second key carries the method that was replaced, so an overlay outliving the closure that made
+  // it can still be unwound back to the client's own.
+  const ownedGetStateMarker = "__wsgmOwnedGetState";
+  const originalGetStateField = "__wsgmOriginalGetState";
+
   const audioNamespace = createAudioNamespace();
   const networkGate = createNetworkGate();
   const bluetoothService = createBluetoothService();
@@ -518,8 +524,23 @@ interface Window {
         return { ok: false, error: lastError };
       }
 
-      originalGetState = manager.GetState;
-      manager.GetState = async (payload) => {
+      // Never wrap our own wrapper. A bridge replaced in place — a new asset hash, a reinstall
+      // after a probe — leaves the previous overlay on the service with its closure gone, and
+      // nesting a second one would make removal restore a wrapper instead of Valve's method,
+      // leaving Steam overlaid for the rest of its life. The overlay therefore carries Valve's
+      // method on itself, so a fresh closure can unwrap back to it and replace rather than stack.
+      //
+      // Refusing instead would be the same self-incompatibility trap the Perf and Audio namespaces
+      // already paid for: a successful install would make the next probe declare the patch
+      // incompatible, tearing down what it had just done.
+      const existing = manager.GetState;
+      originalGetState =
+        existing?.[ownedGetStateMarker] === true ? existing[originalGetStateField] : existing;
+      if (typeof originalGetState !== "function") {
+        lastError = "SteamOS Manager GetState is not recoverable";
+        return { ok: false, error: lastError };
+      }
+      const overlaid = async (payload) => {
         // The original answer is kept and overlaid, never replaced: it carries real fields —
         // screen-reader support among them — that a fabricated reply would silently zero.
         const result = await originalGetState.call(manager, payload ?? {});
@@ -545,6 +566,17 @@ interface Window {
           return result;
         }
       };
+      Object.defineProperty(overlaid, ownedGetStateMarker, {
+        value: true,
+        configurable: true,
+        enumerable: false,
+      });
+      Object.defineProperty(overlaid, originalGetStateField, {
+        value: originalGetState,
+        configurable: true,
+        enumerable: false,
+      });
+      manager.GetState = overlaid;
 
       installed = true;
       lastError = "";
@@ -582,6 +614,10 @@ interface Window {
       ok: true,
       installed,
       managerFound: !!manager,
+      // What the C# verify step checks. "installed" alone is this closure's own bookkeeping; this
+      // is the client actually carrying the overlay.
+      getStateOverlaid: manager?.GetState?.[ownedGetStateMarker] === true,
+      settingsWatched: unsubscribeSettings !== null,
       available: latest.available,
       min: latest.min,
       max: latest.max,
@@ -1352,9 +1388,12 @@ interface Window {
         patchId: "wsgm.native-qam.auto-tdp",
         command: "setAutoTdp",
       }),
+      // Two commands, because this is SteamOS's unified row: one slider that is the frame cap while
+      // a cap is set and the refresh rate once it is switched off.
       frameLimit: Object.freeze({
         patchId: "wsgm.native-qam.frame-limit",
         command: "setFrameLimit",
+        refreshCommand: "setRefreshRate",
       }),
       overlayLevel: Object.freeze({
         patchId: "wsgm.native-qam.overlay-level",
@@ -1695,13 +1734,18 @@ interface Window {
             minimumFps < 0 ||
             maximumFps < minimumFps ||
             maximumFps > 1000)) ||
+        // Zero is OFF and is deliberately outside the slider's range, which now starts at a cap
+        // worth playing at. Rejecting it here would have thrown away every state in which the user
+        // has no cap set — which is the default one.
         (desiredFps !== null &&
+          desiredFps !== 0 &&
           (!Number.isInteger(desiredFps) ||
             minimumFps === null ||
             maximumFps === null ||
             desiredFps < minimumFps ||
             desiredFps > maximumFps)) ||
         (observedFps !== null &&
+          observedFps !== 0 &&
           (!Number.isInteger(observedFps) ||
             minimumFps === null ||
             maximumFps === null ||
@@ -1710,7 +1754,46 @@ interface Window {
         (common.available && minimumFps === null)
       )
         return null;
-      return Object.freeze({ ...common, minimumFps, maximumFps, desiredFps, observedFps });
+
+      // Cap to refresh rate, for the "(60 Hz)" half of the label. Absent under the uncoupled
+      // strategy, where a cap moves no display mode and there is nothing to name.
+      const refreshForCap = new Map<number, number>();
+      if (value.refreshForCap && typeof value.refreshForCap === "object") {
+        for (const [cap, hz] of Object.entries(value.refreshForCap)) {
+          const capValue = Number(cap);
+          const hzValue = Number(hz);
+          if (Number.isInteger(capValue) && Number.isInteger(hzValue) && hzValue > 0) {
+            refreshForCap.set(capValue, hzValue);
+          }
+        }
+      }
+      const refreshMinHz = value.refreshMinHz === null ? null : Number(value.refreshMinHz);
+      const refreshMaxHz = value.refreshMaxHz === null ? null : Number(value.refreshMaxHz);
+      const currentRefreshHz =
+        value.currentRefreshHz === null ? null : Number(value.currentRefreshHz);
+      // The refresh half is a pair like the cap half, and it is OPTIONAL: a display that offers no
+      // rates leaves the row with only its frame-limit mode rather than rejecting the state.
+      const refreshUsable =
+        refreshMinHz !== null &&
+        refreshMaxHz !== null &&
+        currentRefreshHz !== null &&
+        Number.isInteger(refreshMinHz) &&
+        Number.isInteger(refreshMaxHz) &&
+        Number.isInteger(currentRefreshHz) &&
+        refreshMinHz > 0 &&
+        refreshMaxHz >= refreshMinHz;
+      return Object.freeze({
+        ...common,
+        minimumFps,
+        maximumFps,
+        desiredFps,
+        observedFps,
+        limitEnabled: value.limitEnabled === true,
+        refreshForCap,
+        refreshMinHz: refreshUsable ? refreshMinHz : null,
+        refreshMaxHz: refreshUsable ? refreshMaxHz : null,
+        currentRefreshHz: refreshUsable ? currentRefreshHz : null,
+      });
     };
     const normalizeOverlayLevelState = (value) => {
       const common = normalizePerformanceCommon(value);
@@ -2008,47 +2091,112 @@ interface Window {
         const state = useSemanticState(controlRuntime, "frameLimit", normalizeFrameLimitState);
         const value = state ? (state.observedFps ?? state.desiredFps) : null;
         const echoed = useEchoedValue(controlRuntime, value);
+        // Its own echo, because the two modes are two different numbers on one slider: reusing one
+        // would make the handle jump to a frame cap the moment the rate mode took over.
+        // Unconditional, ahead of every early return — these are hooks.
+        const refreshEchoed = useEchoedValue(controlRuntime, state ? state.currentRefreshHz : null);
         if (!state) return note("frameLimit", "no state");
         if (!state.available)
           return note("frameLimit", "unavailable: " + (state.statusText || "no reason"));
         if (value === null) return note("frameLimit", "no observed or desired fps");
         renderOutcomes.frameLimit = "rendered";
         const definition = definitions.frameLimit;
-        const setValue = (nextValue) => {
+        const send = (command, nextValue) =>
+          void request(
+            definition.patchId,
+            command,
+            { value: nextValue, persistence: "automatic" },
+            nextActionGeneration(definition.patchId),
+          ).catch(() => {});
+        const setCap = (nextValue) => {
           if (
             !Number.isInteger(nextValue) ||
             nextValue < state.minimumFps ||
             nextValue > state.maximumFps
           )
             return;
-          void request(
-            definition.patchId,
-            definition.command,
-            { value: nextValue, persistence: "automatic" },
-            nextActionGeneration(definition.patchId),
-          ).catch(() => {});
+          send(definition.command, nextValue);
         };
-        return controlRuntime.react.createElement(controlRuntime.slider, {
-          // Live-verified 2026-08-30: this is the token the client actually carries.
+        const setRefresh = (nextValue) => {
+          if (
+            !Number.isInteger(nextValue) ||
+            state.refreshMinHz === null ||
+            nextValue < state.refreshMinHz ||
+            nextValue > state.refreshMaxHz
+          )
+            return;
+          send(definition.refreshCommand, nextValue);
+        };
+
+        // Off is zero, and the slider never shows it: the cap the user chose has to survive being
+        // switched off and back on, so the switch below writes zero and the slider keeps sitting
+        // where it was. That is how SteamOS's own "Disable Frame Limit" behaves next to its Frame
+        // Limit slider, and it is why the slider can start at a cap worth playing at.
+        const capped = state.limitEnabled && echoed.value > 0;
+        const cappedValue = echoed.value > 0 ? echoed.value : (state.minimumFps ?? 0);
+        // Recomputed every render, which is what makes it track a value still being dragged.
+        const pairedHz = state.refreshForCap.get(cappedValue);
+
+        // The row's second mode. With the cap off the slider IS the refresh rate — the whole reason
+        // SteamOS merged the two rows is that they are one decision: the frame cap and the rate it
+        // is presented at are the same frametime question, and vsync is what makes the pacing hold.
+        // Switching the cap off does not leave a dead control behind, it hands the same slider over
+        // to the rate.
+        const refreshMode = !capped && state.refreshMinHz !== null;
+        const sliderValue = refreshMode ? refreshEchoed.value : cappedValue;
+        // Guarded like the AutoTDP row: a client whose ToggleField cannot be located loses the
+        // switch and keeps the slider, rather than losing the whole row silently.
+        const disableSwitch = controlRuntime.toggle
+          ? controlRuntime.react.createElement(controlRuntime.toggle, {
+              label: localizeOr(
+                controlRuntime,
+                "#QuickAccess_Tab_Perf_LimitFrameRate_Off",
+                "Disable frame limit",
+              ),
+              checked: !capped,
+              controlled: true,
+              disabled: isBusy(state.progress),
+              // Turning it back on restores the cap the slider is already sitting on, so the
+              // number the user was looking at is the one that takes effect.
+              onChange: (next) => send(definition.command, next ? 0 : cappedValue),
+            })
+          : note("frameLimitSwitch", "Steam ToggleField was not resolved");
+        const slider = controlRuntime.react.createElement(controlRuntime.slider, {
+          // Live-verified 2026-08-30: these are tokens the client actually carries.
           // "#QuickAccess_Tab_Perf_FramerateLimit" appears nowhere in the bundle, so the row it was
           // written against fell back to English on every localized client.
-          label: localizeOr(
-            controlRuntime,
-            "#QuickAccess_Tab_Perf_LimitFrameRate",
-            "Frame rate limit",
-          ),
-          min: state.minimumFps,
-          max: state.maximumFps,
+          label: refreshMode
+            ? localizeOr(controlRuntime, "#QuickAccess_Tab_Perf_RefreshRate", "Refresh rate")
+            : localizeOr(
+                controlRuntime,
+                "#QuickAccess_Tab_Perf_LimitFrameRate",
+                "Frame rate limit",
+              ),
+          min: refreshMode ? state.refreshMinHz : state.minimumFps,
+          max: refreshMode ? state.refreshMaxHz : state.maximumFps,
           step: 1,
-          value: echoed.value,
-          valueSuffix: " FPS",
+          value: sliderValue,
+          // Notchless under EVERY strategy, and the pairing is what snaps: the user picks any cap
+          // and WSGM answers with the mode that presents it, which the suffix names the way
+          // SteamOS's unified row does — "60 FPS (60 Hz)". Cadence-exact stops were the older
+          // split-slider model, and the whole point of the merge was to remove them.
+          valueSuffix: refreshMode ? " Hz" : pairedHz ? ` FPS (${pairedHz} Hz)` : " FPS",
           showValue: true,
           showBookendLabels: true,
           disabled: isBusy(state.progress),
           description: state.fault || state.statusText || undefined,
-          onChange: echoed.onChange,
-          onChangeComplete: (next) => echoed.onChangeComplete(next, setValue),
+          onChange: refreshMode ? refreshEchoed.onChange : echoed.onChange,
+          onChangeComplete: (next) =>
+            refreshMode
+              ? refreshEchoed.onChangeComplete(next, setRefresh)
+              : echoed.onChangeComplete(next, setCap),
         });
+        return controlRuntime.react.createElement(
+          controlRuntime.react.Fragment,
+          null,
+          slider,
+          disableSwitch,
+        );
       };
     const createOverlayLevelControl = (controlRuntime) =>
       function WsgmNativeOverlayLevelControl() {

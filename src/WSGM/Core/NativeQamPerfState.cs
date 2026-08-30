@@ -206,6 +206,15 @@ internal sealed record NativeQamPerfApplicationSettings
 /// The rate in force, which the manual refresh row needs a concrete value for. Null only when that
 /// row is not offered.
 /// </param>
+/// <param name="RefreshForCap">
+/// The refresh rate each cap will be presented at, keyed by cap. Empty under
+/// <c>FrameLimitOnly</c>, where the cap changes no display state and there is nothing to name.
+/// <para>
+/// Sent as a map rather than as a rule the injected half re-derives: the pairing policy is one
+/// decision and it belongs in one place. The slider reads it to label a cap the way SteamOS does —
+/// "60 FPS (60 Hz)" — while the user is still dragging, before anything has been applied.
+/// </para>
+/// </param>
 internal readonly record struct NativeQamPerfSupport(
     IReadOnlyList<int> FrameLimitOptions,
     bool VariableRefreshRateSupported,
@@ -213,7 +222,8 @@ internal readonly record struct NativeQamPerfSupport(
     int? RefreshRateMinHz,
     int? RefreshRateMaxHz,
     bool VariableRefreshRateEnabled = false,
-    int? CurrentRefreshRateHz = null);
+    int? CurrentRefreshRateHz = null,
+    IReadOnlyDictionary<int, int>? RefreshForCap = null);
 
 /// <summary>Builds the performance state from what WSGM knows, supplying only backed fields.</summary>
 internal static class NativeQamPerfProjection

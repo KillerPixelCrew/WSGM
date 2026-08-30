@@ -48,7 +48,11 @@ public sealed class SteamUiBridgeAuthorizer
             // the AutoTDP row threw "subscription not allowlisted" every time it rendered — the one
             // native-QAM control that could never receive state.
             ["wsgm.native-qam.auto-tdp"] = ["setAutoTdp"],
-            ["wsgm.native-qam.frame-limit"] = ["setFrameLimit"],
+            // Two commands, one row. With the frame limit switched off the unified slider becomes
+            // the refresh rate itself, which is what SteamOS's own row does — so the second
+            // command belongs to this control, not to the separate manual-refresh row that stays
+            // hidden while a cap owns the rate.
+            ["wsgm.native-qam.frame-limit"] = ["setFrameLimit", "setRefreshRate"],
             ["wsgm.native-qam.overlay-level"] = ["setOverlayLevel"],
             ["wsgm.native-qam.controller-target"] = ["setControllerTarget"],
             ["wsgm.native-qam.performance-data"] = ["subscribe", "unsubscribe"],

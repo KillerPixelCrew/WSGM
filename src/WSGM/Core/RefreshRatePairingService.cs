@@ -115,6 +115,20 @@ internal sealed class RefreshRatePairingService
         return FrameLimitPairing.FrameLimitOptions(strategy, advertised, accepted);
     }
 
+    /// <summary>The refresh rate a cap would be presented at, without applying anything.</summary>
+    /// <param name="capFps">The frame cap being considered.</param>
+    /// <returns>The paired rate, or null when the refresh rate would be left alone.</returns>
+    /// <remarks>
+    /// The read-only half of <see cref="ApplyForCap"/>, for labelling a cap the user is still
+    /// dragging through. Same policy, same snapshot, no display call.
+    /// </remarks>
+    internal int? SelectRefreshHz(int capFps)
+    {
+        (FrameLimitStrategy strategy, IReadOnlyList<int> advertised, IReadOnlyList<int> accepted) =
+            Snapshot();
+        return FrameLimitPairing.SelectRefreshHz(strategy, capFps, advertised, accepted);
+    }
+
     /// <summary>
     /// Applies the refresh rate paired with a frame cap.
     /// </summary>

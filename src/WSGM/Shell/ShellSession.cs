@@ -1514,9 +1514,13 @@ public sealed class ShellSession : IAsyncDisposable
         // each time hammered the display driver and wrote the same "Display modes" line every two
         // seconds — the log-flood defect the repository rules name. The rates only change with the
         // display, which is what invalidates the cache.
-        IReadOnlyList<int> refreshRates = manualRefresh
-            ? _acceptedRefreshRates ??= DisplayProfiles.EnumerateAcceptedRefreshRates()
-            : [];
+        // Enumerated under every strategy now, not only the uncoupled one: with the frame limit
+        // switched off the unified row becomes a refresh-rate slider, and that mode is offered
+        // whatever the pairing strategy is because there is no cap left for it to fight.
+        // RefreshRatesSelectable below still gates Valve's SEPARATE manual row, which must stay
+        // hidden while a cap owns the rate.
+        IReadOnlyList<int> refreshRates =
+            _acceptedRefreshRates ??= DisplayProfiles.EnumerateAcceptedRefreshRates();
         return new NativeQamPerfSupport(
             options,
             vrr,
@@ -1524,7 +1528,37 @@ public sealed class ShellSession : IAsyncDisposable
             refreshRates.Count > 0 ? refreshRates.Min() : null,
             refreshRates.Count > 0 ? refreshRates.Max() : null,
             vrrEnabled,
-            manualRefresh ? DisplayProfiles.ReadCurrentRefreshRate() : null);
+            refreshRates.Count > 0 ? DisplayProfiles.ReadCurrentRefreshRate() : null,
+            ReadPairedRefreshRates(pairing, options, manualRefresh));
+    }
+
+    /// <summary>The refresh rate each offered cap will be presented at.</summary>
+    /// <remarks>
+    /// Built here rather than in the injected half so the pairing policy stays one decision in one
+    /// place. Empty under the uncoupled strategy, where a cap changes no display state and the row
+    /// therefore has no rate to name — which is also what makes the label collapse from
+    /// "60 FPS (60 Hz)" to plain "60 FPS" without a second flag saying so.
+    /// </remarks>
+    private static IReadOnlyDictionary<int, int>? ReadPairedRefreshRates(
+        RefreshRatePairingService? pairing,
+        IReadOnlyList<int> options,
+        bool uncoupled)
+    {
+        if (uncoupled || pairing is null || options.Count == 0)
+        {
+            return null;
+        }
+
+        Dictionary<int, int> paired = new(options.Count);
+        foreach (int cap in options)
+        {
+            if (cap > 0 && pairing.SelectRefreshHz(cap) is { } hz)
+            {
+                paired[cap] = hz;
+            }
+        }
+
+        return paired.Count > 0 ? paired : null;
     }
 
     /// <summary>Starts or stops the game-mode card services from one shared policy.</summary>

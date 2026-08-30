@@ -20,7 +20,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private const string TdpPatchId = "wsgm.native-qam.tdp";
     private const string FrameLimitPatchId = "wsgm.native-qam.frame-limit";
     private const string OverlayLevelPatchId = "wsgm.native-qam.overlay-level";
-    private const string ValveFrameLimitPatchId = "wsgm.native-qam.valve-frame-limit";
     private const string ValveOverlayLevelPatchId = "wsgm.native-qam.valve-overlay-level";
     private const string AutoTdpPatchId = "wsgm.native-qam.auto-tdp";
     private const string ControllerTargetPatchId = "wsgm.native-qam.controller-target";
@@ -121,12 +120,16 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _patches.Register(new NativeQamBootstrapPatch(_bridge));
         _patches.Register(new NativeQamTdpPatch());
         _patches.Register(new NativeQamAutoTdpPatch());
-        // Valve's own frame-limit and overlay-level components, in place of the hand-rolled rows
-        // that imitated them — the Q12 retirement. The hand-built patches are deliberately no
-        // longer registered rather than deleted: reinstating one is a one-line rollback if a Steam
-        // rebuild breaks the mounted component, and their state publications continue meanwhile so
-        // a rollback needs no other change.
-        _patches.Register(new NativeQamValveFrameLimitPatch());
+        // The frame limit is WSGM's own row, deliberately, and this is the one place the Q12
+        // retirement does not apply. Valve's component is a NOTCH slider fed by
+        // fps_limit_options, and SteamOS itself stopped working that way when it unified frame
+        // limit and refresh rate into one continuous slider labelled "60 FPS (60 Hz)" — verified
+        // against a Steam Deck. Feeding the notch row a free 30-120 range put 91 labels in a strip
+        // that fits about twelve, and the row became unusable above the first few. The cap is a
+        // free number and the PAIRING is what snaps, so the row has to be notchless.
+        //
+        // The overlay level stays Valve's: it is genuinely five discrete levels.
+        _patches.Register(new NativeQamFrameLimitPatch());
         _patches.Register(new NativeQamValveOverlayLevelPatch());
         _patches.Register(new NativeQamControllerTargetPatch());
 
@@ -424,11 +427,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _patches.SetPatchEnabled(BootstrapPatchId, bootstrap);
         _patches.SetPatchEnabled(TdpPatchId, components);
         _patches.SetPatchEnabled(AutoTdpPatchId, components);
-        // The valve ids, not the retired hand-built ones: SetPatchEnabled throws for an id that is
-        // not registered, and the retirement left the old two unregistered — which took the whole
-        // shell session down at startup on 2026-08-30. Only ids this constructor registers
-        // UNCONDITIONALLY belong in this list, for exactly that reason.
-        _patches.SetPatchEnabled(ValveFrameLimitPatchId, components);
+        // Exactly the ids this constructor registers UNCONDITIONALLY, and no others:
+        // SetPatchEnabled throws for an id that is not registered, and a retirement that left one
+        // behind here took the whole shell session down at startup on 2026-08-30. The frame limit
+        // is WSGM's own row again — see the constructor for why it cannot be Valve's notch one.
+        _patches.SetPatchEnabled(FrameLimitPatchId, components);
         _patches.SetPatchEnabled(ValveOverlayLevelPatchId, components);
         _patches.SetPatchEnabled(ControllerTargetPatchId, components);
     }
@@ -479,9 +482,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         bool performancePatchVerified = false;
         foreach (SteamUiPatchSnapshot snapshot in snapshots)
         {
-            // The valve components, since the hand-built rows they replaced are retired: RTSS
-            // observation must follow the rows that actually render, or it never starts.
-            performancePatchVerified |= (snapshot.Id is ValveFrameLimitPatchId
+            // The rows that actually render, whichever they are — WSGM's own frame limit and
+            // Valve's overlay level. Observation must follow the mounted rows or it never starts.
+            performancePatchVerified |= (snapshot.Id is FrameLimitPatchId
                 or ValveOverlayLevelPatchId)
                 && snapshot.State == SteamUiPatchState.Verified;
         }
@@ -594,6 +597,28 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                         persistence,
                         CorrelationId(request),
                         requestCancellation.Token).ConfigureAwait(false);
+                    succeeded = result.Succeeded;
+                    error = result.Error;
+                }
+            }
+            else if (request.PatchId == FrameLimitPatchId
+                && request.Command == "setRefreshRate")
+            {
+                // The same row, in its other mode. With the frame limit off there is no cap to pair
+                // a rate to, so the slider becomes the refresh rate itself — which is what SteamOS's
+                // unified row does the moment "Disable Frame Limit" is switched on.
+                if (!TryReadPerformancePayload(
+                    request.Payload,
+                    out int hz,
+                    out PerformancePersistenceTarget _))
+                {
+                    error = "The refresh-rate payload is invalid.";
+                }
+                else
+                {
+                    NativeQamCommandResult result = await _performance
+                        .ApplyRefreshRateAsync(hz, requestCancellation.Token)
+                        .ConfigureAwait(false);
                     succeeded = result.Succeeded;
                     error = result.Error;
                 }
