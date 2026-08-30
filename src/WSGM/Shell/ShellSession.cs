@@ -486,6 +486,7 @@ public sealed class ShellSession : IAsyncDisposable
                 // it.
                 _overlayTestOnly ? null : _resolutions);
             _steamUi.SetPerfSupport(ReadNativeQamPerfSupport);
+            _steamUi.SetRefreshRateApply(ApplyManualRefreshRate);
             _steamUi.Apply(_config.Cef.Enabled && _config.Cef.NativeQuickAccess);
             ApplyGlyphConfig(_config);
             if (_deviceCoordinator is not null)
@@ -1396,6 +1397,41 @@ public sealed class ShellSession : IAsyncDisposable
     /// fight the pairing on every change.
     /// </para>
     /// </remarks>
+    /// <summary>Applies a refresh rate the user chose by hand.</summary>
+    /// <param name="refreshHz">The chosen rate.</param>
+    /// <returns>Whether the display is now at that rate.</returns>
+    /// <remarks>
+    /// Refused unless the strategy is <see cref="FrameLimitStrategy.FrameLimitOnly"/>. Under the
+    /// pairing strategies the frame cap owns the refresh rate, and honouring a manual change there
+    /// would be undone by the next cap change — worse than refusing, because the control would
+    /// appear to work and then silently revert.
+    /// <para>
+    /// Checked against the rates discovery accepted, not passed straight to the driver: the value
+    /// arrives from injected JavaScript, and a rate the panel cannot show is a black screen.
+    /// </para>
+    /// </remarks>
+    private bool ApplyManualRefreshRate(int refreshHz)
+    {
+        if (_config.Performance.FrameLimitStrategy is not FrameLimitStrategy.FrameLimitOnly)
+        {
+            Log.Warn(
+                $"Manual refresh rate {refreshHz} Hz refused: the "
+                + $"{_config.Performance.FrameLimitStrategy} strategy owns the refresh rate.");
+            return false;
+        }
+
+        IReadOnlyList<int> accepted = DisplayProfiles.EnumerateAcceptedRefreshRates();
+        if (!accepted.Contains(refreshHz))
+        {
+            Log.Warn(
+                $"Manual refresh rate {refreshHz} Hz refused: accepted rates are "
+                + $"[{string.Join(",", accepted)}].");
+            return false;
+        }
+
+        return DisplayProfiles.TryApplyTransientRefreshRate(refreshHz);
+    }
+
     private NativeQamPerfSupport ReadNativeQamPerfSupport()
     {
         RefreshRatePairingService? pairing = _refreshPairing;

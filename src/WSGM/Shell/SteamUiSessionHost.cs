@@ -1255,6 +1255,17 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         QueueStatePublication();
     }
 
+    /// <summary>Supplies the way to apply a manually chosen refresh rate.</summary>
+    /// <param name="applyRefreshRate">Applies a rate, reporting whether it took, or null.</param>
+    /// <remarks>
+    /// Separate from the support projection because they answer different questions: that one
+    /// decides whether the row is drawn, this decides whether its writes go anywhere. Both are the
+    /// session's to answer, and a row drawn without this would be a control that refuses every
+    /// change it offers.
+    /// </remarks>
+    internal void SetRefreshRateApply(Func<int, bool>? applyRefreshRate)
+        => _performance.ApplyRefreshRate = applyRefreshRate;
+
     /// <summary>Applies one <c>UpdateSettings</c> call from Steam's own performance panel.</summary>
     /// <param name="request">The forwarded request.</param>
     /// <param name="cancellationToken">Cancels the applies.</param>

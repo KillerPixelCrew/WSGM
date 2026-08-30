@@ -187,6 +187,15 @@ internal sealed class PerformanceServiceNativeQamAdapter : IDisposable
     /// </remarks>
     internal Func<NativeQamPerfSupport>? PerfSupport { get; set; }
 
+    /// <summary>Applies a manually chosen refresh rate, when the session allows one.</summary>
+    /// <remarks>
+    /// Set only where a manual refresh rate is meaningful. Under the pairing strategies the frame
+    /// cap owns the refresh rate, so this stays unset and a write is refused by name rather than
+    /// fighting the pairing on the user's behalf — the row is hidden there anyway, because the
+    /// projection omits its limits.
+    /// </remarks>
+    internal Func<int, bool>? ApplyRefreshRate { get; set; }
+
     /// <summary>The state Steam's own performance panel reads every control's value out of.</summary>
     internal NativeQamPerfState PerfState
     {
@@ -256,6 +265,13 @@ internal sealed class PerformanceServiceNativeQamAdapter : IDisposable
                 PerformancePersistenceTarget.Automatic,
                 correlationId,
                 cancellationToken),
+
+            NativeQamPerfSetting.RefreshRateHz when ApplyRefreshRate is { } applyRefresh =>
+                Task.FromResult(applyRefresh(change.Value)
+                    ? new NativeQamCommandResult(true, null)
+                    : new NativeQamCommandResult(
+                        false,
+                        $"The display refused {change.Value} Hz.")),
 
             _ => Task.FromResult(
                 new NativeQamCommandResult(

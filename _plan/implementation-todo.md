@@ -1441,8 +1441,19 @@ single Deck-only store getter — but never set the global `TS.IS_STEAMOS`, whic
       settings and `SetNightModeEnabled` do exist, but reaching them would not make the row appear.
       So this is a **WSGM-owned control** backed by Windows Night Light, in the shape TDP and AutoTDP
       already use, not a revival. Re-scope before building.
-- [ ] Add a resolution row, which exists nowhere in the tab because SteamOS drives it through
+- [x] Add a resolution row, which exists nowhere in the tab because SteamOS drives it through
       gamescope, from the same runtime mode discovery the frame-limit strategies use.
+      `DisplayProfiles.EnumerateAcceptedResolutions` discovers and `CDS_TEST`s them,
+      `DisplayResolutionService` applies with capture-once and restores on shutdown,
+      `NativeQamResolutionService` projects the row, and `NativeQamResolutionPatch` builds it on
+      Valve's own dropdown. A single accepted resolution hides the row — one option is not a choice.
+      The chosen value is re-checked three times (row, service parse, discovery list) because the
+      row cannot be the only thing between a stray value and a mode change, and the payload uses
+      `target` like every other dropdown here.
+      **Live-verified 2026-08-30**: all six structural requirements including `DropDownField` count
+      exactly one on the running client (`tools/WsgmLibTest/probe-resolution-row.js`).
+      **Attended validation remains**: that it renders, and that a mode change behaves with a game
+      running.
 - [ ] Mount the Performance tab's refresh-rate component here, shown only when the frame-limit
       strategy is `FrameLimitOnly`; under `NativeModes` or `FrameDoubling` the pairing policy owns
       the refresh and a second control would fight it.
