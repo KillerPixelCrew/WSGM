@@ -1320,7 +1320,13 @@ single Deck-only store getter — but never set the global `TS.IS_STEAMOS`, whic
       `DisconnectAsync`, `ForgetAsync`, `SetAudioConnectionAsync`, `UnpairAsync`,
       `RespondToPairing`, scanning and PIN prompts all exist — and part of this surface is already
       revived. Everything below is an adapter over that, not an implementation.
-- [ ] Override the `networkManagementAvailable` getter — it is literally `return TS.IS_STEAMOS`.
+- [x] Override the `networkManagementAvailable` getter — it is literally `return TS.IS_STEAMOS`.
+      `Core\SteamNetworkGatePatch.cs` plus the bootstrap's network gate: the prototype getter is
+      replaced and restored rather than shadowed on the instance, the probe refuses a client that
+      already reports network management available, and verification reports the access-point count
+      so a revealed row over an empty list is not mistaken for success. Live-verified: descriptor
+      configurable, override flips the value, restore puts it back, and the store reports a real
+      wireless device throughout.
       Expect a Wi-Fi row and Internet page over an **empty** network list: Steam's Windows backend
       does push real device reports, but every one carries an empty `wireless.aps`, so it never
       enumerates networks. The single access point visible in a live probe is WSGM's own synthetic
