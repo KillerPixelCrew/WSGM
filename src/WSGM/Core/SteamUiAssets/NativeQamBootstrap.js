@@ -1056,8 +1056,13 @@
       sName: entry.name,
       bHasOutput: entry.hasOutput === true,
       bHasInput: entry.hasInput === true,
-      flOutputVolume: flVolume,
-      flInputVolume: flVolume,
+      // WSGM reports ONE volume: the default OUTPUT endpoint's. Copying it into the input field
+      // made Steam's microphone slider show the speaker volume and made the two move together,
+      // because both were the same number written twice. A capture endpoint's own volume needs a
+      // backend WSGM does not have yet, and until it does the honest answer is no value rather
+      // than the wrong one.
+      flOutputVolume: entry.hasOutput === true ? flVolume : undefined,
+      flInputVolume: undefined,
       // Speaker configuration and HDMI CEC reach a service WSGM does not supply. Reported empty and
       // false rather than invented, so those controls simply do not appear.
       currentConfig: {},
@@ -1123,10 +1128,9 @@
         // Still gated on an actual change, unlike the direct path below, which also has to seed:
         // a store that registered these callbacks was constructed after the namespace existed and
         // therefore already read the volumes at construction.
-        if (volumeChanged && callbacks.deviceVolumeChanged) {
+        if (volumeChanged && device.hasOutput === true && callbacks.deviceVolumeChanged) {
           const id = numberFor(device.id);
           callbacks.deviceVolumeChanged(id, AudioDirection.Output, flVolume);
-          callbacks.deviceVolumeChanged(id, AudioDirection.Input, flVolume);
         }
       }
       known = seen;
@@ -1155,7 +1159,10 @@
           // Steam: a hardware button already shows WSGM's own overlay.
           const deviceId = numberFor(device.id);
           const entry = store.m_mapAudioDevices?.get(deviceId);
-          for (const direction of [AudioDirection.Output, AudioDirection.Input]) {
+          // The OUTPUT direction only, and only on a device that has one. This is the single volume
+          // WSGM observes; writing it to the input direction as well is what put the speaker volume
+          // on the microphone slider and made the two move as one.
+          for (const direction of device.hasOutput === true ? [AudioDirection.Output] : []) {
             const held = entry?.getDeviceVolume?.(direction);
             const seeding = typeof held !== "number";
             if (!seeding && !(volumeChanged && Math.abs(held - flVolume) > VolumeEpsilon)) {
