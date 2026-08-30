@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -23,6 +24,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private const string ControllerTargetPatchId = "wsgm.native-qam.controller-target";
     private const string AudioPatchId = "wsgm.native-qam.audio";
     private const string NetworkGatePatchId = "wsgm.steam-network.gate";
+    private const string BluetoothPatchId = "wsgm.steam-bluetooth.service";
     private const string GlyphStylePatchId = SteamInputGlyphStylePatch.PatchId;
     private readonly PersistentSteamUiTransport _transport;
     private readonly CancellationTokenSource _shutdown = new();
@@ -116,6 +118,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         if (_radios is not null)
         {
             _patches.Register(new SteamNetworkGatePatch());
+            _patches.Register(new SteamBluetoothServicePatch());
         }
 
         _patches.Register(new SteamInputGlyphStylePatch(_glyphDeliveryState));
@@ -632,6 +635,13 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                         break;
                 }
             }
+            else if (request.PatchId == BluetoothPatchId && _radios is { } bluetooth)
+            {
+                (succeeded, error) = await ExecuteBluetoothAsync(
+                    bluetooth,
+                    request,
+                    requestCancellation.Token).ConfigureAwait(false);
+            }
             else
             {
                 error = "The requested semantic service is not active.";
@@ -829,6 +839,117 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 Log.Warn($"Steam network list publish failed: {ex.Message}");
             }
         });
+    }
+
+    /// <summary>
+    /// Carries out one Bluetooth operation from Steam's own pairing UI.
+    /// </summary>
+    /// <param name="radios">The session's radio manager.</param>
+    /// <param name="request">The bridge request.</param>
+    /// <param name="cancellationToken">Cancels the operation.</param>
+    /// <returns>Whether it succeeded, and why not when it did not.</returns>
+    /// <remarks>
+    /// Pairing has no direct call: <see cref="RadioManager"/> drives it through a prompt the user
+    /// answers, and inventing a headless pair here would either bypass a PIN confirmation the
+    /// device requires or silently fail on one that does. Steam's Pair button therefore starts
+    /// discovery and lets the existing prompt flow run, which is the same path the taskbar uses.
+    /// <para>
+    /// Trusted and wake-allowed are accepted and do nothing. They are Linux BlueZ concepts with no
+    /// Windows equivalent, and refusing them would make Steam's UI report a failure for a control
+    /// that was never going to change anything.
+    /// </para>
+    /// </remarks>
+    private static async Task<(bool Succeeded, string? Error)> ExecuteBluetoothAsync(
+        RadioManager radios,
+        SteamUiBridgeRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (request.Command is "setDiscovering")
+        {
+            if (!TryReadEnabledPayload(request.Payload, out bool discovering))
+            {
+                return (false, "The discovery payload is invalid.");
+            }
+
+            // BluetoothScanning is manager-owned and driven by the same sweep as Wi-Fi, so
+            // discovery goes through the scanning lifecycle rather than being set directly. One
+            // sweep covering both radios is also what the taskbar's panel does.
+            await RunUiAsync(() =>
+            {
+                if (discovering)
+                {
+                    radios.StartScanning();
+                }
+                else
+                {
+                    radios.StopScanning();
+                }
+            }).ConfigureAwait(false);
+            return (true, null);
+        }
+
+        if (request.Command is "setTrusted" or "setWakeAllowed")
+        {
+            Log.Info($"Bluetooth: '{request.Command}' accepted with no Windows equivalent.");
+            return (true, null);
+        }
+
+        if (!TryReadDeviceIdPayload(request.Payload, out string deviceId))
+        {
+            return (false, "The Bluetooth device payload is invalid.");
+        }
+
+        BluetoothDeviceEntry? device = null;
+        await RunUiAsync(() => device = radios.BluetoothDevices.FirstOrDefault(entry =>
+            string.Equals(entry.Id, deviceId, StringComparison.Ordinal))).ConfigureAwait(false);
+        if (device is null)
+        {
+            Log.Warn($"Bluetooth: '{deviceId}' is no longer present.");
+            return (false, "That device is no longer present.");
+        }
+
+        switch (request.Command)
+        {
+            case "connect":
+                await radios.SetAudioConnectionAsync(device, connect: true).ConfigureAwait(false);
+                return (true, null);
+            case "disconnect":
+                await radios.SetAudioConnectionAsync(device, connect: false).ConfigureAwait(false);
+                return (true, null);
+            case "forget":
+                await radios.UnpairAsync(device).ConfigureAwait(false);
+                return (true, null);
+            case "pair":
+                // Discovery drives the prompt; the user answers it exactly as they do from the
+                // taskbar's radio panel.
+                await RunUiAsync(radios.StartScanning).ConfigureAwait(false);
+                return (true, null);
+            case "cancelPair":
+                await RunUiAsync(radios.StopScanning).ConfigureAwait(false);
+                return (true, null);
+            default:
+                return (false, "The requested semantic service is not active.");
+        }
+    }
+
+    private static bool TryReadDeviceIdPayload(JsonElement payload, out string deviceId)
+    {
+        deviceId = string.Empty;
+        if (payload.ValueKind != JsonValueKind.Object
+            || !payload.TryGetProperty("device", out JsonElement property)
+            || property.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        string? candidate = property.GetString();
+        if (string.IsNullOrWhiteSpace(candidate) || candidate.Length > 256)
+        {
+            return false;
+        }
+
+        deviceId = candidate;
+        return true;
     }
 
     private async Task PublishNetworksAsync(CancellationToken cancellationToken)
