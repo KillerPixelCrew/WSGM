@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Ipc;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Interop;
@@ -443,6 +444,7 @@ public sealed class ShellSession : IAsyncDisposable
                 _performance,
                 _audio,
                 _radios);
+            _steamUi.SetPerfSupport(ReadNativeQamPerfSupport);
             _steamUi.Apply(_config.Cef.Enabled && _config.Cef.NativeQuickAccess);
             ApplyGlyphConfig(_config);
             if (_deviceCoordinator is not null)
@@ -1338,6 +1340,45 @@ public sealed class ShellSession : IAsyncDisposable
     /// </remarks>
     private void OnForegroundApplicationChanged(string executable)
         => _runningApplications?.ReportForeground(executable);
+
+    /// <summary>Reports what the device can back for Steam's reactivated performance panel.</summary>
+    /// <returns>The support the panel decides each control's availability from.</returns>
+    /// <remarks>
+    /// This session is the only place that can answer: the frame-limit notches come from the
+    /// pairing service's runtime mode discovery, and variable refresh rate from the device plugin's
+    /// published capability. Reporting a control as unsupported hides it, which is why every branch
+    /// here fails toward "not supported" — a hidden control is always better than one whose writes
+    /// go nowhere.
+    /// <para>
+    /// The manual refresh-rate row is offered only under <c>FrameLimitOnly</c>. Under the pairing
+    /// strategies WSGM chooses the refresh rate itself to match the cap, and a manual row would
+    /// fight the pairing on every change.
+    /// </para>
+    /// </remarks>
+    private NativeQamPerfSupport ReadNativeQamPerfSupport()
+    {
+        RefreshRatePairingService? pairing = _refreshPairing;
+        IReadOnlyList<int> options = pairing?.FrameLimitOptions() ?? [];
+        bool manualRefresh = _config.Performance.FrameLimitStrategy is FrameLimitStrategy.FrameLimitOnly;
+
+        bool vrr = false;
+        if (_deviceCoordinator is { } coordinator)
+        {
+            vrr = coordinator.CapabilitySnapshot().Any(view =>
+                view.Descriptor.Role is CapabilityRole.VariableRefreshRate
+                && view.Projection.State.Available);
+        }
+
+        IReadOnlyList<int> refreshRates = manualRefresh
+            ? DisplayProfiles.EnumerateAcceptedRefreshRates()
+            : [];
+        return new NativeQamPerfSupport(
+            options,
+            vrr,
+            manualRefresh && refreshRates.Count > 0,
+            refreshRates.Count > 0 ? refreshRates.Min() : null,
+            refreshRates.Count > 0 ? refreshRates.Max() : null);
+    }
 
     /// <summary>Starts or stops the game-mode card services from one shared policy.</summary>
     /// <remarks>

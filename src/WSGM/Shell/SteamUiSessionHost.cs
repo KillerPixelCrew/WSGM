@@ -1196,6 +1196,20 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 or PerformancePersistenceTarget.Application;
     }
 
+    /// <summary>Supplies what the device can back, for the reactivated performance panel.</summary>
+    /// <param name="support">Reads the current support, or null to report nothing supported.</param>
+    /// <remarks>
+    /// Set by the session rather than resolved here: the frame-limit options come from display-mode
+    /// discovery and the VRR flag from the device plugin, and this host owns neither. Until it is
+    /// set, every performance control stays hidden, which is the correct state for a session that
+    /// cannot yet say what it can honour.
+    /// </remarks>
+    internal void SetPerfSupport(Func<NativeQamPerfSupport>? support)
+    {
+        _performance.PerfSupport = support;
+        QueueStatePublication();
+    }
+
     /// <summary>Applies one <c>UpdateSettings</c> call from Steam's own performance panel.</summary>
     /// <param name="request">The forwarded request.</param>
     /// <param name="cancellationToken">Cancels the applies.</param>
