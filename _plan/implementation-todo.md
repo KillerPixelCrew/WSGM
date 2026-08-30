@@ -1368,10 +1368,16 @@ single Deck-only store getter — but never set the global `TS.IS_STEAMOS`, whic
       wake-allowed are accepted as no-ops because they are BlueZ concepts with no Windows
       equivalent. **Attended: an actual pair, connect, disconnect and forget on hardware.**
 - [ ] Audio has its own plan and its own phase: see `_plan\steam-settings-audio-revive.md` and S15.
-- [ ] Reuse Valve's brightness row over `SteamClient.System.Display.SetBrightness`, which exists and
-      whose availability flag defaults true. If it does not move the panel, fall back to the driver
-      through IGCL `ctlGetBrightnessSetting`/`ctlSetBrightnessSetting`, which makes it a device
-      transport and therefore plugin-owned beside Arc Sync.
+- [x] Reuse Valve's brightness row over `SteamClient.System.Display.SetBrightness`, which exists.
+      The availability flag does **not** default true as this item once said: it is explicitly
+      `false` in a populated settings message, so the hook's `?? true` never applies.
+      `Core\SteamBrightnessGatePatch.cs` flips that one boolean and restores it, supplying no
+      backend because Steam already has a working one — it reads back the real panel brightness. The
+      probe requires the backend as well as the hidden flag, since revealing the row without it
+      would give the user a slider that changes nothing. All three conditions verified live.
+      **Attended: whether the slider actually moves the panel.** If it does not, the fallback is
+      IGCL `ctlGetBrightnessSetting`/`ctlSetBrightnessSetting`, which makes it a device transport
+      and therefore plugin-owned beside Arc Sync.
 - [ ] Back night mode with Windows Night Light; its Steam gate is `IN_GAMESCOPE` only.
 - [ ] Add a resolution row, which exists nowhere in the tab because SteamOS drives it through
       gamescope, from the same runtime mode discovery the frame-limit strategies use.
