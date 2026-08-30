@@ -932,6 +932,12 @@ interface Window {
     let overlayLevelControl;
     let controllerControl;
     let resolutionControl;
+
+    // Valve's own VRR control, rendered rather than rebuilt. It reads its state from
+    // SystemPerfStore and writes through SteamClient.System.Perf.UpdateSettings, both of which WSGM
+    // now supplies, so mounting it needs no props and no shim of its own — which is the entire
+    // point of reactivating a component instead of hand-building a row that looks like it.
+    let valveVrrControl;
     let performanceRoot;
     let originalUseMemo;
     let patchedUseMemo;
@@ -1802,6 +1808,18 @@ interface Window {
       // After the frame limit, because under the pairing strategies the cap is what moves the
       // refresh rate, and a resolution change carries the current rate with it: the user reads the
       // thing that drives before the thing that follows.
+      // Valve's own component, not a WSGM row. It draws nothing when the state omits
+      // is_vrr_supported, which is what hides it on a device with no VRR capability — no extra
+      // check here, because that gate is the state itself.
+      if (registrations.has("valveVrr") && valveVrrControl) {
+        controls.push(
+          controlRuntime.react.createElement(
+            controlRuntime.row,
+            { key: "wsgm-native-qam-valve-vrr" },
+            controlRuntime.react.createElement(valveVrrControl),
+          ),
+        );
+      }
       if (registrations.has("resolution")) {
         controls.push(
           controlRuntime.react.createElement(
@@ -1904,6 +1922,17 @@ interface Window {
       overlayLevelControl = createOverlayLevelControl(controlRuntime);
       controllerControl = createControllerControl(controlRuntime);
       resolutionControl = createResolutionControl(controlRuntime);
+
+      // Selected by the localization token it draws, never by a minified export name: the names are
+      // right for today's build and are not guaranteed for the next. Live-probed 2026-08-30 that
+      // this token matches exactly one export of the components module.
+      const perfComponents = uniqueFactory([
+        "#QuickAccess_Tab_Perf_EnableVRR",
+        "#QuickAccess_Tab_Perf_LimitFrameRate",
+      ]);
+      valveVrrControl = perfComponents
+        ? uniqueFunction(runtime(perfComponents[0]), ["#QuickAccess_Tab_Perf_EnableVRR"])
+        : null;
       function WsgmNativeQamPerformanceRoot(props) {
         const [, setRevision] = controlRuntime.react.useState(0);
         controlRuntime.react.useEffect(

@@ -122,6 +122,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _patches.Register(new NativeQamFrameLimitPatch());
         _patches.Register(new NativeQamOverlayLevelPatch());
         _patches.Register(new NativeQamControllerTargetPatch());
+
+        // Valve's own VRR control. Registered unconditionally: whether it appears is decided by
+        // whether the perf state carries is_vrr_supported, which follows the device's published
+        // capability, so a machine without VRR needs no separate decision here.
+        _patches.Register(new NativeQamValveVrrPatch());
         if (_resolution is not null)
         {
             _patches.Register(new NativeQamResolutionPatch());

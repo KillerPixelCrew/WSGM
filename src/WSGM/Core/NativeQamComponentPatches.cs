@@ -43,6 +43,53 @@ public sealed class NativeQamFrameLimitPatch : NativeQamComponentPatch
 }
 
 /// <summary>
+/// Mounts Valve's own variable-refresh-rate control instead of building one.
+/// </summary>
+/// <remarks>
+/// The first reactivated component rather than a hand-built row, and the reason it goes first is
+/// that it is purely additive: WSGM never built a VRR row, so nothing has to be retired for this to
+/// appear and nothing regresses if its kill switch is thrown.
+/// <para>
+/// It needs no props. The component reads its state from <c>SystemPerfStore</c> and writes through
+/// <c>SteamClient.System.Perf.UpdateSettings</c>, both of which WSGM now supplies, so mounting it is
+/// the whole integration. It draws nothing when the state omits <c>is_vrr_supported</c>, which is
+/// how a device without VRR hides it — the gate is the state, not a check in the patch.
+/// </para>
+/// </remarks>
+public sealed class NativeQamValveVrrPatch : NativeQamComponentPatch
+{
+    private static readonly string[] RequiredCounts =
+    [
+        "performanceActions",
+        "performanceRoot",
+        "nativeFields",
+        "nativeLayout",
+        "localization",
+        "react",
+    ];
+
+    /// <inheritdoc />
+    public override string Id => "wsgm.native-qam.valve-vrr";
+
+    /// <inheritdoc />
+    public override int Version => 1;
+
+    /// <inheritdoc />
+    protected override string ComponentKind => "valveVrr";
+
+    /// <inheritdoc />
+    protected override string StructuralFingerprint =>
+        "native-qam-valve-vrr-v1:performance-actions+performance-root+valve-vrr-component";
+
+    /// <inheritdoc />
+    protected override IReadOnlyList<string> RequiredUniqueCounts => RequiredCounts;
+
+    /// <inheritdoc />
+    protected override string ProbeExpression => PerformanceProbeExpression(
+        "wsgm_native_valve_vrr_probe_");
+}
+
+/// <summary>
 /// Adds a display-resolution row, which this client has no component for.
 /// </summary>
 /// <remarks>
