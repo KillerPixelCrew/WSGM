@@ -32,9 +32,27 @@
     if (typeof binding !== "function") throw new Error("WSGM Runtime binding unavailable");
     binding(JSON.stringify(envelope));
   };
-  const request = (patchId, command, payload, actionGeneration) => {
+  // The host REJECTS an action generation of zero, and several gates were passing exactly that —
+  // "sequence or action generation is invalid" against wsgm.native-qam.perf/updateSettings,
+  // steam-network.gate/startScan and stopScan, and steam-bluetooth.service/setDiscovering, on the
+  // reference device on 2026-08-30. Every Valve performance control's write, and every signal that
+  // Steam's network page had started looking for networks, was dropped by the bridge before WSGM
+  // ever saw it — which is why the Wi-Fi list never filled: WSGM was never told to scan.
+  //
+  // Zero was meant as "no user-initiated row action here", which is true of a gate. Rather than
+  // repeat the counter at each such call site, an absent or non-positive generation is allocated
+  // one here, so no caller can construct an invalid envelope at all.
+  const gateActionGenerations = new Map();
+  const validActionGeneration = (patchId, actionGeneration) => {
+    if (Number.isInteger(actionGeneration) && actionGeneration > 0) return actionGeneration;
+    const next = (gateActionGenerations.get(patchId) || 0) + 1;
+    gateActionGenerations.set(patchId, next);
+    return next;
+  };
+  const request = (patchId, command, payload, requestedGeneration) => {
     if (!allowed(patchId, command)) return Promise.reject(new Error("command not allowlisted"));
     if (pending.size >= config.maximumPending) return Promise.reject(new Error("bridge busy"));
+    const actionGeneration = validActionGeneration(patchId, requestedGeneration);
     const sequence = ++nextSequence;
     const envelope = {
       version: config.version,
