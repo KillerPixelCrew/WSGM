@@ -8,6 +8,39 @@ using WSGM.Core;
 
 namespace WSGM.Shell;
 
+/// <summary>One Bluetooth device as Steam's own pairing panel renders it.</summary>
+/// <remarks>
+/// Field names are Steam's, not WSGM's, because this crosses straight into its store: the panel
+/// reads <c>is_paired</c> and <c>is_connected</c> to decide which list a device belongs in, and
+/// <c>etype</c> to choose its icon.
+/// </remarks>
+/// <param name="Id">Stable device identifier.</param>
+/// <param name="Name">Device name, or its address when it reports none.</param>
+/// <param name="Mac">Hardware address.</param>
+/// <param name="EType">Steam's device-type enumeration value.</param>
+/// <param name="IsPaired">Whether the device is paired.</param>
+/// <param name="IsConnected">Whether it has a live connection.</param>
+public readonly record struct SteamBluetoothDevice(
+    string Id,
+    string Name,
+    string Mac,
+    int EType,
+    bool IsPaired,
+    bool IsConnected
+);
+
+/// <summary>Bluetooth as Steam's own pairing panel expects to receive it.</summary>
+/// <param name="Available">Whether Bluetooth can be observed and changed at all.</param>
+/// <param name="Enabled">Whether the radio is on.</param>
+/// <param name="Discovering">Whether a scan is running.</param>
+/// <param name="Devices">Known devices, paired and discovered alike.</param>
+public readonly record struct SteamBluetoothState(
+    bool Available,
+    bool Enabled,
+    bool Discovering,
+    IReadOnlyList<SteamBluetoothDevice> Devices
+);
+
 /// <summary>One audio endpoint as Steam's own device picker renders it.</summary>
 /// <param name="Id">Stable endpoint identifier.</param>
 /// <param name="Name">Endpoint name as Windows reports it.</param>

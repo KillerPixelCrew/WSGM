@@ -240,12 +240,33 @@ interface Window {
       }
     };
 
+    // WSGM sends its own field names and the mapping into Steam's lives here, so the client's
+    // schema stays in the half that has to change when the client is rebuilt.
     const onState = (state) => {
       if (!installed || !state) return;
+      const devices = Array.isArray(state.devices) ? state.devices : [];
       latest = {
         is_service_available: state.available === true,
-        adapters: Array.isArray(state.adapters) ? state.adapters : [],
-        devices: Array.isArray(state.devices) ? state.devices : [],
+        // One synthetic adapter, because the panel needs something to hang the radio toggle on and
+        // Windows exposes no adapter identity WSGM could pass through truthfully.
+        adapters:
+          state.available === true
+            ? [{ id: 1, mac: "", name: "Bluetooth", is_enabled: state.enabled === true,
+                is_discovering: state.discovering === true }]
+            : [],
+        devices: devices.map((device) => ({
+          id: device.id,
+          mac: device.mac ?? "",
+          name: device.name ?? device.id,
+          etype: device.eType ?? 0,
+          is_paired: device.isPaired === true,
+          is_connected: device.isConnected === true,
+          // Steam sorts by signal and shows a battery when one is reported. WSGM knows neither, and
+          // a fabricated strength would order the list by a number that means nothing.
+          strength_raw: 0,
+          battery_percent: null,
+          should_hide_hint: false,
+        })),
       };
       invalidate(modules());
     };

@@ -293,6 +293,15 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                     NativeQamSemanticJsonContext.Default.NativeQamAutoTdpState);
                 await _bridge.PublishStateAsync(AutoTdpPatchId, autoTdp, _shutdown.Token)
                     .ConfigureAwait(false);
+                if (_radios is { } radios)
+                {
+                    JsonElement bluetooth = JsonSerializer.SerializeToElement(
+                        await ReadBluetoothStateAsync(radios).ConfigureAwait(false),
+                        NativeQamSemanticJsonContext.Default.SteamBluetoothState);
+                    await _bridge.PublishStateAsync(BluetoothPatchId, bluetooth, _shutdown.Token)
+                        .ConfigureAwait(false);
+                }
+
                 JsonElement frameLimit = JsonSerializer.SerializeToElement(
                     _performance.FrameLimit,
                     NativeQamSemanticJsonContext.Default.NativeQamFrameLimitState);
@@ -839,6 +848,47 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 Log.Warn($"Steam network list publish failed: {ex.Message}");
             }
         });
+    }
+
+    /// <summary>
+    /// Reads the radio manager's Bluetooth view into the shape Steam's panel consumes.
+    /// </summary>
+    /// <param name="radios">The session's radio manager.</param>
+    /// <returns>The state to publish.</returns>
+    /// <remarks>
+    /// Reported unavailable when the radio is off rather than as an empty device list. Steam's panel
+    /// distinguishes the two — "Bluetooth is off" is a state a user can act on, while an empty list
+    /// reads as "nothing found" and invites them to keep waiting for devices that will never arrive.
+    /// </remarks>
+    private static async Task<SteamBluetoothState> ReadBluetoothStateAsync(RadioManager radios)
+    {
+        List<SteamBluetoothDevice> devices = [];
+        bool enabled = false;
+        bool discovering = false;
+        await RunUiAsync(() =>
+        {
+            enabled = radios.BluetoothOn;
+            discovering = radios.BluetoothScanning;
+            foreach (BluetoothDeviceEntry entry in radios.BluetoothDevices)
+            {
+                if (string.IsNullOrWhiteSpace(entry.Id))
+                {
+                    continue;
+                }
+
+                devices.Add(new SteamBluetoothDevice(
+                    entry.Id,
+                    string.IsNullOrWhiteSpace(entry.Name) ? entry.Id : entry.Name,
+                    entry.Id,
+                    // Steam's generic device type. WSGM does not classify Bluetooth devices, and a
+                    // guessed class would put the wrong icon beside a real device.
+                    0,
+                    entry.Paired,
+                    entry.Connected));
+            }
+        }).ConfigureAwait(false);
+
+        return new SteamBluetoothState(enabled, enabled, discovering, devices);
     }
 
     /// <summary>
