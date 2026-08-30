@@ -216,6 +216,13 @@ process below; they must never be triggered by unattended tests.
   doing, not by imagining. (`tools/WsgmLibTest/` — `cdp-eval.mjs raw`, `run-file.mjs <file>` — is the
   live probe harness; Steam BPM on the dev box is a CEF test rig even though WSGM itself never runs
   there.)
+- **A live probe names every module it resolves and every value it constructs (hard).** Never
+  iterate `webpackChunksteamui`'s module registry, never call `runtime(id)` over a loop of ids, and
+  never `new` an export whose factory source you have not read — searching the bundle by
+  construction executes login, power, transport, and storage constructors that are not written to be
+  instantiated speculatively. Doing it once restarted the developer's machine and signed Steam out
+  (`docs\steam-cef.md`). Resolve ids as literals, inspect prototypes instead of instantiating, and
+  when a class is not reachable that way read `String(runtime.m[id])` and stop.
 - **Check what machine you are on before deferring hardware work.** The development machine is now
   itself an **MSI Claw 8 AI+ A2VM** (`Win32_BaseBoard.Product` = `MS-1T52`, SKU `1T52.1`), so device
   enumeration, WMI provider reads, HID descriptor capture, controller-mode observation, and

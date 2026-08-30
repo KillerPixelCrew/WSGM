@@ -547,6 +547,32 @@ Audio is the cheapest gate in the project: the store's flag is literally
 `m_bAvailable = null != SteamClient.System.Audio`, so supplying that one namespace is the whole of
 it.
 
+### A probe must name the modules it touches (incident, 2026-08-30)
+
+**Never iterate `webpackChunksteamui`'s module registry, and never call `new` on an export you did
+not identify first.** A probe written to find three nested protobuf classes did both: it walked
+every id in `runtime.m`, called `runtime(id)` on each — which executes that module's factory — and
+then called `new value()` on every exported function it found, looking for one whose `getClassName()`
+matched. It returned `{"found":{}}`, and it restarted the developer's machine and cost them their
+Steam login. `DialogConfig.vdf` was rewritten four seconds into the run, `loginusers.vdf` at
+14:30:10 and `config.vdf` at 14:31:15 — the shutdown and restart — and the client came up
+unauthenticated.
+
+The power menu is the probable path: its actions are sign-out, restart, and shut down, and a single
+`SignOutAndRestart` accounts for the reboot and the lost credentials together, which two unrelated
+side effects would not. The exact constructor is not known and does not need to be. The client
+bundle contains power, login, transport, and storage classes whose constructors and module factories
+have real side effects, and they are not written to be instantiated speculatively by a stranger.
+Forcing every module in the bundle to evaluate is not a read-only operation no matter what the probe
+then does with the result.
+
+A probe is read-only only when every module it resolves is named as a literal and every value it
+constructs is one whose source it has already read. `probe-perf-accessors.js` is the shape to copy —
+it resolves `28013` and `74514` by id and inspects prototypes rather than instantiating to
+discover. When a class cannot be reached that way, read its factory source as a string
+(`String(runtime.m[id])`) and stop; do not go looking for it by construction. The three classes this
+probe wanted were never found anyway, so the entire risk bought nothing.
+
 **Do not set `force_deck_perf_tab`.** It is Valve's own gate override
 (`U(e) = e || force_deck_perf_tab`) and a persisted client setting, and it force-shows every row
 including the ones WSGM cannot back.
