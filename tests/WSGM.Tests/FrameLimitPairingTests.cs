@@ -131,6 +131,23 @@ public sealed class FrameLimitPairingTests
     }
 
     [Fact]
+    public void FrameLimitOptions_UncoupledStrategy_OffersEveryIntegerFromThirtyToTheCeiling()
+    {
+        IReadOnlyList<int> options = FrameLimitPairing.FrameLimitOptions(
+            FrameLimitStrategy.FrameLimitOnly, ClawNative, ClawAccepted);
+
+        int[] expected = [0, .. Enumerable.Range(30, 91)];
+        Assert.Equal(expected, options);
+    }
+
+    [Fact]
+    public void FrameLimitOptions_UncoupledStrategy_CeilingBelowThirty_OffersOnlyOff()
+    {
+        Assert.Equal([0], FrameLimitPairing.FrameLimitOptions(
+            FrameLimitStrategy.FrameLimitOnly, [24], [24]));
+    }
+
+    [Fact]
     public void FrameLimitOptions_NoUsableModes_OffersOnlyOff()
     {
         Assert.Equal([0], FrameLimitPairing.FrameLimitOptions(

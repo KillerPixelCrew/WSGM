@@ -192,12 +192,29 @@ $temporaryDirectory = $null
 try {
     $state = Get-UsbipState
     $installed = $state.Version
-    if ($null -ne $installed -and $installed -ge $RequiredVersion -and $state.DriverRegistered) {
+    if ($null -ne $installed -and $installed -gt $RequiredVersion) {
+        # A newer build than the reviewed pin. Not silently accepted, and not silently replaced
+        # either: 0.9.7.8 is excluded here for open kernel-pool-corruption reports (see the header),
+        # and forcing a downgrade under another product's installed driver is its own hazard. Say
+        # what is installed, leave it alone, and leave controller management unavailable until a
+        # human decides.
+        Write-Step "installed $installed is newer than the reviewed $RequiredVersion; not replaced"
+        Write-Warning ("usbip-win2 $installed is installed, which is newer than the reviewed " +
+            "$RequiredVersion that WSGM pins. It was neither used as a match nor overwritten: " +
+            "0.9.7.8 has open kernel-pool-corruption reports, and forcing a downgrade under " +
+            "another product's driver is its own hazard. Uninstall it and re-run this step to get " +
+            "the reviewed build. See '$LogPath'.")
+        # Exit 0 like every other outcome here: a driver state WSGM will not touch is still a
+        # supported one, and this step must never strand a WSGM install.
+        exit 0
+    }
+
+    if ($null -ne $installed -and $installed -eq $RequiredVersion -and $state.DriverRegistered) {
         Write-Step "already present (installed $installed, required $RequiredVersion); nothing to do"
         exit 0
     }
 
-    if ($null -ne $installed -and $installed -ge $RequiredVersion) {
+    if ($null -ne $installed -and $installed -eq $RequiredVersion) {
         # The package's own record says it is here but the kernel half is not registered — a
         # half-removed install, or one whose driver was deleted underneath it. Reinstalling is the
         # repair, so this is deliberately not treated as "already present".

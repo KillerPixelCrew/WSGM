@@ -43,13 +43,13 @@ public enum FrameLimitStrategy
 /// </remarks>
 public static class FrameLimitPairing
 {
-    /// <summary>Caps worth offering when the refresh rate is not being coupled to them.</summary>
+    /// <summary>Lowest cap the uncoupled strategy offers.</summary>
     /// <remarks>
-    /// A conventional ladder rather than every integer: a notch slider the user thumbs through with
-    /// a stick needs stops that mean something, and 113 FPS is not one of them.
+    /// Higher than <see cref="MinimumCap"/> on purpose. Nothing is being paired to a display mode
+    /// here, so the cap is free of cadence arithmetic and the only question left is what is worth
+    /// playing at: below 30 FPS is not, and the stops under it only made the slider longer.
     /// </remarks>
-    private static readonly int[] UncoupledLadder =
-        [15, 20, 24, 30, 36, 40, 45, 50, 60, 72, 75, 90, 100, 120, 144, 165, 180, 240];
+    private const int UncoupledFloor = 30;
 
     /// <summary>Lowest cap worth offering at all.</summary>
     private const int MinimumCap = 15;
@@ -126,7 +126,22 @@ public static class FrameLimitPairing
 
         if (strategy is FrameLimitStrategy.FrameLimitOnly)
         {
-            return [0, .. UncoupledLadder.Where(cap => cap <= ceiling)];
+            // Every integer from the floor to the panel's ceiling, not a ladder. Uncoupled means
+            // the cap answers to nothing but the frame limiter, which holds any integer, so a
+            // curated set of stops was WSGM inventing a restriction the backend does not have —
+            // on the reference panel this is a free 30 to 120.
+            if (ceiling < UncoupledFloor)
+            {
+                return [0];
+            }
+
+            List<int> uncoupled = new(ceiling - UncoupledFloor + 2) { 0 };
+            for (int cap = UncoupledFloor; cap <= ceiling; cap++)
+            {
+                uncoupled.Add(cap);
+            }
+
+            return uncoupled;
         }
 
         // Every cap that divides some available mode exactly. Derived from the modes rather than

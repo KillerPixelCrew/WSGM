@@ -68,6 +68,19 @@
                         <ToggleSwitch Grid.Column="1" IsChecked="{Binding PerformanceEnabled}" VerticalAlignment="Center" />
                     </Grid>
                 </Border>
+                <Border Classes="setting-row" IsVisible="{Binding PerformanceEnabled}">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel VerticalAlignment="Center" Spacing="1">
+                            <TextBlock Text="Frame limit and refresh rate" Classes="setting-title" />
+                            <TextBlock Text="How a frame cap is paired with the panel. Frame limit only never changes the display. Native refresh modes switch only between the rates the panel advertises. Frame doubling picks the lowest rate the driver accepts that is an exact multiple of the cap, so 40 FPS runs the panel at 80 Hz." Classes="caption" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" SelectedIndex="{Binding FrameLimitStrategyIndex}">
+                            <ComboBoxItem Content="Frame limit only" />
+                            <ComboBoxItem Content="Native refresh modes" />
+                            <ComboBoxItem Content="Frame doubling" />
+                        </ComboBox>
+                    </Grid>
+                </Border>
             </StackPanel>
 
             <StackPanel Grid.Column="2" IsVisible="{Binding CefEnabled}">

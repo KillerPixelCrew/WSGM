@@ -44,11 +44,35 @@ Write-Host "== Building radio helper (Rust) ==" -ForegroundColor Cyan
 # missing toolchain skips it loudly instead of failing an otherwise good release
 # build.
 Write-Host "== Building virtual controller library (Go) ==" -ForegroundColor Cyan
-if (Get-Command go -ErrorAction SilentlyContinue) {
+# Every prerequisite build-viiper.ps1 throws on, checked here instead — including the cgo C
+# compiler, which the library needs for its C ABI and which the Visual Studio toolchain does not
+# provide. Testing only for Go meant a machine with Go and no MinGW ran the script, hit its
+# compiler check, and aborted the whole release build under $ErrorActionPreference = 'Stop',
+# which is the opposite of the best-effort behaviour described above.
+$viiperTools = [System.Collections.Generic.List[string]]::new()
+if (-not (Get-Command go -ErrorAction SilentlyContinue)) { $viiperTools.Add('Go (winget install GoLang.Go)') }
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) { $viiperTools.Add('Git') }
+if (-not (Get-Command gcc -ErrorAction SilentlyContinue)) {
+    # Same fallback the build script uses: winget installs it without putting it on PATH.
+    $wingetPackages = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages"
+    $gcc = if (Test-Path -LiteralPath $wingetPackages) {
+        Get-ChildItem -LiteralPath $wingetPackages -Recurse -Filter "gcc.exe" -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+    }
+    else {
+        $null
+    }
+    if ($null -eq $gcc) {
+        $viiperTools.Add('a cgo C compiler (winget install BrechtSanders.WinLibs.POSIX.UCRT)')
+    }
+}
+
+if ($viiperTools.Count -eq 0) {
     & "$root\eng\build-viiper.ps1"
 }
 else {
-    Write-Warning "Go toolchain not found; skipping the virtual controller library. Controller management will be unavailable in this build."
+    Write-Warning ("Missing " + ($viiperTools -join ', ') +
+        "; skipping the virtual controller library. Controller management will be unavailable in this build.")
 }
 
 Write-Host "== Publishing WSGM $version (NativeAOT) ==" -ForegroundColor Cyan

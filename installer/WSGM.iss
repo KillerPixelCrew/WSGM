@@ -282,7 +282,7 @@ var
   DevicePackageGateOwned: Boolean;
   ShellAnchorReplacementSafe: Boolean;
   SetupDeviceHostStateVerified: Boolean;
-  SetupInstallStarted: Boolean;
+  SetupPostInstallCompleted: Boolean;
   SetupRuntimeClassificationCaptured: Boolean;
   SetupServiceExisted: Boolean;
   SetupServiceStateCaptured: Boolean;
@@ -332,7 +332,7 @@ begin
   DevicePackageGateOwned := False;
   ShellAnchorReplacementSafe := True;
   SetupDeviceHostStateVerified := False;
-  SetupInstallStarted := False;
+  SetupPostInstallCompleted := False;
   SetupRuntimeClassificationCaptured := False;
   SetupServiceExisted := False;
   SetupServiceStateCaptured := False;
@@ -830,14 +830,16 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
-  if CurStep = ssInstall then
-    SetupInstallStarted := True
-  else if CurStep = ssPostInstall then
+  if CurStep = ssPostInstall then
   begin
     try
       ReplaceDevicePluginSlot();
       // [Run] now owns service/runtime restart. Do not let DeinitializeSetup launch a second copy.
+      // Set only after publication actually succeeded: ReplaceDevicePluginSlot raises on a failure
+      // it cannot make safe, and clearing this first would tell DeinitializeSetup that [Run] was
+      // going to restart a runtime that setup had already abandoned.
       SetupShutdownApplied := False;
+      SetupPostInstallCompleted := True;
     finally
       ReleaseDevicePublicationReservations();
     end;
@@ -1385,10 +1387,15 @@ end;
 
 procedure DeinitializeSetup();
 begin
-  // Covers cancellation and failures before ssPostInstall. Closing an owned gate handle after a
-  // release failure makes it abandoned rather than leaving replacement blocked indefinitely.
+  // Covers cancellation and every failure that does not end in a completed post-install. Closing an
+  // owned gate handle after a release failure makes it abandoned rather than leaving replacement
+  // blocked indefinitely.
   ReleaseDevicePublicationReservations();
-  if not SetupInstallStarted then
+  // Gated on the post-install having actually completed, not merely on installation having begun.
+  // The [Run] restart entries execute only after a successful setup, so a failure during [Files]
+  // or a RaiseException out of ReplaceDevicePluginSlot used to reach here with the shell, Settings
+  // and the logon service stopped and nothing left to start them again.
+  if not SetupPostInstallCompleted then
     RestoreStoppedSetupRuntime();
 end;
 

@@ -1490,7 +1490,12 @@ public sealed class ShellSession : IAsyncDisposable
     {
         RefreshRatePairingService? pairing = _refreshPairing;
         IReadOnlyList<int> options = pairing?.FrameLimitOptions() ?? [];
-        bool manualRefresh = _config.Performance.FrameLimitStrategy is FrameLimitStrategy.FrameLimitOnly;
+        // The same predicate the pairing service decides by, not a second copy of the comparison:
+        // under either coupled strategy the pairing policy owns the refresh rate, so Steam's manual
+        // refresh row must not be offered at all — a user setting it would watch the next frame-cap
+        // change overwrite it.
+        bool manualRefresh = FrameLimitPairing.RefreshRateIsUserOwned(
+            _config.Performance.FrameLimitStrategy);
 
         bool vrr = false;
         bool vrrEnabled = false;

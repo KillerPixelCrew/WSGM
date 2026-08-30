@@ -146,6 +146,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         DeviceGlyphSelectionIndex = (int)_config.DeviceIntegration.GlyphSelection;
         DeviceDiagnosticLevelIndex = (int)_config.DeviceIntegration.DiagnosticLevel;
         PerformanceEnabled = _config.Performance.Enabled;
+        FrameLimitStrategyIndex = (int)_config.Performance.FrameLimitStrategy;
         CefEnabled = _config.Cef.Enabled;
         CefLibraryTabs = _config.Cef.LibraryTabs;
         CefCardManager = _config.Cef.CardManager;
@@ -856,6 +857,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private bool _cefDownloadKeepAwake = true;
     private bool _cefDownloadQueueSort = true;
     private bool _performanceEnabled;
+    private int _frameLimitStrategyIndex;
     private bool _muteWhileDisplayOff;
 
     /// <summary>Gets or sets the shared RTSS performance integration master switch.</summary>
@@ -863,6 +865,19 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     {
         get => _performanceEnabled;
         set { _performanceEnabled = value; Raise(nameof(PerformanceEnabled)); }
+    }
+
+    /// <summary>Gets or sets how a frame cap is paired with the panel's refresh rate.</summary>
+    /// <remarks>
+    /// Index into <see cref="FrameLimitStrategy"/>, in declaration order, so the combo box needs no
+    /// converter. It decides both what the cap does to the display and which caps are offered at
+    /// all: uncoupled offers a free range, and the two coupled strategies offer only caps that
+    /// divide a real mode exactly.
+    /// </remarks>
+    public int FrameLimitStrategyIndex
+    {
+        get => _frameLimitStrategyIndex;
+        set { _frameLimitStrategyIndex = value; Raise(nameof(FrameLimitStrategyIndex)); }
     }
 
     /// <summary>Gets or sets the master Steam CEF integration switch. Off closes the
@@ -1565,6 +1580,10 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             0,
             Enum.GetValues<DeviceDiagnosticLevel>().Length - 1);
         config.Performance.Enabled = PerformanceEnabled;
+        config.Performance.FrameLimitStrategy = (FrameLimitStrategy)Math.Clamp(
+            FrameLimitStrategyIndex,
+            0,
+            Enum.GetValues<FrameLimitStrategy>().Length - 1);
         if (QuickSetupAnswered)
         {
             // Stamped only on a save that actually persists the answer, so a failed

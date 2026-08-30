@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json.Serialization;
@@ -220,6 +221,13 @@ internal static class NativeQamPerfProjection
     /// <summary>The AppID Steam uses to mean "no game".</summary>
     private const string NoGame = "0";
 
+    /// <summary>Highest level Steam's overlay-level selector has a notch for.</summary>
+    /// <remarks>
+    /// Read off the selector itself: it builds five entries, OFF plus 1 to 4, and resolves the
+    /// current value against them without a fallback.
+    /// </remarks>
+    private const int MaximumOverlayLevel = 4;
+
     /// <summary>Projects WSGM's performance state into Valve's state message shape.</summary>
     /// <param name="values">The resolved frame limit and overlay level for the active profile.</param>
     /// <param name="support">What the device can back.</param>
@@ -290,9 +298,13 @@ internal static class NativeQamPerfProjection
             },
             Global = new NativeQamPerfGlobalSettings
             {
-                // Always a number. This control is always mounted, so an absent value leaves it
-                // rendering with nothing to show — see the pairing rule below.
-                PerfOverlayLevel = values.OverlayLevel ?? 0,
+                // Always a number, and always one of the five the selector knows. It resolves the
+                // notch with `levels.find(l => l.value === current).notchIndex` and does not guard
+                // the miss, so a level outside 0-4 throws inside the render and Steam's error
+                // boundary blanks the whole Performance tab. Clamping here is the cheap side of
+                // that trade — the control is always mounted, so an absent value is not an option
+                // either.
+                PerfOverlayLevel = Math.Clamp(values.OverlayLevel ?? 0, 0, MaximumOverlayLevel),
                 IsAdvancedSettingsEnabled = advancedSettingsEnabled,
                 AllowExternalDisplayRefreshControl = support.RefreshRatesSelectable ? true : null,
             },
