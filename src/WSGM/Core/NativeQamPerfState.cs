@@ -135,6 +135,18 @@ internal sealed record NativeQamPerfGlobalSettings
     [JsonPropertyName("is_advanced_settings_enabled")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? IsAdvancedSettingsEnabled { get; init; }
+
+    /// <summary>The second gate on the refresh-rate row for an externally-classified display.</summary>
+    /// <remarks>
+    /// Live-read from the refresh-rate hook 2026-08-30: availability is
+    /// <c>external ? (is_manual_display_refresh_rate_available &amp;&amp;
+    /// allow_external_display_refresh_control) : (is_manual_display_refresh_rate_available &amp;&amp;
+    /// !disable_refresh_rate_management)</c>. The Claw's built-in panel reports as external, so the
+    /// availability flag alone leaves the row hidden — this is the half that was missing.
+    /// </remarks>
+    [JsonPropertyName("allow_external_display_refresh_control")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? AllowExternalDisplayRefreshControl { get; init; }
 }
 
 /// <summary>Performance settings for one application, or for the global profile.</summary>
@@ -282,6 +294,7 @@ internal static class NativeQamPerfProjection
                 // rendering with nothing to show — see the pairing rule below.
                 PerfOverlayLevel = values.OverlayLevel ?? 0,
                 IsAdvancedSettingsEnabled = advancedSettingsEnabled,
+                AllowExternalDisplayRefreshControl = support.RefreshRatesSelectable ? true : null,
             },
             PerApp = new NativeQamPerfApplicationSettings
             {
