@@ -210,6 +210,7 @@ public static unsafe partial class DisplayProfiles
         return accepted;
     }
 
+    /// <inheritdoc/>
     public static IReadOnlyList<int> EnumerateAcceptedRefreshRates()
     {
         var current = new DevMode { Size = (ushort)sizeof(DevMode) };

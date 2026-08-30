@@ -141,8 +141,8 @@ That identity has two sources, and only one of them is Steam. The monitor also t
 application — a WinEvent hook plus a two-second poll, because a hook alone misses focus changes
 across a lock or an elevation transition, and a UWP window is resolved through
 `ApplicationFrameWindow` to the process that actually owns a child window, or every UWP application
-would share one profile. It is an input to the same projection rather than a second observer,
-which is what keeps the one-monitor rule above intact.
+would share one profile. It is an input to the same projection rather than a second observer, which
+is what keeps the one-monitor rule above intact.
 
 Steam wins whenever it names exactly one running application: that identity is the one its launch
 went through and the one the shortcut's executable was resolved from, so alt-tabbing out of a
@@ -159,9 +159,8 @@ takes focus by design at exactly the moment the user is most likely editing that
 the previous application in force rather than dropping to the global profile. An unreadable process,
 which is ordinary for anything elevated or protected, is treated the same way.
 
-The semantic capabilities
-keep their five desired-state layers because hardware limits genuinely differ on battery and per
-profile; a controller target does not.
+The semantic capabilities keep their five desired-state layers because hardware limits genuinely
+differ on battery and per profile; a controller target does not.
 
 Only one target exists at a time. A per-application change is one replacement operation that
 neutralizes and removes the old target before creating the new one, so the two are never enumerated

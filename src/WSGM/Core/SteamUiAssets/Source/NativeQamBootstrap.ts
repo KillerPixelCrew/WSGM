@@ -262,12 +262,7 @@ interface Window {
         // nesting with no field names and WSGM would have to reimplement the wire format to read
         // its own client's message back.
         UpdateSettings: (payload) =>
-          request(
-            patchId,
-            "updateSettings",
-            { delta: payload?.toObject?.() ?? payload ?? {} },
-            0,
-          ),
+          request(patchId, "updateSettings", { delta: payload?.toObject?.() ?? payload ?? {} }, 0),
         RegisterForStateChanges: () => ({ unregister: () => {} }),
         RegisterForDiagnosticInfoChanges: () => ({ unregister: () => {} }),
       };

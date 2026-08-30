@@ -17,7 +17,9 @@
   const accessors = (ctor) => {
     try {
       return Object.getOwnPropertyNames(ctor.prototype).filter(
-        (name) => name !== "constructor" && !name.startsWith("set_") &&
+        (name) =>
+          name !== "constructor" &&
+          !name.startsWith("set_") &&
           !["toObject", "serializeBinary", "serializeBase64String", "getClassName"].includes(name),
       );
     } catch (e) {

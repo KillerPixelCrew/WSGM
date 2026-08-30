@@ -552,11 +552,11 @@ it.
 **Never iterate `webpackChunksteamui`'s module registry, and never call `new` on an export you did
 not identify first.** A probe written to find three nested protobuf classes did both: it walked
 every id in `runtime.m`, called `runtime(id)` on each — which executes that module's factory — and
-then called `new value()` on every exported function it found, looking for one whose `getClassName()`
-matched. It returned `{"found":{}}`, and it restarted the developer's machine and cost them their
-Steam login. `DialogConfig.vdf` was rewritten four seconds into the run, `loginusers.vdf` at
-14:30:10 and `config.vdf` at 14:31:15 — the shutdown and restart — and the client came up
-unauthenticated.
+then called `new value()` on every exported function it found, looking for one whose
+`getClassName()` matched. It returned `{"found":{}}`, and it restarted the developer's machine and
+cost them their Steam login. `DialogConfig.vdf` was rewritten four seconds into the run,
+`loginusers.vdf` at 14:30:10 and `config.vdf` at 14:31:15 — the shutdown and restart — and the
+client came up unauthenticated.
 
 The power menu is the probable path: its actions are sign-out, restart, and shut down, and a single
 `SignOutAndRestart` accounts for the reboot and the lost credentials together, which two unrelated
@@ -568,8 +568,8 @@ then does with the result.
 
 A probe is read-only only when every module it resolves is named as a literal and every value it
 constructs is one whose source it has already read. `probe-perf-accessors.js` is the shape to copy —
-it resolves `28013` and `74514` by id and inspects prototypes rather than instantiating to
-discover. When a class cannot be reached that way, read its factory source as a string
+it resolves `28013` and `74514` by id and inspects prototypes rather than instantiating to discover.
+When a class cannot be reached that way, read its factory source as a string
 (`String(runtime.m[id])`) and stop; do not go looking for it by construction. The three classes this
 probe wanted were never found anyway, so the entire risk bought nothing.
 
