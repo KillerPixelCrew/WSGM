@@ -1211,12 +1211,16 @@ hand-built rows with Valve's own and supplies `SteamClient.System.Perf`.
       clock, scaling mode/filter/sharpness, half-rate shading, tearing, force composite, and Steam's
       own FPS overlay hidden.
 - [ ] Project the same services onto the overlay, which stays the complete surface.
-- [ ] Amend D16 in `_plan\2.0-decisions.md` to record that supplying an absent
+- [x] Amend D16 in `_plan\2.0-decisions.md` to record that supplying an absent
       `SteamClient.System.Perf` for a device WSGM can service is in scope and is not the forbidden
-      global SteamOS/Deck spoof.
+      global SteamOS/Deck spoof. D16 now carries the four-gate table and the rule that the forbidden
+      thing is the global claim, never the local answer.
 - [ ] Record the device- and live-verified findings in `docs\steam-cef.md` and
       `docs\power-and-display.md`: the absent-backend seam, the three Steam performance backend
       families, Arc Sync read/write/restore, and driver-synthesized modes outside the EDID.
+      **`docs\power-and-display.md` is done** — advertised versus accepted refresh rates, the
+      transient-apply property that makes a game-scoped change safe, and the four IGCL facts.
+      **`docs\steam-cef.md` remains**: the absent-backend seam and the three backend families.
 - [ ] Validate on the reference device: the live Steam matrix with the panel mounted, per-game
       profile switching against a real game, each frame-limit strategy including an
       exclusive-fullscreen title across a mode change, VRR toggling with a rendering game, and
@@ -1271,11 +1275,13 @@ settings and profile authoring only — device control stays in the overlay.
       editor has no live temperature or RPM readout in the first cut.
 - [ ] Let the overlay select those profiles globally or per application, extending the per-app
       profile store from S12 rather than adding a second per-app mechanism.
-- [ ] Record the Settings/overlay boundary as a numbered decision in `_plan\2.0-decisions.md`. It is
-      enforced today only by a sentence in `Settings\Pages\DeviceOwnershipPage.axaml` and appears in
-      no design document, which is why it is easy to propose violating.
-- [ ] Give the `WSGM.DeviceLab\Testing` synthetic plugin fixture a settings manifest so the page is
-      exercised without hardware.
+- [x] Record the Settings/overlay boundary as a numbered decision in `_plan\2.0-decisions.md`. Now
+      D22b, including the discriminator that makes it not a judgement call: a setting configures
+      behaviour and WSGM stores it, a capability writes hardware and the device holds it, and
+      authoring a named profile writes no hardware so it belongs on the surface with a mouse.
+- [x] Give the `WSGM.DeviceLab\Testing` synthetic plugin fixture a settings manifest so the page is
+      exercised without hardware. Covers every value kind except curve, which the SDK refuses by
+      design, and keeps one setting in an undeclared section so the fallback path is exercised.
 - [ ] Validate on the reference device: the page rendered from the Claw plugin's real manifest,
       gamepad and touch navigation across sections, a curve authored in Settings then applied from
       the overlay, and behaviour after a plugin update narrows a range a stored value no longer
