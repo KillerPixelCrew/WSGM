@@ -45,9 +45,13 @@ public sealed class FrameLimitPairingTests
     [Fact]
     public void SelectRefreshHz_NativeModes_LeavesRefreshAloneWhenOnlyASynthesizedModeWouldFit()
     {
-        // 24 divides 48, which the driver accepts but the panel does not advertise.
+        // 48 divides only the synthesized 48 Hz; neither advertised rate is a multiple of it.
+        // Note 24 would NOT do as an example here — 120 is an exact 5x of it, so the panel's own
+        // modes can hold a 24 FPS cadence perfectly well.
         Assert.Null(FrameLimitPairing.SelectRefreshHz(
-            FrameLimitStrategy.NativeModes, 24, ClawNative, ClawAccepted));
+            FrameLimitStrategy.NativeModes, 48, ClawNative, ClawAccepted));
+        Assert.Equal(48, FrameLimitPairing.SelectRefreshHz(
+            FrameLimitStrategy.FrameDoubling, 48, ClawNative, ClawAccepted));
     }
 
     [Fact]

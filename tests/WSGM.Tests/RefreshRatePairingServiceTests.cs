@@ -34,8 +34,9 @@ public sealed class RefreshRatePairingServiceTests
         Harness harness = new();
         harness.Service.SetStrategy(FrameLimitStrategy.NativeModes);
 
-        // 24 divides 48, which the driver accepts but the panel does not advertise.
-        Assert.Null(harness.Service.ApplyForCap(24));
+        // 48 divides only the synthesized 48 Hz. 24 would be the wrong example: 120 is an exact 5x
+        // of it, so the panel's own modes can hold that cadence.
+        Assert.Null(harness.Service.ApplyForCap(48));
 
         Assert.Empty(harness.Applied);
     }
