@@ -427,6 +427,72 @@ VIIPER header is tracked upstream), 3886589505 (the glyph service is state-free;
 resolved in Shell), 3890157969 (CodeQL false positive — the harness value is JSON-encoded),
 3887865286 (the discontinuity claim misread the coalescing contract).
 
+## The streamlining haul
+
+The review's driving question was whether the 520-file PR is overbuilt, and the answer is yes, in
+a countable way. The findings above scatter it; this section aggregates it into the two lists the
+work happens from. Everything here is a confirmed finding, not taste.
+
+### Delete — code with zero production consumers
+
+The S3 adopt-or-delete rule, applied again. Several of these were the deliberate "S7 will adopt
+it" holdovers — and S7 then reimplemented the behaviour inline instead of adopting, which settles
+their verdict under the standing rule: delete.
+
+- `Core/PerformanceProfiles.cs` — a complete second per-app profile resolution system, zero
+  callers, with toggle semantics that contradict the live resolver. Its `UsePerGameProfile`
+  semantics are the ones two HIGH data-loss bugs want, so first decide: adopt it as the one
+  resolver (fixing those bugs), or delete it and fix them in `PerformancePolicyResolver`. One
+  resolver either way.
+- `Input/SourceSwitch.cs` — `SourceArbitration.Decide`/`Suppressed`/`RequiresNeutralOutput`,
+  `SourceSwitchDecision`, the record body: all uncalled; `UiInputRouter` owns the policy inline.
+  Only `HeldControlTimeout` survives.
+- `Input/OutputRouting.cs` — `ShouldDeliver` uncalled; `RequiresStop` constant-false at runtime.
+- `Input/ControllerBackend.cs` — `IControllerBackend`/`IUiGamepadSource` public seams with zero
+  implementations; `VirtualTargetProfile` referenced by one test.
+- Four test-only fakes compiled into the production assembly (~470+ lines):
+  `DeterministicFakeHidBackend`, `DeterministicFakeHapticSink`, `DeterministicFakeHidHideAdapter`,
+  `InMemoryHidHideOwnershipStore` — move to the test project.
+- Four dead Steam UI patch classes, two orphan allowlist entries, the QuickAccess channel, and a
+  dead bridge snapshot read (`NativeQamComponentPatches.cs`, `SteamUiBridge.cs`).
+- Four retired component kinds fully implemented in the shipped bootstrap (`tdp`, `overlayLevel`,
+  `valveVrr`, `valveFrameLimit`) — after the Q12 soak.
+- Device Lab dead APIs: `SnapshotByQpc`, `MarkSuspendResume`, the `GuidedOperatorMarkers` family,
+  `PassiveCorrelationAnalyzer.ToAnalysisResult`.
+- Claw plugin: `ReadModeAsync` + its 27-line HID exchange, `FanTable.Copy()`
+  (`ChargeLimitAddress` stays — S6 is about to use it).
+- `PhysicalGlyphCatalog.ProfileMissing` (unproducible), `DeviceOemActionRouter._held`
+  (write-only), `DeviceOverlayBridge`'s dead retry timer + UI branch,
+  `PluginStopReason` (member-for-member duplicate of `DeviceStopReason`).
+
+### Collapse — one mechanism implemented more than once
+
+Ordered by size. The first is Q16 whole; the rest are local and cheap.
+
+1. **Two CDP stacks** — gen-1 `SteamCef` one-shots + three residency sentinels vs. the gen-2
+   transport/patch manager. Q16, `_plan/cef-simplification.md`.
+2. **Two scheduled-task de-elevation handoffs** with already-diverging cleanup
+   (`UnelevatedLauncher.cs`).
+3. **The Steam-UI readiness poll scaffold** duplicated between `KickDownloadSort` and
+   `LibraryTabManager.SyncOnBootAsync` (30 attempts, 3 s/5 s, transition logging, webpack probe).
+4. **Three fire-and-forget task observers** (`ControllerManager.Observe`,
+   `AutoTdpService.Observe`, `DeviceCoordinator.CompleteObservedAsync`).
+5. **Three write-budget guards** in the Claw plugin; **three copies** of the patch
+   `EvaluateAsync` wrapper; **eleven identical** `RequiredCounts` arrays; **two**
+   action-generation allocators in the bootstrap; **triplicate** file-identity P/Invokes across
+   `NativePackageSource`/`NativePathIdentity`/`NativeShellProcess`.
+6. **Second copies of pinned data**: the WMI-class list (Device Lab ×2), usbip-win2/HidHide
+   commits (`checkout-controller-dependency-sources.ps1` vs the lock), build.ps1's VIIPER
+   preflight vs `build-viiper.ps1`'s probe, `MemoryPackageSource` ×3 in tests.
+7. **Policy reimplemented beside its owner**: overlay-level cycling in `ShellSession` vs
+   `PerformanceOverlayBridge.NextOverlayLevel`; the environment block serialized then re-parsed
+   in `DeviceHostProcess`.
+
+Everything in "Delete" plus items 2–7 is independent of Q16 and can go immediately; item 1 is the
+phased plan. The bootstrap-internal collapses (runtime tap 6→1, marker styles 5→1, the append
+table, the gate factory) are Q16 phase 1 and double as the fix vehicle for the injected-gate
+ownership bugs above — one change, both lists.
+
 ## Coverage
 
 Every bucket returned a coverage statement (in the workflow journal): core-cef 11, core-perf 14,

@@ -367,6 +367,12 @@ Only this list drives the next implementation work:
       into Q16 phase 1's gate factory, and the dead-code/duplication lows into Q16's phases — fix
       them there rather than twice. The two banned-pattern probe files
       (`probe-perf-classes.js`, `probe-perf-accessors.js`) are deleted immediately, not queued.
+      **The streamlining half is aggregated in the review doc's "streamlining haul" section**: a
+      delete list (zero-consumer systems, the S7 holdovers whose adopt-or-delete verdict is now
+      settled as delete, ~470 lines of test fakes in the production assembly, dead patches and
+      retired bootstrap rows) and a collapse list (two de-elevation handoffs, the duplicated
+      readiness-poll scaffold, three task observers, triplicated P/Invokes and pins). All of it
+      except the two-CDP-stack item is independent of Q16 and can go immediately.
       - **`Page.captureScreenshot` on the MainWindow target** — the CEF twin of Q18's screenshot
         harness: capture the QAM/Settings surface as a PNG so an agent sees the grey slider, the
         missing row, the wrong order itself, instead of asking the maintainer. First concrete
