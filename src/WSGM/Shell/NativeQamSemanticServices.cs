@@ -274,6 +274,13 @@ internal sealed class PerformanceServiceNativeQamAdapter : IDisposable
                 correlationId,
                 cancellationToken),
 
+            // Straight to the service that owns the policy: creating or removing the application
+            // layer is policy, not a value write, and routing it through SetAsync would need a
+            // control that does not exist.
+            NativeQamPerfSetting.PerApplicationProfileEnabled => ApplyProfileToggleAsync(
+                change.AsFlag,
+                cancellationToken),
+
             NativeQamPerfSetting.VariableRefreshRate when
                 ApplyVariableRefreshRate is { } applyVrr =>
                 ApplyFlagAsync(applyVrr, change.AsFlag, "variable refresh rate", cancellationToken),
@@ -329,6 +336,26 @@ internal sealed class PerformanceServiceNativeQamAdapter : IDisposable
 
         _disposed = true;
         _service.StateChanged -= OnStateChanged;
+    }
+
+    /// <remarks>
+    /// A refusal is reported rather than swallowed. The toggle is controlled, so an unreported
+    /// failure shows it moved and then snaps it back on the next publish with no explanation — and
+    /// "no application is running" is exactly the case a user hits by opening the menu on the
+    /// desktop.
+    /// </remarks>
+    private async Task<NativeQamCommandResult> ApplyProfileToggleAsync(
+        bool enabled,
+        CancellationToken cancellationToken)
+    {
+        bool changed = await _service.SetApplicationProfileEnabledAsync(enabled, cancellationToken)
+            .ConfigureAwait(false);
+        return changed
+            ? new NativeQamCommandResult(true, null)
+            : new NativeQamCommandResult(
+                false,
+                "The per-application profile could not be changed; no identifiable application is "
+                + "running.");
     }
 
     /// <remarks>

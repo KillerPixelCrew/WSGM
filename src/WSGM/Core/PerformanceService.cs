@@ -225,6 +225,86 @@ internal sealed class PerformanceService : IAsyncDisposable
         return new ObservationLease(this);
     }
 
+    /// <summary>
+    /// Gives the running application its own performance profile, or takes it away.
+    /// </summary>
+    /// <param name="enabled">Whether the application should keep its own values.</param>
+    /// <param name="cancellationToken">Cancels the apply that follows.</param>
+    /// <returns>Whether the policy changed.</returns>
+    /// <remarks>
+    /// Turning it on seeds the application's values from what is <em>currently in force</em> rather
+    /// than from nothing. A per-game profile that started empty would drop the user to the global
+    /// defaults the instant they created it, which reads as the toggle having reset their settings.
+    /// <para>
+    /// Turning it off removes the entry rather than blanking it, so the application falls back to
+    /// the global layer through the ordinary resolution path instead of carrying an empty override
+    /// that has to be special-cased everywhere it is read.
+    /// </para>
+    /// <para>
+    /// Refused when nothing identifiable is running: there is no application to attach a profile to,
+    /// and silently writing the global layer instead is the wrong reading of a per-game toggle.
+    /// </para>
+    /// </remarks>
+    internal async Task<bool> SetApplicationProfileEnabledAsync(
+        bool enabled,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        PerformancePolicy policy;
+        RtssApplicationTarget? target;
+        PerformanceValues desired;
+        lock (_stateGate)
+        {
+            policy = _policy;
+            target = _state.Target;
+            desired = _state.Desired;
+        }
+
+        if (target is null)
+        {
+            Log.Warn(
+                "Per-application performance profile refused: no identifiable application is "
+                + "running.");
+            return false;
+        }
+
+        bool present = policy.Applications.Any(entry => string.Equals(
+            entry.ApplicationId,
+            target.ApplicationId,
+            StringComparison.Ordinal));
+        if (present == enabled)
+        {
+            return false;
+        }
+
+        List<PerformanceApplicationPolicy> applications = [.. policy.Applications];
+        if (enabled)
+        {
+            applications.Add(new PerformanceApplicationPolicy(
+                target.ApplicationId,
+                target.RtssProfileName,
+                desired));
+            Log.Info(
+                $"Per-application performance profile created for {target.ApplicationId}, seeded "
+                + $"from the values in force.");
+        }
+        else
+        {
+            applications.RemoveAll(entry => string.Equals(
+                entry.ApplicationId,
+                target.ApplicationId,
+                StringComparison.Ordinal));
+            Log.Info(
+                $"Per-application performance profile removed for {target.ApplicationId}; the "
+                + "global profile applies.");
+        }
+
+        await UpdatePolicyAsync(
+            policy with { Applications = applications },
+            cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
     internal async Task UpdatePolicyAsync(
         PerformancePolicy policy,
         CancellationToken cancellationToken = default)
