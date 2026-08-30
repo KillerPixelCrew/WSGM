@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Settings;
 
 namespace WSGM.Shell;
 
@@ -712,6 +713,12 @@ internal static class DeviceCapabilityValidation
     private const int MaxTextLength = 256;
     private const int MaxIdLength = 128;
 
+    /// <summary>
+    /// Matches <see cref="PluginSettingSection.MaxSectionIdLength"/>: a capability's section names
+    /// the same declared section a setting does, so a longer id here would name nothing.
+    /// </summary>
+    private const int MaxSectionIdLength = PluginSettingSection.MaxSectionIdLength;
+
     internal static bool TryValidateDescriptorSet(
         CapabilityDescriptorSet set,
         long cycleGeneration,
@@ -827,6 +834,25 @@ internal static class DeviceCapabilityValidation
         if (!descriptor.Display.TryValidate(out error))
         {
             return false;
+        }
+
+        if (descriptor.SectionId is { } sectionId)
+        {
+            if (!descriptor.Role.IsGeneric())
+            {
+                // Named in the error, because from the plugin author's side this looks like a
+                // section that was simply ignored.
+                error =
+                    $"Capability role {descriptor.Role} may not declare a section: a semantic role "
+                    + "keeps the placement WSGM gives it on every device.";
+                return false;
+            }
+
+            if (!ValidId(sectionId, MaxSectionIdLength))
+            {
+                error = "Capability section ID is invalid.";
+                return false;
+            }
         }
 
         if (!descriptor.SupportsRead && !descriptor.SupportsWrite && !descriptor.SupportsAction)

@@ -188,3 +188,30 @@ public enum CapabilityUnit
     /// <summary>Milliseconds.</summary>
     Millisecond,
 }
+
+/// <summary>Questions about a <see cref="CapabilityRole"/> that more than one layer asks.</summary>
+public static class CapabilityRoleExtensions
+{
+    /// <summary>
+    /// Whether the role is one of the <c>Generic*</c> roles — a control WSGM has no semantics for.
+    /// </summary>
+    /// <param name="role">The role to classify.</param>
+    /// <returns><see langword="true"/> for a generic role.</returns>
+    /// <remarks>
+    /// The distinction decides what a plugin is allowed to arrange. A semantic role has a home WSGM
+    /// gives it and keeps across every device, so its placement is not the plugin's to choose; a
+    /// generic role has no such home, which is exactly why the plugin may place it.
+    /// <para>
+    /// Written as an explicit list rather than a name-prefix check. A future role named
+    /// <c>GenericPowerLimit</c> would silently become placeable under a prefix rule, and reflection
+    /// over enum names is not available to this NativeAOT surface anyway.
+    /// </para>
+    /// </remarks>
+    public static bool IsGeneric(this CapabilityRole role) => role is
+        CapabilityRole.GenericToggle
+        or CapabilityRole.GenericRange
+        or CapabilityRole.GenericChoice
+        or CapabilityRole.GenericAction
+        or CapabilityRole.GenericText
+        or CapabilityRole.GenericReadOnly;
+}

@@ -38,6 +38,23 @@ public sealed record CapabilityDescriptor
     /// <summary>How WSGM labels it.</summary>
     public required CapabilityDisplay Display { get; init; }
 
+    /// <summary>
+    /// Which declared settings section this belongs to, for a <c>Generic*</c> role only.
+    /// </summary>
+    /// <remarks>
+    /// A semantic role keeps the home WSGM gives it: a power limit belongs under Power on every
+    /// device, and a plugin may not scatter semantic controls into invented groupings. That
+    /// consistency is the entire reason <see cref="DisplayKey"/> exists, and section assignment must
+    /// not become the hole in it — so this is refused on any role that is not
+    /// <see cref="CapabilityRoleExtensions.IsGeneric"/>.
+    /// <para>
+    /// A generic role has no home to keep, which is what makes placement safe there: WSGM has
+    /// nothing better to do with a control it has no semantics for than put it where the plugin
+    /// says. An unknown section falls back to a WSGM-owned group rather than dropping the control.
+    /// </para>
+    /// </remarks>
+    public string? SectionId { get; init; }
+
     /// <summary>Whether the current value can be read back from hardware.</summary>
     public bool SupportsRead { get; init; }
 
