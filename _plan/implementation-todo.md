@@ -1290,9 +1290,13 @@ settings and profile authoring only — device control stays in the overlay.
       order. `Sdk\Settings\PluginSettingSection.cs`. An element naming an unknown section validates
       deliberately, so the renderer can fall it back rather than drop it; the fallback placement,
       the skipped empty section, and the sort decisions are the renderer's to log when it is built.
-- [ ] Keep sections scoped to the settings page and `Generic*` capabilities. A semantic role keeps
+- [x] Keep sections scoped to the settings page and `Generic*` capabilities. A semantic role keeps
       the home WSGM gives it, so a plugin cannot scatter power or fan controls into invented
       groupings and break the cross-device consistency `DisplayKey` exists to protect.
+      `CapabilityDescriptor.SectionId` carries the placement and `DeviceCapabilityRouter` refuses one
+      on any role `CapabilityRoleExtensions.IsGeneric` does not accept, naming the role in the error.
+      `IsGeneric` is an explicit list, never a name prefix: a future `GenericPowerLimit` would
+      otherwise become placeable by accident.
 - [x] Store settings values in WSGM configuration through the source-generated JSON path, keyed by
       device definition id and plugin id, and revalidate against the current manifest on load.
       `Core\DeviceConfiguration.cs` and `ConfigStore.NormalizeDeviceIntegration` drop unmatchable
