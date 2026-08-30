@@ -36,21 +36,18 @@ public sealed unsafe class SharedStateRing : IDisposable
     private readonly byte* _base;
     private readonly int _slotCount;
     private readonly int _slotBytes;
-    private readonly bool _ownsFile;
     private bool _disposed;
 
     private SharedStateRing(
         MemoryMappedFile file,
         MemoryMappedViewAccessor view,
         int slotCount,
-        int slotBytes,
-        bool ownsFile)
+        int slotBytes)
     {
         _file = file;
         _view = view;
         _slotCount = slotCount;
         _slotBytes = slotBytes;
-        _ownsFile = ownsFile;
 
         byte* pointer = null;
         _view.SafeMemoryMappedViewHandle.AcquirePointer(ref pointer);
@@ -94,7 +91,7 @@ public sealed unsafe class SharedStateRing : IDisposable
         MemoryMappedFile file = MemoryMappedFile.CreateNew(name, capacity);
         MemoryMappedViewAccessor view = file.CreateViewAccessor(0, capacity);
 
-        return new SharedStateRing(file, view, slotCount, slotBytes, ownsFile: true);
+        return new SharedStateRing(file, view, slotCount, slotBytes);
     }
 
     /// <summary>
@@ -114,7 +111,7 @@ public sealed unsafe class SharedStateRing : IDisposable
         MemoryMappedFile file = MemoryMappedFile.OpenExisting(name);
         MemoryMappedViewAccessor view = file.CreateViewAccessor(0, capacity);
 
-        return new SharedStateRing(file, view, slotCount, slotBytes, ownsFile: false);
+        return new SharedStateRing(file, view, slotCount, slotBytes);
     }
 
     /// <summary>
@@ -238,10 +235,12 @@ public sealed unsafe class SharedStateRing : IDisposable
         _view.SafeMemoryMappedViewHandle.ReleasePointer();
         _view.Dispose();
 
-        if (_ownsFile)
-        {
-            _file.Dispose();
-        }
+        // Both creation paths, not only Create. MemoryMappedFile.OpenExisting hands back a handle
+        // the opener owns just as CreateNew does; the flag governs whether this ring created the
+        // mapping, not whether it owns the object. Disposing only the created one leaked a section
+        // handle on every open/dispose cycle, which a consumer that reopens rings in one process
+        // hits first.
+        _file.Dispose();
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

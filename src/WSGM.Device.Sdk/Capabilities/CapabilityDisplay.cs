@@ -58,25 +58,7 @@ public sealed record CapabilityDisplay
             return false;
         }
 
-        if (CustomLabel.Length > MaxCustomLabelLength)
-        {
-            error = $"customLabel exceeds {MaxCustomLabelLength} characters.";
-            return false;
-        }
-
-        foreach (char c in CustomLabel)
-        {
-            // Control characters corrupt log lines and can hide the rest of a label from a reviewer;
-            // bidirectional overrides can make a label render as something other than what it says.
-            if (char.IsControl(c) || c is '‮' or '‭' or '‏' or '‎')
-            {
-                error = "customLabel contains a control or bidirectional-override character.";
-                return false;
-            }
-        }
-
-        error = null;
-        return true;
+        return PlainText.TryValidate(CustomLabel, MaxCustomLabelLength, "customLabel", out error);
     }
 }
 
@@ -151,4 +133,7 @@ public enum DisplayKey
 
     /// <summary>"Rumble".</summary>
     Rumble,
+
+    /// <summary>"Variable refresh rate".</summary>
+    VariableRefreshRate,
 }

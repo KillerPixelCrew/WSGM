@@ -266,6 +266,9 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         _coordinator.StateChanged += OnStateChanged;
         _coordinator.CapabilityViewsChanged += OnCapabilityViewsChanged;
         _coordinator.ConfigurationChanged += OnConfigurationChanged;
+        // The AutoTDP row renders live state, not the stored setting, and that state changes with
+        // no capability view and no configuration change behind it.
+        _coordinator.AutoTdpStatusChanged += OnAutoTdpStatusChanged;
     }
 
     public event Action? Changed;
@@ -690,6 +693,9 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             capability.InstanceId,
             capability.NextValue,
             TimeSpan.FromSeconds(5),
+            // Every row here is something a person just pressed, so a power-limit change from this
+            // path pauses AutoTDP instead of being overwritten by its next tick.
+            CapabilityCommandOrigin.User,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -701,7 +707,9 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 
     public Task CycleControllerTargetAsync(CancellationToken cancellationToken = default) =>
         _coordinator.SetControllerTargetAsync(
-            NextTarget(_coordinator.ControllerStatus.Target),
+            NextTarget(
+                _coordinator.ControllerStatus.Target,
+                _coordinator.SupportedControllerTargets),
             cancellationToken);
 
     public Task RetryDeviceCycleAsync(CancellationToken cancellationToken = default) =>
@@ -791,19 +799,38 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 
     /// <summary>The next target in the cycle order.</summary>
     /// <param name="current">The target in effect, or null when none is.</param>
+    /// <param name="supported">
+    /// Targets the backend can build. An empty list means nothing has been discovered yet and the
+    /// full order is used, which is also the order the tests pin.
+    /// </param>
     /// <returns>The target the row moves to.</returns>
     /// <remarks>
     /// Steam Deck first from nothing, because it is the target that carries every control the
     /// canonical model defines; the other two exist for compatibility with software that does not
-    /// understand it.
+    /// understand it. Unsupported targets are skipped rather than offered: selecting one persists a
+    /// target the backend then refuses to create, which leaves controller management unavailable.
     /// </remarks>
-    internal static ManagedControllerTarget NextTarget(ManagedControllerTarget? current) => current switch
+    internal static ManagedControllerTarget NextTarget(
+        ManagedControllerTarget? current,
+        IReadOnlyList<ManagedControllerTarget>? supported = null)
     {
-        ManagedControllerTarget.SteamDeckComposite => ManagedControllerTarget.Xbox360,
-        ManagedControllerTarget.Xbox360 => ManagedControllerTarget.DualShock4,
-        ManagedControllerTarget.DualShock4 => ManagedControllerTarget.SteamDeckComposite,
-        _ => ManagedControllerTarget.SteamDeckComposite,
-    };
+        ManagedControllerTarget[] order =
+        [
+            ManagedControllerTarget.SteamDeckComposite,
+            ManagedControllerTarget.Xbox360,
+            ManagedControllerTarget.DualShock4,
+        ];
+        ManagedControllerTarget[] offered = supported is { Count: > 0 }
+            ? [.. order.Where(supported.Contains)]
+            : order;
+        if (offered.Length == 0)
+        {
+            return current ?? ManagedControllerTarget.SteamDeckComposite;
+        }
+
+        int index = current is { } target ? Array.IndexOf(offered, target) : -1;
+        return offered[(index + 1) % offered.Length];
+    }
 
     public void Dispose()
     {
@@ -822,6 +849,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         _coordinator.StateChanged -= OnStateChanged;
         _coordinator.CapabilityViewsChanged -= OnCapabilityViewsChanged;
         _coordinator.ConfigurationChanged -= OnConfigurationChanged;
+        _coordinator.AutoTdpStatusChanged -= OnAutoTdpStatusChanged;
 
         lock (_sampleGate)
         {
@@ -842,6 +870,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     private void OnCapabilityViewsChanged(IReadOnlyList<DeviceCapabilityView> _) => Changed?.Invoke();
 
     private void OnConfigurationChanged() => Changed?.Invoke();
+
+    private void OnAutoTdpStatusChanged() => Changed?.Invoke();
 
     private void ScheduleRetryRefresh(DateTimeOffset? retryAt)
     {
@@ -975,7 +1005,11 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             or CapabilityRole.FanTargetRpm or CapabilityRole.FanCurve
             or CapabilityRole.FanMeasuredRpm or CapabilityRole.ChargeLimit
             or CapabilityRole.ChargeProtectionMode or CapabilityRole.ChargeBypass
-            or CapabilityRole.Telemetry => DeviceOverlaySection.PowerAndThermals,
+            or CapabilityRole.Telemetry
+            // Variable refresh sits with the frame limit and power controls it interacts with,
+            // not among the lighting oddments, because that is where a user goes to change how the
+            // device performs.
+            or CapabilityRole.VariableRefreshRate => DeviceOverlaySection.PowerAndThermals,
         CapabilityRole.ControllerSource or CapabilityRole.MotionSource
             or CapabilityRole.HapticSink => DeviceOverlaySection.ControllerAndMotion,
         CapabilityRole.OemControl => DeviceOverlaySection.Oem,
@@ -984,6 +1018,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             or CapabilityRole.LightingEffectSpeed
             or CapabilityRole.GenericToggle or CapabilityRole.GenericRange
             or CapabilityRole.GenericChoice or CapabilityRole.GenericAction
+            or CapabilityRole.GenericText
             => DeviceOverlaySection.LightingAndFeatures,
         // A read-only value is something to consult, not to set, so it belongs with the rest of the
         // diagnostics rather than among the controls a user came to change.

@@ -707,6 +707,9 @@ internal static class DeviceCapabilityValidation
 {
     private const int MaxDescriptors = 128;
     private const int MaxChoices = 64;
+
+    /// <summary>Ceiling a text descriptor's own maximum length may declare.</summary>
+    private const int MaxTextLength = 256;
     private const int MaxIdLength = 128;
 
     internal static bool TryValidateDescriptorSet(
@@ -800,6 +803,11 @@ internal static class DeviceCapabilityValidation
                     StringComparison.Ordinal)),
             CapabilityValueKind.Color => value.ColorValue is >= 0 and <= 0xFFFFFF,
             CapabilityValueKind.Curve => CurveIsValid(value.CurveValue),
+            CapabilityValueKind.Text => PlainText.TryValidate(
+                value.TextValue,
+                descriptor.MaximumLength ?? 0,
+                "text",
+                out _),
             CapabilityValueKind.None => false,
             _ => false,
         };
@@ -861,6 +869,22 @@ internal static class DeviceCapabilityValidation
             return false;
         }
 
+        // Text is the one value shape with no natural bound, so the descriptor must supply one.
+        // Without this a plugin could publish a text capability whose value is unbounded, which is
+        // exactly the case PlainText exists to prevent.
+        if (descriptor.ValueKind is CapabilityValueKind.Text
+            && descriptor.MaximumLength is not (> 0 and <= MaxTextLength))
+        {
+            error = $"Text descriptors require a maximumLength between 1 and {MaxTextLength}.";
+            return false;
+        }
+
+        if (descriptor.ValueKind is not CapabilityValueKind.Text && descriptor.MaximumLength is not null)
+        {
+            error = "Only text descriptors may carry a maximumLength.";
+            return false;
+        }
+
         if (!RoleMatchesValueKind(descriptor.Role, descriptor.ValueKind))
         {
             error = "Capability role and value kind are inconsistent.";
@@ -877,6 +901,7 @@ internal static class DeviceCapabilityValidation
         CapabilityRole.GenericAction => kind is CapabilityValueKind.None,
         CapabilityRole.GenericToggle
             or CapabilityRole.LightingPower
+            or CapabilityRole.VariableRefreshRate
             or CapabilityRole.ChargeBypass => kind is CapabilityValueKind.Boolean,
         CapabilityRole.GenericChoice
             or CapabilityRole.ScenarioMode
@@ -898,10 +923,13 @@ internal static class DeviceCapabilityValidation
             or CapabilityRole.LightingEffectSpeed
             or CapabilityRole.GenericRange => kind is CapabilityValueKind.Integer,
         CapabilityRole.OemControl or CapabilityRole.HapticSink => kind is CapabilityValueKind.None,
+        CapabilityRole.GenericText => kind is CapabilityValueKind.Text,
         CapabilityRole.Telemetry or CapabilityRole.GenericReadOnly =>
             kind is CapabilityValueKind.Boolean
                 or CapabilityValueKind.Integer
-                or CapabilityValueKind.Choice,
+                or CapabilityValueKind.Choice
+                // A read-only string — a firmware revision, a mode name the device reports.
+                or CapabilityValueKind.Text,
         _ => true,
     };
 

@@ -80,7 +80,7 @@ public sealed record GlyphPackageImportResult(
 /// </summary>
 public static class GlyphPackageImporter
 {
-    private const int MaxProfiles = 32;
+    private const int MaxProfiles = GlyphProfileLimits.MaxProfiles;
     private const int MaxNoticePathLength = 256;
     private const int MaxJsonDepth = 12;
 

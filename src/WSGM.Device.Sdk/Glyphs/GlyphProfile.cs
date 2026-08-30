@@ -31,6 +31,15 @@ public static class GlyphProfileLimits
     /// <summary>Maximum assets in one profile.</summary>
     public const int MaxAssets = 128;
 
+    /// <summary>Maximum glyph profiles in one package.</summary>
+    /// <remarks>
+    /// A package source enumerates at most one identifier beyond this, so the importer can tell a
+    /// conforming package from one that exceeds the limit. A source that truncated at exactly this
+    /// number made the importer's over-limit check unreachable, and an oversized package validated
+    /// as conforming after silently dropping the extra profiles.
+    /// </remarks>
+    public const int MaxProfiles = 32;
+
     /// <summary>Maximum control-map entries in one profile.</summary>
     public const int MaxControls = 64;
 

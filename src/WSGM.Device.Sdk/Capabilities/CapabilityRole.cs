@@ -85,6 +85,16 @@ public enum CapabilityRole
     /// <summary>A rumble or haptic output sink.</summary>
     HapticSink,
 
+    /// <summary>
+    /// Variable refresh rate for the device's own panel.
+    /// </summary>
+    /// <remarks>
+    /// The panel belongs to the device, so the transport that drives it does too — on Intel parts
+    /// that is IGCL's Arc Sync, on others it will be something else entirely. WSGM only projects the
+    /// capability; it never learns which driver answered.
+    /// </remarks>
+    VariableRefreshRate,
+
     /// <summary>A logical OEM control the user may reassign.</summary>
     OemControl,
 
@@ -99,6 +109,9 @@ public enum CapabilityRole
 
     /// <summary>A device-specific one-shot action with no more specific role.</summary>
     GenericAction,
+
+    /// <summary>A device-specific short text value with no more specific role.</summary>
+    GenericText,
 
     /// <summary>A device-specific read-only value with no more specific role.</summary>
     GenericReadOnly,
@@ -125,6 +138,19 @@ public enum CapabilityValueKind
 
     /// <summary>An ordered set of points, such as a fan curve.</summary>
     Curve,
+
+    /// <summary>
+    /// Short plain text the user types.
+    /// </summary>
+    /// <remarks>
+    /// The only kind that is not constrained by construction, so it carries the same treatment as
+    /// <see cref="CapabilityDisplay.CustomLabel"/>: a declared maximum length, control characters
+    /// and bidirectional overrides rejected, escaped at every sink. That bound exists to stop a
+    /// malformed string corrupting a log line or rendering as something other than what it says —
+    /// not to contain the plugin, which already holds WMI, HID, and EC access and is not an
+    /// attacker in this model.
+    /// </remarks>
+    Text,
 }
 
 /// <summary>Units a numeric capability may carry.</summary>

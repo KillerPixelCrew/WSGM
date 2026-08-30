@@ -96,6 +96,15 @@ public sealed record CapabilityValue
 
     /// <summary>Curve points when <see cref="Kind"/> is <see cref="CapabilityValueKind.Curve"/>.</summary>
     public System.Collections.Generic.IReadOnlyList<CurvePoint> CurveValue { get; init; } = [];
+
+    /// <summary>
+    /// Text when <see cref="Kind"/> is <see cref="CapabilityValueKind.Text"/>.
+    /// </summary>
+    /// <remarks>
+    /// Bounded by the descriptor's <see cref="CapabilityDescriptor.MaximumLength"/> and checked
+    /// against <see cref="PlainText"/> before it reaches any surface.
+    /// </remarks>
+    public string? TextValue { get; init; }
 }
 
 /// <summary>One point of a capability curve, such as a fan table entry.</summary>

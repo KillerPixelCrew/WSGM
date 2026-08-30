@@ -62,6 +62,16 @@ public sealed record CapabilityDescriptor
     /// <summary>Legal options for a choice capability.</summary>
     public IReadOnlyList<CapabilityChoice> Choices { get; init; } = [];
 
+    /// <summary>
+    /// Longest accepted value for a <see cref="CapabilityValueKind.Text"/> capability.
+    /// </summary>
+    /// <remarks>
+    /// Required for text, ignored otherwise. There is no default: a text capability that declared no
+    /// bound would be the one value shape with no limit at all, which is exactly what
+    /// <see cref="PlainText"/> exists to prevent.
+    /// </remarks>
+    public int? MaximumLength { get; init; }
+
     /// <summary>Whether the capability is available while running on AC power.</summary>
     public bool AvailableOnAc { get; init; } = true;
 
