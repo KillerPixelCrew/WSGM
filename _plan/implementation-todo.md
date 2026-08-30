@@ -1167,12 +1167,16 @@ hand-built rows with Valve's own and supplies `SteamClient.System.Perf`.
       decision including each refusal with the values it was decided from. Both IGCL enumerations
       are two-call, unattached outputs answer `CTL_RESULT_ERROR_KMD_CALL`, and IGCL's `bool` is one
       byte so it is `byte` in C#. No Rust helper: IGCL is flat C with blittable structs.
-- [ ] Implement the Core per-application profile store keyed by app id, plus the three configurable
+- [x] Implement the Core per-application profile store keyed by app id, plus the three configurable
       frame-limit strategies — `FrameLimitOnly`, `NativeModes`, `FrameDoubling` — with runtime mode
       discovery validated by `ChangeDisplaySettingsEx(CDS_TEST)` and lowest-valid-multiple pairing.
-      Modes are discovered, never hardcoded; changes are dynamic, never `CDS_UPDATEREGISTRY`, so
-      exit, crash, and reboot self-heal. `FrameLimitOnly` is the default because a mode change can
-      hitch or drop an exclusive-fullscreen title.
+      `Core\PerformanceProfiles.cs` resolves the global and per-game layers with each value falling
+      back independently; `Core\FrameLimitPairing.cs` holds the strategies and derives the cap
+      options from the discovered modes rather than a fixed ladder;
+      `DisplayProfiles.EnumerateAcceptedRefreshRates` enumerates then `CDS_TEST`s every rate and
+      logs both what was accepted and what was refused. `TryApplyTransientRefreshRate` omits
+      `CDS_UPDATEREGISTRY` so exit, crash, and reboot self-heal, and stays separate from the
+      display-profile path that persists on purpose. `FrameLimitOnly` is the default.
 - [ ] Implement the `SteamClient.System.Perf` shim: build `CMsgSystemPerfState` through the client's
       own message classes, deliver it via the store's bound `OnStateChanged`, and route
       `UpdateSettings` deltas to the same services the overlay uses. One patch per mounted

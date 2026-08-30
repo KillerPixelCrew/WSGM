@@ -453,10 +453,14 @@ public static class ConfigStore
 
     private static void NormalizePerformance(PerformanceConfig performance)
     {
+        if (!Enum.IsDefined(performance.FrameLimitStrategy))
+        {
+            performance.FrameLimitStrategy = FrameLimitStrategy.FrameLimitOnly;
+        }
+
         performance.Applications ??= [];
         performance.Applications.RemoveAll(static application => application is null
-            || string.IsNullOrWhiteSpace(application.ApplicationId)
-            || string.IsNullOrWhiteSpace(application.RtssProfileName));
+            || string.IsNullOrWhiteSpace(application.ApplicationId));
         HashSet<string> identities = new(StringComparer.Ordinal);
         performance.Applications.RemoveAll(application =>
             !identities.Add(application.ApplicationId.Trim()));
@@ -475,8 +479,17 @@ public static class ConfigStore
             }
         }
 
+        // An entry is no longer only an RTSS profile: it also carries the per-game performance
+        // profile, its power limit and its refresh preference. Dropping one for having no RTSS
+        // profile name would silently delete a game profile the user set up, so an entry survives
+        // as long as it still says something.
         performance.Applications.RemoveAll(static application =>
-            string.IsNullOrWhiteSpace(application.RtssProfileName));
+            string.IsNullOrWhiteSpace(application.RtssProfileName)
+            && !application.UsePerGameProfile
+            && application.FrameLimit is null
+            && application.OverlayLevel is null
+            && application.TdpWatts is null
+            && application.VariableRefreshRate is null);
     }
 
     private static void NormalizeDisplayMode(DisplayModeValues mode)
