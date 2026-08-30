@@ -1366,6 +1366,11 @@ single Deck-only store getter — but never set the global `TS.IS_STEAMOS`, whic
 Full plan: `_plan\steam-settings-audio-revive.md`. The backend already exists — `AudioManager`,
 `NativeVolumeControl`, `native\VolumeControl` — so this is an adapter plus one new capability.
 
+      **The WSGM half is done**: `Shell\NativeQamAudioService.cs` projects `AudioManager` into
+      Steam's device/volume shape and accepts default-device and volume changes through the same
+      manager property the taskbar sets, so the two surfaces cannot disagree. **What remains is the
+      injected half** — defining the namespace in the bootstrap and routing its twelve methods
+      through the bridge.
 - [ ] Supply `SteamClient.System.Audio` over `Shell\AudioManager.cs`,
       `Interop\NativeVolumeControl.cs` and `Shell\VolumeButtonService.cs`. The cheapest gate in the
       project: the store's flag is literally `m_bAvailable = null != SteamClient.System.Audio`, so
