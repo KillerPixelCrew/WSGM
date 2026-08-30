@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -53,6 +54,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// stay with the surfaces that already own them.
     /// </remarks>
     private readonly RadioManager? _radios;
+
+    /// <summary>How long a burst of scan results is allowed to settle before one push.</summary>
+    private static readonly TimeSpan NetworkPublishDelay = TimeSpan.FromMilliseconds(400);
+
+    private int _networkPublishPending;
     private readonly PerformanceServiceNativeQamAdapter _performance;
     private readonly INativeQamAutoTdpService _autoTdp;
     private readonly INativeQamControllerTargetService _controllerTarget;
@@ -604,11 +610,21 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 switch (request.Command)
                 {
                     case "startScan":
-                        await RunUiAsync(radios.StartScanning).ConfigureAwait(false);
+                        await RunUiAsync(() =>
+                        {
+                            radios.Networks.CollectionChanged -= OnScannedNetworksChanged;
+                            radios.Networks.CollectionChanged += OnScannedNetworksChanged;
+                            radios.StartScanning();
+                        }).ConfigureAwait(false);
+                        QueueNetworkPublish();
                         succeeded = true;
                         break;
                     case "stopScan":
-                        await RunUiAsync(radios.StopScanning).ConfigureAwait(false);
+                        await RunUiAsync(() =>
+                        {
+                            radios.Networks.CollectionChanged -= OnScannedNetworksChanged;
+                            radios.StopScanning();
+                        }).ConfigureAwait(false);
                         succeeded = true;
                         break;
                     default:
@@ -778,6 +794,75 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
         enabled = property.GetBoolean();
         return true;
+    }
+
+    /// <remarks>
+    /// Scan results arrive in bursts — a sweep adds rows one at a time — so publication is
+    /// collapsed onto a single pending push rather than sent per row. Steam's list is rebuilt on
+    /// each push, so a burst of ten additions and one push produce the same result as ten pushes.
+    /// </remarks>
+    private void OnScannedNetworksChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
+        QueueNetworkPublish();
+
+    private void QueueNetworkPublish()
+    {
+        if (Interlocked.Exchange(ref _networkPublishPending, 1) == 1)
+        {
+            return;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                // One settle window per burst. Long enough that a sweep lands in a single push,
+                // short enough that the list appears while the user is still looking at it.
+                await Task.Delay(NetworkPublishDelay, _shutdown.Token).ConfigureAwait(false);
+                Interlocked.Exchange(ref _networkPublishPending, 0);
+                await PublishNetworksAsync(_shutdown.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Steam network list publish failed: {ex.Message}");
+            }
+        });
+    }
+
+    private async Task PublishNetworksAsync(CancellationToken cancellationToken)
+    {
+        if (_radios is not { } radios)
+        {
+            return;
+        }
+
+        List<SteamNetworkIndicator.SteamNetworkAccessPoint> networks = [];
+        await RunUiAsync(() =>
+        {
+            foreach (WifiNetworkEntry entry in radios.Networks)
+            {
+                if (string.IsNullOrWhiteSpace(entry.Ssid))
+                {
+                    continue;
+                }
+
+                networks.Add(new SteamNetworkIndicator.SteamNetworkAccessPoint(
+                    entry.Ssid,
+                    entry.Signal,
+                    entry.Security is not WifiSecurity.Open,
+                    entry.Connected));
+            }
+        }).ConfigureAwait(false);
+
+        if (networks.Count == 0)
+        {
+            return;
+        }
+
+        _ = await SteamNetworkIndicator.PushNetworksAsync(networks, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <summary>
@@ -954,6 +1039,14 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         if (_audio is not null)
         {
             _audio.StateChanged -= OnSemanticStateChanged;
+        }
+
+        // A session that ends while Steam's network page is open would otherwise leave the radio
+        // sweeping and this host subscribed to a collection it no longer publishes.
+        if (_radios is { } radios)
+        {
+            radios.Networks.CollectionChanged -= OnScannedNetworksChanged;
+            await RunUiAsync(radios.StopScanning).ConfigureAwait(false);
         }
 
         _enabled = false;
