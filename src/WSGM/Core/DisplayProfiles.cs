@@ -112,6 +112,122 @@ public static unsafe partial class DisplayProfiles
         return result;
     }
 
+    /// <summary>
+    /// The refresh rates the primary display will actually accept at its current resolution.
+    /// </summary>
+    /// <returns>Accepted rates, ascending and deduplicated. Empty when the display cannot be read.</returns>
+    /// <remarks>
+    /// Enumerated and then <em>tested</em>, never assumed: a driver commonly offers rates the panel
+    /// never advertises — the reference Claw accepts 30/48/60/75/100/120 while its EDID lists only
+    /// 60 and 120 — and equally may refuse one it enumerated. `CDS_TEST` changes nothing, so this is
+    /// safe to call while a game is running.
+    /// <para>
+    /// Hardcoding a rate list is the one thing this must never become: a panel without variable
+    /// refresh will likely accept nothing but what it advertises, and that is exactly the case the
+    /// frame-limit strategies exist to serve.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<int> EnumerateAcceptedRefreshRates()
+    {
+        var current = new DevMode { Size = (ushort)sizeof(DevMode) };
+        if (!EnumDisplaySettingsEx(null, EnumCurrentSettings, ref current, 0))
+        {
+            Log.Warn("Display modes: current settings unreadable; no refresh rates discovered.");
+            return [];
+        }
+
+        SortedSet<uint> enumerated = [];
+        for (uint index = 0; ; index++)
+        {
+            var mode = new DevMode { Size = (ushort)sizeof(DevMode) };
+            if (!EnumDisplaySettingsEx(null, index, ref mode, 0))
+            {
+                break;
+            }
+
+            if (mode.PelsWidth == current.PelsWidth
+                && mode.PelsHeight == current.PelsHeight
+                && mode.BitsPerPel == current.BitsPerPel
+                && mode.DisplayFrequency > 1)
+            {
+                enumerated.Add(mode.DisplayFrequency);
+            }
+        }
+
+        List<int> accepted = [];
+        List<uint> refused = [];
+        foreach (uint hz in enumerated)
+        {
+            if (hz == current.DisplayFrequency || TestRefreshRate(current, hz))
+            {
+                accepted.Add((int)hz);
+            }
+            else
+            {
+                refused.Add(hz);
+            }
+        }
+
+        Log.Info(
+            $"Display modes: {current.PelsWidth}x{current.PelsHeight} at {current.DisplayFrequency} Hz, "
+            + $"accepted [{string.Join(",", accepted)}]"
+            + (refused.Count is 0 ? "" : $", refused [{string.Join(",", refused)}]"));
+        return accepted;
+    }
+
+    /// <summary>
+    /// Applies a refresh rate to the primary display without persisting it.
+    /// </summary>
+    /// <param name="refreshHz">The rate to apply.</param>
+    /// <returns><see langword="true"/> when the display reports the new rate afterwards.</returns>
+    /// <remarks>
+    /// Deliberately dynamic: no `CDS_UPDATEREGISTRY`, so the user's saved display configuration is
+    /// untouched and exit, a crash, or a reboot all restore it without WSGM doing anything. That is
+    /// what makes a game-scoped refresh change safe to make at all.
+    /// <para>
+    /// Distinct from the display-profile path above, which deliberately does persist. Do not merge
+    /// them: a profile is the user's chosen configuration, and this is a transient pairing WSGM owns
+    /// for the duration of a cap.
+    /// </para>
+    /// </remarks>
+    public static bool TryApplyTransientRefreshRate(int refreshHz)
+    {
+        var current = new DevMode { Size = (ushort)sizeof(DevMode) };
+        if (!EnumDisplaySettingsEx(null, EnumCurrentSettings, ref current, 0))
+        {
+            Log.Warn($"Display modes: refusing {refreshHz} Hz; current settings unreadable.");
+            return false;
+        }
+
+        if (current.DisplayFrequency == (uint)refreshHz)
+        {
+            return true;
+        }
+
+        var target = current;
+        target.Fields = DmPelsWidth | DmPelsHeight | DmDisplayFrequency;
+        target.DisplayFrequency = (uint)refreshHz;
+        int status = ChangeDisplaySettingsEx(null, &target, 0, 0, 0);
+        if (status != 0)
+        {
+            Log.Warn(
+                $"Display modes: {refreshHz} Hz refused with status {status} "
+                + $"(was {current.DisplayFrequency} Hz).");
+            return false;
+        }
+
+        Log.Info($"Display modes: {current.DisplayFrequency} Hz -> {refreshHz} Hz (transient).");
+        return true;
+    }
+
+    private static bool TestRefreshRate(DevMode current, uint refreshHz)
+    {
+        var candidate = current;
+        candidate.Fields = DmPelsWidth | DmPelsHeight | DmDisplayFrequency;
+        candidate.DisplayFrequency = refreshHz;
+        return ChangeDisplaySettingsEx(null, &candidate, 0, CdsTest, 0) == 0;
+    }
+
     private static void Capture(AppConfig config, bool game)
     {
         foreach (var current in ReadActiveProfiles())
