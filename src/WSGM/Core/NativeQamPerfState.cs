@@ -142,6 +142,10 @@ internal sealed record NativeQamPerfApplicationSettings
 /// <summary>What the device can currently back, as far as the performance panel is concerned.</summary>
 /// <param name="FrameLimitOptions">Frame caps to offer, or empty to hide the slider.</param>
 /// <param name="VariableRefreshRateSupported">Whether the panel supports VRR.</param>
+/// <param name="VariableRefreshRateEnabled">
+/// Whether VRR is on now, read from the same capability that reports support so the toggle cannot
+/// show a state the device disagrees with.
+/// </param>
 /// <param name="RefreshRatesSelectable">
 /// Whether the user may choose a refresh rate by hand. False under the pairing strategies, where
 /// WSGM owns the refresh rate and a manual row would fight it.
@@ -153,7 +157,8 @@ internal readonly record struct NativeQamPerfSupport(
     bool VariableRefreshRateSupported,
     bool RefreshRatesSelectable,
     int? RefreshRateMinHz,
-    int? RefreshRateMaxHz);
+    int? RefreshRateMaxHz,
+    bool VariableRefreshRateEnabled = false);
 
 /// <summary>Builds the performance state from what WSGM knows, supplying only backed fields.</summary>
 internal static class NativeQamPerfProjection

@@ -487,6 +487,10 @@ public sealed class ShellSession : IAsyncDisposable
                 _overlayTestOnly ? null : _resolutions);
             _steamUi.SetPerfSupport(ReadNativeQamPerfSupport);
             _steamUi.SetRefreshRateApply(ApplyManualRefreshRate);
+            // Null when no plugin publishes VRR, which is also when the projection omits
+            // is_vrr_supported and Valve's row does not render. One fact, one source.
+            _steamUi.SetVariableRefreshRateApply(
+                _deviceCoordinator is null ? null : ApplyVariableRefreshRateAsync);
             _steamUi.Apply(_config.Cef.Enabled && _config.Cef.NativeQuickAccess);
             ApplyGlyphConfig(_config);
             if (_deviceCoordinator is not null)
@@ -1397,6 +1401,48 @@ public sealed class ShellSession : IAsyncDisposable
     /// fight the pairing on every change.
     /// </para>
     /// </remarks>
+    /// <summary>Turns variable refresh rate on or off through the device plugin.</summary>
+    /// <param name="enabled">The requested state.</param>
+    /// <param name="cancellationToken">Cancels the device write.</param>
+    /// <returns>Whether the device applied it.</returns>
+    /// <remarks>
+    /// The plugin owns the transport — Arc Sync on the reference device — because it touches the
+    /// GPU driver, and chasing driver changes is the plugin author's burden rather than WSGM's.
+    /// This only finds the published capability and asks.
+    /// </remarks>
+    private async Task<bool> ApplyVariableRefreshRateAsync(
+        bool enabled,
+        CancellationToken cancellationToken)
+    {
+        if (_deviceCoordinator is not { } coordinator)
+        {
+            return false;
+        }
+
+        DeviceCapabilityView? view = coordinator.CapabilitySnapshot().FirstOrDefault(candidate =>
+            candidate.Descriptor.Role is CapabilityRole.VariableRefreshRate
+            && candidate.Projection.State.Available);
+        if (view is null)
+        {
+            Log.Warn("Variable refresh rate refused: no available capability publishes it.");
+            return false;
+        }
+
+        CapabilityCommandResult result = await coordinator.ExecuteCapabilityAsync(
+            view.Descriptor.CapabilityId,
+            view.Descriptor.InstanceId,
+            new CapabilityValue { Kind = CapabilityValueKind.Boolean, BooleanValue = enabled },
+            TimeSpan.FromSeconds(5),
+            // User, not AutomaticControl: this is a switch the user pressed, and the distinction is
+            // what lets a manual change pause automatic control rather than look like it.
+            CapabilityCommandOrigin.User,
+            cancellationToken).ConfigureAwait(false);
+
+        // Verified counts, unverified counts. A timeout does not: whether the panel changed is
+        // unknown, and reporting success would leave Steam's toggle disagreeing with the display.
+        return result.Outcome is CommandOutcome.AppliedVerified or CommandOutcome.AppliedUnverified;
+    }
+
     /// <summary>Applies a refresh rate the user chose by hand.</summary>
     /// <param name="refreshHz">The chosen rate.</param>
     /// <returns>Whether the display is now at that rate.</returns>
@@ -1439,11 +1485,16 @@ public sealed class ShellSession : IAsyncDisposable
         bool manualRefresh = _config.Performance.FrameLimitStrategy is FrameLimitStrategy.FrameLimitOnly;
 
         bool vrr = false;
+        bool vrrEnabled = false;
         if (_deviceCoordinator is { } coordinator)
         {
-            vrr = coordinator.CapabilitySnapshot().Any(view =>
-                view.Descriptor.Role is CapabilityRole.VariableRefreshRate
-                && view.Projection.State.Available);
+            DeviceCapabilityView? view = coordinator.CapabilitySnapshot().FirstOrDefault(candidate =>
+                candidate.Descriptor.Role is CapabilityRole.VariableRefreshRate
+                && candidate.Projection.State.Available);
+            vrr = view is not null;
+            // Read from the same capability that reports support, so the toggle cannot show a state
+            // the device disagrees with.
+            vrrEnabled = view?.Projection.State.ObservedValue?.BooleanValue ?? false;
         }
 
         IReadOnlyList<int> refreshRates = manualRefresh
@@ -1454,7 +1505,8 @@ public sealed class ShellSession : IAsyncDisposable
             vrr,
             manualRefresh && refreshRates.Count > 0,
             refreshRates.Count > 0 ? refreshRates.Min() : null,
-            refreshRates.Count > 0 ? refreshRates.Max() : null);
+            refreshRates.Count > 0 ? refreshRates.Max() : null,
+            vrrEnabled);
     }
 
     /// <summary>Starts or stops the game-mode card services from one shared policy.</summary>

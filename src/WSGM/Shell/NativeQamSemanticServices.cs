@@ -196,6 +196,14 @@ internal sealed class PerformanceServiceNativeQamAdapter : IDisposable
     /// </remarks>
     internal Func<int, bool>? ApplyRefreshRate { get; set; }
 
+    /// <summary>Turns variable refresh rate on or off, when a device publishes it.</summary>
+    /// <remarks>
+    /// Unset on a machine whose plugin publishes no VRR capability, which is also when the
+    /// projection omits <c>is_vrr_supported</c> and Valve's own row does not render. Both follow the
+    /// same fact, from the same source, so the row cannot appear without a way to act on it.
+    /// </remarks>
+    internal Func<bool, CancellationToken, Task<bool>>? ApplyVariableRefreshRate { get; set; }
+
     /// <summary>The state Steam's own performance panel reads every control's value out of.</summary>
     internal NativeQamPerfState PerfState
     {
@@ -220,7 +228,7 @@ internal sealed class PerformanceServiceNativeQamAdapter : IDisposable
                 appId,
                 perApplicationProfileEnabled: current.Target is not null,
                 advancedSettingsEnabled: true,
-                variableRefreshRateEnabled: null,
+                variableRefreshRateEnabled: support.VariableRefreshRateEnabled,
                 refreshRateHz: null);
         }
     }
@@ -265,6 +273,10 @@ internal sealed class PerformanceServiceNativeQamAdapter : IDisposable
                 PerformancePersistenceTarget.Automatic,
                 correlationId,
                 cancellationToken),
+
+            NativeQamPerfSetting.VariableRefreshRate when
+                ApplyVariableRefreshRate is { } applyVrr =>
+                ApplyFlagAsync(applyVrr, change.AsFlag, "variable refresh rate", cancellationToken),
 
             NativeQamPerfSetting.RefreshRateHz when ApplyRefreshRate is { } applyRefresh =>
                 Task.FromResult(applyRefresh(change.Value)
@@ -317,6 +329,25 @@ internal sealed class PerformanceServiceNativeQamAdapter : IDisposable
 
         _disposed = true;
         _service.StateChanged -= OnStateChanged;
+    }
+
+    /// <remarks>
+    /// The device write is awaited rather than fired and forgotten: Steam's toggle is controlled, so
+    /// reporting success before the device answered would show it moved and then snap it back on the
+    /// next publish.
+    /// </remarks>
+    private static async Task<NativeQamCommandResult> ApplyFlagAsync(
+        Func<bool, CancellationToken, Task<bool>> apply,
+        bool enabled,
+        string what,
+        CancellationToken cancellationToken)
+    {
+        bool applied = await apply(enabled, cancellationToken).ConfigureAwait(false);
+        return applied
+            ? new NativeQamCommandResult(true, null)
+            : new NativeQamCommandResult(
+                false,
+                $"The device refused to turn {what} {(enabled ? "on" : "off")}.");
     }
 
     internal static NativeQamFrameLimitState ProjectFrameLimit(

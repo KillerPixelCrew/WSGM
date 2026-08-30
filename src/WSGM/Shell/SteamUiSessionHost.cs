@@ -1266,6 +1266,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     internal void SetRefreshRateApply(Func<int, bool>? applyRefreshRate)
         => _performance.ApplyRefreshRate = applyRefreshRate;
 
+    /// <summary>Supplies the way to turn variable refresh rate on or off.</summary>
+    /// <param name="applyVrr">Applies the flag, reporting whether it took, or null.</param>
+    internal void SetVariableRefreshRateApply(Func<bool, CancellationToken, Task<bool>>? applyVrr)
+        => _performance.ApplyVariableRefreshRate = applyVrr;
+
     /// <summary>Applies one <c>UpdateSettings</c> call from Steam's own performance panel.</summary>
     /// <param name="request">The forwarded request.</param>
     /// <param name="cancellationToken">Cancels the applies.</param>

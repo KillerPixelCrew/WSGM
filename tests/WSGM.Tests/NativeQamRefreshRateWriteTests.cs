@@ -69,6 +69,59 @@ public sealed class NativeQamRefreshRateWriteTests
         PerformanceServiceNativeQamAdapter adapter = Adapter(_ => true);
 
         NativeQamCommandResult result = await adapter.ApplyPerfChangeAsync(
+            new NativeQamPerfChange(NativeQamPerfSetting.PerApplicationProfileEnabled, 1),
+            "test",
+            CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("PerApplicationProfileEnabled", result.Error);
+    }
+
+    [Theory]
+    [InlineData(1, true)]
+    [InlineData(0, false)]
+    public async Task AVrrToggleReachesTheDeviceWithTheRequestedState(int value, bool expected)
+    {
+        List<bool> applied = [];
+        PerformanceServiceNativeQamAdapter adapter = Adapter(null);
+        adapter.ApplyVariableRefreshRate = (enabled, _) =>
+        {
+            applied.Add(enabled);
+            return Task.FromResult(true);
+        };
+
+        NativeQamCommandResult result = await adapter.ApplyPerfChangeAsync(
+            new NativeQamPerfChange(NativeQamPerfSetting.VariableRefreshRate, value),
+            "test",
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(expected, Assert.Single(applied));
+    }
+
+    [Fact]
+    public async Task ADeviceThatRefusesVrrIsNotReportedAsApplied()
+    {
+        // Steam's toggle is controlled, so reporting success before the device answered would show
+        // it moved and then snap it back on the next publish.
+        PerformanceServiceNativeQamAdapter adapter = Adapter(null);
+        adapter.ApplyVariableRefreshRate = (_, _) => Task.FromResult(false);
+
+        NativeQamCommandResult result = await adapter.ApplyPerfChangeAsync(
+            new NativeQamPerfChange(NativeQamPerfSetting.VariableRefreshRate, 1),
+            "test",
+            CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("variable refresh rate", result.Error);
+    }
+
+    [Fact]
+    public async Task WithNoDeviceVrrIsRefusedByNameRatherThanDropped()
+    {
+        PerformanceServiceNativeQamAdapter adapter = Adapter(null);
+
+        NativeQamCommandResult result = await adapter.ApplyPerfChangeAsync(
             new NativeQamPerfChange(NativeQamPerfSetting.VariableRefreshRate, 1),
             "test",
             CancellationToken.None);
