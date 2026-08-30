@@ -1311,8 +1311,13 @@ settings and profile authoring only — device control stays in the overlay.
 - [ ] Render one WSGM-owned Settings page from the declared manifest, gamepad and touch navigable,
       on the shared controls and themes. Sections are focus groups with stable semantic keys so the
       existing per-destination focus and scroll restoration survives a refresh.
-- [ ] Build a reusable curve editor in `Controls\`. None exists in the tree: `FanCurve` and
-      `CapabilityValueKind.Curve` are declared, validated, and projected, and rendered by nothing.
+- [x] Build a reusable curve editor in `Controls\`. Two halves: `Controls\CurveEditing.cs` is the
+      pure editing model, and every operation returns a curve satisfying the same contract
+      `DeviceCapabilityRouter` validates — 1 to 64 points, inputs strictly ascending, inside the
+      device's bounds — so no gesture can produce a curve that is refused on apply.
+      `Controls\CurveEditor.cs` renders and drives it by touch, pointer, keyboard and gamepad, since
+      game mode has no cursor. A dragged point stops against its neighbour instead of passing it,
+      the endpoints keep their inputs, and only the inputs must ascend: a falling curve is legal.
 - [ ] Add device-keyed RGB and fan profile authoring to Settings, revalidated against the live
       `FanCurve` descriptor before apply. Authoring only: `--settings` starts no DeviceHost, so the
       editor has no live temperature or RPM readout in the first cut.
