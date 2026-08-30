@@ -146,6 +146,20 @@ internal sealed record DeviceOverlayProfile(
     string TrailingText,
     bool CanCycle);
 
+/// <summary>The authored fan/lighting profile in force, and whether it is this game's own.</summary>
+/// <remarks>
+/// Distinct from <see cref="DeviceOverlayProfile"/>, which is the plugin's named HARDWARE profile.
+/// These are curves the user authored in Settings; the overlay only chooses between them (D22b),
+/// and the row says which scope the current choice came from because "quiet, for this game" and
+/// "quiet, for everything" are the same word with very different consequences.
+/// </remarks>
+internal sealed record DeviceOverlayAuthoredProfile(
+    DeviceOverlayStatus Status,
+    string Title,
+    string Description,
+    string TrailingText,
+    bool CanCycle);
+
 /// <summary>The one recovery action the Diagnostics page offers, when there is one.</summary>
 /// <remarks>
 /// Deliberately a single row rather than a panel of buttons. A faulted device cycle has exactly one
@@ -175,7 +189,8 @@ internal sealed record DeviceOverlaySnapshot(
     DeviceOverlayController? Controller = null,
     DeviceOverlayRecovery? Recovery = null,
     DeviceOverlayProfile? Profile = null,
-    DeviceOverlayGlyphPreview? GlyphPreview = null);
+    DeviceOverlayGlyphPreview? GlyphPreview = null,
+    DeviceOverlayAuthoredProfile? AuthoredProfile = null);
 
 /// <summary>Closed semantic source consumed by the Device overlay destination.</summary>
 internal interface IDeviceOverlaySource : IDisposable
@@ -516,6 +531,69 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     private static string Short(string revision) => revision.Length <= 12
         ? revision
         : revision[..12];
+
+    /// <summary>Projects the authored profile in force into its overlay row.</summary>
+    /// <param name="profiles">Profiles authored for this device.</param>
+    /// <param name="selectedProfileId">The profile currently chosen, or null for none.</param>
+    /// <param name="applicationScoped">Whether that choice came from an application override.</param>
+    /// <returns>The row, or null when the device has no authored profiles at all.</returns>
+    /// <remarks>
+    /// Null when nothing has been authored, unlike the hardware-profile row above. That row is
+    /// always present because hardware profiles come from the plugin and a user cannot create one;
+    /// these are created in Settings, and a row offering a choice between nothing would be an
+    /// invitation to press a button that cannot do anything.
+    /// <para>
+    /// The scope is in the description rather than implied, because a profile chosen for one game
+    /// and the same profile chosen for everything read identically otherwise — and the difference is
+    /// what the user changes when they open this row mid-game.
+    /// </para>
+    /// </remarks>
+    internal static DeviceOverlayAuthoredProfile? AuthoredProfileView(
+        IReadOnlyList<DeviceAuthoredProfile> profiles,
+        string? selectedProfileId,
+        bool applicationScoped)
+    {
+        ArgumentNullException.ThrowIfNull(profiles);
+        if (profiles.Count == 0)
+        {
+            return null;
+        }
+
+        DeviceAuthoredProfile? selected = selectedProfileId is { Length: > 0 }
+            ? profiles.FirstOrDefault(profile => string.Equals(
+                profile.ProfileId,
+                selectedProfileId,
+                StringComparison.Ordinal))
+            : null;
+
+        if (selectedProfileId is { Length: > 0 } && selected is null)
+        {
+            // The stored choice names a profile that no longer exists. Said plainly rather than
+            // shown as "none", because none is a state the user chose and this is not.
+            return new DeviceOverlayAuthoredProfile(
+                DeviceOverlayStatus.Warning,
+                "Fan profile",
+                "The selected profile was deleted · choose another in Settings",
+                "MISSING",
+                CanCycle: false);
+        }
+
+        string scope = selected is null
+            ? $"{profiles.Count} authored · none selected"
+            : applicationScoped
+                ? $"1 of {profiles.Count} · applies to this game only"
+                : $"1 of {profiles.Count} · applies to everything";
+
+        return new DeviceOverlayAuthoredProfile(
+            selected is null ? DeviceOverlayStatus.None : DeviceOverlayStatus.Available,
+            "Fan profile",
+            scope,
+            selected is null ? "NONE" : selected.Name.ToUpperInvariant(),
+            // Reports state only. Choosing needs a write path through the overlay source that does
+            // not exist yet, and a row that takes a press and does nothing is worse than one that
+            // plainly says what is in force.
+            CanCycle: false);
+    }
 
     /// <summary>Projects named hardware profiles into the Profiles page's own row.</summary>
     /// <param name="profileIds">The profiles this machine's stored values define.</param>

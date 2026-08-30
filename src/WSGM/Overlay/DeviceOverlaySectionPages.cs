@@ -155,6 +155,11 @@ internal static class DeviceOverlaySectionPages
             AddDirectRow(DeviceOverlaySection.Profiles, profile.Status);
         }
 
+        if (snapshot.AuthoredProfile is { } authored)
+        {
+            AddDirectRow(DeviceOverlaySection.Profiles, authored.Status);
+        }
+
         List<DeviceOverlaySectionEntry> entries = [];
         foreach (DeviceOverlaySection section in Order)
         {

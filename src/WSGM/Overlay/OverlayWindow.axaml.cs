@@ -401,6 +401,30 @@ public partial class OverlayWindow : Window
             }
         }
 
+        // The authored fan profile, below the plugin's hardware profile. Two rows on one page
+        // because they are genuinely different things: the hardware profile comes from the plugin
+        // and switches its own values, while this chooses between curves the user drew in Settings.
+        if (section is DeviceOverlaySection.Profiles && snapshot.AuthoredProfile is { } authored)
+        {
+            const string authoredFocusKey = "device.authored-profile";
+            DescriptorStatusRow authoredRow = new();
+            authoredRow.Apply(new DescriptorRow(
+                authoredFocusKey,
+                authored.Title,
+                authored.Description,
+                authored.TrailingText,
+                authored.CanCycle,
+                DeviceStatusFor(authored.Status)));
+            // No Click handler yet, and CanCycle is false to match: choosing a profile needs a
+            // write path through the overlay source that does not exist. A row that takes a press
+            // and does nothing is worse than one that plainly reports state.
+            DeviceCapabilityList.Children.Add(authoredRow);
+            if (string.Equals(authoredFocusKey, focusedKey, StringComparison.Ordinal))
+            {
+                restoreFocus = authoredRow;
+            }
+        }
+
         // The controller target is WSGM's own setting, not a plugin capability, so it is placed on
         // its page directly for the same reason AutoTDP and glyph selection are.
         if (section is DeviceOverlaySection.ControllerAndMotion
@@ -569,6 +593,7 @@ public partial class OverlayWindow : Window
     private void InvokeHardwareProfileCycle() => _ = RunDeviceCommandAsync(
         "Hardware profile change",
         (bridge, token) => bridge.CycleHardwareProfileAsync(token));
+
 
     /// <summary>Runs one direct Device-surface command with the shared cancellation and logging.</summary>
     /// <param name="description">What the command is, for the log line if it fails.</param>
