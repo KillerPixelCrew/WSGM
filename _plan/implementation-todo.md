@@ -124,9 +124,13 @@ distilled record; do not re-litigate these.
   already current, `UiSampleReceived` has its subscriber, glyph identity is supplied, HidHide
   cycle-start half fixed, `PhysicalGlyphService` switch is presentation not policy). Three fixes
   touch device-only paths and re-verify at release: persistent-lighting rollback, gyroscope
-  staleness bound, patch remove-after-failed-verify. A second, larger review round (122 comments +
-  full 520-file fresh review) is running 2026-08-30; its verified results land in a new section
-  here when complete.
+  staleness bound, patch remove-after-failed-verify.
+- **PR #19 review round 2 (2026-08-30): complete.** A 37-agent workflow re-verified all 122 Codex
+  comments against HEAD (59 fixed, **58 still present** — 9 high, 4 invalid, 1 needs-hardware) and
+  freshly reviewed the full 520-file diff in 13 area buckets with an adversarial verifier per
+  bucket (**144 confirmed** — 5 high, 51 medium, 88 low — 6 refuted, 1 uncertain). Zero overlap
+  between the two sets. The complete verified list, including the refuted/invalid entries kept so
+  they are not re-found, is `_plan\pr19-review-round2.md`; fixing it is Q20.
 - **S12/S14/S15 Steam UI revival (source + live, 2026-08-30).** The gate taxonomy governs all of
   it: supply an absent JS namespace (Perf, Audio), overlay one RPC answer (SteamOS Manager
   `GetState` for TDP), override one store getter/flag (network availability, brightness), replace
@@ -348,6 +352,21 @@ Only this list drives the next implementation work:
         Steam's 126 this is the fallback to test next; a Playwright MCP server also exists if the
         agent-tool shape wins but the Google one cannot attach. Same discipline: connect, look,
         evaluate — never navigate or synthesize input against the live client.
+- [ ] **Q20 — fix the verified round-2 review findings.** 202 verified defects in
+      `_plan\pr19-review-round2.md`: 58 still-present Codex findings and 144 fresh confirmed ones,
+      zero overlap. The 13 high-severity items lead — among them: **UI capture is unwired**
+      (`ClaimUiAsync` has no production caller, so overlay presses still reach the game — D14's
+      mechanism), controller management **faults on every suspend/resume** (fresh target vs.
+      republished identities), `SteamUiBridgeHost.DisposeAsync` **throws on every orderly
+      shutdown** past the desktop-restore point, Choice plugin settings **erase the stored value
+      on save**, failed startup **exits 0** past the crash-loop breaker, Explorer **not restored
+      when the game-mode commit throws**, RTSS policy persistence **erases per-game TDP/VRR/switch
+      fields** (found twice independently), and the Device Lab attended-cleanup trio. Work
+      severity-first; the ownership-marker gaps in the injected gates (network wrapper stacking,
+      brightness originalValue, Bluetooth originals, Manager-gate dispose leak) fold naturally
+      into Q16 phase 1's gate factory, and the dead-code/duplication lows into Q16's phases — fix
+      them there rather than twice. The two banned-pattern probe files
+      (`probe-perf-classes.js`, `probe-perf-accessors.js`) are deleted immediately, not queued.
       - **`Page.captureScreenshot` on the MainWindow target** — the CEF twin of Q18's screenshot
         harness: capture the QAM/Settings surface as a PNG so an agent sees the grey slider, the
         missing row, the wrong order itself, instead of asking the maintainer. First concrete
