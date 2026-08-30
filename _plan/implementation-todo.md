@@ -298,6 +298,32 @@ Only this list drives the next implementation work:
       is drawn, never who owns the state. The S10 attended acceptance re-runs after this lands.
       **What remains is all of it, including the design document — the vision is not yet written
       down, and building ahead of it is how the current Device tab happened.**
+- [ ] **Q18 — Avalonia UI testing framework, so UI work verifies itself without the maintainer.**
+      The point is autonomy: an agent building UI must be able to see and exercise it — today every
+      layout, focus and rendering question ends in "check it on the device", which makes the
+      maintainer the test runner. Land this BEFORE Q17's rebuild phase, so the redesign is verified
+      as it is built. Three pieces, all on Avalonia's own headless platform
+      (`Avalonia.Headless.XUnit` — the full framework with no compositor, simulated input, and
+      Skia-backed frame capture; tests run under CoreCLR, so NativeAOT is not in the way):
+      - **Headless interaction tests** in the existing xUnit suite: construct Settings pages and
+        overlay surfaces through the seams that already exist (`SettingsViewModel`'s internal
+        `AppConfig` ctor, `OverlayController` previewOnly, the synthetic Device Lab plugin's
+        manifest), drive them with simulated keyboard and with canonical button edges fed straight
+        into `UiInputRouter`/`GamepadNavigation` — which makes the couch questions executable:
+        focus lands where it should, Back pops what it should, a slider drag changes the one value
+        it claims, focus memory restores. The curve editor and the plugin settings page are the
+        first targets, then every Q17 page as it is rebuilt.
+      - **A screenshot harness for development, not only pass/fail**: a safe local mode that
+        renders a named page/destination to PNG at handheld resolution and scale, both theme
+        variants, so an agent can look at what it built and iterate without a device round-trip.
+        This is tooling beside the tests, not a test itself.
+      - **Visual-regression baselines** where they earn their keep (theme tokens, shared controls,
+        the redesigned Device tab), with determinism handled deliberately — pinned fonts, fixed
+        scale, fixed size — because a flaky pixel diff is worse than none.
+      The test-harness rule binds fully: no `%LOCALAPPDATA%\WSGM`, no `--shell`/`--boot`, `Log`
+      stays uninitialized, everything through injected config and temp dirs. Attended device
+      acceptance stays what it is — this replaces the maintainer as the *first* checker, not as the
+      release gate. **What remains is all of it.**
 
 A checked architectural queue item has its code, focused tests, diagnostics, and documentation
 complete. Attended/live gates remain explicit and unchecked until they run on the reference device;
