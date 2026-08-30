@@ -1086,8 +1086,51 @@ internal sealed class PerformanceService : IAsyncDisposable
             next = _state;
         }
 
+        LogCommandOutcome(command, next);
         RaiseStateChanged(next);
         return command;
+    }
+
+    /// <summary>Records what one RTSS write actually did.</summary>
+    /// <param name="command">The command that reached a terminal phase.</param>
+    /// <param name="state">The state it left behind, for the profile it was written to.</param>
+    /// <remarks>
+    /// Every terminal outcome, not only the exception path. Before this, a write that succeeded, a
+    /// write RTSS accepted without proven readback, a readback that came back holding a different
+    /// value because another profile writer won, and a timeout were ALL silent — and the one
+    /// question a pasted log could not answer was the obvious one: did the frame cap reach RTSS at
+    /// all? Only an exception ever printed anything.
+    /// <para>
+    /// Through <see cref="Log.Change"/> keyed per control, because a policy re-apply can repeat the
+    /// same write: a transition prints, a repeat is counted. The profile is named because the global
+    /// profile and a per-application one are different files and picking the wrong one looks
+    /// exactly like a write that did nothing.
+    /// </para>
+    /// </remarks>
+    private static void LogCommandOutcome(PerformanceCommandState command, PerformanceState state)
+    {
+        if (command.Phase
+            is PerformanceCommandPhase.Idle
+            or PerformanceCommandPhase.Queued
+            or PerformanceCommandPhase.Applying)
+        {
+            return;
+        }
+
+        string profile = string.IsNullOrWhiteSpace(state.Target?.RtssProfileName)
+            ? "the global profile"
+            : state.Target!.RtssProfileName;
+        string detail = string.IsNullOrWhiteSpace(command.Diagnostic)
+            ? string.Empty
+            : $" — {command.Diagnostic}";
+        bool succeeded = command.Phase
+            is PerformanceCommandPhase.SucceededVerified
+            or PerformanceCommandPhase.AppliedUnverified;
+        Log.Change(
+            $"rtss.command.{command.Control}",
+            $"RTSS {command.Control}={command.RequestedValue?.ToString() ?? "none"} on {profile}: "
+                + $"{command.Phase}{detail}",
+            succeeded ? "info " : "warn ");
     }
 
     private PerformanceCommandState UpdateCommandLocked(PerformanceCommandState command)

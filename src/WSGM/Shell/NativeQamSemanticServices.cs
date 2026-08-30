@@ -84,6 +84,17 @@ internal sealed record NativeQamTdpState(
     string Progress,
     string StatusText);
 
+/// <summary>The variable-refresh switch as WSGM's own row renders it.</summary>
+/// <param name="Available">Whether a device capability backs the switch at all.</param>
+/// <param name="Enabled">What the device reports now, not what was last asked for.</param>
+/// <param name="Progress">Command progress in the shared vocabulary.</param>
+/// <param name="StatusText">One line describing the state, or why the row cannot be operated.</param>
+internal sealed record NativeQamVrrState(
+    bool Available,
+    bool Enabled,
+    string Progress,
+    string StatusText);
+
 /// <summary>AutoTDP as Steam's own menu renders it.</summary>
 /// <remarks>
 /// Deliberately more than a boolean. A switch that only says "on" leaves a user watching the power
@@ -97,6 +108,7 @@ internal sealed record NativeQamTdpState(
 /// <param name="Watts">The limit AutoTDP settled on, when it has one.</param>
 /// <param name="Progress">Command progress in the shared vocabulary.</param>
 /// <param name="StatusText">One line describing what it is doing, or why it cannot.</param>
+
 internal sealed record NativeQamAutoTdpState(
     bool Available,
     bool Enabled,
@@ -190,6 +202,31 @@ internal sealed class PerformanceServiceNativeQamAdapter : IDisposable
         _service.Current,
         _service.Enabled);
 
+    /// <summary>The variable-refresh switch, straight from the device capability.</summary>
+    /// <remarks>
+    /// Availability follows the plugin's published capability and nothing else: a machine whose
+    /// device publishes no VRR capability has no switch, rather than one that refuses every press.
+    /// </remarks>
+    internal NativeQamVrrState Vrr
+    {
+        get
+        {
+            NativeQamPerfSupport? support = PerfSupport?.Invoke();
+            bool available = support?.VariableRefreshRateSupported == true
+                && ApplyVariableRefreshRate is not null;
+            bool enabled = support?.VariableRefreshRateEnabled == true;
+            return new NativeQamVrrState(
+                available,
+                enabled,
+                "idle",
+                available
+                    ? enabled
+                        ? "The panel follows the frame rate."
+                        : "The panel holds a fixed refresh rate."
+                    : "This device publishes no variable-refresh capability.");
+        }
+    }
+
     /// <summary>
     /// Supplies what the device can currently back, for the reactivated performance panel.
     /// </summary>
@@ -209,6 +246,29 @@ internal sealed class PerformanceServiceNativeQamAdapter : IDisposable
     /// projection omits its limits.
     /// </remarks>
     internal Func<int, bool>? ApplyRefreshRate { get; set; }
+
+    /// <summary>Turns variable refresh on or off through the device capability.</summary>
+    /// <param name="enabled">The wanted state.</param>
+    /// <param name="cancellationToken">Cancels the device write.</param>
+    /// <returns>Whether the device took it.</returns>
+    /// <remarks>
+    /// Awaited rather than fired and forgotten, like every other controlled switch here: reporting
+    /// success before the device answered would show the switch move and then snap it back on the
+    /// next publish.
+    /// </remarks>
+    internal Task<NativeQamCommandResult> ApplyVariableRefreshRateAsync(
+        bool enabled,
+        CancellationToken cancellationToken)
+    {
+        if (ApplyVariableRefreshRate is not { } apply)
+        {
+            const string reason = "This device publishes no variable-refresh capability.";
+            Log.Warn($"Native QAM variable refresh {(enabled ? "on" : "off")} refused: {reason}");
+            return Task.FromResult(new NativeQamCommandResult(false, reason));
+        }
+
+        return ApplyFlagAsync(apply, enabled, "variable refresh rate", cancellationToken);
+    }
 
     /// <summary>Applies a refresh rate the user chose directly.</summary>
     /// <param name="hz">The rate to apply.</param>
@@ -1270,6 +1330,7 @@ internal sealed class UnavailableNativeQamControllerTargetService
 [JsonSerializable(typeof(NativeQamFrameLimitState))]
 [JsonSerializable(typeof(NativeQamResolutionState))]
 [JsonSerializable(typeof(NativeQamOverlayLevelState))]
+[JsonSerializable(typeof(NativeQamVrrState))]
 [JsonSerializable(typeof(SteamBluetoothState))]
 [JsonSerializable(typeof(SteamBluetoothDevice))]
 [JsonSerializable(typeof(NativeQamAudioState))]

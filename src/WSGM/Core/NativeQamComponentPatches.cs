@@ -334,6 +334,50 @@ public sealed class NativeQamResolutionPatch : NativeQamComponentPatch
 }
 
 /// <summary>
+/// Adds the variable-refresh switch, which Valve's own component cannot supply on this client.
+/// </summary>
+/// <remarks>
+/// Hand-built rather than reactivated, like the resolution row above. Valve ships a VRR component
+/// and it is unusable here: it is gated on a react-query over
+/// <c>SteamClient.System.DisplayManager</c>, whose <c>GetState</c> this client does not define, so
+/// the query never succeeds and the component returns null before it reads a single field WSGM
+/// publishes — live-probed on the reference device 2026-08-30. Supplying that namespace is its own
+/// piece of work; this row runs on the device capability already verified through IGCL Arc Sync.
+/// </remarks>
+public sealed class NativeQamVrrPatch : NativeQamComponentPatch
+{
+    private static readonly string[] RequiredCounts =
+    [
+        "performanceActions",
+        "performanceRoot",
+        "nativeFields",
+        "nativeLayout",
+        "localization",
+        "react",
+    ];
+
+    /// <inheritdoc />
+    public override string Id => "wsgm.native-qam.vrr";
+
+    /// <inheritdoc />
+    public override int Version => 1;
+
+    /// <inheritdoc />
+    protected override string ComponentKind => "vrr";
+
+    /// <inheritdoc />
+    protected override string StructuralFingerprint =>
+        "native-qam-vrr-v1:performance-actions+performance-root+valve-toggle";
+
+    /// <inheritdoc />
+    protected override IReadOnlyList<string> RequiredUniqueCounts => RequiredCounts;
+
+    /// <inheritdoc />
+    protected override string ProbeExpression => PerformanceProbeExpression(
+        "wsgm_native_vrr_probe_");
+}
+
+/// <summary>
 /// Restores Valve's native performance-overlay presentation with exact RTSS adapter levels.
 /// </summary>
 public sealed class NativeQamOverlayLevelPatch : NativeQamComponentPatch

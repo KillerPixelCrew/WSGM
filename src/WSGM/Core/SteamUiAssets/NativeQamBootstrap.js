@@ -1211,6 +1211,7 @@
     let overlayLevelControl;
     let controllerControl;
     let resolutionControl;
+    let vrrControl;
     // Valve's own VRR control, rendered rather than rebuilt. It reads its state from
     // SystemPerfStore and writes through SteamClient.System.Perf.UpdateSettings, both of which WSGM
     // now supplies, so mounting it needs no props and no shim of its own — which is the entire
@@ -1281,6 +1282,12 @@
       controllerTarget: Object.freeze({
         patchId: "wsgm.native-qam.controller-target",
         command: "setControllerTarget",
+      }),
+      // Hand-built for the same reason resolution is: Valve ships a component, and its gate is a
+      // namespace this client does not have. See createVrrControl.
+      vrr: Object.freeze({
+        patchId: "wsgm.native-qam.vrr",
+        command: "setVariableRefreshRate",
       }),
       // Hand-built, unlike the frame limit and VRR rows. SteamOS drives resolution through
       // gamescope and this client ships no component for it, so there is nothing to mount.
@@ -1427,6 +1434,18 @@
       return { react, slider, dropdown, toggle, section, row, localize };
     };
     const normalizeText = (value) => (typeof value === "string" ? value.slice(0, 240) : "");
+    // Deliberately small. Everything the row needs is a switch position and a reason, because the
+    // device capability behind it answers in exactly those terms.
+    const normalizeVrrState = (value) => {
+      if (!value || typeof value !== "object" || typeof value.available !== "boolean") return null;
+      if (typeof value.enabled !== "boolean") return null;
+      return Object.freeze({
+        available: value.available,
+        enabled: value.enabled,
+        progress: normalizeText(value.progress),
+        statusText: normalizeText(value.statusText),
+      });
+    };
     const normalizeAutoTdpState = (value) => {
       if (!value || typeof value !== "object" || typeof value.available !== "boolean") return null;
       if (typeof value.enabled !== "boolean" || typeof value.controlling !== "boolean") return null;
@@ -1840,6 +1859,45 @@
           onChangeComplete: (next) => echoed.onChangeComplete(next, setValue),
         });
       };
+    // WSGM's own variable-refresh switch. Valve ships one, and it cannot be used: its component is
+    // gated on a react-query over SteamClient.System.DisplayManager, whose GetState this client
+    // does not define — the query never succeeds and the component returns null before it reads a
+    // single field WSGM publishes (live-probed 2026-08-30). The device capability behind this row
+    // is the one already verified on the reference unit through IGCL Arc Sync.
+    const createVrrControl = (controlRuntime) =>
+      function WsgmNativeVrrControl() {
+        const state = useSemanticState(controlRuntime, "vrr", normalizeVrrState);
+        if (!state) return note("vrr", "no state");
+        if (!state.available)
+          return note("vrr", "unavailable: " + (state.statusText || "no reason"));
+        if (!controlRuntime.toggle) return note("vrr", "Steam ToggleField was not resolved");
+        renderOutcomes.vrr = "rendered";
+        const definition = definitions.vrr;
+        return controlRuntime.react.createElement(controlRuntime.toggle, {
+          // Valve's own token for the row, so the label matches the client's language even though
+          // the component behind it is WSGM's.
+          label: localizeOr(
+            controlRuntime,
+            "#QuickAccess_Tab_Perf_EnableVRR",
+            "Variable refresh rate",
+          ),
+          description: state.statusText || undefined,
+          checked: state.enabled,
+          // Controlled: the switch shows what the device reports, so a write the panel refuses
+          // leaves it where the hardware actually is rather than where it was clicked.
+          controlled: true,
+          disabled: isBusy(state.progress),
+          onChange: (enabled) => {
+            if (typeof enabled !== "boolean" || enabled === state.enabled) return;
+            void request(
+              definition.patchId,
+              definition.command,
+              { enabled },
+              nextActionGeneration(definition.patchId),
+            ).catch(() => {});
+          },
+        });
+      };
     const createAutoTdpControl = (controlRuntime) =>
       function WsgmNativeAutoTdpControl() {
         const state = useSemanticState(controlRuntime, "autoTdp", normalizeAutoTdpState);
@@ -2037,11 +2095,13 @@
         // switch and keeps the slider, rather than losing the whole row silently.
         const disableSwitch = controlRuntime.toggle
           ? controlRuntime.react.createElement(controlRuntime.toggle, {
-              label: localizeOr(
-                controlRuntime,
-                "#QuickAccess_Tab_Perf_LimitFrameRate_Off",
-                "Disable frame limit",
-              ),
+              // Not "#QuickAccess_Tab_Perf_LimitFrameRate_Off": that token is the notch slider's
+              // first STOP and localizes to bare "Off" ("AUS"), which reads as a row with no
+              // subject once it is a switch of its own. SteamOS names this switch outright.
+              label: "Disable frame limit",
+              description: refreshMode
+                ? "The slider sets the refresh rate while the limit is off."
+                : undefined,
               checked: !capped,
               controlled: true,
               disabled: isBusy(state.progress),
@@ -2242,6 +2302,74 @@
           ),
         );
       }
+      // The order below is the maintainer's, set on the device: overlay level, frame limit and its
+      // switch, VRR, TDP with AutoTDP behind it, and the controller last. It reads from what you
+      // look at while playing down to what you set once — not from the order the rows were built.
+      // The overlay is what you turn on to judge everything under it, so it comes first.
+      if (wants("valveOverlayLevel") && valveOverlayLevelControl) {
+        controls.push(
+          controlRuntime.react.createElement(
+            controlRuntime.row,
+            { key: "wsgm-native-qam-valve-overlay-level" },
+            controlRuntime.react.createElement(valveOverlayLevelControl),
+          ),
+        );
+      }
+      if (wants("overlayLevel")) {
+        controls.push(
+          controlRuntime.react.createElement(
+            controlRuntime.row,
+            { key: "wsgm-native-qam-overlay-level" },
+            controlRuntime.react.createElement(overlayLevelControl),
+          ),
+        );
+      }
+      // The unified row: one slider that is the frame cap while a cap is set and the refresh rate
+      // once the switch beside it turns the cap off.
+      if (wants("frameLimit")) {
+        controls.push(
+          controlRuntime.react.createElement(
+            controlRuntime.row,
+            { key: "wsgm-native-qam-frame-limit" },
+            controlRuntime.react.createElement(frameLimitControl),
+          ),
+        );
+      }
+      if (wants("valveFrameLimit") && valveFrameLimitControl) {
+        controls.push(
+          controlRuntime.react.createElement(
+            controlRuntime.row,
+            { key: "wsgm-native-qam-valve-frame-limit" },
+            controlRuntime.react.createElement(valveFrameLimitControl),
+          ),
+        );
+      }
+      // Directly under the frame limit, because variable refresh is the other answer to the same
+      // question: hold a cadence by capping frames, or by letting the panel follow them.
+      //
+      // WSGM's own row, not Valve's. Valve's VRR component is gated on
+      // SteamClient.System.DisplayManager, which this client does not have — its GetState returns
+      // null, the query never succeeds, and the component returns null before it reads anything
+      // WSGM publishes. Live-probed 2026-08-30; supplying that namespace is a separate piece of
+      // work, and this row runs on the device capability that is already verified.
+      if (wants("vrr")) {
+        controls.push(
+          controlRuntime.react.createElement(
+            controlRuntime.row,
+            { key: "wsgm-native-qam-vrr" },
+            controlRuntime.react.createElement(vrrControl),
+          ),
+        );
+      }
+      if (wants("valveVrr") && valveVrrControl) {
+        controls.push(
+          controlRuntime.react.createElement(
+            controlRuntime.row,
+            { key: "wsgm-native-qam-valve-vrr" },
+            controlRuntime.react.createElement(valveVrrControl),
+          ),
+        );
+      }
       if (wants("tdp")) {
         controls.push(
           controlRuntime.react.createElement(
@@ -2259,40 +2387,6 @@
             controlRuntime.row,
             { key: "wsgm-native-qam-auto-tdp" },
             controlRuntime.react.createElement(autoTdpControl),
-          ),
-        );
-      }
-      if (wants("frameLimit")) {
-        controls.push(
-          controlRuntime.react.createElement(
-            controlRuntime.row,
-            { key: "wsgm-native-qam-frame-limit" },
-            controlRuntime.react.createElement(frameLimitControl),
-          ),
-        );
-      }
-      // After the frame limit, because under the pairing strategies the cap is what moves the
-      // refresh rate, and a resolution change carries the current rate with it: the user reads the
-      // thing that drives before the thing that follows.
-      // Valve's own component, not a WSGM row. It draws nothing when the state omits
-      // is_vrr_supported, which is what hides it on a device with no VRR capability — no extra
-      // check here, because that gate is the state itself.
-      // Valve's own slider, in the place the hand-rolled one held.
-      if (wants("valveFrameLimit") && valveFrameLimitControl) {
-        controls.push(
-          controlRuntime.react.createElement(
-            controlRuntime.row,
-            { key: "wsgm-native-qam-valve-frame-limit" },
-            controlRuntime.react.createElement(valveFrameLimitControl),
-          ),
-        );
-      }
-      if (wants("valveVrr") && valveVrrControl) {
-        controls.push(
-          controlRuntime.react.createElement(
-            controlRuntime.row,
-            { key: "wsgm-native-qam-valve-vrr" },
-            controlRuntime.react.createElement(valveVrrControl),
           ),
         );
       }
@@ -2317,24 +2411,8 @@
           ),
         );
       }
-      if (wants("overlayLevel")) {
-        controls.push(
-          controlRuntime.react.createElement(
-            controlRuntime.row,
-            { key: "wsgm-native-qam-overlay-level" },
-            controlRuntime.react.createElement(overlayLevelControl),
-          ),
-        );
-      }
-      if (wants("valveOverlayLevel") && valveOverlayLevelControl) {
-        controls.push(
-          controlRuntime.react.createElement(
-            controlRuntime.row,
-            { key: "wsgm-native-qam-valve-overlay-level" },
-            controlRuntime.react.createElement(valveOverlayLevelControl),
-          ),
-        );
-      }
+      // Last of the performance controls, because it is the one setting that is not about this
+      // session's frame pacing at all.
       if (wants("controllerTarget")) {
         controls.push(
           controlRuntime.react.createElement(
@@ -2452,6 +2530,7 @@
       overlayLevelControl = createOverlayLevelControl(controlRuntime);
       controllerControl = createControllerControl(controlRuntime);
       resolutionControl = createResolutionControl(controlRuntime);
+      vrrControl = createVrrControl(controlRuntime);
       // Selected by the localization token it draws, never by a minified export name: the names are
       // right for today's build and are not guaranteed for the next. Live-probed 2026-08-30 that
       // this token matches exactly one export of the components module.

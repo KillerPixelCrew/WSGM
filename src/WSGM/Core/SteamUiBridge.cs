@@ -55,6 +55,12 @@ public sealed class SteamUiBridgeAuthorizer
             ["wsgm.native-qam.frame-limit"] = ["setFrameLimit", "setRefreshRate"],
             ["wsgm.native-qam.overlay-level"] = ["setOverlayLevel"],
             ["wsgm.native-qam.controller-target"] = ["setControllerTarget"],
+
+            // Hand-built like the resolution row above, and for the same kind of reason: Valve
+            // ships a VRR component, but it is gated on a react-query over
+            // SteamClient.System.DisplayManager, which this client does not define. The query never
+            // succeeds and the component returns null before reading anything WSGM publishes.
+            ["wsgm.native-qam.vrr"] = ["setVariableRefreshRate"],
             ["wsgm.native-qam.performance-data"] = ["subscribe", "unsubscribe"],
             ["wsgm.native-qam.shell"] = ["toggleQuickAccess"],
 

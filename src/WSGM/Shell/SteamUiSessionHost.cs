@@ -20,6 +20,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private const string TdpPatchId = "wsgm.native-qam.tdp";
     private const string FrameLimitPatchId = "wsgm.native-qam.frame-limit";
     private const string OverlayLevelPatchId = "wsgm.native-qam.overlay-level";
+    private const string VrrPatchId = "wsgm.native-qam.vrr";
     private const string ValveOverlayLevelPatchId = "wsgm.native-qam.valve-overlay-level";
     private const string AutoTdpPatchId = "wsgm.native-qam.auto-tdp";
     private const string ControllerTargetPatchId = "wsgm.native-qam.controller-target";
@@ -133,10 +134,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _patches.Register(new NativeQamValveOverlayLevelPatch());
         _patches.Register(new NativeQamControllerTargetPatch());
 
-        // Valve's own VRR control. Registered unconditionally: whether it appears is decided by
-        // whether the perf state carries is_vrr_supported, which follows the device's published
-        // capability, so a machine without VRR needs no separate decision here.
-        _patches.Register(new NativeQamValveVrrPatch());
+        // WSGM's own VRR switch, not Valve's. Valve's component is gated on a react-query over
+        // SteamClient.System.DisplayManager, which this client does not define: the query never
+        // succeeds and the component returns null before it reads anything WSGM publishes, so the
+        // row was simply absent. Registered unconditionally — whether it appears is decided by
+        // whether the device publishes a variable-refresh capability, which the state carries.
+        _patches.Register(new NativeQamVrrPatch());
         _patches.Register(new NativeQamValveProfileHeaderPatch());
         _patches.Register(new NativeQamValveResetPatch());
         _patches.Register(new NativeQamValveRefreshRatePatch());
@@ -357,6 +360,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                     NativeQamSemanticJsonContext.Default.NativeQamOverlayLevelState);
                 await _bridge.PublishStateAsync(OverlayLevelPatchId, overlayLevel, _shutdown.Token)
                     .ConfigureAwait(false);
+                JsonElement vrr = JsonSerializer.SerializeToElement(
+                    _performance.Vrr,
+                    NativeQamSemanticJsonContext.Default.NativeQamVrrState);
+                await _bridge.PublishStateAsync(VrrPatchId, vrr, _shutdown.Token)
+                    .ConfigureAwait(false);
                 // Its own serializer context: these are Valve's protobuf field names, so the
                 // camelCase policy the semantic states use would rename every one of them and each
                 // renamed field is silently a control that does not render.
@@ -432,6 +440,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // behind here took the whole shell session down at startup on 2026-08-30. The frame limit
         // is WSGM's own row again — see the constructor for why it cannot be Valve's notch one.
         _patches.SetPatchEnabled(FrameLimitPatchId, components);
+        _patches.SetPatchEnabled(VrrPatchId, components);
         _patches.SetPatchEnabled(ValveOverlayLevelPatchId, components);
         _patches.SetPatchEnabled(ControllerTargetPatchId, components);
     }
@@ -641,6 +650,22 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                         persistence,
                         CorrelationId(request),
                         requestCancellation.Token).ConfigureAwait(false);
+                    succeeded = result.Succeeded;
+                    error = result.Error;
+                }
+            }
+            else if (request.PatchId == VrrPatchId
+                && request.Command == "setVariableRefreshRate")
+            {
+                if (!TryReadEnabledPayload(request.Payload, out bool vrrWanted))
+                {
+                    error = "The variable-refresh payload is invalid.";
+                }
+                else
+                {
+                    NativeQamCommandResult result = await _performance
+                        .ApplyVariableRefreshRateAsync(vrrWanted, requestCancellation.Token)
+                        .ConfigureAwait(false);
                     succeeded = result.Succeeded;
                     error = result.Error;
                 }
