@@ -1350,7 +1350,7 @@ single Deck-only store getter — but never set the global `TS.IS_STEAMOS`, whic
       `StartScanningForNetworks`/`StopScanningForNetworks`, collapsing each burst onto one push.
       `SetWifiEnabled` exists natively, is untested, is a real radio mutation, and stays attended,
       as does confirming the list appears on Steam's page.
-- [ ] Revive Bluetooth pair and connect in Steam directly by replacing the `BluetoothManagerService`
+- [x] Revive Bluetooth pair and connect in Steam directly by replacing the `BluetoothManagerService`
       stub methods on the plain object `RF` exported by module `60517`, routing them to the existing
       radio backend. The service round-trips on Windows — `GetState` succeeds and returns
       `is_service_available: false` with empty adapters and devices — so the transport and message
@@ -1359,7 +1359,14 @@ single Deck-only store getter — but never set the global `TS.IS_STEAMOS`, whic
       `CancelPair`, `Forget`, `Connect`, `Disconnect`, `SetWakeAllowed`, `SetTrusted`, each
       returning the transport result shape (`BSuccess()` plus `Body().toObject()`). `*Handler` is a
       message descriptor, not a registration hook, so implementing the service is not an option.
-      Land it after Wi-Fi so the narrower gate override is proven first.
+      Done, after Wi-Fi as planned: `Core\SteamBluetoothServicePatch.cs` plus the bootstrap's
+      Bluetooth service. The probe additionally requires the query cache to be reachable, because
+      availability is read through react-query with an infinite stale time and the row would
+      otherwise keep the unavailable answer whatever the methods return. Reads are answered from
+      pushed state so the panel never waits to draw; pairing starts discovery and lets
+      `RadioManager`'s existing prompt run rather than inventing a headless pair; trusted and
+      wake-allowed are accepted as no-ops because they are BlueZ concepts with no Windows
+      equivalent. **Attended: an actual pair, connect, disconnect and forget on hardware.**
 - [ ] Audio has its own plan and its own phase: see `_plan\steam-settings-audio-revive.md` and S15.
 - [ ] Reuse Valve's brightness row over `SteamClient.System.Display.SetBrightness`, which exists and
       whose availability flag defaults true. If it does not move the panel, fall back to the driver
