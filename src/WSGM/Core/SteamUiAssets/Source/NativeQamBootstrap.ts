@@ -190,9 +190,13 @@ interface Window {
   // configurable, the override flips the value, and restoring the saved descriptor puts it back.
   function createNetworkGate() {
     const property = "networkManagementAvailable";
+    const patchId = "wsgm.steam-network.gate";
     let original: PropertyDescriptor | undefined;
     let target: object | null = null;
     let lastError = "";
+    let scanWrapped = false;
+    let originalStart: ((...args: unknown[]) => unknown) | null = null;
+    let originalStop: ((...args: unknown[]) => unknown) | null = null;
 
     const store = () => {
       try {
@@ -237,10 +241,52 @@ interface Window {
       original = descriptor;
       target = proto;
       lastError = "";
+      wrapScanning();
       return { ok: true, installed: true, available: instance[property] === true };
     };
 
+    // Steam's own UI calls these when its network page opens and closes, so they are exactly the
+    // signal for when a scan is worth running. WSGM's radio manager is otherwise driven by WSGM's
+    // own panel, and a list refreshed only then would be stale on Steam's page — which is worse
+    // than an empty one, because the user picks a network that is gone and the join fails silently.
+    //
+    // Both originals are always called through: this observes the lifetime, it does not take it
+    // over, so a client that grows a working backend keeps behaving exactly as before.
+    const wrapScanning = () => {
+      const net = window.SteamClient?.System?.Network;
+      if (!net || scanWrapped) return;
+      const wrap = (name: string, command: string) => {
+        const inner = net[name];
+        if (typeof inner !== "function") return null;
+        net[name] = function (...args) {
+          try {
+            request(patchId, command, null, 0);
+          } catch {
+            // A scan request that cannot reach WSGM must not stop Steam's own call.
+          }
+
+          return inner.apply(this, args);
+        };
+        return inner;
+      };
+
+      originalStart = wrap("StartScanningForNetworks", "startScan");
+      originalStop = wrap("StopScanningForNetworks", "stopScan");
+      scanWrapped = !!(originalStart || originalStop);
+    };
+
+    const unwrapScanning = () => {
+      const net = window.SteamClient?.System?.Network;
+      if (!net || !scanWrapped) return;
+      if (originalStart) net.StartScanningForNetworks = originalStart;
+      if (originalStop) net.StopScanningForNetworks = originalStop;
+      originalStart = null;
+      originalStop = null;
+      scanWrapped = false;
+    };
+
     const remove = () => {
+      unwrapScanning();
       if (!target || !original) return { ok: true, absent: true };
       try {
         Object.defineProperty(target, property, original);
@@ -265,6 +311,7 @@ interface Window {
         // supplied one, not that the machine cannot see any networks.
         accessPoints: Array.isArray(instance?.accessPoints) ? instance.accessPoints.length : -1,
         hasWirelessDevice: instance?.hasWirelessDevice === true,
+        scanWrapped,
         lastError,
       };
     };

@@ -433,7 +433,8 @@ public sealed class ShellSession : IAsyncDisposable
             }, cancellationToken),
                 _deviceCoordinator,
                 _performance,
-                _audio);
+                _audio,
+                _radios);
             _steamUi.Apply(_config.Cef.Enabled && _config.Cef.NativeQuickAccess);
             ApplyGlyphConfig(_config);
             if (_deviceCoordinator is not null)

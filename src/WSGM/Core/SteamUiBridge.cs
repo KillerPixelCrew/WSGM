@@ -60,6 +60,11 @@ public sealed class SteamUiBridgeAuthorizer
             // Registration is not a command — the store subscribes to this patch id for state, and
             // the JS gate checks the id for subscriptions as well as commands.
             ["wsgm.native-qam.audio"] = ["getDevices", "setDefaultDevice", "setVolume"],
+
+            // Not controls: these report when Steam's own network UI starts and stops looking for
+            // networks, so WSGM can scan for exactly that long. Scanning on WSGM's own schedule
+            // would either waste power or show a list that went stale while the page was open.
+            ["wsgm.steam-network.gate"] = ["startScan", "stopScan"],
         };
 
     private readonly object _sync = new();

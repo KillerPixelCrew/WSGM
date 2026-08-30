@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Threading;
 using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
 
@@ -20,6 +21,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private const string AutoTdpPatchId = "wsgm.native-qam.auto-tdp";
     private const string ControllerTargetPatchId = "wsgm.native-qam.controller-target";
     private const string AudioPatchId = "wsgm.native-qam.audio";
+    private const string NetworkGatePatchId = "wsgm.steam-network.gate";
     private const string GlyphStylePatchId = SteamInputGlyphStylePatch.PatchId;
     private readonly PersistentSteamUiTransport _transport;
     private readonly CancellationTokenSource _shutdown = new();
@@ -42,6 +44,15 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// install one that answers with nothing.
     /// </remarks>
     private readonly INativeQamAudioService? _audio;
+
+    /// <summary>
+    /// The session's radio manager, borrowed rather than owned, or null in overlay-test.
+    /// </summary>
+    /// <remarks>
+    /// Only its scanning lifetime is driven from here. Joining, forgetting and the radio toggles
+    /// stay with the surfaces that already own them.
+    /// </remarks>
+    private readonly RadioManager? _radios;
     private readonly PerformanceServiceNativeQamAdapter _performance;
     private readonly INativeQamAutoTdpService _autoTdp;
     private readonly INativeQamControllerTargetService _controllerTarget;
@@ -63,8 +74,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         Func<CancellationToken, Task<bool>> toggleQuickAccess,
         DeviceCoordinator? deviceCoordinator,
         PerformanceService performance,
-        AudioManager? audio = null)
+        AudioManager? audio = null,
+        RadioManager? radios = null)
     {
+        _radios = radios;
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         ArgumentNullException.ThrowIfNull(toggleQuickAccess);
         _toggleQuickAccess = toggleQuickAccess;
@@ -90,6 +103,13 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         if (_audio is not null)
         {
             _patches.Register(new NativeQamAudioPatch());
+        }
+
+        // The gate reveals Steam's Wi-Fi surface, and the surface is only worth revealing if
+        // something can populate it — which is the radio manager.
+        if (_radios is not null)
+        {
+            _patches.Register(new SteamNetworkGatePatch());
         }
 
         _patches.Register(new SteamInputGlyphStylePatch(_glyphDeliveryState));
@@ -576,6 +596,26 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                         break;
                 }
             }
+            else if (request.PatchId == NetworkGatePatchId && _radios is { } radios)
+            {
+                // Not a control. Steam is reporting that its own network UI opened or closed, and
+                // WSGM scans for exactly that long: scanning on WSGM's own schedule would either
+                // burn power with no list on screen, or leave the list stale while one is.
+                switch (request.Command)
+                {
+                    case "startScan":
+                        await RunUiAsync(radios.StartScanning).ConfigureAwait(false);
+                        succeeded = true;
+                        break;
+                    case "stopScan":
+                        await RunUiAsync(radios.StopScanning).ConfigureAwait(false);
+                        succeeded = true;
+                        break;
+                    default:
+                        error = "The requested semantic service is not active.";
+                        break;
+                }
+            }
             else
             {
                 error = "The requested semantic service is not active.";
@@ -739,6 +779,18 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         enabled = property.GetBoolean();
         return true;
     }
+
+    /// <summary>
+    /// Runs a radio-manager call on the UI thread.
+    /// </summary>
+    /// <param name="action">The call to make.</param>
+    /// <returns>A task completing after it ran.</returns>
+    /// <remarks>
+    /// <see cref="RadioManager"/> reconciles observable collections the taskbar binds to, so its
+    /// scanning calls are UI-thread owned. Requests arrive off the bridge's own thread.
+    /// </remarks>
+    private static Task RunUiAsync(Action action) =>
+        Dispatcher.UIThread.InvokeAsync(action).GetTask();
 
     /// <summary>Reads the endpoint and direction of a default-device change.</summary>
     /// <param name="payload">The request payload.</param>
