@@ -415,9 +415,7 @@ public partial class OverlayWindow : Window
                 authored.TrailingText,
                 authored.CanCycle,
                 DeviceStatusFor(authored.Status)));
-            // No Click handler yet, and CanCycle is false to match: choosing a profile needs a
-            // write path through the overlay source that does not exist. A row that takes a press
-            // and does nothing is worse than one that plainly reports state.
+            authoredRow.Click += (_, _) => InvokeAuthoredProfileCycle();
             DeviceCapabilityList.Children.Add(authoredRow);
             if (string.Equals(authoredFocusKey, focusedKey, StringComparison.Ordinal))
             {
@@ -593,6 +591,10 @@ public partial class OverlayWindow : Window
     private void InvokeHardwareProfileCycle() => _ = RunDeviceCommandAsync(
         "Hardware profile change",
         (bridge, token) => bridge.CycleHardwareProfileAsync(token));
+
+    private void InvokeAuthoredProfileCycle() => _ = RunDeviceCommandAsync(
+        "Fan profile change",
+        (bridge, token) => bridge.CycleAuthoredProfileAsync(token));
 
 
     /// <summary>Runs one direct Device-surface command with the shared cancellation and logging.</summary>

@@ -255,6 +255,17 @@ internal interface IDeviceOverlaySource : IDisposable
     /// <param name="cancellationToken">Cancels the change.</param>
     /// <returns>A task completing once the new selection is persisted and applied.</returns>
     Task CycleHardwareProfileAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Moves to the next authored fan profile, or to none, and applies it.</summary>
+    /// <param name="cancellationToken">Cancels the change.</param>
+    /// <returns>A task completing once the new selection is persisted and applied.</returns>
+    /// <remarks>
+    /// Scoped to the running application when there is one, and global otherwise. That is the
+    /// choice a user makes by opening this row mid-game: they are changing the profile for what they
+    /// are playing, and silently changing it for everything would be the wrong reading — while on
+    /// the desktop, with nothing running, there is no per-game scope to mean.
+    /// </remarks>
+    Task CycleAuthoredProfileAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -296,6 +307,18 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     /// that has no configuration to read.
     /// </remarks>
     internal Func<DeviceOverlayAuthoredProfile?>? AuthoredProfileSource { get; set; }
+
+    /// <summary>Advances the authored profile selection, when the session supplies a way to.</summary>
+    /// <remarks>
+    /// Same reason as <see cref="AuthoredProfileSource"/>: the selection lives in configuration and
+    /// applying it needs the device write path, neither of which this bridge owns. Unset makes the
+    /// cycle a no-op rather than an error, which is what the row already renders as.
+    /// </remarks>
+    internal Func<CancellationToken, Task>? AuthoredProfileCycle { get; set; }
+
+    /// <inheritdoc/>
+    public Task CycleAuthoredProfileAsync(CancellationToken cancellationToken = default) =>
+        AuthoredProfileCycle?.Invoke(cancellationToken) ?? Task.CompletedTask;
 
     public DeviceOverlaySnapshot Snapshot()
     {
@@ -583,9 +606,11 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             return new DeviceOverlayAuthoredProfile(
                 DeviceOverlayStatus.Warning,
                 "Fan profile",
-                "The selected profile was deleted · choose another in Settings",
+                // Cyclable on purpose: pressing it moves to a profile that does exist, which is the
+                // fastest way out of the state for a user who is mid-game.
+                "The selected profile was deleted · press to choose another",
                 "MISSING",
-                CanCycle: false);
+                CanCycle: true);
         }
 
         string scope = selected is null
@@ -599,10 +624,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             "Fan profile",
             scope,
             selected is null ? "NONE" : selected.Name.ToUpperInvariant(),
-            // Reports state only. Choosing needs a write path through the overlay source that does
-            // not exist yet, and a row that takes a press and does nothing is worse than one that
-            // plainly says what is in force.
-            CanCycle: false);
+            CanCycle: true);
     }
 
     /// <summary>Projects named hardware profiles into the Profiles page's own row.</summary>
@@ -1467,6 +1489,17 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
         cancellationToken.ThrowIfCancellationRequested();
         _hardwareProfile = DeviceOverlayBridge.NextProfile(PreviewProfiles, _hardwareProfile);
         Changed?.Invoke();
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Nothing to cycle: the simulated source has no configuration, so it publishes no authored
+    /// profile row and there is no selection for this to advance.
+    /// </remarks>
+    public Task CycleAuthoredProfileAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         return Task.CompletedTask;
     }
 

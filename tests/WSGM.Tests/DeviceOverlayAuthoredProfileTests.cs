@@ -73,15 +73,36 @@ public sealed class DeviceOverlayAuthoredProfileTests
     }
 
     [Fact]
-    public void TheRowReportsStateAndDoesNotOfferACycleYet()
+    public void TheRowOffersACycleOnceThereIsSomethingToCycleTo()
     {
-        // Choosing needs a write path through the overlay source that does not exist. A row that
-        // takes a press and does nothing is worse than one that plainly reports state.
         DeviceOverlayAuthoredProfile? row = DeviceOverlayBridge.AuthoredProfileView(
             [Profile("quiet", "Quiet")],
             "quiet",
             applicationScoped: false);
 
-        Assert.False(row?.CanCycle);
+        Assert.True(row?.CanCycle);
+    }
+
+    [Fact]
+    public void ADeletedSelectionStaysCyclableSoTheUserCanGetOutOfIt()
+    {
+        // Pressing it moves to a profile that does exist, which is the fastest way out of the state
+        // for someone mid-game.
+        DeviceOverlayAuthoredProfile? row = DeviceOverlayBridge.AuthoredProfileView(
+            [Profile("quiet", "Quiet")],
+            "deleted",
+            applicationScoped: false);
+
+        Assert.True(row?.CanCycle);
+    }
+
+    [Fact]
+    public void CyclingWrapsThroughNoneSoAProfileCanBeTurnedOffWithoutSettings()
+    {
+        // The same wrap the hardware-profile row already offers: past the last profile is "none",
+        // so a user can turn one off mid-game without opening Settings.
+        Assert.Equal("loud", DeviceOverlayBridge.NextProfile(["quiet", "loud"], "quiet"));
+        Assert.Null(DeviceOverlayBridge.NextProfile(["quiet", "loud"], "loud"));
+        Assert.Equal("quiet", DeviceOverlayBridge.NextProfile(["quiet", "loud"], null));
     }
 }

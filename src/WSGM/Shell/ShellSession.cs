@@ -233,6 +233,7 @@ public sealed class ShellSession : IAsyncDisposable
                 // list lookups against objects already in memory. Set on the concrete bridge, not
                 // the interface — a simulated source for overlay-test has no configuration to read.
                 bridge.AuthoredProfileSource = BuildAuthoredProfileRow;
+                bridge.AuthoredProfileCycle = CycleAuthoredProfileAsync;
                 _deviceOverlay = bridge;
             }
             else if (_suppressDeviceIntegration)
@@ -2150,6 +2151,72 @@ public sealed class ShellSession : IAsyncDisposable
 
     /// <summary>The capability the authored fan profiles target.</summary>
     private const string FanCurveCapabilityId = "thermal.fan-curve";
+
+    /// <summary>Advances the authored fan profile and applies the new choice.</summary>
+    /// <param name="cancellationToken">Cancels the change.</param>
+    /// <returns>A task completing once the selection is persisted and applied.</returns>
+    /// <remarks>
+    /// Scoped to the running application when there is one and global otherwise, because that is
+    /// what a user means by changing this row: mid-game they are changing it for what they are
+    /// playing, and on the desktop there is no per-game scope to mean.
+    /// <para>
+    /// Persisted first, then applied. The reverse order leaves the device running a profile the
+    /// configuration does not name if the save fails, which survives into the next session as a
+    /// device state nothing explains.
+    /// </para>
+    /// </remarks>
+    private async Task CycleAuthoredProfileAsync(CancellationToken cancellationToken)
+    {
+        PluginSettingsScope? current = _config.DeviceIntegration.PluginSettings
+            .FirstOrDefault(candidate => candidate.Profiles.Count > 0);
+        if (current is null)
+        {
+            Log.Info("Fan profile cycle ignored: no profiles are authored for this device.");
+            return;
+        }
+
+        string? applicationId = _runningApplications?.Current.ApplicationId;
+        string? selected = DeviceProfileSelectionStore.ReadSelection(
+            current,
+            FanCurveCapabilityId,
+            applicationId,
+            out _);
+
+        // NextProfile's contract includes "none", so a user can cycle back off a profile without
+        // opening Settings — the same wrap the hardware-profile row already offers.
+        string? next = DeviceOverlayBridge.NextProfile(
+            [.. current.Profiles.Select(profile => profile.ProfileId)],
+            selected);
+
+        AppConfig persisted = await Task.Run(
+            () => ConfigStore.Mutate(config =>
+            {
+                PluginSettingsScope? scope = config.DeviceIntegration.PluginSettings
+                    .FirstOrDefault(candidate => string.Equals(
+                        candidate.DeviceDefinitionId,
+                        current.DeviceDefinitionId,
+                        StringComparison.Ordinal)
+                        && string.Equals(
+                            candidate.PluginId,
+                            current.PluginId,
+                            StringComparison.Ordinal));
+                if (scope is not null)
+                {
+                    DeviceProfileSelectionStore.SetSelection(
+                        scope,
+                        FanCurveCapabilityId,
+                        next,
+                        applicationId is { Length: > 0 }
+                            ? DeviceProfileScope.Application
+                            : DeviceProfileScope.Global,
+                        applicationId);
+                }
+            }),
+            cancellationToken).ConfigureAwait(false);
+
+        _config = persisted;
+        await ApplyDeviceProfilesAsync(applicationId, cancellationToken).ConfigureAwait(false);
+    }
 
     /// <summary>Applies the authored profile in force for the running application.</summary>
     /// <param name="applicationId">The running application identity, or null for none.</param>
