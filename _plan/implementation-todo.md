@@ -1345,9 +1345,12 @@ settings and profile authoring only — device control stays in the overlay.
       and applies, `ShellSession` re-applies on the existing per-application hook so the fan curve
       and controller target cannot disagree about what is running, and
       `Shell\DeviceProfileSelectionStore.cs` is the read/write surface. A selection naming a deleted
-      profile is reported rather than downgraded to the global choice.
-      **The overlay's own rows are not built**: the surface that calls the store is still missing, so
-      selection currently has no user-facing entry point.
+      profile is reported rather than downgraded to the global choice. The overlay's Profiles page
+      carries the row: it states the SCOPE rather than only the name, because "Quiet, for this game"
+      and "Quiet, for everything" read identically otherwise; a deleted selection reads MISSING and
+      stays cyclable so a user mid-game can press out of it; and pressing scopes the change to the
+      running application when there is one and globally otherwise, persisting before applying so a
+      failed save cannot leave the device on a profile the configuration does not name.
 - [x] Record the Settings/overlay boundary as a numbered decision in `_plan\2.0-decisions.md`. Now
       D22b, including the discriminator that makes it not a judgement call: a setting configures
       behaviour and WSGM stores it, a capability writes hardware and the device holds it, and
