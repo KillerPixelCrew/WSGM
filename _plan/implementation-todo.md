@@ -1254,6 +1254,17 @@ hand-built rows with Valve's own and supplies `SteamClient.System.Perf`.
 - [ ] Mount only the components WSGM can back, and retire the hand-built rows they replace. Keep GPU
       clock, scaling mode/filter/sharpness, half-rate shading, tearing, force composite, and Steam's
       own FPS overlay hidden.
+      **Component inventory read from the live client 2026-08-30** (module `83571`, 18 045 chars,
+      `tools/WsgmLibTest/probe-perf-components.js`). Backable and present:
+      `#QuickAccess_Tab_Perf_PerformanceSettings` (header),
+      `#QuickAccess_Tab_Perf_GameSpecificSettings` (per-game toggle), `#Common_Basic_View` /
+      `#Common_Advanced_View`, `#QuickAccess_Tab_Perf_ResetToDefault`,
+      `#QuickAccess_Tab_Perf_LimitFrameRate`, `#QuickAccess_Tab_Perf_Overlay_Level`,
+      `#QuickAccess_Tab_Perf_RefreshRate`, `#QuickAccess_Tab_Perf_EnableVRR`. Deliberately left
+      hidden and confirmed present: `ScalingFilter`, `ScalingScaler`, `EnableTearing`,
+      `ForceComposite`, `EnableCompositeDebug`, `DisableColorManagement`, the `FPS_*` overlay family.
+      **Correction to the export names in `_plan\qam-overhaul.md`**: those were minified identifiers
+      (`jw`, `mR`, `Mq`, …) and are not stable across builds. Select by localization token, which is.
 - [ ] Project the same services onto the overlay, which stays the complete surface.
 - [x] Amend D16 in `_plan\2.0-decisions.md` to record that supplying an absent
       `SteamClient.System.Perf` for a device WSGM can service is in scope and is not the forbidden
@@ -1454,9 +1465,19 @@ single Deck-only store getter — but never set the global `TS.IS_STEAMOS`, whic
       exactly one on the running client (`tools/WsgmLibTest/probe-resolution-row.js`).
       **Attended validation remains**: that it renders, and that a mode change behaves with a game
       running.
-- [ ] Mount the Performance tab's refresh-rate component here, shown only when the frame-limit
+- [x] Mount the Performance tab's refresh-rate component here, shown only when the frame-limit
       strategy is `FrameLimitOnly`; under `NativeModes` or `FrameDoubling` the pairing policy owns
       the refresh and a second control would fight it.
+      Both halves. The projection omits `display_refresh_manual_hz_min/max` unless the strategy is
+      `FrameLimitOnly`, so Valve's own row does not render under the pairing strategies; and
+      `SetRefreshRateApply` gives its writes somewhere to go, re-checking the strategy at the write
+      rather than trusting the projection, because the user can change strategy while the menu is
+      open. Honouring a manual change under a pairing strategy would be undone by the next cap
+      change — worse than refusing, since the control would appear to work and then revert. The
+      chosen rate is checked against `EnumerateAcceptedRefreshRates` before reaching the driver: it
+      arrives from injected JavaScript and a rate the panel cannot show is a black screen.
+      **Whether the row is DRAWN and whether its writes GO anywhere are separate seams**, because a
+      row drawn without the second is a control that refuses every change it offers.
 - [x] Leave the natively working rows alone: controller list with battery and Identify, reorder
       controllers, game recording, and display scaling over `SetUnderscanLevel`.
       Verified by enumerating everything the injected shim mutates, which is the whole of it: its own
