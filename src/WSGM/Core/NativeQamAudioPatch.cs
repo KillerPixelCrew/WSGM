@@ -143,7 +143,12 @@ public sealed class NativeQamAudioPatch : ISteamUiPatch
           try{const mod=req('1409');singleton=!!(mod&&mod.F5&&('m_bAvailable' in mod.F5));}catch{}
           return JSON.stringify({
             audioStore:count(['SteamClient.System.Audio','RegisterForDeviceAdded','m_bAvailable']),
-            audioNamespaceAbsent:!(window.SteamClient&&window.SteamClient.System&&window.SteamClient.System.Audio),
+            audioNamespaceAbsent:(()=>{const a=window.SteamClient&&window.SteamClient.System&&window.SteamClient.System.Audio;
+              // Absent, or present and OURS. A namespace WSGM installed is not evidence of a native
+              // backend, and treating it as one made this patch declare itself incompatible five
+              // seconds after a successful install, tear down, and orphan the namespace it had just
+              // defined — leaving Steam's audio page empty until Steam itself restarted.
+              return !a||a.__wsgmOwnedNamespace===true;})(),
             storeSingletonReachable:singleton
           });
         }catch(error){return JSON.stringify({error:String(error)}); } })()

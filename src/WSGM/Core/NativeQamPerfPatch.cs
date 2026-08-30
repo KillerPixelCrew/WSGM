@@ -156,7 +156,11 @@ public sealed class NativeQamPerfPatch : ISteamUiPatch
           }catch{}
           return JSON.stringify({
             perfStore:count(['SteamClient.System.Perf','RegisterForStateChanges','m_msgState']),
-            perfNamespaceAbsent:!(window.SteamClient&&window.SteamClient.System&&window.SteamClient.System.Perf),
+            perfNamespaceAbsent:(()=>{const p=window.SteamClient&&window.SteamClient.System&&window.SteamClient.System.Perf;
+              // Absent, or present and ours — see NativeQamAudioPatch. An orphaned Perf namespace
+              // is the worse case: it leaves SystemPerfStore holding half-written state, which is
+              // what crashed the whole Performance tab.
+              return !p||p.__wsgmOwnedNamespace===true;})(),
             storeSingletonReachable:singleton
           });
         }catch(error){return JSON.stringify({error:String(error)}); } })()

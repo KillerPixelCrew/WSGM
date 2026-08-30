@@ -131,7 +131,11 @@ public sealed class SteamNetworkGatePatch : ISteamUiPatch
             Object.getPrototypeOf(store),'networkManagementAvailable');
           return JSON.stringify({
             getterConfigurable:!!d&&d.configurable===true&&typeof d.get==='function',
-            currentlyHidden:store.networkManagementAvailable===false,
+            // False, or already overridden by US. A getter WSGM installed is not evidence that the
+            // client reports network management natively, and reading it that way made this patch
+            // refuse itself after a successful apply and tear the network list down.
+            currentlyHidden:store.networkManagementAvailable===false
+              ||(!!d&&!!d.get&&d.get.__wsgmOwnedGetter===true),
             hasWirelessDevice:store.hasWirelessDevice===true
           });
         }catch(error){return JSON.stringify({error:String(error)}); } })()

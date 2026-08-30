@@ -118,6 +118,14 @@
     subscribers.clear();
     latestStates.clear();
   };
+  // Stamped on every namespace WSGM defines on SteamClient, so a later probe can tell OUR namespace
+  // from a real backend. Without it the two are indistinguishable and the compatibility check reads
+  // its own successful install as "a native backend exists", refuses, and tears the patch down —
+  // which is exactly what left this client with an empty audio page and a crashing Performance tab.
+  //
+  // A string key rather than a Symbol: it has to survive being read back from a probe evaluated in
+  // a separate CDP call, where a Symbol from this scope is not reachable.
+  const ownedMarker = "__wsgmOwnedNamespace";
   const audioNamespace = createAudioNamespace();
   const networkGate = createNetworkGate();
   const bluetoothService = createBluetoothService();
@@ -211,7 +219,10 @@
         lastError = "SteamClient.System unavailable";
         return { ok: false, error: lastError };
       }
-      if (system.Perf) {
+      // Same rule as the audio namespace: stand aside for a real backend, reclaim one of our own.
+      // An orphaned Perf namespace is worse than an orphaned audio one — it leaves SystemPerfStore
+      // holding half-written state, which renders Valve's controls with no values behind them.
+      if (system.Perf && !system.Perf[ownedMarker]) {
         lastError = "SteamClient.System.Perf already exists";
         return { ok: false, error: lastError };
       }
@@ -233,6 +244,13 @@
         RegisterForDiagnosticInfoChanges: () => ({ unregister: () => {} }),
       };
       try {
+        // Non-enumerable so it never shows up in a key walk of the namespace, and defined before
+        // the namespace is published so nothing can observe an unmarked one.
+        Object.defineProperty(api, ownedMarker, {
+          value: true,
+          configurable: true,
+          enumerable: false,
+        });
         Object.defineProperty(system, "Perf", {
           value: api,
           configurable: true,
@@ -569,7 +587,18 @@
         return { ok: false, error: lastError };
       }
       try {
-        Object.defineProperty(proto, property, { get: () => true, configurable: true });
+        // Marked as ours for the same reason the namespaces are: the compatibility probe checks
+        // that the getter currently reads false, and a successful override makes it read true. Left
+        // unmarked, the patch reads its own success as "the client already reports this available,
+        // stand aside", declares itself incompatible, and tears down — taking the network list with
+        // it.
+        const owned = () => true;
+        Object.defineProperty(owned, "__wsgmOwnedGetter", {
+          value: true,
+          configurable: true,
+          enumerable: false,
+        });
+        Object.defineProperty(proto, property, { get: owned, configurable: true });
       } catch (error) {
         lastError = String(error);
         return { ok: false, error: lastError };
@@ -742,9 +771,16 @@
         lastError = "SteamClient.System unavailable";
         return { ok: false, error: lastError };
       }
-      // Never replace a real backend. On a client that grows one, WSGM must stand aside rather than
+      // Never replace a REAL backend. On a client that grows one, WSGM must stand aside rather than
       // shadow it with a projection of a different machine's audio.
-      if (system.Audio) {
+      //
+      // One WSGM already installed is a different case and must be reclaimed, not refused. A
+      // namespace outlives the bridge that backs it — the bridge is a window property and dies with
+      // the JS context, while SteamClient does not — so after a context reload an orphaned
+      // namespace is left behind whose methods call into a bridge that is gone. Refusing there
+      // stranded the client permanently: the probe saw a namespace, called the patch incompatible,
+      // and Steam's audio page stayed empty until Steam itself restarted.
+      if (system.Audio && !system.Audio[ownedMarker]) {
         lastError = "SteamClient.System.Audio already exists";
         return { ok: false, error: lastError };
       }
@@ -776,6 +812,11 @@
         RegisterForAppVolumeChanged: register("appVolumeChanged"),
       };
       try {
+        Object.defineProperty(api, ownedMarker, {
+          value: true,
+          configurable: true,
+          enumerable: false,
+        });
         Object.defineProperty(system, "Audio", {
           value: api,
           configurable: true,
