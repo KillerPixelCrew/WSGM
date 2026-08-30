@@ -304,6 +304,65 @@ public static unsafe partial class DisplayProfiles
         return true;
     }
 
+    /// <summary>
+    /// Applies a resolution to the primary display without persisting it.
+    /// </summary>
+    /// <param name="width">Target width in pixels.</param>
+    /// <param name="height">Target height in pixels.</param>
+    /// <returns>Whether the display is now at that resolution.</returns>
+    /// <remarks>
+    /// The same discipline as <see cref="TryApplyTransientRefreshRate"/>, and for the same reason:
+    /// no <c>CDS_UPDATEREGISTRY</c>, so exit, crash, and reboot all restore the user's own
+    /// persisted configuration without WSGM having to remember to.
+    /// <para>
+    /// The refresh rate is carried over from the current mode rather than left to the driver's
+    /// default for the new resolution. Changing one axis must not silently change the other, or a
+    /// resolution change would undo whatever the frame-limit pairing had just set.
+    /// </para>
+    /// </remarks>
+    public static bool TryApplyTransientResolution(int width, int height)
+    {
+        var current = new DevMode { Size = (ushort)sizeof(DevMode) };
+        if (!EnumDisplaySettingsEx(null, EnumCurrentSettings, ref current, 0))
+        {
+            Log.Warn($"Display modes: refusing {width}x{height}; current settings unreadable.");
+            return false;
+        }
+
+        if (current.PelsWidth == (uint)width && current.PelsHeight == (uint)height)
+        {
+            return true;
+        }
+
+        var target = current;
+        target.Fields = DmPelsWidth | DmPelsHeight | DmDisplayFrequency;
+        target.PelsWidth = (uint)width;
+        target.PelsHeight = (uint)height;
+        int status = ChangeDisplaySettingsEx(null, &target, 0, 0, 0);
+        if (status != 0)
+        {
+            Log.Warn(
+                $"Display modes: {width}x{height} refused with status {status} "
+                + $"(was {current.PelsWidth}x{current.PelsHeight} at {current.DisplayFrequency} Hz).");
+            return false;
+        }
+
+        Log.Info(
+            $"Display modes: {current.PelsWidth}x{current.PelsHeight} -> {width}x{height} "
+            + $"at {current.DisplayFrequency} Hz (transient).");
+        return true;
+    }
+
+    /// <summary>The resolution the primary display is running at.</summary>
+    /// <returns>The resolution, or null when it cannot be read.</returns>
+    public static DisplayResolution? ReadCurrentResolution()
+    {
+        var current = new DevMode { Size = (ushort)sizeof(DevMode) };
+        return EnumDisplaySettingsEx(null, EnumCurrentSettings, ref current, 0)
+            ? new DisplayResolution((int)current.PelsWidth, (int)current.PelsHeight)
+            : null;
+    }
+
     /// <summary>The refresh rate the primary display is running at.</summary>
     /// <returns>The rate in Hz, or null when it cannot be read.</returns>
     public static int? ReadCurrentRefreshRate()
