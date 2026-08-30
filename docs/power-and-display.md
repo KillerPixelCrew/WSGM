@@ -133,3 +133,61 @@ open. The Power tab also hosts four **idle-timeout rows** (screen-off / standby 
 plugged-in) that cycle presets via `Core\PowerTimeouts.cs` — the flat powrprof value-index API, NOT
 `powercfg /q` parsing (localized output, same trap as netstat); these are a user-facing convenience
 over the active scheme, deliberately not snapshotted/restored state.
+
+## Refresh rates: what a panel advertises is not what a driver accepts
+
+**Device-verified on the reference MSI Claw 8 AI+ A2VM, 2026-08-30.** The two lists differ, and
+every frame-limit strategy depends on the difference.
+
+`EnumDisplaySettings` reports 30/48/60/75/100/120 Hz at 1920x1200, and
+`ChangeDisplaySettingsEx(CDS_TEST)` accepts all six. The panel's EDID advertises **only 60 and 120**
+— two detailed timings, 315.50 MHz and 157.75 MHz over a 2080x1264 total. The other four exist
+because the panel declares a 30-120 Hz adaptive-sync range in its display-range-limits descriptor
+and the driver synthesizes timings inside it. Arc Sync independently reports the same 30-120 band.
+
+The synthesized modes are real, not cosmetic: applying 48 Hz moved DWM's `rateRefresh` from 119.999
+to 47.997 and back. **Windows Settings kept showing 120 throughout**, because the change was applied
+without `CDS_UPDATEREGISTRY` and Settings reads the persisted configuration — which is exactly the
+property that makes a game-scoped refresh change safe. Exit, a crash, or a reboot all restore the
+user's own configuration with WSGM doing nothing.
+
+Consequences encoded in `Core\FrameLimitPairing.cs`, `Core\EdidModes.cs` and
+`Core\RefreshRatePairingService.cs`:
+
+- Enumeration alone cannot tell an advertised mode from a synthesized one, so the native-modes
+  strategy needs the EDID. Without it that strategy would silently equal full frame doubling.
+- Rates are enumerated and then tested; a driver may refuse one it enumerated. `CDS_TEST` changes
+  nothing and is safe while a game runs.
+- Discovery is cached because each candidate costs a driver round trip.
+- Pairing takes the **lowest** exact multiple, since refresh rate is a power cost: 30 FPS held at 30
+  Hz costs meaningfully less than the same cap at 120 Hz.
+- A cap with no exact multiple leaves the refresh rate alone. Forcing a near-miss mode adds judder
+  rather than removing it.
+- A mode change is not free — an exclusive-fullscreen title can hitch, minimize, or drop out across
+  one — which is why cap-only is the default wherever variable refresh already covers the range.
+
+## Variable refresh over IGCL
+
+**Device-verified on the same unit and date, unelevated.** `ControlLib.dll` ships with the Intel
+driver and is already in `System32`; IGCL initialises at v1.1. The internal panel reports
+`IsIntelArcSyncSupported` across 30-120 Hz with the profile at `EXCELLENT`. Writing `OFF` and
+restoring the saved parameter struct both succeed, and the read-back confirms each.
+
+The panel belongs to the device, so the transport belongs to the plugin
+(`plugins\WSGM.Device.Msi.Claw8A2Vm\ArcSyncTransport.cs`), and WSGM only projects the capability.
+
+Four facts that cost real time to establish:
+
+- Both enumerations are **two-call**: ask for the count with a null buffer, then fetch. Passing a
+  buffer straight away returns nothing.
+- The panel is chosen by **which output answers**, never by index. The reference unit enumerates
+  twelve display outputs of which one is real; the other eleven return `CTL_RESULT_ERROR_KMD_CALL`.
+  An external display when docked is a different output.
+- IGCL's `bool` is **one byte**. A managed `bool` is four and would shift every float after it.
+- Every call passes its own `sizeof` in a `Size` field and the driver refuses a mismatch — and that
+  refusal is indistinguishable from "this machine has no variable refresh", so a layout drift would
+  remove the feature silently. The sizes are 36 / 24 / 28 and are pinned by a test.
+
+Turning the profile `OFF` collapses the reported range to 120/120, which is a second confirmation
+independent of the profile enum. That is why this capability reports a verified read-back rather
+than an applied-unverified one.
