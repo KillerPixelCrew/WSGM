@@ -105,6 +105,7 @@ public sealed class ShellSession : IAsyncDisposable
     private PersistentSteamUiTransport? _steamUiTransport;
     private RunningApplicationMonitor? _runningApplications;
     private ForegroundWindowWatcher? _foregroundWindows;
+    private DeviceProfileApplier? _profileApplier;
     private AutoTdpService? _autoTdp;
     private RunningApplicationCoordinator? _runningApplicationTargets;
     private SteamUiSessionHost? _steamUi;
@@ -286,6 +287,33 @@ public sealed class ShellSession : IAsyncDisposable
                 // here because this is where both objects exist; every surface's write already goes
                 // through the coordinator, so this is the one place that sees all of them.
                 deviceCoordinator.AttachAutoTdpManualOverride(watts => _autoTdp?.NoteManualChange(watts));
+
+                // Reads the descriptor at apply time rather than caching one: a plugin republishes
+                // its capabilities across a cycle, and a curve checked against a stale descriptor is
+                // exactly the case this check exists to catch.
+                _profileApplier = new DeviceProfileApplier(
+                    capabilityId => deviceCoordinator.CapabilitySnapshot()
+                        .FirstOrDefault(view => string.Equals(
+                            view.Descriptor.CapabilityId,
+                            capabilityId,
+                            StringComparison.Ordinal))?.Descriptor,
+                    async (capabilityId, value, token) =>
+                    {
+                        CapabilityCommandResult result = await deviceCoordinator
+                            .ExecuteCapabilityAsync(
+                                capabilityId,
+                                null,
+                                value,
+                                TimeSpan.FromSeconds(5),
+                                CapabilityCommandOrigin.AutomaticControl,
+                                token).ConfigureAwait(false);
+                        // Unverified counts as applied: many EC writes have no readback, and
+                        // treating the absence of confirmation as failure would report every one of
+                        // them as broken. A timeout does not count — whether it was written is
+                        // unknown, and claiming success there is the one answer that misleads.
+                        return result.Outcome is CommandOutcome.AppliedVerified
+                            or CommandOutcome.AppliedUnverified;
+                    });
                 // Without this the Device page and the native QAM row only refreshed when some
                 // unrelated device event happened to arrive, so an AutoTDP transition — including
                 // the pause above — could sit invisible for as long as the session stayed quiet.
@@ -2072,14 +2100,69 @@ public sealed class ShellSession : IAsyncDisposable
 
     private void OnPhysicalGlyphProfilesChanged() => ApplyGlyphConfig(_config);
 
-    private Task ApplyRunningApplicationTargetAsync(
+    private async Task ApplyRunningApplicationTargetAsync(
         RunningApplicationTargetSnapshot snapshot,
         CancellationToken cancellationToken)
     {
         _autoTdp?.ApplyRunningApplication(snapshot);
-        return _deviceCoordinator is { } coordinator
-            ? coordinator.ApplyRunningApplicationAsync(snapshot, cancellationToken)
-            : Task.CompletedTask;
+        if (_deviceCoordinator is { } coordinator)
+        {
+            await coordinator.ApplyRunningApplicationAsync(snapshot, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        // Authored profiles follow the same identity as everything else per-application, which is
+        // the point of resolving them here rather than from a second observer: the fan curve and the
+        // controller target can never disagree about which application is running.
+        await ApplyDeviceProfilesAsync(snapshot.ApplicationId, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>Applies the authored profile in force for the running application.</summary>
+    /// <param name="applicationId">The running application identity, or null for none.</param>
+    /// <param name="cancellationToken">Cancels the device writes.</param>
+    /// <remarks>
+    /// Every failure here is contained. A profile that cannot be applied is a degraded feature, not
+    /// a reason to fault the session, and the applier already logs which step refused it.
+    /// </remarks>
+    private async Task ApplyDeviceProfilesAsync(
+        string? applicationId,
+        CancellationToken cancellationToken)
+    {
+        if (_profileApplier is not { } applier)
+        {
+            return;
+        }
+
+        PluginSettingsScope? scope = _config.DeviceIntegration.PluginSettings
+            .FirstOrDefault(candidate => candidate.ProfileSelections.Count > 0);
+        if (scope is null)
+        {
+            return;
+        }
+
+        foreach (DeviceProfileSelection selection in scope.ProfileSelections)
+        {
+            try
+            {
+                await applier.ApplyAsync(
+                    scope.ProfileSelections,
+                    scope.Profiles,
+                    selection.CapabilityId,
+                    applicationId,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn(
+                    $"Applying the device profile for '{selection.CapabilityId}' failed: "
+                    + ex.Message);
+            }
+        }
     }
 
     /// <summary>
