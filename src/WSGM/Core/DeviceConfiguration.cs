@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json.Serialization;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Settings;
 
 namespace WSGM.Core;
 
@@ -99,6 +100,29 @@ public sealed class PluginSettingsScope
 
     /// <summary>The values, one per declared setting the user has changed.</summary>
     public List<PluginSettingValue> Values { get; set; } = [];
+
+    /// <summary>
+    /// The manifest the plugin published when it last ran, or null when none has been seen.
+    /// </summary>
+    /// <remarks>
+    /// Cached because Settings has to draw the page without the plugin: <c>--settings</c> starts no
+    /// DeviceHost, and the manifest is published by plugin code rather than declared in
+    /// <c>plugin.wsgm.json</c>, so there is nothing to read at rest and loading plugin code in the
+    /// settings process is not an option.
+    /// <para>
+    /// It is a cache and never the authority. The shell replaces it whenever a running plugin
+    /// publishes, and stored values are still reconciled against the live declaration when one
+    /// exists — this only decides what can be <em>drawn</em> when no plugin is running, never what
+    /// is legal to send one.
+    /// </para>
+    /// <para>
+    /// Stale by construction: a plugin uninstalled or downgraded between sessions leaves a manifest
+    /// describing settings that no longer exist. That is why it is dropped when it fails its own
+    /// validation on load, and why the page it produces is editable but the values still go through
+    /// reconciliation before they reach a plugin.
+    /// </para>
+    /// </remarks>
+    public PluginSettingsManifest? Declaration { get; set; }
 }
 
 /// <summary>One stored plugin setting value.</summary>

@@ -359,7 +359,16 @@ public static class ConfigStore
         return config;
     }
 
-    private static void NormalizeDeviceIntegration(DeviceIntegrationConfig device)
+    /// <summary>
+    /// Brings device-integration configuration into a shape the rest of WSGM can rely on.
+    /// </summary>
+    /// <param name="device">The section to normalize in place.</param>
+    /// <remarks>
+    /// Internal rather than private so its rules can be tested directly. It touches only the object
+    /// handed to it and reads no file, which is what keeps a test off the developer's real
+    /// configuration.
+    /// </remarks>
+    internal static void NormalizeDeviceIntegration(DeviceIntegrationConfig device)
     {
         if (!Enum.IsDefined(device.ControllerTarget))
         {
@@ -403,6 +412,18 @@ public static class ConfigStore
         {
             scope.DeviceDefinitionId = scope.DeviceDefinitionId.Trim();
             scope.PluginId = scope.PluginId.Trim();
+
+            // A cached declaration is only ever used to draw a page when no plugin is running, so a
+            // malformed one must be dropped rather than rendered: it would produce controls whose
+            // bounds nothing has validated, and the user would be editing settings that cannot be
+            // sent anywhere.
+            if (scope.Declaration is { } declaration && !declaration.TryValidate(out string? reason))
+            {
+                Log.Warn(
+                    $"Plugin settings: cached declaration for {scope.PluginId} on "
+                    + $"{scope.DeviceDefinitionId} was dropped: {reason}");
+                scope.Declaration = null;
+            }
             scope.Values ??= [];
             scope.Values.RemoveAll(static value => value is null
                 || string.IsNullOrWhiteSpace(value.SettingId));

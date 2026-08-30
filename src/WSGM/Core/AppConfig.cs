@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 using Microsoft.Win32;
+using WSGM.Device.Sdk.Settings;
 
 namespace WSGM.Core;
 
@@ -905,6 +906,9 @@ public sealed class CefConfig
 [JsonSerializable(typeof(DeviceDesiredProfile))]
 [JsonSerializable(typeof(DeviceCapabilityPreference))]
 [JsonSerializable(typeof(PluginSettingsScope))]
+// The SDK's own manifest types, so the cached declaration keeps one shape owned by the SDK rather
+// than a WSGM-side copy that would have to be kept in step with it.
+[JsonSerializable(typeof(PluginSettingsManifest))]
 [JsonSerializable(typeof(PluginSettingValue))]
 [JsonSerializable(typeof(PerformanceConfig))]
 [JsonSerializable(typeof(PerformanceApplicationConfig))]
