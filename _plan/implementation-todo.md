@@ -329,6 +329,16 @@ Only this list drives the next implementation work:
       while the same port serves the protocol's full surface and the DevTools frontend itself.
       Evaluate what earns adoption into `tools/WsgmLibTest` and the dev workflow, in this order of
       expected payoff:
+      - **`chrome-devtools-mcp` attached to Steam's port — try this first, it needs zero code.**
+        Google's official MCP server exposes CDP as agent tools (screenshot, evaluate, DOM
+        inspection, console, network) and can attach to a running browser via `--browser-url`;
+        pointed at `http://127.0.0.1:8080`, every capability below may arrive in the agent session
+        as ready-made tools instead of harness work. The spike's first questions: does its
+        Puppeteer layer accept Steam's Chromium 126, does it see `SharedJSContext` and the Big
+        Picture window as attachable pages, and can its input/navigation tools be kept away from
+        Steam (the probe rules bind — read-only inspection, no navigation, no clicking around a
+        live client). If it attaches cleanly, the harness keeps only what the MCP cannot do (the
+        bridge-host role, allowlist-aware publish/deliver).
       - **`Page.captureScreenshot` on the MainWindow target** — the CEF twin of Q18's screenshot
         harness: capture the QAM/Settings surface as a PNG so an agent sees the grey slider, the
         missing row, the wrong order itself, instead of asking the maintainer. First concrete
