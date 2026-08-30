@@ -2045,6 +2045,18 @@ Only this list drives the next implementation work:
       display changes, so WSGM persists and reapplies it — but it is blocked on multichannel
       hardware to prove 5.1/7.1 at all, and on whether HDMI endpoint identity survives a display
       change. See `_plan\steam-settings-audio-revive.md` and S15. **What remains is all of it.**
+- [ ] **Q16 — Collapse the two CEF generations into one system.** The QAM push (2026-08-30) left
+      the tree with generation 2 — persistent transport, patch manager, allowlisted bridge, one
+      hashed injected asset — carrying everything new, while twelve generation-1 modules (badge,
+      library tabs, download sort, network indicator, artwork, launch config, downloads, library
+      folders/collections) still run one-shot `SteamCef` evals with three hand-rolled residency
+      sentinels and lifecycle smeared across `ShellSession`. The primitives are now all
+      device-verified, which is what makes unification possible at all. The full inventory, the
+      verified-primitive catalog, the named debt (six webpack taps, five ownership-marker styles,
+      the ten-block append chain, the 3160-line bootstrap, the else-if request router) and the
+      four-phase migration plan — bootstrap-internal first, library tabs last — live in
+      `_plan\cef-simplification.md`. **What remains is all of it** — the plan document is the only
+      artifact.
 
 A checked architectural queue item has its code, focused tests, diagnostics, and documentation
 complete. Attended/live gates remain explicit and unchecked in the owning phase until they run on
