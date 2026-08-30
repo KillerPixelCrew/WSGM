@@ -197,8 +197,16 @@ const status = async (session) => {
       `const out={bridge:!!b,version:b&&b.version,` +
       `audioNamespace:!!(s&&s.Audio),audioOwned:!!(s&&s.Audio&&s.Audio.__wsgmOwnedNamespace===true),` +
       `perfNamespace:!!(s&&s.Perf),perfOwned:!!(s&&s.Perf&&s.Perf.__wsgmOwnedNamespace===true)};` +
-      `if(b){for(const g of ['audio','network','bluetooth','brightness','perf','nativeComponents']){` +
-      `try{out[g]=b[g]?b[g].status():'absent';}catch(e){out[g]='ERR '+e;}}}` +
+      `if(b){for(const g of ['audio','network','bluetooth','brightness','perf']){` +
+      `try{out[g]=b[g]?b[g].status():'absent';}catch(e){out[g]='ERR '+e;}}` +
+      // nativeComponents.status takes a KIND. Calling it bare reports registered:false for every
+      // component, which reads as "nothing registered" and is purely an artefact of the call.
+      `try{out.components={};for(const k of ['tdp','autoTdp','frameLimit','overlayLevel',` +
+      `'controllerTarget','resolution','valveVrr','valveProfileHeader','valveReset']){` +
+      `const s=b.nativeComponents.status(k);out.components[k]=s.registered;}` +
+      `const any=b.nativeComponents.status('tdp');out.lastAppend=any.lastAppend;` +
+      `out.renderOutcomes=any.renderOutcomes;out.rootWrapped=any.performanceRootWrapped;}` +
+      `catch(e){out.components='ERR '+e;}}` +
       `return JSON.stringify(out,null,1);})()`,
   );
   console.log(report);
@@ -208,12 +216,17 @@ const publish = async (session, file) => {
   const states = JSON.parse(readFileSync(file, "utf8"));
   const bridge = `window[${JSON.stringify(configuration.namespace)}]`;
   for (const [patchId, state] of Object.entries(states)) {
-    const envelope = JSON.stringify({
+    // deliver() takes an OBJECT, and rejects any envelope whose generations do not match the config
+    // it was installed with. Passing a JSON string, or omitting either generation, returns a bare
+    // false with no reason — which is how this harness first reported "published: false".
+    const envelope = {
       version: configuration.version,
+      contextGeneration: configuration.contextGeneration,
+      documentGeneration: configuration.documentGeneration,
       type: "state",
       patchId,
       payload: state,
-    });
+    };
     const outcome = await session.evaluate(`${bridge}.deliver(${JSON.stringify(envelope)})`);
     console.log(`  published ${patchId}: ${outcome}`);
   }
