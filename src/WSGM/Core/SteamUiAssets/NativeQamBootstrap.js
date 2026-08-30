@@ -1261,11 +1261,21 @@
     // would render "#QuickAccess_..." as a label. Live-verified 2026-08-29: a known token localizes,
     // an unknown one comes straight back.
     //
-    // EVERY label goes through this, not only the WSGM-invented ones. The Valve performance tokens
-    // are SteamOS strings and are not all present in the Windows client's localization set: with
-    // the rows finally rendering on the reference Claw, "#QuickAccess_Tab_Perf_FramerateLimit" and
+    // EVERY label goes through this, not only the WSGM-invented ones. With the rows finally
+    // rendering on the reference Claw, "#QuickAccess_Tab_Perf_FramerateLimit" and
     // "#QuickAccess_Tab_Perf_PerfOverlayLevel" both came back raw and were shown to the user as
     // their token text. A bare localize() call here is a bug waiting for the next missing string.
+    //
+    // Live-probed 2026-08-30, which found the reason: neither token exists anywhere in the bundle.
+    // They were never SteamOS strings absent from the Windows set — they were wrong names. The
+    // client carries "#QuickAccess_Tab_Perf_LimitFrameRate" and "#QuickAccess_Tab_Perf_Overlay_Level",
+    // and those localize. Both call sites now use the real names, so those two rows are translated
+    // rather than permanently English.
+    //
+    // The fallback still earns its place, for the labels WSGM invents and Valve has no string for
+    // (AutoTDP, the display-resolution row). Those pass no token at all rather than a plausible
+    // one: a token that does not exist makes Steam log an unresolved string on every render and
+    // still shows the English text.
     // Steam's localizer does not return a string. It returns a React element wrapping one, so
     // `typeof text === "string"` was false for every token and every WSGM label fell back to its
     // English default while Steam's own rows beside them were in the user's language. The element
@@ -1357,7 +1367,8 @@
             ? state.watts + " W · " + state.statusText
             : state.statusText;
         return controlRuntime.react.createElement(controlRuntime.toggle, {
-          label: localizeOr(controlRuntime, "#QuickAccess_Tab_Perf_AutoTDP", "Automatic TDP"),
+          // WSGM's own control; Valve has no string for it, so no token is passed.
+          label: "Automatic TDP",
           description: description || undefined,
           checked: state.enabled,
           // Controlled, so the switch shows the stored setting rather than its own click. A command
@@ -1441,11 +1452,11 @@
           ).catch(() => {});
         };
         return controlRuntime.react.createElement(controlRuntime.dropdown, {
-          label: localizeOr(
-            controlRuntime,
-            "#Settings_Display_Resolution_Title",
-            "Display resolution",
-          ),
+          // Not localized, deliberately. The client has no token meaning "display resolution":
+          // #Settings_Display_GameResolution is a per-game override and would read wrongly in every
+          // language but English. Passing a token that does not exist is worse than passing none —
+          // it makes Steam log an unresolved token on every render and still shows this string.
+          label: "Display resolution",
           rgOptions: options,
           // A current mode outside the offered list selects nothing rather than the first entry,
           // which would silently misreport what the display is doing.
@@ -1481,9 +1492,12 @@
           ).catch(() => {});
         };
         return controlRuntime.react.createElement(controlRuntime.slider, {
+          // Live-verified 2026-08-30: this is the token the client actually carries.
+          // "#QuickAccess_Tab_Perf_FramerateLimit" appears nowhere in the bundle, so the row it was
+          // written against fell back to English on every localized client.
           label: localizeOr(
             controlRuntime,
-            "#QuickAccess_Tab_Perf_FramerateLimit",
+            "#QuickAccess_Tab_Perf_LimitFrameRate",
             "Frame rate limit",
           ),
           min: state.minimumFps,
@@ -1526,7 +1540,7 @@
         return controlRuntime.react.createElement(controlRuntime.dropdown, {
           label: localizeOr(
             controlRuntime,
-            "#QuickAccess_Tab_Perf_PerfOverlayLevel",
+            "#QuickAccess_Tab_Perf_Overlay_Level",
             "Performance overlay",
           ),
           rgOptions: options,
