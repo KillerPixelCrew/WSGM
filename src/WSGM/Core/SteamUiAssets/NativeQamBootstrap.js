@@ -829,6 +829,7 @@
     let frameLimitControl;
     let overlayLevelControl;
     let controllerControl;
+    let resolutionControl;
     let performanceRoot;
     let originalUseMemo;
     let patchedUseMemo;
@@ -874,6 +875,12 @@
       controllerTarget: Object.freeze({
         patchId: "wsgm.native-qam.controller-target",
         command: "setControllerTarget",
+      }),
+      // Hand-built, unlike the frame limit and VRR rows. SteamOS drives resolution through
+      // gamescope and this client ships no component for it, so there is nothing to mount.
+      resolution: Object.freeze({
+        patchId: "wsgm.native-qam.resolution",
+        command: "setResolution",
       }),
     });
     const nextActionGeneration = (patchId) => {
@@ -1120,6 +1127,23 @@
         fault: normalizeText(value.fault),
         statusText: normalizeText(value.statusText),
       });
+    };
+    // Validated rather than trusted, like every other semantic state: this arrives over the bridge
+    // and a malformed option list would render a dropdown whose entries select nothing.
+    const normalizeResolutionState = (value) => {
+      if (!value || typeof value !== "object") return null;
+      const options = Array.isArray(value.options)
+        ? value.options.filter(
+            (option) =>
+              typeof option === "string" && /^[1-9][0-9]{2,4}x[1-9][0-9]{2,4}$/.test(option),
+          )
+        : [];
+      return {
+        available: value.available === true,
+        options: options.slice(0, 64),
+        current: typeof value.current === "string" ? value.current : "",
+        statusText: typeof value.statusText === "string" ? value.statusText : "",
+      };
     };
     const normalizeFrameLimitState = (value) => {
       const common = normalizePerformanceCommon(value);
@@ -1391,6 +1415,46 @@
           layout: "below",
         });
       };
+    const createResolutionControl = (controlRuntime) =>
+      function WsgmNativeResolutionControl() {
+        const state = useSemanticState(controlRuntime, "resolution", normalizeResolutionState);
+        if (!state) return note("resolution", "no state");
+        if (!state.available)
+          return note("resolution", "unavailable: " + (state.statusText || "no reason"));
+        if (state.options.length < 2)
+          return note("resolution", `only ${state.options.length} option(s)`);
+        renderOutcomes.resolution = "rendered";
+        const definition = definitions.resolution;
+        const options = state.options.map((option) => ({ data: option, label: option }));
+        const setResolution = (option) => {
+          // Checked against the offered list before sending. The row cannot be the only thing
+          // standing between a stray value and a mode change, but it should not be the source of
+          // one either.
+          if (!option || !state.options.includes(option.data)) return;
+          // "target" rather than "value": that is the payload shape every dropdown here uses, and
+          // the host's reader rejects an object carrying anything else.
+          void request(
+            definition.patchId,
+            definition.command,
+            { target: option.data },
+            nextActionGeneration(definition.patchId),
+          ).catch(() => {});
+        };
+        return controlRuntime.react.createElement(controlRuntime.dropdown, {
+          label: localizeOr(
+            controlRuntime,
+            "#Settings_Display_Resolution_Title",
+            "Display resolution",
+          ),
+          rgOptions: options,
+          // A current mode outside the offered list selects nothing rather than the first entry,
+          // which would silently misreport what the display is doing.
+          selectedOption: state.options.includes(state.current) ? state.current : undefined,
+          onChange: setResolution,
+          description: state.statusText || undefined,
+          layout: "below",
+        });
+      };
     const createFrameLimitControl = (controlRuntime) =>
       function WsgmNativeFrameLimitControl() {
         const state = useSemanticState(controlRuntime, "frameLimit", normalizeFrameLimitState);
@@ -1589,6 +1653,18 @@
           ),
         );
       }
+      // After the frame limit, because under the pairing strategies the cap is what moves the
+      // refresh rate, and a resolution change carries the current rate with it: the user reads the
+      // thing that drives before the thing that follows.
+      if (registrations.has("resolution")) {
+        controls.push(
+          controlRuntime.react.createElement(
+            controlRuntime.row,
+            { key: "wsgm-native-qam-resolution" },
+            controlRuntime.react.createElement(resolutionControl),
+          ),
+        );
+      }
       if (registrations.has("overlayLevel")) {
         controls.push(
           controlRuntime.react.createElement(
@@ -1679,6 +1755,7 @@
       frameLimitControl = createFrameLimitControl(controlRuntime);
       overlayLevelControl = createOverlayLevelControl(controlRuntime);
       controllerControl = createControllerControl(controlRuntime);
+      resolutionControl = createResolutionControl(controlRuntime);
       function WsgmNativeQamPerformanceRoot(props) {
         const [, setRevision] = controlRuntime.react.useState(0);
         controlRuntime.react.useEffect(

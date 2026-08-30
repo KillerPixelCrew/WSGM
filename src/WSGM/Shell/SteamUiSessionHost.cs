@@ -23,6 +23,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private const string AutoTdpPatchId = "wsgm.native-qam.auto-tdp";
     private const string ControllerTargetPatchId = "wsgm.native-qam.controller-target";
     private const string PerfPatchId = "wsgm.native-qam.perf";
+    private const string ResolutionPatchId = "wsgm.native-qam.resolution";
     private const string AudioPatchId = "wsgm.native-qam.audio";
     private const string NetworkGatePatchId = "wsgm.steam-network.gate";
     private const string BluetoothPatchId = "wsgm.steam-bluetooth.service";
@@ -63,6 +64,16 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     private int _networkPublishPending;
     private readonly PerformanceServiceNativeQamAdapter _performance;
+
+    /// <summary>
+    /// The display-resolution row's backend, or null when this session must not move the display.
+    /// </summary>
+    /// <remarks>
+    /// Null in overlay-test, which runs without a real display to change. The patch is not
+    /// registered at all in that case, so the row cannot appear and offer a control with nothing
+    /// behind it.
+    /// </remarks>
+    private readonly NativeQamResolutionService? _resolution;
     private readonly INativeQamAutoTdpService _autoTdp;
     private readonly INativeQamControllerTargetService _controllerTarget;
     private readonly SteamInputGlyphDeliveryState _glyphDeliveryState = new();
@@ -84,9 +95,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         DeviceCoordinator? deviceCoordinator,
         PerformanceService performance,
         AudioManager? audio = null,
-        RadioManager? radios = null)
+        RadioManager? radios = null,
+        DisplayResolutionService? resolution = null)
     {
         _radios = radios;
+        _resolution = resolution is null ? null : new NativeQamResolutionService(resolution);
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         ArgumentNullException.ThrowIfNull(toggleQuickAccess);
         _toggleQuickAccess = toggleQuickAccess;
@@ -109,6 +122,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _patches.Register(new NativeQamFrameLimitPatch());
         _patches.Register(new NativeQamOverlayLevelPatch());
         _patches.Register(new NativeQamControllerTargetPatch());
+        if (_resolution is not null)
+        {
+            _patches.Register(new NativeQamResolutionPatch());
+        }
 
         // The backend behind Valve's own Performance tab. Registered unconditionally because the
         // performance service always exists; what the panel then shows is decided entirely by which
@@ -330,6 +347,17 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                     NativeQamPerfJsonContext.Default.NativeQamPerfState);
                 await _bridge.PublishStateAsync(PerfPatchId, perf, _shutdown.Token)
                     .ConfigureAwait(false);
+                if (_resolution is { } resolution)
+                {
+                    JsonElement resolutionState = JsonSerializer.SerializeToElement(
+                        resolution.Current,
+                        NativeQamSemanticJsonContext.Default.NativeQamResolutionState);
+                    await _bridge.PublishStateAsync(
+                        ResolutionPatchId,
+                        resolutionState,
+                        _shutdown.Token).ConfigureAwait(false);
+                }
+
                 JsonElement controllerTarget = JsonSerializer.SerializeToElement(
                     _controllerTarget.Current,
                     NativeQamSemanticJsonContext.Default.NativeQamControllerTargetState);
@@ -584,6 +612,23 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 {
                     NativeQamCommandResult result = await _controllerTarget.SetTargetAsync(
                         target,
+                        requestCancellation.Token).ConfigureAwait(false);
+                    succeeded = result.Succeeded;
+                    error = result.Error;
+                }
+            }
+            else if (request.PatchId == ResolutionPatchId
+                && request.Command == "setResolution"
+                && _resolution is { } resolutionService)
+            {
+                if (!TryReadTargetPayload(request.Payload, out string value))
+                {
+                    error = "The resolution payload is invalid.";
+                }
+                else
+                {
+                    NativeQamCommandResult result = await resolutionService.ApplyAsync(
+                        value,
                         requestCancellation.Token).ConfigureAwait(false);
                     succeeded = result.Succeeded;
                     error = result.Error;

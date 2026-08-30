@@ -79,6 +79,7 @@ public sealed class ShellSession : IAsyncDisposable
     private IDeviceOverlaySource? _deviceOverlay;
     private PerformanceService? _performance;
     private RefreshRatePairingService? _refreshPairing;
+    private DisplayResolutionService? _resolutions;
 
     /// <summary>
     /// The one audio manager for this session, shared by the taskbar's status cluster and Steam's
@@ -257,6 +258,7 @@ public sealed class ShellSession : IAsyncDisposable
         if (!_overlayTestOnly)
         {
             _refreshPairing = new RefreshRatePairingService();
+            _resolutions = new DisplayResolutionService();
             _refreshPairing.SetStrategy(_config.Performance.FrameLimitStrategy);
             _performance.StateChanged += OnPerformanceStateForPairing;
         }
@@ -478,7 +480,11 @@ public sealed class ShellSession : IAsyncDisposable
                 _deviceCoordinator,
                 _performance,
                 _audio,
-                _radios);
+                _radios,
+                // Null in overlay-test, where there is no real display to move. The patch is then
+                // never registered, so the row cannot appear offering a control with nothing behind
+                // it.
+                _overlayTestOnly ? null : _resolutions);
             _steamUi.SetPerfSupport(ReadNativeQamPerfSupport);
             _steamUi.Apply(_config.Cef.Enabled && _config.Cef.NativeQuickAccess);
             ApplyGlyphConfig(_config);
@@ -1874,6 +1880,15 @@ public sealed class ShellSession : IAsyncDisposable
                 {
                     _ = _refreshPairing.Restore();
                     _refreshPairing = null;
+                }
+
+                // Same reasoning, and separately owned: a resolution the user picked from the menu
+                // is transient too, and leaving the desktop at a game's resolution is the more
+                // visible of the two changes to be left with.
+                if (_resolutions is not null)
+                {
+                    _ = _resolutions.Restore();
+                    _resolutions = null;
                 }
 
                 // After the Steam host and the overlay, both of which hold them.

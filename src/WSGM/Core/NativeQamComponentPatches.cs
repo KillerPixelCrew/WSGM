@@ -43,6 +43,48 @@ public sealed class NativeQamFrameLimitPatch : NativeQamComponentPatch
 }
 
 /// <summary>
+/// Adds a display-resolution row, which this client has no component for.
+/// </summary>
+/// <remarks>
+/// Hand-built on Valve's own field primitives rather than mounted, unlike the frame limit and VRR
+/// rows: SteamOS drives resolution through gamescope, so the Windows bundle ships no resolution
+/// control to reactivate. It still carries its own id, fingerprint, verification, removal, and kill
+/// switch, so a client rebuild that breaks it loses this row and nothing else.
+/// </remarks>
+public sealed class NativeQamResolutionPatch : NativeQamComponentPatch
+{
+    private static readonly string[] RequiredCounts =
+    [
+        "performanceActions",
+        "performanceRoot",
+        "nativeFields",
+        "nativeLayout",
+        "localization",
+        "react",
+    ];
+
+    /// <inheritdoc />
+    public override string Id => "wsgm.native-qam.resolution";
+
+    /// <inheritdoc />
+    public override int Version => 1;
+
+    /// <inheritdoc />
+    protected override string ComponentKind => "resolution";
+
+    /// <inheritdoc />
+    protected override string StructuralFingerprint =>
+        "native-qam-resolution-v1:performance-actions+performance-root+valve-dropdown";
+
+    /// <inheritdoc />
+    protected override IReadOnlyList<string> RequiredUniqueCounts => RequiredCounts;
+
+    /// <inheritdoc />
+    protected override string ProbeExpression => PerformanceProbeExpression(
+        "wsgm_native_resolution_probe_");
+}
+
+/// <summary>
 /// Restores Valve's native performance-overlay presentation with exact RTSS adapter levels.
 /// </summary>
 public sealed class NativeQamOverlayLevelPatch : NativeQamComponentPatch
