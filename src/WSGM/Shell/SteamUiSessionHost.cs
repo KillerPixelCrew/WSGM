@@ -952,10 +952,16 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private static async Task<SteamBluetoothState> ReadBluetoothStateAsync(RadioManager radios)
     {
         List<SteamBluetoothDevice> devices = [];
+        bool available = false;
         bool enabled = false;
         bool discovering = false;
         await RunUiAsync(() =>
         {
+            // Available means "this machine has a Bluetooth radio WSGM can drive", never "the radio
+            // is on". Wiring it to the on/off state made turning Bluetooth off remove the entire
+            // settings page and the toggle with it — the exact control needed to turn it back on.
+            available = radios.BluetoothPower
+                is not RadioPower.Absent and not RadioPower.Disabled;
             enabled = radios.BluetoothOn;
             discovering = radios.BluetoothScanning;
             foreach (BluetoothDeviceEntry entry in radios.BluetoothDevices)
@@ -977,7 +983,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             }
         }).ConfigureAwait(false);
 
-        return new SteamBluetoothState(enabled, enabled, discovering, devices);
+        return new SteamBluetoothState(available, enabled, discovering, devices);
     }
 
     /// <summary>

@@ -788,9 +788,30 @@ interface Window {
       return { unregister: () => (callbacks[slot] = null) };
     };
 
-    let known: string[] = [];
+    let known: number[] = [];
+    // Steam's audio identities are NUMBERS: the live store keeps m_activeOutputDeviceId as a
+    // uint32 with 0xFFFFFFFF for none (read off the running client, 2026-08-30). WSGM's endpoint
+    // ids are Windows GUID strings, so devices listed by name but nothing could ever match as
+    // active — which reads as "no default device" and disables the volume slider. Each GUID gets a
+    // stable small number for Steam's side of the wire, translated back on every command.
+    const NO_DEVICE = 4294967295;
+    const deviceNumbers = new Map();
+    const deviceGuids = new Map();
+    let nextDeviceNumber = 1;
+    const numberFor = (guid) => {
+      if (typeof guid !== "string" || !guid) return NO_DEVICE;
+      let value = deviceNumbers.get(guid);
+      if (value === undefined) {
+        value = nextDeviceNumber++;
+        deviceNumbers.set(guid, value);
+        deviceGuids.set(value, guid);
+      }
+      return value;
+    };
+    const guidFor = (value) => deviceGuids.get(Number(value)) ?? null;
+
     const toDevice = (entry) => ({
-      id: entry.id,
+      id: numberFor(entry.id),
       sName: entry.name,
       bHasOutput: entry.hasOutput === true,
       bHasInput: entry.hasInput === true,
@@ -829,7 +850,9 @@ interface Window {
 
     const onState = (state) => {
       if (!installed || !state || !Array.isArray(state.devices)) return;
-      const seen = state.devices.map((device) => String(device.id));
+      // Numeric, because these ids flow to the store and its callbacks, and Steam's side of the
+      // wire is numeric everywhere.
+      const seen = state.devices.map((device) => numberFor(device.id));
 
       // Removals first: a device that has gone must leave the store before a re-read of the device
       // list can describe the set as complete, or the picker keeps an endpoint that is not there.
@@ -851,6 +874,11 @@ interface Window {
           if (!seen.includes(id)) store.m_mapAudioDevices?.delete(id);
         }
         for (const device of state.devices) store.RegisterOrUpdateDevice(toDevice(device));
+        // The running store learns the defaults from nothing else: a store constructed before the
+        // namespace existed has 0xFFFFFFFF in both, which the settings page renders as "no default
+        // device" and a disabled volume slider.
+        store.m_activeOutputDeviceId = numberFor(state.activeOutputDeviceId ?? "");
+        store.m_activeInputDeviceId = numberFor(state.activeInputDeviceId ?? "");
       } catch {
         // A store whose shape moved is a compatibility loss, not a fault: the namespace stays and
         // a client rebuilt around a different store simply shows no audio section.
@@ -882,17 +910,21 @@ interface Window {
       const api = {
         GetDevices: () =>
           request(patchId, "getDevices", null, 0).then((state: any) => ({
-            activeOutputDeviceId: state?.activeOutputDeviceId ?? "",
-            activeInputDeviceId: state?.activeInputDeviceId ?? "",
-            overrideOutputDeviceId: "",
-            overrideInputDeviceId: "",
+            activeOutputDeviceId: numberFor(state?.activeOutputDeviceId ?? ""),
+            activeInputDeviceId: numberFor(state?.activeInputDeviceId ?? ""),
+            overrideOutputDeviceId: NO_DEVICE,
+            overrideInputDeviceId: NO_DEVICE,
             vecDevices: Array.isArray(state?.devices) ? state.devices.map(toDevice) : [],
           })),
         // Empty until a session mixer exists. Steam then lists no per-application entries, which is
         // the honest outcome rather than inventing volumes it cannot move.
         GetApps: () => Promise.resolve({ rgApps: [] }),
-        SetDefaultDeviceOverride: (id, direction) =>
-          request(patchId, "setDefaultDevice", { id: String(id), input: direction === 1 }, 0),
+        SetDefaultDeviceOverride: (id, direction) => {
+          // Steam hands back the number this side minted; the host only knows the GUID.
+          const guid = guidFor(id);
+          if (!guid) return Promise.resolve();
+          return request(patchId, "setDefaultDevice", { id: guid, input: direction === 1 }, 0);
+        },
         SetDeviceVolume: (id, volume) =>
           request(patchId, "setVolume", { percent: Math.round((volume ?? 0) * 100) }, 0),
         SetAppVolume: () => Promise.resolve(),
@@ -989,12 +1021,12 @@ interface Window {
     let valveRefreshRateControl;
     let performanceRoot;
 
-    // The Quick Settings tab's own panel root, wrapped exactly like the performance root so rows
-    // can be appended to the tab they belong in: S14 puts resolution and refresh rate in Quick
-    // Settings, not Performance. Identified live 2026-08-30 as the export whose props are the QAM
-    // tab-panel signature ({active, embeddedView, expanded, visible, vr}) in the module that
-    // carries the Quick Settings section titles.
-    let quickSettingsRoot;
+    // The Quick Settings panel Steam rendered, captured at match time. S14 puts resolution and
+    // refresh rate in Quick Settings, not Performance — but the panel is a LOCAL function of the
+    // tabs module, not an export, so it is only ever known once the tab array passes through the
+    // patched memo. Null means it has not been seen yet, which the status reports.
+    let quickSettingsRoot = null;
+    const quickSettingsWrapCache = new Map();
     let originalUseMemo;
     let patchedUseMemo;
     let disposedHost = false;
@@ -2099,27 +2131,6 @@ interface Window {
         ? uniqueFunction(perfExports, ["#QuickAccess_Tab_Perf_RefreshRate"])
         : null;
 
-      // The Quick Settings panel root. Best-effort on purpose: a build whose shape moved loses the
-      // Quick Settings rows and nothing else, and the status reports quickSettingsRootResolved so
-      // that loss is attributable rather than silent.
-      const quickSettingsFactory = uniqueFactory([
-        "#QuickAccess_Tab_Settings_Section_Other_Title",
-        "#QuickAccess_Tab_Settings_Section_Brightness_Title",
-      ]);
-      // The root is the export taking the QAM tab-panel props; "embeddedView" and the focus-scroll
-      // pair identify it uniquely among this module's exports (live-verified 2026-08-30).
-      quickSettingsRoot = quickSettingsFactory
-        ? uniqueFunction(runtime(quickSettingsFactory[0]), ["embeddedView", "scrollIntoView"])
-        : null;
-
-      function WsgmNativeQamQuickSettingsRoot(props) {
-        const [, setRevision] = controlRuntime.react.useState(0);
-        controlRuntime.react.useEffect(
-          () => subscribeHost(() => setRevision((value) => value + 1)),
-          [],
-        );
-        return appendControls(controlRuntime, quickSettingsRoot(props), "quickSettings");
-      }
       function WsgmNativeQamPerformanceRoot(props) {
         const [, setRevision] = controlRuntime.react.useState(0);
         controlRuntime.react.useEffect(
@@ -2132,21 +2143,48 @@ interface Window {
       // One wrapper per wrapped tab, matched by root identity in the same memoized tab array.
       // Each root must match exactly once or it is left alone — the discipline that kept the
       // performance wrap honest, applied per root rather than to the array as a whole.
+      // The performance panel is matched by export identity; the Quick Settings panel CANNOT be —
+      // a tap on the tab array (2026-08-30) showed its type is a local function no module exports.
+      // It is matched by its own source instead, on two Valve strings WSGM's gates never touch: the
+      // Other-section title and the reorder-controllers button. Deliberately NOT the brightness
+      // title, because that is the surface WSGM's own gate reveals, and a selector must not be
+      // entangled with a thing this code changes.
       const wrappers = [
         {
-          root: performanceRoot,
-          component: WsgmNativeQamPerformanceRoot,
+          match: (type) => type === performanceRoot,
+          component: () => WsgmNativeQamPerformanceRoot,
           fallbackKey: "wsgm-native-qam-performance-root",
         },
-        ...(quickSettingsRoot
-          ? [
-              {
-                root: quickSettingsRoot,
-                component: WsgmNativeQamQuickSettingsRoot,
-                fallbackKey: "wsgm-native-qam-quick-settings-root",
-              },
-            ]
-          : []),
+        {
+          match: (type) => {
+            if (typeof type !== "function" || type === performanceRoot) return false;
+            const source = String(type);
+            return (
+              source.includes("#QuickAccess_Tab_Settings_Section_Other_Title") &&
+              source.includes("#QuickAccess_ReorderControllers_Button")
+            );
+          },
+          // The original is only known at match time, so the wrapper is built then — and cached by
+          // original, because a fresh component identity on every memo pass would remount the whole
+          // tab on each render.
+          component: (original) => {
+            let wrapped = quickSettingsWrapCache.get(original);
+            if (!wrapped) {
+              wrapped = function WsgmNativeQamQuickSettingsRoot(props) {
+                const [, setRevision] = controlRuntime.react.useState(0);
+                controlRuntime.react.useEffect(
+                  () => subscribeHost(() => setRevision((value) => value + 1)),
+                  [],
+                );
+                quickSettingsRoot = original;
+                return appendControls(controlRuntime, original(props), "quickSettings");
+              };
+              quickSettingsWrapCache.set(original, wrapped);
+            }
+            return wrapped;
+          },
+          fallbackKey: "wsgm-native-qam-quick-settings-root",
+        },
       ];
       patchedUseMemo = function WsgmNativeQamUseMemo(factory, dependencies) {
         const value = originalUseMemo(factory, dependencies);
@@ -2158,12 +2196,12 @@ interface Window {
               item &&
               typeof item === "object" &&
               controlRuntime.react.isValidElement(item.panel) &&
-              item.panel.type === wrapper.root,
+              wrapper.match(item.panel.type),
           );
           if (matches.length !== 1) continue;
           result = result.map((item) => {
             if (item !== matches[0]) return item;
-            const panel = controlRuntime.react.createElement(wrapper.component, {
+            const panel = controlRuntime.react.createElement(wrapper.component(item.panel.type), {
               ...item.panel.props,
               key: item.panel.key ?? wrapper.fallbackKey,
             });

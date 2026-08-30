@@ -1,23 +1,21 @@
-// Probe: what DT and l8 in 79476 actually are, and where the QS tab's panel element comes from.
-// Reads sources of named modules; constructs nothing.
+// Probe: all `function De(` occurrences, matched to the tab-tap capture by its head
+// (GetControllers + ~2 KB), and dump that one's full source.
 (() => {
   let req;
-  window.webpackChunksteamui.push([["wsgm_qs3_" + Date.now()], {}, (r) => { req = r; }]);
-  const mod = req("79476");
-  const out = {};
-  for (const key of Object.keys(mod)) {
-    const v = mod[key];
-    out[key] = {
-      type: typeof v,
-      head: typeof v === "function" ? String(v).slice(0, 260) : String(v).slice(0, 120),
-    };
-  }
-  // Who imports 79476? The tabs module that builds the QAM tab list references its panel export.
-  const importers = [];
+  window.webpackChunksteamui.push([["wsgm_de2_" + Date.now()], {}, (r) => { req = r; }]);
+  const results = [];
   for (const [id, f] of Object.entries(req.m)) {
     const s = String(f);
-    if (/r\(79476\)|\(79476\)/.test(s)) importers.push({ id, len: s.length, qamTitle: s.includes("#QuickAccess_Tab_Settings_Title") });
+    let at = -1;
+    while ((at = s.indexOf("function De(", at + 1)) >= 0) {
+      let depth = 0, end = at;
+      for (let i = s.indexOf("{", at); i < s.length; i++) {
+        if (s[i] === "{") depth++;
+        else if (s[i] === "}" && --depth === 0) { end = i + 1; break; }
+      }
+      const body = s.slice(at, end);
+      if (body.includes("GetControllers")) results.push({ module: id, len: body.length, body });
+    }
   }
-  out.importers = importers.slice(0, 6);
-  return JSON.stringify(out);
+  return JSON.stringify(results.slice(0, 2));
 })();
