@@ -227,7 +227,13 @@ public sealed class ShellSession : IAsyncDisposable
             _messageWindow.SystemResumed += OnSystemResumed;
             if (_deviceCoordinator is not null)
             {
-                _deviceOverlay = new DeviceOverlayBridge(_deviceCoordinator);
+                DeviceOverlayBridge bridge = new(_deviceCoordinator);
+                // Read on every snapshot rather than cached: the row has to follow both a
+                // configuration reload and a change of running application, and it is a handful of
+                // list lookups against objects already in memory. Set on the concrete bridge, not
+                // the interface — a simulated source for overlay-test has no configuration to read.
+                bridge.AuthoredProfileSource = BuildAuthoredProfileRow;
+                _deviceOverlay = bridge;
             }
             else if (_suppressDeviceIntegration)
             {
@@ -2117,6 +2123,33 @@ public sealed class ShellSession : IAsyncDisposable
         await ApplyDeviceProfilesAsync(snapshot.ApplicationId, cancellationToken)
             .ConfigureAwait(false);
     }
+
+    /// <summary>Builds the overlay's authored-profile row from configuration.</summary>
+    /// <returns>The row, or null when the device has no authored profiles.</returns>
+    /// <remarks>
+    /// The running application comes from the same monitor everything else per-application uses, so
+    /// the row cannot claim a scope the applier would disagree with.
+    /// </remarks>
+    private DeviceOverlayAuthoredProfile? BuildAuthoredProfileRow()
+    {
+        PluginSettingsScope? scope = _config.DeviceIntegration.PluginSettings
+            .FirstOrDefault(candidate => candidate.Profiles.Count > 0);
+        if (scope is null)
+        {
+            return null;
+        }
+
+        string? applicationId = _runningApplications?.Current.ApplicationId;
+        string? selected = DeviceProfileSelectionStore.ReadSelection(
+            scope,
+            FanCurveCapabilityId,
+            applicationId,
+            out bool applicationScoped);
+        return DeviceOverlayBridge.AuthoredProfileView(scope.Profiles, selected, applicationScoped);
+    }
+
+    /// <summary>The capability the authored fan profiles target.</summary>
+    private const string FanCurveCapabilityId = "thermal.fan-curve";
 
     /// <summary>Applies the authored profile in force for the running application.</summary>
     /// <param name="applicationId">The running application identity, or null for none.</param>

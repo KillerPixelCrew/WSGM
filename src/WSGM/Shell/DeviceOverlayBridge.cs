@@ -288,6 +288,15 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 
     public event Action? Changed;
 
+    /// <summary>Supplies the authored profile row, or null when there is nothing to show.</summary>
+    /// <remarks>
+    /// Attached by the session rather than read here: authored profiles and their selection live in
+    /// WSGM configuration, which this bridge deliberately does not reach into — it adapts the device
+    /// coordinator and nothing else. Unset means no row, which is the correct state for a session
+    /// that has no configuration to read.
+    /// </remarks>
+    internal Func<DeviceOverlayAuthoredProfile?>? AuthoredProfileSource { get; set; }
+
     public DeviceOverlaySnapshot Snapshot()
     {
         DeviceCycleState state = _coordinator.State;
@@ -370,7 +379,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             controller,
             recovery,
             profile,
-            glyphPreview);
+            glyphPreview,
+            AuthoredProfileSource?.Invoke());
     }
 
     /// <summary>Projects controller management into the Controller and motion page's own row.</summary>
