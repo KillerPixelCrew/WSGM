@@ -1,20 +1,24 @@
-// Reads the device class's Update/getDeviceVolume/setDeviceVolume so the exact shape that fills
-// m_mapVolumes is taken from the client rather than guessed. Read-only.
+// Reads the store's volume-overlay suppression pair and the current per-device volume map, so the
+// publish rule can be written against what the store actually holds. Read-only.
 (() => {
   const chunk = window.webpackChunksteamui;
   if (!chunk) return "no webpackChunksteamui";
   let runtime = null;
-  chunk.push([[Symbol("wsgm-audio-update-probe")], {}, (r) => { runtime = r; }]);
+  chunk.push([[Symbol("wsgm-audio-suppress-probe")], {}, (r) => { runtime = r; }]);
   if (!runtime) return "no runtime";
   const store = runtime("1409")?.F5;
-  const device = store?.m_mapAudioDevices?.get(1);
-  if (!device) return "no device 1";
-  const proto = Object.getPrototypeOf(device);
+  if (!store) return "no F5";
+  const proto = Object.getPrototypeOf(store);
   const out = {};
-  for (const name of ["Update", "getDeviceVolume", "setDeviceVolume", "OnVolumeUpdated"]) {
-    try { out[name] = String(proto[name]).slice(0, 700); } catch (e) { out[name] = "ERR " + e; }
+  for (const name of ["SuppressVolumeOverlay", "UnSuppressVolumeOverlay", "OnVolumeButtonPressed"]) {
+    try { out[name] = String(proto[name]).slice(0, 400); } catch (e) { out[name] = "ERR " + e; }
   }
-  try { out.registerOrUpdate = String(Object.getPrototypeOf(store).RegisterOrUpdateDevice).slice(0, 600); } catch {}
-  try { out.onVolumeChanged = String(Object.getPrototypeOf(store).OnAudioDeviceVolumeChanged).slice(0, 600); } catch {}
+  const volumes = [];
+  try {
+    store.m_mapAudioDevices?.forEach((d, id) => {
+      volumes.push({ id, out: d.getDeviceVolume?.(0), in: d.getDeviceVolume?.(1) });
+    });
+  } catch (e) { volumes.push("ERR " + e); }
+  out.volumes = volumes;
   return JSON.stringify(out, null, 1);
 })();

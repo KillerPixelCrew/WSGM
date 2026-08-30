@@ -1137,6 +1137,10 @@ interface Window {
     // both directions: as a map key it left the slider with no value, and as a volume it turned
     // every drag into 100% or 0%.
     const AudioDirection = Object.freeze({ Output: 0, Input: 1 });
+
+    // Below one step of a hardware volume button, so a genuine press always counts and float
+    // round-tripping through a whole-number percent never does.
+    const VolumeEpsilon = 0.004;
     const deviceNumbers = new Map();
     const deviceGuids = new Map();
     let nextDeviceNumber = 1;
@@ -1209,7 +1213,8 @@ interface Window {
     const onState = (state) => {
       if (!installed || !state || !Array.isArray(state.devices)) return;
       const flVolume = flVolumeOf(state);
-      const volumeChanged = lastFlVolume !== null && Math.abs(flVolume - lastFlVolume) > 0.004;
+      const volumeChanged =
+        lastFlVolume !== null && Math.abs(flVolume - lastFlVolume) > VolumeEpsilon;
       lastFlVolume = flVolume;
       // Numeric, because these ids flow to the store and its callbacks, and Steam's side of the
       // wire is numeric everywhere.
@@ -1228,7 +1233,11 @@ interface Window {
         // was passing them the other way round — every entry it wrote was keyed by a float volume
         // with 1 or 0 as its value, so getDeviceVolume(direction) found nothing and the slider had
         // no number to sit on.
-        if (callbacks.deviceVolumeChanged) {
+        //
+        // Still gated on an actual change, unlike the direct path below, which also has to seed:
+        // a store that registered these callbacks was constructed after the namespace existed and
+        // therefore already read the volumes at construction.
+        if (volumeChanged && callbacks.deviceVolumeChanged) {
           const id = numberFor(device.id);
           callbacks.deviceVolumeChanged(id as never, AudioDirection.Output as never, flVolume as never);
           callbacks.deviceVolumeChanged(id as never, AudioDirection.Input as never, flVolume as never);
@@ -1247,19 +1256,36 @@ interface Window {
         }
         for (const device of state.devices) {
           store.RegisterOrUpdateDevice(toDevice(device, flVolume));
-          // ALWAYS, not only on a change. Update() copies the name, the directions and the CEC
-          // flags and nothing else — read live 2026-08-30 — so registration never fills
-          // m_mapVolumes at all, and the only path into it is this one. Gating it on a change left
-          // the map permanently empty: the first publish is never a "change" by construction, so
-          // the slider started with no value and stayed that way.
+          // Update() copies the name, the directions and the CEC flags and nothing else — read
+          // live 2026-08-30 — so registration never fills m_mapVolumes and this is its only path.
           //
-          // The volume OSD that forced the earlier gate is suppressed around the write instead,
-          // which is the store's own mechanism for exactly this.
+          // But writing on every publish is wrong in both directions at once. It dispatches a
+          // volume change once a second, which is Steam's OSD popping up forever; and while the
+          // user is dragging, the store is already holding the value they chose, so pushing WSGM's
+          // not-yet-observed one snaps the handle back under their thumb.
+          //
+          // So: seed a direction that has no value at all, and otherwise write only when WSGM's
+          // OWN reading moved — something outside Steam changed the volume — and the store has not
+          // already caught up. Both are suppressed, because neither is the user acting inside
+          // Steam: a hardware button already shows WSGM's own overlay.
           const deviceId = numberFor(device.id);
-          if (!volumeChanged) store.SuppressVolumeOverlay?.();
-          store.OnAudioDeviceVolumeChanged?.(deviceId, AudioDirection.Output, flVolume);
-          store.OnAudioDeviceVolumeChanged?.(deviceId, AudioDirection.Input, flVolume);
-          if (!volumeChanged) store.UnSuppressVolumeOverlay?.();
+          const entry = store.m_mapAudioDevices?.get(deviceId);
+          for (const direction of [AudioDirection.Output, AudioDirection.Input]) {
+            const held = entry?.getDeviceVolume?.(direction);
+            const seeding = typeof held !== "number";
+            if (!seeding && !(volumeChanged && Math.abs(held - flVolume) > VolumeEpsilon)) {
+              continue;
+            }
+
+            store.SuppressVolumeOverlay?.();
+            try {
+              store.OnAudioDeviceVolumeChanged?.(deviceId, direction, flVolume);
+            } finally {
+              // Balanced whatever the dispatch does: the pair is a refcount, and leaking one would
+              // suppress the user's own volume overlay for the rest of the session.
+              store.UnSuppressVolumeOverlay?.();
+            }
+          }
         }
         // The running store learns the defaults from nothing else: a store constructed before the
         // namespace existed has 0xFFFFFFFF in both, which the settings page renders as "no default
