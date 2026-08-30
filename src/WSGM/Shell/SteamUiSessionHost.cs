@@ -119,8 +119,13 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _patches.Register(new NativeQamBootstrapPatch(_bridge));
         _patches.Register(new NativeQamTdpPatch());
         _patches.Register(new NativeQamAutoTdpPatch());
-        _patches.Register(new NativeQamFrameLimitPatch());
-        _patches.Register(new NativeQamOverlayLevelPatch());
+        // Valve's own frame-limit and overlay-level components, in place of the hand-rolled rows
+        // that imitated them — the Q12 retirement. The hand-built patches are deliberately no
+        // longer registered rather than deleted: reinstating one is a one-line rollback if a Steam
+        // rebuild breaks the mounted component, and their state publications continue meanwhile so
+        // a rollback needs no other change.
+        _patches.Register(new NativeQamValveFrameLimitPatch());
+        _patches.Register(new NativeQamValveOverlayLevelPatch());
         _patches.Register(new NativeQamControllerTargetPatch());
 
         // Valve's own VRR control. Registered unconditionally: whether it appears is decided by

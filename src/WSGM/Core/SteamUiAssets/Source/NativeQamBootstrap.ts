@@ -810,11 +810,17 @@ interface Window {
     };
     const guidFor = (value) => deviceGuids.get(Number(value)) ?? null;
 
-    const toDevice = (entry) => ({
+    // The store's device constructor ingests flOutputVolume/flInputVolume (0..1) into the map the
+    // sliders bind — omit them and every slider renders a grey bar over undefined. WSGM's volume is
+    // system-wide, so every device carries the same value; Windows' default endpoint is the one the
+    // user actually hears, and a per-device number WSGM cannot move would be an invented control.
+    const toDevice = (entry, flVolume) => ({
       id: numberFor(entry.id),
       sName: entry.name,
       bHasOutput: entry.hasOutput === true,
       bHasInput: entry.hasInput === true,
+      flOutputVolume: flVolume,
+      flInputVolume: flVolume,
       // Speaker configuration and HDMI CEC reach a service WSGM does not supply. Reported empty and
       // false rather than invented, so those controls simply do not appear.
       currentConfig: {},
@@ -848,8 +854,13 @@ interface Window {
       }
     };
 
+    // The one volume WSGM tracks, as the 0..1 float Steam's sliders use.
+    const flVolumeOf = (state) =>
+      Math.min(1, Math.max(0, (Number(state?.volumePercent) || 0) / 100));
+
     const onState = (state) => {
       if (!installed || !state || !Array.isArray(state.devices)) return;
+      const flVolume = flVolumeOf(state);
       // Numeric, because these ids flow to the store and its callbacks, and Steam's side of the
       // wire is numeric everywhere.
       const seen = state.devices.map((device) => numberFor(device.id));
@@ -860,7 +871,17 @@ interface Window {
         if (!seen.includes(id) && callbacks.deviceRemoved) callbacks.deviceRemoved(id as never);
       }
       for (const device of state.devices) {
-        if (callbacks.deviceAdded) callbacks.deviceAdded(toDevice(device));
+        if (callbacks.deviceAdded) callbacks.deviceAdded(toDevice(device, flVolume));
+        // Construction ingests flOutputVolume/flInputVolume, but re-registering an existing entry
+        // does not refresh them (verified live: stale entries kept null volumes through a
+        // RegisterOrUpdateDevice). Runtime changes travel the store's own changed-callback,
+        // OnAudioDeviceVolumeChanged(id, volume, direction) — direction 1 is AllOutput, 0 is
+        // Input, read off the constructed volume map.
+        if (callbacks.deviceVolumeChanged) {
+          const id = numberFor(device.id);
+          callbacks.deviceVolumeChanged(id as never, flVolume as never, 1 as never);
+          callbacks.deviceVolumeChanged(id as never, flVolume as never, 0 as never);
+        }
       }
       known = seen;
 
@@ -873,7 +894,15 @@ interface Window {
         for (const id of known) {
           if (!seen.includes(id)) store.m_mapAudioDevices?.delete(id);
         }
-        for (const device of state.devices) store.RegisterOrUpdateDevice(toDevice(device));
+        for (const device of state.devices) {
+          store.RegisterOrUpdateDevice(toDevice(device, flVolume));
+          // Same fact as the callback above, on the direct path: a running store registered its
+          // volume callback against a namespace that did not exist yet, so nothing ever fires it,
+          // and re-registering an existing entry does not refresh its volumes. This is the only
+          // route a volume change has into an already-constructed entry.
+          store.OnAudioDeviceVolumeChanged?.(numberFor(device.id), flVolume, 1);
+          store.OnAudioDeviceVolumeChanged?.(numberFor(device.id), flVolume, 0);
+        }
         // The running store learns the defaults from nothing else: a store constructed before the
         // namespace existed has 0xFFFFFFFF in both, which the settings page renders as "no default
         // device" and a disabled volume slider.
@@ -914,7 +943,9 @@ interface Window {
             activeInputDeviceId: numberFor(state?.activeInputDeviceId ?? ""),
             overrideOutputDeviceId: NO_DEVICE,
             overrideInputDeviceId: NO_DEVICE,
-            vecDevices: Array.isArray(state?.devices) ? state.devices.map(toDevice) : [],
+            vecDevices: Array.isArray(state?.devices)
+              ? state.devices.map((device) => toDevice(device, flVolumeOf(state)))
+              : [],
           })),
         // Empty until a session mixer exists. Steam then lists no per-application entries, which is
         // the honest outcome rather than inventing volumes it cannot move.
@@ -1019,6 +1050,8 @@ interface Window {
     let valveProfileHeaderControl;
     let valveResetControl;
     let valveRefreshRateControl;
+    let valveFrameLimitControl;
+    let valveOverlayLevelControl;
     let performanceRoot;
 
     // The Quick Settings panel Steam rendered, captured at match time. S14 puts resolution and
@@ -1117,6 +1150,17 @@ interface Window {
       // under FrameLimitOnly — the strategy gate is the state, not a check here.
       valveRefreshRate: Object.freeze({
         patchId: "wsgm.native-qam.valve-refresh-rate",
+        command: "",
+      }),
+      // Valve's frame-limit slider and performance-overlay selector, replacing the hand-rolled
+      // rows that imitated them — the retirement Q12 always intended once the Perf backend could
+      // feed the real components.
+      valveFrameLimit: Object.freeze({
+        patchId: "wsgm.native-qam.valve-frame-limit",
+        command: "",
+      }),
+      valveOverlayLevel: Object.freeze({
+        patchId: "wsgm.native-qam.valve-overlay-level",
         command: "",
       }),
     });
@@ -1952,6 +1996,16 @@ interface Window {
       // Valve's own component, not a WSGM row. It draws nothing when the state omits
       // is_vrr_supported, which is what hides it on a device with no VRR capability — no extra
       // check here, because that gate is the state itself.
+      // Valve's own slider, in the place the hand-rolled one held.
+      if (wants("valveFrameLimit") && valveFrameLimitControl) {
+        controls.push(
+          controlRuntime.react.createElement(
+            controlRuntime.row,
+            { key: "wsgm-native-qam-valve-frame-limit" },
+            controlRuntime.react.createElement(valveFrameLimitControl),
+          ),
+        );
+      }
       if (wants("valveVrr") && valveVrrControl) {
         controls.push(
           controlRuntime.react.createElement(
@@ -1988,6 +2042,15 @@ interface Window {
             controlRuntime.row,
             { key: "wsgm-native-qam-overlay-level" },
             controlRuntime.react.createElement(overlayLevelControl),
+          ),
+        );
+      }
+      if (wants("valveOverlayLevel") && valveOverlayLevelControl) {
+        controls.push(
+          controlRuntime.react.createElement(
+            controlRuntime.row,
+            { key: "wsgm-native-qam-valve-overlay-level" },
+            controlRuntime.react.createElement(valveOverlayLevelControl),
           ),
         );
       }
@@ -2031,11 +2094,14 @@ interface Window {
           inserted: true,
           ownSection: true,
         };
+        // Display controls lead the tab rather than trailing it: brightness and the shortcut
+        // toggles read below them naturally, and a dropdown at the bottom of a scrolling tab is
+        // the control a user finds last.
         return controlRuntime.react.createElement(
           controlRuntime.react.Fragment,
           null,
-          tree,
           section,
+          tree,
         );
       }
 
@@ -2129,6 +2195,12 @@ interface Window {
         : null;
       valveRefreshRateControl = perfExports
         ? uniqueFunction(perfExports, ["#QuickAccess_Tab_Perf_RefreshRate"])
+        : null;
+      valveFrameLimitControl = perfExports
+        ? uniqueFunction(perfExports, ["#QuickAccess_Tab_Perf_LimitFrameRate"])
+        : null;
+      valveOverlayLevelControl = perfExports
+        ? uniqueFunction(perfExports, ["#QuickAccess_Tab_Perf_Overlay_Level"])
         : null;
 
       function WsgmNativeQamPerformanceRoot(props) {

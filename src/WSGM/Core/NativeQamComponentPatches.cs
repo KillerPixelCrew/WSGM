@@ -171,6 +171,84 @@ public sealed class NativeQamValveResetPatch : NativeQamComponentPatch
 }
 
 /// <summary>
+/// Mounts Valve's own frame-limit slider, retiring the hand-rolled imitation.
+/// </summary>
+/// <remarks>
+/// The retirement Q12 always intended: the component reads <c>fps_limit_options</c> and
+/// <c>per_app.fps_limit</c> from <c>SystemPerfStore</c> and writes through
+/// <c>SteamClient.System.Perf.UpdateSettings</c>, both of which WSGM supplies, so it arrives with
+/// Valve's own labels, explainer and localization rather than a lookalike.
+/// </remarks>
+public sealed class NativeQamValveFrameLimitPatch : NativeQamComponentPatch
+{
+    private static readonly string[] RequiredCounts =
+    [
+        "performanceActions",
+        "performanceRoot",
+        "nativeFields",
+        "nativeLayout",
+        "localization",
+        "react",
+    ];
+
+    /// <inheritdoc />
+    public override string Id => "wsgm.native-qam.valve-frame-limit";
+
+    /// <inheritdoc />
+    public override int Version => 1;
+
+    /// <inheritdoc />
+    protected override string ComponentKind => "valveFrameLimit";
+
+    /// <inheritdoc />
+    protected override string StructuralFingerprint =>
+        "native-qam-valve-frame-limit-v1:performance-actions+performance-root+valve-slider";
+
+    /// <inheritdoc />
+    protected override IReadOnlyList<string> RequiredUniqueCounts => RequiredCounts;
+
+    /// <inheritdoc />
+    protected override string ProbeExpression => PerformanceProbeExpression(
+        "wsgm_native_valve_frame_limit_probe_");
+}
+
+/// <summary>
+/// Mounts Valve's own performance-overlay selector, retiring the hand-rolled imitation.
+/// </summary>
+public sealed class NativeQamValveOverlayLevelPatch : NativeQamComponentPatch
+{
+    private static readonly string[] RequiredCounts =
+    [
+        "performanceActions",
+        "performanceRoot",
+        "nativeFields",
+        "nativeLayout",
+        "localization",
+        "react",
+    ];
+
+    /// <inheritdoc />
+    public override string Id => "wsgm.native-qam.valve-overlay-level";
+
+    /// <inheritdoc />
+    public override int Version => 1;
+
+    /// <inheritdoc />
+    protected override string ComponentKind => "valveOverlayLevel";
+
+    /// <inheritdoc />
+    protected override string StructuralFingerprint =>
+        "native-qam-valve-overlay-level-v1:performance-actions+performance-root+valve-selector";
+
+    /// <inheritdoc />
+    protected override IReadOnlyList<string> RequiredUniqueCounts => RequiredCounts;
+
+    /// <inheritdoc />
+    protected override string ProbeExpression => PerformanceProbeExpression(
+        "wsgm_native_valve_overlay_probe_");
+}
+
+/// <summary>
 /// Mounts Valve's refresh-rate row into Quick Settings.
 /// </summary>
 /// <remarks>

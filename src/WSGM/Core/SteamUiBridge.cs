@@ -82,6 +82,8 @@ public sealed class SteamUiBridgeAuthorizer
             ["wsgm.native-qam.valve-profile-header"] = [],
             ["wsgm.native-qam.valve-reset"] = [],
             ["wsgm.native-qam.valve-refresh-rate"] = [],
+            ["wsgm.native-qam.valve-frame-limit"] = [],
+            ["wsgm.native-qam.valve-overlay-level"] = [],
 
             // Not controls: these report when Steam's own network UI starts and stops looking for
             // networks, so WSGM can scan for exactly that long. Scanning on WSGM's own schedule
