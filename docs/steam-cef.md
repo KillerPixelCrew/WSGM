@@ -462,6 +462,31 @@ delta and hands it to `SteamClient.System.Perf?.UpdateSettings(...)`.
 even so, because some hooks hardcode `available: true` (both scaling ones do) and can never be
 hidden by state; the first and primary layer is simply not mounting a component at all.
 
+### Filling a store is not enough. Every revived item has a second gate
+
+**This is the rule that catches every revival item, and it caught the audio work.** Supplying a
+backend satisfies the _data_ gate. It does not satisfy the _render_ gate above it, and the two are
+independent:
+
+- **The store may cache availability at construction.** The audio store computes
+  `m_bAvailable = null != SteamClient.System.Audio` **once, in its constructor**, which already ran
+  at client start when the namespace did not exist. WSGM attaches to a client that is already
+  running, so defining the namespace afterwards leaves the flag false forever and the section stays
+  hidden. Live-verified 2026-08-30: with the namespace installed, the singleton still reported
+  `bAvailable: false`. The running store has to be written to directly — its `m_bAvailable` is
+  writable and `RegisterOrUpdateDevice` is its own ingestion path, the same shape
+  `SteamNetworkIndicator` already uses for the network store.
+- **A component may sit behind a platform constant no data can reach.** Night mode is
+  `IN_GAMESCOPE`; several performance rows are wrapped in a gamescope feature gate; the Quick
+  Settings audio section is `!IN_VR && bAvailable`. A row behind a pure platform constant cannot be
+  revived by filling anything, and is a hide rather than a backend.
+- **A wrapper may gate on `available` passed as a prop**, which comes from the state WSGM supplies —
+  that one _is_ reachable, and is why omitting a `limits` field hides a row for free.
+
+So each item needs three answers before it is called done: what supplies its data, whether the store
+caches the availability it derives from that data, and whether anything above it gates on a platform
+constant. Confirming only the first produces a working backend behind a control nobody can see.
+
 ### Four gates, and the one that must never be touched
 
 | Gate                     | Example                                   | Response                          |

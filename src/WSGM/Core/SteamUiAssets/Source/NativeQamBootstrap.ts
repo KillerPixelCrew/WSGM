@@ -218,6 +218,28 @@ interface Window {
       bHdmiCecActive: false,
     });
 
+    // The store that is already running. Defining the namespace is not enough on a live client:
+    // `m_bAvailable` is computed once in the constructor, which ran at client start when
+    // SteamClient.System.Audio did not exist, so the audio section would stay hidden forever.
+    // Live-verified 2026-08-30: the flag is writable and RegisterOrUpdateDevice is the store's own
+    // ingestion path, exactly as SteamNetworkIndicator already does for the network store.
+    const liveStore = () => {
+      try {
+        let req;
+        window.webpackChunksteamui.push([
+          ["wsgm_audio_store_" + Date.now()],
+          {},
+          (r) => {
+            req = r;
+          },
+        ]);
+        const store = req?.("1409")?.F5;
+        return store && "m_bAvailable" in store ? store : null;
+      } catch {
+        return null;
+      }
+    };
+
     const onState = (state) => {
       if (!installed || !state || !Array.isArray(state.devices)) return;
       const seen = state.devices.map((device) => String(device.id));
@@ -231,6 +253,21 @@ interface Window {
         if (callbacks.deviceAdded) callbacks.deviceAdded(toDevice(device));
       }
       known = seen;
+
+      // The registrations above only reach a store constructed after the namespace existed. The
+      // running one has to be fed through its own path, and told it is available at all.
+      const store = liveStore();
+      if (!store) return;
+      try {
+        store.m_bAvailable = true;
+        for (const id of known) {
+          if (!seen.includes(id)) store.m_mapAudioDevices?.delete(id);
+        }
+        for (const device of state.devices) store.RegisterOrUpdateDevice(toDevice(device));
+      } catch {
+        // A store whose shape moved is a compatibility loss, not a fault: the namespace stays and
+        // a client rebuilt around a different store simply shows no audio section.
+      }
     };
 
     const install = () => {
