@@ -20,6 +20,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private const string TdpPatchId = "wsgm.native-qam.tdp";
     private const string FrameLimitPatchId = "wsgm.native-qam.frame-limit";
     private const string OverlayLevelPatchId = "wsgm.native-qam.overlay-level";
+    private const string ValveFrameLimitPatchId = "wsgm.native-qam.valve-frame-limit";
+    private const string ValveOverlayLevelPatchId = "wsgm.native-qam.valve-overlay-level";
     private const string AutoTdpPatchId = "wsgm.native-qam.auto-tdp";
     private const string ControllerTargetPatchId = "wsgm.native-qam.controller-target";
     private const string PerfPatchId = "wsgm.native-qam.perf";
@@ -422,8 +424,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _patches.SetPatchEnabled(BootstrapPatchId, bootstrap);
         _patches.SetPatchEnabled(TdpPatchId, components);
         _patches.SetPatchEnabled(AutoTdpPatchId, components);
-        _patches.SetPatchEnabled(FrameLimitPatchId, components);
-        _patches.SetPatchEnabled(OverlayLevelPatchId, components);
+        // The valve ids, not the retired hand-built ones: SetPatchEnabled throws for an id that is
+        // not registered, and the retirement left the old two unregistered — which took the whole
+        // shell session down at startup on 2026-08-30. Only ids this constructor registers
+        // UNCONDITIONALLY belong in this list, for exactly that reason.
+        _patches.SetPatchEnabled(ValveFrameLimitPatchId, components);
+        _patches.SetPatchEnabled(ValveOverlayLevelPatchId, components);
         _patches.SetPatchEnabled(ControllerTargetPatchId, components);
     }
 
@@ -473,7 +479,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         bool performancePatchVerified = false;
         foreach (SteamUiPatchSnapshot snapshot in snapshots)
         {
-            performancePatchVerified |= (snapshot.Id is FrameLimitPatchId or OverlayLevelPatchId)
+            // The valve components, since the hand-built rows they replaced are retired: RTSS
+            // observation must follow the rows that actually render, or it never starts.
+            performancePatchVerified |= (snapshot.Id is ValveFrameLimitPatchId
+                or ValveOverlayLevelPatchId)
                 && snapshot.State == SteamUiPatchState.Verified;
         }
         bool shouldObserve = _enabled && _bridge.IsReady && performancePatchVerified;
