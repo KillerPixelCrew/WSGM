@@ -354,6 +354,18 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                     NativeQamPerfJsonContext.Default.NativeQamPerfState);
                 await _bridge.PublishStateAsync(PerfPatchId, perf, _shutdown.Token)
                     .ConfigureAwait(false);
+                // Audio was answered on request and never published, so the injected side's state
+                // handler never ran — and that handler is the only thing that tells the RUNNING
+                // audio store it is available. The store caches that flag in its constructor, which
+                // ran at client start before the namespace existed, so without this the Audio
+                // settings page stays empty no matter how cleanly the patch applies.
+                if (_audio is { } audioState)
+                {
+                    JsonElement audioElement = SerializeAudioState(audioState.Current);
+                    await _bridge.PublishStateAsync(AudioPatchId, audioElement, _shutdown.Token)
+                        .ConfigureAwait(false);
+                }
+
                 if (_resolution is { } resolution)
                 {
                     JsonElement resolutionState = JsonSerializer.SerializeToElement(

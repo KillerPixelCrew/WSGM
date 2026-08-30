@@ -66,6 +66,22 @@ public sealed class SteamUiBridgeAuthorizer
             // per-control vocabulary here would only duplicate what the payload already carries.
             ["wsgm.native-qam.perf"] = ["updateSettings"],
 
+            // The same trap the AutoTDP comment above records, walked into again on 2026-08-30:
+            // this row subscribes to its patch id on mount, the id was missing here, and
+            // subscribe() threw "subscription not allowlisted" during render — which Steam's error
+            // boundary turned into a blank Performance tab, not a missing row.
+            //
+            // ANY new native-QAM control needs its id here before it renders, whether or not it
+            // sends commands.
+            ["wsgm.native-qam.resolution"] = ["setResolution"],
+
+            // Valve's own components, mounted rather than built. No commands: they write through
+            // SteamClient.System.Perf.UpdateSettings, which is the perf entry above. The ids are
+            // listed so that a subscription from one can never throw the way the row above did.
+            ["wsgm.native-qam.valve-vrr"] = [],
+            ["wsgm.native-qam.valve-profile-header"] = [],
+            ["wsgm.native-qam.valve-reset"] = [],
+
             // Not controls: these report when Steam's own network UI starts and stops looking for
             // networks, so WSGM can scan for exactly that long. Scanning on WSGM's own schedule
             // would either waste power or show a list that went stale while the page was open.

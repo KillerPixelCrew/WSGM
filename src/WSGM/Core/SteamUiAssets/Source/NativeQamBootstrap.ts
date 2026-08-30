@@ -1049,6 +1049,23 @@ interface Window {
         patchId: "wsgm.native-qam.resolution",
         command: "setResolution",
       }),
+
+      // Valve's own components. They carry no command because they never call WSGM directly: they
+      // read SystemPerfStore and write through SteamClient.System.Perf.UpdateSettings, which is the
+      // perf patch's vocabulary, not theirs. They still need an entry here — install() refuses any
+      // kind that is not a declared definition.
+      valveVrr: Object.freeze({
+        patchId: "wsgm.native-qam.valve-vrr",
+        command: "",
+      }),
+      valveProfileHeader: Object.freeze({
+        patchId: "wsgm.native-qam.valve-profile-header",
+        command: "",
+      }),
+      valveReset: Object.freeze({
+        patchId: "wsgm.native-qam.valve-reset",
+        command: "",
+      }),
     });
 
     const nextActionGeneration = (patchId) => {
