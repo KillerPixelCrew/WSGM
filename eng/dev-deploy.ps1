@@ -31,6 +31,16 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# The shell may only run on the reference Claw. The maintainer develops on other machines where
+# WSGM is not installed, and this script ends Explorer's replacement-in-waiting (it kills Steam and
+# restarts the live shell) — on the wrong machine that is a takeover of a desktop nobody offered.
+# The board product is the same one-command identity check the root AGENTS.md mandates before any
+# hardware work.
+$board = (Get-CimInstance -ClassName Win32_BaseBoard).Product
+if ($board -ne 'MS-1T52') {
+    throw "dev-deploy refused: this machine reports board '$board', not the reference Claw (MS-1T52)."
+}
+
 $root = Split-Path -Parent $PSScriptRoot
 $appPublish = Join-Path $root 'publish\App'
 $binDirectory = Join-Path $env:LOCALAPPDATA 'WSGM\bin'

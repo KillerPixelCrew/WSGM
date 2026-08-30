@@ -58,19 +58,24 @@ agent preparing a contribution, treat everything below as binding, not advisory:
 The section above governs contributions arriving as PRs. Work done *inside* this repository for the
 maintainer follows a deliberately simpler flow — do not import the PR ceremony into it:
 
-- **Commit directly to `master`.** Do not create a feature branch, and do not offer to — the
-  maintainer says so when a branch is wanted. Release tags land on master regardless, so a branch
-  only adds a merge step.
-- **Committing and pushing are separate, and both are asked for explicitly.** "Commit it" means
-  commit and stop. Never push, tag, or publish on your own initiative.
-- **Know what automation actually runs.** Codex reviews **pull requests only** — a push to `master`
-  gets no review from it. What a push does trigger is `.github\workflows\ci.yml` (it fires on both
-  `push` and `pull_request`) and GitHub's **CodeQL**, which is configured through GitHub's *default
-  setup* and therefore has **no workflow file in this tree** — do not go looking for `codeql.yml` or
-  add one. CodeQL is a security scanner, not a code review; neither substitutes for the other.
+- **Commit on the current working branch; do not create one.** The maintainer says so when a branch
+  is wanted. The 2.0 rework lives on the long-running `2.0` branch (PR #19) until it merges; after
+  that, work returns to committing directly to `master`.
+- **Commit after each completed task, and push periodically — standing maintainer authorization.**
+  Do not hold a day's work for one big push. Tagging and publishing remain explicit: never tag or
+  publish a release on your own initiative.
+- **Know what automation actually runs.** Codex reviews **pull requests only** — while work rides
+  the `2.0` branch, every push triggers a fresh Codex pass on PR #19; a push to `master` gets no
+  review from it. A push also triggers `.github\workflows\ci.yml` (it fires on both `push` and
+  `pull_request`) and GitHub's **CodeQL**, which is configured through GitHub's *default setup* and
+  therefore has **no workflow file in this tree** — do not go looking for `codeql.yml` or add one.
+  CodeQL is a security scanner, not a code review; neither substitutes for the other.
 - Version numbers stay user-owned — see the `<Version>` rule under Build and packaging.
-- Every completed implementation task ends with `./build.ps1` and the installer copied to `Z:\`
-  (see "Dev environment reality").
+- **Iterate by file swap, hand off by installer.** During feature work on this machine, deploy with
+  `eng\dev-deploy.ps1` (see "Dev environment reality") — do not rerun the installer per iteration.
+  A completed implementation task still ends with `./build.ps1` and the installer copied to `Z:\`.
+- `_plan\implementation-todo.md` is the only progress tracker; record completed and newly-found
+  work there, not in a second list.
 
 ## What this is
 
@@ -96,7 +101,8 @@ re-verification is grounds for refusing a change on its own.
 | `docs\boot-and-shell.md` | The logon service, `--boot` takeover, Explorer exit, boot splash, game/desktop transitions, tray host and taskbar |
 | `docs\steam-input.md` | The Steam Input lease, the proxy DLL, hook installation, controller blocking |
 | `docs\elevation.md` | Self-elevation, de-elevation, the scheduled-task mechanism, `WSGM.Launch` |
-| `docs\steam-cef.md` | Anything driving Steam over its CEF port: library folders, injected tabs, the page badge, launch options, download-queue sorting |
+| `docs\steam-cef.md` | Anything driving Steam over its CEF port — the QAM/Steam-UI gates and patches, injected tabs, the page badge, launch options, download-queue sorting — and the standing gate rules paid for as production bugs: ownership markers, the second gate, protobuf at namespace boundaries, argument order read from the client |
+| `_plan\cef-simplification.md` | Any CEF module, generation 1 or 2: the full inventory, verified-primitive catalog, and the Q16 unification plan every CEF change must fit |
 | `docs\rtss.md` | RTSS discovery/profile control, shared frame-limit state, and overlay/QAM performance projections |
 | `docs\sd-cards.md` | Card formatting, card libraries, card identity and the card manager |
 | `docs\overlay-and-input.md` | The quick-access panel, taskbar surfaces, SDL/gamepad ownership, touch and raw input |
@@ -121,16 +127,27 @@ dotnet build src\WSGM\WSGM.csproj          # build (output is localized German: 
                                             # (needs .NET 10 SDK, VS C++ build tools, Inno Setup 6)
 src\WSGM\bin\...\WSGM.exe --settings        # safe to run locally: settings window only
 src\WSGM\bin\...\WSGM.exe --overlay-test    # safe to run locally: overlay + activation surfaces, no apps started
+./eng/dev-deploy.ps1                        # dev-box deploy: publish, kill Steam+WSGM, swap %LOCALAPPDATA%\WSGM\bin,
+                                            # restart WSGM --shell then Steam (-SkipBuild, -NoRestart, -WsgmArguments)
+node tools\WsgmLibTest\run-file.mjs <f.js>  # evaluate one probe file against live Steam CEF (read-only discipline)
+node tools\WsgmLibTest\qam-harness.mjs      # status|install|publish <state.json>|remove — play WSGM's host role
+                                            # against the running client without rebuilding or redeploying
 wsgm-device doctor|inventory|candidates       # safe: read-only device observation
 wsgm-device inspect|compare|correlate <file>  # safe: offline analysis of an existing capture
 wsgm-device validate <plugin>|pack <plugin>   # safe: no hardware or plugin code executed
 ```
 
-**Never run unattended**, in addition to `--shell`, `--boot`, `--install-device-plugin`, and
-`WSGM.LogonService.exe --install`: `wsgm-device test hardware` (the single plugin
-lifecycle/hardware-mutation path), live capture, any DeviceHost lifecycle command, and any other
-plugin activation. `test hardware` requires a local interactive maintainer by design — there is no
-`--yes`.
+**`--shell` runs only through `eng\dev-deploy.ps1`, and only after confirming the machine is the
+reference Claw** — `Get-CimInstance Win32_BaseBoard` must report `MS-1T52`. The maintainer also
+develops on other machines where WSGM is not installed; on anything that is not the Claw, the
+shell and dev-deploy are off-limits entirely. Never start `--shell` any other way, and never while
+the maintainer is not present — it ends Explorer and takes over the session.
+
+**Never run at all without an explicit maintainer instruction**: `--boot`,
+`--install-device-plugin`, `WSGM.LogonService.exe --install`, `wsgm-device test hardware` (the
+single plugin lifecycle/hardware-mutation path), live capture, any DeviceHost lifecycle command,
+and any other plugin activation. `test hardware` requires a local interactive maintainer by
+design — there is no `--yes`.
 
 ## The Steam Input Lease library (`native\SteamInput`)
 
@@ -171,12 +188,20 @@ release build, staging `WSGM.Radio.dll` and the user-facing `WSGM.RadioProbe.exe
 `src\WSGM\Native\Radio\`; that directory is generated and must never be hand-populated. The probe
 is the device diagnostic for shell-less/elevated radio control and the Wi-Fi location-consent gate.
 
-## Required build handoff
+## Deploy for testing, hand off with the installer
 
-For every completed implementation task on this machine, always run `./build.ps1` before handing it
-off. After a successful build, copy the freshly produced `publish\WSGM-Setup-*.exe` installer to
-`Z:\`. Use PowerShell to select the newest matching installer and overwrite the matching artifact
-on `Z:\`:
+**Iteration on this machine goes through `eng\dev-deploy.ps1`, never the installer.** It publishes
+the NativeAOT build, kills Steam and WSGM, swaps the files in `%LOCALAPPDATA%\WSGM\bin` (the
+installed app lives there; Program Files holds only the logon service and device plugins), then
+restarts WSGM `--shell` followed by Steam. Rerunning setup per change wastes minutes and churns
+installer state for nothing.
+
+**Batch the gates**: do not run builds, tests, or `eng\verify.ps1` after every edit — build and
+verify once per coherent slice, and always before a commit that claims the gates pass.
+
+For every **completed** implementation task, run `./build.ps1` before handing it off. After a
+successful build, copy the freshly produced `publish\WSGM-Setup-*.exe` installer to `Z:\`. Use
+PowerShell to select the newest matching installer and overwrite the matching artifact on `Z:\`:
 
 ```powershell
 $setup = Get-ChildItem -LiteralPath .\publish -Filter 'WSGM-Setup-*.exe' |
@@ -189,11 +214,11 @@ Copy-Item -LiteralPath $setup.FullName -Destination 'Z:\' -Force
 Automated tests live in `tests\WSGM.Tests` and `tests\WSGM.Device.Tests` and run through
 `dotnet test WSGM.slnx`. They cover pure/stateful logic, source-generated config serialization,
 device SDK/host/Lab/plugin contracts, and isolated per-test HKCU snapshot round trips. The CI
-workflow also collects Cobertura and LCOV coverage under `TestResults`. **Never
-run `--shell` or `--boot` on a dev machine** — both end explorer and take over the session; never
-run `WSGM.LogonService.exe --install` locally either. `--restore-shell` is the recovery path
-(restores any legacy shell registration, disarms the service boot, starts explorer) and must stay
-bulletproof (it runs before logging/Avalonia init).
+workflow also collects Cobertura and LCOV coverage under `TestResults`. `--boot` and
+`WSGM.LogonService.exe --install` are never run locally; `--shell` only through the dev-deploy
+loop above. `--restore-shell` is the recovery path (restores any legacy shell registration,
+disarms the service boot, starts explorer) and must stay bulletproof (it runs before
+logging/Avalonia init).
 
 All public production APIs require meaningful XML documentation (`CS1573`/`CS1591` stay enabled and
 the Release verification build treats warnings as errors). Test method names are the executable
@@ -213,9 +238,10 @@ process below; they must never be triggered by unattended tests.
   React module registry we don't have," until a few live `Runtime.evaluate` probes proved the
   registry (`webpackChunksteamui`), React, and a working tab injection in minutes. Reality is cheaper
   to query than to reason about: run the probe, inject the script, watch the screen. Estimate cost by
-  doing, not by imagining. (`tools/WsgmLibTest/` — `cdp-eval.mjs raw`, `run-file.mjs <file>` — is the
-  live probe harness; Steam BPM on the dev box is a CEF test rig even though WSGM itself never runs
-  there.)
+  doing, not by imagining. (`tools/WsgmLibTest/` is the live harness: `run-file.mjs <file>` for
+  probes, `qam-harness.mjs` to play WSGM's host role — install the bridge, publish state, answer
+  requests — against the running client with no rebuild. For C#-side changes, `eng\dev-deploy.ps1`
+  closes the loop in about a minute.)
 - **A live probe names every module it resolves and every value it constructs (hard).** Never
   iterate `webpackChunksteamui`'s module registry, never call `runtime(id)` over a loop of ids, and
   never `new` an export whose factory source you have not read — searching the bundle by
@@ -229,9 +255,18 @@ process below; they must never be triggered by unattended tests.
   performance measurement on the real target all run here. `Get-CimInstance Win32_BaseBoard` settles
   it in one command. Deferring something as "needs hardware" without running that check has already
   cost real work once.
-- **Shell takeover and destructive flows are still not local.** `--shell`, `--boot`, hardware
-  mutation, and plugin lifecycle remain off-limits on this machine regardless of what hardware it
-  has; being the reference unit makes read-only observation possible, not mutation safe.
+- **The reference Claw runs the live shell — through one gate, behind one check.** On a machine
+  `Get-CimInstance Win32_BaseBoard` confirms as `MS-1T52`, `eng\dev-deploy.ps1` is how a change
+  reaches the running game mode (the maintainer directs the loop and is present for it). On any
+  other machine — the maintainer develops on several, and WSGM is not installed there — the shell
+  and dev-deploy are off-limits entirely. `--boot`, logon-service install, hardware mutation, and
+  plugin lifecycle remain instruction-only everywhere; being the reference unit makes observation
+  and the attended shell loop possible, not unattended mutation safe.
+- **A successful apply must not invalidate its own probe (hard, paid for three times).** Every
+  injected gate/overlay carries an ownership marker and stashes what it replaced, installs accept
+  "already ours", and probes accept "hidden OR ours" — a probe that requires the pre-patch state
+  tears its own work down on the next poll. The full rule set lives in `docs\steam-cef.md`; the
+  gate-by-gate catalog in `_plan\cef-simplification.md`.
 - **Remote diagnosis still matters.** Other users' Claws are reachable only through pasted logs from
   `%LOCALAPPDATA%\WSGM\wsgm.log`, so every input/focus feature must log enough to be diagnosed
   remotely (`Gamepad added:`, `Controller input:`, `Gamepad nav:`,
