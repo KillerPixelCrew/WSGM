@@ -124,6 +124,12 @@ Rules that make this safe:
   with `ChangeDisplaySettingsEx(CDS_TEST)`, and keep only what the driver accepts. The Claw offers
   30/48/60/75/100/120 while its EDID lists only 60 and 120; a panel without VRR will likely accept
   only its EDID modes, which is the Legion Go case that motivated this.
+- **The advertised list needs the EDID, not enumeration.** Enumeration cannot distinguish a mode the
+  panel advertises from one the driver synthesized, so without parsing the EDID's detailed timings
+  `NativeModes` would silently be identical to `FrameDoubling`. `Core\EdidModes.cs` reads them, and
+  the reference panel's two timings — 315.50 MHz and 157.75 MHz over a 2080x1264 total — recover
+  exactly the 120 and 60 the panel claims, with its range descriptor recovering the same 30-120 band
+  Arc Sync reports independently.
 - **Prefer the lowest valid multiple**, because refresh rate is a power cost — a 30 FPS cap at 30 Hz
   costs meaningfully less than the same cap at 120 Hz.
 - **Apply dynamically**, never with `CDS_UPDATEREGISTRY`. A dynamic change leaves the user's
