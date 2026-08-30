@@ -127,6 +127,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         // Normalize so an injected bare AppConfig gets the same non-null nested
         // sections (and clamped splash numbers) the load path guarantees.
         _config = ConfigStore.Normalize(config);
+        LoadPluginSettings(_config);
 
         SteamAutoRelaunch = _config.SteamAutoRelaunch;
         SteamLaunchUnelevated = _config.SteamLaunchUnelevated;
@@ -252,6 +253,13 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// <summary>Whether the plugin settings page has anything to draw.</summary>
     public bool PluginSettingsAvailable => PluginSettingSections.Count > 0;
 
+    /// <summary>Edits made on the plugin page, applied at save. Empty until the user changes one.</summary>
+    private readonly Dictionary<string, CapabilityValue> _pluginSettingEdits =
+        new(StringComparer.Ordinal);
+
+    private string _pluginSettingsDevice = string.Empty;
+    private string _pluginSettingsPlugin = string.Empty;
+
     private string _pluginSettingsEmptyReason =
         "No device plugin is installed, so there are no plugin settings to show.";
 
@@ -310,6 +318,113 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         }
 
         Raise(nameof(PluginSettingsAvailable));
+    }
+
+    /// <summary>
+    /// Builds the plugin settings page from the declaration cached the last time a plugin ran.
+    /// </summary>
+    /// <param name="config">The configuration to read the cache and the stored values from.</param>
+    /// <remarks>
+    /// Settings runs with no DeviceHost, so the cached declaration is the only description of the
+    /// plugin's settings available here. Stored values are still reconciled against it, because a
+    /// cache written by an older plugin build can describe bounds the stored values no longer fit.
+    /// <para>
+    /// Exactly one scope is drawn — the one matching the installed plugin — and the reason is
+    /// reported when none does, since a blank page cannot distinguish "no plugin" from "the page
+    /// failed".
+    /// </para>
+    /// </remarks>
+    internal void LoadPluginSettings(AppConfig config)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        PluginSettingsScope? scope = config.DeviceIntegration.PluginSettings
+            .FirstOrDefault(candidate => candidate.Declaration is not null);
+        if (scope?.Declaration is not { } declaration)
+        {
+            PluginSettingSections.Clear();
+            PluginSettingsEmptyReason =
+                "No device plugin has published settings yet. Start WSGM's shell once with the "
+                + "plugin installed, then reopen Settings.";
+            Raise(nameof(PluginSettingsAvailable));
+            return;
+        }
+
+        PluginSettingsResolution resolution = PluginSettingsResolver.Resolve(
+            declaration,
+            scope.Values);
+        foreach (EffectivePluginSetting rejected in resolution.Values
+            .Where(value => value.Origin is PluginSettingOrigin.Rejected))
+        {
+            // The stored value and the declared bound, together: a rejection reported without both
+            // cannot be acted on from a user's log.
+            Log.Warn(
+                $"Plugin setting '{rejected.SettingId}' fell back to its default: {rejected.Reason}");
+        }
+
+        _pluginSettingsDevice = scope.DeviceDefinitionId;
+        _pluginSettingsPlugin = scope.PluginId;
+        _pluginSettingEdits.Clear();
+        SetPluginSettings(
+            PluginSettingsCoordinator.Project(declaration, resolution),
+            (settingId, value) => _pluginSettingEdits[settingId] = value);
+
+        if (PluginSettingSections.Count == 0)
+        {
+            PluginSettingsEmptyReason =
+                "The installed device plugin declares no settings.";
+        }
+    }
+
+    /// <summary>Writes the edited plugin settings into the configuration being saved.</summary>
+    /// <param name="config">The freshly loaded configuration the save is applied to.</param>
+    /// <remarks>
+    /// Edits are recorded rather than written onto the configuration the page was built from,
+    /// because the save re-reads configuration from disk and applies the view model onto THAT
+    /// object — anything written to the loaded copy is discarded. It also means a setting the user
+    /// never touched is left exactly as another process wrote it, instead of being rewritten with
+    /// whatever this window happened to load.
+    /// </remarks>
+    internal void ApplyPluginSettingsTo(AppConfig config)
+    {
+        if (_pluginSettingEdits.Count == 0
+            || _pluginSettingsDevice.Length == 0
+            || _pluginSettingsPlugin.Length == 0)
+        {
+            return;
+        }
+
+        List<PluginSettingsScope> scopes = config.DeviceIntegration.PluginSettings;
+        PluginSettingsScope? scope = scopes.FirstOrDefault(candidate =>
+            string.Equals(candidate.DeviceDefinitionId, _pluginSettingsDevice, StringComparison.Ordinal)
+            && string.Equals(candidate.PluginId, _pluginSettingsPlugin, StringComparison.Ordinal));
+        if (scope is null)
+        {
+            scope = new PluginSettingsScope
+            {
+                DeviceDefinitionId = _pluginSettingsDevice,
+                PluginId = _pluginSettingsPlugin,
+            };
+            scopes.Add(scope);
+        }
+
+        foreach ((string settingId, CapabilityValue value) in _pluginSettingEdits)
+        {
+            PluginSettingValue? entry = scope.Values.FirstOrDefault(candidate =>
+                string.Equals(candidate.SettingId, settingId, StringComparison.Ordinal));
+            if (entry is null)
+            {
+                entry = new PluginSettingValue { SettingId = settingId };
+                scope.Values.Add(entry);
+            }
+
+            // Only the field matching the kind is written and the rest are cleared, so a setting
+            // whose declared kind changed cannot leave a stale value of the old shape behind it.
+            entry.Boolean = value.Kind is CapabilityValueKind.Boolean ? value.BooleanValue : null;
+            entry.Integer = value.Kind is CapabilityValueKind.Integer ? value.IntegerValue : null;
+            entry.Choice = value.Kind is CapabilityValueKind.Choice ? value.ChoiceValue : null;
+            entry.Color = value.Kind is CapabilityValueKind.Color ? value.ColorValue : null;
+            entry.Text = value.Kind is CapabilityValueKind.Text ? value.TextValue : null;
+        }
     }
 
     /// <remarks>
@@ -1292,6 +1407,9 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.SteamInputManagementEnabled = SteamInputManagementEnabled;
         config.DeviceIntegration.Enabled = DeviceIntegrationEnabled;
         config.DeviceIntegration.ControllerManagementEnabled = DeviceControllerManagementEnabled;
+        // Same rule as the three below, for the same reason: only settings this window actually
+        // edited are written, so a running shell's own stores are not reverted by an unrelated save.
+        ApplyPluginSettingsTo(config);
         // Only when this window actually changed them. All three are also owned by the running
         // shell — the overlay and the native quick-access menu persist AutoTDP, the controller
         // target and the glyph policy while Settings is open — so writing an unedited snapshot over

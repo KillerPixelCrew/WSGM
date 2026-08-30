@@ -230,12 +230,64 @@ internal sealed class PluginSettingsCoordinator : IDisposable
 
     private void OnManifest(PluginSettingsManifest manifest)
     {
+        string device;
+        string plugin;
         lock (_gate)
         {
             _manifest = manifest;
+            device = _deviceDefinitionId;
+            plugin = _pluginId;
+        }
+
+        // Cached so Settings can draw the page with no plugin running: --settings starts no
+        // DeviceHost, and a manifest is published by plugin code rather than declared at rest, so
+        // this is the only moment WSGM ever sees one. Off the caller's thread because this is the
+        // host's message pump and the write takes the cross-process config lock.
+        if (device.Length > 0 && plugin.Length > 0)
+        {
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    AppConfig persisted = ConfigStore.Mutate(
+                        config => CacheDeclaration(config, device, plugin, manifest));
+                    lock (_gate)
+                    {
+                        _config = persisted;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Not fatal: the running session already has the manifest in memory and only a
+                    // later Settings process loses out, so this must never take the plugin down.
+                    Log.Warn(
+                        $"Plugin settings: caching the declaration for '{plugin}' failed: "
+                        + ex.Message);
+                }
+            });
         }
 
         PublishAndPush();
+    }
+
+    private static void CacheDeclaration(
+        AppConfig config,
+        string device,
+        string plugin,
+        PluginSettingsManifest manifest
+    )
+    {
+        List<PluginSettingsScope> scopes = config.DeviceIntegration.PluginSettings;
+        PluginSettingsScope? scope = scopes.FirstOrDefault(candidate =>
+            string.Equals(candidate.DeviceDefinitionId, device, StringComparison.Ordinal)
+            && string.Equals(candidate.PluginId, plugin, StringComparison.Ordinal));
+        if (scope is null)
+        {
+            scope = new PluginSettingsScope { DeviceDefinitionId = device, PluginId = plugin };
+            scopes.Add(scope);
+        }
+
+        scope.Declaration = manifest;
     }
 
     private void PublishAndPush() => _ = PublishAndPushAsync(CancellationToken.None);
