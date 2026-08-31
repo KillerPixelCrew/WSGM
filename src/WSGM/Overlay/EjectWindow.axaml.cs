@@ -44,7 +44,9 @@ public partial class EjectWindow : Window
         ListScroller.AddHandler(GotFocusEvent, OnRowGotFocus, RoutingStrategies.Bubble);
         // Same touch-promotion defense as the other panels (invariant 3): the
         // controller owns the matching 150 ms deferred close.
-        Win32Properties.AddWndProcHookCallback(this, WndProcHook);
+        Win32Properties.AddWndProcHookCallback(
+            this,
+            Interop.NativeMethods.SwallowTouchSynthesizedMouse);
         KeyDown += (_, e) =>
         {
             if (e.Key == Avalonia.Input.Key.Escape)
@@ -128,21 +130,4 @@ public partial class EjectWindow : Window
         }
     }
 
-    private static IntPtr WndProcHook(
-        IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, ref bool handled)
-    {
-        if (msg is Interop.NativeMethods.WmMouseMove
-                or Interop.NativeMethods.WmLButtonDown
-                or Interop.NativeMethods.WmLButtonUp)
-        {
-            var extra = (uint)Interop.NativeMethods.GetMessageExtraInfo();
-            if ((extra & Interop.NativeMethods.MiWpSignatureMask)
-                == Interop.NativeMethods.MiWpSignature)
-            {
-                handled = true;
-                return IntPtr.Zero;
-            }
-        }
-        return IntPtr.Zero;
-    }
 }

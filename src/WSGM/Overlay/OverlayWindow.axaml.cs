@@ -96,33 +96,11 @@ public partial class OverlayWindow : Window
 
     private HashSet<GlyphControlId> _pressedGlyphControls = [];
     private IDisposable? _glyphInputObservation;
-    private IPerformanceOverlaySource? _performanceSource;
+    private PerformanceOverlayBridge? _performanceSource;
     private IDisposable? _performanceObservation;
 
     private Shell.SdFormatManager? _format;
     private FormatTargetEntry? _pendingTarget;
-
-    /// <summary>Whether the in-place Format/Add-library sub-view is showing. While
-    /// it is, LB/RB destination switching is suppressed and B cancels the sub-view rather
-    /// than closing the overlay.</summary>
-    internal bool InFormatSubView { get; private set; }
-
-    /// <summary>Whether the Library Tabs builder sub-view is showing.
-    /// Same LB/RB-suppress + B-cancels rules as the format sub-view.</summary>
-    internal bool InLibraryTabsSubView { get; private set; }
-
-    /// <summary>Whether the SD-card manager sub-view is showing.</summary>
-    internal bool InCardManagerSubView { get; private set; }
-
-    /// <summary>Whether the SteamGridDB artwork picker sub-view is showing.</summary>
-    internal bool InArtworkSubView { get; private set; }
-
-    /// <summary>Whether the launch-fix game picker sub-view is showing.</summary>
-    internal bool InLaunchWrapperSubView { get; private set; }
-
-    /// <summary>Whether the wake-lock holder list sub-view is showing. It belongs to
-    /// System, so leaving it restores that destination rather than Steam.</summary>
-    internal bool InWakeLockSubView { get; private set; }
 
     /// <summary>The launch fix waiting on the user to pick a game, and the button
     /// whose title reports the outcome.</summary>
@@ -132,10 +110,101 @@ public partial class OverlayWindow : Window
     /// look like a fresh overlay summons and discard the active workflow.</summary>
     internal bool KeyboardOwnsFocus { get; set; }
 
-    /// <summary>Whether any nested page owns the surface.</summary>
-    private bool AnySubView
-        => InFormatSubView || InLibraryTabsSubView || InCardManagerSubView || InArtworkSubView
-           || InLaunchWrapperSubView || InWakeLockSubView;
+    /// <summary>One in-place nested page: what it pushes onto the navigation stack, the host it
+    /// reveals, the destination panel it hides while it is up, and any state it owns.</summary>
+    /// <param name="Page">The navigation page; also the identity of the open sub-view.</param>
+    /// <param name="Host">The control revealed while the page is open.</param>
+    /// <param name="Parent">The destination panel hidden behind it.</param>
+    /// <param name="Destination">The destination that panel belongs to.</param>
+    /// <param name="OnLeave">State the page owns, released before the peer keyboard is told
+    /// to close so nothing re-reads a value the page has already abandoned.</param>
+    private sealed record SubView(
+        OverlayPage Page,
+        Control Host,
+        Control Parent,
+        OverlayDestination Destination,
+        Action? OnLeave = null);
+
+    private SubView[]? _subViews;
+
+    /// <summary>The nested pages, built once the XAML fields exist. The open one is identified by
+    /// <see cref="OverlayNavigation.Page"/> rather than tracked in a parallel flag per page, which
+    /// is what let the two disagree.</summary>
+    private SubView[] SubViews => _subViews ??=
+    [
+        new(OverlayPage.SteamStorageFormat, PanelFormat, PanelSteam, OverlayDestination.Steam,
+            () =>
+            {
+                _pendingTarget = null;
+                _formatReturnsToCards = false;
+            }),
+        new(OverlayPage.SteamLibraryTabs, LibraryTabsHost, PanelSteam, OverlayDestination.Steam),
+        new(OverlayPage.SteamCardManager, CardManagerHost, PanelSteam, OverlayDestination.Steam),
+        new(OverlayPage.SteamArtwork, ArtworkHost, PanelSteam, OverlayDestination.Steam,
+            () => ArtworkHost.Close()),
+        new(OverlayPage.SteamLaunchConfiguration, LaunchWrapperHost, PanelSteam,
+            OverlayDestination.Steam,
+            () =>
+            {
+                _pendingLaunchFix = null;
+                // Clears the "Asking Steam…" title left on whichever button opened the picker.
+                // A pick re-writes it moments later with the real outcome.
+                if (DataContext is OverlayViewModel viewModel)
+                {
+                    InitializeLaunchFixLabels(viewModel);
+                }
+            }),
+        new(OverlayPage.SystemWakeLocks, WakeLockHost, PanelSystem, OverlayDestination.System),
+    ];
+
+    /// <summary>The nested page currently owning the surface, or null at a destination root.</summary>
+    private SubView? ActiveSubView =>
+        SubViews.FirstOrDefault(view => view.Page == _navigation.Page);
+
+    /// <summary>Whether any nested page owns the surface. While one does, LB/RB destination
+    /// switching is suppressed and B cancels the page rather than closing the overlay.</summary>
+    private bool AnySubView => ActiveSubView is not null;
+
+    private void EnterSubView(OverlayPage page)
+    {
+        SubView view = SubViews.First(candidate => candidate.Page == page);
+        if (!_navigation.Push(page, CurrentSemanticFocusKey()))
+        {
+            return;
+        }
+
+        view.Parent.IsVisible = false;
+        view.Host.IsVisible = true;
+        FocusFirstControl(view.Host);
+    }
+
+    private void LeaveSubView(OverlayPage page)
+    {
+        if (_navigation.Page == page)
+        {
+            LeaveActiveSubView();
+        }
+    }
+
+    private void LeaveActiveSubView()
+    {
+        if (ActiveSubView is not { } view)
+        {
+            return;
+        }
+
+        string? returnFocusKey = _navigation.Pop();
+        view.OnLeave?.Invoke();
+        // Closes any peer keyboard the page opened; without it the keyboard can outlive its
+        // sub-view and keep writing back to a now-hidden field.
+        SubViewClosed?.Invoke();
+        view.Host.IsVisible = false;
+        view.Parent.IsVisible = _navigation.Destination == view.Destination;
+        if (view.Parent.IsVisible)
+        {
+            RestoreRootFocus(returnFocusKey);
+        }
+    }
 
     /// <summary>Gives the overlay the shared removable-storage format manager so
     /// its Steam storage page can drive it. Called by the controller right after
@@ -174,7 +243,7 @@ public partial class OverlayWindow : Window
     }
 
     /// <summary>Attaches the shared performance projection without transferring its lifetime.</summary>
-    internal void AttachPerformanceSource(IPerformanceOverlaySource? source)
+    internal void AttachPerformanceSource(PerformanceOverlayBridge? source)
     {
         if (ReferenceEquals(_performanceSource, source))
         {
@@ -850,7 +919,7 @@ public partial class OverlayWindow : Window
             button.Apply(presentation);
             button.Click += async (_, _) =>
             {
-                IPerformanceOverlaySource? source = _performanceSource;
+                PerformanceOverlayBridge? source = _performanceSource;
                 if (source is null || _closed || !descriptor.CanInvoke)
                 {
                     return;
@@ -1028,15 +1097,9 @@ public partial class OverlayWindow : Window
         get
         {
             // Nested pages retain focus ownership while one is open.
-            if (AnySubView)
+            if (ActiveSubView is { } nested)
             {
-                var host = InLibraryTabsSubView ? (Control)LibraryTabsHost
-                    : InCardManagerSubView ? CardManagerHost
-                    : InArtworkSubView ? ArtworkHost
-                    : InLaunchWrapperSubView ? LaunchWrapperHost
-                    : InWakeLockSubView ? WakeLockHost
-                    : PanelFormat;
-                foreach (var visual in host.GetVisualDescendants())
+                foreach (var visual in nested.Host.GetVisualDescendants())
                 {
                     if (visual is Button { Focusable: true, IsEffectivelyEnabled: true } b
                         && b.IsEffectivelyVisible)
@@ -1113,28 +1176,11 @@ public partial class OverlayWindow : Window
         // defers Close() by a beat. (The clean fix — consuming the raw touch
         // event — needs Avalonia's [PrivateApi] InputManager, which is stripped
         // from the published reference assemblies.)
-        Win32Properties.AddWndProcHookCallback(this, WndProcHook);
+        Win32Properties.AddWndProcHookCallback(
+            this,
+            Interop.NativeMethods.SwallowTouchSynthesizedMouse);
     }
 
-    private static IntPtr WndProcHook(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, ref bool handled)
-    {
-        // Eat touch/pen-SYNTHESIZED mouse messages (MI_WP_SIGNATURE). They are
-        // promotion ghosts — the tap itself already went through the WM_POINTER
-        // pipeline — and around the deferred close they would otherwise double-fire
-        // or leak to the window underneath. Real mouse messages pass untouched.
-        if (msg is Interop.NativeMethods.WmMouseMove
-                or Interop.NativeMethods.WmLButtonDown
-                or Interop.NativeMethods.WmLButtonUp)
-        {
-            var extra = (uint)Interop.NativeMethods.GetMessageExtraInfo();
-            if ((extra & Interop.NativeMethods.MiWpSignatureMask) == Interop.NativeMethods.MiWpSignature)
-            {
-                handled = true;
-                return IntPtr.Zero;
-            }
-        }
-        return IntPtr.Zero;
-    }
 
     private void OnOpened(object? sender, EventArgs e)
     {
@@ -1227,29 +1273,14 @@ public partial class OverlayWindow : Window
                 ResetConfirms();
                 return true;
             case OverlayBackAction.LeaveNestedPage:
-                if (InLibraryTabsSubView)
+                // A self-drawing sub-view handles its own deeper levels; at its root it raises
+                // CloseRequested, which pops this window's page entry. The format panel is XAML
+                // rather than a sub-view, so this window walks it back itself.
+                if (ActiveSubView is { Host: OverlaySubView nested })
                 {
-                    // The builder handles its deeper levels; at its root it raises
-                    // CloseRequested, which pops this window's page entry.
-                    return LibraryTabsHost.Back();
+                    return nested.Back();
                 }
-                if (InCardManagerSubView)
-                {
-                    return CardManagerHost.Back();
-                }
-                if (InArtworkSubView)
-                {
-                    return ArtworkHost.Back();
-                }
-                if (InLaunchWrapperSubView)
-                {
-                    return LaunchWrapperHost.Back();
-                }
-                if (InWakeLockSubView)
-                {
-                    return WakeLockHost.Back();
-                }
-                if (InFormatSubView)
+                if (AnySubView)
                 {
                     LeaveFormatSubViewToOrigin();
                     return true;
@@ -1947,70 +1978,15 @@ public partial class OverlayWindow : Window
         EnterWakeLockSubView();
     }
 
-    private void EnterWakeLockSubView()
-    {
-        if (!_navigation.Push(OverlayPage.SystemWakeLocks, CurrentSemanticFocusKey()))
-        {
-            return;
-        }
-        InWakeLockSubView = true;
-        PanelSystem.IsVisible = false;
-        WakeLockHost.IsVisible = true;
-        FocusFirstControl(WakeLockHost);
-    }
+    private void EnterWakeLockSubView() => EnterSubView(OverlayPage.SystemWakeLocks);
 
-    private void LeaveWakeLockSubView()
-    {
-        if (!InWakeLockSubView)
-        {
-            return;
-        }
-        InWakeLockSubView = false;
-        string? returnFocusKey = _navigation.Pop();
-        SubViewClosed?.Invoke();
-        WakeLockHost.IsVisible = false;
-        PanelSystem.IsVisible = _navigation.Destination == OverlayDestination.System;
-        if (PanelSystem.IsVisible)
-        {
-            RestoreRootFocus(returnFocusKey);
-        }
-    }
+    private void LeaveWakeLockSubView() => LeaveSubView(OverlayPage.SystemWakeLocks);
 
-    private void EnterLaunchWrapperSubView()
-    {
-        if (!_navigation.Push(OverlayPage.SteamLaunchConfiguration, CurrentSemanticFocusKey()))
-        {
-            return;
-        }
-        InLaunchWrapperSubView = true;
-        PanelSteam.IsVisible = false;
-        LaunchWrapperHost.IsVisible = true;
-        FocusFirstControl(LaunchWrapperHost);
-    }
+    private void EnterLaunchWrapperSubView() =>
+        EnterSubView(OverlayPage.SteamLaunchConfiguration);
 
-    private void LeaveLaunchWrapperSubView()
-    {
-        if (!InLaunchWrapperSubView)
-        {
-            return;
-        }
-        InLaunchWrapperSubView = false;
-        string? returnFocusKey = _navigation.Pop();
-        _pendingLaunchFix = null;
-        // Clears the "Asking Steam…" title left on whichever button opened the
-        // picker. A pick re-writes it moments later with the real outcome.
-        if (DataContext is OverlayViewModel viewModel)
-        {
-            InitializeLaunchFixLabels(viewModel);
-        }
-        SubViewClosed?.Invoke();
-        LaunchWrapperHost.IsVisible = false;
-        PanelSteam.IsVisible = _navigation.Destination == OverlayDestination.Steam;
-        if (PanelSteam.IsVisible)
-        {
-            RestoreRootFocus(returnFocusKey);
-        }
-    }
+    private void LeaveLaunchWrapperSubView() =>
+        LeaveSubView(OverlayPage.SteamLaunchConfiguration);
 
     private void OnCloseLauncher(object? sender, RoutedEventArgs e)
     {
@@ -2132,63 +2108,13 @@ public partial class OverlayWindow : Window
         }
     }
 
-    private void EnterCardManagerSubView()
-    {
-        if (!_navigation.Push(OverlayPage.SteamCardManager, CurrentSemanticFocusKey()))
-        {
-            return;
-        }
-        InCardManagerSubView = true;
-        PanelSteam.IsVisible = false;
-        CardManagerHost.IsVisible = true;
-        FocusFirstControl(CardManagerHost);
-    }
+    private void EnterCardManagerSubView() => EnterSubView(OverlayPage.SteamCardManager);
 
-    private void LeaveCardManagerSubView()
-    {
-        if (!InCardManagerSubView)
-        {
-            return;
-        }
-        InCardManagerSubView = false;
-        string? returnFocusKey = _navigation.Pop();
-        SubViewClosed?.Invoke();
-        CardManagerHost.IsVisible = false;
-        PanelSteam.IsVisible = _navigation.Destination == OverlayDestination.Steam;
-        if (PanelSteam.IsVisible)
-        {
-            RestoreRootFocus(returnFocusKey);
-        }
-    }
+    private void LeaveCardManagerSubView() => LeaveSubView(OverlayPage.SteamCardManager);
 
-    private void EnterLibraryTabsSubView()
-    {
-        if (!_navigation.Push(OverlayPage.SteamLibraryTabs, CurrentSemanticFocusKey()))
-        {
-            return;
-        }
-        InLibraryTabsSubView = true;
-        PanelSteam.IsVisible = false;
-        LibraryTabsHost.IsVisible = true;
-        FocusFirstControl(LibraryTabsHost);
-    }
+    private void EnterLibraryTabsSubView() => EnterSubView(OverlayPage.SteamLibraryTabs);
 
-    private void LeaveLibraryTabsSubView()
-    {
-        if (!InLibraryTabsSubView)
-        {
-            return;
-        }
-        InLibraryTabsSubView = false;
-        string? returnFocusKey = _navigation.Pop();
-        SubViewClosed?.Invoke();
-        LibraryTabsHost.IsVisible = false;
-        PanelSteam.IsVisible = _navigation.Destination == OverlayDestination.Steam;
-        if (PanelSteam.IsVisible)
-        {
-            RestoreRootFocus(returnFocusKey);
-        }
-    }
+    private void LeaveLibraryTabsSubView() => LeaveSubView(OverlayPage.SteamLibraryTabs);
 
     /// <summary>Opens the SteamGridDB artwork picker sub-view.</summary>
     private void OnChangeArtwork(object? sender, RoutedEventArgs e)
@@ -2197,35 +2123,9 @@ public partial class OverlayWindow : Window
         EnterArtworkSubView();
     }
 
-    private void EnterArtworkSubView()
-    {
-        if (!_navigation.Push(OverlayPage.SteamArtwork, CurrentSemanticFocusKey()))
-        {
-            return;
-        }
-        InArtworkSubView = true;
-        PanelSteam.IsVisible = false;
-        ArtworkHost.IsVisible = true;
-        FocusFirstControl(ArtworkHost);
-    }
+    private void EnterArtworkSubView() => EnterSubView(OverlayPage.SteamArtwork);
 
-    private void LeaveArtworkSubView()
-    {
-        if (!InArtworkSubView)
-        {
-            return;
-        }
-        InArtworkSubView = false;
-        string? returnFocusKey = _navigation.Pop();
-        SubViewClosed?.Invoke();
-        ArtworkHost.Close();
-        ArtworkHost.IsVisible = false;
-        PanelSteam.IsVisible = _navigation.Destination == OverlayDestination.Steam;
-        if (PanelSteam.IsVisible)
-        {
-            RestoreRootFocus(returnFocusKey);
-        }
-    }
+    private void LeaveArtworkSubView() => LeaveSubView(OverlayPage.SteamArtwork);
 
     /// <summary>Fire-and-forget background sync when the overlay opens, throttled so
     /// it runs at most once per <see cref="AutoTabSyncInterval"/>. Best-effort — a
@@ -2289,39 +2189,9 @@ public partial class OverlayWindow : Window
         await _format.AddLibraryAsync(path);
     }
 
-    private void EnterFormatSubView()
-    {
-        if (!_navigation.Push(OverlayPage.SteamStorageFormat, CurrentSemanticFocusKey()))
-        {
-            return;
-        }
-        InFormatSubView = true;
-        PanelSteam.IsVisible = false;
-        PanelFormat.IsVisible = true;
-        FocusFirstControl(PanelFormat);
-    }
+    private void EnterFormatSubView() => EnterSubView(OverlayPage.SteamStorageFormat);
 
-    private void LeaveFormatSubView()
-    {
-        if (!InFormatSubView)
-        {
-            return;
-        }
-        InFormatSubView = false;
-        string? returnFocusKey = _navigation.Pop();
-        _pendingTarget = null;
-        _formatReturnsToCards = false;
-        // Close the format-name peer keyboard on the way out, matching the other
-        // Leave*SubView methods; without this the keyboard can outlive its sub-view
-        // and keep writing back to the now-hidden name field.
-        SubViewClosed?.Invoke();
-        PanelFormat.IsVisible = false;
-        PanelSteam.IsVisible = _navigation.Destination == OverlayDestination.Steam;
-        if (PanelSteam.IsVisible)
-        {
-            RestoreRootFocus(returnFocusKey);
-        }
-    }
+    private void LeaveFormatSubView() => LeaveSubView(OverlayPage.SteamStorageFormat);
 
     private void ShowFormatState(bool pick, bool confirm, bool progress)
     {

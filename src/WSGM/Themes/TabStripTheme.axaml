@@ -19,15 +19,13 @@
                         <Grid ColumnDefinitions="Auto,*,Auto">
                             <Border Grid.Column="0"
                                     Classes="tab-strip-bumper"
-                                    Margin="0,0,10,0"
-                                    IsVisible="{TemplateBinding ShowBumperHints}">
+                                    Margin="0,0,10,0">
                                 <TextBlock Text="LB" />
                             </Border>
                             <UniformGrid Name="PART_TabsHost" Grid.Column="1" Rows="1" />
                             <Border Grid.Column="2"
                                     Classes="tab-strip-bumper"
-                                    Margin="10,0,0,0"
-                                    IsVisible="{TemplateBinding ShowBumperHints}">
+                                    Margin="10,0,0,0">
                                 <TextBlock Text="RB" />
                             </Border>
                         </Grid>

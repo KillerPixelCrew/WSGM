@@ -28,7 +28,7 @@ public sealed class OverlayController : IDisposable
     private readonly SessionModes _modes;
     private readonly KeepAwakeService? _keepAwake;
     private readonly IDeviceOverlaySource? _device;
-    private readonly IPerformanceOverlaySource? _performance;
+    private readonly PerformanceOverlayBridge? _performance;
 
     /// <summary>
     /// The session's audio manager, shared with the taskbar's status cluster rather than owned.
@@ -102,7 +102,7 @@ public sealed class OverlayController : IDisposable
 
     internal OverlayController(AppConfig config, SteamMonitor? monitor, SessionModes modes,
         KeepAwakeService? keepAwake, bool previewOnly, IDeviceOverlaySource? device,
-        IPerformanceOverlaySource? performance = null,
+        PerformanceOverlayBridge? performance = null,
         AudioManager? audio = null,
         RadioManager? radios = null)
     {

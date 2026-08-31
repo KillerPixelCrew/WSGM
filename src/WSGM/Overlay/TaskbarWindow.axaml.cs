@@ -137,7 +137,9 @@ public partial class TaskbarWindow : Window
         // Avalonia never handles raw touch, DefWindowProc promotes the tap into a
         // synthesized mouse click delivered late; eat it here, and let the
         // controller's deferred Close() keep this window alive to do so.
-        Win32Properties.AddWndProcHookCallback(this, WndProcHook);
+        Win32Properties.AddWndProcHookCallback(
+            this,
+            Interop.NativeMethods.SwallowTouchSynthesizedMouse);
     }
 
     /// <summary>Raised when a radio tile is tapped. The flag selects the tab to
@@ -170,21 +172,6 @@ public partial class TaskbarWindow : Window
         }
     }
 
-    private static IntPtr WndProcHook(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, ref bool handled)
-    {
-        if (msg is Interop.NativeMethods.WmMouseMove
-                or Interop.NativeMethods.WmLButtonDown
-                or Interop.NativeMethods.WmLButtonUp)
-        {
-            var extra = (uint)Interop.NativeMethods.GetMessageExtraInfo();
-            if ((extra & Interop.NativeMethods.MiWpSignatureMask) == Interop.NativeMethods.MiWpSignature)
-            {
-                handled = true;
-                return IntPtr.Zero;
-            }
-        }
-        return IntPtr.Zero;
-    }
 
     private void OnOpened(object? sender, EventArgs e)
     {

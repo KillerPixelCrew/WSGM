@@ -44,7 +44,7 @@
                               IsCheckedChanged="OnRadioSwitchToggled" />
             </Grid>
 
-            <c:TabStrip x:Name="Tabs" Grid.Row="1" ShowBumperHints="True" />
+            <c:TabStrip x:Name="Tabs" Grid.Row="1" />
 
             <!-- Named so the code-behind can scroll a controller-focused row
                  into view: directional Focus() does not raise

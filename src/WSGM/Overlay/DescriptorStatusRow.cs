@@ -1,9 +1,16 @@
+using System.Collections.Generic;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Media;
 using WSGM.Controls;
 
 namespace WSGM.Overlay;
+
+/// <summary>A bounded shared-performance snapshot for one overlay projection.</summary>
+internal sealed record PerformanceOverlaySnapshot(
+    bool Visible,
+    string Status,
+    IReadOnlyList<DescriptorRow> Rows);
 
 /// <summary>Semantic presentation state shared by descriptor-driven overlay rows.</summary>
 internal enum DescriptorStatus

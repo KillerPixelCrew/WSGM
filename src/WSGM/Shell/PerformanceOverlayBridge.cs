@@ -13,7 +13,7 @@ namespace WSGM.Shell;
 /// Projects the session-owned performance service into closed overlay descriptors without owning
 /// RTSS or retaining an overlay window.
 /// </summary>
-internal sealed class PerformanceOverlayBridge : IPerformanceOverlaySource, IDisposable
+internal sealed class PerformanceOverlayBridge : IDisposable
 {
     private static readonly int[] PreferredFrameLimits = [0, 30, 40, 45, 60, 90, 120, 144, 165, 240];
     private readonly PerformanceService _service;

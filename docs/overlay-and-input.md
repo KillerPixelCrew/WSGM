@@ -5,17 +5,22 @@ section says device-verified or live-verified, it encodes something that only re
 real hardware or against a live Steam client, and changing it without re-verifying is a regression
 waiting to happen.
 
-**Quick access panel** (`Overlay\OverlayWindow`): a `TabStrip` over three always-alive panels —
-Session / Tools / Power — LB/RB cycling with wrap (via `GamepadNavigation`'s optional
-`tabPrevious`/`tabNext`), reopening on Session, focus landing on the first row after a switch, and
-the warning `InfoBar` staying panel-level above the tabs. `DefaultFocusTarget` resolves to the
-ACTIVE tab's first row (HomeAppButton is invisible on the other tabs). Note the taskbar's navigation
-deliberately passes NO tab callbacks: during the 150 ms surface handover both navigations are alive,
-so routing LB/RB there would double-advance the panel's tabs. The Tools tab hosts five in-place
-sub-views (`PanelFormat`, `LibraryTabsView`, `CardManagerView`, `ArtworkView`, `LaunchWrapperView`);
-adding one means extending `AnySubView`, `DefaultFocusTarget`, `TryCancelSubView`, the `Activated`
-teardown, and an `Enter*`/`Leave*` pair — never a Popup/Flyout, which `GamepadNavigation` cannot
-reach.
+**Quick access panel** (`Overlay\OverlayWindow`): a `TabStrip` over four always-alive destination
+panels — Home / Steam / Device / System — LB/RB cycling with wrap (via `GamepadNavigation`'s
+optional `tabPrevious`/`tabNext`), reopening on Home, focus landing on the first row after a switch,
+and the warning `InfoBar` staying panel-level above the tabs. `DefaultFocusTarget` resolves to the
+ACTIVE destination's first row (HomeAppButton is invisible on the others). Note the taskbar's
+navigation deliberately passes NO tab callbacks: during the 150 ms surface handover both navigations
+are alive, so routing LB/RB there would double-advance the panel's tabs.
+
+Destinations host in-place nested pages: five self-drawing sub-views over `OverlaySubView`
+(`LibraryTabsView`, `CardManagerView`, `ArtworkView`, `LaunchWrapperView`, `WakeLockHoldersView`),
+the XAML `PanelFormat`, and the Device sections. **The open page is `OverlayNavigation.Page`, not a
+flag per page** — the two used to be tracked separately and could disagree. Adding one means a row
+in `OverlayWindow`'s `SubViews` table (page, host, parent panel, destination, and any state the page
+releases on the way out); the enter/leave sequence, `AnySubView`, `DefaultFocusTarget`, the
+`Activated` teardown and B-cancel all read that table. Never a Popup/Flyout, which
+`GamepadNavigation` cannot reach.
 
 **Text entry in the panel is a press-to-edit ROW, never a bare `TextBox`** (maintainer, on the
 format name reading as broken). Every editable name — the tab editor, card rename, filter patterns —
@@ -84,3 +89,14 @@ Refused edits log the requested operation and current selection instead of silen
    depends on the switched-to window staying foreground. Tap-outside dismissal is raw-observation
    hit-testing, deliberately not dismiss-on-deactivate (cycling deactivates the panel while it must
    stay open).
+
+6. **The restore target and its suppression are per-surface, and neither may outlive an abandoned
+   close.** The overlay and the taskbar each keep their own pair (the window that was foreground
+   when they opened, and whether an action redirected focus), because during the 150 ms handover
+   both surfaces are alive and one bar's opener is not the other's. A close that is cancelled — the
+   surface is re-shown inside the deferral — must clear both: a latched suppression would silently
+   disable the refocus for the rest of that surface's life, and a stale target would call back a
+   window the user has since left. Picking a taskbar tile suppresses the restore deliberately, for
+   the same reason Next-app cycling does: the app the user just chose has to stay foreground.
+   `OverlayController` is where all four fields live; this rule is why they are reset in the
+   cancelled-close path and not only in `Closed`.

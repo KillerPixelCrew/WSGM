@@ -21,7 +21,7 @@ namespace WSGM.Core;
 /// HICONs obtained from another window are foreign, still-owned USER handles:
 /// they are CopyIcon'd before rendering and only the copy is destroyed —
 /// destroying the original would yank it out from under the owning app.</summary>
-public sealed class WindowIconCache : IDisposable
+public sealed class WindowIconCache
 {
     private readonly Dictionary<nint, Bitmap?> _byWindow = [];
     private readonly HashSet<nint> _inFlight = [];
@@ -113,9 +113,6 @@ public sealed class WindowIconCache : IDisposable
             _byWindow.Clear();
         }
     }
-
-    /// <summary>Clears the cache.</summary>
-    public void Dispose() => Clear();
 
     private Bitmap? Resolve(nint hwnd, uint processId)
     {

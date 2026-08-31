@@ -118,7 +118,9 @@ public partial class RadioWindow : Window
         // Same touch-promotion defense as the overlay and taskbar (invariant 3):
         // Avalonia never marks touch handled, so DefWindowProc synthesizes a
         // late mouse click that would press whatever sits under the panel.
-        Win32Properties.AddWndProcHookCallback(this, WndProcHook);
+        Win32Properties.AddWndProcHookCallback(
+            this,
+            Interop.NativeMethods.SwallowTouchSynthesizedMouse);
         KeyDown += (_, e) =>
         {
             if (e.Key == Avalonia.Input.Key.Escape)
@@ -218,24 +220,6 @@ public partial class RadioWindow : Window
         {
             control.BringIntoView();
         }
-    }
-
-    private static IntPtr WndProcHook(
-        IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, ref bool handled)
-    {
-        if (msg is Interop.NativeMethods.WmMouseMove
-                or Interop.NativeMethods.WmLButtonDown
-                or Interop.NativeMethods.WmLButtonUp)
-        {
-            var extra = (uint)Interop.NativeMethods.GetMessageExtraInfo();
-            if ((extra & Interop.NativeMethods.MiWpSignatureMask)
-                == Interop.NativeMethods.MiWpSignature)
-            {
-                handled = true;
-                return IntPtr.Zero;
-            }
-        }
-        return IntPtr.Zero;
     }
 
     /// <summary>Shows the Wi-Fi or Bluetooth tab. Lets an already-open panel

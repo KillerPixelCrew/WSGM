@@ -336,6 +336,31 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll")]
     internal static partial nint GetMessageExtraInfo();
 
+    /// <summary>Swallows the mouse messages Windows synthesizes behind a touch, for a window that
+    /// already handled the touch itself.</summary>
+    /// <remarks>
+    /// Every focus-taking WSGM window installs this. Without it a tap lands twice — once as touch
+    /// on the surface the user aimed at, and again as a synthesized click on whatever moved into
+    /// that position afterwards, which is the ghost-click the overlay's deferred close exists
+    /// alongside. Written as a hook callback so <c>Win32Properties.AddWndProcHookCallback</c> can
+    /// take it directly.
+    /// </remarks>
+    internal static nint SwallowTouchSynthesizedMouse(
+        nint hWnd,
+        uint msg,
+        nint wParam,
+        nint lParam,
+        ref bool handled)
+    {
+        if (msg is WmMouseMove or WmLButtonDown or WmLButtonUp
+            && ((uint)GetMessageExtraInfo() & MiWpSignatureMask) == MiWpSignature)
+        {
+            handled = true;
+        }
+
+        return nint.Zero;
+    }
+
     // ---- Idle memory trim (Core\MemoryTrim) ----
     [LibraryImport("kernel32.dll")]
     internal static partial nint GetCurrentProcess();
