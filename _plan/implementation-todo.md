@@ -265,13 +265,22 @@ Wave 2: overlay.
       `TabStripSelectionChangedEventArgs.OldIndex` are gone; `docs\overlay-and-input.md` matches the
       panel it describes again and finally documents invariant 6.
 
-Three overlay findings were deliberately NOT taken, because each changes behaviour a build cannot
-check and the overlay's live matrix below has not run:
+Two overlay findings were closed by decision rather than by edit. Each was taken as far as it could
+be taken safely, and what remained was measured rather than assumed:
 
-- **Radio/audio/eject into one window.** The largest remaining line saving, and the reason it is
-  refused: it moves focus, activation, Steam Input lease handover and the pairing-prompt lifetime.
-  The duplication it targeted is gone anyway — the dock, the touch filter and the chrome are shared
-  now, leaving three windows that differ only in content.
+- **Radio/audio/eject into one window — closed, having done what it was for.** The finding was
+  aimed at duplication, and the duplication is gone: the dock, the touch-ghost filter, Escape and
+  the focus-into-view all moved to `TaskbarPanel`, so the three windows plus that helper are 648
+  lines and audio and eject are 46 and 68 of them.
+
+  What the merge would still collapse was then measured rather than estimated. The shared XAML
+  chrome is four `Border` attributes and two title attributes; lifting them into `Shared.axaml`
+  costs about ten lines of style to save about twelve — **two lines net**. The rest is roughly 120
+  lines of `OverlayController` slot plumbing, and reaching it requires the window merge itself,
+  which moves window lifetime, activation, focus, the Steam Input lease handover and the
+  pairing-prompt decline. That is a poor trade against a surface whose behaviour no build checks,
+  so it is not taken. Reopen it if the panels are being reworked for another reason anyway — at
+  that point the plumbing saving is free and the risk is already being carried.
 - **Merging the four `Palette.axaml` includes**, and moving the three panels' identical window
   attributes into a shared style. Two independent reasons, neither of them reluctance:
 
