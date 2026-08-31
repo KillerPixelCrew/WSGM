@@ -12,11 +12,14 @@ function createBrightnessGate() {
   // self-incompatibility teardown loop the audio namespace already paid for: the probe required
   // the flag to be hidden, a successful apply made it visible, and the patch manager tore down
   // its own work every poll — the row flickered in and out on a ~25-second cycle on the device.
-  const revealedMarker = "__wsgmBrightnessRevealed";
-  const originalValueField = "__wsgmOriginalBrightnessAvailability";
-  const ownedSetterMarker = "__wsgmOwnedSetBrightness";
-  const originalSetterField = "__wsgmOriginalSetBrightness";
-  let originalValue: unknown;
+  const availability = {
+    marker: "__wsgmBrightnessRevealed",
+    original: "__wsgmOriginalBrightnessAvailability",
+  };
+  const setter = {
+    marker: "__wsgmOwnedSetBrightness",
+    original: "__wsgmOriginalSetBrightness",
+  };
   let installed = false;
   let lastError = "";
   let unsubscribe: (() => void) | null = null;
@@ -61,30 +64,15 @@ function createBrightnessGate() {
       return false;
     }
 
-    const existing = display.SetBrightness;
-    const original =
-      existing[ownedSetterMarker] === true ? existing[originalSetterField] : existing;
-    const overlaid = (flBrightness) => {
+    const claim = claimMember(display, "SetBrightness", setter, () => (flBrightness) => {
       const percent = Math.round(Math.min(1, Math.max(0, Number(flBrightness) || 0)) * 100);
       // Remembered as ours so the echo of this very write coming back as state does not Set the
       // observable again underneath the drag.
       lastPercent = percent;
       return request(patchId, "setBrightness", { percent }).catch(() => {});
-    };
-    Object.defineProperty(overlaid, ownedSetterMarker, {
-      value: true,
-      configurable: true,
-      enumerable: false,
     });
-    Object.defineProperty(overlaid, originalSetterField, {
-      value: original,
-      configurable: true,
-      enumerable: false,
-    });
-    try {
-      display.SetBrightness = overlaid;
-    } catch (error) {
-      lastError = String(error);
+    if (!claim.ok) {
+      lastError = claim.error;
       return false;
     }
 
@@ -92,14 +80,13 @@ function createBrightnessGate() {
   };
 
   const restoreSetter = () => {
-    try {
-      const display = window.SteamClient?.System?.Display;
-      const current = display?.SetBrightness;
-      if (current?.[ownedSetterMarker] === true) {
-        display.SetBrightness = current[originalSetterField];
-      }
-    } catch (error) {
-      lastError = String(error);
+    const released = releaseMember(
+      window.SteamClient?.System?.Display ?? null,
+      "SetBrightness",
+      setter,
+    );
+    if (!released.ok) {
+      lastError = released.error ?? "brightness setter release failed";
     }
   };
 
@@ -114,49 +101,21 @@ function createBrightnessGate() {
     // A client already reporting brightness available needs nothing from WSGM, and overwriting
     // the flag would mean restoring a value that was never ours to change. Available AND MARKED
     // is different: that is this gate's own earlier reveal, surviving a bridge replaced in
-    // place, and refusing it is the teardown trap.
-    if (message[field] === true && message[revealedMarker] !== true) {
-      lastError = "brightness already available";
-      return { ok: false, error: lastError };
-    }
-
-    try {
-      // Reclaiming a previous bridge's reveal must also recover what that bridge replaced.
-      // Keeping the value only in the old closure restored `undefined`; Steam's `?? true`
-      // availability hook then kept the row visible after removal.
-      originalValue =
-        message[revealedMarker] === true && Object.hasOwn(message, originalValueField)
-          ? message[originalValueField]
-          : message[revealedMarker] === true
-            ? false
-            : message[field];
-
-      message[field] = true;
-      Object.defineProperty(message, revealedMarker, {
-        value: true,
-        configurable: true,
-        enumerable: false,
-        writable: false,
-      });
-      Object.defineProperty(message, originalValueField, {
-        value: originalValue,
-        configurable: true,
-        enumerable: false,
-        writable: false,
-      });
-    } catch (error) {
-      lastError = String(error);
+    // place, and refusing it is the teardown trap. Both cases are the claim primitive's job now.
+    //
+    // `false` is the absent value: a client that hides the row has the flag false, so a reclaim
+    // whose stored original went missing hands back a hidden row rather than `undefined`, which
+    // Steam's `?? true` hook would have read as available forever.
+    const claim = claimValue(message, field, availability, true, false);
+    if (!claim.ok) {
+      lastError = claim.error;
       return { ok: false, error: lastError };
     }
 
     if (!overrideSetter()) {
       // Revealing a slider whose writes go into the stub is the broken state this gate shipped
       // with; the reveal is undone rather than left half-working.
-      try {
-        message[field] = originalValue;
-        delete message[revealedMarker];
-        delete message[originalValueField];
-      } catch {}
+      releaseValue(message, field, availability);
       return { ok: false, error: lastError };
     }
 
@@ -177,12 +136,9 @@ function createBrightnessGate() {
 
     restoreSetter();
     if (!message) return { ok: true, removed: true, storeGone: true };
-    try {
-      message[field] = originalValue;
-      delete message[revealedMarker];
-      delete message[originalValueField];
-    } catch (error) {
-      lastError = String(error);
+    const released = releaseValue(message, field, availability);
+    if (!released.ok) {
+      lastError = released.error ?? "brightness release failed";
       return { ok: false, error: lastError };
     }
 
@@ -195,7 +151,11 @@ function createBrightnessGate() {
       ok: true,
       installed,
       available: message ? message[field] === true : false,
-      setterOwned: window.SteamClient?.System?.Display?.SetBrightness?.[ownedSetterMarker] === true,
+      setterOwned: memberClaimed(
+        window.SteamClient?.System?.Display,
+        "SetBrightness",
+        setter,
+      ),
       lastPercent,
       observable: displayStore()?.m_flDisplayBrightness?.m_currentValue ?? null,
       lastError,

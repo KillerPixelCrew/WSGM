@@ -266,6 +266,98 @@
     writable: false,
   });
   return JSON.stringify({ ok: true, reused: false, version: config.version });
+  const defineHidden = (host, key, value) => {
+    Object.defineProperty(host, key, {
+      value,
+      configurable: true,
+      enumerable: false,
+      writable: false,
+    });
+  };
+  const claimed = (host, keys) => !!host && host[keys.marker] === true;
+  // Claims a plain data field — a flag or value the client set, that a gate replaces.
+  //
+  // `absent` is what the field reads as when nothing has claimed it. It is required rather than
+  // inferred: reclaiming a previous bridge's work has to restore what THAT bridge displaced, and when
+  // the stored original is missing the only honest answer is the value the client would have had.
+  const claimValue = (host, field, keys, next, absent) => {
+    if (!host || !(field in host)) {
+      return { ok: false, error: "claim target unavailable" };
+    }
+    const reclaimed = claimed(host, keys);
+    // Already at the target value and NOT marked means the client did this itself. Refusing is
+    // correct: there is nothing to add, and restoring later would hand back a value we invented.
+    if (!reclaimed && host[field] === next) {
+      return { ok: false, error: "already set by the client" };
+    }
+    try {
+      const original = reclaimed
+        ? Object.hasOwn(host, keys.original)
+          ? host[keys.original]
+          : absent
+        : host[field];
+      host[field] = next;
+      defineHidden(host, keys.marker, true);
+      defineHidden(host, keys.original, original);
+      return { ok: true, reclaimed };
+    } catch (error) {
+      return { ok: false, error: String(error) };
+    }
+  };
+  // Hands a claimed field back. Releasing something never claimed is success, not an error: a gate
+  // that failed halfway must be able to unwind without knowing how far it got.
+  const releaseValue = (host, field, keys) => {
+    if (!host || !claimed(host, keys)) return { ok: true };
+    try {
+      host[field] = host[keys.original];
+      delete host[keys.marker];
+      delete host[keys.original];
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: String(error) };
+    }
+  };
+  // Claims a member — a method a gate overlays, or a namespace it supplies where the client has
+  // none. The marker goes on the REPLACEMENT rather than the host, so `status` can ask the live
+  // object whether what is installed is ours without consulting any closure.
+  const claimMember = (host, member, keys, replacement) => {
+    if (!host) {
+      return { ok: false, error: "claim host unavailable" };
+    }
+    const current = host[member];
+    const reclaimed = claimed(current, keys);
+    try {
+      const original = reclaimed ? current[keys.original] : current;
+      const next = replacement(original);
+      if (next && typeof next === "object") {
+        defineHidden(next, keys.marker, true);
+        defineHidden(next, keys.original, original);
+      }
+      host[member] = next;
+      return { ok: true, reclaimed };
+    } catch (error) {
+      return { ok: false, error: String(error) };
+    }
+  };
+  // Hands a claimed member back to whatever it displaced. A member that was absent before the claim
+  // is deleted rather than set to undefined, so `member in host` reads as it did.
+  const releaseMember = (host, member, keys) => {
+    if (!host) return { ok: true };
+    const current = host[member];
+    if (!claimed(current, keys)) return { ok: true };
+    try {
+      const original = current[keys.original];
+      if (original === undefined) {
+        delete host[member];
+      } else {
+        host[member] = original;
+      }
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: String(error) };
+    }
+  };
+  const memberClaimed = (host, member, keys) => claimed(host?.[member], keys);
   // The performance surface is the largest absent backend: SystemPerfStore's constructor
   // optional-chains through a SteamClient.System.Perf that does not exist on Windows, so its state
   // stays empty and every control renders null. Availability for each control is read out of that
@@ -699,11 +791,14 @@
     // self-incompatibility teardown loop the audio namespace already paid for: the probe required
     // the flag to be hidden, a successful apply made it visible, and the patch manager tore down
     // its own work every poll — the row flickered in and out on a ~25-second cycle on the device.
-    const revealedMarker = "__wsgmBrightnessRevealed";
-    const originalValueField = "__wsgmOriginalBrightnessAvailability";
-    const ownedSetterMarker = "__wsgmOwnedSetBrightness";
-    const originalSetterField = "__wsgmOriginalSetBrightness";
-    let originalValue;
+    const availability = {
+      marker: "__wsgmBrightnessRevealed",
+      original: "__wsgmOriginalBrightnessAvailability",
+    };
+    const setter = {
+      marker: "__wsgmOwnedSetBrightness",
+      original: "__wsgmOriginalSetBrightness",
+    };
     let installed = false;
     let lastError = "";
     let unsubscribe = null;
@@ -746,43 +841,27 @@
         lastError = "SteamClient.System.Display.SetBrightness unavailable";
         return false;
       }
-      const existing = display.SetBrightness;
-      const original =
-        existing[ownedSetterMarker] === true ? existing[originalSetterField] : existing;
-      const overlaid = (flBrightness) => {
+      const claim = claimMember(display, "SetBrightness", setter, () => (flBrightness) => {
         const percent = Math.round(Math.min(1, Math.max(0, Number(flBrightness) || 0)) * 100);
         // Remembered as ours so the echo of this very write coming back as state does not Set the
         // observable again underneath the drag.
         lastPercent = percent;
         return request(patchId, "setBrightness", { percent }).catch(() => {});
-      };
-      Object.defineProperty(overlaid, ownedSetterMarker, {
-        value: true,
-        configurable: true,
-        enumerable: false,
       });
-      Object.defineProperty(overlaid, originalSetterField, {
-        value: original,
-        configurable: true,
-        enumerable: false,
-      });
-      try {
-        display.SetBrightness = overlaid;
-      } catch (error) {
-        lastError = String(error);
+      if (!claim.ok) {
+        lastError = claim.error;
         return false;
       }
       return true;
     };
     const restoreSetter = () => {
-      try {
-        const display = window.SteamClient?.System?.Display;
-        const current = display?.SetBrightness;
-        if (current?.[ownedSetterMarker] === true) {
-          display.SetBrightness = current[originalSetterField];
-        }
-      } catch (error) {
-        lastError = String(error);
+      const released = releaseMember(
+        window.SteamClient?.System?.Display ?? null,
+        "SetBrightness",
+        setter,
+      );
+      if (!released.ok) {
+        lastError = released.error ?? "brightness setter release failed";
       }
     };
     const install = () => {
@@ -795,46 +874,20 @@
       // A client already reporting brightness available needs nothing from WSGM, and overwriting
       // the flag would mean restoring a value that was never ours to change. Available AND MARKED
       // is different: that is this gate's own earlier reveal, surviving a bridge replaced in
-      // place, and refusing it is the teardown trap.
-      if (message[field] === true && message[revealedMarker] !== true) {
-        lastError = "brightness already available";
-        return { ok: false, error: lastError };
-      }
-      try {
-        // Reclaiming a previous bridge's reveal must also recover what that bridge replaced.
-        // Keeping the value only in the old closure restored `undefined`; Steam's `?? true`
-        // availability hook then kept the row visible after removal.
-        originalValue =
-          message[revealedMarker] === true && Object.hasOwn(message, originalValueField)
-            ? message[originalValueField]
-            : message[revealedMarker] === true
-              ? false
-              : message[field];
-        message[field] = true;
-        Object.defineProperty(message, revealedMarker, {
-          value: true,
-          configurable: true,
-          enumerable: false,
-          writable: false,
-        });
-        Object.defineProperty(message, originalValueField, {
-          value: originalValue,
-          configurable: true,
-          enumerable: false,
-          writable: false,
-        });
-      } catch (error) {
-        lastError = String(error);
+      // place, and refusing it is the teardown trap. Both cases are the claim primitive's job now.
+      //
+      // `false` is the absent value: a client that hides the row has the flag false, so a reclaim
+      // whose stored original went missing hands back a hidden row rather than `undefined`, which
+      // Steam's `?? true` hook would have read as available forever.
+      const claim = claimValue(message, field, availability, true, false);
+      if (!claim.ok) {
+        lastError = claim.error;
         return { ok: false, error: lastError };
       }
       if (!overrideSetter()) {
         // Revealing a slider whose writes go into the stub is the broken state this gate shipped
         // with; the reveal is undone rather than left half-working.
-        try {
-          message[field] = originalValue;
-          delete message[revealedMarker];
-          delete message[originalValueField];
-        } catch {}
+        releaseValue(message, field, availability);
         return { ok: false, error: lastError };
       }
       installed = true;
@@ -852,12 +905,9 @@
       }
       restoreSetter();
       if (!message) return { ok: true, removed: true, storeGone: true };
-      try {
-        message[field] = originalValue;
-        delete message[revealedMarker];
-        delete message[originalValueField];
-      } catch (error) {
-        lastError = String(error);
+      const released = releaseValue(message, field, availability);
+      if (!released.ok) {
+        lastError = released.error ?? "brightness release failed";
         return { ok: false, error: lastError };
       }
       return { ok: true, removed: true };
@@ -868,8 +918,7 @@
         ok: true,
         installed,
         available: message ? message[field] === true : false,
-        setterOwned:
-          window.SteamClient?.System?.Display?.SetBrightness?.[ownedSetterMarker] === true,
+        setterOwned: memberClaimed(window.SteamClient?.System?.Display, "SetBrightness", setter),
         lastPercent,
         observable: displayStore()?.m_flDisplayBrightness?.m_currentValue ?? null,
         lastError,

@@ -27,6 +27,10 @@ const sourceDirectory = join(assetDirectory, "Source");
 const sourcePaths = [
   join(sourceDirectory, "types.ts"),
   join(sourceDirectory, "bridge.ts"),
+  // Ownership claims, before every gate that makes one. Inside the bridge IIFE, so the claim
+  // helpers are shared rather than re-derived per gate — which is how the same teardown trap was
+  // paid for three separate times.
+  join(sourceDirectory, "ownership.ts"),
   join(sourceDirectory, "gates", "performance.ts"),
   join(sourceDirectory, "gates", "steam-os-manager.ts"),
   join(sourceDirectory, "gates", "brightness.ts"),
