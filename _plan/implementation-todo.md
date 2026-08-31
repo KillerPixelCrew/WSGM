@@ -382,8 +382,6 @@ make the architecture smaller.
       non-configurable gamescope gate and is not a viable revival.
 - [ ] Add capture-endpoint microphone volume, WASAPI session/per-app volume and multichannel speaker
       configuration/reapply. The Claw's stereo endpoint cannot establish the multichannel contract.
-- [ ] Supply `SteamClient.System.DisplayManager` only if live probing proves it can replace the
-      current VRR projection without losing behavior.
 - [ ] Redesign the overlay presentation, especially Device, without moving state ownership out of
       its existing services.
 - [ ] Add Avalonia headless interaction tests, deterministic render capture and selective visual
