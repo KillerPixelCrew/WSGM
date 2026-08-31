@@ -14,7 +14,7 @@ internal static class PerformancePolicyResolver
         PerformancePolicyLayer FrameLimitLayer,
         PerformancePolicyLayer OverlayLevelLayer) Resolve(
         PerformancePolicy policy,
-        RtssApplicationTarget? target)
+        PerformanceApplicationTarget? target)
     {
         ArgumentNullException.ThrowIfNull(policy);
         if (!policy.Enabled)
@@ -39,13 +39,13 @@ internal static class PerformancePolicyResolver
 
     internal static PerformancePersistenceTarget ResolveEditTarget(
         PerformancePolicy policy,
-        RtssApplicationTarget? target) => Find(policy, target?.ApplicationId) is null
+        PerformanceApplicationTarget? target) => Find(policy, target?.ApplicationId) is null
             ? PerformancePersistenceTarget.Global
             : PerformancePersistenceTarget.Application;
 
     internal static PerformancePolicy Write(
         PerformancePolicy policy,
-        RtssApplicationTarget? target,
+        PerformanceApplicationTarget? target,
         PerformancePersistenceTarget persistence,
         PerformanceControl control,
         int value)
@@ -68,7 +68,7 @@ internal static class PerformancePolicyResolver
         PerformanceApplicationPolicy current = applications[index];
         applications[index] = current with
         {
-            RtssProfileName = target.RtssProfileName,
+            RtssProfileName = target.RtssProfileName ?? current.RtssProfileName,
             Values = current.Values.With(control, value),
         };
         return policy with { Applications = applications.ToArray() };
@@ -148,6 +148,7 @@ internal sealed class PerformanceService : IAsyncDisposable
         _state = new PerformanceState(
             InitialProbe,
             null,
+            false,
             frameLimitLayer,
             overlayLevelLayer,
             desired,
@@ -215,7 +216,7 @@ internal sealed class PerformanceService : IAsyncDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         PerformancePolicy policy;
-        RtssApplicationTarget? target;
+        PerformanceApplicationTarget? target;
         lock (_stateGate)
         {
             policy = _policy;
@@ -281,7 +282,7 @@ internal sealed class PerformanceService : IAsyncDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         PerformancePolicy policy;
-        RtssApplicationTarget? target;
+        PerformanceApplicationTarget? target;
         PerformanceValues desired;
         lock (_stateGate)
         {
@@ -311,7 +312,7 @@ internal sealed class PerformanceService : IAsyncDisposable
         {
             applications.Add(new PerformanceApplicationPolicy(
                 target.ApplicationId,
-                target.RtssProfileName,
+                target.RtssProfileName ?? string.Empty,
                 desired));
             Log.Info(
                 $"Per-application performance profile created for {target.ApplicationId}, seeded "
@@ -356,7 +357,7 @@ internal sealed class PerformanceService : IAsyncDisposable
     }
 
     internal async Task SetTargetAsync(
-        RtssApplicationTarget? target,
+        PerformanceApplicationTarget? target,
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -370,7 +371,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             target = target with
             {
                 ApplicationId = target.ApplicationId.Trim(),
-                RtssProfileName = target.RtssProfileName.Trim(),
+                RtssProfileName = target.RtssProfileName?.Trim(),
             };
         }
 
@@ -594,7 +595,7 @@ internal sealed class PerformanceService : IAsyncDisposable
                     "The requested value is outside the adapter's verified bounds."));
             }
 
-            RtssApplicationTarget? target;
+            PerformanceApplicationTarget? target;
             string profile;
             PerformancePolicy? previousPolicy = null;
             PerformancePolicy? changedPolicy = null;
@@ -620,7 +621,9 @@ internal sealed class PerformanceService : IAsyncDisposable
                 // disabled or previously-used application profile remains the stronger RTSS layer
                 // and silently keeps stale values over the global profile.
                 profile = target?.RtssProfileName ?? string.Empty;
-                _commandProfiles[sequence] = profile;
+                _commandProfiles[sequence] = target is null
+                    ? string.Empty
+                    : target.RtssProfileName ?? $"pending application {target.ApplicationId}";
             }
 
             if (changedPolicy is not null)
@@ -645,6 +648,14 @@ internal sealed class PerformanceService : IAsyncDisposable
             }
 
             RaiseStateChanged(Current);
+
+            if (target is { RtssProfileName: null or "" })
+            {
+                return UpdateCommand(Command(
+                    PerformanceCommandPhase.Deferred,
+                    "The application preference was saved and will apply when its foreground "
+                        + "executable is known."));
+            }
 
             RtssApplyResult applied = await _adapter.ApplyAsync(
                 new RtssApplyRequest(profile, control, value, probe.Generation),
@@ -790,7 +801,30 @@ internal sealed class PerformanceService : IAsyncDisposable
             return probe;
         }
 
-        RtssApplicationTarget? target = Current.Target;
+        PerformanceApplicationTarget? target = Current.Target;
+        if (target is { RtssProfileName: null or "" })
+        {
+            PerformanceState pending;
+            RtssProbe previousProbe;
+            lock (_stateGate)
+            {
+                previousProbe = _state.Probe;
+                _state = WithResolvedDesired(_state with
+                {
+                    Probe = probe,
+                    Observed = PerformanceValues.Empty,
+                    FrameLimitQuality = PerformanceReadbackQuality.Unavailable,
+                    OverlayLevelQuality = PerformanceReadbackQuality.Unavailable,
+                    RefreshedAt = _timeProvider.GetUtcNow(),
+                });
+                pending = _state;
+            }
+
+            LogProbeChange(previousProbe, probe);
+            RaiseStateChanged(pending);
+            return null;
+        }
+
         RtssReadback readback = await _adapter.ReadAsync(
             target?.RtssProfileName ?? string.Empty,
             probe.Generation,
@@ -990,7 +1024,8 @@ internal sealed class PerformanceService : IAsyncDisposable
             ? string.Empty
             : $" — {command.Diagnostic}";
         bool succeeded = command.Phase
-            is PerformanceCommandPhase.SucceededVerified
+            is PerformanceCommandPhase.Deferred
+            or PerformanceCommandPhase.SucceededVerified
             or PerformanceCommandPhase.AppliedUnverified;
         Log.Change(
             $"rtss.command.{command.Control}",
@@ -1020,6 +1055,9 @@ internal sealed class PerformanceService : IAsyncDisposable
         return state with
         {
             Desired = values,
+            ApplicationProfileEnabled = PerformancePolicyResolver.Find(
+                _policy,
+                state.Target?.ApplicationId) is not null,
             FrameLimitLayer = frameLimitLayer,
             OverlayLevelLayer = overlayLevelLayer,
         };
@@ -1123,10 +1161,10 @@ internal sealed class PerformanceService : IAsyncDisposable
         return true;
     }
 
-    private static bool ValidTarget(RtssApplicationTarget target) =>
+    private static bool ValidTarget(PerformanceApplicationTarget target) =>
         !string.IsNullOrWhiteSpace(target.ApplicationId)
         && target.ApplicationId.Length <= 1024
-        && ValidProfileName(target.RtssProfileName)
+        && (target.RtssProfileName is null || ValidProfileName(target.RtssProfileName))
         && target.ProcessId is null or > 0;
 
     private static bool ValidProfileName(string value) =>

@@ -328,6 +328,26 @@ assignments have no UI writer (config-only); `ManualReviewedProfile` has no prof
 SDL/managed trigger thresholds differ (0.24 vs 0.5); `VolumeButtonService` writes Core Audio
 directly so the taskbar slider lags the OSD by one poll.
 
+## Per-application performance profiles - complete in source
+
+- [x] Preserve Steam AppID/application identity when RTSS cannot yet name an executable profile;
+      enrich that same identity from the foreground watcher instead of creating another detector.
+- [x] Make per-application enablement, active-layer resolution, edits and reset operate on the
+      canonical application identity while deferring RTSS application writes until its executable
+      profile is known.
+- [x] Publish the real current AppID and real profile-enabled state to Steam's native Performance
+      tab, and reject stale deltas addressed to a game that is no longer current.
+- [x] Add the complete per-application profile surface to the overlay's Device -> Profiles page:
+      detected application, active global/application layer, enable/disable, shared performance
+      controls and reset, with truthful unavailable/pending states.
+- [x] Add deterministic identity, policy, QAM and overlay projection tests; update the focused CEF,
+      RTSS, overlay and UI documentation and record the Steam CEF MCP safety boundary in
+      `AGENTS.md`.
+- [x] Regenerate the Steam asset and run `./eng/verify.ps1 -Fix`: asset SHA-256
+      `C034C4FD0B3FC449BCF89FCDDE809074A971D1B76EA12B24086732A4B1C23F1B`, repository invariants and
+      41 native tests passed, the Release build completed with zero warnings/errors, and all 1,821
+      managed tests passed. The finished diff was inspected before commit.
+
 ## Verification for this milestone
 
 - [x] `./eng/verify.ps1 -Fix`: formatting and repository invariants passed; Steam UI asset reproduced
@@ -356,7 +376,8 @@ make the architecture smaller.
       can produce it.
 - [ ] Read and implement the Claw charge-limit encoding; add charge fields to the SteamOS Manager
       seam. Read the RGB effect/animation protocol before adding those controls.
-- [ ] Project the shared performance services onto the redesigned overlay.
+- [x] Project the shared performance services onto the redesigned overlay, including the complete
+      per-application workflow on Device -> Profiles.
 - [ ] Add a WSGM-owned Windows Night Light backend. Valve's row depends on an unavailable,
       non-configurable gamescope gate and is not a viable revival.
 - [ ] Add capture-endpoint microphone volume, WASAPI session/per-app volume and multichannel speaker

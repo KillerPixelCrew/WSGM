@@ -16,6 +16,12 @@ transitions. Shared controls live under `Controls\`: `TabStrip` supplies the LB/
 `CardButton` supplies card actions, and `Icons` supplies stroke-style `StreamGeometry`. Stroke icons
 use `Fill={x:Null}` so their interior detail remains visible.
 
+Descriptor rows keep semantic IDs independent of placement. The performance projection is rendered
+both as the Device -> Profiles workflow and, for its value controls, beside Device power; the window
+adds a placement-specific focus prefix when it creates each `DescriptorStatusRow`. Do not clone the
+state or command logic to place the same control twice—the descriptor and its bridge remain the one
+owner, while each rendered row retains a stable focus key.
+
 Settings keeps its page controls alive and switches `IsVisible`, preserving scroll position and
 recorder lifetime. The layout floor is 1280x800 for the shell and 1024x640 for Settings.
 

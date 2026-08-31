@@ -303,7 +303,14 @@ public partial class OverlayWindow : Window
         HomeAppButton.TrailingGlyph = _deviceBridge?.NavigationHint(GlyphControlId.FaceSouth);
     }
 
-    private void OnPerformanceChanged() => Dispatcher.UIThread.Post(RefreshPerformancePanel);
+    private void OnPerformanceChanged() => Dispatcher.UIThread.Post(() =>
+    {
+        RefreshPerformancePanel();
+        if (_navigation.IsVisible(OverlayDestination.Device))
+        {
+            RefreshDevicePanel();
+        }
+    });
 
     private void RefreshDevicePanel()
     {
@@ -314,6 +321,7 @@ public partial class OverlayWindow : Window
 
         DeviceOverlaySnapshot snapshot = _deviceBridge?.Snapshot()
             ?? new DeviceOverlaySnapshot(false, "Device integration off", string.Empty, null, []);
+        PerformanceOverlaySnapshot? performance = _performanceSource?.Snapshot();
         RefreshNavigationHints();
         ConfigureTabs(snapshot.Visible);
         DeviceStatusTitle.Text = snapshot.Status;
@@ -327,7 +335,7 @@ public partial class OverlayWindow : Window
         // The tiles belong to the tree that was just cleared. Dropping the references here, before
         // anything can rebuild them, is what stops the input test writing to detached controls.
         _glyphTiles.Clear();
-        if (snapshot.Capabilities.Count == 0 && snapshot.GlyphSelection is null)
+        if (DeviceOverlaySectionPages.Build(snapshot, performance).Count == 0)
         {
             DeviceCapabilityList.Children.Add(new TextBlock
             {
@@ -340,8 +348,8 @@ public partial class OverlayWindow : Window
 
         DeviceOverlaySection? openSection = DeviceOverlaySectionPages.SectionFor(_navigation.Page);
         DescriptorStatusRow? restoreFocus = openSection is { } section
-            ? RenderDeviceSection(snapshot, section, focusedKey)
-            : RenderDeviceSectionMenu(snapshot, focusedKey);
+            ? RenderDeviceSection(snapshot, performance, section, focusedKey)
+            : RenderDeviceSectionMenu(snapshot, performance, focusedKey);
 
         // A Device page that renders nothing is indistinguishable from a device that published
         // nothing, and the difference is the whole diagnosis. Reported on every render, not only
@@ -357,6 +365,7 @@ public partial class OverlayWindow : Window
                 + $"autoTdp={snapshot.AutoTdp is not null}, "
                 + $"controller={snapshot.Controller is not null}, "
                 + $"profile={snapshot.Profile is not null}, "
+                + $"performanceProfiles={performance?.ProfileRows.Count ?? 0}, "
                 + $"recovery={snapshot.Recovery is not null}",
             DeviceCapabilityList.Children.Count == 0 ? "warn " : "info ");
 
@@ -373,10 +382,13 @@ public partial class OverlayWindow : Window
     /// </remarks>
     private DescriptorStatusRow? RenderDeviceSectionMenu(
         DeviceOverlaySnapshot snapshot,
+        PerformanceOverlaySnapshot? performance,
         string? focusedKey)
     {
         DescriptorStatusRow? restoreFocus = null;
-        foreach (DeviceOverlaySectionEntry entry in DeviceOverlaySectionPages.Build(snapshot))
+        foreach (DeviceOverlaySectionEntry entry in DeviceOverlaySectionPages.Build(
+            snapshot,
+            performance))
         {
             string key = DeviceOverlaySectionPages.FocusKey(entry.Section);
             DescriptorStatusRow row = new();
@@ -402,6 +414,7 @@ public partial class OverlayWindow : Window
     /// <summary>Renders one Device section's rows.</summary>
     private DescriptorStatusRow? RenderDeviceSection(
         DeviceOverlaySnapshot snapshot,
+        PerformanceOverlaySnapshot? performance,
         DeviceOverlaySection section,
         string? focusedKey)
     {
@@ -489,6 +502,21 @@ public partial class OverlayWindow : Window
             if (string.Equals(authoredFocusKey, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = authoredRow;
+            }
+        }
+
+        if (section is DeviceOverlaySection.Profiles && performance is { Visible: true })
+        {
+            foreach (DescriptorRow descriptor in performance.ProfileRows.Concat(performance.Rows))
+            {
+                DescriptorStatusRow row = CreatePerformanceRow(
+                    descriptor,
+                    $"performance.profile.{descriptor.Id}");
+                DeviceCapabilityList.Children.Add(row);
+                if (string.Equals(row.Tag as string, focusedKey, StringComparison.Ordinal))
+                {
+                    restoreFocus = row;
+                }
             }
         }
 
@@ -912,46 +940,56 @@ public partial class OverlayWindow : Window
         PerformanceStatus.Text = snapshot.Status;
         string? focusedKey = CurrentSemanticFocusKey();
         DescriptorStatusRow? restoreFocus = null;
-        foreach (DescriptorRow descriptor in snapshot.Rows)
+        IEnumerable<DescriptorRow> descriptors = _navigation.IsVisible(OverlayDestination.Device)
+            ? snapshot.Rows
+            : snapshot.ProfileRows.Concat(snapshot.Rows);
+        foreach (DescriptorRow descriptor in descriptors)
         {
-            DescriptorStatusRow button = new();
-            DescriptorRow presentation = descriptor with { Id = $"performance.{descriptor.Id}" };
-            button.Apply(presentation);
-            button.Click += async (_, _) =>
-            {
-                PerformanceOverlayBridge? source = _performanceSource;
-                if (source is null || _closed || !descriptor.CanInvoke)
-                {
-                    return;
-                }
-
-                button.IsEnabled = false;
-                try
-                {
-                    await source.InvokeAsync(descriptor, _deviceLifetime.Token);
-                }
-                catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested)
-                {
-                }
-                catch (Exception ex)
-                {
-                    Log.Warn($"Performance overlay command failed: {descriptor.Id}, {ex.Message}");
-                }
-                finally
-                {
-                    if (!_closed)
-                    {
-                        button.IsEnabled = descriptor.CanInvoke;
-                    }
-                }
-            };
+            DescriptorStatusRow button = CreatePerformanceRow(
+                descriptor,
+                $"performance.{descriptor.Id}");
             PerformanceRows.Children.Add(button);
-            if (string.Equals(presentation.Id, focusedKey, StringComparison.Ordinal))
+            if (string.Equals(button.Tag as string, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = button;
             }
         }
         restoreFocus?.Focus(NavigationMethod.Directional);
+    }
+
+    private DescriptorStatusRow CreatePerformanceRow(DescriptorRow descriptor, string focusKey)
+    {
+        DescriptorStatusRow button = new();
+        button.Apply(descriptor with { Id = focusKey });
+        button.Click += async (_, _) =>
+        {
+            PerformanceOverlayBridge? source = _performanceSource;
+            if (source is null || _closed || !descriptor.CanInvoke)
+            {
+                return;
+            }
+
+            button.IsEnabled = false;
+            try
+            {
+                await source.InvokeAsync(descriptor, _deviceLifetime.Token);
+            }
+            catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested)
+            {
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Performance overlay command failed: {descriptor.Id}, {ex.Message}");
+            }
+            finally
+            {
+                if (!_closed)
+                {
+                    button.IsEnabled = descriptor.CanInvoke;
+                }
+            }
+        };
+        return button;
     }
 
     /// <summary>Puts the shared performance rows where the user will look for them.</summary>

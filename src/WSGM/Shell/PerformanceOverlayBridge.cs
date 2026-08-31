@@ -38,7 +38,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         PerformanceState state = _service.Current;
         if (!_service.Enabled)
         {
-            return new PerformanceOverlaySnapshot(false, string.Empty, []);
+            return new PerformanceOverlaySnapshot(false, string.Empty, [], []);
         }
 
         RtssCapabilities? capabilities = state.Probe.Capabilities;
@@ -58,7 +58,32 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             FormatOverlayLevel(state),
             ready && capabilities!.Supports(PerformanceControl.OverlayLevel),
             StatusFor(state, PerformanceControl.OverlayLevel)));
-        return new PerformanceOverlaySnapshot(true, DescribeStatus(state), rows);
+        List<DescriptorRow> profileRows =
+        [
+            BuildApplicationRow(state),
+            BuildActiveProfileRow(state),
+            BuildRow(
+                "application-profile",
+                "Per-application settings",
+                state.Target is null
+                    ? "Start or focus an application to give it separate settings."
+                    : "Keep separate performance values for the detected application.",
+                state.Target is null
+                    ? "Unavailable"
+                    : state.ApplicationProfileEnabled ? "On" : "Off",
+                state.Target is not null,
+                state.Target is null ? DescriptorStatus.Unsupported : DescriptorStatus.Available),
+            BuildRow(
+                "reset-profile",
+                "Reset performance profile",
+                state.ApplicationProfileEnabled
+                    ? "Clear this application's overrides without turning its profile off."
+                    : "Clear the global performance defaults.",
+                "Reset",
+                true,
+                DescriptorStatus.None),
+        ];
+        return new PerformanceOverlaySnapshot(true, DescribeStatus(state), rows, profileRows);
     }
 
     public async Task InvokeAsync(
@@ -67,13 +92,31 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(row);
-        PerformanceControl control = row.Id switch
+        PerformanceControl? control = row.Id switch
         {
             "frame-limit" => PerformanceControl.FrameLimit,
             "overlay-level" => PerformanceControl.OverlayLevel,
-            _ => throw new InvalidOperationException("The performance row is not actionable."),
+            _ => null,
         };
-        await SetNextAsync(control, "overlay", cancellationToken).ConfigureAwait(false);
+        if (control is { } performanceControl)
+        {
+            await SetNextAsync(performanceControl, "overlay", cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        switch (row.Id)
+        {
+            case "application-profile" when _service.Current.Target is not null:
+                await _service.SetApplicationProfileEnabledAsync(
+                    !_service.Current.ApplicationProfileEnabled,
+                    cancellationToken).ConfigureAwait(false);
+                return;
+            case "reset-profile":
+                await _service.ResetProfileAsync(cancellationToken).ConfigureAwait(false);
+                return;
+            default:
+                throw new InvalidOperationException("The performance row is not actionable.");
+        }
     }
 
     /// <summary>Cycles the overlay level through the same policy the UI row owns.</summary>
@@ -95,7 +138,8 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             origin,
             cancellationToken).ConfigureAwait(false);
         return result.Phase is PerformanceCommandPhase.SucceededVerified
-            or PerformanceCommandPhase.AppliedUnverified;
+            or PerformanceCommandPhase.AppliedUnverified
+            or PerformanceCommandPhase.Deferred;
     }
 
     private async Task<PerformanceCommandState> SetNextAsync(
@@ -152,6 +196,12 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             return "Applying RTSS performance setting…";
         }
 
+        if (state.Command.Phase is PerformanceCommandPhase.Deferred)
+        {
+            return state.Command.Diagnostic
+                ?? "The application setting is waiting for its foreground executable.";
+        }
+
         if (state.Command.Phase is PerformanceCommandPhase.Rejected
             or PerformanceCommandPhase.TimedOut
             or PerformanceCommandPhase.Indeterminate
@@ -162,9 +212,13 @@ internal sealed class PerformanceOverlayBridge : IDisposable
 
         return state.Probe.Availability switch
         {
-            RtssAvailability.Ready => state.Target is null
-                ? "RTSS · global profile"
-                : $"RTSS · {state.Target.RtssProfileName}",
+            RtssAvailability.Ready => state.Target switch
+            {
+                null => "RTSS · global profile",
+                { RtssProfileName: { Length: > 0 } profile } => $"RTSS · {profile}",
+                { SteamAppId: { } appId } => $"Steam AppID {appId} · executable pending",
+                _ => "Foreground application · executable pending",
+            },
             RtssAvailability.Unknown => "Checking RTSS…",
             RtssAvailability.NotInstalled => "RTSS is not installed.",
             RtssAvailability.NotRunning => "RTSS is not running.",
@@ -176,13 +230,61 @@ internal sealed class PerformanceOverlayBridge : IDisposable
 
     private static string DescribeLayer(
         PerformancePolicyLayer layer,
-        RtssApplicationTarget? target) => layer switch
+        PerformanceApplicationTarget? target) => layer switch
         {
-            PerformancePolicyLayer.Application when target is not null =>
-                $"Application override · {target.RtssProfileName}",
+            PerformancePolicyLayer.Application when target?.RtssProfileName is { Length: > 0 } profile =>
+                $"Application override · {profile}",
+            PerformancePolicyLayer.Application => "Application override · executable pending",
             PerformancePolicyLayer.Global => "Global default",
             _ => "RTSS profile",
         };
+
+    private static DescriptorRow BuildApplicationRow(PerformanceState state)
+    {
+        string trailing = state.Target switch
+        {
+            null => "None",
+            { SteamAppId: { } appId } => $"Steam {appId}",
+            { RtssProfileName: { Length: > 0 } profile } => profile,
+            _ => "Detected",
+        };
+        string description = state.Target switch
+        {
+            null => "No Steam game or usable foreground application is active.",
+            { RtssProfileName: { Length: > 0 } profile, SteamAppId: { } appId } =>
+                $"Steam AppID {appId} paired with foreground executable {profile}.",
+            { SteamAppId: { } appId } =>
+                $"Steam AppID {appId} is active; waiting for its foreground executable.",
+            { RtssProfileName: { Length: > 0 } profile } =>
+                $"Foreground application profile {profile}.",
+            _ => "An application identity is active but its executable is not known yet.",
+        };
+        return BuildRow(
+            "detected-application",
+            "Detected application",
+            description,
+            trailing,
+            false,
+            state.Target is null ? DescriptorStatus.Stale : DescriptorStatus.Available);
+    }
+
+    private static DescriptorRow BuildActiveProfileRow(PerformanceState state)
+    {
+        string description = state.ApplicationProfileEnabled
+            ? state.Target?.RtssProfileName is { Length: > 0 } profile
+                ? $"Settings are stored for {profile}."
+                : "Settings are stored for this application and will reach RTSS once its executable is known."
+            : "The detected application inherits WSGM's global performance settings.";
+        return BuildRow(
+            "active-profile",
+            "Active performance profile",
+            description,
+            state.ApplicationProfileEnabled ? "Application" : "Global",
+            false,
+            state.ApplicationProfileEnabled && state.Target?.RtssProfileName is not { Length: > 0 }
+                ? DescriptorStatus.Warning
+                : DescriptorStatus.Available);
+    }
 
     private static string FormatFrameLimit(PerformanceState state)
     {
@@ -219,6 +321,8 @@ internal sealed class PerformanceOverlayBridge : IDisposable
                 case PerformanceCommandPhase.Queued:
                 case PerformanceCommandPhase.Applying:
                     return DescriptorStatus.Progress;
+                case PerformanceCommandPhase.Deferred:
+                    return DescriptorStatus.Warning;
                 case PerformanceCommandPhase.Rejected:
                 case PerformanceCommandPhase.TimedOut:
                 case PerformanceCommandPhase.Indeterminate:

@@ -442,20 +442,11 @@ internal sealed class PerformanceServiceNativeQamAdapter
             NativeQamPerfSupport support = PerfSupport?.Invoke()
                 ?? new NativeQamPerfSupport([], false, false, null, null);
 
-            // Steam's per-game header needs an AppID, and only a Steam-launched title has one. A
-            // foreground-only identity still carries its profile; the projection presents it as the
-            // global one rather than naming a game WSGM cannot name.
-            uint? appId = current.Target is not null
-                && current.Target.ApplicationId.StartsWith("steam:", StringComparison.Ordinal)
-                && uint.TryParse(current.Target.ApplicationId[6..], out uint parsed)
-                    ? parsed
-                    : null;
-
             return NativeQamPerfProjection.Project(
                 current.Desired,
                 support,
-                appId,
-                perApplicationProfileEnabled: current.Target is not null,
+                current.Target?.SteamAppId,
+                perApplicationProfileEnabled: current.ApplicationProfileEnabled,
                 advancedSettingsEnabled: true,
                 variableRefreshRateEnabled: support.VariableRefreshRateEnabled,
                 // Was hardcoded null, which advertised the manual refresh row in `limits` while
@@ -498,6 +489,17 @@ internal sealed class PerformanceServiceNativeQamAdapter
             Log.Warn(
                 "Native QAM performance delta carried fields with no WSGM backend: "
                 + string.Join(", ", delta.Unsupported));
+        }
+
+        if (delta.SteamAppId is { } requestedAppId
+            && _service.Current.Target?.SteamAppId != requestedAppId)
+        {
+            string current = _service.Current.Target?.SteamAppId is { } currentAppId
+                ? $"AppID {currentAppId}"
+                : "no Steam application";
+            string error = $"The performance delta targets stale AppID {requestedAppId}; {current} is current.";
+            Log.Warn($"Native QAM performance delta refused: {error}");
+            return new(false, error);
         }
 
         if (delta.ResetToDefault)
@@ -624,7 +626,8 @@ internal sealed class PerformanceServiceNativeQamAdapter
             correlationId,
             cancellationToken).ConfigureAwait(false);
         bool succeeded = result.Phase is
-            PerformanceCommandPhase.SucceededVerified
+            PerformanceCommandPhase.Deferred
+            or PerformanceCommandPhase.SucceededVerified
             or PerformanceCommandPhase.AppliedUnverified;
         return new SteamUiCommandResult(
             succeeded,
@@ -657,9 +660,17 @@ internal sealed class PerformanceServiceNativeQamAdapter
         bool enabled,
         CancellationToken cancellationToken)
     {
+        if (_service.Current.Target is null)
+        {
+            return new SteamUiCommandResult(
+                false,
+                "The per-application profile could not be changed; no identifiable application is "
+                    + "running.");
+        }
+
         bool changed = await _service.SetApplicationProfileEnabledAsync(enabled, cancellationToken)
             .ConfigureAwait(false);
-        return changed
+        return changed || _service.Current.ApplicationProfileEnabled == enabled
             ? new SteamUiCommandResult(true, null)
             : new SteamUiCommandResult(
                 false,
@@ -800,6 +811,7 @@ internal sealed class PerformanceServiceNativeQamAdapter
         {
             PerformanceCommandPhase.Queued => "queued",
             PerformanceCommandPhase.Applying => "applying",
+            PerformanceCommandPhase.Deferred => "deferred",
             PerformanceCommandPhase.SucceededVerified => "succeeded-verified",
             PerformanceCommandPhase.AppliedUnverified => "applied-unverified",
             PerformanceCommandPhase.Rejected => "rejected",
@@ -844,9 +856,15 @@ internal sealed class PerformanceServiceNativeQamAdapter
             }));
         }
 
-        return state.Target is null
-            ? "RTSS global profile"
-            : NativeQamText.Bound($"RTSS application profile: {state.Target.RtssProfileName}");
+        return state.Target switch
+        {
+            null => "RTSS global profile",
+            { RtssProfileName: { Length: > 0 } profile } =>
+                NativeQamText.Bound($"RTSS application profile: {profile}"),
+            { SteamAppId: { } appId } => NativeQamText.Bound(
+                $"Steam AppID {appId}; waiting for its foreground executable."),
+            _ => "Waiting for the foreground application's executable profile.",
+        };
     }
 
     private static string PhaseFailure(PerformanceCommandPhase phase) => phase switch

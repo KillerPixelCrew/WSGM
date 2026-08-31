@@ -467,6 +467,17 @@ restored React's original `useMemo` only after the final component was removed. 
 answered requests locally and did not write an RTSS profile; cleanup removed the temporary bridge
 namespace and binding.
 
+The per-application header is driven by identity, not by RTSS executable discovery. A live
+2026-08-31 screenshot showed Valve's complete Performance tab but a blank "Use profile from" header
+while WSGM's log had already observed Steam AppID 220: the managed projection discarded Steam's
+identity-only state because no executable profile was available yet. `PerformanceService` now keeps
+the canonical AppID separately from its optional RTSS profile. `current_game_id` therefore becomes
+non-zero as soon as Steam names one game; `active_profile_game_id` matches it only when that game's
+persisted profile is enabled, and `per_app.is_game_perf_profile_enabled` reports that same policy
+fact. Foreground observation later supplies the executable without changing the AppID. A delta that
+names an AppID other than the currently projected one is refused as stale before reset or any value
+write.
+
 Injected code can request only the compiled patch/command vocabulary. The managed bridge validates
 schema, patch ID, command, payload size, monotonic request/action generations, current execution
 context/document, and replay before dispatch. There is no generic evaluation, filesystem, shell,
@@ -559,7 +570,9 @@ Steam carries three generations of performance control and they are easy to conf
   one.** Its message shape is
   `{limits, settings:{global, per_app}, current_game_id, active_profile_game_id}`, and per-game
   profiles are exactly `current_game_id == active_profile_game_id` plus
-  `per_app.is_game_perf_profile_enabled`.
+  `per_app.is_game_perf_profile_enabled`. WSGM supplies the first from canonical Steam identity and
+  the latter two from its persisted application-policy entry; RTSS executable resolution is not an
+  availability gate for the header.
 - **The SteamOS Manager family** (`steamos_tdp_limit*`, `steamos_manual_gpu_clock*`) — client
   settings whose availability comes from a WebUI transport RPC. This is where TDP and charge limit
   live; there is **no** TDP component in the perf store at all.

@@ -13,19 +13,34 @@ public sealed class RunningApplicationCoordinatorTests
             "steam:42",
             "game.exe");
 
-        RtssApplicationTarget? target = RunningApplicationCoordinator.Project(snapshot);
+        PerformanceApplicationTarget? target = RunningApplicationCoordinator.Project(snapshot);
 
         Assert.Equal("steam:42", target?.ApplicationId);
+        Assert.Equal((uint)42, target?.SteamAppId);
         Assert.Equal("game.exe", target?.RtssProfileName);
     }
 
     [Fact]
-    public void ProjectClearsTargetWhenExecutableIdentityIsNotAuthoritative()
+    public void ProjectRetainsIdentityOnlySteamTargetWithoutAnExecutable()
+    {
+        var snapshot = Snapshot(
+            RunningApplicationTargetState.IdentityOnly,
+            "steam:42",
+            null);
+
+        PerformanceApplicationTarget? target = RunningApplicationCoordinator.Project(snapshot);
+
+        Assert.Equal("steam:42", target?.ApplicationId);
+        Assert.Equal((uint)42, target?.SteamAppId);
+        Assert.Null(target?.RtssProfileName);
+    }
+
+    [Fact]
+    public void ProjectClearsTargetWhenApplicationIdentityIsNotAuthoritative()
     {
         RunningApplicationTargetState[] states =
         [
             RunningApplicationTargetState.Global,
-            RunningApplicationTargetState.IdentityOnly,
             RunningApplicationTargetState.Ambiguous,
             RunningApplicationTargetState.Unavailable,
         ];
@@ -38,9 +53,7 @@ public sealed class RunningApplicationCoordinatorTests
 
     [Theory]
     [InlineData(null, "game.exe")]
-    [InlineData("steam:42", null)]
     [InlineData("", "game.exe")]
-    [InlineData("steam:42", "")]
     public void ProjectRejectsIncompleteActiveTarget(string? applicationId, string? profileName)
     {
         var snapshot = Snapshot(

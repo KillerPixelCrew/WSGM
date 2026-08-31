@@ -171,7 +171,7 @@ public sealed class PerformancePolicyResolverTests
             PerformancePolicyLayer frameLayer,
             PerformancePolicyLayer overlayLayer) = PerformancePolicyResolver.Resolve(
             policy,
-            new RtssApplicationTarget("steam:7", "game.exe"));
+            new PerformanceApplicationTarget("steam:7", 7, "game.exe"));
 
         Assert.Equal(new PerformanceValues(60, 3), values);
         Assert.Equal(PerformancePolicyLayer.Global, frameLayer);
@@ -181,7 +181,7 @@ public sealed class PerformancePolicyResolverTests
     [Fact]
     public void AutomaticEditUsesApplicationOnlyWhenAnOverrideAlreadyExists()
     {
-        var target = new RtssApplicationTarget("steam:7", "game.exe");
+        var target = new PerformanceApplicationTarget("steam:7", 7, "game.exe");
         var globalOnly = new PerformancePolicy(new PerformanceValues(60, 1), []);
         var withOverride = globalOnly with
         {
@@ -421,7 +421,7 @@ public sealed class PerformanceServiceTests
         await using var adapter = new FakeRtssAdapter();
         await using var service = CreateService(adapter, policy);
 
-        await service.SetTargetAsync(new RtssApplicationTarget("steam:7", "game.exe", 123));
+        await service.SetTargetAsync(new PerformanceApplicationTarget("steam:7", 7, "game.exe", 123));
 
         Assert.Equal(new PerformanceValues(60, 3), service.Current.Desired);
         Assert.Contains(adapter.Applies, request => request.RtssProfileName == "game.exe"
@@ -455,7 +455,7 @@ public sealed class PerformanceServiceTests
             PerformancePersistenceTarget.Automatic,
             "overlay",
             "persistent");
-        await service.SetTargetAsync(new RtssApplicationTarget("steam:7", "game.exe", 123));
+        await service.SetTargetAsync(new PerformanceApplicationTarget("steam:7", 7, "game.exe", 123));
         await service.SetAsync(
             PerformanceControl.FrameLimit,
             45,
@@ -517,9 +517,44 @@ public sealed class PerformanceServiceTests
         await using var service = CreateService(adapter);
 
         await Assert.ThrowsAsync<ArgumentException>(() => service.SetTargetAsync(
-            new RtssApplicationTarget("steam:7", @"..\Global")));
+            new PerformanceApplicationTarget("steam:7", 7, @"..\Global")));
 
         Assert.Empty(adapter.Applies);
+    }
+
+    [Fact]
+    public async Task IdentityOnlyApplicationDefersRtssWritesUntilForegroundEnrichment()
+    {
+        await using var adapter = new FakeRtssAdapter();
+        await using var service = CreateService(
+            adapter,
+            new PerformancePolicy(new PerformanceValues(60, 1), []));
+
+        await service.SetTargetAsync(
+            new PerformanceApplicationTarget("steam:42", 42, null));
+        Assert.Empty(adapter.Applies);
+        Assert.Equal(PerformanceCommandPhase.Deferred, service.Current.Command.Phase);
+
+        Assert.True(await service.SetApplicationProfileEnabledAsync(true));
+        PerformanceCommandState deferred = await service.SetAsync(
+            PerformanceControl.FrameLimit,
+            45,
+            PerformancePersistenceTarget.Automatic,
+            "test",
+            "identity-only");
+        Assert.Equal(PerformanceCommandPhase.Deferred, deferred.Phase);
+        Assert.True(service.Current.ApplicationProfileEnabled);
+        Assert.Empty(adapter.Applies);
+
+        await service.SetTargetAsync(
+            new PerformanceApplicationTarget("steam:42", 42, "game.exe"));
+
+        Assert.Contains(adapter.Applies, request => request.RtssProfileName == "game.exe"
+            && request.Control == PerformanceControl.FrameLimit
+            && request.Value == 45);
+        Assert.Contains(adapter.Applies, request => request.RtssProfileName == "game.exe"
+            && request.Control == PerformanceControl.OverlayLevel
+            && request.Value == 1);
     }
 
     private sealed class FakeRtssAdapter : IRtssAdapter

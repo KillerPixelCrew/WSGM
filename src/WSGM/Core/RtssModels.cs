@@ -46,6 +46,7 @@ internal enum PerformanceCommandPhase
     Idle,
     Queued,
     Applying,
+    Deferred,
     SucceededVerified,
     AppliedUnverified,
     Rejected,
@@ -63,10 +64,16 @@ internal enum PerformanceReadbackQuality
     AppliedUnverified,
 }
 
-/// <summary>Canonical WSGM application identity plus the profile identity understood by RTSS.</summary>
-internal sealed record RtssApplicationTarget(
+/// <summary>Canonical WSGM application identity plus optional Steam and RTSS enrichment.</summary>
+/// <remarks>
+/// <see cref="ApplicationId"/> is authoritative whenever this record exists. Steam can name a game
+/// before Windows exposes its foreground executable, so <see cref="RtssProfileName"/> is optional:
+/// policy remains per-application while RTSS writes wait for that enrichment.
+/// </remarks>
+internal sealed record PerformanceApplicationTarget(
     string ApplicationId,
-    string RtssProfileName,
+    uint? SteamAppId,
+    string? RtssProfileName,
     int? ProcessId = null);
 
 /// <summary>Desired or observed values. Null means the corresponding control has no value.</summary>
@@ -201,7 +208,8 @@ internal sealed record PerformanceCommandState(
 /// <summary>Immutable RTSS state projected into the overlay and native QAM.</summary>
 internal sealed record PerformanceState(
     RtssProbe Probe,
-    RtssApplicationTarget? Target,
+    PerformanceApplicationTarget? Target,
+    bool ApplicationProfileEnabled,
     PerformancePolicyLayer FrameLimitLayer,
     PerformancePolicyLayer OverlayLevelLayer,
     PerformanceValues Desired,

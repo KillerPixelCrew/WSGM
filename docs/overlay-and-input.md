@@ -22,6 +22,16 @@ releases on the way out); the enter/leave sequence, `AnySubView`, `DefaultFocusT
 `Activated` teardown and B-cancel all read that table. Never a Popup/Flyout, which
 `GamepadNavigation` cannot reach.
 
+**Per-application performance profiles** are part of Device -> Profiles, not a second detector or a
+device-plugin feature. `PerformanceOverlayBridge` projects the session's one `PerformanceService`
+into closed rows for the detected Steam/foreground application, active Global/Application layer, the
+per-application enable switch, reset, frame limit, and RTSS overlay level. The same value rows
+remain beside power controls on Device -> Power and thermals; when Device does not exist, System
+shows the complete profile workflow. Identity-only Steam games stay visible as "executable pending",
+and edits are stored for that AppID until foreground observation supplies the RTSS profile.
+Performance state changes rebuild both the owning Device page and its section-card count, so the
+Profiles page cannot disappear merely because no plugin publishes a hardware profile.
+
 **Text entry in the panel is a press-to-edit ROW, never a bare `TextBox`** (maintainer, on the
 format name reading as broken). Every editable name — the tab editor, card rename, filter patterns —
 is a `CardButton`/`Row` whose Description shows the current value and whose click opens the peer

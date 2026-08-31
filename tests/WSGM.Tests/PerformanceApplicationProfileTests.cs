@@ -28,7 +28,7 @@ public sealed class PerformanceApplicationProfileTests
         // instant they created it, which reads as the toggle having reset their settings.
         PerformanceService service = Service(Global(60));
         using IDisposable observation = service.AcquireObservation();
-        await service.SetTargetAsync(new RtssApplicationTarget("steam:42", "game.exe"));
+        await service.SetTargetAsync(new PerformanceApplicationTarget("steam:42", 42, "game.exe"));
 
         Assert.True(await service.SetApplicationProfileEnabledAsync(true));
         Assert.Equal(60, service.Current.Desired.FrameLimit);
@@ -39,7 +39,7 @@ public sealed class PerformanceApplicationProfileTests
     {
         PerformanceService service = Service(Global(60));
         using IDisposable observation = service.AcquireObservation();
-        await service.SetTargetAsync(new RtssApplicationTarget("steam:42", "game.exe"));
+        await service.SetTargetAsync(new PerformanceApplicationTarget("steam:42", 42, "game.exe"));
 
         Assert.True(await service.SetApplicationProfileEnabledAsync(true));
         Assert.False(await service.SetApplicationProfileEnabledAsync(true));
@@ -50,7 +50,7 @@ public sealed class PerformanceApplicationProfileTests
     {
         PerformanceService service = Service(Global(60));
         using IDisposable observation = service.AcquireObservation();
-        await service.SetTargetAsync(new RtssApplicationTarget("steam:42", "game.exe"));
+        await service.SetTargetAsync(new PerformanceApplicationTarget("steam:42", 42, "game.exe"));
         await service.SetApplicationProfileEnabledAsync(true);
 
         Assert.True(await service.SetApplicationProfileEnabledAsync(false));
@@ -62,7 +62,7 @@ public sealed class PerformanceApplicationProfileTests
     {
         PerformanceService service = Service(Global(60));
         using IDisposable observation = service.AcquireObservation();
-        await service.SetTargetAsync(new RtssApplicationTarget("steam:42", "game.exe"));
+        await service.SetTargetAsync(new PerformanceApplicationTarget("steam:42", 42, "game.exe"));
 
         Assert.False(await service.SetApplicationProfileEnabledAsync(false));
     }
@@ -86,7 +86,7 @@ public sealed class PerformanceApplicationProfileTests
             new PerformanceValues(60, 2),
             [new PerformanceApplicationPolicy("steam:42", "game.exe", new PerformanceValues(30, 1))]));
         using IDisposable observation = service.AcquireObservation();
-        await service.SetTargetAsync(new RtssApplicationTarget("steam:42", "game.exe"));
+        await service.SetTargetAsync(new PerformanceApplicationTarget("steam:42", 42, "game.exe"));
 
         Assert.True(await service.ResetProfileAsync());
         // Falls through to the global layer, which is what an emptied application profile means.
@@ -102,7 +102,7 @@ public sealed class PerformanceApplicationProfileTests
             new PerformanceValues(60, 2),
             [new PerformanceApplicationPolicy("steam:42", "game.exe", new PerformanceValues(30, 1))]));
         using IDisposable observation = service.AcquireObservation();
-        await service.SetTargetAsync(new RtssApplicationTarget("steam:42", "game.exe"));
+        await service.SetTargetAsync(new PerformanceApplicationTarget("steam:42", 42, "game.exe"));
         await service.ResetProfileAsync();
 
         // Still enabled, so enabling again is not a change.
@@ -125,10 +125,10 @@ public sealed class PerformanceApplicationProfileTests
             new PerformanceValues(60, 2),
             [new PerformanceApplicationPolicy("steam:1", "other.exe", new PerformanceValues(30, 1))]));
         using IDisposable observation = service.AcquireObservation();
-        await service.SetTargetAsync(new RtssApplicationTarget("steam:42", "game.exe"));
+        await service.SetTargetAsync(new PerformanceApplicationTarget("steam:42", 42, "game.exe"));
 
         await service.SetApplicationProfileEnabledAsync(true);
-        await service.SetTargetAsync(new RtssApplicationTarget("steam:1", "other.exe"));
+        await service.SetTargetAsync(new PerformanceApplicationTarget("steam:1", 1, "other.exe"));
 
         // The pre-existing entry still supplies its own cap rather than having been replaced.
         Assert.Equal(30, service.Current.Desired.FrameLimit);

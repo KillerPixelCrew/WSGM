@@ -103,8 +103,11 @@ internal static class DeviceOverlaySectionPages
 
     /// <summary>Builds the section menu for a snapshot.</summary>
     /// <param name="snapshot">The current Device snapshot.</param>
+    /// <param name="performance">The shared performance rows that also live on Profiles.</param>
     /// <returns>Sections that currently have something to show, in presentation order.</returns>
-    internal static IReadOnlyList<DeviceOverlaySectionEntry> Build(DeviceOverlaySnapshot snapshot)
+    internal static IReadOnlyList<DeviceOverlaySectionEntry> Build(
+        DeviceOverlaySnapshot snapshot,
+        PerformanceOverlaySnapshot? performance = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         Dictionary<DeviceOverlaySection, int> counts = [];
@@ -133,6 +136,31 @@ internal static class DeviceOverlaySectionPages
             statuses[section] = MoreSerious(
                 statuses.GetValueOrDefault(section, DescriptorStatus.None),
                 row.Status);
+        }
+
+        if (performance is { Visible: true })
+        {
+            foreach (DescriptorRow row in performance.ProfileRows)
+            {
+                counts[DeviceOverlaySection.Profiles] =
+                    counts.GetValueOrDefault(DeviceOverlaySection.Profiles) + 1;
+                statuses[DeviceOverlaySection.Profiles] = MoreSerious(
+                    statuses.GetValueOrDefault(
+                        DeviceOverlaySection.Profiles,
+                        DescriptorStatus.None),
+                    row.Status);
+            }
+
+            foreach (DescriptorRow row in performance.Rows)
+            {
+                counts[DeviceOverlaySection.Profiles] =
+                    counts.GetValueOrDefault(DeviceOverlaySection.Profiles) + 1;
+                statuses[DeviceOverlaySection.Profiles] = MoreSerious(
+                    statuses.GetValueOrDefault(
+                        DeviceOverlaySection.Profiles,
+                        DescriptorStatus.None),
+                    row.Status);
+            }
         }
 
         List<DeviceOverlaySectionEntry> entries = [];
@@ -231,7 +259,7 @@ internal static class DeviceOverlaySectionPages
     private static string DescriptionFor(DeviceOverlaySection section) => section switch
     {
         DeviceOverlaySection.Overview => "Device identity and performance mode",
-        DeviceOverlaySection.Profiles => "Named hardware profiles",
+        DeviceOverlaySection.Profiles => "Hardware and per-application performance profiles",
         DeviceOverlaySection.PowerAndThermals => "Power limits, fans, charging, and temperatures",
         DeviceOverlaySection.ControllerAndMotion => "Built-in controller, motion, and rumble",
         DeviceOverlaySection.Oem => "Device buttons and their assignments",

@@ -123,6 +123,14 @@ third_party\devicelab\staging\wsgm-device.exe inspect|compare|correlate <file>
 third_party\devicelab\staging\wsgm-device.exe validate <plugin>|pack <plugin>
 ```
 
+The configured Steam CEF MCP attaches to the live client's existing CDP endpoint. Target by role:
+`SharedJSContext` owns stores, webpack modules and WSGM's bridge/registry; `Big-Picture-Modus` owns
+visible DOM and screenshots. Listing targets and bounded read-only evaluation are observation.
+Navigation, focus, clicks, or capture need the maintainer to direct that live interaction;
+`close_page` closes Steam's real window and is never a cleanup command. The MCP does not relax the
+literal-module probe rule below: never sweep the registry, invoke unknown exports, or instantiate
+modules while exploring.
+
 `--settings` and `--overlay-test` are safe local UI modes. Read-only Device Lab observation and
 offline validation commands are safe. Changing Device Lab itself means working in its own
 repository; editing a staged copy changes nothing that ships.

@@ -10,7 +10,8 @@ namespace WSGM.Overlay;
 internal sealed record PerformanceOverlaySnapshot(
     bool Visible,
     string Status,
-    IReadOnlyList<DescriptorRow> Rows);
+    IReadOnlyList<DescriptorRow> Rows,
+    IReadOnlyList<DescriptorRow> ProfileRows);
 
 /// <summary>Semantic presentation state shared by descriptor-driven overlay rows.</summary>
 internal enum DescriptorStatus

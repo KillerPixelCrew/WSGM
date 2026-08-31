@@ -20,7 +20,7 @@ namespace WSGM.Shell;
 internal sealed class RunningApplicationCoordinator : IAsyncDisposable
 {
     private readonly RunningApplicationMonitor _monitor;
-    private readonly Func<RtssApplicationTarget?, CancellationToken, Task> _setTargetAsync;
+    private readonly Func<PerformanceApplicationTarget?, CancellationToken, Task> _setTargetAsync;
     private readonly Func<RunningApplicationTargetSnapshot, CancellationToken, Task>?
         _setControllerTargetAsync;
     private readonly CancellationTokenSource _shutdown = new();
@@ -33,7 +33,7 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
 
     internal RunningApplicationCoordinator(
         RunningApplicationMonitor monitor,
-        Func<RtssApplicationTarget?, CancellationToken, Task> setTargetAsync,
+        Func<PerformanceApplicationTarget?, CancellationToken, Task> setTargetAsync,
         Func<RunningApplicationTargetSnapshot, CancellationToken, Task>? setControllerTargetAsync = null)
     {
         _monitor = monitor ?? throw new ArgumentNullException(nameof(monitor));
@@ -118,11 +118,15 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
         }
     }
 
-    internal static RtssApplicationTarget? Project(RunningApplicationTargetSnapshot snapshot)
+    internal static PerformanceApplicationTarget? Project(
+        RunningApplicationTargetSnapshot snapshot)
         => snapshot.State is RunningApplicationTargetState.Active
+                or RunningApplicationTargetState.IdentityOnly
             && snapshot.ApplicationId is { Length: > 0 } applicationId
-            && snapshot.RtssProfileName is { Length: > 0 } profileName
-                ? new RtssApplicationTarget(applicationId, profileName)
+                ? new PerformanceApplicationTarget(
+                    applicationId,
+                    snapshot.SteamAppId,
+                    snapshot.RtssProfileName)
                 : null;
 
     private void OnTargetChanged(RunningApplicationTargetSnapshot snapshot) => Queue(snapshot);

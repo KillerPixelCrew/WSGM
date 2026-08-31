@@ -46,15 +46,26 @@ levels or rewrite the user's RTSS overlay layout.
 The shared performance contract already provides:
 
 - global and per-application desired state with per-property application-to-global fallback;
+- one canonical application identity fed by Steam lifetime notifications and foreground-window
+  observation: Steam AppID wins when exactly one game is running, while a usable foreground
+  executable fills Steam's missing store-app profile or identifies an application outside Steam;
+- identity-only per-application policy when Steam has named the game but Windows has not exposed its
+  executable yet; preferences persist against the AppID and report `Deferred` instead of being
+  misapplied to RTSS's global profile, then apply when foreground enrichment arrives;
 - adapter-published frame-limit and overlay-level bounds instead of guessed numeric limits;
 - one serialized command path with origin/correlation diagnostics;
-- distinct requested, applying, verified, applied-unverified, rejected, timed-out, indeterminate,
-  failed, and externally-changed outcomes;
+- distinct requested, applying, deferred, verified, applied-unverified, rejected, timed-out,
+  indeterminate, failed, and externally-changed outcomes;
 - process-generation checks before readback, so an RTSS restart makes an in-flight result
   indeterminate;
 - polling only while at least one UI client owns an observation lease, bounded to 250 ms through 30
   seconds (two seconds by default), with cancellation and disposal; and
 - no dependency on the Device Integration master toggle.
+
+`RunningApplicationMonitor` is the only detector. `RunningApplicationCoordinator` projects its one
+answer into `PerformanceService` and controller policy; QAM and the overlay read that service rather
+than observing Steam or foreground windows again. More than one Steam AppID remains ambiguous and
+uses global policy—foreground focus is not allowed to guess which running game should be edited.
 
 ## WSGM starts RTSS
 
