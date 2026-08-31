@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace WSGM.Core;
 
@@ -11,9 +12,11 @@ namespace WSGM.Core;
 /// parts that touch the machine — discovering what the display accepts, caching that, applying a
 /// rate, and putting the original back.
 /// <para>
-/// Discovery is cached because it is not free: every candidate rate costs a `CDS_TEST` round trip
-/// through the driver, and a cap change is a user-facing action that should not stall behind a dozen
-/// of them. <see cref="Invalidate"/> drops the cache when the display itself may have changed.
+/// Discovery is cached for the session because it is not free: every candidate rate costs a
+/// `CDS_TEST` round trip through the driver, and a cap change is a user-facing action that should
+/// not stall behind a dozen of them. There is no display-change invalidation: the internal panel's
+/// modes do not change within a session, and a dock/undock already goes through the
+/// display-profile path.
 /// </para>
 /// </remarks>
 internal sealed class RefreshRatePairingService
@@ -57,18 +60,6 @@ internal sealed class RefreshRatePairingService
         _readCurrentRate = readCurrentRate;
     }
 
-    /// <summary>The strategy currently in force.</summary>
-    internal FrameLimitStrategy Strategy
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return _strategy;
-            }
-        }
-    }
-
     /// <summary>
     /// Adopts a strategy, restoring the display first when the new one no longer owns it.
     /// </summary>
@@ -96,14 +87,68 @@ internal sealed class RefreshRatePairingService
         }
     }
 
-    /// <summary>Drops cached discovery, after a display or mode change.</summary>
-    internal void Invalidate()
+    /// <summary>The rates the driver accepts, discovered once and shared by every consumer.</summary>
+    /// <returns>Accepted rates, ascending. Empty when the display cannot be read.</returns>
+    internal IReadOnlyList<int> AcceptedRates()
     {
+        IReadOnlyList<int>? accepted;
         lock (_gate)
         {
-            _accepted = null;
-            _advertised = null;
+            accepted = _accepted;
         }
+
+        // Discovery runs outside the lock because each candidate rate costs a driver round trip,
+        // and holding the gate across that would block every caller behind it.
+        accepted ??= _readAcceptedRates();
+        lock (_gate)
+        {
+            _accepted ??= accepted;
+        }
+
+        return accepted;
+    }
+
+    /// <summary>Applies a refresh rate the user chose by hand.</summary>
+    /// <param name="refreshHz">The chosen rate.</param>
+    /// <param name="capFps">The frame cap in force; zero or negative means uncapped.</param>
+    /// <returns>Whether the display is now at that rate.</returns>
+    /// <remarks>
+    /// Checked against the rates discovery accepted, not passed straight to the driver: the value
+    /// arrives from injected JavaScript, and a rate the panel cannot show is a black screen. A
+    /// manual write is user-owned, so no original is captured and nothing restores it later.
+    /// </remarks>
+    internal bool TryApplyManual(int refreshHz, int capFps)
+    {
+        FrameLimitStrategy strategy;
+        lock (_gate)
+        {
+            strategy = _strategy;
+        }
+
+        // A pairing strategy owns the refresh rate only while there is a CAP for it to own one
+        // against. With the frame limit off there is no cadence to pair to and the unified row's
+        // slider becomes the rate itself, so refusing there rejected the very writes that row
+        // exists to make — "Manual refresh rate 72 Hz refused" against a strategy that was, at that
+        // moment, pairing nothing.
+        if (capFps > 0 && !FrameLimitPairing.RefreshRateIsUserOwned(strategy))
+        {
+            Log.Warn(
+                $"Manual refresh rate {refreshHz} Hz refused: the "
+                + $"{strategy} strategy owns the refresh rate while a "
+                + $"{capFps} FPS cap is set.");
+            return false;
+        }
+
+        IReadOnlyList<int> accepted = AcceptedRates();
+        if (!accepted.Contains(refreshHz))
+        {
+            Log.Warn(
+                $"Manual refresh rate {refreshHz} Hz refused: accepted rates are "
+                + $"[{string.Join(",", accepted)}].");
+            return false;
+        }
+
+        return _applyRate(refreshHz);
     }
 
     /// <summary>The frame caps worth offering under the current strategy.</summary>
@@ -219,22 +264,17 @@ internal sealed class RefreshRatePairingService
     private (FrameLimitStrategy, IReadOnlyList<int>, IReadOnlyList<int>) Snapshot()
     {
         FrameLimitStrategy strategy;
-        IReadOnlyList<int>? accepted;
         IReadOnlyList<int>? advertised;
         lock (_gate)
         {
             strategy = _strategy;
-            accepted = _accepted;
             advertised = _advertised;
         }
 
-        // Discovery runs outside the lock because each candidate rate costs a driver round trip,
-        // and holding the gate across that would block every caller behind it.
-        accepted ??= _readAcceptedRates();
+        IReadOnlyList<int> accepted = AcceptedRates();
         advertised ??= _readAdvertisedRates();
         lock (_gate)
         {
-            _accepted ??= accepted;
             _advertised ??= advertised;
         }
 

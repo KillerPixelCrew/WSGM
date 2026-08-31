@@ -17,7 +17,7 @@ internal sealed record DeviceOverlaySectionEntry(
     string Title,
     string Description,
     int Count,
-    DeviceOverlayStatus Status);
+    DescriptorStatus Status);
 
 /// <summary>
 /// Turns a Device snapshot into the section list the destination's root page shows.
@@ -108,12 +108,12 @@ internal static class DeviceOverlaySectionPages
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         Dictionary<DeviceOverlaySection, int> counts = [];
-        Dictionary<DeviceOverlaySection, DeviceOverlayStatus> statuses = [];
+        Dictionary<DeviceOverlaySection, DescriptorStatus> statuses = [];
         foreach (DeviceOverlayCapability capability in snapshot.Capabilities)
         {
             counts[capability.Section] = counts.GetValueOrDefault(capability.Section) + 1;
             statuses[capability.Section] = MoreSerious(
-                statuses.GetValueOrDefault(capability.Section, DeviceOverlayStatus.None),
+                statuses.GetValueOrDefault(capability.Section, DescriptorStatus.None),
                 capability.Status);
         }
 
@@ -122,42 +122,17 @@ internal static class DeviceOverlaySectionPages
         // and is dropped from the menu, which makes the row unreachable — the case for AutoTDP on a
         // device that publishes no power capability, and for the controller target on any device,
         // since no plugin publishes one.
-        void AddDirectRow(DeviceOverlaySection section, DeviceOverlayStatus status)
+        foreach ((DeviceOverlaySection section, DescriptorRow? row) in DirectRows(snapshot))
         {
+            if (row is null)
+            {
+                continue;
+            }
+
             counts[section] = counts.GetValueOrDefault(section) + 1;
             statuses[section] = MoreSerious(
-                statuses.GetValueOrDefault(section, DeviceOverlayStatus.None),
-                status);
-        }
-
-        if (snapshot.GlyphSelection is { } glyphs)
-        {
-            AddDirectRow(DeviceOverlaySection.Glyphs, glyphs.Status);
-        }
-
-        if (snapshot.AutoTdp is { } autoTdp)
-        {
-            AddDirectRow(DeviceOverlaySection.PowerAndThermals, autoTdp.Status);
-        }
-
-        if (snapshot.Controller is { } controller)
-        {
-            AddDirectRow(DeviceOverlaySection.ControllerAndMotion, controller.Status);
-        }
-
-        if (snapshot.Recovery is { } recovery)
-        {
-            AddDirectRow(DeviceOverlaySection.Diagnostics, recovery.Status);
-        }
-
-        if (snapshot.Profile is { } profile)
-        {
-            AddDirectRow(DeviceOverlaySection.Profiles, profile.Status);
-        }
-
-        if (snapshot.AuthoredProfile is { } authored)
-        {
-            AddDirectRow(DeviceOverlaySection.Profiles, authored.Status);
+                statuses.GetValueOrDefault(section, DescriptorStatus.None),
+                row.Status);
         }
 
         List<DeviceOverlaySectionEntry> entries = [];
@@ -175,10 +150,25 @@ internal static class DeviceOverlaySectionPages
                 TitleFor(section),
                 DescriptionFor(section),
                 count,
-                statuses.GetValueOrDefault(section, DeviceOverlayStatus.None)));
+                statuses.GetValueOrDefault(section, DescriptorStatus.None)));
         }
 
         return entries;
+    }
+
+    /// <summary>The direct rows and the section each belongs to, in presentation order.</summary>
+    /// <remarks>One table for the menu counting above and for the section renderer, so a row can
+    /// never be counted into one section and drawn on another.</remarks>
+    internal static IEnumerable<(DeviceOverlaySection Section, DescriptorRow? Row)> DirectRows(
+        DeviceOverlaySnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        yield return (DeviceOverlaySection.PowerAndThermals, snapshot.AutoTdp);
+        yield return (DeviceOverlaySection.Profiles, snapshot.Profile);
+        yield return (DeviceOverlaySection.Profiles, snapshot.AuthoredProfile);
+        yield return (DeviceOverlaySection.ControllerAndMotion, snapshot.Controller);
+        yield return (DeviceOverlaySection.Diagnostics, snapshot.Recovery);
+        yield return (DeviceOverlaySection.Glyphs, snapshot.GlyphSelection);
     }
 
     /// <summary>Selects the capabilities belonging to one section.</summary>
@@ -210,18 +200,18 @@ internal static class DeviceOverlaySectionPages
     /// A section card shows the worst thing inside it. Showing the best, or the first, would let a
     /// faulted control hide behind a healthy one on a page the user has not opened.
     /// </remarks>
-    internal static DeviceOverlayStatus MoreSerious(
-        DeviceOverlayStatus left,
-        DeviceOverlayStatus right) =>
+    internal static DescriptorStatus MoreSerious(
+        DescriptorStatus left,
+        DescriptorStatus right) =>
         Severity(right) > Severity(left) ? right : left;
 
-    private static int Severity(DeviceOverlayStatus status) => status switch
+    private static int Severity(DescriptorStatus status) => status switch
     {
-        DeviceOverlayStatus.Faulted => 5,
-        DeviceOverlayStatus.ExternallyOwned => 4,
-        DeviceOverlayStatus.Warning => 3,
-        DeviceOverlayStatus.Stale => 2,
-        DeviceOverlayStatus.Unsupported => 1,
+        DescriptorStatus.Faulted => 5,
+        DescriptorStatus.ExternallyOwned => 4,
+        DescriptorStatus.Warning => 3,
+        DescriptorStatus.Stale => 2,
+        DescriptorStatus.Unsupported => 1,
         _ => 0,
     };
 

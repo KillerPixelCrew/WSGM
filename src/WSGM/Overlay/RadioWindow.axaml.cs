@@ -9,6 +9,8 @@ using WindowsDeviceControl;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Shell;
+using RadioPower = WindowsDeviceControl.WindowsRadio.Power;
+using WifiSecurity = WindowsDeviceControl.WindowsRadio.WifiSecurity;
 
 namespace WSGM.Overlay;
 

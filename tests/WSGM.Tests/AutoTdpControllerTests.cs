@@ -198,12 +198,14 @@ public sealed class AutoTdpControllerTests
         Assert.All(decisions, decision => Assert.Equal("paused-manual", decision.Reason));
     }
 
+    // Switching AutoTDP off and on is the only way control resumes after a manual change:
+    // Start() is what clears the pause, and it starts from the manual value the user left.
     [Fact]
-    public void AnExplicitResumeReturnsControlFromTheManualValue()
+    public void SwitchingAutoTdpOffAndOnReturnsControlFromTheManualValue()
     {
         AutoTdpController controller = Started(15);
         controller.PauseForManualChange(22);
-        controller.Resume(22);
+        controller.Start(22, Limits, Game);
 
         IReadOnlyList<AutoTdpDecision> decisions = Replay(controller, Missing(3));
 

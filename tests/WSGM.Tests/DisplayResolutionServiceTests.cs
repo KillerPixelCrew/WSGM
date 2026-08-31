@@ -57,19 +57,6 @@ public sealed class DisplayResolutionServiceTests
     }
 
     [Fact]
-    public void InvalidatingDropsTheCacheSoADisplayChangeIsSeen()
-    {
-        int[] count = [0];
-        DisplayResolutionService service = Service([], count);
-
-        service.Options();
-        service.Invalidate();
-        service.Options();
-
-        Assert.Equal(2, count[0]);
-    }
-
-    [Fact]
     public void AResolutionDiscoveryDidNotAcceptIsNeverSentToTheDriver()
     {
         // One that was never validated may not display at all, and recovering from a mode the user
@@ -99,7 +86,6 @@ public sealed class DisplayResolutionServiceTests
 
         Assert.True(service.Restore());
         Assert.Empty(applied);
-        Assert.False(service.HoldsDisplay);
     }
 
     [Fact]
@@ -109,10 +95,10 @@ public sealed class DisplayResolutionServiceTests
         DisplayResolutionService service = Service(applied);
 
         service.Apply(new DisplayResolution(1280, 800));
+        applied.Clear();
 
-        Assert.True(service.HoldsDisplay);
-        service.Restore();
-        Assert.False(service.HoldsDisplay);
+        Assert.True(service.Restore());
+        Assert.Equal(new DisplayResolution(1920, 1200), Assert.Single(applied));
     }
 
     [Fact]
@@ -156,8 +142,9 @@ public sealed class DisplayResolutionServiceTests
         Assert.True(service.Apply(new DisplayResolution(1280, 800)));
 
         Assert.False(service.Restore());
-        Assert.True(service.HoldsDisplay);
         Assert.True(service.Restore());
-        Assert.False(service.HoldsDisplay);
+        // The snapshot was consumed by the successful restore, so a third call has nothing to do.
+        Assert.True(service.Restore());
+        Assert.Equal(3, attempts);
     }
 }

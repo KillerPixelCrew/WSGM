@@ -34,12 +34,7 @@ public static class ConfigStore
         using var guard = ConfigMutex.Acquire();
         try
         {
-            if (File.Exists(ConfigPath))
-            {
-                var json = File.ReadAllText(ConfigPath);
-                var config = DeserializeConfig(json);
-                return Normalize(config);
-            }
+            return LoadForMutation();
         }
         catch (Exception ex)
         {
@@ -86,16 +81,16 @@ public static class ConfigStore
         {
             var root = JsonNode.Parse(json)?.AsObject()
                 ?? throw new JsonException("Configuration root was not an object.");
-            RepairEnum(root, "GlyphStyle", GlyphStyle.Xbox);
-            RepairEnum(root, "DisplayManagement", DisplayManagementMode.DpiOnly);
+            RepairEnum(root, "GlyphStyle", Defaults.GlyphStyle);
+            RepairEnum(root, "DisplayManagement", Defaults.DisplayManagement);
             if (root["Gestures"] is JsonObject gestures)
             {
-                RepairEnum(gestures, "BottomEdgeAction", EdgeAction.Taskbar);
+                RepairEnum(gestures, "BottomEdgeAction", Defaults.Gestures.BottomEdgeAction);
             }
             if (root["Splash"] is JsonObject splash)
             {
-                RepairEnum(splash, "SpinnerStyle", SplashSpinnerStyle.Ring);
-                RepairEnum(splash, "SweepEdge", SweepEdge.Bottom);
+                RepairEnum(splash, "SpinnerStyle", Defaults.Splash.SpinnerStyle);
+                RepairEnum(splash, "SweepEdge", Defaults.Splash.SweepEdge);
                 RepairPlacement(splash["TextPlacement"] as JsonObject);
                 RepairPlacement(splash["SpinnerPlacement"] as JsonObject);
                 RepairPlacement(splash["LogoPlacement"] as JsonObject);
@@ -111,16 +106,13 @@ public static class ConfigStore
             {
                 foreach (var wrapper in wrappers.OfType<JsonObject>())
                 {
-                    RepairEnum(wrapper, "Mode", LaunchWrapperMode.None);
-                    RepairEnum(wrapper, "Kind", LaunchConfigurationKind.Wrapper);
+                    RepairEnum(wrapper, "Mode", default(LaunchWrapperMode));
+                    RepairEnum(wrapper, "Kind", default(LaunchConfigurationKind));
                 }
             }
             if (root["Performance"] is JsonObject performance)
             {
-                RepairEnum(
-                    performance,
-                    "FrameLimitStrategy",
-                    FrameLimitStrategy.FrameLimitOnly);
+                RepairEnum(performance, "FrameLimitStrategy", Defaults.Performance.FrameLimitStrategy);
             }
             // Every enum in this file is written by name (UseStringEnumConverter), so an unknown
             // name throws here before Normalize can apply its Enum.IsDefined fallbacks. Repairing
@@ -130,14 +122,13 @@ public static class ConfigStore
             // recovery snapshots and every unrelated setting with it.
             if (root["DeviceIntegration"] is JsonObject device)
             {
-                RepairEnum(device, "ControllerTarget", ManagedControllerTarget.SteamDeckComposite);
-                RepairEnum(device, "GlyphSelection", DeviceGlyphSelection.Automatic);
-                RepairEnum(device, "DiagnosticLevel", DeviceDiagnosticLevel.Standard);
+                RepairEnum(device, "ControllerTarget", Defaults.DeviceIntegration.ControllerTarget);
+                RepairEnum(device, "GlyphSelection", Defaults.DeviceIntegration.GlyphSelection);
                 if (device["ControllerTargets"] is JsonArray targets)
                 {
                     foreach (var target in targets.OfType<JsonObject>())
                     {
-                        RepairEnum(target, "Target", ManagedControllerTarget.SteamDeckComposite);
+                        RepairEnum(target, "Target", Defaults.DeviceIntegration.ControllerTarget);
                     }
                 }
                 if (device["Profiles"] is JsonArray profiles)
@@ -245,20 +236,20 @@ public static class ConfigStore
     private static void RepairPlacement(JsonObject? placement)
     {
         if (placement is null) { return; }
-        RepairEnum(placement, "Mode", SplashPlacementMode.Anchor);
-        RepairEnum(placement, "Anchor", SplashPlacementAnchor.Center);
+        RepairEnum(placement, "Mode", PlacementDefaults.Mode);
+        RepairEnum(placement, "Anchor", PlacementDefaults.Anchor);
     }
 
     private static void RepairFilterJson(JsonObject? filter)
     {
         if (filter is null) { return; }
-        RepairEnum(filter, "Kind", FilterKind.Installed);
-        RepairEnum(filter, "Mode", FilterMode.And);
-        RepairEnum(filter, "Condition", ThresholdCondition.Above);
-        RepairEnum(filter, "Platform", PlatformKind.Steam);
-        RepairEnum(filter, "ScoreType", ReviewScoreType.SteamPercent);
-        RepairEnum(filter, "Units", TimeUnit.Hours);
-        RepairEnum(filter, "CardScope", SdCardScope.Inserted);
+        RepairEnum(filter, "Kind", FilterDefaults.Kind);
+        RepairEnum(filter, "Mode", FilterDefaults.Mode);
+        RepairEnum(filter, "Condition", FilterDefaults.Condition);
+        RepairEnum(filter, "Platform", FilterDefaults.Platform);
+        RepairEnum(filter, "ScoreType", FilterDefaults.ScoreType);
+        RepairEnum(filter, "Units", FilterDefaults.Units);
+        RepairEnum(filter, "CardScope", FilterDefaults.CardScope);
         if (filter["Children"] is JsonArray children)
         {
             foreach (var child in children.OfType<JsonObject>())
@@ -279,16 +270,41 @@ public static class ConfigStore
         }
     }
 
+    // The single source for every persisted default is the config classes' own
+    // property initializers; these read-only templates hand them to the JSON
+    // repair pass (unknown enum NAME) and to Normalize (unknown enum NUMBER, null
+    // string) alike, so the two passes cannot drift apart. Never mutate them and
+    // never hand them to a caller.
+    private static readonly AppConfig Defaults = new();
+    private static readonly SplashElementPlacement PlacementDefaults = new();
+    // Spelled out rather than left to the property initializers: a repaired filter falls back to
+    // the neutral filter a user would recognise ("installed", ANDed, inserted cards), which is not
+    // the same as enum member zero. Both repair passes read this one instance, so they cannot
+    // disagree about what an unreadable value becomes.
+    private static readonly FilterNode FilterDefaults = new()
+    {
+        Kind = FilterKind.Installed,
+        Mode = FilterMode.And,
+        Condition = ThresholdCondition.Above,
+        Platform = PlatformKind.Steam,
+        ScoreType = ReviewScoreType.SteamPercent,
+        Units = TimeUnit.Hours,
+        CardScope = SdCardScope.Inserted,
+    };
+
+    /// <summary>An unknown enum NUMBER ("SpinnerStyle": 999 deserializes into the
+    /// enum unchecked) falls back to the field's default rather than to whatever
+    /// neighbouring member a clamp would land on.</summary>
+    private static T Definite<T>(T value, T fallback) where T : struct, Enum =>
+        Enum.IsDefined(value) ? value : fallback;
+
     /// <summary>An explicit JSON null ("StartupApps": null) deserializes over the
     /// property initializer; replace nulls with fresh defaults so a hand-edited
     /// config can never NRE the shell later (which would kill it before the panic
     /// handler runs). New nested object/list members belong in this list too.</summary>
     internal static AppConfig Normalize(AppConfig config)
     {
-        if (!Enum.IsDefined(config.DisplayManagement))
-        {
-            config.DisplayManagement = DisplayManagementMode.DpiOnly;
-        }
+        config.DisplayManagement = Definite(config.DisplayManagement, Defaults.DisplayManagement);
         config.StartupApps ??= [];
         config.DeviceIntegration ??= new DeviceIntegrationConfig();
         NormalizeDeviceIntegration(config.DeviceIntegration);
@@ -298,7 +314,6 @@ public static class ConfigStore
         config.Hotkey ??= new HotkeyConfig();
         config.GamepadChord ??= new GamepadChordConfig();
         config.Gestures ??= new GestureConfig();
-        config.SavedDisplayScales ??= [];
         config.SavedDisplayScaleEntries ??= [];
         config.DisplayProfiles ??= [];
         config.PreviousConsoleLockSchemeValues ??= [];
@@ -306,7 +321,6 @@ public static class ConfigStore
         config.ForgottenInsertedCardIds ??= [];
         config.ForgottenInsertedCardIds = config.ForgottenInsertedCardIds
             .Where(static id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal).ToList();
-        config.CategoryTabs ??= [];
         config.CustomTabs ??= [];
         config.LibraryTabOrder ??= [];
         config.HiddenNativeTabs ??= [];
@@ -342,21 +356,12 @@ public static class ConfigStore
             card.ContentId ??= "";
             card.Name ??= "";
             card.AppIds ??= [];
-            card.CollectionId ??= "";
-            card.LastLetter ??= "";
-        }
-        config.CategoryTabs = config.CategoryTabs.Where(static category => category is not null).ToList();
-        foreach (var category in config.CategoryTabs)
-        {
-            category.Name ??= "";
-            category.CollectionId ??= "";
         }
         config.CustomTabs = config.CustomTabs.Where(static tab => tab is not null).ToList();
         foreach (var tab in config.CustomTabs)
         {
             tab.Id = string.IsNullOrWhiteSpace(tab.Id) ? Guid.NewGuid().ToString("N") : tab.Id;
             tab.Name ??= "";
-            tab.CollectionId ??= "";
             tab.FilterTree ??= new FilterNode { Kind = FilterKind.Merge };
             NormalizeFilter(tab.FilterTree);
         }
@@ -397,7 +402,7 @@ public static class ConfigStore
         {
             link.Name ??= "";
         }
-        config.AccentColor ??= "#FFFF9D3D";
+        config.AccentColor ??= Defaults.AccentColor;
         config.AccentColor = Truncate(config.AccentColor, MaxColorLength, "Accent color");
         config.Splash ??= new SplashConfig();
         NormalizeSplash(config.Splash);
@@ -415,21 +420,10 @@ public static class ConfigStore
     /// </remarks>
     internal static void NormalizeDeviceIntegration(DeviceIntegrationConfig device)
     {
-        if (!Enum.IsDefined(device.ControllerTarget))
-        {
-            device.ControllerTarget = ManagedControllerTarget.SteamDeckComposite;
-        }
-
-        if (!Enum.IsDefined(device.GlyphSelection))
-        {
-            device.GlyphSelection = DeviceGlyphSelection.Automatic;
-        }
-
-        if (!Enum.IsDefined(device.DiagnosticLevel))
-        {
-            device.DiagnosticLevel = DeviceDiagnosticLevel.Standard;
-        }
-
+        device.ControllerTarget = Definite(
+            device.ControllerTarget, Defaults.DeviceIntegration.ControllerTarget);
+        device.GlyphSelection = Definite(
+            device.GlyphSelection, Defaults.DeviceIntegration.GlyphSelection);
         device.ManualGlyphProfileId = string.IsNullOrWhiteSpace(device.ManualGlyphProfileId)
             ? null
             : device.ManualGlyphProfileId.Trim();
@@ -590,11 +584,8 @@ public static class ConfigStore
 
     private static void NormalizePerformance(PerformanceConfig performance)
     {
-        if (!Enum.IsDefined(performance.FrameLimitStrategy))
-        {
-            performance.FrameLimitStrategy = FrameLimitStrategy.FrameLimitOnly;
-        }
-
+        performance.FrameLimitStrategy = Definite(
+            performance.FrameLimitStrategy, Defaults.Performance.FrameLimitStrategy);
         performance.Applications ??= [];
         performance.Applications.RemoveAll(static application => application is null
             || string.IsNullOrWhiteSpace(application.ApplicationId));
@@ -640,13 +631,13 @@ public static class ConfigStore
 
     private static void NormalizeFilter(FilterNode node)
     {
-        if (!Enum.IsDefined(node.Kind)) { node.Kind = FilterKind.Installed; }
-        if (!Enum.IsDefined(node.Mode)) { node.Mode = FilterMode.And; }
-        if (!Enum.IsDefined(node.Condition)) { node.Condition = ThresholdCondition.Above; }
-        if (!Enum.IsDefined(node.Platform)) { node.Platform = PlatformKind.Steam; }
-        if (!Enum.IsDefined(node.ScoreType)) { node.ScoreType = ReviewScoreType.SteamPercent; }
-        if (!Enum.IsDefined(node.Units)) { node.Units = TimeUnit.Hours; }
-        if (!Enum.IsDefined(node.CardScope)) { node.CardScope = SdCardScope.Inserted; }
+        node.Kind = Definite(node.Kind, FilterDefaults.Kind);
+        node.Mode = Definite(node.Mode, FilterDefaults.Mode);
+        node.Condition = Definite(node.Condition, FilterDefaults.Condition);
+        node.Platform = Definite(node.Platform, FilterDefaults.Platform);
+        node.ScoreType = Definite(node.ScoreType, FilterDefaults.ScoreType);
+        node.Units = Definite(node.Units, FilterDefaults.Units);
+        node.CardScope = Definite(node.CardScope, FilterDefaults.CardScope);
         node.CollectionId ??= "";
         node.Pattern ??= "";
         node.ContentId ??= "";
@@ -659,27 +650,43 @@ public static class ConfigStore
         }
     }
 
-    // Mirrored from the Appearance editor. Normalization is shared by config load and theme import,
-    // so the renderer sees the same bounded values regardless of their source.
-    private const int MinFontSize = 1;
-    private const int MaxTitleFontSize = 400;
-    private const int MaxCaptionFontSize = 200;
-    private const int MinSpinnerSize = 1;
-    private const int MaxSpinnerSize = 1024;
-    private const int MinLogoMaxSize = 1;
-    private const int MaxLogoMaxSize = 4096;
-    private const int MinPadding = 0;
-    private const int MaxPadding = 4096;
-    private const int MinAbsoluteCoordinate = 0;
-    private const int MaxAbsoluteCoordinate = 16384;
+    // The single source of the editor bounds: AppearancePage.axaml binds its
+    // NumericUpDown Minimum/Maximum and TextBox MaxLength values to these via
+    // x:Static, and normalization applies the same limits to config load and
+    // theme import, so the renderer sees the same bounded values regardless of
+    // their source.
+    /// <summary>Smallest splash font size the editor and normalization accept.</summary>
+    public const int MinFontSize = 1;
+    /// <summary>Largest splash title font size.</summary>
+    public const int MaxTitleFontSize = 400;
+    /// <summary>Largest splash caption font size.</summary>
+    public const int MaxCaptionFontSize = 200;
+    /// <summary>Smallest spinner size in logical pixels.</summary>
+    public const int MinSpinnerSize = 1;
+    /// <summary>Largest spinner size in logical pixels.</summary>
+    public const int MaxSpinnerSize = 1024;
+    /// <summary>Smallest logo maximum-edge length.</summary>
+    public const int MinLogoMaxSize = 1;
+    /// <summary>Largest logo maximum-edge length.</summary>
+    public const int MaxLogoMaxSize = 4096;
+    /// <summary>Smallest anchored-edge padding.</summary>
+    public const int MinPadding = 0;
+    /// <summary>Largest anchored-edge padding.</summary>
+    public const int MaxPadding = 4096;
+    /// <summary>Smallest absolute placement coordinate (an element placed off the
+    /// top-left is unreachable, not a feature).</summary>
+    public const int MinAbsoluteCoordinate = 0;
+    /// <summary>Largest absolute placement coordinate in logical pixels.</summary>
+    public const int MaxAbsoluteCoordinate = 16384;
 
-    // Splash title and caption are single unwrapped lines. This cap bounds both Settings and boot
-    // layout work while remaining longer than the panel can display usefully.
-    private const int MaxSplashTextLength = 200;
+    /// <summary>Splash title and caption are single unwrapped lines. This cap bounds
+    /// both Settings and boot layout work while remaining longer than the panel can
+    /// display usefully.</summary>
+    public const int MaxSplashTextLength = 200;
 
-    // Covers hexadecimal and named Avalonia colours with room to spare, while bounding the text
-    // parsed on each live Appearance-page edit.
-    private const int MaxColorLength = 32;
+    /// <summary>Covers hexadecimal and named Avalonia colours with room to spare,
+    /// while bounding the text parsed on each live Appearance-page edit.</summary>
+    public const int MaxColorLength = 32;
 
     /// <summary>Repairs explicit JSON nulls inside a splash section (see
     /// <see cref="Normalize"/>), bounds the display strings, and clamps every
@@ -688,12 +695,12 @@ public static class ConfigStore
     /// archives.</summary>
     internal static SplashConfig NormalizeSplash(SplashConfig splash)
     {
-        splash.Text ??= "Please wait";
-        splash.TextColor ??= "#FFFFFF";
-        splash.Caption ??= "";
-        splash.CaptionColor ??= "#666666";
-        splash.SpinnerColor ??= "#FFFFFF";
-        splash.BackgroundColor ??= "#000000";
+        splash.Text ??= Defaults.Splash.Text;
+        splash.TextColor ??= Defaults.Splash.TextColor;
+        splash.Caption ??= Defaults.Splash.Caption;
+        splash.CaptionColor ??= Defaults.Splash.CaptionColor;
+        splash.SpinnerColor ??= Defaults.Splash.SpinnerColor;
+        splash.BackgroundColor ??= Defaults.Splash.BackgroundColor;
         // Truncate rather than reject: a theme whose title is too long is still a
         // usable theme, and dropping the whole import over one field would lose the
         // images and every other setting with it.
@@ -717,17 +724,8 @@ public static class ConfigStore
         splash.CaptionFontSize = Math.Clamp(splash.CaptionFontSize, MinFontSize, MaxCaptionFontSize);
         splash.SpinnerSize = Math.Clamp(splash.SpinnerSize, MinSpinnerSize, MaxSpinnerSize);
         splash.LogoMaxSize = Math.Clamp(splash.LogoMaxSize, MinLogoMaxSize, MaxLogoMaxSize);
-        // A JSON number ("SpinnerStyle": 999) deserializes into the enum unchecked;
-        // an unknown member falls back to the field's default rather than to whatever
-        // neighbouring style a clamp would land on.
-        if ((int)splash.SpinnerStyle is < 0 or > (int)SplashSpinnerStyle.Off)
-        {
-            splash.SpinnerStyle = SplashSpinnerStyle.Ring;
-        }
-        if ((int)splash.SweepEdge is < 0 or > (int)SweepEdge.Top)
-        {
-            splash.SweepEdge = SweepEdge.Bottom;
-        }
+        splash.SpinnerStyle = Definite(splash.SpinnerStyle, Defaults.Splash.SpinnerStyle);
+        splash.SweepEdge = Definite(splash.SweepEdge, Defaults.Splash.SweepEdge);
         NormalizePlacement(splash.TextPlacement);
         NormalizePlacement(splash.SpinnerPlacement);
         NormalizePlacement(splash.LogoPlacement);
@@ -764,18 +762,10 @@ public static class ConfigStore
     /// unknown enum members back to their defaults.</summary>
     private static void NormalizePlacement(SplashElementPlacement placement)
     {
-        if ((int)placement.Mode is < 0 or > (int)SplashPlacementMode.WithText)
-        {
-            placement.Mode = SplashPlacementMode.Anchor;
-        }
-        if ((int)placement.Anchor is < 0 or > (int)SplashPlacementAnchor.BottomRight)
-        {
-            placement.Anchor = SplashPlacementAnchor.Center;
-        }
+        placement.Mode = Definite(placement.Mode, PlacementDefaults.Mode);
+        placement.Anchor = Definite(placement.Anchor, PlacementDefaults.Anchor);
         placement.PaddingX = Math.Clamp(placement.PaddingX, MinPadding, MaxPadding);
         placement.PaddingY = Math.Clamp(placement.PaddingY, MinPadding, MaxPadding);
-        // The editor's absolute X/Y spinners start at 0 (an element placed off the
-        // top-left is unreachable, not a feature), so negatives clamp up to 0 here.
         placement.X = Math.Clamp(placement.X, MinAbsoluteCoordinate, MaxAbsoluteCoordinate);
         placement.Y = Math.Clamp(placement.Y, MinAbsoluteCoordinate, MaxAbsoluteCoordinate);
     }
@@ -903,6 +893,17 @@ public static class ConfigStore
     /// whose outer scope already gave up would not restore any guarantee.</para></summary>
     /// <returns>A scope that releases the lock when disposed.</returns>
     internal static IDisposable AcquireLock() => ConfigMutex.Acquire();
+
+    /// <summary>Deep-copies one configuration document through the production JSON
+    /// contract — the one clone mechanism for config shapes, so a copy can never
+    /// diverge from what a save/load round trip would produce.</summary>
+    /// <typeparam name="T">A type registered on <see cref="ConfigJsonContext"/>.</typeparam>
+    /// <param name="value">The instance to copy.</param>
+    /// <param name="typeInfo">The source-generated metadata for <typeparamref name="T"/>.</param>
+    /// <returns>An isolated copy sharing no mutable state with <paramref name="value"/>.</returns>
+    internal static T CloneJson<T>(T value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo)
+        where T : class, new() =>
+        JsonSerializer.Deserialize(JsonSerializer.Serialize(value, typeInfo), typeInfo) ?? new T();
 
     /// <summary>Test seam: how deeply the CALLING thread currently holds the config
     /// lock (0 = not held). Exists so the acquire/release balance of the nested scopes

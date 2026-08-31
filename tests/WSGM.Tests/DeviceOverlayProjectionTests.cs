@@ -1,3 +1,4 @@
+using WSGM.Overlay;
 using WSGM.Shell;
 
 namespace WSGM.Tests;
@@ -20,7 +21,7 @@ public sealed class DeviceOverlayProjectionTests
         Assert.Contains(snapshot.Capabilities,
             capability => capability.Section == DeviceOverlaySection.LightingAndFeatures);
         Assert.All(snapshot.Capabilities,
-            capability => Assert.NotEqual(DeviceOverlayStatus.None, capability.Status));
+            capability => Assert.NotEqual(DescriptorStatus.None, capability.Status));
         Assert.NotNull(snapshot.GlyphSelection);
         Assert.DoesNotContain(snapshot.Capabilities,
             capability => capability.CapabilityId == "wsgm.glyph.selection");
@@ -49,10 +50,10 @@ public sealed class DeviceOverlayProjectionTests
         int changes = 0;
         source.Changed += () => changes++;
 
-        DeviceOverlayGlyphSelection before = Assert.IsType<DeviceOverlayGlyphSelection>(
+        DescriptorRow before = Assert.IsType<DescriptorRow>(
             source.Snapshot().GlyphSelection);
         await source.CyclePhysicalGlyphSelectionAsync();
-        DeviceOverlayGlyphSelection after = Assert.IsType<DeviceOverlayGlyphSelection>(
+        DescriptorRow after = Assert.IsType<DescriptorRow>(
             source.Snapshot().GlyphSelection);
 
         Assert.Equal("AUTO", before.TrailingText);

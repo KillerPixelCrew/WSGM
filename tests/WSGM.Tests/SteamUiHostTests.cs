@@ -15,7 +15,7 @@ public sealed class SteamUiTargetPolicyTests
     [InlineData(100, 4)]
     public void NetworkSignalUsesSteamsFourStrengthBands(int percent, int expected)
     {
-        Assert.Equal(expected, SteamUiSessionHost.MapNetworkStrength(percent));
+        Assert.Equal(expected, NativeQamNetworkService.MapNetworkStrength(percent));
     }
 
 }
@@ -644,7 +644,7 @@ public sealed class NativeQamComponentPatchTests
             PerformanceActionsCount = 2,
         };
         await using var manager = new SteamUiPatchManager(transport);
-        manager.Register(new NativeQamValveTdpPatch());
+        manager.Register(NativeQamComponentPatches.ValveTdp);
 
         await manager.SynchronizeAsync();
 
@@ -661,7 +661,7 @@ public sealed class NativeQamComponentPatchTests
             PerformanceActionsCount = 2,
         };
         await using var manager = new SteamUiPatchManager(transport);
-        manager.Register(new NativeQamValveOverlayLevelPatch());
+        manager.Register(NativeQamComponentPatches.ValveOverlayLevel);
 
         await manager.SynchronizeAsync();
 
@@ -675,10 +675,10 @@ public sealed class NativeQamComponentPatchTests
     {
         await using var transport = new NativeQamComponentTransport();
         await using var manager = new SteamUiPatchManager(transport);
-        manager.Register(new NativeQamValveTdpPatch());
-        manager.Register(new NativeQamFrameLimitPatch());
-        manager.Register(new NativeQamValveOverlayLevelPatch());
-        manager.Register(new NativeQamControllerTargetPatch());
+        manager.Register(NativeQamComponentPatches.ValveTdp);
+        manager.Register(NativeQamComponentPatches.FrameLimit);
+        manager.Register(NativeQamComponentPatches.ValveOverlayLevel);
+        manager.Register(NativeQamComponentPatches.ControllerTarget);
 
         await manager.SynchronizeAsync();
 
@@ -705,8 +705,8 @@ public sealed class NativeQamComponentPatchTests
     {
         await using var transport = new NativeQamComponentTransport();
         await using var manager = new SteamUiPatchManager(transport);
-        manager.Register(new NativeQamValveTdpPatch());
-        manager.Register(new NativeQamControllerTargetPatch());
+        manager.Register(NativeQamComponentPatches.ValveTdp);
+        manager.Register(NativeQamComponentPatches.ControllerTarget);
         await manager.SynchronizeAsync();
 
         manager.SetPatchEnabled("wsgm.native-qam.valve-tdp", false);
@@ -729,8 +729,8 @@ public sealed class NativeQamComponentPatchTests
     {
         await using var transport = new NativeQamComponentTransport();
         await using var manager = new SteamUiPatchManager(transport);
-        manager.Register(new NativeQamFrameLimitPatch());
-        manager.Register(new NativeQamValveOverlayLevelPatch());
+        manager.Register(NativeQamComponentPatches.FrameLimit);
+        manager.Register(NativeQamComponentPatches.ValveOverlayLevel);
         await manager.SynchronizeAsync();
 
         manager.SetPatchEnabled("wsgm.native-qam.frame-limit", false);

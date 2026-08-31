@@ -1,19 +1,15 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Controls;
 
-/// <summary>The bounds a curve is edited within, taken from the capability that owns it.</summary>
+/// <summary>The bounds a curve is edited within. The editor authors every curve
+/// against the 0..100 percent-over-percent plane the device contract defines.</summary>
 /// <param name="InputMinimum">Lowest input value, for a fan curve a temperature in °C.</param>
 /// <param name="InputMaximum">Highest input value.</param>
 /// <param name="OutputMinimum">Lowest output value, for a fan curve a duty percentage.</param>
 /// <param name="OutputMaximum">Highest output value.</param>
-/// <remarks>
-/// Supplied by the device, never assumed. A curve authored against invented bounds is refused by
-/// the plugin on apply, which reads to the user as an editor that silently does nothing.
-/// </remarks>
 internal readonly record struct CurveBounds(
     int InputMinimum,
     int InputMaximum,
@@ -55,44 +51,6 @@ internal static class CurveEditing
     /// stops against its neighbour rather than reordering the curve underneath the user's finger.
     /// </remarks>
     private const int MinimumInputGap = 1;
-
-    /// <summary>Puts a curve into the shape the device contract requires.</summary>
-    /// <param name="points">The candidate points, in any order.</param>
-    /// <param name="bounds">The bounds to hold the points inside.</param>
-    /// <returns>A valid curve, never empty.</returns>
-    /// <remarks>
-    /// Used when adopting a curve from outside the editor — a plugin's reported value, or a stored
-    /// profile — where nothing guarantees order, spacing, or bounds. Duplicate inputs keep the last
-    /// point rather than being dropped silently, because a stored curve with duplicates is more
-    /// likely a rounding artefact than an intent to delete.
-    /// </remarks>
-    internal static IReadOnlyList<CurvePoint> Normalize(
-        IEnumerable<CurvePoint> points,
-        CurveBounds bounds)
-    {
-        ArgumentNullException.ThrowIfNull(points);
-
-        Dictionary<int, int> byInput = [];
-        foreach (CurvePoint point in points)
-        {
-            byInput[bounds.ClampInput(point.Input)] = bounds.ClampOutput(point.Output);
-        }
-
-        List<CurvePoint> ordered = [.. byInput
-            .OrderBy(pair => pair.Key)
-            .Take(MaximumPoints)
-            .Select(pair => new CurvePoint(pair.Key, pair.Value))];
-
-        // A curve with no points is not a curve, and the router refuses it. An empty input is a
-        // missing value rather than a request for silence, so it becomes a flat curve at the
-        // minimum output the user can then drag.
-        return ordered.Count > 0
-            ? ordered
-            : [
-                new CurvePoint(bounds.InputMinimum, bounds.OutputMinimum),
-                new CurvePoint(bounds.InputMaximum, bounds.OutputMinimum),
-            ];
-    }
 
     /// <summary>Moves one point, without letting it pass its neighbours.</summary>
     /// <param name="points">The current curve.</param>
@@ -252,35 +210,5 @@ internal static class CurveEditing
         }
 
         return points[^1].Output;
-    }
-
-    /// <summary>Whether a curve satisfies the contract the device router validates.</summary>
-    /// <param name="points">The curve to check.</param>
-    /// <param name="bounds">The bounds it must sit inside.</param>
-    /// <returns>Whether the curve would be accepted.</returns>
-    internal static bool IsValid(IReadOnlyList<CurvePoint> points, CurveBounds bounds)
-    {
-        ArgumentNullException.ThrowIfNull(points);
-        if (points.Count is 0 or > MaximumPoints)
-        {
-            return false;
-        }
-
-        for (int index = 0; index < points.Count; index++)
-        {
-            CurvePoint point = points[index];
-            if (point.Input != bounds.ClampInput(point.Input)
-                || point.Output != bounds.ClampOutput(point.Output))
-            {
-                return false;
-            }
-
-            if (index > 0 && point.Input <= points[index - 1].Input)
-            {
-                return false;
-            }
-        }
-
-        return true;
     }
 }

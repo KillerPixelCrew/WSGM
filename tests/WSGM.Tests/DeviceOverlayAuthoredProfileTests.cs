@@ -1,4 +1,5 @@
 using WSGM.Core;
+using WSGM.Overlay;
 using WSGM.Shell;
 
 namespace WSGM.Tests;
@@ -24,7 +25,7 @@ public sealed class DeviceOverlayAuthoredProfileTests
     [Fact]
     public void AProfileChosenForEverythingSaysSo()
     {
-        DeviceOverlayAuthoredProfile? row = DeviceOverlayBridge.AuthoredProfileView(
+        DescriptorRow? row = DeviceOverlayBridge.AuthoredProfileView(
             [Profile("quiet", "Quiet"), Profile("loud", "Loud")],
             "quiet",
             applicationScoped: false);
@@ -38,7 +39,7 @@ public sealed class DeviceOverlayAuthoredProfileTests
     {
         // The same word with very different consequences: this is the difference the user opens the
         // row to check mid-game.
-        DeviceOverlayAuthoredProfile? row = DeviceOverlayBridge.AuthoredProfileView(
+        DescriptorRow? row = DeviceOverlayBridge.AuthoredProfileView(
             [Profile("quiet", "Quiet")],
             "quiet",
             applicationScoped: true);
@@ -49,13 +50,13 @@ public sealed class DeviceOverlayAuthoredProfileTests
     [Fact]
     public void NothingChosenReadsAsNoneRatherThanEmpty()
     {
-        DeviceOverlayAuthoredProfile? row = DeviceOverlayBridge.AuthoredProfileView(
+        DescriptorRow? row = DeviceOverlayBridge.AuthoredProfileView(
             [Profile("quiet", "Quiet")],
             null,
             applicationScoped: false);
 
         Assert.Equal("NONE", row?.TrailingText);
-        Assert.Equal(DeviceOverlayStatus.None, row?.Status);
+        Assert.Equal(DescriptorStatus.None, row?.Status);
     }
 
     [Fact]
@@ -63,24 +64,24 @@ public sealed class DeviceOverlayAuthoredProfileTests
     {
         // None is a state the user chose; this is not, and showing them identically hides a
         // selection that has silently stopped working.
-        DeviceOverlayAuthoredProfile? row = DeviceOverlayBridge.AuthoredProfileView(
+        DescriptorRow? row = DeviceOverlayBridge.AuthoredProfileView(
             [Profile("quiet", "Quiet")],
             "deleted",
             applicationScoped: true);
 
         Assert.Equal("MISSING", row?.TrailingText);
-        Assert.Equal(DeviceOverlayStatus.Warning, row?.Status);
+        Assert.Equal(DescriptorStatus.Warning, row?.Status);
     }
 
     [Fact]
     public void TheRowOffersACycleOnceThereIsSomethingToCycleTo()
     {
-        DeviceOverlayAuthoredProfile? row = DeviceOverlayBridge.AuthoredProfileView(
+        DescriptorRow? row = DeviceOverlayBridge.AuthoredProfileView(
             [Profile("quiet", "Quiet")],
             "quiet",
             applicationScoped: false);
 
-        Assert.True(row?.CanCycle);
+        Assert.True(row?.CanInvoke);
     }
 
     [Fact]
@@ -88,12 +89,12 @@ public sealed class DeviceOverlayAuthoredProfileTests
     {
         // Pressing it moves to a profile that does exist, which is the fastest way out of the state
         // for someone mid-game.
-        DeviceOverlayAuthoredProfile? row = DeviceOverlayBridge.AuthoredProfileView(
+        DescriptorRow? row = DeviceOverlayBridge.AuthoredProfileView(
             [Profile("quiet", "Quiet")],
             "deleted",
             applicationScoped: false);
 
-        Assert.True(row?.CanCycle);
+        Assert.True(row?.CanInvoke);
     }
 
     [Fact]

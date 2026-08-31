@@ -1,6 +1,5 @@
 using System;
 using System.Diagnostics;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Interop;
@@ -19,27 +18,13 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
     // admission before waiting so no caller can pass a stale disposed check and publish an anchor
     // after teardown has already detached the previous one.
     private readonly SemaphoreSlim _operationGate = new(1, 1);
-    private readonly Func<CancellationToken, Task<ExplorerPreparationResult>>? _prepareForExitOverride;
-    private readonly Func<TimeSpan, CancellationToken, Task<ExplorerDesktopResult>>? _restoreOverride;
     private ExplorerShellAnchor? _anchor;
     private int _disposeState;
 
     /// <summary>Creates a desktop-host owner for the current interactive session.</summary>
     internal ExplorerDesktopHost()
     {
-        using Process current = Process.GetCurrentProcess();
-        _sessionId = current.SessionId;
-    }
-
-    /// <summary>Creates a host around inert operations so ownership races can be exercised without
-    /// observing or changing the live Windows shell.</summary>
-    internal ExplorerDesktopHost(
-        Func<CancellationToken, Task<ExplorerPreparationResult>> prepareForExit,
-        Func<TimeSpan, CancellationToken, Task<ExplorerDesktopResult>> restore)
-    {
-        _sessionId = 0;
-        _prepareForExitOverride = prepareForExit ?? throw new ArgumentNullException(nameof(prepareForExit));
-        _restoreOverride = restore ?? throw new ArgumentNullException(nameof(restore));
+        _sessionId = WindowFinder.CurrentSessionId;
     }
 
     /// <summary>Captures the current canonical taskbar owner and creates the replacement launch
@@ -52,10 +37,6 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
         try
         {
             ThrowIfDisposalRequested();
-            if (_prepareForExitOverride is not null)
-            {
-                return await _prepareForExitOverride(cancellationToken).ConfigureAwait(false);
-            }
             return await PrepareForExplorerExitUnderGateAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -168,9 +149,7 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
         if (previous is not null)
         {
             // The replacement is already installed, so retiring the old anchor cannot change the
-            // outcome of this takeover and must never be able to fail it. It did: a broken pipe
-            // thrown from the old anchor's disposal aborted the whole game-mode transition and
-            // closed the Big Picture that had already started.
+            // outcome of this takeover and must never be able to fail it.
             try
             {
                 await previous.DisposeAsync().ConfigureAwait(false);
@@ -225,10 +204,6 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
             if (remaining <= TimeSpan.Zero)
             {
                 return CreateOperationGateTimeout(elapsed.Elapsed);
-            }
-            if (_restoreOverride is not null)
-            {
-                return await _restoreOverride(remaining, cancellationToken).ConfigureAwait(false);
             }
             return await RestoreDesktopUnderGateAsync(deadline, elapsed, cancellationToken)
                 .ConfigureAwait(false);
@@ -567,9 +542,7 @@ internal sealed class ExplorerDesktopHost : IDisposable, IAsyncDisposable
     private void ThrowIfDisposalRequested() =>
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
 
-    private static string ExplorerPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.Windows),
-        "explorer.exe");
+    private static string ExplorerPath => ExplorerControl.ExplorerPath;
 }
 
 /// <summary>Result of capturing a canonical Explorer and creating its replacement anchor.</summary>

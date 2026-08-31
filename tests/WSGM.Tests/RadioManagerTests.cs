@@ -1,8 +1,10 @@
 using WindowsDeviceControl;
 using WSGM.Shell;
 using PairingOutcome = WindowsDeviceControl.WindowsRadio.PairingOutcome;
+using RadioPower = WindowsDeviceControl.WindowsRadio.Power;
 using WifiConnectionState = WindowsDeviceControl.WindowsRadio.WifiConnectionState;
 using WifiFailureKind = WindowsDeviceControl.WindowsRadio.WifiFailureKind;
+using WifiSecurity = WindowsDeviceControl.WindowsRadio.WifiSecurity;
 
 namespace WSGM.Tests;
 
@@ -208,7 +210,7 @@ public class RadioEntryTests
     [Fact]
     public void ASecuredNetworkWithoutASavedProfileAsksForAPassword()
     {
-        var entry = new WifiNetworkEntry("Cafe") { Security = WifiSecurity.Personal };
+        var entry = new WifiNetworkEntry("Cafe") { Security = WifiSecurity.PersonalPsk };
         Assert.True(entry.NeedsPassword);
     }
 
@@ -217,7 +219,7 @@ public class RadioEntryTests
     {
         var entry = new WifiNetworkEntry("Cafe")
         {
-            Security = WifiSecurity.Personal,
+            Security = WifiSecurity.PersonalPsk,
             Saved = true,
         };
         Assert.False(entry.NeedsPassword);
@@ -233,7 +235,7 @@ public class RadioEntryTests
     [Fact]
     public void NeedsPasswordRaisesChangeNotificationWhenTheSavedFlagFlips()
     {
-        var entry = new WifiNetworkEntry("Cafe") { Security = WifiSecurity.Personal };
+        var entry = new WifiNetworkEntry("Cafe") { Security = WifiSecurity.PersonalPsk };
         var raised = new List<string?>();
         entry.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
 

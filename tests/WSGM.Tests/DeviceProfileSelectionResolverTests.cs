@@ -31,7 +31,7 @@ public sealed class DeviceProfileSelectionResolverTests
     [Fact]
     public void TheGlobalChoiceAppliesWhenNoApplicationOverridesIt()
     {
-        DeviceProfileResolution resolution = DeviceProfileSelectionResolver.Resolve(
+        DeviceProfileResolution resolution = DeviceProfileSelectionStore.Resolve(
             [Selection("quiet")],
             [Profile("quiet")],
             Fan,
@@ -44,7 +44,7 @@ public sealed class DeviceProfileSelectionResolverTests
     [Fact]
     public void AnApplicationOverrideOutranksTheGlobalChoice()
     {
-        DeviceProfileResolution resolution = DeviceProfileSelectionResolver.Resolve(
+        DeviceProfileResolution resolution = DeviceProfileSelectionStore.Resolve(
             [Selection("quiet", ("steam:42", "loud"))],
             [Profile("quiet"), Profile("loud")],
             Fan,
@@ -57,7 +57,7 @@ public sealed class DeviceProfileSelectionResolverTests
     [Fact]
     public void AnotherApplicationStillGetsTheGlobalChoice()
     {
-        DeviceProfileResolution resolution = DeviceProfileSelectionResolver.Resolve(
+        DeviceProfileResolution resolution = DeviceProfileSelectionStore.Resolve(
             [Selection("quiet", ("steam:42", "loud"))],
             [Profile("quiet"), Profile("loud")],
             Fan,
@@ -69,7 +69,7 @@ public sealed class DeviceProfileSelectionResolverTests
     [Fact]
     public void NoRunningApplicationUsesTheGlobalChoice()
     {
-        DeviceProfileResolution resolution = DeviceProfileSelectionResolver.Resolve(
+        DeviceProfileResolution resolution = DeviceProfileSelectionStore.Resolve(
             [Selection("quiet", ("steam:42", "loud"))],
             [Profile("quiet"), Profile("loud")],
             Fan,
@@ -82,7 +82,7 @@ public sealed class DeviceProfileSelectionResolverTests
     public void NoSelectionAtAllLeavesTheCapabilityAlone()
     {
         // Inventing a choice would take the capability away from whatever else drives it.
-        DeviceProfileResolution resolution = DeviceProfileSelectionResolver.Resolve(
+        DeviceProfileResolution resolution = DeviceProfileSelectionStore.Resolve(
             [],
             [Profile("quiet")],
             Fan,
@@ -95,7 +95,7 @@ public sealed class DeviceProfileSelectionResolverTests
     [Fact]
     public void ASelectionForAnotherCapabilityIsNotUsed()
     {
-        DeviceProfileResolution resolution = DeviceProfileSelectionResolver.Resolve(
+        DeviceProfileResolution resolution = DeviceProfileSelectionStore.Resolve(
             [Selection("quiet")],
             [Profile("quiet")],
             "lighting.color",
@@ -109,7 +109,7 @@ public sealed class DeviceProfileSelectionResolverTests
     {
         // Falling back to the global profile would hide that the user's intent for this application
         // is gone, and the fans would quietly run someone else's curve.
-        DeviceProfileResolution resolution = DeviceProfileSelectionResolver.Resolve(
+        DeviceProfileResolution resolution = DeviceProfileSelectionStore.Resolve(
             [Selection("quiet", ("steam:42", "deleted"))],
             [Profile("quiet")],
             Fan,
@@ -124,7 +124,7 @@ public sealed class DeviceProfileSelectionResolverTests
     [Fact]
     public void AGlobalSelectionNamingADeletedProfileIsReported()
     {
-        DeviceProfileResolution resolution = DeviceProfileSelectionResolver.Resolve(
+        DeviceProfileResolution resolution = DeviceProfileSelectionStore.Resolve(
             [Selection("gone")],
             [Profile("quiet")],
             Fan,
@@ -142,7 +142,7 @@ public sealed class DeviceProfileSelectionResolverTests
         DeviceProfileSelection selection = Selection("quiet", ("steam:42", "quiet"));
 
         profile.Curve = [new AuthoredCurvePoint { Input = 40, Output = 80 }];
-        DeviceProfileResolution resolution = DeviceProfileSelectionResolver.Resolve(
+        DeviceProfileResolution resolution = DeviceProfileSelectionStore.Resolve(
             [selection],
             [profile],
             Fan,

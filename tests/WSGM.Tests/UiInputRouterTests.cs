@@ -1,5 +1,6 @@
 using WSGM.Device.Sdk.Input;
 using WSGM.Input;
+using WSGM.Shell;
 
 namespace WSGM.Tests;
 

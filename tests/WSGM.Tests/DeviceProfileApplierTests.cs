@@ -26,6 +26,17 @@ public sealed class DeviceProfileApplierTests
         GlobalProfileId = global,
     };
 
+    /// <summary>The device answered a write. Unverified is the interesting default: most EC writes
+    /// have no readback, and the applier must still treat that as applied.</summary>
+    private static Task<CapabilityCommandResult> Answer(
+        CommandOutcome outcome = CommandOutcome.AppliedUnverified) =>
+        Task.FromResult(new CapabilityCommandResult
+        {
+            CommandId = Guid.NewGuid(),
+            Outcome = outcome,
+            CompletedAt = DateTimeOffset.UnixEpoch,
+        });
+
     private static CapabilityDescriptor Descriptor(
         CapabilityValueKind kind = CapabilityValueKind.Curve) => new()
         {
@@ -43,19 +54,18 @@ public sealed class DeviceProfileApplierTests
     public async Task AResolvedProfileIsSentAsACurve()
     {
         CapabilityValue? sent = null;
-        DeviceProfileApplier applier = new(
-            _ => Descriptor(),
-            (_, value, _) =>
-            {
-                sent = value;
-                return Task.FromResult(true);
-            });
 
-        DeviceProfileApplyOutcome outcome = await applier.ApplyAsync(
+        DeviceProfileApplyOutcome outcome = await DeviceProfileApplier.ApplyAsync(
             [Selection()],
             [Profile()],
             Fan,
             null,
+            _ => Descriptor(),
+            (_, value, _) =>
+            {
+                sent = value;
+                return Answer();
+            },
             CancellationToken.None);
 
         Assert.Equal(DeviceProfileApplyOutcome.Applied, outcome);
@@ -67,19 +77,18 @@ public sealed class DeviceProfileApplierTests
     public async Task NoSelectionSendsNothing()
     {
         bool sent = false;
-        DeviceProfileApplier applier = new(
-            _ => Descriptor(),
-            (_, _, _) =>
-            {
-                sent = true;
-                return Task.FromResult(true);
-            });
 
-        DeviceProfileApplyOutcome outcome = await applier.ApplyAsync(
+        DeviceProfileApplyOutcome outcome = await DeviceProfileApplier.ApplyAsync(
             [],
             [Profile()],
             Fan,
             null,
+            _ => Descriptor(),
+            (_, _, _) =>
+            {
+                sent = true;
+                return Answer();
+            },
             CancellationToken.None);
 
         Assert.Equal(DeviceProfileApplyOutcome.NoSelection, outcome);
@@ -91,13 +100,13 @@ public sealed class DeviceProfileApplierTests
     {
         // Different facts: a dangling reference is a mistake the user can fix once they know, and
         // no selection at all is the normal state.
-        DeviceProfileApplier applier = new(_ => Descriptor(), (_, _, _) => Task.FromResult(true));
-
-        DeviceProfileApplyOutcome outcome = await applier.ApplyAsync(
+        DeviceProfileApplyOutcome outcome = await DeviceProfileApplier.ApplyAsync(
             [Selection("deleted")],
             [Profile()],
             Fan,
             null,
+            _ => Descriptor(),
+            (_, _, _) => Answer(),
             CancellationToken.None);
 
         Assert.Equal(DeviceProfileApplyOutcome.Refused, outcome);
@@ -109,19 +118,18 @@ public sealed class DeviceProfileApplierTests
         // Authoring happens with no plugin running, so the device may have changed since. Sending
         // it anyway means the plugin refuses it and the user sees a profile that does nothing.
         bool sent = false;
-        DeviceProfileApplier applier = new(
-            _ => Descriptor(),
-            (_, _, _) =>
-            {
-                sent = true;
-                return Task.FromResult(true);
-            });
 
-        DeviceProfileApplyOutcome outcome = await applier.ApplyAsync(
+        DeviceProfileApplyOutcome outcome = await DeviceProfileApplier.ApplyAsync(
             [Selection()],
             [Profile(output: 500)],
             Fan,
             null,
+            _ => Descriptor(),
+            (_, _, _) =>
+            {
+                sent = true;
+                return Answer();
+            },
             CancellationToken.None);
 
         Assert.Equal(DeviceProfileApplyOutcome.Refused, outcome);
@@ -132,19 +140,18 @@ public sealed class DeviceProfileApplierTests
     public async Task AnAbsentCapabilityIsRefusedWithoutCallingTheDevice()
     {
         bool sent = false;
-        DeviceProfileApplier applier = new(
-            _ => null,
-            (_, _, _) =>
-            {
-                sent = true;
-                return Task.FromResult(true);
-            });
 
-        DeviceProfileApplyOutcome outcome = await applier.ApplyAsync(
+        DeviceProfileApplyOutcome outcome = await DeviceProfileApplier.ApplyAsync(
             [Selection()],
             [Profile()],
             Fan,
             null,
+            _ => null,
+            (_, _, _) =>
+            {
+                sent = true;
+                return Answer();
+            },
             CancellationToken.None);
 
         Assert.Equal(DeviceProfileApplyOutcome.Refused, outcome);
@@ -154,13 +161,13 @@ public sealed class DeviceProfileApplierTests
     [Fact]
     public async Task ADeviceThatReportsFailureIsNotReportedAsApplied()
     {
-        DeviceProfileApplier applier = new(_ => Descriptor(), (_, _, _) => Task.FromResult(false));
-
-        DeviceProfileApplyOutcome outcome = await applier.ApplyAsync(
+        DeviceProfileApplyOutcome outcome = await DeviceProfileApplier.ApplyAsync(
             [Selection()],
             [Profile()],
             Fan,
             null,
+            _ => Descriptor(),
+            (_, _, _) => Answer(CommandOutcome.Rejected),
             CancellationToken.None);
 
         Assert.Equal(DeviceProfileApplyOutcome.Failed, outcome);
@@ -172,14 +179,6 @@ public sealed class DeviceProfileApplierTests
         DeviceAuthoredProfile loud = Profile(90);
         loud.ProfileId = "loud";
         CapabilityValue? sent = null;
-        DeviceProfileApplier applier = new(
-            _ => Descriptor(),
-            (_, value, _) =>
-            {
-                sent = value;
-                return Task.FromResult(true);
-            });
-
         DeviceProfileSelection selection = Selection();
         selection.ApplicationOverrides =
         [
@@ -190,7 +189,18 @@ public sealed class DeviceProfileApplierTests
             },
         ];
 
-        await applier.ApplyAsync([selection], [Profile(), loud], Fan, "steam:42", CancellationToken.None);
+        await DeviceProfileApplier.ApplyAsync(
+            [selection],
+            [Profile(), loud],
+            Fan,
+            "steam:42",
+            _ => Descriptor(),
+            (_, value, _) =>
+            {
+                sent = value;
+                return Answer();
+            },
+            CancellationToken.None);
 
         Assert.Equal(90, sent?.CurveValue[0].Output);
     }

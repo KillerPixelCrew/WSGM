@@ -2,7 +2,6 @@ using System;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
-using System.Threading.Tasks;
 
 namespace WSGM.Core;
 
@@ -73,12 +72,10 @@ public static class SelfElevation
             }
             var reason = elevatedSteam ? "Steam requires matching elevation" : "config starts elevated apps";
             Log.Info($"{reason} — handed over to elevated instance (pid {child.Id}).");
-            // Stay alive while the elevated instance runs. Two watchers depend on
-            // this process's lifetime tracking the real session: legacy shell mode's
-            // Winlogon AutoRestartShell would respawn an exited shell process
-            // endlessly, and on a service boot (--boot) the logon service watchdog
-            // holds THIS pid — the parent exiting only when the elevated child does
-            // is exactly what keeps the watchdog watching the right tree.
+            // Stay alive while the elevated instance runs: on a service boot (--boot)
+            // the logon service watchdog holds THIS pid — the parent exiting only
+            // when the elevated child does is what keeps the watchdog watching the
+            // right tree.
             child.WaitForExit();
             return child.ExitCode;
         }
@@ -95,13 +92,16 @@ public static class SelfElevation
         }
     }
 
-    /// <summary>Starts an elevated copy of WSGM with a single flag argument, waits
-    /// for it to finish, and reports whether it succeeded (exit code 0). This is how
-    /// the non-elevated settings UI performs one-shot HKLM writes: the elevated
-    /// instance applies the change and exits. Returns false when elevation was
+    /// <summary>Starts an elevated copy of WSGM with the given arguments, waits for
+    /// it to finish, and reports whether it succeeded (exit code 0). This is how the
+    /// non-elevated settings UI performs one-shot HKLM writes: the elevated instance
+    /// applies the change and exits. Device-plugin maintenance passes
+    /// <see cref="System.Threading.Timeout.Infinite"/> because a bounded file copy can
+    /// legitimately exceed the short settings-action window and must not keep running
+    /// after its caller reports a false failure. Returns false when elevation was
     /// declined, the elevated instance outlived the wait, or the write failed.
     /// <paramref name="description"/> prefixes the log lines (e.g. "UAC change").</summary>
-    public static bool RunElevatedAction(string argument, string description)
+    public static bool RunElevatedAction(string argument, string description, int timeoutMs = 60_000)
     {
         var exe = Environment.ProcessPath;
         if (exe is null)
@@ -120,50 +120,13 @@ public static class SelfElevation
             {
                 return false;
             }
-            if (!p.WaitForExit(60000))
+            if (!p.WaitForExit(timeoutMs))
             {
                 // ExitCode would throw on a still-running process.
-                Log.Warn($"{description}: elevated instance still running after 60 s — result unknown.");
+                Log.Warn($"{description}: elevated instance still running after {timeoutMs / 1000} s — result unknown.");
                 return false;
             }
             return p.ExitCode == 0;
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"{description} not applied: {ex.Message}");
-            return false;
-        }
-    }
-
-    /// <summary>Starts an elevated maintenance copy and asynchronously waits for its exact result.
-    /// Package replacement uses this untruncated wait because a bounded file copy can legitimately
-    /// exceed the short settings-action window and must not keep running after its caller reports a
-    /// false failure.</summary>
-    internal static async Task<bool> RunElevatedMaintenanceAsync(
-        string arguments,
-        string description)
-    {
-        string? executable = Environment.ProcessPath;
-        if (executable is null)
-        {
-            return false;
-        }
-
-        try
-        {
-            ProcessStartInfo start = new(executable, arguments)
-            {
-                UseShellExecute = true,
-                Verb = "runas",
-            };
-            using Process? process = Process.Start(start);
-            if (process is null)
-            {
-                return false;
-            }
-
-            await process.WaitForExitAsync().ConfigureAwait(false);
-            return process.ExitCode == 0;
         }
         catch (Exception ex)
         {

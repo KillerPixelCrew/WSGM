@@ -132,8 +132,6 @@ public sealed class RtssLauncherTests
         availability,
         "7.3.7",
         @"C:\Program Files (x86)\RivaTuner Statistics Server\RTSS.exe",
-        null,
-        null,
         0,
         null,
         "test");

@@ -127,10 +127,6 @@ public sealed class GamepadService : IUiButtonSource, IDisposable
     /// <summary>Stops polling without shutting down SDL's process-wide state.</summary>
     public void Stop() => _timer.Stop();
 
-    /// <summary>True when a controller with back paddles (a real or emulated Steam
-    /// Deck class pad) is connected, so paddles/Steam/QAM are bindable.</summary>
-    public bool HasDeckButtons => SdlGamepads.HasDeckButtons;
-
     private void Poll()
     {
         var pads = SdlGamepads.Update();

@@ -1,68 +1,19 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Runtime.InteropServices;
 using Microsoft.Win32;
+using static WSGM.Interop.NativeDisplay;
 
 namespace WSGM.Core;
 
 /// <summary>Captures and applies per-monitor resolution, refresh-rate and DPI profiles.</summary>
-public static unsafe partial class DisplayProfiles
+public static unsafe class DisplayProfiles
 {
-    private const uint EnumCurrentSettings = 0xFFFFFFFF;
-    private const uint DmPelsWidth = 0x00080000;
-    private const uint DmPelsHeight = 0x00100000;
-    private const uint DmDisplayFrequency = 0x00400000;
-    private const uint CdsUpdateRegistry = 0x00000001;
-    private const uint CdsTest = 0x00000002;
-    private const uint CdsNoReset = 0x10000000;
     /// <summary>Smallest resolution worth offering. Below this is legacy driver noise.</summary>
     private const uint MinimumUsableWidth = 800;
 
     /// <summary>Smallest resolution height worth offering.</summary>
     private const uint MinimumUsableHeight = 600;
-
-    private const uint DisplayDeviceActive = 0x00000001;
-    private const uint DisplayDevicePrimary = 0x00000004;
-    private const uint GetDeviceInterfaceName = 0x00000001;
-
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    private struct DisplayDevice
-    {
-        public uint Size;
-        public fixed char DeviceName[32];
-        public fixed char DeviceString[128];
-        public uint StateFlags;
-        public fixed char DeviceId[128];
-        public fixed char DeviceKey[128];
-    }
-
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    private struct DevMode
-    {
-        public fixed char DeviceName[32];
-        public ushort SpecVersion, DriverVersion, Size, DriverExtra;
-        public uint Fields;
-        public int PositionX, PositionY;
-        public uint DisplayOrientation, DisplayFixedOutput;
-        public short Color, Duplex, YResolution, TTOption, Collate;
-        public fixed char FormName[32];
-        public ushort LogPixels;
-        public uint BitsPerPel, PelsWidth, PelsHeight, DisplayFlags, DisplayFrequency;
-        public uint ICMMethod, ICMIntent, MediaType, DitherType, Reserved1, Reserved2;
-        public uint PanningWidth, PanningHeight;
-    }
-
-    [LibraryImport("user32.dll", EntryPoint = "EnumDisplayDevicesW")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool EnumDisplayDevices(char* device, uint index, ref DisplayDevice displayDevice, uint flags);
-
-    [LibraryImport("user32.dll", EntryPoint = "EnumDisplaySettingsExW")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool EnumDisplaySettingsEx(char* deviceName, uint modeNum, ref DevMode devMode, uint flags);
-
-    [LibraryImport("user32.dll", EntryPoint = "ChangeDisplaySettingsExW")]
-    private static partial int ChangeDisplaySettingsEx(char* deviceName, DevMode* devMode, nint hwnd, uint flags, nint param);
 
     /// <summary>Captures the mode being left when automatic, then applies the mode being entered.</summary>
     public static void Transition(AppConfig config, bool enteringGameMode)
@@ -87,7 +38,7 @@ public static unsafe partial class DisplayProfiles
     public static List<MonitorDisplayProfile> ReadActiveProfiles()
     {
         var dpi = DisplayScale.ReadActivePercentages();
-        var hdr = DisplayHdr.ReadActive();
+        var hdr = DisplayScale.ReadActiveHdr();
         var result = new List<MonitorDisplayProfile>();
         for (uint i = 0; ; i++)
         {
@@ -122,21 +73,6 @@ public static unsafe partial class DisplayProfiles
     }
 
     /// <summary>
-    /// The refresh rates the primary display will actually accept at its current resolution.
-    /// </summary>
-    /// <returns>Accepted rates, ascending and deduplicated. Empty when the display cannot be read.</returns>
-    /// <remarks>
-    /// Enumerated and then <em>tested</em>, never assumed: a driver commonly offers rates the panel
-    /// never advertises — the reference Claw accepts 30/48/60/75/100/120 while its EDID lists only
-    /// 60 and 120 — and equally may refuse one it enumerated. `CDS_TEST` changes nothing, so this is
-    /// safe to call while a game is running.
-    /// <para>
-    /// Hardcoding a rate list is the one thing this must never become: a panel without variable
-    /// refresh will likely accept nothing but what it advertises, and that is exactly the case the
-    /// frame-limit strategies exist to serve.
-    /// </para>
-    /// </remarks>
-    /// <summary>
     /// Discovers the resolutions the driver accepts on the primary display, at its current refresh
     /// rate and colour depth.
     /// </summary>
@@ -160,67 +96,64 @@ public static unsafe partial class DisplayProfiles
     /// </para>
     /// </remarks>
     public static IReadOnlyList<DisplayResolution> EnumerateAcceptedResolutions()
-    {
-        var current = new DevMode { Size = (ushort)sizeof(DevMode) };
-        if (!EnumDisplaySettingsEx(null, EnumCurrentSettings, ref current, 0))
-        {
-            Log.Warn("Display modes: current settings unreadable; no resolutions discovered.");
-            return [];
-        }
-
-        HashSet<(uint Width, uint Height)> enumerated = [];
-        for (uint index = 0; ; index++)
-        {
-            var mode = new DevMode { Size = (ushort)sizeof(DevMode) };
-            if (!EnumDisplaySettingsEx(null, index, ref mode, 0))
-            {
-                break;
-            }
-
-            if (mode.BitsPerPel == current.BitsPerPel
+        => EnumerateAccepted(
+            "resolutions",
+            "accepted resolutions",
+            static (mode, current) => mode.BitsPerPel == current.BitsPerPel
                 && mode.DisplayFrequency == current.DisplayFrequency
                 && mode.PelsWidth >= MinimumUsableWidth
-                && mode.PelsHeight >= MinimumUsableHeight)
-            {
-                enumerated.Add((mode.PelsWidth, mode.PelsHeight));
-            }
-        }
+                && mode.PelsHeight >= MinimumUsableHeight,
+            static (mode, current) => new CandidateMode(mode.PelsWidth, mode.PelsHeight, current.DisplayFrequency),
+            static mode => $"{mode.Width}x{mode.Height}")
+            .Select(mode => new DisplayResolution((int)mode.Width, (int)mode.Height))
+            .ToArray();
 
-        List<DisplayResolution> accepted = [];
-        List<string> refused = [];
-        foreach ((uint width, uint height) in enumerated
-            .OrderBy(mode => (long)mode.Width * mode.Height)
-            .ThenBy(mode => mode.Width))
-        {
-            bool isCurrent = width == current.PelsWidth && height == current.PelsHeight;
-            if (isCurrent || TestResolution(current, width, height))
-            {
-                accepted.Add(new DisplayResolution((int)width, (int)height));
-            }
-            else
-            {
-                refused.Add($"{width}x{height}");
-            }
-        }
-
-        Log.Info(
-            $"Display modes: {current.PelsWidth}x{current.PelsHeight} at {current.DisplayFrequency} Hz, "
-            + $"accepted resolutions [{string.Join(",", accepted)}]"
-            + (refused.Count is 0 ? "" : $", refused [{string.Join(",", refused)}]"));
-        return accepted;
-    }
-
-    /// <inheritdoc/>
+    /// <summary>
+    /// The refresh rates the primary display will actually accept at its current resolution.
+    /// </summary>
+    /// <returns>Accepted rates, ascending and deduplicated. Empty when the display cannot be read.</returns>
+    /// <remarks>
+    /// Enumerated and then <em>tested</em>, never assumed: a driver commonly offers rates the panel
+    /// never advertises — the reference Claw accepts 30/48/60/75/100/120 while its EDID lists only
+    /// 60 and 120 — and equally may refuse one it enumerated. `CDS_TEST` changes nothing, so this is
+    /// safe to call while a game is running.
+    /// <para>
+    /// Hardcoding a rate list is the one thing this must never become: a panel without variable
+    /// refresh will likely accept nothing but what it advertises, and that is exactly the case the
+    /// frame-limit strategies exist to serve.
+    /// </para>
+    /// </remarks>
     public static IReadOnlyList<int> EnumerateAcceptedRefreshRates()
+        => EnumerateAccepted(
+            "refresh rates",
+            "accepted",
+            static (mode, current) => mode.PelsWidth == current.PelsWidth
+                && mode.PelsHeight == current.PelsHeight
+                && mode.BitsPerPel == current.BitsPerPel
+                && mode.DisplayFrequency > 1,
+            static (mode, current) => new CandidateMode(current.PelsWidth, current.PelsHeight, mode.DisplayFrequency),
+            static mode => mode.RefreshHz.ToString())
+            .Select(mode => (int)mode.RefreshHz)
+            .ToArray();
+
+    /// <summary>A full candidate mode, so one test path serves both discovery axes.</summary>
+    private readonly record struct CandidateMode(uint Width, uint Height, uint RefreshHz);
+
+    private static IReadOnlyList<CandidateMode> EnumerateAccepted(
+        string noun,
+        string acceptedLabel,
+        Func<DevMode, DevMode, bool> keep,
+        Func<DevMode, DevMode, CandidateMode> candidate,
+        Func<CandidateMode, string> describe)
     {
         var current = new DevMode { Size = (ushort)sizeof(DevMode) };
         if (!EnumDisplaySettingsEx(null, EnumCurrentSettings, ref current, 0))
         {
-            Log.Warn("Display modes: current settings unreadable; no refresh rates discovered.");
+            Log.Warn($"Display modes: current settings unreadable; no {noun} discovered.");
             return [];
         }
 
-        SortedSet<uint> enumerated = [];
+        HashSet<CandidateMode> enumerated = [];
         for (uint index = 0; ; index++)
         {
             var mode = new DevMode { Size = (ushort)sizeof(DevMode) };
@@ -229,32 +162,35 @@ public static unsafe partial class DisplayProfiles
                 break;
             }
 
-            if (mode.PelsWidth == current.PelsWidth
-                && mode.PelsHeight == current.PelsHeight
-                && mode.BitsPerPel == current.BitsPerPel
-                && mode.DisplayFrequency > 1)
+            if (keep(mode, current))
             {
-                enumerated.Add(mode.DisplayFrequency);
+                enumerated.Add(candidate(mode, current));
             }
         }
 
-        List<int> accepted = [];
-        List<uint> refused = [];
-        foreach (uint hz in enumerated)
+        List<CandidateMode> accepted = [];
+        List<string> refused = [];
+        foreach (CandidateMode mode in enumerated
+            .OrderBy(entry => (long)entry.Width * entry.Height)
+            .ThenBy(entry => entry.Width)
+            .ThenBy(entry => entry.RefreshHz))
         {
-            if (hz == current.DisplayFrequency || TestRefreshRate(current, hz))
+            bool isCurrent = mode.Width == current.PelsWidth
+                && mode.Height == current.PelsHeight
+                && mode.RefreshHz == current.DisplayFrequency;
+            if (isCurrent || Test(current, mode))
             {
-                accepted.Add((int)hz);
+                accepted.Add(mode);
             }
             else
             {
-                refused.Add(hz);
+                refused.Add(describe(mode));
             }
         }
 
         Log.Info(
             $"Display modes: {current.PelsWidth}x{current.PelsHeight} at {current.DisplayFrequency} Hz, "
-            + $"accepted [{string.Join(",", accepted)}]"
+            + $"{acceptedLabel} [{string.Join(",", accepted.Select(describe))}]"
             + (refused.Count is 0 ? "" : $", refused [{string.Join(",", refused)}]"));
         return accepted;
     }
@@ -275,34 +211,17 @@ public static unsafe partial class DisplayProfiles
     /// </para>
     /// </remarks>
     public static bool TryApplyTransientRefreshRate(int refreshHz)
-    {
-        var current = new DevMode { Size = (ushort)sizeof(DevMode) };
-        if (!EnumDisplaySettingsEx(null, EnumCurrentSettings, ref current, 0))
-        {
-            Log.Warn($"Display modes: refusing {refreshHz} Hz; current settings unreadable.");
-            return false;
-        }
-
-        if (current.DisplayFrequency == (uint)refreshHz)
-        {
-            return true;
-        }
-
-        var target = current;
-        target.Fields = DmPelsWidth | DmPelsHeight | DmDisplayFrequency;
-        target.DisplayFrequency = (uint)refreshHz;
-        int status = ChangeDisplaySettingsEx(null, &target, 0, 0, 0);
-        if (status != 0)
-        {
-            Log.Warn(
-                $"Display modes: {refreshHz} Hz refused with status {status} "
-                + $"(was {current.DisplayFrequency} Hz).");
-            return false;
-        }
-
-        Log.Info($"Display modes: {current.DisplayFrequency} Hz -> {refreshHz} Hz (transient).");
-        return true;
-    }
+        => TryApplyTransient(
+            $"{refreshHz} Hz",
+            current => current.DisplayFrequency == (uint)refreshHz,
+            current =>
+            {
+                var target = current;
+                target.DisplayFrequency = (uint)refreshHz;
+                return target;
+            },
+            static current => $"{current.DisplayFrequency} Hz",
+            current => $"{current.DisplayFrequency} Hz -> {refreshHz} Hz");
 
     /// <summary>
     /// Applies a resolution to the primary display without persisting it.
@@ -321,35 +240,49 @@ public static unsafe partial class DisplayProfiles
     /// </para>
     /// </remarks>
     public static bool TryApplyTransientResolution(int width, int height)
+        => TryApplyTransient(
+            $"{width}x{height}",
+            current => current.PelsWidth == (uint)width && current.PelsHeight == (uint)height,
+            current =>
+            {
+                var target = current;
+                target.PelsWidth = (uint)width;
+                target.PelsHeight = (uint)height;
+                return target;
+            },
+            static current => $"{current.PelsWidth}x{current.PelsHeight} at {current.DisplayFrequency} Hz",
+            current => $"{current.PelsWidth}x{current.PelsHeight} -> {width}x{height} "
+                + $"at {current.DisplayFrequency} Hz");
+
+    private static bool TryApplyTransient(
+        string what,
+        Func<DevMode, bool> alreadyApplied,
+        Func<DevMode, DevMode> retarget,
+        Func<DevMode, string> was,
+        Func<DevMode, string> transition)
     {
         var current = new DevMode { Size = (ushort)sizeof(DevMode) };
         if (!EnumDisplaySettingsEx(null, EnumCurrentSettings, ref current, 0))
         {
-            Log.Warn($"Display modes: refusing {width}x{height}; current settings unreadable.");
+            Log.Warn($"Display modes: refusing {what}; current settings unreadable.");
             return false;
         }
 
-        if (current.PelsWidth == (uint)width && current.PelsHeight == (uint)height)
+        if (alreadyApplied(current))
         {
             return true;
         }
 
-        var target = current;
+        DevMode target = retarget(current);
         target.Fields = DmPelsWidth | DmPelsHeight | DmDisplayFrequency;
-        target.PelsWidth = (uint)width;
-        target.PelsHeight = (uint)height;
         int status = ChangeDisplaySettingsEx(null, &target, 0, 0, 0);
         if (status != 0)
         {
-            Log.Warn(
-                $"Display modes: {width}x{height} refused with status {status} "
-                + $"(was {current.PelsWidth}x{current.PelsHeight} at {current.DisplayFrequency} Hz).");
+            Log.Warn($"Display modes: {what} refused with status {status} (was {was(current)}).");
             return false;
         }
 
-        Log.Info(
-            $"Display modes: {current.PelsWidth}x{current.PelsHeight} -> {width}x{height} "
-            + $"at {current.DisplayFrequency} Hz (transient).");
+        Log.Info($"Display modes: {transition(current)} (transient).");
         return true;
     }
 
@@ -458,20 +391,13 @@ public static unsafe partial class DisplayProfiles
         }
     }
 
-    private static bool TestResolution(DevMode current, uint width, uint height)
+    private static bool Test(DevMode current, CandidateMode mode)
     {
         var candidate = current;
         candidate.Fields = DmPelsWidth | DmPelsHeight | DmDisplayFrequency;
-        candidate.PelsWidth = width;
-        candidate.PelsHeight = height;
-        return ChangeDisplaySettingsEx(null, &candidate, 0, CdsTest, 0) == 0;
-    }
-
-    private static bool TestRefreshRate(DevMode current, uint refreshHz)
-    {
-        var candidate = current;
-        candidate.Fields = DmPelsWidth | DmPelsHeight | DmDisplayFrequency;
-        candidate.DisplayFrequency = refreshHz;
+        candidate.PelsWidth = mode.Width;
+        candidate.PelsHeight = mode.Height;
+        candidate.DisplayFrequency = mode.RefreshHz;
         return ChangeDisplaySettingsEx(null, &candidate, 0, CdsTest, 0) == 0;
     }
 
@@ -565,7 +491,7 @@ public static unsafe partial class DisplayProfiles
             }
         }
         DisplayScale.ApplyPercentages(profiles, game);
-        DisplayHdr.Apply(profiles, game);
+        DisplayScale.ApplyHdr(profiles, game);
     }
 
     private static DevMode CreateMode(DisplayModeValues value)

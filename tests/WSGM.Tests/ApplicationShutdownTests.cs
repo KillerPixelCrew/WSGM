@@ -178,97 +178,25 @@ public sealed class ApplicationShutdownTests
     }
 
     [Fact]
-    public void SteamPreStopFailureStillRequestsUpdateCleanupAndLifetimeShutdown()
+    public async Task RetainedShutdownFailurePropagatesAsApplicationShutdownUnverified()
     {
-        List<string> order = [];
-
-        Program.RunInstallerExitRequest(
-            ApplicationShutdownReason.Update,
-            () =>
-            {
-                order.Add("steam");
-                throw new InvalidOperationException("stop failed");
-            },
-            reason => order.Add($"request:{reason}"),
-            () => order.Add("shutdown"));
-
-        Assert.Equal(["steam", "request:Update", "shutdown"], order);
-    }
-
-    [Fact]
-    public void UninstallRequestDoesNotStopSteam()
-    {
-        var steamStops = 0;
-        var requested = ApplicationShutdownReason.Normal;
-        var lifetimeStopped = false;
-
-        Program.RunInstallerExitRequest(
-            ApplicationShutdownReason.Uninstall,
-            () => steamStops++,
-            reason => requested = reason,
-            () => lifetimeStopped = true);
-
-        Assert.Equal(0, steamStops);
-        Assert.Equal(ApplicationShutdownReason.Uninstall, requested);
-        Assert.True(lifetimeStopped);
-    }
-
-    [Fact]
-    public void FirstInputAdmissionCleanupFailureIsRetainedAndReported()
-    {
-        var inputAdmissionFailure = new InvalidOperationException("overlay dispose failed");
-        var laterFailure = new InvalidOperationException("tray dispose failed");
-
-        Exception retained = ShellSession.RetainFirstShutdownFailure(
-            current: null,
-            failure: inputAdmissionFailure);
-        retained = ShellSession.RetainFirstShutdownFailure(retained, laterFailure);
-
-        Assert.Same(inputAdmissionFailure, retained);
-        InvalidOperationException reported = Assert.Throws<InvalidOperationException>(
-            () => ShellSession.ThrowIfUiCleanupIncomplete(retained));
-        Assert.Same(inputAdmissionFailure, reported.InnerException);
-    }
-
-    [Fact]
-    public async Task DeviceFailureIsRetainedUntilExplorerCefAndUiCleanupFinish()
-    {
-        var deviceFailure = new InvalidOperationException("device release unverified");
-        List<string> remainingCleanup = [];
-
-        InvalidOperationException reported = await Assert.ThrowsAsync<InvalidOperationException>(
-            async () => await ShellSession.ContinueShutdownWithRetainedFailureAsync(
-                deviceFailure,
-                () =>
-                {
-                    remainingCleanup.Add("explorer");
-                    remainingCleanup.Add("cef");
-                    remainingCleanup.Add("ui");
-                    return Task.CompletedTask;
-                }));
-
-        Assert.Equal(["explorer", "cef", "ui"], remainingCleanup);
-        Assert.Same(deviceFailure, reported.InnerException);
-    }
-
-    [Fact]
-    public async Task RetainedDeviceFailurePropagatesAsApplicationShutdownUnverified()
-    {
-        var deviceFailure = new InvalidOperationException("device release unverified");
-        bool remainingCleanupRan = false;
+        // ShellSession.ShutdownAsync completes its remaining cleanup and then reports the
+        // retained failures as one exception; the coordinator must record that as Unverified.
+        bool cleanupRan = false;
 
         ApplicationShutdownOutcome outcome = await ApplicationShutdownCoordinator.ShutdownAsync(
-            _ => ShellSession.ContinueShutdownWithRetainedFailureAsync(
-                deviceFailure,
-                () =>
-                {
-                    remainingCleanupRan = true;
-                    return Task.CompletedTask;
-                }),
+            async _ =>
+            {
+                cleanupRan = true;
+                await Task.Yield();
+                throw new InvalidOperationException(
+                    "Application shutdown completed its remaining cleanup, but one or more steps were unverified.",
+                    new InvalidOperationException("device release unverified"));
+            },
             ApplicationShutdownReason.Update,
             TimeSpan.FromSeconds(1));
 
-        Assert.True(remainingCleanupRan);
+        Assert.True(cleanupRan);
         Assert.Equal(ApplicationShutdownOutcome.Unverified, outcome);
     }
 }

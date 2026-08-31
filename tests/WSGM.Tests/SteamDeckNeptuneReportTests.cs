@@ -16,12 +16,12 @@ public sealed class SteamDeckNeptuneReportTests
 {
     [Fact]
     public void AFrameIsAlwaysExactlySixtyFourBytes() =>
-        Assert.Equal(64, SteamDeckNeptuneReport.Create(Sample(CanonicalButtons.None)).Length);
+        Assert.Equal(64, Frame(Sample(CanonicalButtons.None)).Length);
 
     [Fact]
     public void ANeutralSampleSetsNoButtonBitAnywhere()
     {
-        byte[] frame = SteamDeckNeptuneReport.Create(Sample(CanonicalButtons.None));
+        byte[] frame = Frame(Sample(CanonicalButtons.None));
 
         Assert.Equal(new byte[7], frame[8..15]);
     }
@@ -61,7 +61,7 @@ public sealed class SteamDeckNeptuneReportTests
     [InlineData(CanonicalButtons.QuickAccess, 14, 0x04)]
     public void EachControlLandsOnItsAgreedBit(CanonicalButtons button, int index, int bit)
     {
-        byte[] frame = SteamDeckNeptuneReport.Create(Sample(button));
+        byte[] frame = Frame(Sample(button));
 
         Assert.Equal((byte)bit, frame[index]);
     }
@@ -69,7 +69,7 @@ public sealed class SteamDeckNeptuneReportTests
     [Fact]
     public void AllFourRearControlsAreDistinctAndSimultaneous()
     {
-        byte[] frame = SteamDeckNeptuneReport.Create(Sample(
+        byte[] frame = Frame(Sample(
             CanonicalButtons.RearPaddle1 | CanonicalButtons.RearPaddle2
             | CanonicalButtons.RearPaddle3 | CanonicalButtons.RearPaddle4));
 
@@ -83,7 +83,7 @@ public sealed class SteamDeckNeptuneReportTests
     [Fact]
     public void BothStickTouchSensorsAreCarried()
     {
-        byte[] frame = SteamDeckNeptuneReport.Create(Sample(
+        byte[] frame = Frame(Sample(
             CanonicalButtons.LeftStickTouch | CanonicalButtons.RightStickTouch));
 
         Assert.Equal(0xC0, frame[13]);
@@ -92,7 +92,7 @@ public sealed class SteamDeckNeptuneReportTests
     [Fact]
     public void AnAnaloguePullAlsoSetsTheDigitalTriggerEdge()
     {
-        byte[] frame = SteamDeckNeptuneReport.Create(
+        byte[] frame = Frame(
             Sample(CanonicalButtons.None) with { LeftTrigger = 0.5f, RightTrigger = 1f });
 
         Assert.Equal(0x03, frame[8]);
@@ -103,7 +103,7 @@ public sealed class SteamDeckNeptuneReportTests
     [Fact]
     public void TriggerRestNoiseDoesNotBecomeAPermanentDigitalPress()
     {
-        byte[] frame = SteamDeckNeptuneReport.Create(
+        byte[] frame = Frame(
             Sample(CanonicalButtons.None) with { LeftTrigger = 0.1f, RightTrigger = 0.2f });
 
         Assert.Equal(0, frame[8] & 0x03);
@@ -114,7 +114,7 @@ public sealed class SteamDeckNeptuneReportTests
     [Fact]
     public void StickAxesScaleOntoTheSignedWireRange()
     {
-        byte[] frame = SteamDeckNeptuneReport.Create(Sample(CanonicalButtons.None) with
+        byte[] frame = Frame(Sample(CanonicalButtons.None) with
         {
             LeftStickX = 1f,
             LeftStickY = -1f,
@@ -133,7 +133,7 @@ public sealed class SteamDeckNeptuneReportTests
     [Fact]
     public void TouchContactsAndForcesAreCarried()
     {
-        byte[] frame = SteamDeckNeptuneReport.Create(Sample(CanonicalButtons.None) with
+        byte[] frame = Frame(Sample(CanonicalButtons.None) with
         {
             LeftPadX = 1f,
             LeftPadY = -1f,
@@ -158,7 +158,7 @@ public sealed class SteamDeckNeptuneReportTests
     [Fact]
     public void MotionIsCarriedOnlyForTheSensorsTheDeviceHas()
     {
-        byte[] gyroOnly = SteamDeckNeptuneReport.Create(Sample(CanonicalButtons.None) with
+        byte[] gyroOnly = Frame(Sample(CanonicalButtons.None) with
         {
             Motion = new MotionSample
             {
@@ -181,7 +181,7 @@ public sealed class SteamDeckNeptuneReportTests
     [Fact]
     public void TheOrientationQuaternionIsNeverPopulated()
     {
-        byte[] frame = SteamDeckNeptuneReport.Create(Sample(CanonicalButtons.None) with
+        byte[] frame = Frame(Sample(CanonicalButtons.None) with
         {
             Motion = new MotionSample { HasGyro = true, HasAccelerometer = true, GyroX = 1 },
         });
@@ -198,6 +198,13 @@ public sealed class SteamDeckNeptuneReportTests
 
         Assert.Throws<ArgumentException>(() =>
             SteamDeckNeptuneReport.Write(Sample(CanonicalButtons.None), tooSmall));
+    }
+
+    private static byte[] Frame(CanonicalControllerSample sample)
+    {
+        byte[] frame = new byte[SteamDeckNeptuneReport.Length];
+        SteamDeckNeptuneReport.Write(sample, frame);
+        return frame;
     }
 
     private static CanonicalControllerSample Sample(CanonicalButtons buttons) => new()

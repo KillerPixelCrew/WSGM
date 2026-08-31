@@ -54,15 +54,15 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
     internal event Action<CapabilityDescriptorSet>? DescriptorSetReceived;
     internal event Action<CapabilityStateDelta>? CapabilityStateReceived;
     internal event Action<DevicePluginState>? LifecycleStateReceived;
-    internal event Action<DevicePhysicalDevices>? PhysicalIdentitiesReceived;
-    internal event Action<DeviceOemControls>? OemControlsReceived;
+    internal event Action<(IReadOnlyList<PhysicalDeviceIdentity> Devices, HapticCapabilities? Output)>?
+        PhysicalIdentitiesReceived;
+    internal event Action<IReadOnlyList<OemControlDescriptor>>? OemControlsReceived;
     internal event Action<OemControlEvent>? OemEventReceived;
     internal event Action<CanonicalControllerSample>? ControllerSampleReceived;
     internal event Action<PluginSettingsManifest>? SettingsManifestReceived;
 
     internal static Task<DevicePluginRuntime> StartAsync(
         InstalledDevicePackage package,
-        uint sessionId,
         long cycleGeneration,
         CancellationToken cancellationToken,
         string? pluginStateRoot = null)
@@ -74,7 +74,6 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             ArgumentException.ThrowIfNullOrWhiteSpace(pluginStateRoot);
             pluginStateRoot = Path.GetFullPath(pluginStateRoot);
         }
-        _ = sessionId;
         return Task.Run(
             () => new DevicePluginRuntime(
                 PluginPackageLoader.Load(package),
@@ -320,20 +319,6 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
                 RemoveCommand(operation);
             }
         }
-    }
-
-    internal Task CancelCommandAsync(Guid commandId, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        lock (_commandGate)
-        {
-            if (_commands.TryGetValue(commandId, out CommandOperation? operation))
-            {
-                operation.Cancel();
-            }
-        }
-
-        return Task.CompletedTask;
     }
 
     internal Task ApplySettingsValuesAsync(
@@ -986,11 +971,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
             ArgumentNullException.ThrowIfNull(devices);
             cancellationToken.ThrowIfCancellationRequested();
-            Raise(owner.PhysicalIdentitiesReceived, new DevicePhysicalDevices
-            {
-                Devices = devices,
-                Output = output,
-            }, "physical identities");
+            Raise(owner.PhysicalIdentitiesReceived, (devices, output), "physical identities");
             return ValueTask.CompletedTask;
         }
 
@@ -1018,10 +999,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
             ArgumentNullException.ThrowIfNull(controls);
             cancellationToken.ThrowIfCancellationRequested();
-            Raise(owner.OemControlsReceived, new DeviceOemControls
-            {
-                Controls = controls,
-            }, "OEM controls");
+            Raise(owner.OemControlsReceived, controls, "OEM controls");
             return ValueTask.CompletedTask;
         }
 
@@ -1121,17 +1099,6 @@ internal sealed record DevicePluginState
     internal required long CycleGeneration { get; init; }
     internal string? DeviceDefinitionId { get; init; }
     internal CapabilityReason? Reason { get; init; }
-}
-
-internal sealed record DevicePhysicalDevices
-{
-    internal IReadOnlyList<PhysicalDeviceIdentity> Devices { get; init; } = [];
-    internal HapticCapabilities? Output { get; init; }
-}
-
-internal sealed record DeviceOemControls
-{
-    internal IReadOnlyList<OemControlDescriptor> Controls { get; init; } = [];
 }
 
 internal sealed record DeviceCommandDispatch(

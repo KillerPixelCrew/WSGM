@@ -50,24 +50,40 @@ public sealed class AudioEndpointEntry : INotifyPropertyChanged
 /// UI thread.</summary>
 public sealed class AudioManager : INotifyPropertyChanged, IDisposable
 {
-    private readonly Func<string, int> _setDefaultEndpoint;
-    private readonly Action<Action> _postEndpointCompletion;
-
-    /// <summary>Creates a manager backed by managed Core Audio interop.</summary>
-    public AudioManager()
-        : this(CoreAudio.SetDefaultEndpoint, action => Dispatcher.UIThread.Post(action))
-    {
-    }
-
-    /// <summary>Creates a manager with endpoint-selection seams for isolated tests.</summary>
-    internal AudioManager(Func<string, int> setDefaultEndpoint, Action<Action> postEndpointCompletion)
-    {
-        _setDefaultEndpoint = setDefaultEndpoint;
-        _postEndpointCompletion = postEndpointCompletion;
-    }
-
     /// <summary>Raised after a bindable audio property changes.</summary>
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>Revision bookkeeping for one data flow's default-endpoint writes:
+    /// rapid selections each take a revision, only the newest may publish UI
+    /// state, and the flow counts as pending until that newest revision
+    /// completes. Pure, so the latest-wins rule is testable without Core Audio;
+    /// the writes themselves are additionally serialized by a per-flow gate.</summary>
+    internal struct EndpointSelectionTracker
+    {
+        private int _requested;
+        private int _completed;
+
+        /// <summary>Claims the next revision for a new selection.</summary>
+        internal int Begin() => Interlocked.Increment(ref _requested);
+
+        /// <summary>Whether this revision is still the newest selection.</summary>
+        internal bool IsCurrent(int revision) => revision == Volatile.Read(ref _requested);
+
+        /// <summary>Whether a selection is still in flight — the refresh path must
+        /// not overwrite the user's choice with a stale default meanwhile.</summary>
+        internal bool Pending =>
+            Volatile.Read(ref _requested) != Volatile.Read(ref _completed);
+
+        /// <summary>Records this revision's write as finished. A stale revision is
+        /// ignored: the newer selection it lost to is still pending.</summary>
+        internal void Complete(int revision)
+        {
+            if (IsCurrent(revision))
+            {
+                Volatile.Write(ref _completed, revision);
+            }
+        }
+    }
 
     /// <summary>Gets the active playback endpoints.</summary>
     public ObservableCollection<AudioEndpointEntry> OutputEndpoints { get; } = [];
@@ -171,10 +187,8 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
     private readonly SemaphoreSlim _inputSelectionGate = new(1, 1);
     private int? _pendingVolume;
     private bool _volumeWorkerRunning;
-    private int _outputSelectionRevision;
-    private int _inputSelectionRevision;
-    private int _outputCompletedSelectionRevision;
-    private int _inputCompletedSelectionRevision;
+    private EndpointSelectionTracker _outputSelection;
+    private EndpointSelectionTracker _inputSelection;
     private bool _hasOutputSnapshot;
 
     /// <summary>Performs an immediate refresh and starts live audio updates.
@@ -303,7 +317,7 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
         if (snapshot.OutputResult >= 0)
         {
             Reconcile(OutputEndpoints, snapshot.Outputs);
-            if (!EndpointSelectionPending(output: true))
+            if (!_outputSelection.Pending)
             {
                 var previousOutputId = _selectedOutput?.Id;
                 var defaultOutput = FindDefault(OutputEndpoints, snapshot.Outputs);
@@ -324,7 +338,7 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
         if (snapshot.InputResult >= 0)
         {
             Reconcile(InputEndpoints, snapshot.Inputs);
-            if (!EndpointSelectionPending(output: false))
+            if (!_inputSelection.Pending)
             {
                 SetSelected(output: false, FindDefault(InputEndpoints, snapshot.Inputs));
             }
@@ -426,9 +440,7 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
         }
         SetSelected(output, value);
         var kind = output ? "output" : "input";
-        var revision = output
-            ? Interlocked.Increment(ref _outputSelectionRevision)
-            : Interlocked.Increment(ref _inputSelectionRevision);
+        var revision = Tracker(output).Begin();
         Log.Info($"Audio {kind} selected: '{value.Name}'.");
         _ = Task.Run(() => ApplyEndpointSelection(value.Id, output, kind, revision));
     }
@@ -442,24 +454,21 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
         gate.Wait();
         try
         {
-            if (_disposed || !IsCurrentEndpointSelection(output, revision))
+            if (_disposed || !Tracker(output).IsCurrent(revision))
             {
                 return;
             }
             try
             {
-                var result = _setDefaultEndpoint(endpointId);
+                var result = CoreAudio.SetDefaultEndpoint(endpointId);
                 if (result >= 0 && output)
                 {
                     VolumeFeedback.Reinitialize();
                 }
-                if (IsCurrentEndpointSelection(output, revision))
+                Tracker(output).Complete(revision);
+                Dispatcher.UIThread.Post(() =>
                 {
-                    MarkEndpointSelectionCompleted(output, revision);
-                }
-                _postEndpointCompletion(() =>
-                {
-                    if (_disposed || !IsCurrentEndpointSelection(output, revision))
+                    if (_disposed || !Tracker(output).IsCurrent(revision))
                     {
                         return;
                     }
@@ -479,9 +488,9 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
             }
             catch (Exception ex)
             {
-                if (IsCurrentEndpointSelection(output, revision))
+                if (Tracker(output).IsCurrent(revision))
                 {
-                    MarkEndpointSelectionCompleted(output, revision);
+                    Tracker(output).Complete(revision);
                     PostFailure($"Audio {kind} selection failed: {ex.Message}", sticky: true);
                 }
             }
@@ -492,30 +501,8 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
         }
     }
 
-    private bool IsCurrentEndpointSelection(bool output, int revision)
-        => revision == (output
-            ? Volatile.Read(ref _outputSelectionRevision)
-            : Volatile.Read(ref _inputSelectionRevision));
-
-    private bool EndpointSelectionPending(bool output)
-        => (output
-            ? Volatile.Read(ref _outputSelectionRevision)
-            : Volatile.Read(ref _inputSelectionRevision))
-            != (output
-                ? Volatile.Read(ref _outputCompletedSelectionRevision)
-                : Volatile.Read(ref _inputCompletedSelectionRevision));
-
-    private void MarkEndpointSelectionCompleted(bool output, int revision)
-    {
-        if (output)
-        {
-            Volatile.Write(ref _outputCompletedSelectionRevision, revision);
-        }
-        else
-        {
-            Volatile.Write(ref _inputCompletedSelectionRevision, revision);
-        }
-    }
+    private ref EndpointSelectionTracker Tracker(bool output)
+        => ref (output ? ref _outputSelection : ref _inputSelection);
 
     private void SetSelected(bool output, AudioEndpointEntry? value)
     {
@@ -588,10 +575,9 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
                     }
                     catch (Exception ex)
                     {
-                        // A failed write is reported and the worker carries on.
-                        // Letting it unwind the loop would
-                        // strand _volumeWorkerRunning at true, and every later
-                        // slider move would then be dropped in silence.
+                        // Report and carry on: unwinding the loop would strand
+                        // _volumeWorkerRunning at true and silently drop every
+                        // later slider move.
                         PostFailure($"Volume write failed: {ex.Message}", sticky: true);
                     }
                 }
@@ -605,6 +591,25 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
                     _volumeWorkerRunning = false;
                 }
                 Log.Warn($"Volume write worker stopped: {ex.Message}");
+            }
+        });
+    }
+
+    /// <summary>Adopts a volume state another WSGM writer has ALREADY applied to
+    /// Core Audio — the hardware volume buttons — so the taskbar slider does not
+    /// lag one poll behind the OSD. Presentation only: nothing is written back,
+    /// and the revision bump keeps an older in-flight snapshot from undoing the
+    /// adopted value before the next poll confirms it.</summary>
+    /// <param name="percent">The volume the writer landed on, 0-100.</param>
+    /// <param name="muted">The mute state the writer landed on.</param>
+    internal void NoteExternalVolume(int percent, bool muted)
+    {
+        Interlocked.Increment(ref _volumeRevision);
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!_disposed)
+            {
+                ApplyVolume(percent, muted);
             }
         });
     }
@@ -639,8 +644,9 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
     public void Dispose()
     {
         _disposed = true;
-        Interlocked.Increment(ref _outputSelectionRevision);
-        Interlocked.Increment(ref _inputSelectionRevision);
+        // Invalidate every in-flight selection so its completion cannot publish.
+        _outputSelection.Begin();
+        _inputSelection.Begin();
         if (_timer is not null)
         {
             _timer.Stop();

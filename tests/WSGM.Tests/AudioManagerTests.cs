@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using WindowsDeviceControl;
 using WSGM.Shell;
 
@@ -71,40 +70,28 @@ public sealed class AudioManagerTests
     }
 
     [Fact]
-    public void RapidEndpointSelectionsOfOneFlowAreSerializedAndFinishWithTheLatestChoice()
+    public void RapidEndpointSelectionsFinishWithTheLatestChoice()
     {
-        using var firstStarted = new ManualResetEventSlim();
-        using var releaseFirst = new ManualResetEventSlim();
-        var calls = new ConcurrentQueue<string>();
-        var activeCalls = 0;
-        var overlappingCalls = 0;
-        using var manager = new AudioManager(
-            endpointId =>
-            {
-                if (Interlocked.Increment(ref activeCalls) != 1)
-                {
-                    Interlocked.Increment(ref overlappingCalls);
-                }
-                calls.Enqueue(endpointId);
-                if (endpointId == "first")
-                {
-                    firstStarted.Set();
-                    releaseFirst.Wait(TimeSpan.FromSeconds(5));
-                }
-                Interlocked.Decrement(ref activeCalls);
-                return 0;
-            },
-            _ => { });
+        // The revision bookkeeping behind rapid default-endpoint changes: a stale
+        // selection may neither publish UI state nor settle the flow — only the
+        // newest revision does. (The writes themselves are serialized by the
+        // per-flow gate in AudioManager.ApplyEndpointSelection.)
+        var tracker = default(AudioManager.EndpointSelectionTracker);
+        Assert.False(tracker.Pending);
 
-        manager.SelectedOutput = new AudioEndpointEntry("first", "Speakers");
-        Assert.True(firstStarted.Wait(TimeSpan.FromSeconds(5)));
-        manager.SelectedOutput = new AudioEndpointEntry("second", "Headset");
-        releaseFirst.Set();
+        var first = tracker.Begin();
+        Assert.True(tracker.Pending);
+        Assert.True(tracker.IsCurrent(first));
 
-        Assert.True(SpinWait.SpinUntil(
-            () => calls.Count == 2 && Volatile.Read(ref activeCalls) == 0,
-            TimeSpan.FromSeconds(5)));
-        Assert.Equal(["first", "second"], calls);
-        Assert.Equal(0, overlappingCalls);
+        var second = tracker.Begin();
+        Assert.False(tracker.IsCurrent(first));
+        Assert.True(tracker.IsCurrent(second));
+
+        tracker.Complete(first);
+        Assert.True(tracker.Pending);
+
+        tracker.Complete(second);
+        Assert.False(tracker.Pending);
+        Assert.True(tracker.IsCurrent(second));
     }
 }

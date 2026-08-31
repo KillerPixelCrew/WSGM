@@ -7,26 +7,13 @@ using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Serialization;
+using WSGM.Overlay;
 using WSGM.Shell;
 
 namespace WSGM.Tests;
 
 public sealed class PhysicalGlyphServiceTests
 {
-    [Fact]
-    public void PersistedSelection_MapsToClosedPhysicalMode()
-    {
-        Assert.Equal(
-            PhysicalGlyphSelectionMode.Automatic,
-            DeviceCoordinator.MapGlyphSelection(DeviceGlyphSelection.Automatic));
-        Assert.Equal(
-            PhysicalGlyphSelectionMode.NativeSteam,
-            DeviceCoordinator.MapGlyphSelection(DeviceGlyphSelection.NativeSteam));
-        Assert.Equal(
-            PhysicalGlyphSelectionMode.ManualReviewed,
-            DeviceCoordinator.MapGlyphSelection(DeviceGlyphSelection.ManualReviewedProfile));
-    }
-
     [Fact]
     public void Automatic_WithNoActiveDevice_ReportsTheMismatchRatherThanAProfile()
     {
@@ -39,7 +26,7 @@ public sealed class PhysicalGlyphServiceTests
 
         PhysicalGlyphSelectionResult result = catalog.SelectProfile(
             true,
-            PhysicalGlyphSelectionMode.Automatic,
+            DeviceGlyphSelection.Automatic,
             null);
 
         Assert.Null(result.Profile);
@@ -63,7 +50,7 @@ public sealed class PhysicalGlyphServiceTests
         Assert.Equal(2, changes);
         Assert.Same(
             profile,
-            catalog.SelectProfile(true, PhysicalGlyphSelectionMode.Automatic, null).Profile);
+            catalog.SelectProfile(true, DeviceGlyphSelection.Automatic, null).Profile);
 
         // Setting the same device again is not a change.
         catalog.SetActiveDevice("device-a");
@@ -80,12 +67,12 @@ public sealed class PhysicalGlyphServiceTests
         catalog.SetActiveDevice("device-a");
         PhysicalGlyphSelectionResult exact = catalog.SelectProfile(
             true,
-            PhysicalGlyphSelectionMode.Automatic,
+            DeviceGlyphSelection.Automatic,
             null);
         catalog.SetActiveDevice("device-b");
         PhysicalGlyphSelectionResult otherDevice = catalog.SelectProfile(
             true,
-            PhysicalGlyphSelectionMode.Automatic,
+            DeviceGlyphSelection.Automatic,
             null);
 
         Assert.Same(profile, exact.Profile);
@@ -103,7 +90,7 @@ public sealed class PhysicalGlyphServiceTests
         catalog.SetActiveDevice("device-a");
         PhysicalGlyphSelectionResult result = catalog.SelectProfile(
             true,
-            PhysicalGlyphSelectionMode.ManualReviewed,
+            DeviceGlyphSelection.ManualReviewedProfile,
             "removed.profile");
 
         Assert.Same(profile, result.Profile);
@@ -120,7 +107,7 @@ public sealed class PhysicalGlyphServiceTests
         catalog.SetActiveDevice("device-a");
         PhysicalGlyphSelectionResult result = catalog.SelectProfile(
             false,
-            PhysicalGlyphSelectionMode.ManualReviewed,
+            DeviceGlyphSelection.ManualReviewedProfile,
             "example.handheld");
 
         Assert.Null(result.Profile);
@@ -132,17 +119,17 @@ public sealed class PhysicalGlyphServiceTests
     [Fact]
     public void GlyphSelectionViewReportsGenericFallbackWithoutClaimingDeviceArtwork()
     {
-        DeviceOverlayGlyphSelection row = DeviceOverlayBridge.PhysicalGlyphSelectionView(
+        DescriptorRow row = DeviceOverlayBridge.PhysicalGlyphSelectionView(
             DeviceGlyphSelection.Automatic,
             new PhysicalGlyphSelectionResult(
                 null,
                 PhysicalGlyphFallbackReason.ExactDeviceMismatch,
                 false));
 
-        Assert.Equal(DeviceOverlayStatus.Warning, row.Status);
+        Assert.Equal(DescriptorStatus.Warning, row.Status);
         Assert.Equal("AUTO", row.TrailingText);
         Assert.Contains("generic glyphs", row.Description, StringComparison.OrdinalIgnoreCase);
-        Assert.True(row.CanCycle);
+        Assert.True(row.CanInvoke);
     }
 
     [Fact]
@@ -155,7 +142,7 @@ public sealed class PhysicalGlyphServiceTests
         catalog.SetActiveDevice("device-a");
         PhysicalGlyphSelectionResult selected = catalog.SelectProfile(
             true,
-            PhysicalGlyphSelectionMode.Automatic,
+            DeviceGlyphSelection.Automatic,
             null);
 
         // Controller-management state is deliberately not an input to profile selection. Only the
@@ -165,7 +152,6 @@ public sealed class PhysicalGlyphServiceTests
             GlyphControlId.FaceSouth,
             PhysicalGlyphSurface.DeviceDescription,
             activeInputSourceIsManagedHandheld: false,
-            steamRouteSubjectIsHandheld: false,
             PhysicalGlyphTheme.Dark,
             1);
         PhysicalGlyphRenderPlan externalNavigation = service.Resolve(
@@ -173,7 +159,6 @@ public sealed class PhysicalGlyphServiceTests
             GlyphControlId.FaceSouth,
             PhysicalGlyphSurface.NavigationHint,
             activeInputSourceIsManagedHandheld: false,
-            steamRouteSubjectIsHandheld: false,
             PhysicalGlyphTheme.Dark,
             1);
 
@@ -197,13 +182,13 @@ public sealed class PhysicalGlyphServiceTests
         catalog.SetActiveDevice("device-a");
         PhysicalGlyphSelectionResult selected = catalog.SelectProfile(
             true,
-            PhysicalGlyphSelectionMode.Automatic,
+            DeviceGlyphSelection.Automatic,
             null);
 
         _ = service.Resolve(selected, GlyphControlId.FaceSouth,
-            PhysicalGlyphSurface.DeviceDescription, true, false, PhysicalGlyphTheme.Light, 1);
+            PhysicalGlyphSurface.DeviceDescription, true, PhysicalGlyphTheme.Light, 1);
         _ = service.Resolve(selected, GlyphControlId.FaceSouth,
-            PhysicalGlyphSurface.DeviceDescription, true, false, PhysicalGlyphTheme.Dark, 1.5);
+            PhysicalGlyphSurface.DeviceDescription, true, PhysicalGlyphTheme.Dark, 1.5);
 
         Assert.Equal(1, service.CachedEntryCount);
         Assert.InRange(service.CachedBytes, 1, 4096);
@@ -223,7 +208,7 @@ public sealed class PhysicalGlyphServiceTests
         catalog.SetActiveDevice("device-a");
         PhysicalGlyphSelectionResult selected = catalog.SelectProfile(
             true,
-            PhysicalGlyphSelectionMode.Automatic,
+            DeviceGlyphSelection.Automatic,
             null);
 
         PhysicalGlyphRenderPlan result = service.Resolve(
@@ -231,7 +216,6 @@ public sealed class PhysicalGlyphServiceTests
             GlyphControlId.FaceSouth,
             PhysicalGlyphSurface.DeviceDescription,
             true,
-            false,
             PhysicalGlyphTheme.HighContrast,
             2);
 

@@ -106,11 +106,12 @@ internal static class ExplorerShellPolicy
         return ExplorerAnchorOwnerLossAction.RestoreExplorer;
     }
 
-    /// <summary>Decides how an anchor responds after its authenticated command pipe closes. The
-    /// explicit stop signal wins a simultaneous owner exit so planned stale-anchor cleanup never
-    /// restores Explorer.</summary>
-    internal static ExplorerAnchorDisconnectAction DecideAnchorDisconnect(
-        bool ownerExited,
+    /// <summary>Combines the primary process-wait result with a separate owner-liveness
+    /// observation. A faulted wait is never owner loss by itself; the explicit stop signal wins a
+    /// simultaneous verified exit so planned stale-anchor cleanup never restores Explorer.</summary>
+    internal static ExplorerAnchorDisconnectAction DecideAnchorOwnerWait(
+        bool processWaitCompletedSuccessfully,
+        bool ownerExitVerifiedSeparately,
         bool explicitStop)
     {
         if (explicitStop)
@@ -118,21 +119,10 @@ internal static class ExplorerShellPolicy
             return ExplorerAnchorDisconnectAction.Exit;
         }
 
-        return ownerExited
+        return processWaitCompletedSuccessfully || ownerExitVerifiedSeparately
             ? ExplorerAnchorDisconnectAction.Recover
             : ExplorerAnchorDisconnectAction.Wait;
     }
-
-    /// <summary>Combines the primary process-wait result with a separate owner-liveness
-    /// observation. A faulted wait is never owner loss by itself; an explicit stop still wins a
-    /// simultaneous verified exit.</summary>
-    internal static ExplorerAnchorDisconnectAction DecideAnchorOwnerWait(
-        bool processWaitCompletedSuccessfully,
-        bool ownerExitVerifiedSeparately,
-        bool explicitStop) =>
-        DecideAnchorDisconnect(
-            processWaitCompletedSuccessfully || ownerExitVerifiedSeparately,
-            explicitStop);
 
     /// <summary>Gets whether the scheduler can be dispatched without racing an anchor request or
     /// a shell surface that appeared after the last observation.</summary>

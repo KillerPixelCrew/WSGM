@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -7,14 +6,6 @@ using WSGM.Core;
 using WSGM.Device.Sdk.Input;
 
 namespace WSGM.Input;
-
-internal enum ControllerOutputState
-{
-    Stopped,
-    Active,
-    Faulted,
-    Indeterminate,
-}
 
 internal interface IPhysicalHapticSink
 {
@@ -65,11 +56,7 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
         _worker = RunAsync();
     }
 
-    internal ControllerOutputState State { get; private set; } = ControllerOutputState.Stopped;
-
     internal int DroppedFrames { get; private set; }
-
-    internal int DeliveredFrames { get; private set; }
 
     internal void Attach(HidTargetHandle target, long sourceGeneration)
     {
@@ -82,7 +69,6 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
             _routeGeneration++;
             _lastDispatchTimestamp = 0;
             _outputFaulted = false;
-            State = ControllerOutputState.Stopped;
             DrainUnderGate();
         }
     }
@@ -99,7 +85,6 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
 
         if (target is null)
         {
-            State = ControllerOutputState.Stopped;
             return;
         }
 
@@ -107,12 +92,6 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
         try
         {
             await _sink.StopAsync(target.Generation, reason, cancellationToken).ConfigureAwait(false);
-            State = ControllerOutputState.Stopped;
-        }
-        catch
-        {
-            State = ControllerOutputState.Indeterminate;
-            throw;
         }
         finally
         {
@@ -132,7 +111,6 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
             _target = null;
             _sourceGeneration = 0;
             _routeGeneration++;
-            State = ControllerOutputState.Stopped;
             DrainUnderGate();
         }
     }
@@ -238,11 +216,9 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
                 await _sinkGate.WaitAsync(_lifetime.Token).ConfigureAwait(false);
                 try
                 {
-                    // Rechecked inside the gate, not only before waiting for it. Stop bumps the
-                    // route generation under _gate and then takes this one separately, so a stop
-                    // that won the race would send its silent frame and this stale non-silent one
-                    // would land on top of it — and the plugin latches what it is given, leaving
-                    // the motors running after the controller was supposedly neutralized.
+                    // Rechecked inside the sink gate: a stop that won the race for it has already
+                    // sent its silent frame, and this stale non-silent frame landing on top would
+                    // leave the plugin's latched motors running after neutralization.
                     lock (_gate)
                     {
                         if (_routeGeneration != routeGeneration || !MatchesRouteUnderGate(output))
@@ -254,8 +230,6 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
 
                     await _sink.ApplyAsync(frame, _lifetime.Token).ConfigureAwait(false);
                     _lastDispatchTimestamp = _timeProvider.GetTimestamp();
-                    State = frame.IsSilent ? ControllerOutputState.Stopped : ControllerOutputState.Active;
-                    DeliveredFrames++;
                 }
                 catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
                 {
@@ -266,7 +240,6 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
                     lock (_gate)
                     {
                         _outputFaulted = true;
-                        State = ControllerOutputState.Faulted;
                     }
 
                     Log.Error("Managed controller output sink faulted; input remains active", ex);
@@ -289,10 +262,10 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
             && MatchesRouteUnderGate(output)
             && output.Frame.Timestamp <= now.AddSeconds(1)
             && now - output.Frame.Timestamp <= MaxOutputAge
-            && FiniteUnit(output.Frame.LowFrequency)
-            && FiniteUnit(output.Frame.HighFrequency)
-            && FiniteUnit(output.Frame.LeftTrigger)
-            && FiniteUnit(output.Frame.RightTrigger);
+            && ManagedControllerSampleValidator.FiniteUnit(output.Frame.LowFrequency)
+            && ManagedControllerSampleValidator.FiniteUnit(output.Frame.HighFrequency)
+            && ManagedControllerSampleValidator.FiniteUnit(output.Frame.LeftTrigger)
+            && ManagedControllerSampleValidator.FiniteUnit(output.Frame.RightTrigger);
     }
 
     private bool MatchesRouteUnderGate(HidTargetOutput output) =>
@@ -307,8 +280,6 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
             DroppedFrames++;
         }
     }
-
-    private static bool FiniteUnit(float value) => float.IsFinite(value) && value is >= 0 and <= 1;
 }
 
 internal sealed class ManagedControllerRouter : IAsyncDisposable
@@ -349,7 +320,7 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
     internal ControllerOutputRouter Output => _output;
 
     internal async Task<HidTargetHandle> CreateAsync(
-        VirtualTargetKind kind,
+        ManagedControllerTarget kind,
         long sourceGeneration,
         CancellationToken cancellationToken)
     {
@@ -362,36 +333,8 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
                 throw new InvalidOperationException("A managed target already exists.");
             }
 
-            HidBackendHealth health = await _backend.DiscoverAsync(cancellationToken)
+            return await CreateUnderGateAsync(kind, sourceGeneration, cancellationToken)
                 .ConfigureAwait(false);
-            if (health.State is not HidBackendHealthState.Ready
-                || health.Capabilities is null
-                || !health.Capabilities.SupportedTargets.Contains(kind))
-            {
-                throw new InvalidOperationException($"Managed controller backend unavailable: {health.Detail}");
-            }
-
-            State = ManagedTargetState.Creating;
-            _sourceGeneration = sourceGeneration;
-            _lastSequence = long.MinValue;
-            CanonicalControllerSample neutral = NewNeutral(sourceGeneration);
-            HidTargetHandle target = await _backend.CreateTargetAsync(kind, neutral, cancellationToken)
-                .ConfigureAwait(false);
-            _target = target;
-
-            bool enumerated = await _backend.WaitForEnumerationAsync(target, cancellationToken)
-                .ConfigureAwait(false);
-            if (!enumerated)
-            {
-                State = ManagedTargetState.Faulted;
-                await RemoveUnderGateAsync("enumeration-failed", cancellationToken).ConfigureAwait(false);
-                throw new InvalidOperationException("The virtual target did not enumerate.");
-            }
-
-            _neutral = true;
-            State = ManagedTargetState.Neutral;
-            _output.Attach(target, sourceGeneration);
-            return target;
         }
         catch (Exception)
         {
@@ -502,7 +445,7 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
     }
 
     internal async Task<HidTargetHandle> ReplaceAsync(
-        VirtualTargetKind kind,
+        ManagedControllerTarget kind,
         long sourceGeneration,
         CancellationToken cancellationToken)
     {
@@ -510,43 +453,38 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            State = ManagedTargetState.Replacing;
             await RemoveUnderGateAsync("target-replacement", cancellationToken).ConfigureAwait(false);
-
-            HidBackendHealth health = await _backend.DiscoverAsync(cancellationToken)
+            return await CreateUnderGateAsync(kind, sourceGeneration, cancellationToken)
                 .ConfigureAwait(false);
-            if (health.State is not HidBackendHealthState.Ready
-                || health.Capabilities is null
-                || !health.Capabilities.SupportedTargets.Contains(kind))
-            {
-                State = ManagedTargetState.Faulted;
-                throw new InvalidOperationException($"Managed controller backend unavailable: {health.Detail}");
-            }
-
-            State = ManagedTargetState.Creating;
-            _sourceGeneration = sourceGeneration;
-            _lastSequence = long.MinValue;
-            CanonicalControllerSample neutral = NewNeutral(sourceGeneration);
-            HidTargetHandle target = await _backend.CreateTargetAsync(kind, neutral, cancellationToken)
-                .ConfigureAwait(false);
-            _target = target;
-            if (!await _backend.WaitForEnumerationAsync(target, cancellationToken).ConfigureAwait(false))
-            {
-                State = ManagedTargetState.Faulted;
-                await RemoveUnderGateAsync("replacement-enumeration-failed", cancellationToken)
-                    .ConfigureAwait(false);
-                throw new InvalidOperationException("The replacement target did not enumerate.");
-            }
-
-            _neutral = true;
-            State = ManagedTargetState.Neutral;
-            _output.Attach(target, sourceGeneration);
-            return target;
         }
         finally
         {
             _transition.Release();
         }
+    }
+
+    private async Task<HidTargetHandle> CreateUnderGateAsync(
+        ManagedControllerTarget kind,
+        long sourceGeneration,
+        CancellationToken cancellationToken)
+    {
+        _sourceGeneration = sourceGeneration;
+        _lastSequence = long.MinValue;
+        CanonicalControllerSample neutral = NewNeutral(sourceGeneration);
+        HidTargetHandle target = await _backend.CreateTargetAsync(kind, neutral, cancellationToken)
+            .ConfigureAwait(false);
+        _target = target;
+        if (!await _backend.WaitForEnumerationAsync(target, cancellationToken).ConfigureAwait(false))
+        {
+            State = ManagedTargetState.Faulted;
+            await RemoveUnderGateAsync("enumeration-failed", cancellationToken).ConfigureAwait(false);
+            throw new InvalidOperationException("The virtual target did not enumerate.");
+        }
+
+        _neutral = true;
+        State = ManagedTargetState.Neutral;
+        _output.Attach(target, sourceGeneration);
+        return target;
     }
 
     public async ValueTask DisposeAsync()
@@ -614,7 +552,6 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
         }
 
         await NeutralizeUnderGateAsync(reason, cancellationToken).ConfigureAwait(false);
-        State = ManagedTargetState.Removing;
         await _backend.RemoveTargetAsync(target, cancellationToken).ConfigureAwait(false);
         if (!await _backend.WaitForRemovalAsync(target, cancellationToken).ConfigureAwait(false))
         {

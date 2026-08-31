@@ -30,21 +30,21 @@ public sealed class DeviceOverlayDirectRowTests
     [Fact]
     public void AnActiveTargetIsNamedInTheRowRatherThanOnlyMarkedOn()
     {
-        DeviceOverlayController? row = DeviceOverlayBridge.ControllerView(
+        DescriptorRow? row = DeviceOverlayBridge.ControllerView(
             enabled: true,
             Status(ControllerManagementState.Active, ManagedControllerTarget.SteamDeckComposite));
 
         Assert.NotNull(row);
         Assert.Equal("DECK", row.TrailingText);
-        Assert.Equal(DeviceOverlayStatus.Available, row.Status);
-        Assert.True(row.CanCycle);
+        Assert.Equal(DescriptorStatus.Available, row.Status);
+        Assert.True(row.CanInvoke);
     }
 
     [Fact]
     public void ARunningGameIsToldTheChangeWillNotReachIt()
     {
         // A game holds the target it launched with. Without saying so, the control looks broken.
-        DeviceOverlayController? row = DeviceOverlayBridge.ControllerView(
+        DescriptorRow? row = DeviceOverlayBridge.ControllerView(
             enabled: true,
             Status(
                 ControllerManagementState.Active,
@@ -58,7 +58,7 @@ public sealed class DeviceOverlayDirectRowTests
     [Fact]
     public void AnUnavailableBackendCannotBeCycledIntoAnotherBrokenTarget()
     {
-        DeviceOverlayController? row = DeviceOverlayBridge.ControllerView(
+        DescriptorRow? row = DeviceOverlayBridge.ControllerView(
             enabled: true,
             Status(
                 ControllerManagementState.Unavailable,
@@ -66,9 +66,9 @@ public sealed class DeviceOverlayDirectRowTests
                 "The virtual controller component is not installed."));
 
         Assert.NotNull(row);
-        Assert.False(row.CanCycle);
+        Assert.False(row.CanInvoke);
         Assert.Equal("NONE", row.TrailingText);
-        Assert.Equal(DeviceOverlayStatus.Unsupported, row.Status);
+        Assert.Equal(DescriptorStatus.Unsupported, row.Status);
     }
 
     [Theory]
@@ -112,7 +112,7 @@ public sealed class DeviceOverlayDirectRowTests
     [Fact]
     public void AnAvailableRetryIsOfferedAndCarriesTheCycleState()
     {
-        DeviceOverlayRecovery? row = DeviceOverlayBridge.RecoveryView(DeviceCycleState.Faulted);
+        DescriptorRow? row = DeviceOverlayBridge.RecoveryView(DeviceCycleState.Faulted);
 
         Assert.NotNull(row);
         Assert.Equal("READY", row.TrailingText);
@@ -151,12 +151,13 @@ public sealed class DeviceOverlayDirectRowTests
             Visible: true,
             Status: "Active",
             Detail: string.Empty,
-            GlyphSelection: new DeviceOverlayGlyphSelection(
-                DeviceOverlayStatus.Available,
+            GlyphSelection: new DescriptorRow(
+                "device.glyph-selection",
                 "Physical glyphs",
                 string.Empty,
                 "AUTO",
-                CanCycle: true),
+                CanInvoke: true,
+                DescriptorStatus.Available),
             Capabilities: [],
             AutoTdp: DeviceOverlayBridge.AutoTdpView(enabled: false, status: null),
             Controller: DeviceOverlayBridge.ControllerView(
@@ -180,9 +181,9 @@ public sealed class DeviceOverlayDirectRowTests
     {
         // Unlike recovery, this row is always present: profiles are a feature a user has to find
         // before they can use it, and an absent row would read as the feature being missing.
-        DeviceOverlayProfile row = DeviceOverlayBridge.ProfileView([], selected: null);
+        DescriptorRow row = DeviceOverlayBridge.ProfileView([], selected: null);
 
-        Assert.False(row.CanCycle);
+        Assert.False(row.CanInvoke);
         Assert.Equal("NONE", row.TrailingText);
         Assert.Contains("Settings", row.Description, StringComparison.Ordinal);
     }
@@ -190,11 +191,11 @@ public sealed class DeviceOverlayDirectRowTests
     [Fact]
     public void ASelectedProfileIsNamedAndMarkedActive()
     {
-        DeviceOverlayProfile row = DeviceOverlayBridge.ProfileView(["docked", "handheld"], "handheld");
+        DescriptorRow row = DeviceOverlayBridge.ProfileView(["docked", "handheld"], "handheld");
 
         Assert.Equal("HANDHELD", row.TrailingText);
-        Assert.Equal(DeviceOverlayStatus.Available, row.Status);
-        Assert.True(row.CanCycle);
+        Assert.Equal(DescriptorStatus.Available, row.Status);
+        Assert.True(row.CanInvoke);
     }
 
     [Fact]
@@ -202,10 +203,10 @@ public sealed class DeviceOverlayDirectRowTests
     {
         // Which is what it now behaves as: the resolver finds no value under that name and falls
         // through to the power and global layers. Showing the stale name would claim otherwise.
-        DeviceOverlayProfile row = DeviceOverlayBridge.ProfileView(["docked"], "deleted");
+        DescriptorRow row = DeviceOverlayBridge.ProfileView(["docked"], "deleted");
 
         Assert.Equal("NONE", row.TrailingText);
-        Assert.Equal(DeviceOverlayStatus.None, row.Status);
+        Assert.Equal(DescriptorStatus.None, row.Status);
     }
 
     [Theory]

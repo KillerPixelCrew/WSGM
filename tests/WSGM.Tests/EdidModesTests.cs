@@ -39,16 +39,6 @@ public sealed class EdidModesTests
         Assert.DoesNotContain(100, rates);
     }
 
-    [Fact]
-    public void ReadVerticalRange_TheReferencePanel_ReportsTheAdaptiveSyncBand()
-    {
-        (int minimum, int maximum)? range = EdidModes.ReadVerticalRange(Bytes(ClawEdid));
-
-        // 0x1e-0x78 in the display-range-limits descriptor, and the same 30-120 Hz band Arc Sync
-        // independently reports for this panel.
-        Assert.Equal((30, 120), range);
-    }
-
     [Theory]
     [InlineData(null)]
     [InlineData("")]
@@ -66,17 +56,6 @@ public sealed class EdidModesTests
         corrupt[1] = 0x00;
 
         Assert.Empty(EdidModes.ReadAdvertisedRefreshRates(corrupt));
-    }
-
-    [Fact]
-    public void ReadVerticalRange_PanelWithoutARangeDescriptor_ReportsNone()
-    {
-        byte[] noRange = Bytes(ClawEdid);
-
-        // Blank the descriptor's type byte so it no longer reads as display range limits.
-        noRange[54 + (2 * 18) + 3] = 0x00;
-
-        Assert.Null(EdidModes.ReadVerticalRange(noRange));
     }
 
     private static byte[] Bytes(string hex) => Convert.FromHexString(hex);

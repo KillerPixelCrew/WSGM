@@ -78,14 +78,6 @@ public sealed class ShellSession : IAsyncDisposable
     private RefreshRatePairingService? _refreshPairing;
     private DisplayResolutionService? _resolutions;
 
-    /// <summary>Accepted refresh rates, discovered once. Null until first read.</summary>
-    /// <remarks>
-    /// No display-change invalidation yet: the internal panel's modes do not change within a
-    /// session, and a dock/undock already goes through the display-profile path. If external
-    /// displays need live rates here, invalidate where the pairing service invalidates.
-    /// </remarks>
-    private IReadOnlyList<int>? _acceptedRefreshRates;
-
     /// <summary>
     /// The one audio manager for this session, shared by the taskbar's status cluster and Steam's
     /// audio namespace.
@@ -111,7 +103,6 @@ public sealed class ShellSession : IAsyncDisposable
     private PersistentSteamUiTransport? _steamUiTransport;
     private RunningApplicationMonitor? _runningApplications;
     private ForegroundWindowWatcher? _foregroundWindows;
-    private DeviceProfileApplier? _profileApplier;
     private AutoTdpService? _autoTdp;
     private RunningApplicationCoordinator? _runningApplicationTargets;
     private SteamUiSessionHost? _steamUi;
@@ -143,8 +134,6 @@ public sealed class ShellSession : IAsyncDisposable
         _serviceBoot = serviceBoot;
     }
 
-    internal static bool ShouldStartDeviceCoordinator(bool overlayTestOnly) => !overlayTestOnly;
-
     /// <summary>Starts device admission off-thread, then creates shell and overlay services on the UI thread.</summary>
     /// <returns>The complete asynchronous session-start operation.</returns>
     public Task StartAsync()
@@ -153,33 +142,18 @@ public sealed class ShellSession : IAsyncDisposable
         return _startupTask;
     }
 
-    internal static Task<DeviceCoordinator?> AdmitDeviceCoordinatorAsync(
-        AppConfig config,
-        bool overlayTestOnly,
-        CancellationToken cancellationToken,
-        Func<AppConfig, CancellationToken, Task<DeviceCoordinator?>>? startAsync = null)
-    {
-        ArgumentNullException.ThrowIfNull(config);
-        if (!ShouldStartDeviceCoordinator(overlayTestOnly))
-        {
-            return Task.FromResult<DeviceCoordinator?>(null);
-        }
-
-        Func<AppConfig, CancellationToken, Task<DeviceCoordinator?>> factory =
-            startAsync ?? DeviceCoordinator.TryStartAsync;
-        return factory(config, cancellationToken);
-    }
-
     private async Task StartUnderDeviceAdmissionAsync()
     {
         DeviceCoordinator? coordinator = null;
         bool coordinatorAdopted = false;
         try
         {
-            coordinator = await AdmitDeviceCoordinatorAsync(
-                _config,
-                _overlayTestOnly,
-                _shutdownCancellation.Token).ConfigureAwait(false);
+            // Overlay test deliberately never discovers packages or loads plugin code.
+            coordinator = _overlayTestOnly
+                ? null
+                : await DeviceCoordinator.TryStartAsync(
+                    _config,
+                    _shutdownCancellation.Token).ConfigureAwait(false);
             if (_shutdownRequested)
             {
                 return;
@@ -225,16 +199,28 @@ public sealed class ShellSession : IAsyncDisposable
             _messageWindow.SessionUnlocked += OnSessionUnlocked;
             _messageWindow.SystemSuspending += OnSystemSuspending;
             _messageWindow.SystemResumed += OnSystemResumed;
-            if (_deviceCoordinator is not null)
+            if (_deviceCoordinator is { } deviceCoordinator)
             {
-                DeviceOverlayBridge bridge = new(_deviceCoordinator);
-                // Read on every snapshot rather than cached: the row has to follow both a
-                // configuration reload and a change of running application, and it is a handful of
-                // list lookups against objects already in memory. Set on the concrete bridge, not
-                // the interface — a simulated source for overlay-test has no configuration to read.
-                bridge.AuthoredProfileSource = BuildAuthoredProfileRow;
-                bridge.AuthoredProfileCycle = CycleAuthoredProfileAsync;
-                _deviceOverlay = bridge;
+                _autoTdp = new AutoTdpService(
+                    new RtssFrametimeReader(),
+                    deviceCoordinator.Capabilities.Snapshot,
+                    (capabilityId, instanceId, value, token) =>
+                        deviceCoordinator.ExecuteCapabilityAsync(
+                            capabilityId,
+                            instanceId,
+                            value,
+                            TimeSpan.FromSeconds(5),
+                            CapabilityCommandOrigin.AutomaticControl,
+                            token),
+                    TargetFrametimeMs);
+                _autoTdp.Apply(
+                    ShouldRunAutoTdp(_config.DeviceIntegration));
+                // A power limit the user set by hand pauses control permanently. The hook is rooted
+                // here because this is where both objects exist; every surface's write already goes
+                // through the coordinator, so this is the one place that sees all of them.
+                deviceCoordinator.AttachAutoTdpManualOverride(watts => _autoTdp?.NoteManualChange(watts));
+
+                _deviceOverlay = new DeviceOverlayBridge(deviceCoordinator, _autoTdp);
             }
         }
         else
@@ -271,62 +257,6 @@ public sealed class ShellSession : IAsyncDisposable
             // outside a Steam game.
             _foregroundWindows = new ForegroundWindowWatcher();
             _foregroundWindows.ApplicationChanged += OnForegroundApplicationChanged;
-            if (_deviceCoordinator is { } deviceCoordinator)
-            {
-                _autoTdp = new AutoTdpService(
-                    new RtssFrametimeReader(),
-                    deviceCoordinator.CapabilitySnapshot,
-                    (capabilityId, instanceId, value, token) =>
-                        deviceCoordinator.ExecuteCapabilityAsync(
-                            capabilityId,
-                            instanceId,
-                            value,
-                            TimeSpan.FromSeconds(5),
-                            CapabilityCommandOrigin.AutomaticControl,
-                            token),
-                    TargetFrametimeMs);
-                _autoTdp.Apply(
-                    ShouldRunAutoTdp(_config.DeviceIntegration));
-                // The coordinator surfaces AutoTDP on the Device page but never owns its lifetime;
-                // it only reads the state to render a row.
-                deviceCoordinator.AttachAutoTdpStatus(() => _autoTdp!.Status);
-                // A power limit the user set by hand pauses control permanently. The hook is rooted
-                // here because this is where both objects exist; every surface's write already goes
-                // through the coordinator, so this is the one place that sees all of them.
-                deviceCoordinator.AttachAutoTdpManualOverride(watts => _autoTdp?.NoteManualChange(watts));
-
-                // Reads the descriptor at apply time rather than caching one: a plugin republishes
-                // its capabilities across a cycle, and a curve checked against a stale descriptor is
-                // exactly the case this check exists to catch.
-                _profileApplier = new DeviceProfileApplier(
-                    capabilityId => deviceCoordinator.CapabilitySnapshot()
-                        .FirstOrDefault(view => string.Equals(
-                            view.Descriptor.CapabilityId,
-                            capabilityId,
-                            StringComparison.Ordinal))?.Descriptor,
-                    async (capabilityId, value, token) =>
-                    {
-                        CapabilityCommandResult result = await deviceCoordinator
-                            .ExecuteCapabilityAsync(
-                                capabilityId,
-                                null,
-                                value,
-                                TimeSpan.FromSeconds(5),
-                                CapabilityCommandOrigin.AutomaticControl,
-                                token).ConfigureAwait(false);
-                        // Unverified counts as applied: many EC writes have no readback, and
-                        // treating the absence of confirmation as failure would report every one of
-                        // them as broken. A timeout does not count — whether it was written is
-                        // unknown, and claiming success there is the one answer that misleads.
-                        return result.Outcome is CommandOutcome.AppliedVerified
-                            or CommandOutcome.AppliedUnverified;
-                    });
-                // Without this the Device page and the native QAM row only refreshed when some
-                // unrelated device event happened to arrive, so an AutoTDP transition — including
-                // the pause above — could sit invisible for as long as the session stayed quiet.
-                _autoTdp.StatusChanged += OnAutoTdpStatusChanged;
-            }
-
             _runningApplicationTargets = new RunningApplicationCoordinator(
                 _runningApplications,
                 _performance.SetTargetAsync,
@@ -401,7 +331,7 @@ public sealed class ShellSession : IAsyncDisposable
             // visibility and mutates Avalonia focus and controls — UI-thread-owned state that a
             // worker thread must not touch. The rate is bounded by design: the manager raises this
             // only while a WSGM surface has captured input.
-            canonicalSource.UiSampleReceived += sample =>
+            canonicalSource.Controllers.UiSampleReceived += sample =>
                 Avalonia.Threading.Dispatcher.UIThread.Post(
                     () => overlay.SubmitCanonicalSample(sample));
             canonicalSource.StateChanged += state =>
@@ -415,7 +345,7 @@ public sealed class ShellSession : IAsyncDisposable
             // controller management runs make-safe and leaves the cycle Active while the plugin
             // stops publishing, so without this the router waited on a source that had gone quiet
             // and WSGM's own surfaces stopped answering a controller SDL could already see.
-            canonicalSource.ControllerStatusChanged += status =>
+            canonicalSource.Controllers.StatusChanged += status =>
             {
                 if (status.State is not ControllerManagementState.Active)
                 {
@@ -492,12 +422,12 @@ public sealed class ShellSession : IAsyncDisposable
                 // Null in overlay-test, where there is no real display to move. The patch is then
                 // never registered, so the row cannot appear offering a control with nothing behind
                 // it.
-                _overlayTestOnly ? null : _resolutions);
-            _steamUi.SetPerfSupport(ReadNativeQamPerfSupport);
-            _steamUi.SetRefreshRateApply(ApplyManualRefreshRate);
-            // Null when no plugin publishes VRR, which is also when the projection omits
-            // is_vrr_supported and Valve's row does not render. One fact, one source.
-            _steamUi.SetVariableRefreshRateApply(
+                _overlayTestOnly ? null : _resolutions,
+                _autoTdp,
+                ReadNativeQamPerfSupport,
+                ApplyManualRefreshRate,
+                // Null when no plugin publishes VRR, which is also when the projection omits
+                // is_vrr_supported and Valve's row does not render. One fact, one source.
                 _deviceCoordinator is null ? null : ApplyVariableRefreshRateAsync);
             _steamUi.Apply(_config.Cef.Enabled && _config.Cef.NativeQuickAccess);
             _steamUi.ApplyNetworkIndicator(_inGameMode && _wifiIndicatorEnabled);
@@ -507,7 +437,7 @@ public sealed class ShellSession : IAsyncDisposable
             {
                 // Two sources change the active profile: the package publishing its profiles, and
                 // the user changing the selection mode. Both land on the same apply.
-                _deviceCoordinator.PhysicalGlyphProfilesChanged += OnPhysicalGlyphProfilesChanged;
+                _deviceCoordinator.PhysicalGlyphCatalog.Changed += OnPhysicalGlyphProfilesChanged;
             }
         }
 
@@ -534,13 +464,7 @@ public sealed class ShellSession : IAsyncDisposable
         _modes.GameModeEntered += () =>
         {
             _inGameMode = true;
-            _trayHost = TrayHost.Create();
-            if (_trayHost is not null)
-            {
-                _overlay?.AttachTrayHost(_trayHost);
-            }
-            _volumeButtons?.SetGameModeActive(true);
-            ApplyCardServices(gameModeActive: true);
+            EnterGameModeSurfaces();
             _steamUi?.ApplyNetworkIndicator(_wifiIndicatorEnabled);
             _steamUi?.ApplyDownloadSort(_downloadSortEnabled);
             // Returning from desktop mode disabled tabs/badge and cancelled the boot
@@ -575,7 +499,8 @@ public sealed class ShellSession : IAsyncDisposable
 
         _volumeButtons = new VolumeButtonService(
             _messageWindow!,
-            () => DisplayScale.GetUiScalePercent(_config) / 100.0);
+            () => DisplayScale.GetUiScalePercent(_config) / 100.0,
+            _audio!);
         _displayMute = new DisplayOffMuteService(_messageWindow!);
         _displayMute.ApplyConfig(_config.MuteWhileDisplayOff);
         _displayMute.SetDownloadActive(_keepAwake.DownloadActive);
@@ -621,8 +546,7 @@ public sealed class ShellSession : IAsyncDisposable
             // not start next to a live explorer (and nothing would retract them).
             _inGameMode = false;
             _monitor.Paused = true;
-            _startupWatcher = new StartupAppWatcher(_config.StartupApps);
-            WatchConfig();
+            WatchStartupAppsAndConfig();
             return;
         }
 
@@ -630,45 +554,71 @@ public sealed class ShellSession : IAsyncDisposable
         // Posture first: it changes the display scale, and the splash sizes itself
         // to the final screen metrics.
         _modes.ApplyGameModePosture();
-        _volumeButtons.SetGameModeActive(true);
-        // Initial game mode does not raise GameModeEntered. Start the same card
-        // services explicitly or an entire direct-boot session misses every eject
-        // and insert (device log, 2026-08-22).
-        ApplyCardServices(gameModeActive: true);
-        // Game-mode logon boot: host the tray now, before startup apps launch —
-        // their Shell_NotifyIcon registrations need a living Shell_TrayWnd or
-        // they only get an icon after the TaskbarCreated-driven retry (which
-        // message-only tray windows never hear).
-        _trayHost = TrayHost.Create();
-        if (_trayHost is not null)
-        {
-            _overlay.AttachTrayHost(_trayHost);
-        }
-        if (_config.BootSplashEnabled)
-        {
-            _splash = new BootSplash(_config, SwitchToDesktopFromSplash);
-            _overlay.OverlayShown += () => _splash?.Dismiss("quick access opened");
-            _splash.Show();
-        }
-        _startupWatcher = new StartupAppWatcher(_config.StartupApps);
-        WatchConfig();
+        EnterGameModeSurfaces();
+        ShowBootSplashIfEnabled();
+        WatchStartupAppsAndConfig();
 
         _bootWork = Task.Run(async () =>
         {
-            try
-            {
-                await LaunchAppsAsync(_shutdownCancellation.Token);
-            }
-            catch (OperationCanceledException) when (_shutdownCancellation.IsCancellationRequested)
-            {
-                Log.Info("Shell launch sequence cancelled for application shutdown.");
-            }
-            catch (Exception ex)
-            {
-                Log.Error("Shell session launch sequence failed", ex);
-            }
+            await RunLaunchSequenceAsync();
             _ = TrimAfterBootSettlesAsync(_shutdownCancellation.Token);
         });
+    }
+
+    /// <summary>Creates the game-mode-only surfaces in one shared order: tray host
+    /// first (startup apps' Shell_NotifyIcon registrations need a living
+    /// Shell_TrayWnd, or they only get an icon after the TaskbarCreated-driven retry,
+    /// which message-only tray windows never hear), volume buttons, then card
+    /// services. Direct boot and the service takeover are separate entry paths from
+    /// the desktop-to-game transition — only the latter raises GameModeEntered — so
+    /// each initial entry calls this explicitly, or an entire direct-boot session
+    /// misses every card eject and insert (device log, 2026-08-22).</summary>
+    private void EnterGameModeSurfaces()
+    {
+        _trayHost = TrayHost.Create();
+        if (_trayHost is not null)
+        {
+            _overlay?.AttachTrayHost(_trayHost);
+        }
+        _volumeButtons?.SetGameModeActive(true);
+        ApplyCardServices(gameModeActive: true);
+    }
+
+    /// <summary>Covers the screen with the boot splash when configured; the overlay
+    /// opening dismisses it.</summary>
+    private void ShowBootSplashIfEnabled()
+    {
+        if (!_config.BootSplashEnabled)
+        {
+            return;
+        }
+        _splash = new BootSplash(_config, SwitchToDesktopFromSplash);
+        _overlay!.OverlayShown += () => _splash?.Dismiss("quick access opened");
+        _splash.Show();
+    }
+
+    private void WatchStartupAppsAndConfig()
+    {
+        _startupWatcher = new StartupAppWatcher(_config.StartupApps);
+        WatchConfig();
+    }
+
+    /// <summary>Runs the startup-app/Steam launch sequence, containing cancellation
+    /// and failure so a boot worker never faults.</summary>
+    private async Task RunLaunchSequenceAsync()
+    {
+        try
+        {
+            await LaunchAppsAsync(_shutdownCancellation.Token);
+        }
+        catch (OperationCanceledException) when (_shutdownCancellation.IsCancellationRequested)
+        {
+            Log.Info("Shell launch sequence cancelled for application shutdown.");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Shell session launch sequence failed", ex);
+        }
     }
 
     /// <summary>Service-boot takeover: cover the booting desktop with the splash
@@ -683,19 +633,13 @@ public sealed class ShellSession : IAsyncDisposable
         var takeover = new BootTakeoverCancellation();
         _bootTakeover = takeover;
 
-        if (_config.BootSplashEnabled)
-        {
-            _splash = new BootSplash(_config, SwitchToDesktopFromSplash);
-            _overlay!.OverlayShown += () => _splash?.Dismiss("quick access opened");
-            _splash.Show();
-        }
-        else
+        ShowBootSplashIfEnabled();
+        if (_splash is null)
         {
             Log.Info("Boot splash disabled — takeover runs uncovered.");
         }
 
-        _startupWatcher = new StartupAppWatcher(_config.StartupApps);
-        WatchConfig();
+        WatchStartupAppsAndConfig();
 
         // Mode switches must not race the takeover (the overlay is live behind the
         // splash and its Desktop button would start a second explorer transition).
@@ -723,12 +667,9 @@ public sealed class ShellSession : IAsyncDisposable
             }
             finally
             {
-                // The flag guards the TAKEOVER only. Holding it across the launch
-                // sequence too (StartupDelay + per-app stagger + SteamDelay) made
-                // the splash's Switch-to-desktop hit TryBeginTransition and be
-                // dropped with nothing but a Log.Warn; released here, that request
-                // runs and LaunchAppsAsync's monitor-paused guard skips Big Picture
-                // exactly as its comment already claims.
+                // The gate guards the TAKEOVER only, not the launch sequence:
+                // released here, the splash's Switch-to-desktop can run and
+                // LaunchAppsAsync's monitor-paused guard skips Big Picture.
                 _modes!.EndTransition();
                 takeover.Complete();
             }
@@ -783,18 +724,7 @@ public sealed class ShellSession : IAsyncDisposable
                 && !desktopRequested
                 && !_shutdownRequested)
             {
-                try
-                {
-                    await LaunchAppsAsync(_shutdownCancellation.Token);
-                }
-                catch (OperationCanceledException) when (_shutdownCancellation.IsCancellationRequested)
-                {
-                    Log.Info("Shell launch sequence cancelled for application shutdown.");
-                }
-                catch (Exception ex)
-                {
-                    Log.Error("Shell session launch sequence failed", ex);
-                }
+                await RunLaunchSequenceAsync();
             }
             _ = TrimAfterBootSettlesAsync(_shutdownCancellation.Token);
         });
@@ -839,7 +769,7 @@ public sealed class ShellSession : IAsyncDisposable
             cancellationToken.ThrowIfCancellationRequested();
             var shellWindow = NativeMethods.GetShellWindow() != 0;
             var taskbar = NativeMethods.FindWindowW("Shell_TrayWnd", null) != 0;
-            var bigPicture = WindowFinder.FindWindow(Steam.ProcessNames, Steam.BigPictureWindowClass) != 0;
+            var bigPicture = Steam.IsBigPictureVisible;
             if (shellWindow && shellSeenMs < 0)
             {
                 shellSeenMs = watch.ElapsedMilliseconds;
@@ -943,15 +873,7 @@ public sealed class ShellSession : IAsyncDisposable
             // splash re-covering on the display change, then the tray host —
             // explorer is verifiably gone, so Create() can't race a dying taskbar.
             _modes!.ApplyGameModePosture();
-            _trayHost = TrayHost.Create();
-            if (_trayHost is not null)
-            {
-                _overlay?.AttachTrayHost(_trayHost);
-            }
-            _volumeButtons?.SetGameModeActive(true);
-            // The service takeover is another initial entry, not a SessionModes
-            // transition, so GameModeEntered does not initialize card services.
-            ApplyCardServices(gameModeActive: true);
+            EnterGameModeSurfaces();
             return true;
         });
         if (!enteredGameMode || cancellationToken.IsCancellationRequested)
@@ -1021,28 +943,15 @@ public sealed class ShellSession : IAsyncDisposable
     {
         try
         {
-            if (!path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-            var name = System.IO.Path.GetFileNameWithoutExtension(path);
-            var session = System.Diagnostics.Process.GetCurrentProcess().SessionId;
-            foreach (var p in System.Diagnostics.Process.GetProcessesByName(name))
-            {
-                using (p)
-                {
-                    if (p.SessionId == session)
-                    {
-                        return true;
-                    }
-                }
-            }
+            return path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                && WindowFinder.FindProcessIds(
+                    System.IO.Path.GetFileNameWithoutExtension(path)).Count > 0;
         }
         catch
         {
             // Enumeration hiccups must not block the launch sequence.
+            return false;
         }
-        return false;
     }
 
     /// <summary>Cancels any in-flight boot sync and starts a fresh one (waits for
@@ -1330,16 +1239,6 @@ public sealed class ShellSession : IAsyncDisposable
         }
     }
 
-    /// <summary>Forwards an AutoTDP transition to the surfaces that render it.</summary>
-    /// <param name="status">The projection AutoTDP just published.</param>
-    /// <remarks>
-    /// Raised from AutoTDP's own tick loop, so it is posted to the dispatcher before the overlay
-    /// bridge and the native-QAM row rebuild anything: both are UI-owned.
-    /// </remarks>
-    private void OnAutoTdpStatusChanged(AutoTdpStatus status)
-        => Avalonia.Threading.Dispatcher.UIThread.Post(
-            () => _deviceCoordinator?.NoteAutoTdpStatusChanged());
-
     /// <summary>Hands a foreground application change to the running-application monitor.</summary>
     /// <param name="executable">Foreground executable file name.</param>
     /// <remarks>
@@ -1350,20 +1249,6 @@ public sealed class ShellSession : IAsyncDisposable
     private void OnForegroundApplicationChanged(string executable)
         => _runningApplications?.ReportForeground(executable);
 
-    /// <summary>Reports what the device can back for Steam's reactivated performance panel.</summary>
-    /// <returns>The support the panel decides each control's availability from.</returns>
-    /// <remarks>
-    /// This session is the only place that can answer: the frame-limit notches come from the
-    /// pairing service's runtime mode discovery, and variable refresh rate from the device plugin's
-    /// published capability. Reporting a control as unsupported hides it, which is why every branch
-    /// here fails toward "not supported" — a hidden control is always better than one whose writes
-    /// go nowhere.
-    /// <para>
-    /// The manual refresh-rate row is offered only under <c>FrameLimitOnly</c>. Under the pairing
-    /// strategies WSGM chooses the refresh rate itself to match the cap, and a manual row would
-    /// fight the pairing on every change.
-    /// </para>
-    /// </remarks>
     /// <summary>Turns variable refresh rate on or off through the device plugin.</summary>
     /// <param name="enabled">The requested state.</param>
     /// <param name="cancellationToken">Cancels the device write.</param>
@@ -1382,7 +1267,7 @@ public sealed class ShellSession : IAsyncDisposable
             return false;
         }
 
-        DeviceCapabilityView? view = coordinator.CapabilitySnapshot().FirstOrDefault(candidate =>
+        DeviceCapabilityView? view = coordinator.Capabilities.Snapshot().FirstOrDefault(candidate =>
             candidate.Descriptor.Role is CapabilityRole.VariableRefreshRate
             && candidate.Projection.State.Available);
         if (view is null)
@@ -1410,44 +1295,13 @@ public sealed class ShellSession : IAsyncDisposable
     /// <param name="refreshHz">The chosen rate.</param>
     /// <returns>Whether the display is now at that rate.</returns>
     /// <remarks>
-    /// Refused unless the strategy is <see cref="FrameLimitStrategy.FrameLimitOnly"/>. Under the
-    /// pairing strategies the frame cap owns the refresh rate, and honouring a manual change there
-    /// would be undone by the next cap change — worse than refusing, because the control would
-    /// appear to work and then silently revert.
-    /// <para>
-    /// Checked against the rates discovery accepted, not passed straight to the driver: the value
-    /// arrives from injected JavaScript, and a rate the panel cannot show is a black screen.
-    /// </para>
+    /// The ownership and validation rules live with <see
+    /// cref="RefreshRatePairingService.TryApplyManual"/>; this only supplies the cap in force.
     /// </remarks>
     private bool ApplyManualRefreshRate(int refreshHz)
-    {
-        // A pairing strategy owns the refresh rate only while there is a CAP for it to own one
-        // against. With the frame limit off there is no cadence to pair to and the unified row's
-        // slider becomes the rate itself, so refusing there rejected the very writes that row
-        // exists to make — "Manual refresh rate 72 Hz refused" against a strategy that was, at that
-        // moment, pairing nothing.
-        int cap = _performance?.Current.Desired.FrameLimit ?? 0;
-        if (cap > 0
-            && !FrameLimitPairing.RefreshRateIsUserOwned(_config.Performance.FrameLimitStrategy))
-        {
-            Log.Warn(
-                $"Manual refresh rate {refreshHz} Hz refused: the "
-                + $"{_config.Performance.FrameLimitStrategy} strategy owns the refresh rate while a "
-                + $"{cap} FPS cap is set.");
-            return false;
-        }
-
-        IReadOnlyList<int> accepted = DisplayProfiles.EnumerateAcceptedRefreshRates();
-        if (!accepted.Contains(refreshHz))
-        {
-            Log.Warn(
-                $"Manual refresh rate {refreshHz} Hz refused: accepted rates are "
-                + $"[{string.Join(",", accepted)}].");
-            return false;
-        }
-
-        return DisplayProfiles.TryApplyTransientRefreshRate(refreshHz);
-    }
+        => _refreshPairing?.TryApplyManual(
+            refreshHz,
+            _performance?.Current.Desired.FrameLimit ?? 0) ?? false;
 
     private NativeQamPerfSupport ReadNativeQamPerfSupport()
     {
@@ -1464,7 +1318,7 @@ public sealed class ShellSession : IAsyncDisposable
         bool vrrEnabled = false;
         if (_deviceCoordinator is { } coordinator)
         {
-            DeviceCapabilityView? view = coordinator.CapabilitySnapshot().FirstOrDefault(candidate =>
+            DeviceCapabilityView? view = coordinator.Capabilities.Snapshot().FirstOrDefault(candidate =>
                 candidate.Descriptor.Role is CapabilityRole.VariableRefreshRate
                 && candidate.Projection.State.Available);
             vrr = view is not null;
@@ -1473,17 +1327,13 @@ public sealed class ShellSession : IAsyncDisposable
             vrrEnabled = view?.Projection.State.ObservedValue?.BooleanValue ?? false;
         }
 
-        // Cached: this runs on every state publication, and enumerating plus CDS_TESTing every mode
-        // each time hammered the display driver and wrote the same "Display modes" line every two
-        // seconds — the log-flood defect the repository rules name. The rates only change with the
-        // display, which is what invalidates the cache.
-        // Enumerated under every strategy now, not only the uncoupled one: with the frame limit
-        // switched off the unified row becomes a refresh-rate slider, and that mode is offered
-        // whatever the pairing strategy is because there is no cap left for it to fight.
-        // RefreshRatesSelectable below still gates Valve's SEPARATE manual row, which must stay
-        // hidden while a cap owns the rate.
-        IReadOnlyList<int> refreshRates =
-            _acceptedRefreshRates ??= DisplayProfiles.EnumerateAcceptedRefreshRates();
+        // Read through the pairing service's session cache: this runs on every state publication,
+        // and enumerating plus CDS_TESTing every mode each time hammers the display driver.
+        // Enumerated under every strategy: with the frame limit switched off the unified row
+        // becomes a refresh-rate slider, offered whatever the pairing strategy is because there is
+        // no cap left for it to fight. RefreshRatesSelectable below still gates Valve's SEPARATE
+        // manual row, which must stay hidden while a cap owns the rate.
+        IReadOnlyList<int> refreshRates = pairing?.AcceptedRates() ?? [];
         return new NativeQamPerfSupport(
             options,
             vrr,
@@ -1724,7 +1574,7 @@ public sealed class ShellSession : IAsyncDisposable
     private async Task<bool> CyclePerformanceProfileAsync(CancellationToken cancellationToken)
     {
         IDeviceOverlaySource? device = _deviceOverlay;
-        if (device?.Snapshot().Profile?.CanCycle is not true)
+        if (device?.Snapshot().Profile?.CanInvoke is not true)
         {
             Log.Info("OEM performance-profile cycle skipped: no selectable hardware profile is active.");
             return false;
@@ -1742,11 +1592,7 @@ public sealed class ShellSession : IAsyncDisposable
         }
         Log.Info("Interactive session is ending; requesting bounded session cleanup.");
         ApplicationShutdownRequest.Request(ApplicationShutdownReason.SessionEnd);
-        if (Avalonia.Application.Current?.ApplicationLifetime
-            is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime lifetime)
-        {
-            lifetime.Shutdown();
-        }
+        ApplicationShutdownRequest.ShutdownLifetime();
     }
 
     /// <summary>Runs bounded device cleanup before the application lifetime ends.</summary>
@@ -1768,7 +1614,10 @@ public sealed class ShellSession : IAsyncDisposable
         _disposed = true;
         _shutdownRequested = true;
         _shutdownCancellation.Cancel();
-        Exception? startupFailure = null;
+        // Every cleanup step still runs after an earlier one fails; the collected
+        // failures are reported once at the end so the outer coordinator records the
+        // shutdown as unverified without any step having been skipped.
+        List<Exception> failures = [];
         if (_startupTask is not null)
         {
             try
@@ -1780,20 +1629,19 @@ public sealed class ShellSession : IAsyncDisposable
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                startupFailure = ex;
+                failures.Add(ex);
                 Log.Error("Shell startup failed before shutdown cleanup", ex);
             }
         }
         _bootTakeover?.RequestShutdown();
         _modes?.RequestShutdown();
-        Exception? uiCleanupFailure = startupFailure;
         try
         {
             _splash?.Dismiss("application shutdown");
         }
         catch (Exception ex)
         {
-            uiCleanupFailure = RetainFirstShutdownFailure(uiCleanupFailure, ex);
+            failures.Add(ex);
             Log.Error("Dismissing the boot splash during application shutdown failed", ex);
         }
         // Close input admission on the UI thread before any safety-critical asynchronous cleanup.
@@ -1803,7 +1651,7 @@ public sealed class ShellSession : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            uiCleanupFailure = RetainFirstShutdownFailure(uiCleanupFailure, ex);
+            failures.Add(ex);
             Log.Error("Closing overlay command admission during application shutdown failed", ex);
         }
         finally
@@ -1816,14 +1664,12 @@ public sealed class ShellSession : IAsyncDisposable
         // Run it before waiting on shell transitions or doing Explorer/CEF/RTSS teardown.
         // If the outer owner reaches its deadline, process exit still unloads the in-process
         // runtime while the shell anchor remains available for owner-loss desktop recovery.
-        Exception? deviceCleanupFailure = null;
         // Before the coordinator, deliberately. AutoTDP restores the limit it took over from
         // through that coordinator's capability path, so disposing it afterwards issued the restore
         // into an already-disconnected runtime and left the handheld on the last automatically
         // selected wattage on every exit, update, uninstall and session end.
         if (_autoTdp is not null)
         {
-            _autoTdp.StatusChanged -= OnAutoTdpStatusChanged;
             try
             {
                 await _autoTdp.DisposeAsync().ConfigureAwait(false);
@@ -1835,7 +1681,6 @@ public sealed class ShellSession : IAsyncDisposable
             finally
             {
                 _autoTdp = null;
-                _deviceCoordinator?.AttachAutoTdpStatus(null);
                 _deviceCoordinator?.AttachAutoTdpManualOverride(null);
             }
         }
@@ -1852,14 +1697,14 @@ public sealed class ShellSession : IAsyncDisposable
                     PluginStopReason.Uninstalling,
                 _ => PluginStopReason.WsgmExiting,
             };
-            _deviceCoordinator.PhysicalGlyphProfilesChanged -= OnPhysicalGlyphProfilesChanged;
+            _deviceCoordinator.PhysicalGlyphCatalog.Changed -= OnPhysicalGlyphProfilesChanged;
             try
             {
                 await _deviceCoordinator.ShutdownAsync(deviceReason, deadline).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                deviceCleanupFailure = ex;
+                failures.Add(ex);
                 Log.Error(
                     "Device cleanup was unverified; remaining shell cleanup continues",
                     ex);
@@ -1870,215 +1715,149 @@ public sealed class ShellSession : IAsyncDisposable
             }
         }
 
-        Exception? retainedShutdownFailure = CombineShutdownFailures(
-            uiCleanupFailure,
-            deviceCleanupFailure);
-        uiCleanupFailure = null;
-        await ContinueShutdownWithRetainedFailureAsync(
-            retainedShutdownFailure,
-            async () =>
-            {
-                // Shutdown rejects every new transition before reaching this point. Let the one
-                // existing transition and the separately-rooted boot worker cross their Explorer/UI
-                // boundaries before disposing anything they can still access. The application
-                // coordinator owns the only deadline; a nested timeout here could retire the recovery
-                // anchor underneath them.
-                if (_modes is not null)
-                {
-                    await _modes.WaitForTransitionAsync().ConfigureAwait(false);
-                }
-                if (_bootWork is not null)
-                {
-                    await _bootWork.ConfigureAwait(false);
-                    _bootWork = null;
-                }
-
-                bool trayRetired = false;
-                try
-                {
-                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(RetireTrayHostForShutdown);
-                    trayRetired = true;
-                }
-                catch (Exception ex)
-                {
-                    uiCleanupFailure = RetainFirstShutdownFailure(uiCleanupFailure, ex);
-                    Log.Error("Retiring the WSGM taskbar during application shutdown failed", ex);
-                }
-                try
-                {
-                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(DisposeUiOwnedSessionResources);
-                }
-                catch (Exception ex)
-                {
-                    uiCleanupFailure = RetainFirstShutdownFailure(uiCleanupFailure, ex);
-                    Log.Error("UI-owned shell cleanup failed during application shutdown", ex);
-                }
-
-                bool desktopVerified = trayRetired
-                    && await RestoreDesktopBeforeShutdownAsync(reason, deadline).ConfigureAwait(false);
-                if (desktopVerified && _desktopHost is not null)
-                {
-                    await _desktopHost.DisposeAsync().ConfigureAwait(false);
-                    _desktopHost = null;
-                }
-
-                // AutoTDP is already gone: it is disposed before the device coordinator, above,
-                // because its restoration needs that coordinator's write path.
-                if (_runningApplicationTargets is not null)
-                {
-                    await _runningApplicationTargets.DisposeAsync().ConfigureAwait(false);
-                    _runningApplicationTargets = null;
-                }
-                if (_foregroundWindows is not null)
-                {
-                    _foregroundWindows.ApplicationChanged -= OnForegroundApplicationChanged;
-                    _foregroundWindows.Dispose();
-                    _foregroundWindows = null;
-                }
-                if (_runningApplications is not null)
-                {
-                    await _runningApplications.DisposeAsync().ConfigureAwait(false);
-                    _runningApplications = null;
-                }
-                await _cefMasterGate.WaitAsync().ConfigureAwait(false);
-                try
-                {
-                    if (_steamUi is not null)
-                    {
-                        await _steamUi.DisposeAsync().ConfigureAwait(false);
-                        _steamUi = null;
-                    }
-                }
-                finally
-                {
-                    _cefMasterGate.Release();
-                }
-                if (_steamUiTransport is not null)
-                {
-                    SteamUiTransportSession.Detach(_steamUiTransport);
-                    await _steamUiTransport.DisposeAsync().ConfigureAwait(false);
-                    _steamUiTransport = null;
-                }
-                if (_performance is not null)
-                {
-                    _performance.StateChanged -= OnPerformanceStateForPairing;
-                    await _performance.DisposeAsync().ConfigureAwait(false);
-                    _performance = null;
-                }
-
-                // Before the session ends, not after: the applied rate is transient and would
-                // heal on its own eventually, but leaving the desktop at 48 Hz until something
-                // else resets it is a change the user never made and would have to hunt for.
-                if (_refreshPairing is not null)
-                {
-                    _ = _refreshPairing.Restore();
-                    _refreshPairing = null;
-                }
-
-                // Same reasoning, and separately owned: a resolution the user picked from the menu
-                // is transient too, and leaving the desktop at a game's resolution is the more
-                // visible of the two changes to be left with.
-                if (_resolutions is not null)
-                {
-                    _ = _resolutions.Restore();
-                    _resolutions = null;
-                }
-
-                // After the Steam host and the overlay, both of which hold them.
-                if (_audio is not null)
-                {
-                    _audio.Dispose();
-                    _audio = null;
-                }
-
-                if (_radios is not null)
-                {
-                    _radios.Dispose();
-                    _radios = null;
-                }
-                _tabBootSyncCancellation.Dispose();
-                _shutdownCancellation.Dispose();
-
-                if (!desktopVerified)
-                {
-                    throw new InvalidOperationException(
-                        "Application shutdown could not verify a usable Explorer desktop; "
-                        + "the retained shell anchor will recover after process exit.");
-                }
-                ThrowIfUiCleanupIncomplete(uiCleanupFailure);
-            }).ConfigureAwait(false);
-    }
-
-    /// <summary>Keeps the earliest UI/input-admission cleanup failure so later cleanup cannot
-    /// accidentally turn an incomplete shutdown into a verified outcome.</summary>
-    internal static Exception RetainFirstShutdownFailure(Exception? current, Exception failure) =>
-        current ?? failure;
-
-    /// <summary>Combines independently retained shutdown failures without discarding either cause.</summary>
-    internal static Exception? CombineShutdownFailures(Exception? first, Exception? second)
-    {
-        if (first is null)
-        {
-            return second;
-        }
-        if (second is null)
-        {
-            return first;
-        }
-
-        List<Exception> failures = [];
-        if (first is AggregateException firstAggregate)
-        {
-            failures.AddRange(firstAggregate.Flatten().InnerExceptions);
-        }
-        else
-        {
-            failures.Add(first);
-        }
-        if (second is AggregateException secondAggregate)
-        {
-            failures.AddRange(secondAggregate.Flatten().InnerExceptions);
-        }
-        else
-        {
-            failures.Add(second);
-        }
-        return new AggregateException("Multiple application shutdown steps were unverified.", failures);
-    }
-
-    /// <summary>Runs all remaining shell cleanup before reporting an earlier retained failure.</summary>
-    internal static async ValueTask ContinueShutdownWithRetainedFailureAsync(
-        Exception? retainedFailure,
-        Func<Task> remainingCleanupAsync)
-    {
-        ArgumentNullException.ThrowIfNull(remainingCleanupAsync);
-        Exception? remainingFailure = null;
         try
         {
-            await remainingCleanupAsync().ConfigureAwait(false);
+            // Shutdown rejects every new transition before reaching this point. Let the one
+            // existing transition and the separately-rooted boot worker cross their Explorer/UI
+            // boundaries before disposing anything they can still access. The application
+            // coordinator owns the only deadline; a nested timeout here could retire the recovery
+            // anchor underneath them.
+            if (_modes is not null)
+            {
+                await _modes.WaitForTransitionAsync().ConfigureAwait(false);
+            }
+            if (_bootWork is not null)
+            {
+                await _bootWork.ConfigureAwait(false);
+                _bootWork = null;
+            }
+
+            bool trayRetired = false;
+            try
+            {
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(RetireTrayHostForShutdown);
+                trayRetired = true;
+            }
+            catch (Exception ex)
+            {
+                failures.Add(ex);
+                Log.Error("Retiring the WSGM taskbar during application shutdown failed", ex);
+            }
+            try
+            {
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(DisposeUiOwnedSessionResources);
+            }
+            catch (Exception ex)
+            {
+                failures.Add(ex);
+                Log.Error("UI-owned shell cleanup failed during application shutdown", ex);
+            }
+
+            bool desktopVerified = trayRetired
+                && await RestoreDesktopBeforeShutdownAsync(reason, deadline).ConfigureAwait(false);
+            if (desktopVerified && _desktopHost is not null)
+            {
+                await _desktopHost.DisposeAsync().ConfigureAwait(false);
+                _desktopHost = null;
+            }
+
+            // AutoTDP is already gone: it is disposed before the device coordinator, above,
+            // because its restoration needs that coordinator's write path.
+            if (_runningApplicationTargets is not null)
+            {
+                await _runningApplicationTargets.DisposeAsync().ConfigureAwait(false);
+                _runningApplicationTargets = null;
+            }
+            if (_foregroundWindows is not null)
+            {
+                _foregroundWindows.ApplicationChanged -= OnForegroundApplicationChanged;
+                _foregroundWindows.Dispose();
+                _foregroundWindows = null;
+            }
+            if (_runningApplications is not null)
+            {
+                await _runningApplications.DisposeAsync().ConfigureAwait(false);
+                _runningApplications = null;
+            }
+            await _cefMasterGate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                if (_steamUi is not null)
+                {
+                    await _steamUi.DisposeAsync().ConfigureAwait(false);
+                    _steamUi = null;
+                }
+            }
+            finally
+            {
+                _cefMasterGate.Release();
+            }
+            if (_steamUiTransport is not null)
+            {
+                SteamUiTransportSession.Detach(_steamUiTransport);
+                await _steamUiTransport.DisposeAsync().ConfigureAwait(false);
+                _steamUiTransport = null;
+            }
+            if (_performance is not null)
+            {
+                _performance.StateChanged -= OnPerformanceStateForPairing;
+                await _performance.DisposeAsync().ConfigureAwait(false);
+                _performance = null;
+            }
+
+            // Before the session ends, not after: the applied rate is transient and would
+            // heal on its own eventually, but leaving the desktop at 48 Hz until something
+            // else resets it is a change the user never made and would have to hunt for.
+            if (_refreshPairing is not null)
+            {
+                _ = _refreshPairing.Restore();
+                _refreshPairing = null;
+            }
+
+            // Same reasoning, and separately owned: a resolution the user picked from the menu
+            // is transient too, and leaving the desktop at a game's resolution is the more
+            // visible of the two changes to be left with.
+            if (_resolutions is not null)
+            {
+                _ = _resolutions.Restore();
+                _resolutions = null;
+            }
+
+            // After the Steam host and the overlay, both of which hold them.
+            if (_audio is not null)
+            {
+                _audio.Dispose();
+                _audio = null;
+            }
+
+            if (_radios is not null)
+            {
+                _radios.Dispose();
+                _radios = null;
+            }
+            _tabBootSyncCancellation.Dispose();
+            _shutdownCancellation.Dispose();
+
+            if (!desktopVerified)
+            {
+                throw new InvalidOperationException(
+                    "Application shutdown could not verify a usable Explorer desktop; "
+                    + "the retained shell anchor will recover after process exit.");
+            }
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            remainingFailure = ex;
+            failures.Add(ex);
         }
 
-        Exception? failure = CombineShutdownFailures(retainedFailure, remainingFailure);
-        if (failure is not null)
+        if (failures.Count > 0)
         {
             throw new InvalidOperationException(
                 "Application shutdown completed its remaining cleanup, but one or more steps were unverified.",
-                failure);
-        }
-    }
-
-    /// <summary>Reports any retained UI/input-admission cleanup failure to the outer coordinator.</summary>
-    internal static void ThrowIfUiCleanupIncomplete(Exception? failure)
-    {
-        if (failure is not null)
-        {
-            throw new InvalidOperationException(
-                "Application shutdown completed desktop recovery but UI-owned cleanup was incomplete.",
-                failure);
+                failures.Count == 1
+                    ? failures[0]
+                    : new AggregateException(
+                        "Multiple application shutdown steps were unverified.", failures));
         }
     }
 
@@ -2225,150 +2004,6 @@ public sealed class ShellSession : IAsyncDisposable
         {
             await coordinator.ApplyRunningApplicationAsync(snapshot, cancellationToken)
                 .ConfigureAwait(false);
-        }
-
-        // Authored profiles follow the same identity as everything else per-application, which is
-        // the point of resolving them here rather than from a second observer: the fan curve and the
-        // controller target can never disagree about which application is running.
-        await ApplyDeviceProfilesAsync(snapshot.ApplicationId, cancellationToken)
-            .ConfigureAwait(false);
-    }
-
-    /// <summary>Builds the overlay's authored-profile row from configuration.</summary>
-    /// <returns>The row, or null when the device has no authored profiles.</returns>
-    /// <remarks>
-    /// The running application comes from the same monitor everything else per-application uses, so
-    /// the row cannot claim a scope the applier would disagree with.
-    /// </remarks>
-    private DeviceOverlayAuthoredProfile? BuildAuthoredProfileRow()
-    {
-        PluginSettingsScope? scope = ActivePluginScope(candidate => candidate.Profiles.Count > 0);
-        if (scope is null)
-        {
-            return null;
-        }
-
-        string? applicationId = _runningApplications?.Current.ApplicationId;
-        string? selected = DeviceProfileSelectionStore.ReadSelection(
-            scope,
-            FanCurveCapabilityId,
-            applicationId,
-            out bool applicationScoped);
-        return DeviceOverlayBridge.AuthoredProfileView(scope.Profiles, selected, applicationScoped);
-    }
-
-    /// <summary>The capability the authored fan profiles target.</summary>
-    private const string FanCurveCapabilityId = "fan.curve";
-
-    /// <summary>Advances the authored fan profile and applies the new choice.</summary>
-    /// <param name="cancellationToken">Cancels the change.</param>
-    /// <returns>A task completing once the selection is persisted and applied.</returns>
-    /// <remarks>
-    /// Scoped to the running application when there is one and global otherwise, because that is
-    /// what a user means by changing this row: mid-game they are changing it for what they are
-    /// playing, and on the desktop there is no per-game scope to mean.
-    /// <para>
-    /// Persisted first, then applied. The reverse order leaves the device running a profile the
-    /// configuration does not name if the save fails, which survives into the next session as a
-    /// device state nothing explains.
-    /// </para>
-    /// </remarks>
-    private async Task CycleAuthoredProfileAsync(CancellationToken cancellationToken)
-    {
-        PluginSettingsScope? current = ActivePluginScope(candidate => candidate.Profiles.Count > 0);
-        if (current is null)
-        {
-            Log.Info("Fan profile cycle ignored: no profiles are authored for this device.");
-            return;
-        }
-
-        string? applicationId = _runningApplications?.Current.ApplicationId;
-        string? selected = DeviceProfileSelectionStore.ReadSelection(
-            current,
-            FanCurveCapabilityId,
-            applicationId,
-            out _);
-
-        // NextProfile's contract includes "none", so a user can cycle back off a profile without
-        // opening Settings — the same wrap the hardware-profile row already offers.
-        string? next = DeviceOverlayBridge.NextProfile(
-            [.. current.Profiles.Select(profile => profile.ProfileId)],
-            selected);
-
-        AppConfig persisted = await Task.Run(
-            () => ConfigStore.Mutate(config =>
-            {
-                PluginSettingsScope? scope = config.DeviceIntegration.PluginSettings
-                    .FirstOrDefault(candidate => string.Equals(
-                        candidate.DeviceDefinitionId,
-                        current.DeviceDefinitionId,
-                        StringComparison.Ordinal)
-                        && string.Equals(
-                            candidate.PluginId,
-                            current.PluginId,
-                            StringComparison.Ordinal));
-                if (scope is not null)
-                {
-                    DeviceProfileSelectionStore.SetSelection(
-                        scope,
-                        FanCurveCapabilityId,
-                        next,
-                        applicationId is { Length: > 0 }
-                            ? DeviceProfileScope.Application
-                            : DeviceProfileScope.Global,
-                        applicationId);
-                }
-            }),
-            cancellationToken).ConfigureAwait(false);
-
-        _config = persisted;
-        await ApplyDeviceProfilesAsync(applicationId, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>Applies the authored profile in force for the running application.</summary>
-    /// <param name="applicationId">The running application identity, or null for none.</param>
-    /// <param name="cancellationToken">Cancels the device writes.</param>
-    /// <remarks>
-    /// Every failure here is contained. A profile that cannot be applied is a degraded feature, not
-    /// a reason to fault the session, and the applier already logs which step refused it.
-    /// </remarks>
-    private async Task ApplyDeviceProfilesAsync(
-        string? applicationId,
-        CancellationToken cancellationToken)
-    {
-        if (_profileApplier is not { } applier)
-        {
-            return;
-        }
-
-        PluginSettingsScope? scope = ActivePluginScope(
-            candidate => candidate.ProfileSelections.Count > 0);
-        if (scope is null)
-        {
-            return;
-        }
-
-        foreach (DeviceProfileSelection selection in scope.ProfileSelections)
-        {
-            try
-            {
-                await applier.ApplyAsync(
-                    scope.ProfileSelections,
-                    scope.Profiles,
-                    selection.CapabilityId,
-                    applicationId,
-                    cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
-            catch (Exception ex)
-            {
-                Log.Warn(
-                    $"Applying the device profile for '{selection.CapabilityId}' failed: "
-                    + ex.Message);
-            }
         }
     }
 
@@ -2614,8 +2249,6 @@ public sealed class ShellSession : IAsyncDisposable
     private async Task LaunchAppsAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        // KickTabBootSync replaces the source but lets its worker dispose it after cancellation;
-        // callers must still pass their own operation token through the rest of this sequence.
         var haveApps = _config.StartupApps.Exists(a => a.Enabled && !string.IsNullOrWhiteSpace(a.Path));
         if (haveApps && _config.StartupDelayMs > 0)
         {

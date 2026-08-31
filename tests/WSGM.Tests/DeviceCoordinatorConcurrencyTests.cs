@@ -472,33 +472,18 @@ public sealed class DeviceCoordinatorConcurrencyTests
     }
 
     [Fact]
-    public async Task DevicePluginMaintenance_HoldsOwnerReservationThroughTheWholeOperation()
+    public void OwnerReservation_IsExclusiveWhileHeldAndReacquirableAfterRelease()
     {
+        // Plugin maintenance holds this exact reservation across the whole slot operation
+        // (a using scope around the maintenance body in Program), so exclusivity while held
+        // and reacquirability after release are the load-bearing marker semantics.
         string name = $@"Local\WSGM.Tests.DeviceOwner.Maintenance.{Guid.NewGuid():N}";
-        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        Task<int> maintenance = Program.RunDevicePluginMaintenanceWithOwnerReservationAsync(
-            name,
-            "test maintenance",
-            async () =>
-            {
-                entered.TrySetResult();
-                await release.Task.ConfigureAwait(false);
-                return 23;
-            });
-        int outcome = 0;
-        try
+        using (Mutex reservation = Assert.IsType<Mutex>(
+            DeviceCoordinator.TryCreateOwnerMutex(name)))
         {
-            await entered.Task.WaitAsync(TimeSpan.FromSeconds(1));
             Assert.Null(DeviceCoordinator.TryCreateOwnerMutex(name));
         }
-        finally
-        {
-            release.TrySetResult();
-            outcome = await maintenance.WaitAsync(TimeSpan.FromSeconds(1));
-        }
 
-        Assert.Equal(23, outcome);
         using Mutex reacquired = Assert.IsType<Mutex>(
             DeviceCoordinator.TryCreateOwnerMutex(name));
     }

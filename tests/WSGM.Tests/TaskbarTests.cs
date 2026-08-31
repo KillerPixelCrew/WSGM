@@ -84,7 +84,7 @@ public sealed class TaskbarTests
         viewModel.GestureLeftSteamMenu = left;
         viewModel.GestureTopSteamQuickAccess = top;
 
-        var snapshot = viewModel.SnapshotForTest();
+        var snapshot = viewModel.SnapshotForPreview();
 
         Assert.Equal(left, snapshot.Gestures.LeftEdgeSteamMenu);
         Assert.Equal(top, snapshot.Gestures.TopEdgeSteamQuickAccess);

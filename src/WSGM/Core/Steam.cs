@@ -31,7 +31,7 @@ public static class Steam
     /// <summary>Just steam.exe — deliberately narrower than <see cref="ProcessNames"/>:
     /// only the main client services steam:// protocol URLs, so a lingering
     /// steamwebhelper must not count as "Steam is running" for protocol callers.</summary>
-    public const string MainProcessName = "steam";
+    private const string MainProcessName = "steam";
 
     /// <summary>Big Picture window class (paired with the steamwebhelper process —
     /// SDL_app alone is not unique to Steam).</summary>
@@ -105,6 +105,33 @@ public static class Steam
     /// directory split at each call site.</summary>
     public static string? InstallDirectory =>
         ExePath is { } exe ? Path.GetDirectoryName(exe) : null;
+
+    /// <summary>Gets the full path of Steam's <c>config\libraryfolders.vdf</c> —
+    /// the install-folder registry every card/library feature reads and edits —
+    /// or <see langword="null"/> when Steam is not installed.</summary>
+    public static string? LibraryFoldersConfigPath =>
+        InstallDirectory is { } directory
+            ? Path.Combine(directory, "config", "libraryfolders.vdf")
+            : null;
+
+    /// <summary>Reads <c>config\libraryfolders.vdf</c>. False when Steam is not
+    /// installed or the file does not exist yet; <paramref name="path"/> still
+    /// carries the resolved location when only the file is missing, so a caller
+    /// can create it. Deliberately does NOT catch IO failures — the callers'
+    /// policies for an unreadable config differ.</summary>
+    /// <param name="path">The config path, or null when Steam is not installed.</param>
+    /// <param name="text">The file text, or null when it could not be resolved.</param>
+    public static bool TryReadLibraryFolders(out string? path, out string? text)
+    {
+        path = LibraryFoldersConfigPath;
+        text = path is not null && File.Exists(path) ? File.ReadAllText(path) : null;
+        return text is not null;
+    }
+
+    /// <summary>Gets Steam's per-account data root (<c>userdata</c>), or
+    /// <see langword="null"/> when Steam is not installed.</summary>
+    public static string? UserDataDirectory =>
+        InstallDirectory is { } directory ? Path.Combine(directory, "userdata") : null;
 
     /// <summary>Gets whether a usable Steam executable was found.</summary>
     public static bool IsInstalled => ExePath is not null;

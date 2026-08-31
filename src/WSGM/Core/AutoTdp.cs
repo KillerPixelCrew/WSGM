@@ -164,25 +164,14 @@ internal sealed class AutoTdpController
     /// <summary>Suspends automatic control because the limit was changed by hand.</summary>
     /// <param name="watts">The limit the user or a profile just set.</param>
     /// <remarks>
-    /// Automatic control never resumes on its own from here. A user who moved the slider is telling
-    /// the controller its answer was wrong, and silently taking the limit back a few seconds later is
-    /// the single most confusing thing this feature could do.
+    /// The pause lasts until AutoTDP is switched off and on again. A user who moved the slider is
+    /// telling the controller its answer was wrong, and silently taking the limit back a few seconds
+    /// later is the single most confusing thing this feature could do.
     /// </remarks>
     internal void PauseForManualChange(int watts)
     {
         _paused = true;
         _probing = false;
-        _watts = watts;
-        _lastGood = watts;
-        ResetWindows();
-        _settling = 0;
-    }
-
-    /// <summary>Resumes automatic control after an explicit request.</summary>
-    /// <param name="watts">The limit control resumes from.</param>
-    internal void Resume(int watts)
-    {
-        _paused = false;
         _watts = watts;
         _lastGood = watts;
         ResetWindows();
@@ -371,57 +360,5 @@ internal sealed class AutoTdpController
         _misses = 0;
         _comfortable = 0;
         _probeElapsed = 0;
-    }
-}
-
-/// <summary>Replays a recorded frametime trace through the controller.</summary>
-/// <remarks>
-/// The regression harness for this feature. A reported oscillation or a limit that walked to maximum
-/// is reproduced by recording the trace and replaying it here, with no device involved; the
-/// controller is only allowed to grow more sophisticated when a recorded trace defeats the simple
-/// one.
-/// </remarks>
-internal static class AutoTdpReplay
-{
-    /// <summary>Runs a trace and returns every decision in order.</summary>
-    /// <param name="controller">The controller under test.</param>
-    /// <param name="limits">Device bounds for the whole trace.</param>
-    /// <param name="trace">The recorded observation windows.</param>
-    /// <returns>One decision per window.</returns>
-    internal static IReadOnlyList<AutoTdpDecision> Run(
-        AutoTdpController controller,
-        AutoTdpLimits limits,
-        IEnumerable<AutoTdpSample> trace)
-    {
-        ArgumentNullException.ThrowIfNull(controller);
-        ArgumentNullException.ThrowIfNull(limits);
-        ArgumentNullException.ThrowIfNull(trace);
-        List<AutoTdpDecision> decisions = [];
-        foreach (AutoTdpSample sample in trace)
-        {
-            decisions.Add(controller.Evaluate(sample, limits));
-        }
-
-        return decisions;
-    }
-
-    /// <summary>Builds a run of identical windows.</summary>
-    /// <param name="count">How many windows.</param>
-    /// <param name="frametimeMs">Mean frametime for each window.</param>
-    /// <param name="targetFrametimeMs">The deadline.</param>
-    /// <param name="contextKey">Context the windows belong to.</param>
-    /// <param name="capped">Whether a limiter was holding delivery back.</param>
-    /// <returns>The windows.</returns>
-    internal static IEnumerable<AutoTdpSample> Run(
-        int count,
-        double frametimeMs,
-        double targetFrametimeMs,
-        string contextKey,
-        bool capped = false)
-    {
-        for (int index = 0; index < count; index++)
-        {
-            yield return new AutoTdpSample(frametimeMs, targetFrametimeMs, capped, contextKey);
-        }
     }
 }

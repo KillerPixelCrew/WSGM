@@ -13,7 +13,6 @@ public sealed class RtssDiscoveryTests
 
         Assert.Equal(RtssAvailability.AdapterUnavailable, probe.Availability);
         Assert.Equal("7.3.7", probe.Version);
-        Assert.Equal(321, probe.ProcessId);
         Assert.NotEqual(0, probe.Generation);
     }
 
@@ -32,7 +31,7 @@ public sealed class RtssDiscoveryTests
         RtssProbe probe = new RtssDiscovery(environment).Probe();
 
         Assert.Equal(RtssAvailability.NotRunning, probe.Availability);
-        Assert.Null(probe.ProcessId);
+        Assert.Equal(0L, probe.Generation);
     }
 
     [Fact]
@@ -197,16 +196,10 @@ public sealed class PerformancePolicyResolverTests
 
         Assert.Equal(
             PerformancePersistenceTarget.Global,
-            PerformancePolicyResolver.ResolveEditTarget(
-                globalOnly,
-                target,
-                PerformancePersistenceTarget.Automatic));
+            PerformancePolicyResolver.ResolveEditTarget(globalOnly, target));
         Assert.Equal(
             PerformancePersistenceTarget.Application,
-            PerformancePolicyResolver.ResolveEditTarget(
-                withOverride,
-                target,
-                PerformancePersistenceTarget.Automatic));
+            PerformancePolicyResolver.ResolveEditTarget(withOverride, target));
     }
 
 }
@@ -222,7 +215,7 @@ public sealed class PerformanceServiceTests
         PerformanceCommandState command = await service.SetAsync(
             PerformanceControl.FrameLimit,
             60,
-            PerformancePersistenceTarget.Global,
+            PerformancePersistenceTarget.Automatic,
             "overlay",
             "command-1");
 
@@ -242,7 +235,7 @@ public sealed class PerformanceServiceTests
         PerformanceCommandState command = await service.SetAsync(
             PerformanceControl.FrameLimit,
             999,
-            PerformancePersistenceTarget.Global,
+            PerformancePersistenceTarget.Automatic,
             "qam",
             "command-2");
 
@@ -261,7 +254,7 @@ public sealed class PerformanceServiceTests
         PerformanceCommandState command = await service.SetAsync(
             PerformanceControl.FrameLimit,
             60,
-            PerformancePersistenceTarget.Global,
+            PerformancePersistenceTarget.Automatic,
             "overlay",
             "persistence-failure");
 
@@ -288,7 +281,7 @@ public sealed class PerformanceServiceTests
         PerformanceCommandState command = await service.SetAsync(
             PerformanceControl.OverlayLevel,
             2,
-            PerformancePersistenceTarget.Global,
+            PerformancePersistenceTarget.Automatic,
             "qam",
             "command-3");
 
@@ -314,7 +307,7 @@ public sealed class PerformanceServiceTests
         PerformanceCommandState command = await service.SetAsync(
             PerformanceControl.OverlayLevel,
             3,
-            PerformancePersistenceTarget.Global,
+            PerformancePersistenceTarget.Automatic,
             "overlay",
             "command-4");
 
@@ -337,7 +330,7 @@ public sealed class PerformanceServiceTests
         PerformanceCommandState command = await service.SetAsync(
             PerformanceControl.FrameLimit,
             50,
-            PerformancePersistenceTarget.Global,
+            PerformancePersistenceTarget.Automatic,
             "overlay",
             "command-5");
 
@@ -363,7 +356,7 @@ public sealed class PerformanceServiceTests
         PerformanceCommandState command = await service.SetAsync(
             PerformanceControl.FrameLimit,
             45,
-            PerformancePersistenceTarget.Global,
+            PerformancePersistenceTarget.Automatic,
             "qam",
             "command-6");
 
@@ -446,14 +439,20 @@ public sealed class PerformanceServiceTests
         var policy = new PerformancePolicy(
             new PerformanceValues(60, 1),
             [new PerformanceApplicationPolicy("steam:7", "game.exe", new PerformanceValues(40, 3))]);
-        await using var service = CreateService(adapter, policy);
         var policies = new List<PerformancePolicy>();
-        service.PolicyChanged += policies.Add;
+        await using var service = new PerformanceService(
+            adapter,
+            (persisted, _) =>
+            {
+                policies.Add(persisted);
+                return Task.CompletedTask;
+            },
+            policy);
 
         await service.SetAsync(
             PerformanceControl.FrameLimit,
             60,
-            PerformancePersistenceTarget.Global,
+            PerformancePersistenceTarget.Automatic,
             "overlay",
             "persistent");
         await service.SetTargetAsync(new RtssApplicationTarget("steam:7", "game.exe", 123));
@@ -468,31 +467,6 @@ public sealed class PerformanceServiceTests
         Assert.Equal(60, policies[0].Global.FrameLimit);
         Assert.Equal(45, policies[1].Applications[0].Values.FrameLimit);
         Assert.Equal(45, service.Current.Desired.FrameLimit);
-    }
-
-    [Fact]
-    public async Task ExplicitGlobalEditDoesNotOverwriteTheActiveApplicationSnapshot()
-    {
-        await using var adapter = new FakeRtssAdapter();
-        var policy = new PerformancePolicy(
-            new PerformanceValues(60, 1),
-            [new PerformanceApplicationPolicy("steam:7", "game.exe", new PerformanceValues(40, 3))]);
-        await using var service = CreateService(adapter, policy);
-        await service.SetTargetAsync(new RtssApplicationTarget("steam:7", "game.exe", 123));
-        adapter.Applies.Clear();
-
-        PerformanceCommandState command = await service.SetAsync(
-            PerformanceControl.FrameLimit,
-            55,
-            PerformancePersistenceTarget.Global,
-            "settings",
-            "explicit-global");
-
-        Assert.Equal(PerformanceCommandPhase.SucceededVerified, command.Phase);
-        RtssApplyRequest request = Assert.Single(adapter.Applies);
-        Assert.Equal(string.Empty, request.RtssProfileName);
-        Assert.Equal(40, service.Current.Desired.FrameLimit);
-        Assert.Equal(40, service.Current.Observed.FrameLimit);
     }
 
     [Fact]
@@ -519,13 +493,13 @@ public sealed class PerformanceServiceTests
         Task<PerformanceCommandState> overlay = service.SetAsync(
             PerformanceControl.FrameLimit,
             50,
-            PerformancePersistenceTarget.Global,
+            PerformancePersistenceTarget.Automatic,
             "overlay",
             "overlay-command");
         Task<PerformanceCommandState> qam = service.SetAsync(
             PerformanceControl.FrameLimit,
             55,
-            PerformancePersistenceTarget.Global,
+            PerformancePersistenceTarget.Automatic,
             "qam",
             "qam-command");
         await Task.WhenAll(overlay, qam);
@@ -554,8 +528,6 @@ public sealed class PerformanceServiceTests
             RtssAvailability.Ready,
             "7.3.7",
             @"C:\Program Files (x86)\RivaTuner Statistics Server\RTSS.exe",
-            321,
-            DateTimeOffset.UnixEpoch,
             1,
             new RtssCapabilities(
                 0,
@@ -604,7 +576,6 @@ public sealed class PerformanceServiceTests
                 values ?? PerformanceValues.Empty,
                 PerformanceReadbackQuality.Verified,
                 PerformanceReadbackQuality.Verified,
-                RtssTelemetryHealth.Healthy,
                 DateTimeOffset.UtcNow));
         }
 

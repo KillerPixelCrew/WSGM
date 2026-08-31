@@ -31,14 +31,21 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     private readonly object _gate = new();
     private readonly Action<Action> _postToUi;
     private readonly Dictionary<DeviceCapabilityKey, CapabilityDescriptor> _descriptors = [];
-    private readonly Dictionary<DeviceCapabilityKey, CapabilityValue> _temporaryDesired = [];
     private readonly Dictionary<DeviceCapabilityKey, CapabilityCommandResult> _lastResults = [];
     private readonly Dictionary<DeviceCapabilityKey, CapabilityValue> _pendingValues = [];
+
+    /// <summary>Latest accepted state per capability.</summary>
+    /// <remarks>
+    /// The high-rate state channel does not promise ordering, and a delayed older sample overwriting
+    /// a newer one is not cosmetic: it can restore a "fresh" reading the device has already moved
+    /// past, and the UI would then command against it. Sequence numbers are per cycle generation, so
+    /// stale-generation publications are refused by validation before they reach this map.
+    /// </remarks>
+    private readonly Dictionary<DeviceCapabilityKey, CapabilityStateDelta> _states = [];
 
     /// <summary>Last logged availability per capability, so only changes are written.</summary>
     private readonly Dictionary<DeviceCapabilityKey, bool> _availability = [];
     private readonly Dictionary<DeviceCapabilityKey, SemaphoreSlim> _commandGates = [];
-    private CapabilityStateTracker _states;
     private DevicePluginRuntime? _client;
     private DeviceDesiredProfile? _desiredProfile;
     private string? _hardwareProfileId;
@@ -50,11 +57,9 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     private bool _connected;
     private bool _disposed;
 
-    internal DeviceCapabilityRouter(long cycleGeneration, Action<Action> postToUi)
+    internal DeviceCapabilityRouter(Action<Action> postToUi)
     {
         ArgumentNullException.ThrowIfNull(postToUi);
-        _cycleGeneration = cycleGeneration;
-        _states = new CapabilityStateTracker(cycleGeneration);
         _postToUi = postToUi;
     }
 
@@ -72,7 +77,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             _cycleGeneration = cycleGeneration;
             _descriptorGeneration = 0;
             _descriptors.Clear();
-            _states.ResetTo(cycleGeneration);
+            _states.Clear();
             _lastResults.Clear();
             _pendingValues.Clear();
             _availability.Clear();
@@ -93,51 +98,10 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     {
         lock (_gate)
         {
-            if (!string.Equals(
-                    _desiredProfile?.DeviceIdentityKey,
-                    desiredProfile?.DeviceIdentityKey,
-                    StringComparison.Ordinal)
-                || !string.Equals(_hardwareProfileId, hardwareProfileId, StringComparison.Ordinal)
-                || !string.Equals(_applicationId, applicationId, StringComparison.Ordinal))
-            {
-                _temporaryDesired.Clear();
-            }
-
             _desiredProfile = desiredProfile;
             _onAcPower = onAcPower;
             _hardwareProfileId = hardwareProfileId;
             _applicationId = applicationId;
-        }
-
-        Publish();
-    }
-
-    internal void SetTemporaryDesired(
-        string capabilityId,
-        string? instanceId,
-        CapabilityValue? value)
-    {
-        DeviceCapabilityKey key = new(capabilityId, instanceId);
-        lock (_gate)
-        {
-            if (value is null)
-            {
-                _temporaryDesired.Remove(key);
-            }
-            else
-            {
-                _temporaryDesired[key] = value;
-            }
-        }
-
-        Publish();
-    }
-
-    internal void ClearTemporaryDesired()
-    {
-        lock (_gate)
-        {
-            _temporaryDesired.Clear();
         }
 
         Publish();
@@ -198,21 +162,6 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                         dispatch.LateCompletion);
                 }
             }
-            catch (OperationCanceledException)
-            {
-                bool timedOut = DateTimeOffset.UtcNow >= command.Deadline;
-                result = new CapabilityCommandResult
-                {
-                    CommandId = command.CommandId,
-                    Outcome = timedOut ? CommandOutcome.TimedOut : CommandOutcome.Indeterminate,
-                    Reason = new CapabilityReason(
-                        CapabilityReasonCode.Quiescing,
-                        timedOut ? "The command deadline expired." : "The command was cancelled.",
-                        Retryable: true),
-                    CompletedAt = DateTimeOffset.UtcNow,
-                };
-                _ = CancelBestEffortAsync(client, command.CommandId);
-            }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 result = Uncertain(command, ex.Message);
@@ -227,11 +176,11 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         }
     }
 
-    internal IReadOnlyList<DeviceCapabilityView> Snapshot(DateTimeOffset now)
+    internal IReadOnlyList<DeviceCapabilityView> Snapshot()
     {
         lock (_gate)
         {
-            return BuildSnapshotUnderGate(now);
+            return BuildSnapshotUnderGate(DateTimeOffset.UtcNow);
         }
     }
 
@@ -240,7 +189,6 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         lock (_gate)
         {
             _cycleGeneration = cycleGeneration;
-            _temporaryDesired.Clear();
             _pendingValues.Clear();
             _lastResults.Clear();
         }
@@ -263,7 +211,6 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         lock (_gate)
         {
             DetachUnderGate();
-            _temporaryDesired.Clear();
             _pendingValues.Clear();
         }
 
@@ -325,19 +272,18 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                     "The capability is not present in the current descriptor set.");
             }
 
-            CapabilityState? rawState = _states.Latest(key.CapabilityId, key.InstanceId);
-            if (rawState is null)
+            if (!_states.TryGetValue(key, out CapabilityStateDelta? rawState))
             {
                 return Reject(command, CapabilityReasonCode.ObservationExpired,
                     "No current capability state has been observed.", retryable: true);
             }
 
-            CapabilityState state = CapabilityFreshness.Evaluate(
-                rawState,
+            CapabilityState state = EvaluateFreshness(
+                rawState.State,
                 FreshnessFor(descriptor.Role),
                 now,
                 _cycleGeneration);
-            if (!CapabilityFreshness.CanCommand(state))
+            if (!CanCommand(state))
             {
                 return Reject(
                     command,
@@ -412,10 +358,9 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 _descriptors.Add(Key(descriptor), descriptor);
             }
 
-            _states = new CapabilityStateTracker(_cycleGeneration);
+            _states.Clear();
             _pendingValues.Clear();
             _lastResults.Clear();
-            _temporaryDesired.Clear();
             _availability.Clear();
         }
 
@@ -444,15 +389,16 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 return;
             }
 
-            DeltaRejection rejection = _states.Apply(delta);
-            if (rejection is not DeltaRejection.None)
+            if (_states.TryGetValue(key, out CapabilityStateDelta? existing)
+                && delta.Sequence <= existing.Sequence)
             {
                 Log.Change(
                     $"device-capability-delta-rejected/{key}",
-                    $"Device capability delta rejected: key={key}, reason={rejection}.");
+                    $"Device capability delta rejected: key={key}, reason=OutOfOrder.");
                 return;
             }
 
+            _states[key] = delta;
             LogAvailabilityChange(key, delta.State);
         }
 
@@ -549,8 +495,9 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             .OrderBy(item => item.Key.CapabilityId, StringComparer.Ordinal)
             .ThenBy(item => item.Key.InstanceId, StringComparer.Ordinal))
         {
-            CapabilityState state = _states.Latest(key.CapabilityId, key.InstanceId)
-                ?? UnknownState(key);
+            CapabilityState state = _states.TryGetValue(key, out CapabilityStateDelta? latest)
+                ? latest.State
+                : UnknownState(key);
             if (!_connected)
             {
                 state = state with
@@ -565,7 +512,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             }
             else
             {
-                state = CapabilityFreshness.Evaluate(
+                state = EvaluateFreshness(
                     state,
                     FreshnessFor(descriptor.Role),
                     now,
@@ -583,7 +530,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 {
                     State = state,
                     DesiredValue = desired.Value,
-                    DesiredSource = MapSource(desired.Source),
+                    DesiredSource = desired.Source,
                     PendingValue = pending,
                     Progress = Progress(pending, result),
                     DesiredValueOutOfRange = outOfRange,
@@ -596,22 +543,16 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 
     private ResolvedDeviceDesiredValue ResolveDesired(DeviceCapabilityKey key)
     {
-        _temporaryDesired.TryGetValue(key, out CapabilityValue? temporary);
         DeviceCapabilityPreference? preference = _desiredProfile?.Capabilities.FirstOrDefault(
             item => string.Equals(item.CapabilityId, key.CapabilityId, StringComparison.Ordinal)
                 && string.Equals(item.InstanceId, key.InstanceId, StringComparison.Ordinal));
         return preference is null
-            ? new ResolvedDeviceDesiredValue(
-                temporary,
-                temporary is null
-                    ? DeviceDesiredValueSource.None
-                    : DeviceDesiredValueSource.TemporaryRequest)
+            ? new ResolvedDeviceDesiredValue(null, DeviceDesiredValueSource.None)
             : DeviceDesiredStateResolver.Resolve(
                 preference,
                 _onAcPower,
                 _hardwareProfileId,
-                _applicationId,
-                temporary);
+                _applicationId);
     }
 
     private CapabilityState UnknownState(DeviceCapabilityKey key) => new()
@@ -666,19 +607,6 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         });
     }
 
-    private static async Task CancelBestEffortAsync(DevicePluginRuntime client, Guid commandId)
-    {
-        try
-        {
-            using CancellationTokenSource cancellation = new(TimeSpan.FromSeconds(2));
-            await client.CancelCommandAsync(commandId, cancellation.Token).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            Log.Warn($"Device command cancellation was unverified: command={commandId}, {ex.Message}");
-        }
-    }
-
     private static CapabilityCommandResult Reject(
         CapabilityCommand command,
         CapabilityReasonCode code,
@@ -718,19 +646,18 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         };
     }
 
-    private static DesiredValueSource MapSource(DeviceDesiredValueSource source) => source switch
+    /// <summary>How long an observation stays usable, per capability role.</summary>
+    /// <remarks>
+    /// Per capability because the underlying facts age at wildly different rates: a fan RPM is stale
+    /// within seconds, while a charge limit changes only when someone changes it. One global timeout
+    /// would either spam a slow transport or leave a fast-moving reading looking current long after
+    /// it stopped being so.
+    /// </remarks>
+    private static TimeSpan FreshnessFor(CapabilityRole role) => role switch
     {
-        DeviceDesiredValueSource.GlobalDefault => DesiredValueSource.GlobalDefault,
-        DeviceDesiredValueSource.PowerPolicy => DesiredValueSource.PowerSourcePolicy,
-        DeviceDesiredValueSource.HardwareProfile => DesiredValueSource.HardwareProfile,
-        DeviceDesiredValueSource.ApplicationOverride => DesiredValueSource.ApplicationOverride,
-        DeviceDesiredValueSource.TemporaryRequest => DesiredValueSource.TemporaryRequest,
-        _ => DesiredValueSource.None,
-    };
-
-    private static FreshnessPolicy FreshnessFor(CapabilityRole role) => role switch
-    {
-        CapabilityRole.Telemetry or CapabilityRole.FanMeasuredRpm => FreshnessPolicy.Telemetry,
+        // A live reading, such as fan RPM or temperature.
+        CapabilityRole.Telemetry or CapabilityRole.FanMeasuredRpm => TimeSpan.FromSeconds(5),
+        // A value that only changes when something changes it, such as a charge limit.
         CapabilityRole.ChargeLimit
             or CapabilityRole.ChargeProtectionMode
             or CapabilityRole.ChargeBypass
@@ -738,9 +665,62 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             or CapabilityRole.LightingBrightness
             or CapabilityRole.LightingZoneColor
             or CapabilityRole.LightingEffect
-            or CapabilityRole.LightingEffectSpeed => FreshnessPolicy.Settings,
-        _ => FreshnessPolicy.Control,
+            or CapabilityRole.LightingEffectSpeed => TimeSpan.FromMinutes(5),
+        // A value that drifts on its own, such as a power limit under a scenario.
+        _ => TimeSpan.FromSeconds(30),
     };
+
+    /// <summary>Returns the state as it should be presented now, downgrading it to
+    /// <see cref="HardwareStateQuality.Stale"/> when it can no longer be trusted.</summary>
+    private static CapabilityState EvaluateFreshness(
+        CapabilityState state,
+        TimeSpan maxAge,
+        DateTimeOffset now,
+        long currentCycleGeneration)
+    {
+        // A faulted capability is already saying something stronger than "old". Downgrading it to
+        // stale would lose the fault.
+        if (state.Quality is HardwareStateQuality.Faulted or HardwareStateQuality.Unknown)
+        {
+            return state;
+        }
+
+        // A generation change invalidates the observation outright, regardless of age: the handles
+        // and the hardware state it described belong to a device that no longer exists.
+        if (state.CycleGeneration != currentCycleGeneration)
+        {
+            return Stale(state, CapabilityReasonCode.GenerationChanged,
+                "Observed under a previous process/reconnect cycle.");
+        }
+
+        if (state.ObservedAt is not { } observedAt || now - observedAt > maxAge)
+        {
+            return Stale(state, CapabilityReasonCode.ObservationExpired,
+                $"Observation is older than {maxAge}.");
+        }
+
+        return state;
+    }
+
+    /// <summary>Whether a command may be issued against this state.</summary>
+    /// <remarks>
+    /// Commanding from stale state is how a UI sends a value derived from a reading that no longer
+    /// describes the device. The control is disabled until a fresh observation arrives.
+    /// </remarks>
+    private static bool CanCommand(CapabilityState state) =>
+        state.Available
+        && state.Quality is HardwareStateQuality.Observed or HardwareStateQuality.Verified;
+
+    private static CapabilityState Stale(
+        CapabilityState state,
+        CapabilityReasonCode code,
+        string detail) =>
+        state with
+        {
+            Quality = HardwareStateQuality.Stale,
+            Available = false,
+            Reason = new CapabilityReason(code, detail, Retryable: true),
+        };
 
     private static DeviceCapabilityKey Key(CapabilityDescriptor descriptor) =>
         new(descriptor.CapabilityId, descriptor.InstanceId);
@@ -870,8 +850,8 @@ internal static class DeviceCapabilityValidation
 
     private static bool TryValidateDescriptor(CapabilityDescriptor descriptor, out string? error)
     {
-        if (!ValidId(descriptor.CapabilityId, MaxIdLength)
-            || (descriptor.InstanceId is not null && !ValidId(descriptor.InstanceId, 64)))
+        if (!DeviceIdentifier.IsValid(descriptor.CapabilityId, MaxIdLength)
+            || (descriptor.InstanceId is not null && !DeviceIdentifier.IsValid(descriptor.InstanceId, 64)))
         {
             error = "Capability or instance ID is invalid.";
             return false;
@@ -894,7 +874,7 @@ internal static class DeviceCapabilityValidation
                 return false;
             }
 
-            if (!ValidId(sectionId, MaxSectionIdLength))
+            if (!DeviceIdentifier.IsValid(sectionId, MaxSectionIdLength))
             {
                 error = "Capability section ID is invalid.";
                 return false;
@@ -927,7 +907,7 @@ internal static class DeviceCapabilityValidation
 
         if (descriptor.ValueKind is CapabilityValueKind.Choice
             && (descriptor.Choices.Count is 0 or > MaxChoices
-                || descriptor.Choices.Any(choice => !ValidId(choice.Value, 64))
+                || descriptor.Choices.Any(choice => !DeviceIdentifier.IsValid(choice.Value, 64))
                 || descriptor.Choices.Select(choice => choice.Value).Distinct(StringComparer.Ordinal)
                     .Count() != descriptor.Choices.Count))
         {
@@ -1022,10 +1002,4 @@ internal static class DeviceCapabilityValidation
 
         return true;
     }
-
-    private static bool ValidId(string value, int maximumLength) =>
-        !string.IsNullOrWhiteSpace(value)
-        && value.Length <= maximumLength
-        && value.All(character => char.IsAsciiLetterOrDigit(character)
-            || character is '.' or '-' or '_');
 }

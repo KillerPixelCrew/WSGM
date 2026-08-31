@@ -1,5 +1,4 @@
 using WSGM.Core;
-using WSGM.Input;
 using WSGM.Shell;
 
 namespace WSGM.Tests;
@@ -55,20 +54,9 @@ public sealed class ControllerTargetSelectionTests
         Assert.Equal(ControllerTargetSource.GlobalDefault, resolved.Source);
     }
 
-    [Theory]
-    [InlineData(ManagedControllerTarget.SteamDeckComposite, VirtualTargetKind.SteamDeckComposite)]
-    [InlineData(ManagedControllerTarget.Xbox360, VirtualTargetKind.Xbox360)]
-    [InlineData(ManagedControllerTarget.DualShock4, VirtualTargetKind.DualShock4)]
-    public void EveryStoredTargetMapsOntoItsBackendKind(
-        ManagedControllerTarget stored,
-        VirtualTargetKind expected) =>
-        Assert.Equal(expected, ControllerTargetSelection.ToVirtualTarget(stored));
-
     [Fact]
     public void AskingForManagementEnablesItAndCarriesNoDisabledReason()
     {
-        // Deliberately gate-agnostic: the projection has to be right in a build that ships the
-        // component and in one that excludes it, and the two must not be confusable.
         ControllerSelection selection = ControllerSelection.From(new DeviceIntegrationConfig
         {
             Enabled = true,
@@ -76,18 +64,12 @@ public sealed class ControllerTargetSelectionTests
             ControllerTarget = ManagedControllerTarget.Xbox360,
         });
 
-        Assert.Equal(DeviceFeatureAvailability.ControllerManagement, selection.Enabled);
+        Assert.True(selection.Enabled);
         Assert.Equal(ManagedControllerTarget.Xbox360, selection.GlobalDefault);
 
-        // Enabled means there is nothing to explain: leaving the build-exclusion text here would put
-        // "not installed in this build" in front of a user whose controller works. Expressed as an
-        // expression rather than an if/else because the gate is a compile-time constant, and the
-        // branch this build does not take would be unreachable code.
-        Assert.Equal(
-            DeviceFeatureAvailability.ControllerManagement
-                ? string.Empty
-                : DeviceFeatureAvailability.ControllerManagementDetail,
-            selection.DisabledDetail);
+        // Enabled means there is nothing to explain, so the detail stays empty rather than
+        // offering the user a reason for a feature that is working.
+        Assert.Equal(string.Empty, selection.DisabledDetail);
     }
 
     [Fact]

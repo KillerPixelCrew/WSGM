@@ -44,11 +44,8 @@ internal sealed class CurveEditor : Control
             nameof(Points),
             defaultValue: []);
 
-    /// <summary>The device-supplied bounds the curve is edited within.</summary>
-    public static readonly StyledProperty<CurveBounds> CurveBoundsProperty =
-        AvaloniaProperty.Register<CurveEditor, CurveBounds>(
-            nameof(CurveBounds),
-            defaultValue: new CurveBounds(0, 100, 0, 100));
+    /// <summary>The percent-over-percent plane every authored curve is edited within.</summary>
+    private static readonly CurveBounds EditBounds = new(0, 100, 0, 100);
 
     /// <summary>Index of the selected point, or -1 when none is selected.</summary>
     public static readonly StyledProperty<int> SelectedIndexProperty =
@@ -58,7 +55,7 @@ internal sealed class CurveEditor : Control
 
     static CurveEditor()
     {
-        AffectsRender<CurveEditor>(PointsProperty, CurveBoundsProperty, SelectedIndexProperty);
+        AffectsRender<CurveEditor>(PointsProperty, SelectedIndexProperty);
         FocusableProperty.OverrideDefaultValue<CurveEditor>(true);
     }
 
@@ -74,13 +71,6 @@ internal sealed class CurveEditor : Control
     {
         get => GetValue(PointsProperty);
         set => SetValue(PointsProperty, value);
-    }
-
-    /// <summary>The device-supplied bounds the curve is edited within.</summary>
-    public CurveBounds CurveBounds
-    {
-        get => GetValue(CurveBoundsProperty);
-        set => SetValue(CurveBoundsProperty, value);
     }
 
     /// <summary>Index of the selected point, or -1 when none is selected.</summary>
@@ -133,7 +123,7 @@ internal sealed class CurveEditor : Control
 
         int input = points[at - 1].Input + (widest / 2);
         TryCommit(
-            CurveEditing.Add(points, input, CurveEditing.Evaluate(points, input), CurveBounds),
+            CurveEditing.Add(points, input, CurveEditing.Evaluate(points, input), EditBounds),
             "add");
     }
 
@@ -157,7 +147,7 @@ internal sealed class CurveEditor : Control
     public override void Render(DrawingContext context)
     {
         Rect plot = PlotRect();
-        CurveBounds bounds = CurveBounds;
+        CurveBounds bounds = EditBounds;
         if (plot.Width <= 0 || plot.Height <= 0 || !bounds.IsUsable)
         {
             return;
@@ -238,7 +228,7 @@ internal sealed class CurveEditor : Control
             return;
         }
 
-        IReadOnlyList<CurvePoint> updated = CurveEditing.Add(Points, input, output, CurveBounds);
+        IReadOnlyList<CurvePoint> updated = CurveEditing.Add(Points, input, output, EditBounds);
         if (ReferenceEquals(updated, Points))
         {
             LogEditRefused(
@@ -251,7 +241,7 @@ internal sealed class CurveEditor : Control
         {
             return;
         }
-        int added = IndexOfInput(updated, CurveBounds.ClampInput(input));
+        int added = IndexOfInput(updated, EditBounds.ClampInput(input));
         SelectedIndex = added;
         _dragIndex = added;
         e.Pointer.Capture(this);
@@ -272,7 +262,7 @@ internal sealed class CurveEditor : Control
             _dragIndex,
             input,
             output,
-            CurveBounds);
+            EditBounds);
         TryCommit(updated, "pointer-move");
         e.Handled = true;
     }
@@ -409,7 +399,7 @@ internal sealed class CurveEditor : Control
                 SelectedIndex,
                 point.Input + inputStep,
                 point.Output + outputStep,
-                CurveBounds),
+                EditBounds),
             $"{inputSource}-move");
         return true;
     }
@@ -450,7 +440,7 @@ internal sealed class CurveEditor : Control
     private int HitTest(Point position)
     {
         Rect plot = PlotRect();
-        CurveBounds bounds = CurveBounds;
+        CurveBounds bounds = EditBounds;
         if (!bounds.IsUsable)
         {
             return -1;
@@ -480,7 +470,7 @@ internal sealed class CurveEditor : Control
         input = 0;
         output = 0;
         Rect plot = PlotRect();
-        CurveBounds bounds = CurveBounds;
+        CurveBounds bounds = EditBounds;
         if (plot.Width <= 0 || plot.Height <= 0 || !bounds.IsUsable)
         {
             return false;

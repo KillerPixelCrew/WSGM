@@ -89,8 +89,7 @@
                                                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                                         <TextBlock Text="{Binding Ssid}" />
                                                         <TextBlock Text="{Binding StatusLine}"
-                                                                   Classes="caption"
-                                                                   IsVisible="{Binding HasStatusLine}" />
+                                                                   Classes="caption" />
                                                     </StackPanel>
                                                 </Grid>
                                             </Button>
@@ -144,8 +143,7 @@
                                                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                                         <TextBlock Text="{Binding Name}" />
                                                         <TextBlock Text="{Binding StatusLine}"
-                                                                   Classes="caption"
-                                                                   IsVisible="{Binding HasStatusLine}" />
+                                                                   Classes="caption" />
                                                     </StackPanel>
                                                 </Grid>
                                             </Button>

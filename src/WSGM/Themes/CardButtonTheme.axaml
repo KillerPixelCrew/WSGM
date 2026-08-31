@@ -1,13 +1,11 @@
 <!-- ControlTheme + state styles for the shared CardButton control (icon,
-     title, description, trailing text). The visuals are the established
-     quick-row look: MinHeight 44 card with a 2 px border that flips to the
-     accent color on focus (the device-proven border-based focus visual —
-     FocusAdorner stays null), plus the primary/danger style classes.
-     Accent-family tokens are consumed via DynamicResource (runtime accent
-     pipeline); everything else StaticResource. The state styles live at the
-     Styles root (not inside the ControlTheme) so they carry regular style
-     priority and can override the typography classes used by the template,
-     mirroring the previous Window.Styles quick-row rules. -->
+     title, description, trailing text): a MinHeight 44 card with a 2 px border
+     that flips to the accent color on focus (the device-proven border-based
+     focus visual — FocusAdorner stays null), plus the primary/danger style
+     classes. Accent-family tokens are consumed via DynamicResource (runtime
+     accent pipeline); everything else StaticResource. The state styles live at
+     the Styles root (not inside the ControlTheme) so they carry regular style
+     priority and can override the typography classes used by the template. -->
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:c="using:WSGM.Controls">

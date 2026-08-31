@@ -173,8 +173,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
     /// <param name="watts">The limit that was just set.</param>
     /// <remarks>
     /// Called by whoever writes the power capability from a user action. Control does not resume by
-    /// itself: the user has overridden the controller, and quietly taking the limit back would make
-    /// the manual control look broken.
+    /// itself — only switching AutoTDP off and on does: the user has overridden the controller, and
+    /// quietly taking the limit back would make the manual control look broken.
     /// </remarks>
     internal void NoteManualChange(int watts)
     {
@@ -184,17 +184,6 @@ internal sealed class AutoTdpService : IAsyncDisposable
         }
 
         Publish(AutoTdpState.Paused, watts, null, null, "Paused by a manual power change.");
-    }
-
-    /// <summary>Resumes automatic control after an explicit user request.</summary>
-    internal void Resume()
-    {
-        lock (_gate)
-        {
-            _controller.Resume(_controller.Watts);
-        }
-
-        Publish(AutoTdpState.Idle, _controller.Watts, null, null, "AutoTDP resumed.");
     }
 
     /// <inheritdoc/>

@@ -24,45 +24,42 @@ public partial class SteamPage : UserControl
     }
 
     // async void is the framework event-handler form; the awaited work is a Task on
-    // the view model and its continuation resumes on the UI thread. The toggle is
-    // disabled meanwhile so a second press cannot queue a second elevation prompt.
-    private async void OnToggleUac(object? sender, RoutedEventArgs e)
-    {
-        if (DataContext is not SettingsViewModel viewModel)
-        {
-            return;
-        }
-        // The toggle mirrors machine state, not a config value: ask Windows to
-        // change it (one elevation prompt), then re-read whatever actually stuck.
-        var wanted = UacCheckBox.IsChecked == true;
-        UacCheckBox.IsEnabled = false;
-        try
-        {
-            await viewModel.SetUacPromptsAsync(wanted);
-        }
-        finally
-        {
-            UacCheckBox.IsEnabled = true;
-            UacCheckBox.IsChecked = viewModel.UacPromptsDisabled;
-        }
-    }
+    // the view model and its continuation resumes on the UI thread.
+    private async void OnToggleUac(object? sender, RoutedEventArgs e) =>
+        await TogglePolicyAsync(
+            UacCheckBox,
+            static (viewModel, wanted) => viewModel.SetUacPromptsAsync(wanted),
+            static viewModel => viewModel.UacPromptsDisabled);
 
-    private async void OnToggleLockOnWake(object? sender, RoutedEventArgs e)
+    private async void OnToggleLockOnWake(object? sender, RoutedEventArgs e) =>
+        await TogglePolicyAsync(
+            LockOnWakeCheckBox,
+            static (viewModel, wanted) => viewModel.SetLockOnWakeAsync(wanted),
+            static viewModel => viewModel.LockOnWakeDisabled);
+
+    /// <summary>Runs one machine-policy change behind its toggle. The toggle mirrors
+    /// machine state, not a config value: ask Windows to change it (one elevation
+    /// prompt), then re-read whatever actually stuck. The box is disabled meanwhile
+    /// so a second press cannot queue a second elevation prompt.</summary>
+    private async System.Threading.Tasks.Task TogglePolicyAsync(
+        Avalonia.Controls.Primitives.ToggleButton box,
+        System.Func<SettingsViewModel, bool, System.Threading.Tasks.Task<bool>> change,
+        System.Func<SettingsViewModel, bool> current)
     {
         if (DataContext is not SettingsViewModel viewModel)
         {
             return;
         }
-        var wanted = LockOnWakeCheckBox.IsChecked == true;
-        LockOnWakeCheckBox.IsEnabled = false;
+        var wanted = box.IsChecked == true;
+        box.IsEnabled = false;
         try
         {
-            await viewModel.SetLockOnWakeAsync(wanted);
+            await change(viewModel, wanted);
         }
         finally
         {
-            LockOnWakeCheckBox.IsEnabled = true;
-            LockOnWakeCheckBox.IsChecked = viewModel.LockOnWakeDisabled;
+            box.IsEnabled = true;
+            box.IsChecked = current(viewModel);
         }
     }
 }

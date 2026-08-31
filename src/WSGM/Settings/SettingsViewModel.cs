@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
-using System.Text.Json;
 using System.Threading.Tasks;
 using Avalonia;
 using WSGM.Core;
@@ -42,23 +41,6 @@ public sealed class StartupAppRow : INotifyPropertyChanged
     public bool AutoRelaunch { get => _autoRelaunch; set { _autoRelaunch = value; Raise(nameof(AutoRelaunch)); } }
 
     private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
-}
-
-/// <summary>Editable desktop/game display values for one monitor.</summary>
-public sealed class DisplayProfileRow
-{
-    /// <summary>Stable monitor device identity.</summary>
-    public string MonitorId { get; set; } = "";
-    /// <summary>GDI display source identity.</summary>
-    public string DeviceName { get; set; } = "";
-    /// <summary>User-facing monitor label.</summary>
-    public string DisplayName { get; set; } = "";
-    /// <summary>Whether HDR controls are available for this monitor.</summary>
-    public bool HdrAvailable { get; set; }
-    /// <summary>Desktop profile.</summary>
-    public DisplayModeValues Desktop { get; set; } = new();
-    /// <summary>Game-mode profile.</summary>
-    public DisplayModeValues Game { get; set; } = new();
 }
 
 /// <summary>Binds persisted shell, startup, input, and display settings to the Settings window.</summary>
@@ -109,29 +91,16 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
                 StatusText = $"Save failed: {ex.Message}";
             }
         });
-        UninstallCommand = new RelayCommand(Uninstall);
         OpenLogLocationCommand = new RelayCommand(OpenLogLocation);
         RemoveAppCommand = new RelayCommand<StartupAppRow>(row =>
         {
             if (row is not null)
             {
-                RemoveStartupApp(row);
+                StartupApps.Remove(row);
             }
         });
-        MoveUpCommand = new RelayCommand<StartupAppRow>(row =>
-        {
-            if (row is not null)
-            {
-                MoveStartupApp(row, -1);
-            }
-        });
-        MoveDownCommand = new RelayCommand<StartupAppRow>(row =>
-        {
-            if (row is not null)
-            {
-                MoveStartupApp(row, +1);
-            }
-        });
+        MoveUpCommand = new RelayCommand<StartupAppRow>(row => MoveStartupApp(row, -1));
+        MoveDownCommand = new RelayCommand<StartupAppRow>(row => MoveStartupApp(row, +1));
 
         // Normalize so an injected bare AppConfig gets the same non-null nested
         // sections (and clamped splash numbers) the load path guarantees.
@@ -153,7 +122,6 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         DeviceControllerTargetIndex = (int)_config.DeviceIntegration.ControllerTarget;
         DeviceAutoTdpEnabled = _config.DeviceIntegration.AutoTdpEnabled;
         DeviceGlyphSelectionIndex = (int)_config.DeviceIntegration.GlyphSelection;
-        DeviceDiagnosticLevelIndex = (int)_config.DeviceIntegration.DiagnosticLevel;
         PerformanceEnabled = _config.Performance.Enabled;
         FrameLimitStrategyIndex = (int)_config.Performance.FrameLimitStrategy;
         CefEnabled = _config.Cef.Enabled;
@@ -190,7 +158,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         }
         foreach (var profile in _config.DisplayProfiles)
         {
-            DisplayProfiles.Add(new DisplayProfileRow { MonitorId = profile.MonitorId, DeviceName = profile.DeviceName, DisplayName = profile.DisplayName, HdrAvailable = profile.HdrAvailable, Desktop = profile.Desktop, Game = profile.Game });
+            DisplayProfiles.Add(profile);
         }
         if (OperatingSystem.IsWindows())
         {
@@ -203,7 +171,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
                         : string.Equals(row.DeviceName, profile.DeviceName, StringComparison.OrdinalIgnoreCase));
                     if (existing is null)
                     {
-                        DisplayProfiles.Add(new DisplayProfileRow { MonitorId = profile.MonitorId, DeviceName = profile.DeviceName, DisplayName = profile.DisplayName, HdrAvailable = profile.HdrAvailable, Desktop = profile.Desktop, Game = profile.Game });
+                        DisplayProfiles.Add(profile);
                     }
                     else
                     {
@@ -236,12 +204,6 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// reporting the outcome (including the last-save time) via <see cref="StatusText"/>.</summary>
     public RelayCommand SaveCommand { get; }
 
-    /// <summary>Gets the command that installs or updates the per-user app copy.</summary>
-
-    /// <summary>Gets the command that removes the legacy shell registration and
-    /// restores the saved previous shell.</summary>
-    public RelayCommand UninstallCommand { get; }
-
     /// <summary>Gets the command that reveals wsgm.log in Explorer.</summary>
     public RelayCommand OpenLogLocationCommand { get; }
 
@@ -254,8 +216,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// <summary>Gets the command that moves one startup-program row down.</summary>
     public RelayCommand<StartupAppRow> MoveDownCommand { get; }
 
-    /// <summary>Editable per-monitor display profiles.</summary>
-    public ObservableCollection<DisplayProfileRow> DisplayProfiles { get; } = [];
+    /// <summary>Editable per-monitor display profiles (the config shape is bound directly).</summary>
+    public ObservableCollection<MonitorDisplayProfile> DisplayProfiles { get; } = [];
 
     /// <summary>Sections the installed plugin declares, in render order.</summary>
     public ObservableCollection<PluginSettingSectionViewModel> PluginSettingSections { get; } = [];
@@ -502,7 +464,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         try
         {
             InstalledDevicePackage? package = DevicePackagePolicy
-                .Discover(DevicePackageDiscoveryOptions.Production())
+                .Discover(DeviceInstallationPaths.InstalledPackageRoot)
                 .InstalledPackage;
             return package is { Valid: true, Manifest: { } manifest }
                 ? manifest.Id
@@ -543,6 +505,14 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             return;
         }
 
+        FindOrAddScope(config).Profiles = [.. DeviceProfiles.Select(row => row.ToStored())];
+    }
+
+    /// <summary>Finds this window's plugin-settings scope in the configuration being
+    /// saved, adding it when a fresh load does not carry one yet.</summary>
+    /// <param name="config">The freshly loaded configuration the save is applied to.</param>
+    private PluginSettingsScope FindOrAddScope(AppConfig config)
+    {
         List<PluginSettingsScope> scopes = config.DeviceIntegration.PluginSettings;
         PluginSettingsScope? scope = scopes.FirstOrDefault(candidate =>
             string.Equals(candidate.DeviceDefinitionId, _pluginSettingsDevice, StringComparison.Ordinal)
@@ -557,7 +527,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             scopes.Add(scope);
         }
 
-        scope.Profiles = [.. DeviceProfiles.Select(row => row.ToStored())];
+        return scope;
     }
 
     /// <summary>Writes the edited plugin settings into the configuration being saved.</summary>
@@ -578,20 +548,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             return;
         }
 
-        List<PluginSettingsScope> scopes = config.DeviceIntegration.PluginSettings;
-        PluginSettingsScope? scope = scopes.FirstOrDefault(candidate =>
-            string.Equals(candidate.DeviceDefinitionId, _pluginSettingsDevice, StringComparison.Ordinal)
-            && string.Equals(candidate.PluginId, _pluginSettingsPlugin, StringComparison.Ordinal));
-        if (scope is null)
-        {
-            scope = new PluginSettingsScope
-            {
-                DeviceDefinitionId = _pluginSettingsDevice,
-                PluginId = _pluginSettingsPlugin,
-            };
-            scopes.Add(scope);
-        }
-
+        PluginSettingsScope scope = FindOrAddScope(config);
         foreach ((string settingId, CapabilityValue value) in _pluginSettingEdits)
         {
             PluginSettingValue? entry = scope.Values.FirstOrDefault(candidate =>
@@ -641,11 +598,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         ? "Game-mode boot: on"
         : "Game-mode boot: off";
 
-    /// <summary>Gets the compact shell state for the status strip, derived from
-    /// the same legacy-registration check as <see cref="ShellStatusText"/>.</summary>
-    public string ShellStateText => ShellInstalled
-        ? "Shell: legacy WSGM registration"
-        : "Shell: Explorer";
+    /// <summary>Gets the compact shell state for the status strip.</summary>
+    public string ShellStateText => "Shell: Explorer";
 
     private void OpenLogLocation()
     {
@@ -759,7 +713,6 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private bool _deviceAutoTdpEnabled;
     private int _deviceControllerTargetIndex = (int)ManagedControllerTarget.SteamDeckComposite;
     private int _deviceGlyphSelectionIndex = (int)DeviceGlyphSelection.Automatic;
-    private int _deviceDiagnosticLevelIndex = (int)DeviceDiagnosticLevel.Standard;
     private string _deviceOwnerStatusText = "No running device coordinator detected.";
 
     // Set by the property setters, cleared once after the constructor's own seeding, so they mean
@@ -778,10 +731,6 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             Raise(nameof(DeviceIntegrationEnabled));
         }
     }
-
-    /// <summary>Whether controller management passed every mandatory release gate.</summary>
-    public bool DeviceControllerManagementAvailable =>
-        DeviceFeatureAvailability.ControllerManagement;
 
     /// <summary>Gets or sets the remembered controller-management child preference.</summary>
     public bool DeviceControllerManagementEnabled
@@ -843,13 +792,6 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// </remarks>
     internal (bool AutoTdp, bool ControllerTarget, bool GlyphSelection) DeviceEditsMade =>
         (_deviceAutoTdpEdited, _deviceControllerTargetEdited, _deviceGlyphSelectionEdited);
-
-    /// <summary>Selected sanitized Device diagnostics level index.</summary>
-    public int DeviceDiagnosticLevelIndex
-    {
-        get => _deviceDiagnosticLevelIndex;
-        set { _deviceDiagnosticLevelIndex = value; Raise(nameof(DeviceDiagnosticLevelIndex)); }
-    }
 
     /// <summary>Read-only status reported by the authoritative shell coordinator.</summary>
     public string DeviceOwnerStatusText
@@ -973,14 +915,9 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// <summary>Gets or sets muting system audio while the screen is off.</summary>
     public bool MuteWhileDisplayOff { get => _muteWhileDisplayOff; set { _muteWhileDisplayOff = value; Raise(nameof(MuteWhileDisplayOff)); } }
 
-    /// <summary>Gets whether the LEGACY shell registration is still active for this
-    /// account (pre-service installs). Shows the migration Restore card.</summary>
-    public bool ShellInstalled => ShellRegistration.IsInstalledForThisExe();
-
     /// <summary>Gets a user-facing explanation of the sign-in behavior.</summary>
-    public string ShellStatusText => ShellInstalled
-        ? "LEGACY shell registration is still active for this account — use Restore below. Game mode now starts through the WSGM logon service instead."
-        : "Game mode starts at sign-in through the WSGM logon service. Explorer stays your Windows shell.";
+    public string ShellStatusText =>
+        "Game mode starts at sign-in through the WSGM logon service. Explorer stays your Windows shell.";
 
     // --- UAC prompt level ---
     /// <summary>Gets whether UAC consent prompts are disabled for the machine.</summary>
@@ -991,22 +928,11 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         ? "UAC prompts are OFF — elevated apps start silently. Windows still runs with UAC enabled, but anything that asks for administrator rights gets them without asking you."
         : "UAC prompts are ON (Windows default). Each elevated launch shows a consent dialog, which interrupts boot-to-game on a handheld.";
 
-    /// <summary>Toggles the machine UAC prompt level. Needs one elevation prompt.
-    /// Returns false when elevation was declined or the write failed.</summary>
-    /// <param name="disable">Whether to suppress consent prompts.</param>
-    /// <returns><see langword="true"/> when Windows accepted the policy change.</returns>
-    public bool SetUacPrompts(bool disable)
-    {
-        var ok = UacSettings.RequestChange(disable);
-        Raise(nameof(UacPromptsDisabled));
-        Raise(nameof(UacStatusText));
-        return ok;
-    }
-
-    /// <summary>Off-thread form of <see cref="SetUacPrompts"/>. The elevated one-shot
-    /// blocks for as long as the consent prompt is on screen — up to a minute if the
-    /// user leaves it sitting — and in game mode the frozen window is the one holding
-    /// the Steam Input lease, so the pad looks dead too and it reads as a hang.
+    /// <summary>Toggles the machine UAC prompt level, off-thread: the elevated
+    /// one-shot blocks for as long as the consent prompt is on screen — up to a
+    /// minute if the user leaves it sitting — and in game mode the frozen window is
+    /// the one holding the Steam Input lease, so the pad looks dead too and it reads
+    /// as a hang.
     /// <para>Call from the UI thread: the continuation resumes there, so the property
     /// change notifications stay UI-thread owned.</para></summary>
     /// <param name="disable">Whether to suppress consent prompts.</param>
@@ -1028,20 +954,10 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         ? "Waking the device goes straight back to your game — no sign-in screen."
         : "Windows currently asks you to sign in again after the screen sleeps (Windows default).";
 
-    /// <summary>Changes the Windows wake sign-in policy through the elevated helper.</summary>
-    /// <param name="disable">Whether to bypass the sign-in prompt after display sleep.</param>
-    /// <returns><see langword="true"/> when Windows accepted the policy change.</returns>
-    public bool SetLockOnWake(bool disable)
-    {
-        var ok = LockScreenSettings.RequestChange(disable);
-        Raise(nameof(LockOnWakeDisabled));
-        Raise(nameof(LockOnWakeStatusText));
-        return ok;
-    }
-
-    /// <summary>Off-thread form of <see cref="SetLockOnWake"/>; see
-    /// <see cref="SetUacPromptsAsync"/> for why the synchronous one freezes the window.
-    /// Call from the UI thread so the notifications resume there.</summary>
+    /// <summary>Changes the Windows wake sign-in policy through the elevated helper,
+    /// off-thread — see <see cref="SetUacPromptsAsync"/> for why a synchronous form
+    /// would freeze the window. Call from the UI thread so the notifications resume
+    /// there.</summary>
     /// <param name="disable">Whether to bypass the sign-in prompt after display sleep.</param>
     /// <returns><see langword="true"/> when Windows accepted the policy change.</returns>
     public async Task<bool> SetLockOnWakeAsync(bool disable)
@@ -1050,21 +966,6 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         Raise(nameof(LockOnWakeDisabled));
         Raise(nameof(LockOnWakeStatusText));
         return ok;
-    }
-
-    /// <summary>Migration: removes the legacy shell registration and restores the
-    /// saved previous shell. The logon service keeps starting game mode afterwards.</summary>
-    public void Uninstall()
-    {
-        ShellRegistration.Uninstall();
-        RaiseShellStatus();
-    }
-
-    private void RaiseShellStatus()
-    {
-        Raise(nameof(ShellInstalled));
-        Raise(nameof(ShellStatusText));
-        Raise(nameof(ShellStateText));
     }
 
     // --- Steam (the only launcher; located via registry, nothing to configure) ---
@@ -1111,18 +1012,15 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// <summary>Gets or sets whether a splash window is shown while game mode starts.</summary>
     public bool BootSplashEnabled { get => _bootSplashEnabled; set { _bootSplashEnabled = value; Raise(nameof(BootSplashEnabled)); } }
 
-    /// <summary>Adds a blank startup-program row for manual configuration.</summary>
-    public void AddStartupApp() => StartupApps.Add(new StartupAppRow());
-
-    /// <summary>Removes a startup-program row.</summary>
-    /// <param name="row">The row to remove.</param>
-    public void RemoveStartupApp(StartupAppRow row) => StartupApps.Remove(row);
-
-    /// <summary>Moves a startup-program row by one or more positions when the target remains in range.</summary>
-    /// <param name="row">The row to move.</param>
+    /// <summary>Moves a startup-program row by one position when the target remains in range.</summary>
+    /// <param name="row">The row to move, or null (a no-op).</param>
     /// <param name="delta">The signed number of positions to move the row.</param>
-    public void MoveStartupApp(StartupAppRow row, int delta)
+    private void MoveStartupApp(StartupAppRow? row, int delta)
     {
+        if (row is null)
+        {
+            return;
+        }
         var index = StartupApps.IndexOf(row);
         var target = index + delta;
         if (index >= 0 && target >= 0 && target < StartupApps.Count)
@@ -1148,16 +1046,12 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private bool _hotkeyRecording;
     private bool _chordRecording;
 
-    /// <summary>Gets whether either shortcut recorder currently owns input.</summary>
-    public bool IsRecording => _hotkeyRecording || _chordRecording;
-
     /// <summary>Starts or stops keyboard-shortcut recording.</summary>
     /// <param name="recording">Whether the next eligible key combination should be captured.</param>
     public void SetHotkeyRecording(bool recording)
     {
         _hotkeyRecording = recording;
         Raise(nameof(HotkeyText));
-        Raise(nameof(IsRecording));
     }
 
     /// <summary>Starts or stops controller-chord recording.</summary>
@@ -1166,23 +1060,13 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     {
         _chordRecording = recording;
         Raise(nameof(ChordText));
-        Raise(nameof(IsRecording));
     }
 
-    /// <summary>Stores a recorded keyboard shortcut. A zero virtual key clears it.</summary>
-    /// <param name="modifiers">Win32 modifier flags captured with the virtual key.</param>
-    /// <param name="vk">The captured Win32 virtual key, or zero to clear the shortcut.</param>
-    public void ApplyRecordedHotkey(uint modifiers, int vk)
+    /// <summary>Stores a recorded keyboard shortcut, already in configuration shape.</summary>
+    /// <param name="hotkey">The captured shortcut, or <see cref="KeyRecorder.Cleared"/>.</param>
+    public void ApplyRecordedHotkey(HotkeyConfig hotkey)
     {
-        _hotkey = new HotkeyConfig
-        {
-            Enabled = vk != 0,
-            Ctrl = (modifiers & Interop.NativeMethods.ModControl) != 0,
-            Alt = (modifiers & Interop.NativeMethods.ModAlt) != 0,
-            Shift = (modifiers & Interop.NativeMethods.ModShift) != 0,
-            Win = (modifiers & Interop.NativeMethods.ModWin) != 0,
-            VirtualKey = vk,
-        };
+        _hotkey = hotkey;
         SetHotkeyRecording(false);
     }
 
@@ -1201,7 +1085,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     }
 
     /// <summary>Clears the keyboard shortcut.</summary>
-    public void ClearHotkey() => ApplyRecordedHotkey(0, 0);
+    public void ClearHotkey() => ApplyRecordedHotkey(KeyRecorder.Cleared());
 
     /// <summary>Clears the controller chord.</summary>
     public void ClearChord() => ApplyRecordedChord(0, false);
@@ -1251,321 +1135,95 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     public string AccentColorHex { get => _accentColorHex; set { _accentColorHex = value; Raise(nameof(AccentColorHex)); } }
 
     // --- Appearance: boot splash ---
-    private string _splashText = "";
-    private bool _splashTextEnabled = true;
-    private string _splashCaption = "";
-    private int _splashTitleFontSize = 26;
-    private int _splashCaptionFontSize = 12;
-    private string _splashTextColorHex = "#FFFFFF";
-    private string _splashCaptionColorHex = "#666666";
-    private int _splashSpinnerStyleIndex;
-    private string _splashSpinnerColorHex = "#FFFFFF";
-    private int _splashSpinnerSize = 36;
-    private string _splashBackgroundColorHex = "#000000";
-    private bool _splashVignetteEnabled;
-    private string _splashLogoPath = "";
-    private string _splashBackgroundImagePath = "";
-    private int _splashLogoMaxSize = 200;
-    private int _splashSweepEdgeIndex;
+    // The editor binds the SplashConfig instance directly ({Binding Splash.X}).
+    // Only members with a dependent consumer keep an INPC wrapper here: the four
+    // colors repaint their swatch previews on every keystroke, and the two image
+    // paths drive the Appearance page's thumbnail refresh.
+    private SplashConfig _splash = new();
 
-    /// <summary>Gets or sets the splash title text.</summary>
-    public string SplashText { get => _splashText; set { _splashText = value; Raise(nameof(SplashText)); } }
+    /// <summary>The splash section being edited. Replaced wholesale by
+    /// <see cref="LoadSplash"/> (startup, preset apply, theme import), which raises
+    /// this property so every nested binding re-evaluates.</summary>
+    public SplashConfig Splash => _splash;
 
-    /// <summary>Gets or sets whether the splash text block (title + caption) is rendered.</summary>
-    public bool SplashTextEnabled { get => _splashTextEnabled; set { _splashTextEnabled = value; Raise(nameof(SplashTextEnabled)); } }
+    /// <summary>Editable placement of the splash text stack.</summary>
+    public SplashPlacementEditor TextPlacement { get; } = new();
 
-    /// <summary>Gets or sets the splash caption line; empty = no caption.</summary>
-    public string SplashCaption { get => _splashCaption; set { _splashCaption = value; Raise(nameof(SplashCaption)); } }
+    /// <summary>Editable placement of the splash spinner.</summary>
+    public SplashPlacementEditor SpinnerPlacement { get; } = new();
 
-    /// <summary>Gets or sets the splash title font size in logical pixels.</summary>
-    public int SplashTitleFontSize { get => _splashTitleFontSize; set { _splashTitleFontSize = value; Raise(nameof(SplashTitleFontSize)); } }
+    /// <summary>Editable placement of the splash logo.</summary>
+    public SplashPlacementEditor LogoPlacement { get; } = new();
 
-    /// <summary>Gets or sets the splash caption font size in logical pixels.</summary>
-    public int SplashCaptionFontSize { get => _splashCaptionFontSize; set { _splashCaptionFontSize = value; Raise(nameof(SplashCaptionFontSize)); } }
+    /// <summary>Spinner styles offered by the settings selector.</summary>
+    public static SplashSpinnerStyle[] SpinnerStyleValues { get; } = Enum.GetValues<SplashSpinnerStyle>();
+
+    /// <summary>Sweep-line edges offered by the settings selector.</summary>
+    public static SweepEdge[] SweepEdgeValues { get; } = Enum.GetValues<SweepEdge>();
+
+    /// <summary>Placement modes offered for the spinner and logo.</summary>
+    public static SplashPlacementMode[] PlacementModeValues { get; } = Enum.GetValues<SplashPlacementMode>();
+
+    /// <summary>Placement modes offered for the text element itself, which cannot
+    /// ride its own stack.</summary>
+    public static SplashPlacementMode[] TextPlacementModeValues { get; } =
+        [SplashPlacementMode.Anchor, SplashPlacementMode.Absolute];
+
+    /// <summary>Nine-grid anchors offered by the settings selectors.</summary>
+    public static SplashPlacementAnchor[] PlacementAnchorValues { get; } = Enum.GetValues<SplashPlacementAnchor>();
 
     /// <summary>Gets or sets the splash title color as a hex string.</summary>
-    public string SplashTextColorHex { get => _splashTextColorHex; set { _splashTextColorHex = value; Raise(nameof(SplashTextColorHex)); } }
+    public string SplashTextColorHex { get => _splash.TextColor; set { _splash.TextColor = value; Raise(nameof(SplashTextColorHex)); } }
 
     /// <summary>Gets or sets the splash caption color as a hex string.</summary>
-    public string SplashCaptionColorHex { get => _splashCaptionColorHex; set { _splashCaptionColorHex = value; Raise(nameof(SplashCaptionColorHex)); } }
-
-    /// <summary>Gets or sets the selected spinner style index
-    /// (matches the <see cref="SplashSpinnerStyle"/> enum order).</summary>
-    public int SplashSpinnerStyleIndex { get => _splashSpinnerStyleIndex; set { _splashSpinnerStyleIndex = value; Raise(nameof(SplashSpinnerStyleIndex)); } }
-
-    /// <summary>Gets the spinner style names presented by the settings selector,
-    /// order-matched to the <see cref="SplashSpinnerStyle"/> enum.</summary>
-    public List<string> SplashSpinnerStyles { get; } =
-    [
-        "Ring (classic)",
-        "Arc",
-        "Arcs",
-        "Arcs ring",
-        "Double bounce",
-        "Flip plane",
-        "Pulse",
-        "Ring",
-        "Three dots",
-        "Wave",
-        "Sweep line",
-        "Off",
-    ];
+    public string SplashCaptionColorHex { get => _splash.CaptionColor; set { _splash.CaptionColor = value; Raise(nameof(SplashCaptionColorHex)); } }
 
     /// <summary>Gets or sets the spinner color as a hex string.</summary>
-    public string SplashSpinnerColorHex { get => _splashSpinnerColorHex; set { _splashSpinnerColorHex = value; Raise(nameof(SplashSpinnerColorHex)); } }
-
-    /// <summary>Gets or sets the spinner size in logical pixels.</summary>
-    public int SplashSpinnerSize { get => _splashSpinnerSize; set { _splashSpinnerSize = value; Raise(nameof(SplashSpinnerSize)); } }
+    public string SplashSpinnerColorHex { get => _splash.SpinnerColor; set { _splash.SpinnerColor = value; Raise(nameof(SplashSpinnerColorHex)); } }
 
     /// <summary>Gets or sets the splash background fill color as a hex string.</summary>
-    public string SplashBackgroundColorHex { get => _splashBackgroundColorHex; set { _splashBackgroundColorHex = value; Raise(nameof(SplashBackgroundColorHex)); } }
-
-    /// <summary>Gets or sets whether a radial vignette darkens the splash edges.</summary>
-    public bool SplashVignetteEnabled { get => _splashVignetteEnabled; set { _splashVignetteEnabled = value; Raise(nameof(SplashVignetteEnabled)); } }
+    public string SplashBackgroundColorHex { get => _splash.BackgroundColor; set { _splash.BackgroundColor = value; Raise(nameof(SplashBackgroundColorHex)); } }
 
     /// <summary>Gets or sets the splash logo image path; empty = no logo.</summary>
-    public string SplashLogoPath { get => _splashLogoPath; set { _splashLogoPath = value; Raise(nameof(SplashLogoPath)); } }
+    public string SplashLogoPath { get => _splash.LogoImagePath; set { _splash.LogoImagePath = value; Raise(nameof(SplashLogoPath)); } }
 
     /// <summary>Gets or sets the splash background image path; empty = solid color.</summary>
-    public string SplashBackgroundImagePath { get => _splashBackgroundImagePath; set { _splashBackgroundImagePath = value; Raise(nameof(SplashBackgroundImagePath)); } }
+    public string SplashBackgroundImagePath { get => _splash.BackgroundImagePath; set { _splash.BackgroundImagePath = value; Raise(nameof(SplashBackgroundImagePath)); } }
 
-    /// <summary>Gets or sets the maximum logo edge length in logical pixels.</summary>
-    public int SplashLogoMaxSize { get => _splashLogoMaxSize; set { _splashLogoMaxSize = value; Raise(nameof(SplashLogoMaxSize)); } }
-
-    /// <summary>Gets the sweep-line edge names presented by the settings selector,
-    /// order-matched to the <see cref="SweepEdge"/> enum.</summary>
-    public List<string> SplashSweepEdges { get; } = ["Bottom", "Top"];
-
-    /// <summary>Gets or sets the sweep-line edge as an index into <see cref="SplashSweepEdges"/>.</summary>
-    public int SplashSweepEdgeIndex
+    /// <summary>Builds the splash section handed to Save, the preview window, and
+    /// theme export: an isolated copy of the edited section, so the save path's
+    /// asset staging can rewrite its image paths without touching the editor.</summary>
+    internal SplashConfig BuildSplashConfig()
     {
-        get => _splashSweepEdgeIndex;
-        set { _splashSweepEdgeIndex = value; Raise(nameof(SplashSweepEdgeIndex)); }
-    }
-
-    /// <summary>Gets the placement mode names presented by the settings selectors,
-    /// order-matched to the <see cref="SplashPlacementMode"/> enum ("With text" is
-    /// honored by the splash for the spinner and logo only).</summary>
-    public List<string> SplashPlacementModes { get; } = ["Anchored", "Absolute", "With text"];
-
-    /// <summary>Gets the placement mode names offered for the text element itself,
-    /// which cannot ride its own stack — a prefix of <see cref="SplashPlacementModes"/>
-    /// so the shared enum-index mapping stays valid.</summary>
-    public List<string> SplashTextPlacementModes { get; } = ["Anchored", "Absolute"];
-
-    /// <summary>Gets the nine-grid anchor names presented by the settings selectors,
-    /// order-matched to the <see cref="SplashPlacementAnchor"/> enum.</summary>
-    public List<string> SplashPlacementAnchors { get; } =
-    [
-        "Top left",
-        "Top center",
-        "Top right",
-        "Center left",
-        "Center",
-        "Center right",
-        "Bottom left",
-        "Bottom center",
-        "Bottom right",
-    ];
-
-    // Text placement
-    private int _splashTextPlacementModeIndex;
-    private int _splashTextAnchorIndex = (int)SplashPlacementAnchor.Center;
-    private int _splashTextPaddingX = 64;
-    private int _splashTextPaddingY = 64;
-    private int _splashTextX;
-    private int _splashTextY;
-
-    /// <summary>Gets or sets the text placement mode index
-    /// (matches the <see cref="SplashPlacementMode"/> enum order).</summary>
-    public int SplashTextPlacementModeIndex { get => _splashTextPlacementModeIndex; set { _splashTextPlacementModeIndex = value; Raise(nameof(SplashTextPlacementModeIndex)); Raise(nameof(SplashTextPlacementIsAnchor)); Raise(nameof(SplashTextPlacementIsAbsolute)); } }
-
-    /// <summary>Gets whether the text placement editor shows the anchor + padding fields.</summary>
-    public bool SplashTextPlacementIsAnchor => _splashTextPlacementModeIndex == (int)SplashPlacementMode.Anchor;
-
-    /// <summary>Gets whether the text placement editor shows the absolute X/Y fields.</summary>
-    public bool SplashTextPlacementIsAbsolute => _splashTextPlacementModeIndex == (int)SplashPlacementMode.Absolute;
-
-    /// <summary>Gets or sets the text anchor index
-    /// (matches the <see cref="SplashPlacementAnchor"/> enum order).</summary>
-    public int SplashTextAnchorIndex { get => _splashTextAnchorIndex; set { _splashTextAnchorIndex = value; Raise(nameof(SplashTextAnchorIndex)); } }
-
-    /// <summary>Gets or sets the text horizontal padding from the anchored edge.</summary>
-    public int SplashTextPaddingX { get => _splashTextPaddingX; set { _splashTextPaddingX = value; Raise(nameof(SplashTextPaddingX)); } }
-
-    /// <summary>Gets or sets the text vertical padding from the anchored edge.</summary>
-    public int SplashTextPaddingY { get => _splashTextPaddingY; set { _splashTextPaddingY = value; Raise(nameof(SplashTextPaddingY)); } }
-
-    /// <summary>Gets or sets the text absolute X coordinate in logical pixels.</summary>
-    public int SplashTextX { get => _splashTextX; set { _splashTextX = value; Raise(nameof(SplashTextX)); } }
-
-    /// <summary>Gets or sets the text absolute Y coordinate in logical pixels.</summary>
-    public int SplashTextY { get => _splashTextY; set { _splashTextY = value; Raise(nameof(SplashTextY)); } }
-
-    // Spinner placement
-    private int _splashSpinnerPlacementModeIndex = (int)SplashPlacementMode.WithText;
-    private int _splashSpinnerAnchorIndex = (int)SplashPlacementAnchor.Center;
-    private int _splashSpinnerPaddingX = 64;
-    private int _splashSpinnerPaddingY = 64;
-    private int _splashSpinnerX;
-    private int _splashSpinnerY;
-
-    /// <summary>Gets or sets the spinner placement mode index
-    /// (matches the <see cref="SplashPlacementMode"/> enum order).</summary>
-    public int SplashSpinnerPlacementModeIndex { get => _splashSpinnerPlacementModeIndex; set { _splashSpinnerPlacementModeIndex = value; Raise(nameof(SplashSpinnerPlacementModeIndex)); Raise(nameof(SplashSpinnerPlacementIsAnchor)); Raise(nameof(SplashSpinnerPlacementIsAbsolute)); } }
-
-    /// <summary>Gets whether the spinner placement editor shows the anchor + padding fields.</summary>
-    public bool SplashSpinnerPlacementIsAnchor => _splashSpinnerPlacementModeIndex == (int)SplashPlacementMode.Anchor;
-
-    /// <summary>Gets whether the spinner placement editor shows the absolute X/Y fields.</summary>
-    public bool SplashSpinnerPlacementIsAbsolute => _splashSpinnerPlacementModeIndex == (int)SplashPlacementMode.Absolute;
-
-    /// <summary>Gets or sets the spinner anchor index
-    /// (matches the <see cref="SplashPlacementAnchor"/> enum order).</summary>
-    public int SplashSpinnerAnchorIndex { get => _splashSpinnerAnchorIndex; set { _splashSpinnerAnchorIndex = value; Raise(nameof(SplashSpinnerAnchorIndex)); } }
-
-    /// <summary>Gets or sets the spinner horizontal padding from the anchored edge.</summary>
-    public int SplashSpinnerPaddingX { get => _splashSpinnerPaddingX; set { _splashSpinnerPaddingX = value; Raise(nameof(SplashSpinnerPaddingX)); } }
-
-    /// <summary>Gets or sets the spinner vertical padding from the anchored edge.</summary>
-    public int SplashSpinnerPaddingY { get => _splashSpinnerPaddingY; set { _splashSpinnerPaddingY = value; Raise(nameof(SplashSpinnerPaddingY)); } }
-
-    /// <summary>Gets or sets the spinner absolute X coordinate in logical pixels.</summary>
-    public int SplashSpinnerX { get => _splashSpinnerX; set { _splashSpinnerX = value; Raise(nameof(SplashSpinnerX)); } }
-
-    /// <summary>Gets or sets the spinner absolute Y coordinate in logical pixels.</summary>
-    public int SplashSpinnerY { get => _splashSpinnerY; set { _splashSpinnerY = value; Raise(nameof(SplashSpinnerY)); } }
-
-    // Logo placement
-    private int _splashLogoPlacementModeIndex = (int)SplashPlacementMode.WithText;
-    private int _splashLogoAnchorIndex = (int)SplashPlacementAnchor.Center;
-    private int _splashLogoPaddingX = 64;
-    private int _splashLogoPaddingY = 64;
-    private int _splashLogoX;
-    private int _splashLogoY;
-
-    /// <summary>Gets or sets the logo placement mode index
-    /// (matches the <see cref="SplashPlacementMode"/> enum order).</summary>
-    public int SplashLogoPlacementModeIndex { get => _splashLogoPlacementModeIndex; set { _splashLogoPlacementModeIndex = value; Raise(nameof(SplashLogoPlacementModeIndex)); Raise(nameof(SplashLogoPlacementIsAnchor)); Raise(nameof(SplashLogoPlacementIsAbsolute)); } }
-
-    /// <summary>Gets whether the logo placement editor shows the anchor + padding fields.</summary>
-    public bool SplashLogoPlacementIsAnchor => _splashLogoPlacementModeIndex == (int)SplashPlacementMode.Anchor;
-
-    /// <summary>Gets whether the logo placement editor shows the absolute X/Y fields.</summary>
-    public bool SplashLogoPlacementIsAbsolute => _splashLogoPlacementModeIndex == (int)SplashPlacementMode.Absolute;
-
-    /// <summary>Gets or sets the logo anchor index
-    /// (matches the <see cref="SplashPlacementAnchor"/> enum order).</summary>
-    public int SplashLogoAnchorIndex { get => _splashLogoAnchorIndex; set { _splashLogoAnchorIndex = value; Raise(nameof(SplashLogoAnchorIndex)); } }
-
-    /// <summary>Gets or sets the logo horizontal padding from the anchored edge.</summary>
-    public int SplashLogoPaddingX { get => _splashLogoPaddingX; set { _splashLogoPaddingX = value; Raise(nameof(SplashLogoPaddingX)); } }
-
-    /// <summary>Gets or sets the logo vertical padding from the anchored edge.</summary>
-    public int SplashLogoPaddingY { get => _splashLogoPaddingY; set { _splashLogoPaddingY = value; Raise(nameof(SplashLogoPaddingY)); } }
-
-    /// <summary>Gets or sets the logo absolute X coordinate in logical pixels.</summary>
-    public int SplashLogoX { get => _splashLogoX; set { _splashLogoX = value; Raise(nameof(SplashLogoX)); } }
-
-    /// <summary>Gets or sets the logo absolute Y coordinate in logical pixels.</summary>
-    public int SplashLogoY { get => _splashLogoY; set { _splashLogoY = value; Raise(nameof(SplashLogoY)); } }
-
-    /// <summary>Builds the splash section from the UI-owned fields — the single
-    /// source of truth used by Save, the preview window, and theme export.
-    /// Enum-backed indices are clamped into their enum ranges here.</summary>
-    internal SplashConfig BuildSplashConfig() => new()
-    {
-        Text = SplashText,
-        TextEnabled = SplashTextEnabled,
-        TextColor = SplashTextColorHex,
-        TitleFontSize = SplashTitleFontSize,
-        Caption = SplashCaption,
-        CaptionColor = SplashCaptionColorHex,
-        CaptionFontSize = SplashCaptionFontSize,
-        SpinnerStyle = (SplashSpinnerStyle)Math.Clamp(SplashSpinnerStyleIndex, 0, (int)SplashSpinnerStyle.Off),
-        SpinnerColor = SplashSpinnerColorHex,
-        SpinnerSize = SplashSpinnerSize,
-        SweepEdge = (SweepEdge)Math.Clamp(SplashSweepEdgeIndex, 0, (int)SweepEdge.Top),
-        BackgroundColor = SplashBackgroundColorHex,
-        VignetteEnabled = SplashVignetteEnabled,
-        BackgroundImagePath = SplashBackgroundImagePath,
-        LogoImagePath = SplashLogoPath,
-        LogoMaxSize = SplashLogoMaxSize,
-        TextPlacement = BuildPlacement(
-            SplashTextPlacementModeIndex, SplashTextAnchorIndex,
-            SplashTextPaddingX, SplashTextPaddingY, SplashTextX, SplashTextY,
-            allowWithText: false),
-        SpinnerPlacement = BuildPlacement(
-            SplashSpinnerPlacementModeIndex, SplashSpinnerAnchorIndex,
-            SplashSpinnerPaddingX, SplashSpinnerPaddingY, SplashSpinnerX, SplashSpinnerY),
-        LogoPlacement = BuildPlacement(
-            SplashLogoPlacementModeIndex, SplashLogoAnchorIndex,
-            SplashLogoPaddingX, SplashLogoPaddingY, SplashLogoX, SplashLogoY),
-    };
-
-    private static SplashElementPlacement BuildPlacement(
-        int modeIndex, int anchorIndex, int paddingX, int paddingY, int x, int y,
-        bool allowWithText = true)
-    {
-        var mode = (SplashPlacementMode)Math.Clamp(modeIndex, 0, (int)SplashPlacementMode.WithText);
-        if (!allowWithText && mode == SplashPlacementMode.WithText)
+        var splash = ConfigStore.CloneJson(_splash, ConfigJsonContext.Default.SplashConfig);
+        // "With text" is a spinner/logo-only mode; the text element itself anchors.
+        // Normalize accepts WithText on every placement, so an imported theme can
+        // still carry it on the text placement — this is where it is coerced.
+        if (splash.TextPlacement.Mode == SplashPlacementMode.WithText)
         {
-            // "With text" is a spinner/logo-only mode; the text element itself anchors.
-            mode = SplashPlacementMode.Anchor;
+            splash.TextPlacement.Mode = SplashPlacementMode.Anchor;
         }
-
-        return new()
-        {
-            Mode = mode,
-            Anchor = (SplashPlacementAnchor)Math.Clamp(anchorIndex, 0, (int)SplashPlacementAnchor.BottomRight),
-            PaddingX = paddingX,
-            PaddingY = paddingY,
-            X = x,
-            Y = y,
-        };
+        return splash;
     }
 
-    /// <summary>Loads the UI-owned splash fields from a splash section — used at
-    /// startup, on preset apply, and after theme import.</summary>
+    /// <summary>Loads the splash editor from a splash section — used at startup, on
+    /// preset apply, and after theme import. The section is copied and normalized,
+    /// so later edits cannot mutate the caller's instance and an imported value can
+    /// never carry an out-of-range enum into the editor.</summary>
     internal void LoadSplash(SplashConfig splash)
     {
-        SplashText = splash.Text;
-        SplashTextEnabled = splash.TextEnabled;
-        SplashTextColorHex = splash.TextColor;
-        SplashTitleFontSize = splash.TitleFontSize;
-        SplashCaption = splash.Caption;
-        SplashCaptionColorHex = splash.CaptionColor;
-        SplashCaptionFontSize = splash.CaptionFontSize;
-        SplashSpinnerStyleIndex = (int)splash.SpinnerStyle;
-        SplashSpinnerColorHex = splash.SpinnerColor;
-        SplashSpinnerSize = splash.SpinnerSize;
-        SplashSweepEdgeIndex = (int)splash.SweepEdge;
-        SplashBackgroundColorHex = splash.BackgroundColor;
-        SplashVignetteEnabled = splash.VignetteEnabled;
-        SplashBackgroundImagePath = splash.BackgroundImagePath;
-        SplashLogoPath = splash.LogoImagePath;
-        SplashLogoMaxSize = splash.LogoMaxSize;
-
-        SplashTextPlacementModeIndex = (int)splash.TextPlacement.Mode;
-        SplashTextAnchorIndex = (int)splash.TextPlacement.Anchor;
-        SplashTextPaddingX = splash.TextPlacement.PaddingX;
-        SplashTextPaddingY = splash.TextPlacement.PaddingY;
-        SplashTextX = splash.TextPlacement.X;
-        SplashTextY = splash.TextPlacement.Y;
-
-        SplashSpinnerPlacementModeIndex = (int)splash.SpinnerPlacement.Mode;
-        SplashSpinnerAnchorIndex = (int)splash.SpinnerPlacement.Anchor;
-        SplashSpinnerPaddingX = splash.SpinnerPlacement.PaddingX;
-        SplashSpinnerPaddingY = splash.SpinnerPlacement.PaddingY;
-        SplashSpinnerX = splash.SpinnerPlacement.X;
-        SplashSpinnerY = splash.SpinnerPlacement.Y;
-
-        SplashLogoPlacementModeIndex = (int)splash.LogoPlacement.Mode;
-        SplashLogoAnchorIndex = (int)splash.LogoPlacement.Anchor;
-        SplashLogoPaddingX = splash.LogoPlacement.PaddingX;
-        SplashLogoPaddingY = splash.LogoPlacement.PaddingY;
-        SplashLogoX = splash.LogoPlacement.X;
-        SplashLogoY = splash.LogoPlacement.Y;
+        _splash = ConfigStore.NormalizeSplash(
+            ConfigStore.CloneJson(splash, ConfigJsonContext.Default.SplashConfig));
+        TextPlacement.Load(_splash.TextPlacement);
+        SpinnerPlacement.Load(_splash.SpinnerPlacement);
+        LogoPlacement.Load(_splash.LogoPlacement);
+        Raise(nameof(Splash));
+        Raise(nameof(SplashTextColorHex));
+        Raise(nameof(SplashCaptionColorHex));
+        Raise(nameof(SplashSpinnerColorHex));
+        Raise(nameof(SplashBackgroundColorHex));
+        Raise(nameof(SplashLogoPath));
+        Raise(nameof(SplashBackgroundImagePath));
     }
 
     // --- Save ---
@@ -1593,15 +1251,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         // first switch into Automatic and remain UI-owned in Fixed mode.
         if (ShouldWriteDisplayProfiles(persistedDisplayManagement, displayManagement))
         {
-            config.DisplayProfiles = DisplayProfiles.Select(profile => new MonitorDisplayProfile
-            {
-                MonitorId = profile.MonitorId,
-                DeviceName = profile.DeviceName,
-                DisplayName = profile.DisplayName,
-                HdrAvailable = profile.HdrAvailable,
-                Desktop = profile.Desktop,
-                Game = profile.Game,
-            }).ToList();
+            config.DisplayProfiles = [.. DisplayProfiles];
         }
         config.SteamInputLeaseEnabled = SteamInputLeaseEnabled;
         config.SteamInputManagementEnabled = SteamInputManagementEnabled;
@@ -1635,10 +1285,6 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
                 0,
                 Enum.GetValues<DeviceGlyphSelection>().Length - 1);
         }
-        config.DeviceIntegration.DiagnosticLevel = (DeviceDiagnosticLevel)Math.Clamp(
-            DeviceDiagnosticLevelIndex,
-            0,
-            Enum.GetValues<DeviceDiagnosticLevel>().Length - 1);
         config.Performance.Enabled = PerformanceEnabled;
         config.Performance.FrameLimitStrategy = (FrameLimitStrategy)Math.Clamp(
             FrameLimitStrategyIndex,
@@ -1667,7 +1313,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.Gestures.LeftEdgeSteamMenu = GestureLeftSteamMenu;
         config.Gestures.TopEdgeSteamQuickAccess = GestureTopSteamQuickAccess;
         config.Gestures.BottomEdgeAction = (EdgeAction)Math.Clamp(BottomEdgeActionIndex, 0, 1);
-        config.GlyphStyle = (GlyphStyle)Math.Clamp(GlyphStyleIndex, 0, 2);
+        config.GlyphStyle = GlyphStyle;
         config.AccentColor = AccentColorHex;
         config.Splash = splash;
         config.StartupApps = StartupApps
@@ -1690,20 +1336,14 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             || selected == DisplayManagementMode.AutomaticProfiles
                 && initial != DisplayManagementMode.AutomaticProfiles;
 
-    /// <summary>Merges UI-owned values with fresh persisted state and saves the result.</summary>
-    public void Save()
-    {
-        SaveMerged();
-    }
-
     /// <summary>Applies the UI-owned fields over a FRESH load and saves that.
     /// While this window is open, the elevated one-shots (UAC, lock-on-wake) and
-    /// the shell persist registry snapshots and display-scale/slate state to the
+    /// the shell persist registry snapshots and display-scale state to the
     /// same file; serializing the startup-time _config would reset every one of
     /// those fields to defaults on disk, breaking exact restore on uninstall.
     /// The config mutex only serializes individual reads/writes — it cannot
     /// merge — so the merge has to happen here.</summary>
-    private AppConfig SaveMerged()
+    public void Save()
     {
         // Copy the picked splash images into the stable per-user splash directory
         // FIRST, and deliberately OUTSIDE the cross-process config lock. Two-phase on
@@ -1788,7 +1428,6 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         }
         Log.Info("Settings saved.");
         ApplySteamInputManagementAfterSave(config);
-        return config;
     }
 
     /// <summary>Brings Steam's directory in line with the setting that was just
@@ -1961,17 +1600,85 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         return failure;
     }
 
-    /// <summary>Builds an isolated configuration snapshot for controller tests.</summary>
-    /// <returns>A copy that will not change when this view model is later saved or installed.</returns>
-    public AppConfig SnapshotForTest()
+    /// <summary>Builds an isolated configuration snapshot for the window's local
+    /// overlay/taskbar preview surfaces, carrying every unsaved edit.</summary>
+    /// <returns>A copy that will not change when this view model is later saved.</returns>
+    public AppConfig SnapshotForPreview()
     {
         ApplyTo(_config);
-        // A real copy through the production JSON contract: the test
-        // OverlayController must not see later Save()/Install() mutations of the
-        // live _config outside its ApplyConfig wholesale-replace contract.
-        var json = JsonSerializer.Serialize(_config, ConfigJsonContext.Default.AppConfig);
-        return JsonSerializer.Deserialize(json, ConfigJsonContext.Default.AppConfig) ?? new AppConfig();
+        // A real copy through the production JSON contract: the preview's
+        // OverlayController must not see later Save() mutations of the live
+        // _config outside its ApplyConfig wholesale-replace contract.
+        return ConfigStore.CloneJson(_config, ConfigJsonContext.Default.AppConfig);
     }
+
+    private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+}
+
+/// <summary>Editable placement of one boot-splash element. Writes through to the
+/// placement object inside the view model's splash section, so the section and the
+/// editor can never disagree; <see cref="Load"/> re-points it after a preset apply
+/// or theme import and re-raises every property.</summary>
+public sealed class SplashPlacementEditor : INotifyPropertyChanged
+{
+    /// <summary>Raised after a placement field changes.</summary>
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private SplashElementPlacement _placement = new();
+
+    /// <summary>Points the editor at a splash section's placement object.</summary>
+    /// <param name="placement">The placement this editor writes through to.</param>
+    internal void Load(SplashElementPlacement placement)
+    {
+        _placement = placement;
+        Raise(nameof(Mode));
+        Raise(nameof(Anchor));
+        Raise(nameof(PaddingX));
+        Raise(nameof(PaddingY));
+        Raise(nameof(X));
+        Raise(nameof(Y));
+        Raise(nameof(IsAnchor));
+        Raise(nameof(IsAbsolute));
+    }
+
+    /// <summary>Gets or sets how the element is positioned. Also switches which
+    /// field group (<see cref="IsAnchor"/>/<see cref="IsAbsolute"/>) the editor shows.</summary>
+    public SplashPlacementMode Mode
+    {
+        get => _placement.Mode;
+        set
+        {
+            _placement.Mode = value;
+            Raise(nameof(Mode));
+            Raise(nameof(IsAnchor));
+            Raise(nameof(IsAbsolute));
+        }
+    }
+
+    /// <summary>Whether the editor shows the anchor + padding fields.</summary>
+    public bool IsAnchor => _placement.Mode == SplashPlacementMode.Anchor;
+
+    /// <summary>Whether the editor shows the absolute X/Y fields.</summary>
+    public bool IsAbsolute => _placement.Mode == SplashPlacementMode.Absolute;
+
+    /// <summary>Gets or sets the nine-grid anchor.</summary>
+    public SplashPlacementAnchor Anchor
+    {
+        get => _placement.Anchor;
+        set { _placement.Anchor = value; Raise(nameof(Anchor)); }
+    }
+
+    /// <summary>Gets or sets the horizontal padding from the anchored edge.</summary>
+    public int PaddingX { get => _placement.PaddingX; set { _placement.PaddingX = value; Raise(nameof(PaddingX)); } }
+
+    /// <summary>Gets or sets the vertical padding from the anchored edge.</summary>
+    public int PaddingY { get => _placement.PaddingY; set { _placement.PaddingY = value; Raise(nameof(PaddingY)); } }
+
+    /// <summary>Gets or sets the absolute X coordinate in logical pixels.</summary>
+    public int X { get => _placement.X; set { _placement.X = value; Raise(nameof(X)); } }
+
+    /// <summary>Gets or sets the absolute Y coordinate in logical pixels.</summary>
+    public int Y { get => _placement.Y; set { _placement.Y = value; Raise(nameof(Y)); } }
 
     private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

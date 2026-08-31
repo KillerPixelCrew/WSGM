@@ -46,6 +46,17 @@ internal static class ApplicationShutdownRequest
             ref _reason,
             (int)ApplicationShutdownReason.Normal);
 
+    /// <summary>Stops the Avalonia classic desktop lifetime when one is running — the one exit
+    /// door shared by installer exit requests and the session-end path.</summary>
+    internal static void ShutdownLifetime()
+    {
+        if (Avalonia.Application.Current?.ApplicationLifetime
+            is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime lifetime)
+        {
+            lifetime.Shutdown();
+        }
+    }
+
     private static int PriorityFor(ApplicationShutdownReason reason) => reason switch
     {
         ApplicationShutdownReason.Uninstall => 3,

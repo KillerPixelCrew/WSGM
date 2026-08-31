@@ -23,7 +23,6 @@
         <fa:FluentAvaloniaTheme />
         <StyleInclude Source="/Themes/Typography.axaml" />
         <StyleInclude Source="/Themes/Shared.axaml" />
-        <StyleInclude Source="/Themes/ControlThemes.axaml" />
         <StyleInclude Source="/Themes/TabStripTheme.axaml" />
         <StyleInclude Source="/Themes/CardButtonTheme.axaml" />
     </Application.Styles>

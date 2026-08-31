@@ -88,16 +88,7 @@ internal sealed class DevicePackageSlotGate : IAsyncDisposable
 
         using var mutex = new Mutex(initiallyOwned: false, name);
         waitStarted?.Invoke();
-        bool ownsMutex;
-        try
-        {
-            ownsMutex = mutex.WaitOne(timeout);
-        }
-        catch (AbandonedMutexException)
-        {
-            ownsMutex = true;
-        }
-        if (!ownsMutex)
+        if (WaitForSlot(mutex, timeout, CancellationToken.None) is not SlotWait.Acquired)
         {
             return null;
         }
@@ -140,30 +131,16 @@ internal sealed class DevicePackageSlotGate : IAsyncDisposable
         try
         {
             mutex = new Mutex(initiallyOwned: false, _name);
-            WaitHandle[] waits = [mutex, _cancellationToken.WaitHandle];
             _waitStarted?.Invoke();
-            int signalled;
-            try
-            {
-                signalled = WaitHandle.WaitAny(waits, _timeout);
-            }
-            catch (AbandonedMutexException ex) when (ex.MutexIndex == 0)
-            {
-                signalled = 0;
-                ownsMutex = true;
-            }
-
-            if (signalled == WaitHandle.WaitTimeout)
+            SlotWait wait = WaitForSlot(mutex, _timeout, _cancellationToken);
+            if (wait is SlotWait.TimedOut)
             {
                 _acquisition.TrySetResult(null);
                 return;
             }
-            if (signalled == 1 || _cancellationToken.IsCancellationRequested)
+            if (wait is SlotWait.Canceled || _cancellationToken.IsCancellationRequested)
             {
-                if (signalled == 0)
-                {
-                    ownsMutex = true;
-                }
+                ownsMutex = wait is SlotWait.Acquired;
                 _acquisition.TrySetCanceled(_cancellationToken);
                 return;
             }
@@ -193,5 +170,40 @@ internal sealed class DevicePackageSlotGate : IAsyncDisposable
             mutex?.Dispose();
             _releaseCompleted.TrySetResult();
         }
+    }
+
+    private enum SlotWait
+    {
+        Acquired,
+        TimedOut,
+        Canceled,
+    }
+
+    /// <summary>One bounded wait on the slot mutex, shared by the async owner thread and the
+    /// synchronous STA path. An abandoned mutex counts as acquired: the previous owner crashed and
+    /// the slot must stay recoverable.</summary>
+    private static SlotWait WaitForSlot(
+        Mutex mutex,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        int signalled;
+        try
+        {
+            signalled = WaitHandle.WaitAny(
+                [mutex, cancellationToken.WaitHandle],
+                timeout);
+        }
+        catch (AbandonedMutexException ex) when (ex.MutexIndex == 0)
+        {
+            return SlotWait.Acquired;
+        }
+
+        return signalled switch
+        {
+            WaitHandle.WaitTimeout => SlotWait.TimedOut,
+            0 => SlotWait.Acquired,
+            _ => SlotWait.Canceled,
+        };
     }
 }

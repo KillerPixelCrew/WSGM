@@ -17,7 +17,9 @@ public sealed class StartupAppWatcher : IDisposable
 
     private sealed class WatchState
     {
-        public readonly AliveEdgeDetector Edge = new();
+        // Only true after a poll saw the process alive, so "seen alive once" before a
+        // relaunch is implied rather than tracked separately.
+        public bool WasAlive;
         public DateTime LastRelaunchUtc;
         public bool RelaunchPending;
     }
@@ -110,10 +112,11 @@ public sealed class StartupAppWatcher : IDisposable
                 _states[path] = state;
             }
 
-            // Update() always records the new state, even while a relaunch is
-            // pending — only the reaction is gated, matching the old
-            // WasAlive bookkeeping.
-            if (state.Edge.Update(alive[i]) && !state.RelaunchPending)
+            // The new state is always recorded, even while a relaunch is pending —
+            // only the reaction is gated.
+            var exited = state.WasAlive && !alive[i];
+            state.WasAlive = alive[i];
+            if (exited && !state.RelaunchPending)
             {
                 // A falling edge inside the cooldown isn't dropped — the relaunch is
                 // scheduled for when the cooldown expires (never sooner than the

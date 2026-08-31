@@ -1,5 +1,6 @@
 using System.Text.Json;
 using WSGM.Core;
+using WSGM.Shell;
 
 namespace WSGM.Tests;
 
@@ -12,7 +13,7 @@ public sealed class NativeQamPerfProjectionTests
         new(options ?? [30, 60, 120], vrr, refreshSelectable, 30, 120);
 
     private static string Serialize(NativeQamPerfState state) =>
-        JsonSerializer.Serialize(state, NativeQamPerfJsonContext.Default.NativeQamPerfState);
+        JsonSerializer.Serialize(state, NativeQamSemanticJsonContext.Default.NativeQamPerfState);
 
     [Theory]
     [InlineData(true, true)]

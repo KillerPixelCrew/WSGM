@@ -28,47 +28,34 @@ public enum DeviceProfileApplyOutcome
 /// Applies the authored profile in force for the running application to the device.
 /// </summary>
 /// <remarks>
-/// Three steps, and each can stop the chain for a different reason worth logging separately:
+/// Three steps, each of which can stop the chain for a different reason worth logging separately:
 /// resolve which profile the selection points at, check it against the descriptor the device
-/// publishes right now, and only then send it.
-/// <para>
-/// The middle step is not optional. Profiles are authored in Settings with no plugin running, so a
-/// curve is built against the last known bounds; between authoring and applying, the device can be
-/// updated, swapped, or downgraded. Sending an unchecked curve means the plugin refuses it and the
-/// user sees a profile that silently does nothing.
-/// </para>
+/// publishes right now, and only then send it. The pre-apply check reads the live descriptor on
+/// purpose; see <c>docs\device-integration.md</c> §Authored profiles.
 /// </remarks>
-internal sealed class DeviceProfileApplier
+internal static class DeviceProfileApplier
 {
-    private readonly Func<string, CapabilityDescriptor?> _describe;
-    private readonly Func<string, CapabilityValue, CancellationToken, Task<bool>> _execute;
-
-    /// <summary>Creates an applier.</summary>
-    /// <param name="describe">Reads the descriptor the device publishes for a capability.</param>
-    /// <param name="execute">Sends a value to the device, reporting whether it took.</param>
-    internal DeviceProfileApplier(
-        Func<string, CapabilityDescriptor?> describe,
-        Func<string, CapabilityValue, CancellationToken, Task<bool>> execute)
-    {
-        _describe = describe ?? throw new ArgumentNullException(nameof(describe));
-        _execute = execute ?? throw new ArgumentNullException(nameof(execute));
-    }
-
     /// <summary>Applies the profile in force for one capability.</summary>
     /// <param name="selections">Selections stored for the device.</param>
     /// <param name="profiles">Profiles authored for the device.</param>
     /// <param name="capabilityId">The capability to apply.</param>
     /// <param name="applicationId">The running application identity, or null for none.</param>
+    /// <param name="describe">Reads the descriptor the device publishes for a capability.</param>
+    /// <param name="execute">Sends a value to the device and reports the command result.</param>
     /// <param name="cancellationToken">Cancels the device write.</param>
     /// <returns>What happened, for the caller to act on and for the log.</returns>
-    internal async Task<DeviceProfileApplyOutcome> ApplyAsync(
+    internal static async Task<DeviceProfileApplyOutcome> ApplyAsync(
         IReadOnlyList<DeviceProfileSelection> selections,
         IReadOnlyList<DeviceAuthoredProfile> profiles,
         string capabilityId,
         string? applicationId,
+        Func<string, CapabilityDescriptor?> describe,
+        Func<string, CapabilityValue, CancellationToken, Task<CapabilityCommandResult>> execute,
         CancellationToken cancellationToken)
     {
-        DeviceProfileResolution resolution = DeviceProfileSelectionResolver.Resolve(
+        ArgumentNullException.ThrowIfNull(describe);
+        ArgumentNullException.ThrowIfNull(execute);
+        DeviceProfileResolution resolution = DeviceProfileSelectionStore.Resolve(
             selections,
             profiles,
             capabilityId,
@@ -90,7 +77,7 @@ internal sealed class DeviceProfileApplier
             return DeviceProfileApplyOutcome.NoSelection;
         }
 
-        CapabilityDescriptor? descriptor = _describe(capabilityId);
+        CapabilityDescriptor? descriptor = describe(capabilityId);
         DeviceProfileRejection rejection = DeviceProfileValidation.Validate(
             profile,
             descriptor,
@@ -112,7 +99,15 @@ internal sealed class DeviceProfileApplier
             ],
         };
 
-        bool applied = await _execute(capabilityId, value, cancellationToken).ConfigureAwait(false);
+        CapabilityCommandResult result = await execute(capabilityId, value, cancellationToken)
+            .ConfigureAwait(false);
+        // Unverified counts as applied: many EC writes have no readback, and treating the absence
+        // of confirmation as failure would report every one of them as broken. A timeout does not
+        // count — whether it was written is unknown, and claiming success there is the one answer
+        // that misleads.
+        bool applied = result.Outcome
+            is CommandOutcome.AppliedVerified
+            or CommandOutcome.AppliedUnverified;
         if (!applied)
         {
             Log.Warn(

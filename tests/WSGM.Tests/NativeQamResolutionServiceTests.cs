@@ -77,7 +77,7 @@ public sealed class NativeQamResolutionServiceTests
             },
             () => new DisplayResolution(1920, 1200)));
 
-        NativeQamCommandResult result = await service.ApplyAsync(value, CancellationToken.None);
+        SteamUiCommandResult result = await service.ApplyAsync(value, CancellationToken.None);
 
         Assert.False(result.Succeeded);
         Assert.Empty(applied);
@@ -96,7 +96,7 @@ public sealed class NativeQamResolutionServiceTests
             },
             () => new DisplayResolution(1920, 1200)));
 
-        NativeQamCommandResult result = await service.ApplyAsync(
+        SteamUiCommandResult result = await service.ApplyAsync(
             "1280x800",
             CancellationToken.None);
 
@@ -118,7 +118,7 @@ public sealed class NativeQamResolutionServiceTests
             },
             () => new DisplayResolution(1920, 1200)));
 
-        NativeQamCommandResult result = await service.ApplyAsync(
+        SteamUiCommandResult result = await service.ApplyAsync(
             "3840x2160",
             CancellationToken.None);
 

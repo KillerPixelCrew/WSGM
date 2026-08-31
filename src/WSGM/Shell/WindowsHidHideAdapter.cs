@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Security.Cryptography;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
@@ -202,7 +200,7 @@ internal sealed class WindowsHidHideAdapter : IHidHideAdapter
             HidHideHealthState health = state.Error is ErrorFileNotFound or ErrorPathNotFound
                 ? HidHideHealthState.Unavailable
                 : HidHideHealthState.Faulted;
-            return new(0, health, false, [], [],
+            return new(health, false, [], [],
                 $"HidHide control device read failed with Win32 error {state.Error}.");
         }
 
@@ -217,31 +215,10 @@ internal sealed class WindowsHidHideAdapter : IHidHideAdapter
                 ? "HidHide is active."
                 : "HidHide is installed but inactive.";
         return new(
-            ComputeRevision(state),
             stateHealth,
             state.Active,
             state.Applications,
             state.Devices,
             detail);
-    }
-
-    private static long ComputeRevision(HidHideControlState state)
-    {
-        StringBuilder input = new();
-        input.Append(state.Active ? '1' : '0');
-        input.Append(state.Inverse ? '1' : '0');
-        foreach (string application in state.Applications)
-        {
-            input.Append('\u001e').Append(application);
-        }
-
-        input.Append('\u001f');
-        foreach (string device in state.Devices)
-        {
-            input.Append('\u001e').Append(device);
-        }
-
-        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(input.ToString()));
-        return BitConverter.ToInt64(hash, 0);
     }
 }

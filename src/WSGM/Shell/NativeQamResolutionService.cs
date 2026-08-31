@@ -30,6 +30,18 @@ internal sealed class NativeQamResolutionService
         _display.Options(),
         DisplayProfiles.ReadCurrentResolution());
 
+    /// <summary>Answers Steam's <c>setResolution</c> command.</summary>
+    internal async Task<SteamUiCommandResult> HandleSetResolutionAsync(
+        SteamUiBridgeRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!NativeQamPayload.TryReadTarget(request.Payload, out string value))
+        {
+            return new(false, "The resolution payload is invalid.");
+        }
+        return await ApplyAsync(value, cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>Applies a resolution named as <c>WIDTHxHEIGHT</c>.</summary>
     /// <param name="value">The chosen option, exactly as the row offered it.</param>
     /// <param name="cancellationToken">Cancels the apply.</param>
@@ -39,22 +51,22 @@ internal sealed class NativeQamResolutionService
     /// unoffered string is refused here rather than reaching the driver. Applied off the calling
     /// thread because a mode change blocks.
     /// </remarks>
-    internal async Task<NativeQamCommandResult> ApplyAsync(
+    internal async Task<SteamUiCommandResult> ApplyAsync(
         string value,
         CancellationToken cancellationToken)
     {
         if (!TryParse(value, out DisplayResolution resolution))
         {
             Log.Warn($"Native QAM resolution refused: '{value}' is not a resolution.");
-            return new NativeQamCommandResult(false, "The resolution value is invalid.");
+            return new SteamUiCommandResult(false, "The resolution value is invalid.");
         }
 
         bool applied = await Task.Run(
             () => _display.Apply(resolution),
             cancellationToken).ConfigureAwait(false);
         return applied
-            ? new NativeQamCommandResult(true, null)
-            : new NativeQamCommandResult(false, $"The display refused {resolution}.");
+            ? new SteamUiCommandResult(true, null)
+            : new SteamUiCommandResult(false, $"The display refused {resolution}.");
     }
 
     /// <summary>Builds the row state from discovered options and the current mode.</summary>

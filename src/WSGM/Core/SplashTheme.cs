@@ -92,7 +92,7 @@ internal static class SplashTheme
         {
             Log.Warn($"Splash theme export to '{path}' failed: {ex.Message}");
         }
-        TryDeleteFile(tempPath);
+        SplashAssets.TryDelete(tempPath);
         return false;
     }
 
@@ -114,7 +114,7 @@ internal static class SplashTheme
 
             // The bundled copy gets its image paths rewritten to the archive entry
             // names; the caller's instance is never mutated.
-            var bundled = Clone(splash);
+            var bundled = ConfigStore.CloneJson(splash, ConfigJsonContext.Default.SplashConfig);
             using var archive = new ZipArchive(destination, ZipArchiveMode.Create, leaveOpen: true);
             bundled.LogoImagePath = BundleImage(archive, splash.LogoImagePath, LogoEntryBaseName);
             bundled.BackgroundImagePath = BundleImage(archive, splash.BackgroundImagePath, BackgroundEntryBaseName);
@@ -490,7 +490,7 @@ internal static class SplashTheme
             }
             foreach (var file in extractedFiles)
             {
-                TryDeleteFile(file);
+                SplashAssets.TryDelete(file);
             }
         }
         catch
@@ -776,18 +776,6 @@ internal static class SplashTheme
         }
     }
 
-    private static void TryDeleteFile(string path)
-    {
-        try
-        {
-            File.Delete(path);
-        }
-        catch
-        {
-            // Best effort.
-        }
-    }
-
     private static ZipArchiveEntry? FindConfigEntry(ZipArchive archive)
     {
         foreach (var entry in archive.Entries)
@@ -798,11 +786,5 @@ internal static class SplashTheme
             }
         }
         return null;
-    }
-
-    private static SplashConfig Clone(SplashConfig splash)
-    {
-        var json = JsonSerializer.Serialize(splash, ConfigJsonContext.Default.SplashConfig);
-        return JsonSerializer.Deserialize(json, ConfigJsonContext.Default.SplashConfig) ?? new SplashConfig();
     }
 }

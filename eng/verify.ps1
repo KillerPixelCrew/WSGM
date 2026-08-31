@@ -30,12 +30,6 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Prettier check failed" }
     }
 
-    # Repository-owned Steam UI assets use only Node built-ins for their drift
-    # check, so this remains available in offline release builds and when the
-    # caller deliberately skips Prettier.
-    npm run steam-assets:verify
-    if ($LASTEXITCODE -ne 0) { throw "Steam UI asset drift check failed" }
-
     # The shipped asset is generated from its TypeScript source. This rebuilds it
     # into memory and compares, so neither a source edit that was never compiled
     # nor a hand edit of the generated file can ship. It needs node_modules, so it

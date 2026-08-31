@@ -25,7 +25,6 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
     private const uint EventSystemForeground = 0x0003;
     private const uint WinEventOutOfContext = 0x0000;
     private const uint WinEventSkipOwnProcess = 0x0002;
-    private const uint ProcessQueryLimitedInformation = 0x1000;
 
     private readonly object _gate = new();
     private readonly WinEventProc _callback;
@@ -68,18 +67,6 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
     /// application in force, so no event is raised and the running game keeps its profile.
     /// </remarks>
     internal event Action<string>? ApplicationChanged;
-
-    /// <summary>The foreground application's executable name, or empty before the first one.</summary>
-    internal string Current
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return _current;
-            }
-        }
-    }
 
     /// <summary>How often the safety-net poll runs.</summary>
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
@@ -261,32 +248,12 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
         }
     }
 
+    // An unreadable process is ordinary for an elevated or protected target; the filter treats an
+    // empty name as restricted, so an unreadable foreground keeps the previous application.
     private static string ExecutableName(uint processId)
-    {
-        nint process = NativeMethods.OpenProcess(ProcessQueryLimitedInformation, false, processId);
-        if (process == 0)
-        {
-            // Ordinary for an elevated or protected process, and the filter treats an empty name as
-            // restricted, so an unreadable foreground keeps the previous application.
-            return string.Empty;
-        }
-
-        try
-        {
-            char[] buffer = new char[512];
-            uint size = (uint)buffer.Length;
-            if (!NativeMethods.QueryFullProcessImageNameW(process, 0, buffer, ref size))
-            {
-                return string.Empty;
-            }
-
-            return System.IO.Path.GetFileName(new string(buffer, 0, (int)size));
-        }
-        finally
-        {
-            NativeMethods.CloseHandle(process);
-        }
-    }
+        => NativeShellProcess.TryGetImagePath(processId) is { } path
+            ? System.IO.Path.GetFileName(path)
+            : string.Empty;
 
     private delegate void WinEventProc(
         nint hook,

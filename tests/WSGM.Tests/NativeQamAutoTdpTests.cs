@@ -116,10 +116,12 @@ public sealed class NativeQamAutoTdpTests
     [Fact]
     public async Task TheUnavailableServiceRefusesRatherThanSilentlyAccepting()
     {
-        using UnavailableNativeQamAutoTdpService service = new();
+        // No device platform in this session: the service is constructed without a coordinator,
+        // which is how a session with device integration off projects this row.
+        using DeviceCoordinatorNativeQamAutoTdpService service = new(null, null);
 
         Assert.False(service.Current.Available);
-        NativeQamCommandResult result = await service.SetEnabledAsync(true, CancellationToken.None);
+        SteamUiCommandResult result = await service.SetEnabledAsync(true, CancellationToken.None);
 
         Assert.False(result.Succeeded);
         Assert.Equal(service.Current.StatusText, result.Error);

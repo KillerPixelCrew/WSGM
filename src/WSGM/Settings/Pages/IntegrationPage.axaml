@@ -5,10 +5,9 @@
              x:Class="WSGM.Settings.Pages.IntegrationPage"
              x:DataType="s:SettingsViewModel">
     <!-- Everything WSGM injects into the running Steam client over its debug
-         port. Split off the Steam page in the review round after the seventh
-         toggle: two sections on that page no longer fit the 1024x640 layout
-         floor, and a page that stops fitting earns its own tab. Keep new CEF
-         features here rather than growing another page's column. -->
+         port. A page that stops fitting the 1024x640 layout floor earns its own
+         tab — keep new CEF features here rather than growing another page's
+         column. -->
     <Border Padding="16,10,16,10">
         <Grid ColumnDefinitions="*,24,*">
             <StackPanel Grid.Column="0">

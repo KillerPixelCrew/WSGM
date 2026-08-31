@@ -111,21 +111,54 @@ public sealed class RefreshRatePairingServiceTests
         harness.Service.ApplyForCap(30);
         harness.Service.ApplyForCap(60);
         _ = harness.Service.FrameLimitOptions();
+        _ = harness.Service.AcceptedRates();
+        harness.Service.TryApplyManual(60, capFps: 0);
 
         Assert.Equal(1, harness.AcceptedReads);
     }
 
     [Fact]
-    public void Invalidate_ForcesRediscovery_AfterTheDisplayMayHaveChanged()
+    public void TryApplyManual_UnderAPairingStrategyWithACap_IsRefused()
     {
+        // The cap owns the refresh rate there; honouring the write would let the next cap change
+        // silently revert it.
         Harness harness = new();
         harness.Service.SetStrategy(FrameLimitStrategy.FrameDoubling);
-        harness.Service.ApplyForCap(30);
 
-        harness.Service.Invalidate();
-        harness.Service.ApplyForCap(30);
+        Assert.False(harness.Service.TryApplyManual(60, capFps: 30));
+        Assert.Empty(harness.Applied);
+    }
 
-        Assert.Equal(2, harness.AcceptedReads);
+    [Fact]
+    public void TryApplyManual_WithNoCapInForce_AppliesEvenUnderAPairingStrategy()
+    {
+        // With the frame limit off there is no cadence to pair to, so the unified row's slider is
+        // the rate itself.
+        Harness harness = new();
+        harness.Service.SetStrategy(FrameLimitStrategy.FrameDoubling);
+
+        Assert.True(harness.Service.TryApplyManual(60, capFps: 0));
+        Assert.Equal([60], harness.Applied);
+    }
+
+    [Fact]
+    public void TryApplyManual_ARateDiscoveryDidNotAccept_NeverReachesTheDriver()
+    {
+        Harness harness = new();
+
+        Assert.False(harness.Service.TryApplyManual(59, capFps: 0));
+        Assert.Empty(harness.Applied);
+    }
+
+    [Fact]
+    public void TryApplyManual_IsUserOwned_SoRestoreDoesNotUndoIt()
+    {
+        Harness harness = new();
+
+        Assert.True(harness.Service.TryApplyManual(60, capFps: 0));
+        Assert.True(harness.Service.Restore());
+
+        Assert.Equal([60], harness.Applied);
     }
 
     private sealed class Harness

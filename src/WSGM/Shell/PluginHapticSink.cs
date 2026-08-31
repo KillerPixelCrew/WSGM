@@ -84,9 +84,8 @@ internal sealed class PluginHapticSink : IPhysicalHapticSink
     /// <summary>Withdraws ownership and waits for every already-admitted frame to finish.</summary>
     /// <returns>A task completing once no frame can still reach the plugin.</returns>
     /// <remarks>
-    /// Closing admission under the lock stops new frames; awaiting the drain covers writes already
-    /// admitted. This must complete before controller ownership is handed back because a late frame
-    /// could reach the next owner or leave the plugin's last rumble value latched.
+    /// Must complete before controller ownership is handed back: a late frame could reach the next
+    /// owner or leave the plugin's last rumble value latched.
     /// </remarks>
     internal Task WithdrawAsync()
     {

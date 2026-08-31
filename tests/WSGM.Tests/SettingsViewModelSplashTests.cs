@@ -112,32 +112,36 @@ public sealed class SettingsViewModelSplashTests
         }
     }
 
+    // "With text" is a spinner/logo-only mode: the text element is what the others position
+    // against, so it cannot itself be placed with the text. An imported theme may still carry it,
+    // which is why the coercion lives in BuildSplashConfig rather than in the editor.
     [Fact]
-    public void OutOfRangeSelectorIndicesClampIntoTheirEnumRanges()
+    public void WithTextOnTheTextPlacementIsCoercedToAnchorOnBuild()
     {
         var viewModel = new SettingsViewModel(new AppConfig());
-        viewModel.SplashSpinnerStyleIndex = 99;
-        viewModel.SplashTextPlacementModeIndex = -5;
-        viewModel.SplashTextAnchorIndex = 42;
-        viewModel.SplashLogoPlacementModeIndex = 77;
-        viewModel.SplashLogoAnchorIndex = -1;
+        viewModel.LoadSplash(new SplashConfig
+        {
+            TextPlacement = new SplashElementPlacement { Mode = SplashPlacementMode.WithText },
+            LogoPlacement = new SplashElementPlacement { Mode = SplashPlacementMode.WithText },
+        });
 
         var splash = viewModel.BuildSplashConfig();
 
-        Assert.Equal(SplashSpinnerStyle.Off, splash.SpinnerStyle);
         Assert.Equal(SplashPlacementMode.Anchor, splash.TextPlacement.Mode);
-        Assert.Equal(SplashPlacementAnchor.BottomRight, splash.TextPlacement.Anchor);
+        // Only the text placement is coerced; the logo legitimately rides with the text.
         Assert.Equal(SplashPlacementMode.WithText, splash.LogoPlacement.Mode);
-        Assert.Equal(SplashPlacementAnchor.TopLeft, splash.LogoPlacement.Anchor);
     }
 
     [Fact]
-    public void SelectorLabelListsMatchTheirEnumMemberCounts()
+    public void SelectorValueListsCoverEveryEnumMember()
     {
-        var viewModel = new SettingsViewModel(new AppConfig());
-        Assert.Equal((int)SplashSpinnerStyle.Off + 1, viewModel.SplashSpinnerStyles.Count);
-        Assert.Equal((int)SplashPlacementMode.WithText + 1, viewModel.SplashPlacementModes.Count);
-        Assert.Equal((int)SplashPlacementAnchor.BottomRight + 1, viewModel.SplashPlacementAnchors.Count);
+        Assert.Equal((int)SplashSpinnerStyle.Off + 1, SettingsViewModel.SpinnerStyleValues.Length);
+        Assert.Equal((int)SplashPlacementMode.WithText + 1, SettingsViewModel.PlacementModeValues.Length);
+        Assert.Equal(
+            (int)SplashPlacementAnchor.BottomRight + 1,
+            SettingsViewModel.PlacementAnchorValues.Length);
+        // The text selector deliberately omits "with text" — see the coercion above.
+        Assert.DoesNotContain(SplashPlacementMode.WithText, SettingsViewModel.TextPlacementModeValues);
     }
 
     // --- The failed-promotion repair step ---
@@ -296,15 +300,15 @@ public sealed class SettingsViewModelSplashTests
     }
 
     [Fact]
-    public void SnapshotForTestCarriesSplashAndAccentAndStaysIsolatedFromLaterEdits()
+    public void SnapshotForPreviewCarriesSplashAndAccentAndStaysIsolatedFromLaterEdits()
     {
         var viewModel = new SettingsViewModel(new AppConfig());
         viewModel.AccentColorHex = "#112233";
-        viewModel.SplashText = "Snapshot title";
-        viewModel.SplashSpinnerStyleIndex = (int)SplashSpinnerStyle.SweepLine;
+        viewModel.Splash.Text = "Snapshot title";
+        viewModel.Splash.SpinnerStyle = SplashSpinnerStyle.SweepLine;
         viewModel.SplashBackgroundColorHex = "#101010";
 
-        var snapshot = viewModel.SnapshotForTest();
+        var snapshot = viewModel.SnapshotForPreview();
 
         Assert.Equal("#112233", snapshot.AccentColor);
         Assert.Equal("Snapshot title", snapshot.Splash.Text);
@@ -312,7 +316,7 @@ public sealed class SettingsViewModelSplashTests
         Assert.Equal("#101010", snapshot.Splash.BackgroundColor);
 
         // A later edit must not leak into the already-taken snapshot (deep copy).
-        viewModel.SplashText = "Changed afterwards";
+        viewModel.Splash.Text = "Changed afterwards";
         viewModel.AccentColorHex = "#FFFFFF";
         Assert.Equal("Snapshot title", snapshot.Splash.Text);
         Assert.Equal("#112233", snapshot.AccentColor);

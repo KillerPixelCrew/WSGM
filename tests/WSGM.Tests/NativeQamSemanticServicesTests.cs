@@ -39,7 +39,7 @@ public sealed class NativeQamSemanticServicesTests
     [Fact]
     public void UnavailableControllerServicePublishesNoSelectableTargets()
     {
-        using var service = new UnavailableNativeQamControllerTargetService();
+        using var service = new DeviceCoordinatorNativeQamControllerTargetService(null);
 
         NativeQamControllerTargetState state = service.Current;
 
@@ -49,7 +49,9 @@ public sealed class NativeQamSemanticServicesTests
         Assert.Empty(state.ObservedTarget);
         // The reason is surfaced verbatim rather than replaced with a generic message, so a user
         // reading native QAM learns why controller management is off.
-        Assert.Equal(DeviceFeatureAvailability.ControllerManagementDetail, state.StatusText);
+        Assert.Equal(
+            DeviceCoordinatorNativeQamControllerTargetService.UnavailableDetail,
+            state.StatusText);
     }
 
     [Fact]
@@ -66,9 +68,6 @@ public sealed class NativeQamSemanticServicesTests
         Assert.Equal(1000, frame.MaximumFps);
         Assert.Equal(45, frame.DesiredFps);
         Assert.Equal(44, frame.ObservedFps);
-        Assert.True(frame.SupportsReadback);
-        Assert.Equal("verified", frame.ReadbackQuality);
-        Assert.Equal("application", frame.PolicyLayer);
     }
 
     [Fact]
@@ -97,8 +96,6 @@ public sealed class NativeQamSemanticServicesTests
                 RtssAvailability.Ready,
                 "7.3.6",
                 "RTSS.exe",
-                42,
-                DateTimeOffset.UtcNow,
                 3,
                 new RtssCapabilities(0, 1000, overlayLevels, true, true),
                 null),
@@ -109,7 +106,6 @@ public sealed class NativeQamSemanticServicesTests
             new PerformanceValues(44, 0),
             PerformanceReadbackQuality.Verified,
             PerformanceReadbackQuality.Verified,
-            RtssTelemetryHealth.Healthy,
             DateTimeOffset.UtcNow,
             command);
 
@@ -147,7 +143,7 @@ public sealed class NativeQamSemanticServicesTests
             {
                 State = state,
                 DesiredValue = Integer(18),
-                DesiredSource = DesiredValueSource.TemporaryRequest,
+                DesiredSource = DeviceDesiredValueSource.ApplicationOverride,
                 PendingValue = Integer(19),
                 Progress = CommandProgress.Pending,
             },

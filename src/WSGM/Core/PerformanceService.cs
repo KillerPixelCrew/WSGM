@@ -39,18 +39,9 @@ internal static class PerformancePolicyResolver
 
     internal static PerformancePersistenceTarget ResolveEditTarget(
         PerformancePolicy policy,
-        RtssApplicationTarget? target,
-        PerformancePersistenceTarget requested)
-    {
-        if (requested != PerformancePersistenceTarget.Automatic)
-        {
-            return requested;
-        }
-
-        return Find(policy, target?.ApplicationId) is null
+        RtssApplicationTarget? target) => Find(policy, target?.ApplicationId) is null
             ? PerformancePersistenceTarget.Global
             : PerformancePersistenceTarget.Application;
-    }
 
     internal static PerformancePolicy Write(
         PerformancePolicy policy,
@@ -64,7 +55,7 @@ internal static class PerformancePolicyResolver
             return policy with { Global = policy.Global.With(control, value) };
         }
 
-        if (persistence != PerformancePersistenceTarget.Application || target is null)
+        if (target is null)
         {
             throw new InvalidOperationException("An application edit requires an active application target.");
         }
@@ -74,23 +65,12 @@ internal static class PerformancePolicyResolver
             item.ApplicationId,
             target.ApplicationId,
             StringComparison.Ordinal));
-        if (index < 0)
+        PerformanceApplicationPolicy current = applications[index];
+        applications[index] = current with
         {
-            applications.Add(new PerformanceApplicationPolicy(
-                target.ApplicationId,
-                target.RtssProfileName,
-                PerformanceValues.Empty.With(control, value)));
-        }
-        else
-        {
-            PerformanceApplicationPolicy current = applications[index];
-            applications[index] = current with
-            {
-                RtssProfileName = target.RtssProfileName,
-                Values = current.Values.With(control, value),
-            };
-        }
-
+            RtssProfileName = target.RtssProfileName,
+            Values = current.Values.With(control, value),
+        };
         return policy with { Applications = applications.ToArray() };
     }
 
@@ -122,8 +102,6 @@ internal sealed class PerformanceService : IAsyncDisposable
         RtssAvailability.Unknown,
         null,
         null,
-        null,
-        null,
         0,
         null,
         "RTSS discovery has not run.");
@@ -152,13 +130,10 @@ internal sealed class PerformanceService : IAsyncDisposable
         PerformancePolicy? policy = null,
         TimeSpan? pollInterval = null,
         TimeSpan? commandTimeout = null,
-        TimeProvider? timeProvider = null,
-        RtssLauncher? launcher = null)
+        TimeProvider? timeProvider = null)
     {
         _adapter = adapter ?? throw new ArgumentNullException(nameof(adapter));
-        // Injected so a test can assert the decision without a test ever starting a process. The
-        // default one only starts the executable discovery already verified.
-        _launcher = launcher ?? new RtssLauncher();
+        _launcher = new RtssLauncher();
         _persistPolicy = persistPolicy ?? throw new ArgumentNullException(nameof(persistPolicy));
         _policy = NormalizePolicy(policy ?? PerformancePolicy.Empty);
         _pollInterval = BoundInterval(pollInterval ?? DefaultPollInterval);
@@ -179,15 +154,12 @@ internal sealed class PerformanceService : IAsyncDisposable
             PerformanceValues.Empty,
             PerformanceReadbackQuality.Unavailable,
             PerformanceReadbackQuality.Unavailable,
-            RtssTelemetryHealth.Unavailable,
             null,
             PerformanceCommandState.Idle);
         _pollTask = Task.Run(PollAsync);
     }
 
     internal event Action<PerformanceState>? StateChanged;
-
-    internal event Action<PerformancePolicy>? PolicyChanged;
 
     internal PerformanceState Current
     {
@@ -250,12 +222,9 @@ internal sealed class PerformanceService : IAsyncDisposable
             target = _state.Target;
         }
 
-        PerformanceApplicationPolicy? application = target is null
-            ? null
-            : policy.Applications.FirstOrDefault(entry => string.Equals(
-                entry.ApplicationId,
-                target.ApplicationId,
-                StringComparison.Ordinal));
+        PerformanceApplicationPolicy? application = PerformancePolicyResolver.Find(
+            policy,
+            target?.ApplicationId);
 
         if (application is not null)
         {
@@ -329,11 +298,10 @@ internal sealed class PerformanceService : IAsyncDisposable
             return false;
         }
 
-        bool present = policy.Applications.Any(entry => string.Equals(
-            entry.ApplicationId,
-            target.ApplicationId,
-            StringComparison.Ordinal));
-        if (present == enabled)
+        PerformanceApplicationPolicy? existing = PerformancePolicyResolver.Find(
+            policy,
+            target.ApplicationId);
+        if (existing is not null == enabled)
         {
             return false;
         }
@@ -351,10 +319,7 @@ internal sealed class PerformanceService : IAsyncDisposable
         }
         else
         {
-            applications.RemoveAll(entry => string.Equals(
-                entry.ApplicationId,
-                target.ApplicationId,
-                StringComparison.Ordinal));
+            applications.Remove(existing!);
             Log.Info(
                 $"Per-application performance profile removed for {target.ApplicationId}; the "
                 + "global profile applies.");
@@ -434,7 +399,6 @@ internal sealed class PerformanceService : IAsyncDisposable
         CancellationToken cancellationToken = default) => SetCoreAsync(
             control,
             value,
-            persistence,
             origin,
             correlationId,
             cancellationToken,
@@ -443,7 +407,6 @@ internal sealed class PerformanceService : IAsyncDisposable
     private async Task<PerformanceCommandState> SetCoreAsync(
         PerformanceControl control,
         int value,
-        PerformancePersistenceTarget persistence,
         string origin,
         string correlationId,
         CancellationToken cancellationToken,
@@ -453,14 +416,10 @@ internal sealed class PerformanceService : IAsyncDisposable
         origin = SanitizeToken(origin, "unknown");
         correlationId = SanitizeToken(correlationId, Guid.NewGuid().ToString("N"));
         long sequence = Interlocked.Increment(ref _commandSequence);
-        UpdateCommand(new(
-            sequence,
-            origin,
-            correlationId,
-            control,
-            value,
-            PerformanceCommandPhase.Queued,
-            null));
+        PerformanceCommandState Command(PerformanceCommandPhase phase, string? diagnostic = null) =>
+            new(sequence, origin, correlationId, control, value, phase, diagnostic);
+
+        UpdateCommand(Command(PerformanceCommandPhase.Queued));
 
         bool enabled;
         lock (_stateGate)
@@ -469,12 +428,7 @@ internal sealed class PerformanceService : IAsyncDisposable
         }
         if (!enabled)
         {
-            return UpdateCommand(new(
-                sequence,
-                origin,
-                correlationId,
-                control,
-                value,
+            return UpdateCommand(Command(
                 PerformanceCommandPhase.Rejected,
                 "RTSS integration is disabled."));
         }
@@ -488,12 +442,7 @@ internal sealed class PerformanceService : IAsyncDisposable
         }
         catch (OperationCanceledException)
         {
-            return UpdateCommand(new(
-                sequence,
-                origin,
-                correlationId,
-                control,
-                value,
+            return UpdateCommand(Command(
                 PerformanceCommandPhase.Rejected,
                 _disposeCts.IsCancellationRequested
                     ? "RTSS is stopping."
@@ -508,12 +457,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             // without this the queued command still wrote its value into a switched-off feature.
             if (_disposed)
             {
-                return UpdateCommand(new(
-                    sequence,
-                    origin,
-                    correlationId,
-                    control,
-                    value,
+                return UpdateCommand(Command(
                     PerformanceCommandPhase.Rejected,
                     "RTSS is stopping."));
             }
@@ -525,12 +469,7 @@ internal sealed class PerformanceService : IAsyncDisposable
 
             if (!enabled)
             {
-                return UpdateCommand(new(
-                    sequence,
-                    origin,
-                    correlationId,
-                    control,
-                    value,
+                return UpdateCommand(Command(
                     PerformanceCommandPhase.Rejected,
                     "RTSS integration was switched off while the command was queued."));
             }
@@ -543,7 +482,6 @@ internal sealed class PerformanceService : IAsyncDisposable
                 sequence,
                 control,
                 value,
-                persistence,
                 origin,
                 correlationId,
                 timeout.Token,
@@ -626,21 +564,16 @@ internal sealed class PerformanceService : IAsyncDisposable
         long sequence,
         PerformanceControl control,
         int value,
-        PerformancePersistenceTarget requestedPersistence,
         string origin,
         string correlationId,
         CancellationToken boundedCancellation,
         CancellationToken callerCancellation,
         bool updateDesired)
     {
-        UpdateCommand(new(
-            sequence,
-            origin,
-            correlationId,
-            control,
-            value,
-            PerformanceCommandPhase.Applying,
-            null));
+        PerformanceCommandState Command(PerformanceCommandPhase phase, string? diagnostic = null) =>
+            new(sequence, origin, correlationId, control, value, phase, diagnostic);
+
+        UpdateCommand(Command(PerformanceCommandPhase.Applying));
 
         try
         {
@@ -648,12 +581,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             UpdateProbe(probe);
             if (probe.Availability != RtssAvailability.Ready || probe.Capabilities is null)
             {
-                return UpdateCommand(new(
-                    sequence,
-                    origin,
-                    correlationId,
-                    control,
-                    value,
+                return UpdateCommand(Command(
                     PerformanceCommandPhase.Rejected,
                     probe.Diagnostic ?? "RTSS is unavailable."));
             }
@@ -661,75 +589,38 @@ internal sealed class PerformanceService : IAsyncDisposable
             if (!probe.Capabilities.Supports(control)
                 || !probe.Capabilities.IsValid(control, value))
             {
-                return UpdateCommand(new(
-                    sequence,
-                    origin,
-                    correlationId,
-                    control,
-                    value,
+                return UpdateCommand(Command(
                     PerformanceCommandPhase.Rejected,
                     "The requested value is outside the adapter's verified bounds."));
             }
 
-            PerformancePersistenceTarget persistence;
             RtssApplicationTarget? target;
             string profile;
-            bool readbackIsActiveState;
             PerformancePolicy? previousPolicy = null;
             PerformancePolicy? changedPolicy = null;
-            PerformanceCommandState? targetRejection = null;
             lock (_stateGate)
             {
                 target = _state.Target;
-                persistence = updateDesired
-                    ? PerformancePolicyResolver.ResolveEditTarget(
-                        _policy,
-                        target,
-                        requestedPersistence)
-                    : target is null
-                        ? PerformancePersistenceTarget.Global
-                        : PerformancePersistenceTarget.Application;
-                if (persistence == PerformancePersistenceTarget.Application && target is null)
-                {
-                    targetRejection = new(
-                        sequence,
-                        origin,
-                        correlationId,
-                        control,
-                        value,
-                        PerformanceCommandPhase.Rejected,
-                        "No active application can receive an application override.");
-                }
-                else if (updateDesired)
+                if (updateDesired)
                 {
                     previousPolicy = _policy;
                     _policy = PerformancePolicyResolver.Write(
                         _policy,
                         target,
-                        persistence,
+                        PerformancePolicyResolver.ResolveEditTarget(_policy, target),
                         control,
                         value);
                     changedPolicy = _policy;
-                }
-
-                if (updateDesired)
-                {
                     _state = WithResolvedDesired(_state);
                 }
-                // An explicitly global edit updates RTSS's global profile even while a game is
-                // active. Automatic edits still write the active application's whole snapshot so
-                // RTSS cannot let an old per-app file override a WSGM global fallback.
-                profile = updateDesired
-                    && requestedPersistence is PerformancePersistenceTarget.Global
-                    ? string.Empty
-                    : ProfileForResolvedValue(target);
-                readbackIsActiveState = target is null || profile.Length > 0;
-                _commandProfiles[sequence] = profile;
-            }
 
-            if (targetRejection is not null)
-            {
-                return UpdateCommand(targetRejection);
+                // RTSS application profiles are whole snapshots, while WSGM precedence is per
+                // property. Whenever an application is running, write every effective value into
+                // its RTSS profile even when the value came from WSGM's global layer. Otherwise a
+                // disabled or previously-used application profile remains the stronger RTSS layer
+                // and silently keeps stale values over the global profile.
+                profile = target?.RtssProfileName ?? string.Empty;
+                _commandProfiles[sequence] = profile;
             }
 
             if (changedPolicy is not null)
@@ -747,18 +638,12 @@ internal sealed class PerformanceService : IAsyncDisposable
                 {
                     RestorePolicyAfterPersistenceFailure(changedPolicy, previousPolicy!);
                     Log.Error("Persisting RTSS performance policy failed", ex);
-                    return UpdateCommand(new(
-                        sequence,
-                        origin,
-                        correlationId,
-                        control,
-                        value,
+                    return UpdateCommand(Command(
                         PerformanceCommandPhase.Failed,
                         "The performance preference could not be persisted."));
                 }
             }
 
-            RaisePolicyChanged(changedPolicy);
             RaiseStateChanged(Current);
 
             RtssApplyResult applied = await _adapter.ApplyAsync(
@@ -766,12 +651,7 @@ internal sealed class PerformanceService : IAsyncDisposable
                 boundedCancellation).ConfigureAwait(false);
             if (!applied.Applied)
             {
-                return UpdateCommand(new(
-                    sequence,
-                    origin,
-                    correlationId,
-                    control,
-                    value,
+                return UpdateCommand(Command(
                     PerformanceCommandPhase.Rejected,
                     applied.Diagnostic ?? "RTSS rejected the profile update."));
             }
@@ -780,28 +660,15 @@ internal sealed class PerformanceService : IAsyncDisposable
             if (after.Generation != probe.Generation || after.Availability != RtssAvailability.Ready)
             {
                 UpdateProbe(after);
-                return UpdateCommand(new(
-                    sequence,
-                    origin,
-                    correlationId,
-                    control,
-                    value,
+                return UpdateCommand(Command(
                     PerformanceCommandPhase.Indeterminate,
                     "RTSS restarted while the command was being applied."));
             }
 
             if (!probe.Capabilities.HasVerifiedReadback(control))
             {
-                if (readbackIsActiveState)
-                {
-                    MarkAppliedUnverified(control, value);
-                }
-                return UpdateCommand(new(
-                    sequence,
-                    origin,
-                    correlationId,
-                    control,
-                    value,
+                MarkAppliedUnverified(control, value);
+                return UpdateCommand(Command(
                     PerformanceCommandPhase.AppliedUnverified,
                     "RTSS accepted the update but exposes no proven readback for this property."));
             }
@@ -810,50 +677,25 @@ internal sealed class PerformanceService : IAsyncDisposable
                 profile,
                 probe.Generation,
                 boundedCancellation).ConfigureAwait(false);
-            if (readbackIsActiveState)
-            {
-                UpdateReadback(after, readback, detectExternalChange: false);
-            }
+            UpdateReadback(after, readback, detectExternalChange: false);
             if (readback.Values.ValueFor(control) != value)
             {
-                return UpdateCommand(new(
-                    sequence,
-                    origin,
-                    correlationId,
-                    control,
-                    value,
+                return UpdateCommand(Command(
                     PerformanceCommandPhase.Failed,
                     "RTSS readback did not match the requested value; another profile writer may have won."));
             }
 
-            return UpdateCommand(new(
-                sequence,
-                origin,
-                correlationId,
-                control,
-                value,
-                PerformanceCommandPhase.SucceededVerified,
-                null));
+            return UpdateCommand(Command(PerformanceCommandPhase.SucceededVerified));
         }
         catch (OperationCanceledException) when (!callerCancellation.IsCancellationRequested)
         {
-            return UpdateCommand(new(
-                sequence,
-                origin,
-                correlationId,
-                control,
-                value,
+            return UpdateCommand(Command(
                 PerformanceCommandPhase.TimedOut,
                 "RTSS did not finish within the bounded command timeout."));
         }
         catch (OperationCanceledException)
         {
-            return UpdateCommand(new(
-                sequence,
-                origin,
-                correlationId,
-                control,
-                value,
+            return UpdateCommand(Command(
                 PerformanceCommandPhase.Indeterminate,
                 "The caller cancelled after RTSS command processing began."));
         }
@@ -861,14 +703,7 @@ internal sealed class PerformanceService : IAsyncDisposable
         {
             Log.Error("RTSS performance command failed", ex);
             MarkDegraded(ex.Message);
-            return UpdateCommand(new(
-                sequence,
-                origin,
-                correlationId,
-                control,
-                value,
-                PerformanceCommandPhase.Failed,
-                ex.Message));
+            return UpdateCommand(Command(PerformanceCommandPhase.Failed, ex.Message));
         }
     }
 
@@ -880,7 +715,6 @@ internal sealed class PerformanceService : IAsyncDisposable
             await SetCoreAsync(
                 PerformanceControl.FrameLimit,
                 frameLimit,
-                PerformancePersistenceTarget.Automatic,
                 origin,
                 $"{origin}-frame-limit",
                 cancellationToken,
@@ -893,7 +727,6 @@ internal sealed class PerformanceService : IAsyncDisposable
             await SetCoreAsync(
                 PerformanceControl.OverlayLevel,
                 overlayLevel,
-                PerformancePersistenceTarget.Automatic,
                 origin,
                 $"{origin}-overlay-level",
                 cancellationToken,
@@ -946,7 +779,6 @@ internal sealed class PerformanceService : IAsyncDisposable
                     Observed = PerformanceValues.Empty,
                     FrameLimitQuality = PerformanceReadbackQuality.Unavailable,
                     OverlayLevelQuality = PerformanceReadbackQuality.Unavailable,
-                    TelemetryHealth = RtssTelemetryHealth.Unavailable,
                     RefreshedAt = _timeProvider.GetUtcNow(),
                 });
                 unavailable = _state;
@@ -993,7 +825,6 @@ internal sealed class PerformanceService : IAsyncDisposable
                 Observed = readback.Values,
                 FrameLimitQuality = readback.FrameLimitQuality,
                 OverlayLevelQuality = readback.OverlayLevelQuality,
-                TelemetryHealth = readback.TelemetryHealth,
                 RefreshedAt = readback.Timestamp,
                 Command = command,
             });
@@ -1101,7 +932,6 @@ internal sealed class PerformanceService : IAsyncDisposable
                     Availability = RtssAvailability.Degraded,
                     Diagnostic = diagnostic,
                 },
-                TelemetryHealth = RtssTelemetryHealth.Faulted,
             };
             next = _state;
         }
@@ -1195,16 +1025,6 @@ internal sealed class PerformanceService : IAsyncDisposable
         };
     }
 
-    private string ProfileForResolvedValue(RtssApplicationTarget? target)
-    {
-        // RTSS application profiles are whole snapshots, while WSGM precedence is
-        // per property. Whenever an application is running, write every effective value into its
-        // RTSS profile even when the value came from WSGM's global layer. Otherwise a disabled or
-        // previously-used application profile remains the stronger RTSS layer and silently keeps
-        // stale values over the global profile.
-        return target?.RtssProfileName ?? string.Empty;
-    }
-
     private void ReleaseObservation()
     {
         int remaining = Interlocked.Decrement(ref _observerCount);
@@ -1238,23 +1058,6 @@ internal sealed class PerformanceService : IAsyncDisposable
         catch (Exception ex)
         {
             Log.Error("RTSS state observer failed", ex);
-        }
-    }
-
-    private void RaisePolicyChanged(PerformancePolicy? policy)
-    {
-        if (policy is null)
-        {
-            return;
-        }
-
-        try
-        {
-            PolicyChanged?.Invoke(policy);
-        }
-        catch (Exception ex)
-        {
-            Log.Error("RTSS policy observer failed", ex);
         }
     }
 

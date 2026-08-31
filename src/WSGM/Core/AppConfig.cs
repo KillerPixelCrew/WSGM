@@ -462,32 +462,11 @@ public sealed class CardLibraryConfig
     /// <summary>App ids installed on the card (remembered while it is ejected).</summary>
     public List<long> AppIds { get; set; } = [];
 
-    /// <summary>The Steam collection id WSGM created for this card's tab, so it
-    /// updates its own collection in place and never adopts a same-named user one.</summary>
-    public string CollectionId { get; set; } = "";
-
-    /// <summary>Ticks (UTC) the card was last seen inserted.</summary>
-    public long LastSeenTicks { get; set; }
-
-    /// <summary>The drive letter the card last mounted as (diagnostic only).</summary>
-    public string LastLetter { get; set; } = "";
-
     /// <summary>The Steam-side library label as last seen in sync with
     /// <see cref="Name"/>. Names follow Steam only while Name equals this value;
     /// a WSGM-side rename leaves it stale until Steam's config catches up, which
     /// is what stops a lagging libraryfolders.vdf from reverting the rename.</summary>
     public string LastSteamLabel { get; set; } = "";
-}
-
-/// <summary>One auto-generated category ("genre") library tab: a WSGM-owned Steam
-/// collection whose membership is recomputed from the library's store tags.</summary>
-public sealed class CategoryTabConfig
-{
-    /// <summary>The genre/category name (also the collection's display name).</summary>
-    public string Name { get; set; } = "";
-
-    /// <summary>The Steam collection id WSGM created for this category.</summary>
-    public string CollectionId { get; set; } = "";
 }
 
 /// <summary>One user-built custom library tab: a WSGM-owned Steam collection whose
@@ -514,10 +493,6 @@ public sealed class CustomTabConfig
     /// <summary>The top-level filter group. Its <see cref="FilterNode.Mode"/> is the
     /// tab's AND/OR; its children are the filters.</summary>
     public FilterNode FilterTree { get; set; } = new() { Kind = FilterKind.Merge };
-
-    /// <summary>The Steam collection id WSGM created for this tab, so it updates its
-    /// own collection in place and never adopts a same-named user one.</summary>
-    public string CollectionId { get; set; } = "";
 }
 
 /// <summary>One of Steam's own library tabs as last observed in the tab strip,
@@ -628,9 +603,6 @@ public sealed class AppConfig
     /// until a scan observes them absent, so Forget does not immediately undo itself.</summary>
     public List<string> ForgottenInsertedCardIds { get; set; } = [];
 
-    /// <summary>Legacy WSGM-owned genre collection IDs retained only until cleanup.</summary>
-    public List<CategoryTabConfig> CategoryTabs { get; set; } = [];
-
     /// <summary>User-built custom filter tabs (the TabMaster analog).</summary>
     public List<CustomTabConfig> CustomTabs { get; set; } = [];
 
@@ -689,7 +661,7 @@ public sealed class AppConfig
 
     /// <summary>UI accent color as an <c>#AARRGGBB</c>/<c>#RRGGBB</c> string, applied
     /// to the Fluent theme and the Hc accent tokens at startup and on save.</summary>
-    public string AccentColor { get; set; } = "#FFFF9D3D";
+    public string AccentColor { get; set; } = Themes.AccentPalette.DefaultAccent;
     /// <summary>Whether the logon service boots the session into game mode. Projected
     /// into boot.json (see Core\BootManifest) because the SYSTEM service never parses
     /// this file. False = sign-in leaves the plain desktop alone.</summary>
@@ -754,11 +726,6 @@ public sealed class AppConfig
     /// <summary>Controller glyph family displayed by the UI.</summary>
     public GlyphStyle GlyphStyle { get; set; } = GlyphStyle.Xbox;
 
-    /// <summary>Legacy pre-device-identity list: scaling percentages in active-source
-    /// enumeration order. Kept only so configs written by older versions still
-    /// restore (migrated into SavedDisplayScaleEntries on the next restore).</summary>
-    public List<int> SavedDisplayScales { get; set; } = [];
-
     /// <summary>Per-display scaling captured before game mode forced 100%. Non-empty
     /// means "not yet restored" — survives crashes so recovery paths can put
     /// scaling back, matched per display via the GDI source device name.</summary>
@@ -807,13 +774,9 @@ public sealed class AppConfig
     /// <summary>Original secure-desktop prompt setting.</summary>
     public int PreviousUacSecureDesktop { get; set; } = 1;
 
-    /// <summary>Whether Windows required a sign-in on wake before WSGM changed it.
-    /// Kept for configs captured by older versions; new snapshots also store the
-    /// exact per-scheme values below.</summary>
+    /// <summary>Whether the lock-on-wake state was captured before WSGM changed it
+    /// (the exact per-scheme values live in the fields below).</summary>
     public bool PreviousLockOnWakeSnapshotCaptured { get; set; }
-
-    /// <summary>Legacy original sign-in-on-wake state for older configurations.</summary>
-    public bool PreviousLockOnWakeRequired { get; set; } = true;
 
     /// <summary>Previous HKLM Personalization\NoLockScreen value (-1 = absent).</summary>
     public int PreviousNoLockScreen { get; set; } = -1;
@@ -830,20 +793,38 @@ public sealed class AppConfig
 
     /// <summary>Pre-existing DC CONSOLELOCK policy value; <c>-1</c> means absent.</summary>
     public int PreviousConsoleLockPolicyDc { get; set; } = -1;
+}
 
-    /// <summary>Legacy cleanup state for posture/keyboard values written by older
-    /// WSGM builds. Current builds retain these fields only to restore and clear
-    /// that old snapshot; they never capture a new one.</summary>
-    public bool SlateModeSnapshotCaptured { get; set; }
+/// <summary>Decides when the first-run Quick Setup panel is shown.</summary>
+/// <remarks>
+/// Keyed on a revision rather than a "seen it" flag so the panel can come back
+/// exactly once when a later build adds a setting that needs an explicit decision -
+/// the same way Steam Input Management needed one. Raising
+/// <see cref="CurrentRevision"/> is the whole trigger; everything else follows from
+/// the comparison, and a user who has already answered a revision is never asked
+/// about it again.
+/// </remarks>
+public static class QuickSetup
+{
+    /// <summary>The revision this build asks about.</summary>
+    /// <remarks>
+    /// Revision 1 introduced Steam Input Management, which writes a file into
+    /// Steam's own install directory, and the Steam CEF integration master switch.
+    /// Raise this only when a NEW setting genuinely needs the user's decision -
+    /// every raise interrupts every existing device once.
+    /// </remarks>
+    public const int CurrentRevision = 1;
 
-    /// <summary>Original ConvertibleSlateMode value; <c>-1</c> means absent.</summary>
-    public int PreviousSlateMode { get; set; } = -1;
+    /// <summary>Whether the panel should be shown for the given configuration.</summary>
+    /// <param name="config">The configuration to test.</param>
+    /// <returns><see langword="true"/> when this device has not answered the current revision.</returns>
+    public static bool ShouldShow(AppConfig config) =>
+        config.QuickSetupRevision < CurrentRevision;
 
-    /// <summary>Original TouchKeyboardTapInvoke value; <c>-1</c> means absent.</summary>
-    public int PreviousTouchKeyboardTapInvoke { get; set; } = -1;
-
-    /// <summary>Legacy marker recording whether WSGM changed ConvertibleSlateMode.</summary>
-    public bool? ConvertibleSlateModeModifiedByWsgm { get; set; }
+    /// <summary>Records that the current revision has been answered.</summary>
+    /// <param name="config">The configuration to stamp.</param>
+    public static void MarkCompleted(AppConfig config) =>
+        config.QuickSetupRevision = CurrentRevision;
 }
 
 /// <summary>Master switch and per-feature sub-toggles for WSGM's Steam CEF
@@ -899,7 +880,6 @@ public sealed class CefConfig
 [JsonSerializable(typeof(SgdbLinkConfig))]
 [JsonSerializable(typeof(LaunchWrapperConfig))]
 [JsonSerializable(typeof(CardLibraryConfig))]
-[JsonSerializable(typeof(CategoryTabConfig))]
 [JsonSerializable(typeof(CustomTabConfig))]
 [JsonSerializable(typeof(NativeTabConfig))]
 [JsonSerializable(typeof(DeviceIntegrationConfig))]

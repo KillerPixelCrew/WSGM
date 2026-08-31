@@ -1,3 +1,4 @@
+using WSGM.Core;
 using WSGM.Device.Sdk.Input;
 using WSGM.Input;
 using WSGM.Shell;
@@ -16,7 +17,7 @@ public sealed class ControllerDependencyAdapterTests
             DateTimeOffset.UnixEpoch);
 
         InvalidOperationException error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            backend.CreateTargetAsync(VirtualTargetKind.Xbox360, neutral, CancellationToken.None));
+            backend.CreateTargetAsync(ManagedControllerTarget.Xbox360, neutral, CancellationToken.None));
 
         Assert.Contains("Xbox360", error.Message, StringComparison.Ordinal);
     }

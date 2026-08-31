@@ -9,16 +9,9 @@ namespace WSGM.Input;
 /// </summary>
 /// <remarks>
 /// This is the wire format WSGM hands to VIIPER, which unmarshals it and re-emits it to the host as
-/// the real device's <c>ID_CONTROLLER_DECK_STATE</c> report. WSGM packs it rather than describing it
-/// declaratively because it owns the canonical model and the mapping is the interesting part.
-/// <para>
-/// The bit positions are settled evidence, not a guess. Three independent implementations agree
-/// exactly: VIIPER's own <c>device/steamdeck/const.go</c>, HandheldCompanion's
-/// <c>SteamDeckTarget</c>, and <c>hhd</c>'s virtual Steam Deck. That agreement is what makes all
-/// four rear controls and capacitive stick touch reachable, which is the whole reason this target
-/// can satisfy WSGM's controller contract — the alternative backend's profile named only two of the
-/// four paddles and had no stick-touch field at all.
-/// </para>
+/// the real device's <c>ID_CONTROLLER_DECK_STATE</c> report. The bit positions are settled
+/// evidence, not a guess: VIIPER's own <c>device/steamdeck/const.go</c>, HandheldCompanion's
+/// <c>SteamDeckTarget</c>, and <c>hhd</c>'s virtual Steam Deck agree exactly.
 /// </remarks>
 internal static class SteamDeckNeptuneReport
 {
@@ -149,16 +142,6 @@ internal static class SteamDeckNeptuneReport
             Trigger(sample.RightStickForce));
     }
 
-    /// <summary>Allocates and writes one frame.</summary>
-    /// <param name="sample">The canonical sample to send.</param>
-    /// <returns>The packed frame.</returns>
-    internal static byte[] Create(CanonicalControllerSample sample)
-    {
-        byte[] frame = new byte[Length];
-        Write(sample, frame);
-        return frame;
-    }
-
     private static void WriteMotion(MotionSample? motion, Span<byte> destination)
     {
         if (motion is null)
@@ -187,25 +170,6 @@ internal static class SteamDeckNeptuneReport
 
     private static byte Mask(CanonicalButtons buttons, CanonicalButtons flag, byte bit) =>
         (buttons & flag) != 0 ? bit : (byte)0;
-
-    /// <summary>Every canonical control this target can carry.</summary>
-    /// <remarks>
-    /// The Steam Deck composite is the richest target WSGM presents, so it drops nothing the
-    /// canonical model defines.
-    /// </remarks>
-    internal const CanonicalButtons Supported =
-        CanonicalButtons.A | CanonicalButtons.B | CanonicalButtons.X | CanonicalButtons.Y
-        | CanonicalButtons.LeftShoulder | CanonicalButtons.RightShoulder
-        | CanonicalButtons.LeftStick | CanonicalButtons.RightStick
-        | CanonicalButtons.View | CanonicalButtons.Menu | CanonicalButtons.Guide
-        | CanonicalButtons.DPadUp | CanonicalButtons.DPadDown
-        | CanonicalButtons.DPadLeft | CanonicalButtons.DPadRight
-        | CanonicalButtons.RearPaddle1 | CanonicalButtons.RearPaddle2
-        | CanonicalButtons.RearPaddle3 | CanonicalButtons.RearPaddle4
-        | CanonicalButtons.LeftStickTouch | CanonicalButtons.RightStickTouch
-        | CanonicalButtons.LeftPadTouch | CanonicalButtons.RightPadTouch
-        | CanonicalButtons.LeftPadClick | CanonicalButtons.RightPadClick
-        | CanonicalButtons.QuickAccess;
 
     private static ushort Trigger(float value) =>
         (ushort)Math.Clamp(MathF.Round(value * ushort.MaxValue), 0, ushort.MaxValue);

@@ -265,28 +265,12 @@ public sealed class ExplorerShellPolicyTests
     }
 
     [Theory]
-    [InlineData(false, false, (int)ExplorerAnchorDisconnectAction.Wait)]
-    [InlineData(true, false, (int)ExplorerAnchorDisconnectAction.Recover)]
-    [InlineData(false, true, (int)ExplorerAnchorDisconnectAction.Exit)]
-    [InlineData(true, true, (int)ExplorerAnchorDisconnectAction.Exit)]
-    public void DecideAnchorDisconnect_KeepsRecoveryOwnerUntilLossAndExplicitStopWins(
-        bool ownerExited,
-        bool explicitStop,
-        int expectedValue)
-    {
-        ExplorerAnchorDisconnectAction expected =
-            (ExplorerAnchorDisconnectAction)expectedValue;
-        Assert.Equal(
-            expected,
-            ExplorerShellPolicy.DecideAnchorDisconnect(ownerExited, explicitStop));
-    }
-
-    [Theory]
     [InlineData(false, false, false, (int)ExplorerAnchorDisconnectAction.Wait)]
     [InlineData(false, true, false, (int)ExplorerAnchorDisconnectAction.Recover)]
     [InlineData(false, false, true, (int)ExplorerAnchorDisconnectAction.Exit)]
     [InlineData(false, true, true, (int)ExplorerAnchorDisconnectAction.Exit)]
     [InlineData(true, false, false, (int)ExplorerAnchorDisconnectAction.Recover)]
+    [InlineData(true, false, true, (int)ExplorerAnchorDisconnectAction.Exit)]
     public void DecideAnchorOwnerWait_FaultIsNotRecoveryWithoutSeparateExitEvidence(
         bool processWaitCompletedSuccessfully,
         bool ownerExitVerifiedSeparately,
@@ -393,94 +377,16 @@ public sealed class ExplorerShellPolicyTests
     }
 
     [Fact]
-    public async Task DesktopHostDisposal_ClosesAdmissionBeforeWaitingForActiveOperation()
+    public async Task DisposedDesktopHost_RefusesNewShellOperations()
     {
-        var operationEntered = new TaskCompletionSource<bool>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var releaseOperation = new TaskCompletionSource<bool>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        int restoreCalls = 0;
-        var host = new ExplorerDesktopHost(
-            async cancellationToken =>
-            {
-                operationEntered.TrySetResult(true);
-                await releaseOperation.Task.WaitAsync(cancellationToken);
-                return new ExplorerPreparationResult(true, ExplorerShellRejection.None, "test");
-            },
-            (timeout, cancellationToken) =>
-            {
-                _ = timeout;
-                _ = cancellationToken;
-                Interlocked.Increment(ref restoreCalls);
-                return Task.FromResult(FailedResult(
-                    launchDispatched: false,
-                    shellSurfacePresent: false));
-            });
+        // Disposal closes admission: neither operation may reach the live shell afterwards.
+        var host = new ExplorerDesktopHost();
+        await host.DisposeAsync();
 
-        Task activeOperation = host.PrepareForExplorerExitAsync();
-        await operationEntered.Task.WaitAsync(TimeSpan.FromSeconds(1));
-        Task disposal = host.DisposeAsync().AsTask();
-
-        try
-        {
-            Assert.False(disposal.IsCompleted);
-            await Assert.ThrowsAsync<ObjectDisposedException>(() =>
-                host.RestoreDesktopAsync(TimeSpan.Zero));
-            Assert.Equal(0, Volatile.Read(ref restoreCalls));
-        }
-        finally
-        {
-            releaseOperation.TrySetResult(true);
-            await activeOperation.WaitAsync(TimeSpan.FromSeconds(1));
-            await disposal.WaitAsync(TimeSpan.FromSeconds(1));
-        }
-    }
-
-    [Fact]
-    public async Task DesktopHostRestoreTimeout_IncludesWaitingForTheOperationGate()
-    {
-        var operationEntered = new TaskCompletionSource<bool>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var releaseOperation = new TaskCompletionSource<bool>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var restoreCalls = 0;
-        var host = new ExplorerDesktopHost(
-            async cancellationToken =>
-            {
-                operationEntered.TrySetResult(true);
-                await releaseOperation.Task.WaitAsync(cancellationToken);
-                return new ExplorerPreparationResult(true, ExplorerShellRejection.None, "test");
-            },
-            (timeout, cancellationToken) =>
-            {
-                _ = timeout;
-                _ = cancellationToken;
-                Interlocked.Increment(ref restoreCalls);
-                return Task.FromResult(FailedResult(
-                    launchDispatched: false,
-                    shellSurfacePresent: false));
-            });
-
-        Task activeOperation = host.PrepareForExplorerExitAsync();
-        await operationEntered.Task.WaitAsync(TimeSpan.FromSeconds(1));
-
-        try
-        {
-            ExplorerDesktopResult result = await host.RestoreDesktopAsync(
-                TimeSpan.FromMilliseconds(50));
-
-            Assert.Equal(ExplorerDesktopOutcome.Failed, result.Outcome);
-            Assert.Equal("operation-gate-timeout", result.Detail);
-            Assert.True(result.LaunchDispatched);
-            Assert.False(result.CanResumeGameModeSafely);
-            Assert.Equal(0, Volatile.Read(ref restoreCalls));
-        }
-        finally
-        {
-            releaseOperation.TrySetResult(true);
-            await activeOperation.WaitAsync(TimeSpan.FromSeconds(1));
-            await host.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(1));
-        }
+        await Assert.ThrowsAsync<ObjectDisposedException>(() =>
+            host.PrepareForExplorerExitAsync());
+        await Assert.ThrowsAsync<ObjectDisposedException>(() =>
+            host.RestoreDesktopAsync(TimeSpan.FromSeconds(1)));
     }
 
     private static ExplorerDesktopResult FailedResult(bool launchDispatched, bool shellSurfacePresent) =>

@@ -52,7 +52,7 @@ public static class SteamDownloads
     /// <summary>Queries the current download overview. Null means no usable answer —
     /// Steam unreachable, CEF disabled, or an unexpected payload — which callers must
     /// never read as an ACTIVE download, and must debounce before it releases a hold
-    /// (see <c>KeepAwakeDecider</c>): counting an unusable answer as inactive is what
+    /// (see <c>KeepAwakeService.NextDownloadHold</c>): counting an unusable answer as inactive is what
     /// stops a closed or dead Steam pinning the device awake for the whole session.</summary>
     /// <param name="cancellationToken">Cancels the exchange.</param>
     public static async Task<DownloadOverview?> QueryAsync(CancellationToken cancellationToken = default)

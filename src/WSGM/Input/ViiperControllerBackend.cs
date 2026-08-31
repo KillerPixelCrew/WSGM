@@ -36,9 +36,9 @@ internal sealed class ViiperControllerBackend : IHidBackend
     /// <summary>The one bus WSGM owns.</summary>
     internal const uint BusId = 1;
 
-    private static readonly IReadOnlyList<VirtualTargetKind> Supported =
+    private static readonly IReadOnlyList<ManagedControllerTarget> Supported =
     [
-        VirtualTargetKind.SteamDeckComposite,
+        ManagedControllerTarget.SteamDeckComposite,
     ];
 
     /// <summary>Rumble command identifier in the Deck's feedback report.</summary>
@@ -75,7 +75,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
             return new HidBackendHealth(
                 HidBackendHealthState.Ready,
                 "The VIIPER controller backend is ready.",
-                new HidBackendCapabilities(new Version(1, 0), Supported, SupportsOutput: true));
+                new HidBackendCapabilities(Supported));
         }
         finally
         {
@@ -85,7 +85,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
 
     /// <inheritdoc/>
     public async Task<HidTargetHandle> CreateTargetAsync(
-        VirtualTargetKind kind,
+        ManagedControllerTarget kind,
         CanonicalControllerSample initialNeutralState,
         CancellationToken cancellationToken)
     {
@@ -129,10 +129,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 throw;
             }
 
-            _target = new HidTargetHandle(
-                kind,
-                Interlocked.Increment(ref _generation),
-                $"viiper:{BusId}:{deviceId}");
+            _target = new HidTargetHandle(kind, Interlocked.Increment(ref _generation));
             Log.Info(
                 $"Virtual controller created: {kind} as VIIPER device {BusId}:{deviceId}, "
                 + $"generation={_target.Generation}.");
@@ -184,11 +181,10 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 return true;
             }
 
-            // The device stopped accepting input, so this target is gone whatever WSGM still
-            // believes. Dropping it here is what turns a silent retry loop into the router's
-            // fault path. DeviceRemove still has to run before the handle is forgotten: VIIPER
-            // owns a device object and feedback callback beyond WSGM's bookkeeping, and losing the
-            // managed handle without removing that object leaked both for the rest of the process.
+            // A rejected submission means the device is gone whatever WSGM still believes; dropping
+            // the handle routes this into the fault path. DeviceRemove must still run before the
+            // handle is forgotten: VIIPER owns a device object and feedback callback beyond WSGM's
+            // bookkeeping, and both leak for the rest of the process otherwise.
             lost = true;
             bool removed = RemoveDeviceUnderGate();
             _removalUnverifiedGeneration = removed ? null : target.Generation;
@@ -241,10 +237,9 @@ internal sealed class ViiperControllerBackend : IHidBackend
 
             bool removed = RemoveDeviceUnderGate();
             _target = null;
-            // Remembered so removal is reported from what the library actually did rather than from
-            // the fact that WSGM stopped tracking the target. The handle is dropped either way — a
-            // target WSGM can no longer address must not keep being written to — and the router's
-            // own removal check is what turns this into a faulted, unverified handoff.
+            // Removal is reported from what the library actually did, not from WSGM's bookkeeping;
+            // the handle is dropped either way because an unaddressable target must not keep being
+            // written to.
             _removalUnverifiedGeneration = removed ? null : target.Generation;
         }
         finally
@@ -265,31 +260,6 @@ internal sealed class ViiperControllerBackend : IHidBackend
         }
 
         return Task.FromResult(_target?.Generation != target.Generation);
-    }
-
-    /// <inheritdoc/>
-    public async Task<IReadOnlyDictionary<string, string>> GetDiagnosticsAsync(
-        CancellationToken cancellationToken)
-    {
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            IReadOnlyDictionary<string, string> diagnostics = new Dictionary<string, string>
-            {
-                ["backend"] = "viiper",
-                ["initialized"] = _initialized.ToString(),
-                ["busId"] = BusId.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                ["deviceId"] = _deviceId.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                ["target"] = _target?.InstanceId ?? "none",
-                ["targetGeneration"] = (_target?.Generation ?? 0)
-                    .ToString(System.Globalization.CultureInfo.InvariantCulture),
-            };
-            return diagnostics;
-        }
-        finally
-        {
-            _gate.Release();
-        }
     }
 
     /// <inheritdoc/>
@@ -477,9 +447,8 @@ internal sealed class ViiperControllerBackend : IHidBackend
             return true;
         }
 
-        // A rejected submission means the device is gone or the attachment was lost, and the host
-        // keeps whatever report it last accepted — a held button included. Returning false without
-        // saying so left the target Active and the router retrying forever against nothing.
+        // The host keeps whatever report it last accepted — a held button included — so a rejected
+        // submission must be loud enough to diagnose from a pasted log.
         Log.Change(
             "controller.viiper.submit",
             $"VIIPER rejected an input frame on device {BusId}:{_deviceId}: status={status}, "
@@ -491,10 +460,8 @@ internal sealed class ViiperControllerBackend : IHidBackend
     /// <summary>Removes the VIIPER device and reports whether the library confirmed it.</summary>
     /// <returns><see langword="true"/> when removal was accepted.</returns>
     /// <remarks>
-    /// The status is read, not discarded. Clearing the managed identifiers and then throwing the
-    /// return value away meant <see cref="WaitForRemovalAsync"/> reported success from WSGM's own
-    /// bookkeeping alone, so a refused detach could leave the old virtual controller enumerated
-    /// while replacement and HidHide cleanup carried on around it.
+    /// The status must be read: a refused detach leaves the old virtual controller enumerated, and
+    /// <see cref="WaitForRemovalAsync"/> has to report that rather than WSGM's own bookkeeping.
     /// </remarks>
     private bool RemoveDeviceUnderGate()
     {

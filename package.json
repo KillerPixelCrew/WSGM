@@ -5,7 +5,6 @@
     "format:check": "prettier --check .",
     "steam-assets:build": "node eng/build-steam-assets.mjs",
     "steam-assets:check": "node eng/build-steam-assets.mjs --check",
-    "steam-assets:verify": "node eng/verify-steam-assets.mjs",
     "steam-assets:claims": "node external/steam-ui-toolkit/eng/check-ownership-claims.mjs src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js"
   },
   "devDependencies": {

@@ -1,25 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using WSGM.Core;
 using WSGM.Device.Sdk.Input;
 
 namespace WSGM.Input;
-
-/// <summary>The virtual controller shapes WSGM can present.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<VirtualTargetKind>))]
-public enum VirtualTargetKind
-{
-    /// <summary>Valve's composite Steam Deck controller: the richest handheld model.</summary>
-    SteamDeckComposite,
-
-    /// <summary>Xbox 360, for native XInput compatibility with older software.</summary>
-    Xbox360,
-
-    /// <summary>DualShock 4, for software requiring a PlayStation controller.</summary>
-    DualShock4,
-}
 
 internal enum HidBackendHealthState
 {
@@ -32,18 +18,13 @@ internal enum HidBackendHealthState
 internal enum ManagedTargetState
 {
     Absent,
-    Creating,
     Neutral,
     Active,
-    Replacing,
     Faulted,
-    Removing,
 }
 
 internal sealed record HidBackendCapabilities(
-    Version ProtocolVersion,
-    IReadOnlyList<VirtualTargetKind> SupportedTargets,
-    bool SupportsOutput);
+    IReadOnlyList<ManagedControllerTarget> SupportedTargets);
 
 internal sealed record HidBackendHealth(
     HidBackendHealthState State,
@@ -51,13 +32,12 @@ internal sealed record HidBackendHealth(
     HidBackendCapabilities? Capabilities = null);
 
 internal sealed record HidTargetHandle(
-    VirtualTargetKind Kind,
-    long Generation,
-    string InstanceId);
+    ManagedControllerTarget Kind,
+    long Generation);
 
 internal sealed record HidTargetOutput(
     HapticOutputFrame Frame,
-    VirtualTargetKind SourceKind);
+    ManagedControllerTarget SourceKind);
 
 internal interface IHidBackend : IAsyncDisposable
 {
@@ -68,7 +48,7 @@ internal interface IHidBackend : IAsyncDisposable
     Task<HidBackendHealth> DiscoverAsync(CancellationToken cancellationToken);
 
     Task<HidTargetHandle> CreateTargetAsync(
-        VirtualTargetKind kind,
+        ManagedControllerTarget kind,
         CanonicalControllerSample initialNeutralState,
         CancellationToken cancellationToken);
 
@@ -90,9 +70,6 @@ internal interface IHidBackend : IAsyncDisposable
 
     Task<bool> WaitForRemovalAsync(
         HidTargetHandle target,
-        CancellationToken cancellationToken);
-
-    Task<IReadOnlyDictionary<string, string>> GetDiagnosticsAsync(
         CancellationToken cancellationToken);
 }
 
@@ -129,8 +106,8 @@ internal static class ManagedControllerSampleValidator
             || !Axis(sample.LeftStickY)
             || !Axis(sample.RightStickX)
             || !Axis(sample.RightStickY)
-            || !Trigger(sample.LeftTrigger)
-            || !Trigger(sample.RightTrigger)
+            || !FiniteUnit(sample.LeftTrigger)
+            || !FiniteUnit(sample.RightTrigger)
             || !Motion(sample.Motion))
         {
             reason = "invalid-or-discontinuous-sample";
@@ -153,7 +130,8 @@ internal static class ManagedControllerSampleValidator
 
     private static bool Axis(float value) => float.IsFinite(value) && value is >= -1 and <= 1;
 
-    private static bool Trigger(float value) => float.IsFinite(value) && value is >= 0 and <= 1;
+    /// <summary>Whether the value is a finite 0..1 unit, as triggers and haptic channels require.</summary>
+    internal static bool FiniteUnit(float value) => float.IsFinite(value) && value is >= 0 and <= 1;
 
     private static bool Motion(MotionSample? motion) => motion is null
         || ((!motion.HasGyro

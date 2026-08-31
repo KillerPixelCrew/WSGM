@@ -14,8 +14,8 @@ namespace WSGM.Core;
 /// captured original would let whichever restored second put back a mode the other had already
 /// replaced.
 /// <para>
-/// Discovery is cached, because enumerating and <c>CDS_TEST</c>-ing every mode is not something to
-/// repeat while a menu is open. <see cref="Invalidate"/> drops it after a display change.
+/// Discovery is cached for the session, because enumerating and <c>CDS_TEST</c>-ing every mode is
+/// not something to repeat while a menu is open.
 /// </para>
 /// </remarks>
 internal sealed class DisplayResolutionService
@@ -53,27 +53,6 @@ internal sealed class DisplayResolutionService
         _discover = discover ?? throw new ArgumentNullException(nameof(discover));
         _apply = apply ?? throw new ArgumentNullException(nameof(apply));
         _readCurrent = readCurrent ?? throw new ArgumentNullException(nameof(readCurrent));
-    }
-
-    /// <summary>Whether this service has moved the display and not yet put it back.</summary>
-    internal bool HoldsDisplay
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return _original is not null;
-            }
-        }
-    }
-
-    /// <summary>Drops cached discovery, after a display or mode change.</summary>
-    internal void Invalidate()
-    {
-        lock (_gate)
-        {
-            _accepted = null;
-        }
     }
 
     /// <summary>The resolutions worth offering.</summary>

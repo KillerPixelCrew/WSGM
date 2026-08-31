@@ -234,7 +234,6 @@ internal sealed class PerformanceOverlayBridge : IPerformanceOverlaySource, IDis
         {
             PerformanceReadbackQuality.Verified => DescriptorStatus.Available,
             PerformanceReadbackQuality.AppliedUnverified => DescriptorStatus.Warning,
-            PerformanceReadbackQuality.Stale => DescriptorStatus.Stale,
             _ => state.Probe.Availability == RtssAvailability.Ready
                 ? DescriptorStatus.Warning
                 : DescriptorStatus.Unsupported,

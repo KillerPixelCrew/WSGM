@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Data.Converters;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -198,17 +200,30 @@ public partial class AppearancePage : UserControl
     }
 
     // --- Splash colors ---
-    private void OnSplashBackgroundSwatchClick(object? sender, RoutedEventArgs e) =>
-        ShowSplashColorFlyout(sender, static vm => vm.SplashBackgroundColorHex, static (vm, hex) => vm.SplashBackgroundColorHex = hex);
-
-    private void OnSplashTextSwatchClick(object? sender, RoutedEventArgs e) =>
-        ShowSplashColorFlyout(sender, static vm => vm.SplashTextColorHex, static (vm, hex) => vm.SplashTextColorHex = hex);
-
-    private void OnSplashCaptionSwatchClick(object? sender, RoutedEventArgs e) =>
-        ShowSplashColorFlyout(sender, static vm => vm.SplashCaptionColorHex, static (vm, hex) => vm.SplashCaptionColorHex = hex);
-
-    private void OnSplashSpinnerSwatchClick(object? sender, RoutedEventArgs e) =>
-        ShowSplashColorFlyout(sender, static vm => vm.SplashSpinnerColorHex, static (vm, hex) => vm.SplashSpinnerColorHex = hex);
+    /// <summary>One handler for the four splash color swatches, keyed by the
+    /// button's Tag ("Background", "Text", "Caption", "Spinner").</summary>
+    private void OnSplashColorSwatchClick(object? sender, RoutedEventArgs e)
+    {
+        switch ((sender as Button)?.Tag as string)
+        {
+            case "Background":
+                ShowSplashColorFlyout(sender,
+                    static vm => vm.SplashBackgroundColorHex, static (vm, hex) => vm.SplashBackgroundColorHex = hex);
+                break;
+            case "Text":
+                ShowSplashColorFlyout(sender,
+                    static vm => vm.SplashTextColorHex, static (vm, hex) => vm.SplashTextColorHex = hex);
+                break;
+            case "Caption":
+                ShowSplashColorFlyout(sender,
+                    static vm => vm.SplashCaptionColorHex, static (vm, hex) => vm.SplashCaptionColorHex = hex);
+                break;
+            case "Spinner":
+                ShowSplashColorFlyout(sender,
+                    static vm => vm.SplashSpinnerColorHex, static (vm, hex) => vm.SplashSpinnerColorHex = hex);
+                break;
+        }
+    }
 
     /// <summary>Opens a color-picker flyout on a splash swatch button — the
     /// TOUCH/mouse path to these colors. It is deliberately NOT a controller
@@ -355,35 +370,36 @@ public partial class AppearancePage : UserControl
             : Bitmap.DecodeToHeight(stream, ThumbnailDecodePixels);
     }
 
-    private async void OnBrowseLogo(object? sender, RoutedEventArgs e)
+    /// <summary>One picker for both image slots, keyed by the button's Tag
+    /// ("Logo" or "Background").</summary>
+    private async void OnBrowseImage(object? sender, RoutedEventArgs e)
     {
-        if (_viewModel is not null && await PickImageAsync("Select logo image") is { } path)
+        var logo = (sender as Button)?.Tag as string == "Logo";
+        if (_viewModel is not null
+            && await PickImageAsync(logo ? "Select logo image" : "Select background image") is { } path)
         {
-            _viewModel.SplashLogoPath = path;
+            SetImagePath(logo, path);
         }
     }
 
-    private void OnClearLogo(object? sender, RoutedEventArgs e)
+    /// <summary>One clear action for both image slots, keyed by the button's Tag.</summary>
+    private void OnClearImage(object? sender, RoutedEventArgs e)
     {
         if (_viewModel is not null)
         {
-            _viewModel.SplashLogoPath = "";
+            SetImagePath((sender as Button)?.Tag as string == "Logo", "");
         }
     }
 
-    private async void OnBrowseBackground(object? sender, RoutedEventArgs e)
+    private void SetImagePath(bool logo, string path)
     {
-        if (_viewModel is not null && await PickImageAsync("Select background image") is { } path)
+        if (logo)
         {
-            _viewModel.SplashBackgroundImagePath = path;
+            _viewModel!.SplashLogoPath = path;
         }
-    }
-
-    private void OnClearBackground(object? sender, RoutedEventArgs e)
-    {
-        if (_viewModel is not null)
+        else
         {
-            _viewModel.SplashBackgroundImagePath = "";
+            _viewModel!.SplashBackgroundImagePath = path;
         }
     }
 
@@ -522,4 +538,65 @@ public partial class AppearancePage : UserControl
             }
         }
     }
+}
+
+/// <summary>Display names for the splash editor's enum selectors. One place names
+/// every member the ComboBoxes offer, so a new enum member cannot silently render
+/// as its raw identifier in one selector and a friendly name in another.</summary>
+public sealed class SplashEnumName : IValueConverter
+{
+    /// <summary>Gets the shared stateless instance referenced from page XAML.</summary>
+    public static readonly SplashEnumName Instance = new();
+
+    /// <summary>Maps one splash enum value to its selector label.</summary>
+    /// <param name="value">The enum value being rendered.</param>
+    /// <param name="targetType">Ignored; the result is always a string.</param>
+    /// <param name="parameter">Ignored.</param>
+    /// <param name="culture">Ignored; the labels are not localized.</param>
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value switch
+        {
+            SplashSpinnerStyle style => style switch
+            {
+                SplashSpinnerStyle.Ring => "Ring (classic)",
+                SplashSpinnerStyle.LiArc => "Arc",
+                SplashSpinnerStyle.LiArcs => "Arcs",
+                SplashSpinnerStyle.LiArcsRing => "Arcs ring",
+                SplashSpinnerStyle.LiDoubleBounce => "Double bounce",
+                SplashSpinnerStyle.LiFlipPlane => "Flip plane",
+                SplashSpinnerStyle.LiPulse => "Pulse",
+                SplashSpinnerStyle.LiRing => "Ring",
+                SplashSpinnerStyle.LiThreeDots => "Three dots",
+                SplashSpinnerStyle.LiWave => "Wave",
+                SplashSpinnerStyle.SweepLine => "Sweep line",
+                SplashSpinnerStyle.Off => "Off",
+                _ => style.ToString(),
+            },
+            SweepEdge edge => edge.ToString(),
+            SplashPlacementMode mode => mode switch
+            {
+                SplashPlacementMode.Anchor => "Anchored",
+                SplashPlacementMode.Absolute => "Absolute",
+                SplashPlacementMode.WithText => "With text",
+                _ => mode.ToString(),
+            },
+            SplashPlacementAnchor anchor => anchor switch
+            {
+                SplashPlacementAnchor.TopLeft => "Top left",
+                SplashPlacementAnchor.TopCenter => "Top center",
+                SplashPlacementAnchor.TopRight => "Top right",
+                SplashPlacementAnchor.CenterLeft => "Center left",
+                SplashPlacementAnchor.Center => "Center",
+                SplashPlacementAnchor.CenterRight => "Center right",
+                SplashPlacementAnchor.BottomLeft => "Bottom left",
+                SplashPlacementAnchor.BottomCenter => "Bottom center",
+                SplashPlacementAnchor.BottomRight => "Bottom right",
+                _ => anchor.ToString(),
+            },
+            _ => value?.ToString() ?? "",
+        };
+
+    /// <summary>The selectors bind SelectedItem, not the label; converting back does nothing.</summary>
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        Avalonia.Data.BindingOperations.DoNothing;
 }

@@ -7,31 +7,29 @@ using WSGM.Device.Sdk.Settings;
 
 namespace WSGM.Core;
 
-/// <summary>Compile-time release gates for optional device-platform features.</summary>
-public static class DeviceFeatureAvailability
+/// <summary>Shared shape check for plugin-supplied identifiers.</summary>
+public static class DeviceIdentifier
 {
-    /// <summary>Whether the controller component ships in this build.</summary>
-    /// <remarks>
-    /// <c>libviiper.dll</c> is built from source for every release and setup carries the
-    /// <c>usbip-win2</c> driver used by the backend.
-    /// <para>
-    /// This constant answers only whether the component exists in the build. Whether it works on
-    /// the machine in front of the user is a runtime question with several distinct answers — no
-    /// library, no driver, attach refused, runtime faulted — and belongs where they can be told apart
-    /// and reported truthfully, which is <c>ControllerManagerStatus</c>. Do not fold a machine
-    /// probe back in here.
-    /// </para>
-    /// </remarks>
-    public const bool ControllerManagement = true;
+    /// <summary>Whether a plugin-supplied identifier is non-empty, bounded, and uses only ASCII
+    /// letters, digits, '.', '-' and '_'.</summary>
+    /// <param name="value">The identifier to check.</param>
+    /// <param name="maximumLength">Longest accepted identifier.</param>
+    /// <returns><see langword="true"/> when the identifier is safe to store, log, and use as a key.</returns>
+    public static bool IsValid(string value, int maximumLength) =>
+        !string.IsNullOrWhiteSpace(value)
+        && value.Length <= maximumLength
+        && value.All(character => char.IsAsciiLetterOrDigit(character)
+            || character is '.' or '-' or '_');
+}
 
-    /// <summary>User-safe reason controller management is unavailable when the gate is closed.</summary>
-    /// <remarks>
-    /// Retained for the gate-closed projection and for the unavailable native QAM service. With the
-    /// gate open this text is reached only by a build that deliberately excludes the component.
-    /// </remarks>
-    public const string ControllerManagementDetail =
-        "Controller management is unavailable: the virtual controller component is not installed "
-        + "in this build.";
+/// <summary>Capability ids the authored-profile chain targets.</summary>
+public static class DeviceAuthoredProfileCapabilities
+{
+    /// <summary>The fan-curve capability authored curve profiles apply to.</summary>
+    public const string FanCurve = "fan.curve";
+
+    /// <summary>The lighting zone-colour capability authored colour profiles apply to.</summary>
+    public const string Lighting = "lighting.zone-color";
 }
 
 /// <summary>Persisted settings for the optional production device platform.</summary>
@@ -72,9 +70,6 @@ public sealed class DeviceIntegrationConfig
 
     /// <summary>Manual reviewed glyph profile when <see cref="GlyphSelection"/> is manual.</summary>
     public string? ManualGlyphProfileId { get; set; }
-
-    /// <summary>Sanitized diagnostics detail retained and displayed by default.</summary>
-    public DeviceDiagnosticLevel DiagnosticLevel { get; set; } = DeviceDiagnosticLevel.Standard;
 
     /// <summary>Desired semantic profiles keyed by stable local device identity.</summary>
     public List<DeviceDesiredProfile> Profiles { get; set; } = [];
@@ -267,19 +262,6 @@ public enum DeviceGlyphSelection
     ManualReviewedProfile,
 }
 
-/// <summary>Sanitized production diagnostic verbosity.</summary>
-public enum DeviceDiagnosticLevel
-{
-    /// <summary>Identity and current health only.</summary>
-    Minimal,
-
-    /// <summary>Normal state transitions, commands, and recovery outcomes.</summary>
-    Standard,
-
-    /// <summary>Bounded transaction metadata without raw unique identifiers or samples.</summary>
-    Detailed,
-}
-
 /// <summary>All persistent desired state for one local device identity.</summary>
 public sealed class DeviceDesiredProfile
 {
@@ -405,15 +387,20 @@ public sealed class DeviceApplicationTargetOverride
 }
 
 /// <summary>The desired-state layer that supplied an effective value.</summary>
+/// <remarks>
+/// Ordered lowest to highest precedence. Captured hardware state is deliberately absent: it is
+/// restoration-only and never competes with what the user asked for, because adopting an observed
+/// value as a desired one would silently turn whatever the device happened to be doing into policy.
+/// </remarks>
 public enum DeviceDesiredValueSource
 {
-    /// <summary>No desired value exists.</summary>
+    /// <summary>No desired value exists; the device keeps whatever it has.</summary>
     None,
 
     /// <summary>Global per-device default.</summary>
     GlobalDefault,
 
-    /// <summary>AC/DC policy.</summary>
+    /// <summary>AC/DC policy for the current power source.</summary>
     PowerPolicy,
 
     /// <summary>Selected named hardware profile.</summary>
@@ -421,9 +408,6 @@ public enum DeviceDesiredValueSource
 
     /// <summary>Matched application override.</summary>
     ApplicationOverride,
-
-    /// <summary>Volatile session request.</summary>
-    TemporaryRequest,
 }
 
 /// <summary>Result of resolving the frozen desired-state precedence.</summary>
@@ -431,29 +415,22 @@ public sealed record ResolvedDeviceDesiredValue(
     CapabilityValue? Value,
     DeviceDesiredValueSource Source);
 
-/// <summary>Pure desired-state precedence and edit-target policy.</summary>
+/// <summary>Pure desired-state precedence policy.</summary>
 public static class DeviceDesiredStateResolver
 {
-    /// <summary>Resolves temporary, application, profile, power, and global layers.</summary>
+    /// <summary>Resolves the application, profile, power, and global layers.</summary>
     /// <param name="preference">Persistent capability layers.</param>
     /// <param name="onAcPower">Current power state.</param>
     /// <param name="hardwareProfileId">Selected named profile.</param>
     /// <param name="applicationId">Matched application identity.</param>
-    /// <param name="temporary">Volatile session request.</param>
     /// <returns>The highest-precedence available value and its source.</returns>
     public static ResolvedDeviceDesiredValue Resolve(
         DeviceCapabilityPreference preference,
         bool onAcPower,
         string? hardwareProfileId,
-        string? applicationId,
-        CapabilityValue? temporary)
+        string? applicationId)
     {
         ArgumentNullException.ThrowIfNull(preference);
-        if (temporary is not null)
-        {
-            return new(temporary, DeviceDesiredValueSource.TemporaryRequest);
-        }
-
         CapabilityValue? application = preference.ApplicationOverrides.FirstOrDefault(
             value => string.Equals(value.ApplicationId, applicationId, StringComparison.Ordinal))?.Value;
         if (application is not null)
@@ -477,32 +454,5 @@ public static class DeviceDesiredStateResolver
         return preference.GlobalDefault is null
             ? new(null, DeviceDesiredValueSource.None)
             : new(preference.GlobalDefault, DeviceDesiredValueSource.GlobalDefault);
-    }
-
-    /// <summary>Returns the highest active persistent layer an ordinary edit writes.</summary>
-    public static DeviceDesiredValueSource PersistentEditTarget(
-        DeviceCapabilityPreference preference,
-        bool onAcPower,
-        string? hardwareProfileId,
-        string? applicationId)
-    {
-        ArgumentNullException.ThrowIfNull(preference);
-        if (!string.IsNullOrWhiteSpace(applicationId))
-        {
-            return DeviceDesiredValueSource.ApplicationOverride;
-        }
-
-        if (!string.IsNullOrWhiteSpace(hardwareProfileId))
-        {
-            return DeviceDesiredValueSource.HardwareProfile;
-        }
-
-        if ((onAcPower && preference.AcPolicy is not null)
-            || (!onAcPower && preference.DcPolicy is not null))
-        {
-            return DeviceDesiredValueSource.PowerPolicy;
-        }
-
-        return DeviceDesiredValueSource.GlobalDefault;
     }
 }

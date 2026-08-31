@@ -23,22 +23,18 @@ internal enum HidHideHealthState
 internal sealed class HidHideExactSnapshot
 {
     internal HidHideExactSnapshot(
-        long revision,
         HidHideHealthState health,
         bool active,
         IEnumerable<string> applications,
         IEnumerable<string> devices,
         string detail = "")
     {
-        Revision = revision;
         Health = health;
         Active = active;
         Applications = applications.ToArray();
         Devices = devices.ToArray();
         Detail = detail;
     }
-
-    internal long Revision { get; }
 
     internal HidHideHealthState Health { get; }
 
@@ -50,9 +46,10 @@ internal sealed class HidHideExactSnapshot
 
     internal string Detail { get; }
 
+    // Inverse mode needs no field of its own here: it is encoded as Health.Incompatible, so a flip
+    // still fails this comparison.
     internal bool ExactStateEquals(HidHideExactSnapshot other) =>
-        Revision == other.Revision
-        && Health == other.Health
+        Health == other.Health
         && Active == other.Active
         && Applications.SequenceEqual(other.Applications, StringComparer.Ordinal)
         && Devices.SequenceEqual(other.Devices, StringComparer.Ordinal);
@@ -109,16 +106,6 @@ internal sealed class HidHideOwnedDelta
 
 internal sealed class HidHideOwnershipLedger
 {
-    public Guid TransactionId { get; init; }
-
-    public long TargetGeneration { get; init; }
-
-    public bool PreexistingActive { get; init; }
-
-    public List<string> PreexistingApplications { get; init; } = [];
-
-    public List<string> PreexistingDevices { get; init; } = [];
-
     public List<HidHideOwnedDelta> Deltas { get; init; } = [];
 
     public string? RecoveryDetail { get; set; }
@@ -237,12 +224,8 @@ internal sealed class HidHideOwnedDeltaManager
     /// hiding transaction — which is to say only once WSGM already knows which devices to hide. That
     /// ordering assumes WSGM is the only thing using HidHide. When something else hid the controller
     /// first, the plugin cannot see the device it is being asked to discover, discovery finds
-    /// nothing, and the allowlisting that would have fixed it never runs because it comes later.
-    /// <para>
-    /// Device-observed 2026-08-29: HandheldCompanion had hidden the Claw's pad in both modes with an
-    /// allowlist naming only itself. SDL reported no gamepad, the plugin's HID enumeration could not
-    /// see the pad it had just switched the device into, and nothing anywhere mentioned HidHide.
-    /// </para>
+    /// nothing, and the allowlisting that would have fixed it never runs because it comes later
+    /// (device evidence in <c>docs\device-security.md</c>).
     /// <para>
     /// This adds nothing to the hidden set and takes nothing away from another owner: it only grants
     /// WSGM's own process the ability to read. It is therefore safe before a transaction exists, and
@@ -302,17 +285,10 @@ internal sealed class HidHideOwnedDeltaManager
     }
 
     internal async Task<HidHideActivationResult> StartAsync(
-        bool controllerManagementEnabled,
         string controllerReaderApplication,
         IReadOnlyList<PhysicalDeviceIdentity> physicalDevices,
-        long targetGeneration,
         CancellationToken cancellationToken)
     {
-        if (!controllerManagementEnabled)
-        {
-            return new(false, "Controller management is off; HidHide was untouched.", null);
-        }
-
         ArgumentException.ThrowIfNullOrWhiteSpace(controllerReaderApplication);
         ArgumentNullException.ThrowIfNull(physicalDevices);
         await _transition.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -326,8 +302,7 @@ internal sealed class HidHideOwnedDeltaManager
                     .ConfigureAwait(false);
                 if (!recovery.Verified)
                 {
-                    // Still refuse, but now because recovery itself could not put HidHide back, which
-                    // is a real reason to keep hands off rather than an artefact of the id check.
+                    // Recovery could not put HidHide back, which is a real reason to keep hands off.
                     return new(
                         false,
                         $"A previous HidHide ownership ledger could not be recovered: {recovery.Detail}",
@@ -346,14 +321,7 @@ internal sealed class HidHideOwnedDeltaManager
                     null);
             }
 
-            HidHideOwnershipLedger ledger = new()
-            {
-                TransactionId = Guid.NewGuid(),
-                TargetGeneration = targetGeneration,
-                PreexistingActive = snapshot.Active,
-                PreexistingApplications = snapshot.Applications.ToList(),
-                PreexistingDevices = snapshot.Devices.ToList(),
-            };
+            HidHideOwnershipLedger ledger = new();
 
             try
             {
@@ -416,37 +384,6 @@ internal sealed class HidHideOwnedDeltaManager
             return ledger is null
                 ? new(true, "No WSGM-owned HidHide state exists.", null)
                 : await CleanupUnderGateAsync(ledger, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _transition.Release();
-        }
-    }
-
-    internal async Task<HidHideCleanupResult> ReconcileAsync(
-        Guid transactionId,
-        long targetGeneration,
-        CancellationToken cancellationToken)
-    {
-        await _transition.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            HidHideOwnershipLedger? ledger = await _store.LoadAsync(cancellationToken)
-                .ConfigureAwait(false);
-            if (ledger is null)
-            {
-                return new(true, "No WSGM-owned HidHide state exists.", null);
-            }
-
-            if (ledger.TransactionId != transactionId
-                || ledger.TargetGeneration != targetGeneration)
-            {
-                ledger.RecoveryDetail = "Recovery refused a different transaction or target generation.";
-                await _store.SaveAsync(ledger, cancellationToken).ConfigureAwait(false);
-                return new(false, ledger.RecoveryDetail, ledger);
-            }
-
-            return await CleanupUnderGateAsync(ledger, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -589,16 +526,11 @@ internal sealed class HidHideOwnedDeltaManager
     /// <param name="value">The entry WSGM is looking for.</param>
     /// <returns>Whether it is present.</returns>
     /// <remarks>
-    /// A plain string compare is not enough for applications. HidHide stores them as NT device
+    /// A plain string compare is not enough for applications: HidHide stores them as NT device
     /// paths — <c>\Device\HarddiskVolume3\Program Files\…</c> — while WSGM knows its own executables
-    /// by drive letter, so the two never matched and WSGM added a second entry for a path that was
-    /// already there. Device-observed 2026-08-29: a ledger whose preexisting list already contained
-    /// <c>\Device\HarddiskVolume3\…\WSGM.exe</c> recorded a delta adding
-    /// <c>C:\…\WSGM.exe</c>.
-    /// <para>
-    /// That is not cosmetic. The allowlist grew on every activation, and cleanup matches what it
-    /// wrote, so the duplicate in the other notation would have been left behind on restore.
-    /// </para>
+    /// by drive letter. Without normalization the allowlist grows on every activation and cleanup
+    /// leaves the other notation's duplicate behind (device evidence in
+    /// <c>docs\device-security.md</c>).
     /// </remarks>
     internal static bool Contains(IEnumerable<string> entries, string value)
     {

@@ -78,10 +78,9 @@ public sealed class ControllerManagerTests
     [Fact]
     public async Task AnUnavailableBackendLeavesHidHideUntouchedAndFallsBackToSdl()
     {
+        const string unavailableDetail = "The controller backend is not usable on this system.";
         Harness harness = new();
-        harness.Backend.Health = new(
-            HidBackendHealthState.Incompatible,
-            DeviceFeatureAvailability.ControllerManagementDetail);
+        harness.Backend.Health = new(HidBackendHealthState.Incompatible, unavailableDetail);
         await using ControllerManager manager = harness.Manager;
 
         ControllerManagerStatus status = await manager.StartAsync(
@@ -92,7 +91,7 @@ public sealed class ControllerManagerTests
             CancellationToken.None);
 
         Assert.Equal(ControllerManagementState.Unavailable, status.State);
-        Assert.Equal(DeviceFeatureAvailability.ControllerManagementDetail, status.Detail);
+        Assert.Equal(unavailableDetail, status.Detail);
         Assert.Equal(UiInputSource.SdlWithSteamLease, status.UiSource);
         Assert.Equal(0, harness.HidHide.MutationCount);
         Assert.DoesNotContain(harness.Backend.Operations, operation => operation.StartsWith("create"));
@@ -120,7 +119,7 @@ public sealed class ControllerManagerTests
     [Fact]
     public async Task ABackendWithoutTheSelectedTargetReportsThatExactReason()
     {
-        Harness harness = new(VirtualTargetKind.Xbox360);
+        Harness harness = new(ManagedControllerTarget.Xbox360);
         await using ControllerManager manager = harness.Manager;
 
         ControllerManagerStatus status = await manager.StartAsync(
@@ -547,7 +546,7 @@ public sealed class ControllerManagerTests
     private sealed class Harness
     {
         internal Harness(
-            VirtualTargetKind? onlyTarget = null,
+            ManagedControllerTarget? onlyTarget = null,
             IEnumerable<string>? existingApplications = null,
             IEnumerable<string>? existingDevices = null)
         {

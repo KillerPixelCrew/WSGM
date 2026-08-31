@@ -313,54 +313,29 @@ public sealed class DevicePackagePolicyTests : IDisposable
             DevicePackageStager.ReplacementStagingRoot(installed));
         Assert.Equal(Path.Combine(_root, ".previous"),
             DevicePackageStager.ReplacementRecoveryRoot(installed));
-        Assert.Equal(Path.Combine(_root, ".installed.previous"),
-            DevicePackageStager.LegacyReplacementRecoveryRoot(installed));
         Assert.Equal(Path.Combine(_root, ".staging"),
             DevicePackageStager.ReplacementStagingRoot(installedWithSeparator));
         Assert.Equal(Path.Combine(_root, ".previous"),
             DevicePackageStager.ReplacementRecoveryRoot(installedWithSeparator));
-        Assert.Equal(Path.Combine(_root, ".installed.previous"),
-            DevicePackageStager.LegacyReplacementRecoveryRoot(installedWithSeparator));
     }
 
     [Fact]
-    public void PackageUpdate_LegacyParkedSlotIsRestoredIntoTheCanonicalInstalledSlot()
-    {
-        string installed = Path.Combine(_root, "installed");
-        string legacyRecovery = Directory.CreateDirectory(
-            DevicePackageStager.LegacyReplacementRecoveryRoot(installed)).FullName;
-        CreatePackage("old", legacyRecovery);
-
-        DevicePackageStager.ReconcileInstalledPackage(installed);
-
-        Assert.True(Directory.Exists(Path.Combine(installed, "old")));
-        Assert.False(Directory.Exists(legacyRecovery));
-        Assert.False(Directory.Exists(DevicePackageStager.ReplacementRecoveryRoot(installed)));
-    }
-
-    [Fact]
-    public void PackageUpdate_ReconciliationRemovesDeterministicAndLegacyStagingRoots()
+    public void PackageUpdate_ReconciliationRemovesTheDeterministicStagingRoot()
     {
         string installed = Path.Combine(_root, "installed");
         string staging = Directory.CreateDirectory(
             DevicePackageStager.ReplacementStagingRoot(installed)).FullName;
-        string legacyStaging = Directory.CreateDirectory(
-            Path.Combine(_root, ".installed.staging-abandoned")).FullName;
         File.WriteAllText(Path.Combine(staging, "partial"), "partial");
-        File.WriteAllText(Path.Combine(legacyStaging, "partial"), "partial");
 
         DevicePackageStager.ReconcileInstalledPackage(installed);
 
         Assert.False(Directory.Exists(staging));
-        Assert.False(Directory.Exists(legacyStaging));
     }
 
     [Theory]
     [InlineData("installed")]
     [InlineData(".previous")]
-    [InlineData(".installed.previous")]
     [InlineData(".staging")]
-    [InlineData(".installed.staging-abandoned")]
     [InlineData("parent")]
     public void PackageUpdate_AttributeAccessFailurePreventsAnyRecoveryOrCleanupMutation(
         string inaccessiblePath)
@@ -368,13 +343,9 @@ public sealed class DevicePackagePolicyTests : IDisposable
         string installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
         string recovery = Directory.CreateDirectory(
             DevicePackageStager.ReplacementRecoveryRoot(installed)).FullName;
-        string legacyRecovery = Directory.CreateDirectory(
-            DevicePackageStager.LegacyReplacementRecoveryRoot(installed)).FullName;
         string staging = Directory.CreateDirectory(
             DevicePackageStager.ReplacementStagingRoot(installed)).FullName;
-        string legacyStaging = Directory.CreateDirectory(
-            Path.Combine(_root, ".installed.staging-abandoned")).FullName;
-        string[] protectedRoots = [installed, recovery, legacyRecovery, staging, legacyStaging];
+        string[] protectedRoots = [installed, recovery, staging];
         foreach (string protectedRoot in protectedRoots)
         {
             File.WriteAllText(Path.Combine(protectedRoot, "must-survive"), protectedRoot);
@@ -393,28 +364,6 @@ public sealed class DevicePackagePolicyTests : IDisposable
 
         Assert.All(protectedRoots, protectedRoot =>
             Assert.True(File.Exists(Path.Combine(protectedRoot, "must-survive"))));
-    }
-
-    [Fact]
-    public void PackageUpdate_AmbiguousRecoveryRefusalPreservesEveryStagingRoot()
-    {
-        string installed = Path.Combine(_root, "installed");
-        string recovery = Directory.CreateDirectory(
-            DevicePackageStager.ReplacementRecoveryRoot(installed)).FullName;
-        string legacyRecovery = Directory.CreateDirectory(
-            DevicePackageStager.LegacyReplacementRecoveryRoot(installed)).FullName;
-        string staging = Directory.CreateDirectory(
-            DevicePackageStager.ReplacementStagingRoot(installed)).FullName;
-        string legacyStaging = Directory.CreateDirectory(
-            Path.Combine(_root, ".installed.staging-abandoned")).FullName;
-
-        Assert.Throws<InvalidDataException>(() =>
-            DevicePackageStager.ReconcileInstalledPackage(installed));
-
-        Assert.True(Directory.Exists(recovery));
-        Assert.True(Directory.Exists(legacyRecovery));
-        Assert.True(Directory.Exists(staging));
-        Assert.True(Directory.Exists(legacyStaging));
     }
 
     [Fact]
@@ -467,8 +416,6 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Theory]
     [InlineData(".staging")]
     [InlineData(".previous")]
-    [InlineData(".installed.previous")]
-    [InlineData(".installed.staging-abandoned")]
     public async Task PackageUpdate_RejectsReservedSiblingSourcesBeforeReconciliation(
         string reservedSibling)
     {
@@ -635,7 +582,8 @@ public sealed class DevicePackagePolicyTests : IDisposable
         InvalidDataException error = await Assert.ThrowsAsync<InvalidDataException>(() =>
             DevicePackageStager.StageAsync(source, installed));
 
-        Assert.Contains("entry bound", error.Message, StringComparison.OrdinalIgnoreCase);
+        // The entry ceiling, not the size ceiling: directories cost an entry and no bytes.
+        Assert.Contains("filesystem-entry limit", error.Message, StringComparison.OrdinalIgnoreCase);
         Assert.True(Directory.Exists(Path.Combine(installed, "live")));
         Assert.False(Directory.Exists(DevicePackageStager.ReplacementStagingRoot(installed)));
     }
@@ -659,24 +607,17 @@ public sealed class DevicePackagePolicyTests : IDisposable
         string installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
         string recovery = Directory.CreateDirectory(
             DevicePackageStager.ReplacementRecoveryRoot(installed)).FullName;
-        string legacyRecovery = Directory.CreateDirectory(
-            DevicePackageStager.LegacyReplacementRecoveryRoot(installed)).FullName;
         string staging = Directory.CreateDirectory(
             DevicePackageStager.ReplacementStagingRoot(installed)).FullName;
-        string legacyStaging = Directory.CreateDirectory(
-            Path.Combine(_root, ".installed.staging-abandoned")).FullName;
         CreatePackage("live", installed);
         CreatePackage("recovery", recovery);
-        CreatePackage("legacy", legacyRecovery);
 
         DevicePackageStager.RemoveInstalledPackage(installed);
         DevicePackageStager.ReconcileInstalledPackage(installed);
 
         Assert.False(Directory.Exists(installed));
         Assert.False(Directory.Exists(recovery));
-        Assert.False(Directory.Exists(legacyRecovery));
         Assert.False(Directory.Exists(staging));
-        Assert.False(Directory.Exists(legacyStaging));
     }
 
     [Fact]
@@ -685,13 +626,9 @@ public sealed class DevicePackagePolicyTests : IDisposable
         string installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
         string recovery = Directory.CreateDirectory(
             DevicePackageStager.ReplacementRecoveryRoot(installed)).FullName;
-        string legacyRecovery = Directory.CreateDirectory(
-            DevicePackageStager.LegacyReplacementRecoveryRoot(installed)).FullName;
         string staging = Directory.CreateDirectory(
             DevicePackageStager.ReplacementStagingRoot(installed)).FullName;
-        string legacyStaging = Directory.CreateDirectory(
-            Path.Combine(_root, ".installed.staging-abandoned")).FullName;
-        string[] protectedRoots = [installed, recovery, legacyRecovery, staging, legacyStaging];
+        string[] protectedRoots = [installed, recovery, staging];
         foreach (string protectedRoot in protectedRoots)
         {
             File.WriteAllText(Path.Combine(protectedRoot, "must-survive"), protectedRoot);
@@ -701,7 +638,7 @@ public sealed class DevicePackagePolicyTests : IDisposable
             installed,
             attributeReader: path => string.Equals(
                 path,
-                legacyStaging,
+                staging,
                 StringComparison.OrdinalIgnoreCase)
                 ? throw new IOException("simulated protected-path IO failure")
                 : ReadAttributesExactly(path)));
@@ -716,25 +653,21 @@ public sealed class DevicePackagePolicyTests : IDisposable
         string installed = Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName;
         string recovery = Directory.CreateDirectory(
             DevicePackageStager.ReplacementRecoveryRoot(installed)).FullName;
-        string legacyRecovery = Directory.CreateDirectory(
-            DevicePackageStager.LegacyReplacementRecoveryRoot(installed)).FullName;
         CreatePackage("live", installed);
         CreatePackage("recovery", recovery);
-        CreatePackage("legacy", legacyRecovery);
 
         Assert.Throws<IOException>(() => DevicePackageStager.RemoveInstalledPackage(
             installed,
             path =>
             {
-                if (string.Equals(path, legacyRecovery, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(path, recovery, StringComparison.OrdinalIgnoreCase))
                 {
                     throw new IOException("simulated recovery cleanup failure");
                 }
             }));
 
         Assert.True(Directory.Exists(Path.Combine(installed, "live")));
-        Assert.False(Directory.Exists(recovery));
-        Assert.True(Directory.Exists(legacyRecovery));
+        Assert.True(Directory.Exists(recovery));
         Assert.Equal(DevicePackageCardinality.Single,
             DevicePackageStager.InventoryEffectiveInstalledPackage(installed).Cardinality);
     }
@@ -917,10 +850,10 @@ public sealed class DevicePackagePolicyTests : IDisposable
         var waitStarted = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
         Task<DevicePackageInventory?> inventoryTask = Task.Run(() =>
-            Program.InventoryDevicePackagesForStartup(
-                installed,
+            DevicePackageSlotGate.TryRunSynchronously(
                 name,
                 TimeSpan.FromSeconds(10),
+                () => DevicePackageStager.InventoryEffectiveInstalledPackage(installed),
                 () => waitStarted.TrySetResult()));
         DevicePackageInventory? inventory = null;
         Exception? testFailure = null;
@@ -978,10 +911,10 @@ public sealed class DevicePackagePolicyTests : IDisposable
         string gateName = $@"Local\WSGM.Tests.DevicePackageSlot.RecoveryInventory.{Guid.NewGuid():N}";
 
         DevicePackageInventory inventory = Assert.IsType<DevicePackageInventory>(
-            Program.InventoryDevicePackagesForStartup(
-                installed,
+            DevicePackageSlotGate.TryRunSynchronously(
                 gateName,
-                TimeSpan.Zero));
+                TimeSpan.Zero,
+                () => DevicePackageStager.InventoryEffectiveInstalledPackage(installed)));
 
         Assert.Equal(DevicePackageCardinality.Multiple, inventory.Cardinality);
         Assert.Equal(
@@ -992,15 +925,16 @@ public sealed class DevicePackagePolicyTests : IDisposable
     }
 
     [Fact]
-    public void StartupInventory_CombinesCurrentAndLegacyParkedSlotsBeforeCardinalityDecision()
+    public void StartupInventory_JudgesTheParkedSlotWhenTheLiveSlotIsAbsent()
     {
+        // An interrupted swap left the packages parked. Startup inventories the slot that would
+        // become active after recovery, so an ambiguous parked set is refused before any UI runs
+        // rather than after reconciliation has already moved it into place.
         string installed = Path.Combine(_root, "installed");
         string recovery = Directory.CreateDirectory(
             DevicePackageStager.ReplacementRecoveryRoot(installed)).FullName;
-        string legacyRecovery = Directory.CreateDirectory(
-            DevicePackageStager.LegacyReplacementRecoveryRoot(installed)).FullName;
         string first = CreatePackage("first", recovery);
-        string second = CreatePackage("second", legacyRecovery);
+        string second = CreatePackage("second", recovery);
 
         DevicePackageInventory inventory = DevicePackageStager.InventoryEffectiveInstalledPackage(
             installed);
@@ -1077,7 +1011,6 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [Theory]
     [InlineData("--restore-shell")]
     [InlineData("--setup")]
-    [InlineData("--uninstall-app")]
     [InlineData("--install-device-plugin")]
     [InlineData("--remove-device-plugin")]
     [InlineData("--overlay-test")]
@@ -1102,8 +1035,7 @@ public sealed class DevicePackagePolicyTests : IDisposable
         Directory.Delete(_root, recursive: true);
     }
 
-    private DevicePackageDiscovery Discover() => DevicePackagePolicy.Discover(
-        new DevicePackageDiscoveryOptions { PackageRoot = _root });
+    private DevicePackageDiscovery Discover() => DevicePackagePolicy.Discover(_root);
 
     private string CreatePackage(string id, string? parent = null, int? apiVersion = null)
     {

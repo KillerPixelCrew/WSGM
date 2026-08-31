@@ -19,8 +19,11 @@ public sealed class NativeQamBootstrapPatch : ISteamUiPatch
     /// <param name="bridge">The versioned narrow Runtime-binding bridge.</param>
     public NativeQamBootstrapPatch(SteamUiBridgeHost bridge) => _bridge = bridge;
 
+    /// <summary>The bootstrap's stable patch id.</summary>
+    internal const string PatchId = "wsgm.native-qam.bootstrap";
+
     /// <inheritdoc />
-    public string Id => "wsgm.native-qam.bootstrap";
+    public string Id => PatchId;
 
     /// <inheritdoc />
     public int Version => 1;
@@ -49,10 +52,10 @@ public sealed class NativeQamBootstrapPatch : ISteamUiPatch
         {
             using var document = JsonDocument.Parse(result.Value);
             var root = document.RootElement;
-            var unique = IsOne(root, "tdpAvailability")
-                && IsOne(root, "tdpComponent")
-                && IsOne(root, "performanceActions")
-                && IsOne(root, "profileProjection");
+            var unique = SteamUiPatchEvaluation.IsOne(root, "tdpAvailability")
+                && SteamUiPatchEvaluation.IsOne(root, "tdpComponent")
+                && SteamUiPatchEvaluation.IsOne(root, "performanceActions")
+                && SteamUiPatchEvaluation.IsOne(root, "profileProjection");
             return new SteamUiPatchProbeResult(
                 true,
                 unique,
@@ -108,28 +111,17 @@ public sealed class NativeQamBootstrapPatch : ISteamUiPatch
             : new SteamUiPatchOperationResult(false, result.Error ?? "Bridge resource remains present.");
     }
 
-    private static bool IsOne(JsonElement root, string property) =>
-        root.TryGetProperty(property, out var value)
-        && value.ValueKind == JsonValueKind.Number
-        && value.TryGetInt32(out var count)
-        && count == 1;
-
     // Live-probed 2026-08-28 against the current Windows Steam SharedJSContext:
     // each conjunction identifies exactly one module. Module ids are intentionally
     // not retained because they are build output, not compatibility evidence.
-    private const string ProbeExpression = """
-        (()=>{try{
-          let req;
-          window.webpackChunksteamui.push([["wsgm_qam_probe_"+Date.now()],{},r=>req=r]);
-          if(!req||!req.m)return JSON.stringify({error:'webpack unavailable'});
-          const count=(tokens)=>Object.values(req.m).reduce((n,f)=>{
-            const s=String(f);return n+(tokens.every(t=>s.includes(t))?1:0);},0);
+    private static string ProbeExpression => $$"""
+        {{SteamUiProbeJs.CountingPreamble("wsgm_qam_probe_")}}
           return JSON.stringify({
             tdpAvailability:count(['is_tdp_limit_available','steamos_tdp_limit_enabled','tdp_limit_min','tdp_limit_max']),
             tdpComponent:count(['#QuickAccess_Tab_Perf_TDPLimitEnabled','steamos_tdp_limit','showBookendLabels']),
             performanceActions:count(['SetFPSLimitEnabled','SetFPSLimit','SetPerfOverlayLevel','SteamClient.System.Perf']),
             profileProjection:count(['#PlatformPerformanceProfile_Label','steamos_platform_performance_profile','rgOptions'])
           });
-        }catch(e){return JSON.stringify({error:String(e)});}})()
+        }catch(error){return JSON.stringify({error:String(error)}); } })()
         """;
 }

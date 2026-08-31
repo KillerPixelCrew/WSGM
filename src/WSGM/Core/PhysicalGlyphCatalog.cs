@@ -5,13 +5,6 @@ using WSGM.Device.Sdk.Glyphs;
 
 namespace WSGM.Core;
 
-internal enum PhysicalGlyphSelectionMode
-{
-    Automatic,
-    NativeSteam,
-    ManualReviewed,
-}
-
 internal enum PhysicalGlyphFallbackReason
 {
     None,
@@ -92,7 +85,7 @@ internal sealed class PhysicalGlyphCatalog : IDisposable
 
     internal PhysicalGlyphSelectionResult SelectProfile(
         bool deviceIntegrationEnabled,
-        PhysicalGlyphSelectionMode selectionMode,
+        DeviceGlyphSelection selectionMode,
         string? manualProfileId)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -111,13 +104,13 @@ internal sealed class PhysicalGlyphCatalog : IDisposable
             {
                 return Fallback(PhysicalGlyphFallbackReason.DeviceIntegrationDisabled);
             }
-            if (selectionMode is PhysicalGlyphSelectionMode.NativeSteam)
+            if (selectionMode is DeviceGlyphSelection.NativeSteam)
             {
                 return Fallback(PhysicalGlyphFallbackReason.NativeSteamSelected);
             }
 
             bool missingManual = false;
-            if (selectionMode is PhysicalGlyphSelectionMode.ManualReviewed)
+            if (selectionMode is DeviceGlyphSelection.ManualReviewedProfile)
             {
                 if (manualProfileId is { Length: > 0 }
                     && activeDeviceId is { Length: > 0 }
@@ -143,12 +136,9 @@ internal sealed class PhysicalGlyphCatalog : IDisposable
                     missingManual);
             }
 
-            // Automatic selection is the package's own profile for the matched device. There used
-            // to be a separate "advertised profile id" parameter deciding this, which nothing ever
-            // supplied — its one call site passed null, so this branch returned ProfileMissing for
-            // every package and no artwork could be selected at all. Naming the device is the whole
-            // discriminator; a package wanting a different profile for the same device uses the
-            // manual selection above.
+            // Automatic selection is the package's own profile for the matched device. Naming the
+            // device is the whole discriminator; a package wanting a different profile for the same
+            // device uses the manual selection above.
             ImportedGlyphProfile? automatic = _profiles.Values
                 .Where(profile =>
                     profile.Manifest.ExactDeviceIds.Contains(activeDeviceId, StringComparer.Ordinal))

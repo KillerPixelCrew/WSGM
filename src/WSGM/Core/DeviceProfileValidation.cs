@@ -30,15 +30,8 @@ public enum DeviceProfileRejection
 /// Checks an authored profile against the descriptor the device publishes right now.
 /// </summary>
 /// <remarks>
-/// Authoring happens with no plugin running: <c>--settings</c> starts no device runtime, so a curve is
-/// built against whatever bounds were last known and the device may since have been updated,
-/// swapped, or downgraded. Applying one blindly would send the plugin a curve it refuses, and the
-/// user would see a profile that silently does nothing.
-/// <para>
-/// Pure and separate from the storage normalization, which can only check a profile's internal
-/// shape. This is the check that needs the live device, and it is the one that must run immediately
-/// before apply rather than at load.
-/// </para>
+/// Pure, and deliberately not redundant with storage normalization; why it runs immediately before
+/// apply is stated in <c>docs\device-integration.md</c> §Authored profiles.
 /// </remarks>
 public static class DeviceProfileValidation
 {

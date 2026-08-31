@@ -24,7 +24,7 @@ internal static partial class NativeShellProcess
     /// <returns>The values Windows exposed, including explicit unknown states.</returns>
     internal static NativeShellProcessInfo Inspect(uint processId)
     {
-        nint process = OpenProcess(ProcessQueryLimitedInformation, false, processId);
+        nint process = NativeMethods.OpenProcess(ProcessQueryLimitedInformation, false, processId);
         if (process == 0)
         {
             return NativeShellProcessInfo.Unavailable(processId, Marshal.GetLastPInvokeError());
@@ -52,7 +52,28 @@ internal static partial class NativeShellProcess
         }
         finally
         {
-            CloseHandle(process);
+            NativeMethods.CloseHandle(process);
+        }
+    }
+
+    /// <summary>Reads a process's full image path, opening it with the limited query right.
+    /// Null when the process cannot be opened or queried — ordinary for an elevated or
+    /// protected process. The one shared image-path primitive for every caller that only
+    /// needs the path, not the full inspection.</summary>
+    internal static string? TryGetImagePath(uint processId)
+    {
+        nint process = NativeMethods.OpenProcess(ProcessQueryLimitedInformation, false, processId);
+        if (process == 0)
+        {
+            return null;
+        }
+        try
+        {
+            return QueryImagePath(process, out _);
+        }
+        finally
+        {
+            NativeMethods.CloseHandle(process);
         }
     }
 
@@ -68,7 +89,7 @@ internal static partial class NativeShellProcess
         out int error)
     {
         parent = null;
-        nint process = OpenProcess(
+        nint process = NativeMethods.OpenProcess(
             ProcessCreateProcess | ProcessQueryLimitedInformation,
             false,
             processId);
@@ -78,10 +99,10 @@ internal static partial class NativeShellProcess
             return false;
         }
 
-        if (!OpenProcessToken(process, TokenQuery | TokenDuplicate, out nint token))
+        if (!NativeMethods.OpenProcessToken(process, TokenQuery | TokenDuplicate, out nint token))
         {
             error = Marshal.GetLastPInvokeError();
-            CloseHandle(process);
+            NativeMethods.CloseHandle(process);
             return false;
         }
 
@@ -188,7 +209,7 @@ internal static partial class NativeShellProcess
                     return false;
                 }
 
-                CloseHandle(processInformation.Thread);
+                NativeMethods.CloseHandle(processInformation.Thread);
                 process = new NativeShellChildProcess(
                     processInformation.ProcessId,
                     processInformation.Process);
@@ -216,7 +237,7 @@ internal static partial class NativeShellProcess
     {
         char[] buffer = new char[32768];
         uint length = checked((uint)buffer.Length);
-        if (QueryFullProcessImageNameW(process, 0, buffer, ref length))
+        if (NativeMethods.QueryFullProcessImageNameW(process, 0, buffer, ref length))
         {
             error = 0;
             return new string(buffer, 0, checked((int)length));
@@ -228,7 +249,7 @@ internal static partial class NativeShellProcess
 
     private static unsafe NativeIntegrityLevel QueryIntegrity(nint process, out int error)
     {
-        if (!OpenProcessToken(process, TokenQuery, out nint token))
+        if (!NativeMethods.OpenProcessToken(process, TokenQuery, out nint token))
         {
             error = Marshal.GetLastPInvokeError();
             return NativeIntegrityLevel.Unknown;
@@ -236,7 +257,7 @@ internal static partial class NativeShellProcess
 
         try
         {
-            _ = GetTokenInformation(token, TokenIntegrityLevel, 0, 0, out uint required);
+            _ = NativeMethods.GetTokenInformation(token, TokenIntegrityLevel, (nint)0, 0, out uint required);
             if (required < (uint)sizeof(nint))
             {
                 error = Marshal.GetLastPInvokeError();
@@ -252,7 +273,7 @@ internal static partial class NativeShellProcess
 
             try
             {
-                if (!GetTokenInformation(token, TokenIntegrityLevel, (nint)buffer, required, out _))
+                if (!NativeMethods.GetTokenInformation(token, TokenIntegrityLevel, (nint)buffer, required, out _))
                 {
                     error = Marshal.GetLastPInvokeError();
                     return NativeIntegrityLevel.Unknown;
@@ -290,7 +311,7 @@ internal static partial class NativeShellProcess
         }
         finally
         {
-            CloseHandle(token);
+            NativeMethods.CloseHandle(token);
         }
     }
 
@@ -334,25 +355,6 @@ internal static partial class NativeShellProcess
     }
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
-    private static partial nint OpenProcess(
-        uint desiredAccess,
-        [MarshalAs(UnmanagedType.Bool)] bool inheritHandle,
-        uint processId);
-
-    [LibraryImport("advapi32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool OpenProcessToken(nint process, uint desiredAccess, out nint token);
-
-    [LibraryImport("advapi32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool GetTokenInformation(
-        nint token,
-        int informationClass,
-        nint information,
-        uint informationLength,
-        out uint returnLength);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool ProcessIdToSessionId(uint processId, out uint sessionId);
 
@@ -362,14 +364,6 @@ internal static partial class NativeShellProcess
         nint process,
         nint job,
         [MarshalAs(UnmanagedType.Bool)] out bool result);
-
-    [LibraryImport("kernel32.dll", EntryPoint = "QueryFullProcessImageNameW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool QueryFullProcessImageNameW(
-        nint process,
-        uint flags,
-        [Out] char[] imagePath,
-        ref uint size);
 
     [LibraryImport("userenv.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -418,16 +412,9 @@ internal static partial class NativeShellProcess
         in StartupInfoEx startupInfo,
         out ProcessInformation processInformation);
 
-    [LibraryImport("kernel32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool CloseHandle(nint handle);
-
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool TerminateProcess(nint process, uint exitCode);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    internal static partial uint WaitForSingleObject(nint handle, uint milliseconds);
 
     /// <summary>Waits for one owned process handle without blocking the caller.</summary>
     internal static async Task<bool> WaitForExitAsync(
@@ -439,14 +426,14 @@ internal static partial class NativeShellProcess
             ? 0
             : checked((uint)Math.Min(timeout.TotalMilliseconds, uint.MaxValue - 1));
         uint result = await Task.Run(
-            () => WaitForSingleObject(processHandle, milliseconds),
+            () => NativeMethods.WaitForSingleObject(processHandle, milliseconds),
             cancellationToken).ConfigureAwait(false);
         return result == WaitObject0;
     }
 
     /// <summary>Gets whether an owned process handle has signaled.</summary>
     internal static bool HasExited(nint processHandle) =>
-        WaitForSingleObject(processHandle, 0) == WaitObject0;
+        NativeMethods.WaitForSingleObject(processHandle, 0) == WaitObject0;
 
     /// <summary>Queries whether a terminal-services session is currently active. Recovery callers
     /// use this after owner loss so logoff never causes a replacement desktop to be launched.</summary>
@@ -518,11 +505,7 @@ internal readonly record struct NativeShellProcessErrors(
     int Image,
     int Session,
     int Integrity,
-    int Job)
-{
-    /// <summary>Gets whether every query succeeded.</summary>
-    internal bool IsEmpty => Open == 0 && Image == 0 && Session == 0 && Integrity == 0 && Job == 0;
-}
+    int Job);
 
 /// <summary>Windows mandatory integrity classification.</summary>
 internal enum NativeIntegrityLevel

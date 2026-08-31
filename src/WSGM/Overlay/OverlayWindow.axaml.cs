@@ -317,7 +317,7 @@ public partial class OverlayWindow : Window
                 entry.Description,
                 entry.Count.ToString(CultureInfo.InvariantCulture),
                 CanInvoke: true,
-                DeviceStatusFor(entry.Status)));
+                entry.Status));
             DeviceOverlaySection section = entry.Section;
             row.Click += (_, _) => EnterDeviceSection(section);
             DeviceCapabilityList.Children.Add(row);
@@ -370,8 +370,8 @@ public partial class OverlayWindow : Window
                 autoTdp.Title,
                 autoTdp.Description,
                 autoTdp.TrailingText,
-                autoTdp.CanToggle,
-                DeviceStatusFor(autoTdp.Status)));
+                autoTdp.CanInvoke,
+                autoTdp.Status));
             row.Click += (_, _) => InvokeAutoTdpToggle();
             DeviceCapabilityList.Children.Add(row);
             if (string.Equals(autoTdpFocusKey, focusedKey, StringComparison.Ordinal))
@@ -391,8 +391,8 @@ public partial class OverlayWindow : Window
                 profile.Title,
                 profile.Description,
                 profile.TrailingText,
-                profile.CanCycle,
-                DeviceStatusFor(profile.Status)));
+                profile.CanInvoke,
+                profile.Status));
             row.Click += (_, _) => InvokeHardwareProfileCycle();
             DeviceCapabilityList.Children.Add(row);
             if (string.Equals(profileFocusKey, focusedKey, StringComparison.Ordinal))
@@ -413,8 +413,8 @@ public partial class OverlayWindow : Window
                 authored.Title,
                 authored.Description,
                 authored.TrailingText,
-                authored.CanCycle,
-                DeviceStatusFor(authored.Status)));
+                authored.CanInvoke,
+                authored.Status));
             authoredRow.Click += (_, _) => InvokeAuthoredProfileCycle();
             DeviceCapabilityList.Children.Add(authoredRow);
             if (string.Equals(authoredFocusKey, focusedKey, StringComparison.Ordinal))
@@ -435,8 +435,8 @@ public partial class OverlayWindow : Window
                 controller.Title,
                 controller.Description,
                 controller.TrailingText,
-                controller.CanCycle,
-                DeviceStatusFor(controller.Status)));
+                controller.CanInvoke,
+                controller.Status));
             row.Click += (_, _) => InvokeControllerTargetCycle();
             DeviceCapabilityList.Children.Add(row);
             if (string.Equals(controllerFocusKey, focusedKey, StringComparison.Ordinal))
@@ -457,7 +457,7 @@ public partial class OverlayWindow : Window
                 recovery.Description,
                 recovery.TrailingText,
                 true,
-                DeviceStatusFor(recovery.Status)));
+                recovery.Status));
             row.Click += (_, _) => InvokeDeviceCycleRetry();
             DeviceCapabilityList.Children.Add(row);
             if (string.Equals(recoveryFocusKey, focusedKey, StringComparison.Ordinal))
@@ -470,8 +470,8 @@ public partial class OverlayWindow : Window
         // here explicitly rather than arriving through the capability list.
         if (section is DeviceOverlaySection.Glyphs && snapshot.GlyphSelection is { } glyphSelection)
         {
-            const string glyphFocusKey = "device.glyph-selection";
-            DescriptorStatusRow button = CreateGlyphSelectionRow(glyphSelection, glyphFocusKey);
+            string glyphFocusKey = glyphSelection.Id;
+            DescriptorStatusRow button = CreateGlyphSelectionRow(glyphSelection);
             DeviceCapabilityList.Children.Add(button);
             if (string.Equals(glyphFocusKey, focusedKey, StringComparison.Ordinal))
             {
@@ -756,7 +756,7 @@ public partial class OverlayWindow : Window
             capability.Description,
             capability.TrailingText,
             capability.CanInvoke,
-            DeviceStatusFor(capability.Status)));
+            capability.Status));
         button.Click += async (_, _) =>
         {
             IDeviceOverlaySource? bridge = _deviceBridge;
@@ -788,18 +788,10 @@ public partial class OverlayWindow : Window
         return button;
     }
 
-    private DescriptorStatusRow CreateGlyphSelectionRow(
-        DeviceOverlayGlyphSelection glyphSelection,
-        string key)
+    private DescriptorStatusRow CreateGlyphSelectionRow(DescriptorRow glyphSelection)
     {
         DescriptorStatusRow button = new();
-        button.Apply(new DescriptorRow(
-            key,
-            glyphSelection.Title,
-            glyphSelection.Description,
-            glyphSelection.TrailingText,
-            glyphSelection.CanCycle,
-            DeviceStatusFor(glyphSelection.Status)));
+        button.Apply(glyphSelection);
         button.Click += async (_, _) =>
         {
             IDeviceOverlaySource? bridge = _deviceBridge;
@@ -824,7 +816,7 @@ public partial class OverlayWindow : Window
             {
                 if (!_closed)
                 {
-                    button.IsEnabled = glyphSelection.CanCycle;
+                    button.IsEnabled = glyphSelection.CanInvoke;
                 }
             }
         };
@@ -927,19 +919,6 @@ public partial class OverlayWindow : Window
         !_navigation.IsVisible(OverlayDestination.Device)
         || DeviceOverlaySectionPages.SectionFor(_navigation.Page)
             is DeviceOverlaySection.PowerAndThermals;
-
-    private static DescriptorStatus DeviceStatusFor(DeviceOverlayStatus status)
-        => status switch
-        {
-            DeviceOverlayStatus.Available => DescriptorStatus.Available,
-            DeviceOverlayStatus.Warning => DescriptorStatus.Warning,
-            DeviceOverlayStatus.Faulted => DescriptorStatus.Faulted,
-            DeviceOverlayStatus.Stale => DescriptorStatus.Stale,
-            DeviceOverlayStatus.ExternallyOwned => DescriptorStatus.ExternallyOwned,
-            DeviceOverlayStatus.Unsupported => DescriptorStatus.Unsupported,
-            DeviceOverlayStatus.Progress => DescriptorStatus.Progress,
-            _ => DescriptorStatus.None,
-        };
 
     private static string DeviceSectionLabel(DeviceOverlaySection section) => section switch
     {

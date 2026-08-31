@@ -58,13 +58,13 @@ public sealed class DeviceOverlaySectionPagesTests
     public void ASectionCardShowsTheMostSeriousStatusInside()
     {
         DeviceOverlaySnapshot snapshot = Snapshot(
-            Capability("ok", DeviceOverlaySection.PowerAndThermals, DeviceOverlayStatus.Available),
-            Capability("bad", DeviceOverlaySection.PowerAndThermals, DeviceOverlayStatus.Faulted),
-            Capability("warn", DeviceOverlaySection.PowerAndThermals, DeviceOverlayStatus.Warning));
+            Capability("ok", DeviceOverlaySection.PowerAndThermals, DescriptorStatus.Available),
+            Capability("bad", DeviceOverlaySection.PowerAndThermals, DescriptorStatus.Faulted),
+            Capability("warn", DeviceOverlaySection.PowerAndThermals, DescriptorStatus.Warning));
 
         // A fault must not hide behind a healthy row on a page the user has not opened.
         Assert.Equal(
-            DeviceOverlayStatus.Faulted,
+            DescriptorStatus.Faulted,
             Assert.Single(DeviceOverlaySectionPages.Build(snapshot)).Status);
     }
 
@@ -72,14 +72,14 @@ public sealed class DeviceOverlaySectionPagesTests
     public void SeverityOrderIsStable()
     {
         // Worst first. Each is more serious than everything after it, in both argument orders.
-        DeviceOverlayStatus[] descending =
+        DescriptorStatus[] descending =
         [
-            DeviceOverlayStatus.Faulted,
-            DeviceOverlayStatus.ExternallyOwned,
-            DeviceOverlayStatus.Warning,
-            DeviceOverlayStatus.Stale,
-            DeviceOverlayStatus.Unsupported,
-            DeviceOverlayStatus.Available,
+            DescriptorStatus.Faulted,
+            DescriptorStatus.ExternallyOwned,
+            DescriptorStatus.Warning,
+            DescriptorStatus.Stale,
+            DescriptorStatus.Unsupported,
+            DescriptorStatus.Available,
         ];
 
         for (int worse = 0; worse < descending.Length; worse++)
@@ -101,12 +101,13 @@ public sealed class DeviceOverlaySectionPagesTests
     {
         DeviceOverlaySnapshot snapshot = Snapshot() with
         {
-            GlyphSelection = new DeviceOverlayGlyphSelection(
-                DeviceOverlayStatus.Available,
+            GlyphSelection = new DescriptorRow(
+                "device.glyph-selection",
                 "Glyphs",
                 "Automatic",
                 "AUTO",
-                CanCycle: true),
+                CanInvoke: true,
+                DescriptorStatus.Available),
         };
 
         DeviceOverlaySectionEntry entry = Assert.Single(DeviceOverlaySectionPages.Build(snapshot));
@@ -177,6 +178,6 @@ public sealed class DeviceOverlaySectionPagesTests
     private static DeviceOverlayCapability Capability(
         string id,
         DeviceOverlaySection section,
-        DeviceOverlayStatus status = DeviceOverlayStatus.Available) =>
+        DescriptorStatus status = DescriptorStatus.Available) =>
         new(id, null, section, status, id, id, string.Empty, CanInvoke: true, NextValue: null);
 }

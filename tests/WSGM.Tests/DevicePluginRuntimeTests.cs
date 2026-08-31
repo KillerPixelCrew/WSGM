@@ -217,7 +217,6 @@ public sealed class DevicePluginRuntimeTests
         };
         return DevicePluginRuntime.StartAsync(
             package,
-            sessionId: 1,
             cycleGeneration,
             CancellationToken.None,
             temporary.GetPath("state"));

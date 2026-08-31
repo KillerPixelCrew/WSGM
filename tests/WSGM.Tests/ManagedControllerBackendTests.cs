@@ -1,3 +1,4 @@
+using WSGM.Core;
 using WSGM.Device.Sdk.Input;
 using WSGM.Input;
 
@@ -8,21 +9,21 @@ public sealed class ManagedControllerBackendTests
     [Fact]
     public async Task FakeBackendRequiresNeutralFirstStateAndOwnsOnlyOneTarget()
     {
-        DeterministicFakeHidBackend backend = new(VirtualTargetKind.Xbox360);
+        DeterministicFakeHidBackend backend = new(ManagedControllerTarget.Xbox360);
         CanonicalControllerSample neutral = CanonicalControllerSample.Neutral(
             0,
             7,
             DateTimeOffset.UtcNow);
 
         HidTargetHandle target = await backend.CreateTargetAsync(
-            VirtualTargetKind.Xbox360,
+            ManagedControllerTarget.Xbox360,
             neutral,
             CancellationToken.None);
 
         Assert.Equal(1, target.Generation);
         Assert.Contains("create:1:neutral", backend.Operations);
         await Assert.ThrowsAsync<InvalidOperationException>(() => backend.CreateTargetAsync(
-            VirtualTargetKind.Xbox360,
+            ManagedControllerTarget.Xbox360,
             neutral,
             CancellationToken.None));
         await backend.DisposeAsync();
@@ -35,7 +36,7 @@ public sealed class ManagedControllerBackendTests
         DeterministicFakeHapticSink sink = new(42);
         await using ManagedControllerRouter router = new(backend, sink);
         await router.CreateAsync(
-            VirtualTargetKind.Xbox360,
+            ManagedControllerTarget.Xbox360,
             42,
             CancellationToken.None);
         router.ActivateSource(42);
@@ -43,7 +44,7 @@ public sealed class ManagedControllerBackendTests
             CancellationToken.None));
 
         HidTargetHandle replacement = await router.ReplaceAsync(
-            VirtualTargetKind.DualShock4,
+            ManagedControllerTarget.DualShock4,
             43,
             CancellationToken.None);
 
@@ -64,7 +65,7 @@ public sealed class ManagedControllerBackendTests
         DeterministicFakeHapticSink sink = new(11);
         await using ManagedControllerRouter router = new(backend, sink);
         await router.CreateAsync(
-            VirtualTargetKind.SteamDeckComposite,
+            ManagedControllerTarget.SteamDeckComposite,
             11,
             CancellationToken.None);
         router.ActivateSource(11);
@@ -93,7 +94,7 @@ public sealed class ManagedControllerBackendTests
         });
         await using ManagedControllerRouter router = new(backend, sink);
         HidTargetHandle target = await router.CreateAsync(
-            VirtualTargetKind.Xbox360,
+            ManagedControllerTarget.Xbox360,
             5,
             CancellationToken.None);
 
@@ -128,7 +129,7 @@ public sealed class ManagedControllerBackendTests
         DeterministicFakeHapticSink sink = new(6);
         await using ManagedControllerRouter router = new(backend, sink);
         HidTargetHandle target = await router.CreateAsync(
-            VirtualTargetKind.Xbox360,
+            ManagedControllerTarget.Xbox360,
             6,
             CancellationToken.None);
         backend.EmitOutput(new()
@@ -150,7 +151,7 @@ public sealed class ManagedControllerBackendTests
         DeterministicFakeHapticSink sink = new(3);
         await using ManagedControllerRouter router = new(backend, sink);
         await router.CreateAsync(
-            VirtualTargetKind.DualShock4,
+            ManagedControllerTarget.DualShock4,
             3,
             CancellationToken.None);
 
@@ -270,15 +271,15 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
     private HidTargetHandle? _target;
     private bool _disposed;
 
-    internal DeterministicFakeHidBackend(params VirtualTargetKind[] supportedTargets)
+    internal DeterministicFakeHidBackend(params ManagedControllerTarget[] supportedTargets)
     {
-        IReadOnlyList<VirtualTargetKind> targets = supportedTargets.Length == 0
-            ? Enum.GetValues<VirtualTargetKind>()
+        IReadOnlyList<ManagedControllerTarget> targets = supportedTargets.Length == 0
+            ? Enum.GetValues<ManagedControllerTarget>()
             : supportedTargets.ToArray();
         Health = new(
             HidBackendHealthState.Ready,
             "Deterministic fake backend is ready.",
-            new(new Version(1, 0), targets, SupportsOutput: true));
+            new(targets));
     }
 
     public event EventHandler<HidTargetOutput>? OutputReceived;
@@ -333,7 +334,7 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
     }
 
     public Task<HidTargetHandle> CreateTargetAsync(
-        VirtualTargetKind kind,
+        ManagedControllerTarget kind,
         CanonicalControllerSample initialNeutralState,
         CancellationToken cancellationToken)
     {
@@ -368,7 +369,7 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
             }
 
             long generation = ++_nextGeneration;
-            _target = new(kind, generation, $"fake-target-{generation}");
+            _target = new(kind, generation);
             _operations.Add($"create:{generation}:neutral");
             _enumeration.Add(generation, NewCompletionSource(AutoEnumerate));
             _removal.Add(generation, NewCompletionSource(completed: false));
@@ -482,24 +483,6 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
         return completion.WaitAsync(cancellationToken);
     }
 
-    public Task<IReadOnlyDictionary<string, string>> GetDiagnosticsAsync(
-        CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        lock (_gate)
-        {
-            ThrowIfDisposed();
-            IReadOnlyDictionary<string, string> diagnostics = new Dictionary<string, string>
-            {
-                ["health"] = Health.State.ToString(),
-                ["target"] = _target?.InstanceId ?? "absent",
-                ["generation"] = (_target?.Generation ?? 0).ToString(
-                    System.Globalization.CultureInfo.InvariantCulture),
-            };
-            return Task.FromResult(diagnostics);
-        }
-    }
-
     internal void CompleteEnumeration(long generation, bool enumerated = true)
     {
         lock (_gate)
@@ -527,7 +510,7 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
         }
     }
 
-    internal void EmitOutput(HapticOutputFrame frame, VirtualTargetKind? sourceKind = null)
+    internal void EmitOutput(HapticOutputFrame frame, ManagedControllerTarget? sourceKind = null)
     {
         HidTargetOutput output;
         lock (_gate)

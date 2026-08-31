@@ -12,7 +12,6 @@ internal enum PhysicalGlyphSurface
 {
     DeviceDescription,
     NavigationHint,
-    SteamControllerRoute,
 }
 
 internal enum PhysicalGlyphTheme
@@ -48,9 +47,8 @@ internal sealed record PhysicalGlyphRenderPlan
 /// Bounded, path-free adapter from an imported physical profile to Avalonia-safe geometry plans.
 /// </summary>
 /// <remarks>
-/// Kept internal until the P8 Steam selector and coexistence gates authorize surface wiring. The
-/// service never opens a package file, parses SVG, or performs network work; it consumes only the
-/// normalized model returned by the SDK's bounded package loader.
+/// The service never opens a package file, parses SVG, or performs network work; it consumes only
+/// the normalized model returned by the SDK's bounded package loader.
 /// </remarks>
 internal sealed class PhysicalGlyphService : IDisposable
 {
@@ -60,16 +58,17 @@ internal sealed class PhysicalGlyphService : IDisposable
     private readonly object _gate = new();
     private readonly int _maximumCacheEntries;
     private readonly int _maximumCacheBytes;
-    private readonly PhysicalGlyphCatalog? _catalog;
+    private readonly PhysicalGlyphCatalog _catalog;
     private readonly Dictionary<RenderCacheKey, CacheEntry> _cache = [];
     private readonly LinkedList<RenderCacheKey> _lru = [];
     private int _cacheBytes;
 
     internal PhysicalGlyphService(
-        PhysicalGlyphCatalog? catalog = null,
+        PhysicalGlyphCatalog catalog,
         int maximumCacheEntries = DefaultMaximumCacheEntries,
         int maximumCacheBytes = DefaultMaximumCacheBytes)
     {
+        ArgumentNullException.ThrowIfNull(catalog);
         if (maximumCacheEntries <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(maximumCacheEntries));
@@ -82,10 +81,7 @@ internal sealed class PhysicalGlyphService : IDisposable
         _catalog = catalog;
         _maximumCacheEntries = maximumCacheEntries;
         _maximumCacheBytes = maximumCacheBytes;
-        if (_catalog is not null)
-        {
-            _catalog.Changed += ResetCache;
-        }
+        _catalog.Changed += ResetCache;
     }
 
     internal int CachedEntryCount
@@ -115,7 +111,6 @@ internal sealed class PhysicalGlyphService : IDisposable
         GlyphControlId requestedControl,
         PhysicalGlyphSurface surface,
         bool activeInputSourceIsManagedHandheld,
-        bool steamRouteSubjectIsHandheld,
         PhysicalGlyphTheme theme,
         double scale)
     {
@@ -129,7 +124,6 @@ internal sealed class PhysicalGlyphService : IDisposable
         {
             PhysicalGlyphSurface.DeviceDescription => true,
             PhysicalGlyphSurface.NavigationHint => activeInputSourceIsManagedHandheld,
-            PhysicalGlyphSurface.SteamControllerRoute => steamRouteSubjectIsHandheld,
             _ => false,
         };
         if (!authorized)
@@ -167,10 +161,7 @@ internal sealed class PhysicalGlyphService : IDisposable
 
     public void Dispose()
     {
-        if (_catalog is not null)
-        {
-            _catalog.Changed -= ResetCache;
-        }
+        _catalog.Changed -= ResetCache;
         ResetCache();
     }
 

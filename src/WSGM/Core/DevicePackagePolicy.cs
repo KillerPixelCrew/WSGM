@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Threading;
 using WSGM.Device.Sdk;
 using WSGM.Device.Sdk.Packaging;
 
@@ -72,37 +73,21 @@ internal sealed record DevicePackageDiscovery
     public string? Detail { get; init; }
 }
 
-/// <summary>The one protected package-slot root and current semantic API version.</summary>
-internal sealed record DevicePackageDiscoveryOptions
-{
-    /// <summary>Administrator-protected directory whose immediate children are package roots.</summary>
-    public required string PackageRoot { get; init; }
-
-    /// <summary>Current runtime semantic API version.</summary>
-    public int RuntimeApiVersion { get; init; } = DeviceApi.Version;
-
-    /// <summary>Builds production options without creating the package directory.</summary>
-    public static DevicePackageDiscoveryOptions Production() => new()
-    {
-        PackageRoot = DeviceInstallationPaths.InstalledPackageRoot,
-    };
-}
-
 /// <summary>Manifest-free cardinality plus sole-package validation for the protected slot.</summary>
 internal static class DevicePackagePolicy
 {
     private const string ManifestName = "plugin.wsgm.json";
-    private const int MaxMetadataBytes = 1024 * 1024;
-    private const int MaxPackageEntries = 1024;
-    private const int MaxPackageFiles = 512;
-    private const long MaxPackageFileBytes = 128L * 1024 * 1024;
-    private const long MaxPackageBytes = 512L * 1024 * 1024;
+    internal const int MaxMetadataBytes = 1024 * 1024;
+    internal const int MaxPackageEntries = 1024;
+    internal const int MaxPackageFiles = 512;
+    internal const long MaxPackageFileBytes = 128L * 1024 * 1024;
+    internal const long MaxPackageBytes = 512L * 1024 * 1024;
 
     /// <summary>
     /// Counts immediate package directories without reading a manifest or opening plugin files.
     /// </summary>
     /// <param name="packageRoot">The protected directory containing zero or one package directory.</param>
-    /// <param name="attributeReader">Optional exact attribute seam for isolated inspection tests.</param>
+    /// <param name="attributeReader">Attribute reader; defaults to the filesystem.</param>
     /// <returns>The absolute package paths and their hard cardinality.</returns>
     public static DevicePackageInventory Inventory(
         string packageRoot,
@@ -147,16 +132,16 @@ internal static class DevicePackagePolicy
     /// Validates the sole installed package. Multiple roots are all rejected without reading any
     /// manifest, and an empty slot returns no package.
     /// </summary>
-    /// <param name="options">Protected slot and runtime API options.</param>
-    /// <param name="attributeReader">Optional exact attribute seam for isolated inspection tests.</param>
+    /// <param name="packageRoot">Protected directory whose immediate children are package roots.</param>
+    /// <param name="attributeReader">Attribute reader; defaults to the filesystem.</param>
     /// <returns>The inventory and, only for a single root, its validated package.</returns>
     public static DevicePackageDiscovery Discover(
-        DevicePackageDiscoveryOptions options,
+        string packageRoot,
         Func<string, FileAttributes?>? attributeReader = null)
     {
-        ArgumentNullException.ThrowIfNull(options);
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageRoot);
         Func<string, FileAttributes?> readAttributes = attributeReader ?? ReadPathAttributes;
-        DevicePackageInventory inventory = Inventory(options.PackageRoot, readAttributes);
+        DevicePackageInventory inventory = Inventory(packageRoot, readAttributes);
         if (inventory.Cardinality is DevicePackageCardinality.Empty)
         {
             return new DevicePackageDiscovery { Inventory = inventory };
@@ -177,14 +162,12 @@ internal static class DevicePackagePolicy
             Inventory = inventory,
             InstalledPackage = ValidateInstalledPackage(
                 inventory.PackageRoots[0],
-                options,
                 readAttributes),
         };
     }
 
     private static InstalledDevicePackage ValidateInstalledPackage(
         string packagePath,
-        DevicePackageDiscoveryOptions options,
         Func<string, FileAttributes?> readAttributes)
     {
         try
@@ -220,7 +203,7 @@ internal static class DevicePackagePolicy
             }
 
             PluginManifest manifest = manifestRead.Manifest;
-            if (options.RuntimeApiVersion != manifest.ApiVersion)
+            if (DeviceApi.Version != manifest.ApiVersion)
             {
                 return Reject(
                     root,
@@ -297,13 +280,15 @@ internal static class DevicePackagePolicy
         }
     }
 
-    private static IReadOnlyList<string> EnumerateBoundedDirectory(
+    internal static IReadOnlyList<string> EnumerateBoundedDirectory(
         string directory,
-        int remainingEntries)
+        int remainingEntries,
+        CancellationToken cancellationToken = default)
     {
         List<string> entries = [];
         foreach (string entry in Directory.EnumerateFileSystemEntries(directory))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             entries.Add(entry);
             if (entries.Count > remainingEntries)
             {
@@ -325,6 +310,13 @@ internal static class DevicePackagePolicy
             FileShare.Read,
             bufferSize: 64 * 1024,
             FileOptions.SequentialScan);
+        return ReadAllBytesBounded(stream, maxBytes, description);
+    }
+
+    /// <summary>Reads a whole already-open stream, refusing one over the given bound.</summary>
+    /// <remarks>Stream-based so a caller holding a no-follow handle keeps its reparse safety.</remarks>
+    internal static byte[] ReadAllBytesBounded(FileStream stream, int maxBytes, string description)
+    {
         if (stream.Length > maxBytes)
         {
             throw new InvalidDataException($"{description} exceeds {maxBytes} bytes.");
@@ -335,11 +327,13 @@ internal static class DevicePackagePolicy
         return bytes;
     }
 
-    private static string Constrain(
+    /// <summary>Resolves a manifest-relative path while refusing escapes and reparse traversal.</summary>
+    internal static string Constrain(
         string root,
         string relativePath,
-        Func<string, FileAttributes?> readAttributes)
+        Func<string, FileAttributes?>? attributeReader = null)
     {
+        Func<string, FileAttributes?> readAttributes = attributeReader ?? ReadPathAttributes;
         if (string.IsNullOrWhiteSpace(relativePath) || Path.IsPathRooted(relativePath))
         {
             throw new InvalidDataException("Package paths must be relative.");
@@ -389,10 +383,10 @@ internal static class DevicePackagePolicy
         }
     }
 
-    private static string NormalizeDirectoryPath(string path) =>
+    internal static string NormalizeDirectoryPath(string path) =>
         Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
 
-    private static FileAttributes? ReadPathAttributes(string path)
+    internal static FileAttributes? ReadPathAttributes(string path)
     {
         try
         {

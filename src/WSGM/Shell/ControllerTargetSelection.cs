@@ -39,17 +39,8 @@ internal sealed record ControllerSelection(
     internal static ControllerSelection From(DeviceIntegrationConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
-        bool requested = config.Enabled && config.ControllerManagementEnabled;
-        bool enabled = requested && DeviceFeatureAvailability.ControllerManagement;
-
-        // Three distinct answers, not two. The detail has to say which of them applies, because
-        // "you turned it off" and "this build excludes it" are not the same problem and a user who
-        // reads the wrong one goes looking in the wrong place.
-        string detail = enabled
-            ? string.Empty
-            : requested
-                ? DeviceFeatureAvailability.ControllerManagementDetail
-                : "Controller management is off.";
+        bool enabled = config.Enabled && config.ControllerManagementEnabled;
+        string detail = enabled ? string.Empty : "Controller management is off.";
         return new(enabled, config.ControllerTarget, config.ControllerTargets, detail);
     }
 }
@@ -102,15 +93,4 @@ internal static class ControllerTargetSelection
 
         return new(globalDefault, ControllerTargetSource.GlobalDefault, null);
     }
-
-    /// <summary>Maps a stored target onto the backend's virtual-target vocabulary.</summary>
-    /// <param name="target">The stored target.</param>
-    /// <returns>The matching virtual target kind.</returns>
-    internal static Input.VirtualTargetKind ToVirtualTarget(ManagedControllerTarget target) =>
-        target switch
-        {
-            ManagedControllerTarget.Xbox360 => Input.VirtualTargetKind.Xbox360,
-            ManagedControllerTarget.DualShock4 => Input.VirtualTargetKind.DualShock4,
-            _ => Input.VirtualTargetKind.SteamDeckComposite,
-        };
 }

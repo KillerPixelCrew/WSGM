@@ -360,7 +360,7 @@ internal static class LaunchWrapperCommand
         {
             throw new ArgumentException("A helper path is required.", nameof(path));
         }
-        return $"\"{path}\"";
+        return SteamCustomLaunchCommand.Quote(path);
     }
 
     private static string FlagsFor(LaunchWrapperMode mode)

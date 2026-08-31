@@ -45,18 +45,12 @@ public sealed class OemActionPolicyTests
     [Fact]
     public void RearBinding_RequiresATargetThatExposesRearControls()
     {
-        bool available = OemActionRules.IsAvailable(
+        Assert.False(OemActionRules.IsAvailable(
             OemAction.VirtualTargetRearButton1,
-            targetHasRearButtons: false,
-            out CapabilityReason? reason);
-
-        Assert.False(available);
-        Assert.Equal(CapabilityReasonCode.Unsupported, reason!.Code);
+            targetHasRearButtons: false));
         Assert.True(OemActionRules.IsAvailable(
             OemAction.VirtualTargetRearButton1,
-            targetHasRearButtons: true,
-            out reason));
-        Assert.Null(reason);
+            targetHasRearButtons: true));
     }
 
     [Fact]

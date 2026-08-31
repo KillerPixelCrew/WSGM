@@ -6,15 +6,13 @@ real hardware or against a live Steam client, and changing it without re-verifyi
 waiting to happen.
 
 **Process modes** (`Program.DecideMode`): `--shell` / `--boot` (service-launched takeover) /
-`--settings` / `--overlay-test`; the legacy auto mode (shell iff registered as shell and no desktop
-alive) survives only for the migration window — new installs never register as shell, so no-args =
-settings. Shell mode: single-instance mutex `Local\WSGM.Shell` (held only in shell mode — the
-installer keys off it), crash-loop breaker (3 shell starts in 2 min → **disarm the service boot**:
-boot.json `GameModeBoot=false` + config flag off + legacy shell unregister + explorer if none),
-`Panic()` = legacy shell unregister (self-guarding no-op on service installs), destroy tray host,
-delegate recovery to the verified shell anchor when one exists, otherwise start explorer if none is
-running. The logon service's watchdog is the robust outer recovery layer; Panic is in-process best
-effort.
+`--settings` / `--overlay-test`; WSGM never registers as the Windows shell, so no-args = settings.
+Shell mode: single-instance mutex `Local\WSGM.Shell` (held only in shell mode — the installer keys
+off it), crash-loop breaker (3 shell starts in 2 min → **disarm the service boot**: boot.json
+`GameModeBoot=false` + config flag off + shell-snapshot restore + explorer if none), `Panic()` =
+shell-snapshot restore (self-guarding no-op), destroy tray host, delegate recovery to the verified
+shell anchor when one exists, otherwise start explorer if none is running. The logon service's
+watchdog is the robust outer recovery layer; Panic is in-process best effort.
 
 **Logon service + boot flow** (`src\WSGM.LogonService`, `Core\BootManifest.cs`,
 `Core\BootManifestWriter.cs`, `Shell\ExplorerReadiness.cs`): the SYSTEM service (raw SCM +

@@ -9,7 +9,6 @@ public sealed class CurveEditorTests
     private static CurveEditor Editor(params (int Input, int Output)[] points) =>
         new()
         {
-            CurveBounds = new CurveBounds(0, 100, 0, 100),
             Points = [.. points.Select(point => new CurvePoint(point.Input, point.Output))],
         };
 
@@ -49,11 +48,12 @@ public sealed class CurveEditorTests
     [Fact]
     public void AFullCurveDoesNotGrow()
     {
+        // 63 tightly packed points plus a far endpoint: the widest gap still has a
+        // midpoint, so the refusal below can only come from the point limit.
         CurveEditor editor = new()
         {
-            CurveBounds = new CurveBounds(0, 1000, 0, 100),
-            Points = [.. Enumerable.Range(0, CurveEditing.MaximumPoints)
-                .Select(index => new CurvePoint(index * 10, index))],
+            Points = [.. Enumerable.Range(0, CurveEditing.MaximumPoints - 1)
+                .Select(index => new CurvePoint(index, index)), new CurvePoint(100, 100)],
         };
 
         editor.AddPointAtWidestGap();

@@ -56,6 +56,21 @@ The shared performance contract already provides:
   seconds (two seconds by default), with cancellation and disposal; and
 - no dependency on the Device Integration master toggle.
 
+## WSGM starts RTSS
+
+WSGM depends on RTSS for the frame limit, the performance overlay and AutoTDP's frametimes, and on
+a handheld nobody wants to leave game mode to start a background service by hand. RTSS is normally
+launched by its own tray entry, which does not run before WSGM does on a service boot — so a
+machine that has RTSS installed and working still came up with performance controls unavailable,
+purely because of start order. `RtssLauncher` therefore starts it, under two rules:
+
+- Only ever the executable discovery already verified: registered under a protected install root,
+  signed, product name RTSS, version 7.3 or newer. It never resolves a path itself and never takes
+  one from configuration, so it cannot be pointed at another program.
+- One attempt per session. RTSS not appearing is a state worth reporting once, not something to
+  retry into: a second copy of a single-instance program is at best wasted and at worst the
+  "multiple processes match" case discovery already treats as degraded.
+
 ## Frametime-driven AutoTDP
 
 `RtssFrametimeReader` is the only thing WSGM takes from RTSS that the profile API cannot answer. It
@@ -90,9 +105,9 @@ read from an actually rendering game has not been performed yet**; RTSS only cre
 entry once a hooked 3D application draws, so that step needs a game running and remains attended.
 
 `AutoTdpController` holds the whole control policy and is pure: every input is an argument, every
-decision is a return value, and `AutoTdpReplay` runs a recorded trace through it with no device
-involved. That is the regression harness for this feature — an oscillation reported from a handheld
-is reproduced by replaying its trace. The policy itself:
+decision is a return value, and the `AutoTdpReplay` harness in `tests\WSGM.Tests` runs a recorded
+trace through it with no device involved. That is the regression harness for this feature — an
+oscillation reported from a handheld is reproduced by replaying its trace. The policy itself:
 
 - A window counts as a miss above 1.05x its deadline and as headroom at or below 0.92x. Zero
   tolerance would raise power on every healthy capped game, because a cap is enforced by sleeping.
@@ -106,8 +121,8 @@ is reproduced by replaying its trace. The policy itself:
   rather than driving power to maximum.
 - Every write is followed by two settling windows, missing telemetry resets the streaks rather than
   being read as comfort, and a context change discards the evidence gathered for the previous one.
-- A manual power change pauses control permanently until an explicit resume. Taking the limit back
-  from a user who just moved the slider is the most confusing thing this feature could do.
+- A manual power change pauses control until AutoTDP is switched off and on again. Taking the limit
+  back from a user who just moved the slider is the most confusing thing this feature could do.
 
 `AutoTdpService` is the binding and decides nothing: it picks the renderer matching the running
 application (declining rather than guessing when several render with no identity), finds the

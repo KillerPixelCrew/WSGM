@@ -56,21 +56,6 @@ internal sealed class PluginSettingsCoordinator : IDisposable
     private AppConfig? _config;
     private bool _disposed;
 
-    /// <summary>Raised whenever the declaration or the values in force change.</summary>
-    internal event Action<PluginSettingsView>? Changed;
-
-    /// <summary>Whether the active plugin declared any settings at all.</summary>
-    internal bool HasSettings
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return _manifest is { Settings.Count: > 0 };
-            }
-        }
-    }
-
     /// <summary>
     /// Begins tracking a plugin's settings for one cycle.
     /// </summary>
@@ -107,8 +92,6 @@ internal sealed class PluginSettingsCoordinator : IDisposable
         {
             DetachUnderGate();
         }
-
-        Changed?.Invoke(Empty);
     }
 
     /// <summary>Replaces the configuration used for stored values after a reload.</summary>
@@ -124,60 +107,6 @@ internal sealed class PluginSettingsCoordinator : IDisposable
         PublishAndPush();
     }
 
-    /// <summary>
-    /// Stores a new value for one declared setting and hands the plugin the updated set.
-    /// </summary>
-    /// <param name="settingId">The declared setting to change.</param>
-    /// <param name="value">The new value.</param>
-    /// <param name="cancellationToken">Cancels the exchange.</param>
-    /// <returns><see langword="true"/> when the value was accepted and stored.</returns>
-    /// <remarks>
-    /// Validated against the live declaration before it is stored, so a surface cannot persist a
-    /// value the plugin would refuse; the refusal is logged with the reason the descriptor gave.
-    /// </remarks>
-    internal async Task<bool> SetAsync(
-        string settingId,
-        CapabilityValue value,
-        CancellationToken cancellationToken
-    )
-    {
-        PluginSettingDescriptor? descriptor;
-        string device;
-        string plugin;
-        lock (_gate)
-        {
-            descriptor = _manifest?.Settings.FirstOrDefault(setting =>
-                string.Equals(setting.SettingId, settingId, StringComparison.Ordinal));
-            device = _deviceDefinitionId;
-            plugin = _pluginId;
-        }
-
-        if (descriptor is null)
-        {
-            Log.Warn($"Plugin setting '{settingId}' refused: not declared by the active plugin.");
-            return false;
-        }
-
-        if (!descriptor.TryValidateValue(value, out string? error))
-        {
-            Log.Warn($"Plugin setting '{settingId}' refused: {error}");
-            return false;
-        }
-
-        AppConfig persisted = await Task.Run(
-            () => ConfigStore.Mutate(config => Store(config, device, plugin, settingId, value)),
-            cancellationToken).ConfigureAwait(false);
-
-        lock (_gate)
-        {
-            _config = persisted;
-        }
-
-        Log.Info($"Plugin setting '{settingId}' stored for '{plugin}'.");
-        await PublishAndPushAsync(cancellationToken).ConfigureAwait(false);
-        return true;
-    }
-
     /// <inheritdoc />
     public void Dispose()
     {
@@ -191,41 +120,6 @@ internal sealed class PluginSettingsCoordinator : IDisposable
             _disposed = true;
             DetachUnderGate();
         }
-    }
-
-    private static void Store(
-        AppConfig config,
-        string device,
-        string plugin,
-        string settingId,
-        CapabilityValue value
-    )
-    {
-        List<PluginSettingsScope> scopes = config.DeviceIntegration.PluginSettings;
-        PluginSettingsScope? scope = scopes.FirstOrDefault(candidate =>
-            string.Equals(candidate.DeviceDefinitionId, device, StringComparison.Ordinal)
-            && string.Equals(candidate.PluginId, plugin, StringComparison.Ordinal));
-        if (scope is null)
-        {
-            scope = new PluginSettingsScope { DeviceDefinitionId = device, PluginId = plugin };
-            scopes.Add(scope);
-        }
-
-        PluginSettingValue? entry = scope.Values.FirstOrDefault(candidate =>
-            string.Equals(candidate.SettingId, settingId, StringComparison.Ordinal));
-        if (entry is null)
-        {
-            entry = new PluginSettingValue { SettingId = settingId };
-            scope.Values.Add(entry);
-        }
-
-        // Only the field matching the kind is written, and the others are cleared, so a setting
-        // whose kind changed cannot leave a stale value of the old shape behind it.
-        entry.Boolean = value.Kind is CapabilityValueKind.Boolean ? value.BooleanValue : null;
-        entry.Integer = value.Kind is CapabilityValueKind.Integer ? value.IntegerValue : null;
-        entry.Choice = value.Kind is CapabilityValueKind.Choice ? value.ChoiceValue : null;
-        entry.Color = value.Kind is CapabilityValueKind.Color ? value.ColorValue : null;
-        entry.Text = value.Kind is CapabilityValueKind.Text ? value.TextValue : null;
     }
 
     private void OnManifest(PluginSettingsManifest manifest)
@@ -319,7 +213,6 @@ internal sealed class PluginSettingsCoordinator : IDisposable
 
             if (manifest is null)
             {
-                Changed?.Invoke(Empty);
                 return;
             }
 
@@ -337,8 +230,6 @@ internal sealed class PluginSettingsCoordinator : IDisposable
                     "Plugin settings no longer declared: "
                     + string.Join(", ", resolution.Orphans));
             }
-
-            Changed?.Invoke(Project(manifest, resolution));
 
             if (client is null)
             {
@@ -475,8 +366,4 @@ internal sealed class PluginSettingsCoordinator : IDisposable
 
         _manifest = null;
     }
-
-    private static PluginSettingsView Empty => new(
-        [],
-        new Dictionary<string, IReadOnlyList<PluginSettingView>>(StringComparer.Ordinal));
 }

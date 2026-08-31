@@ -18,7 +18,7 @@
                         <ToggleSwitch Grid.Column="1" IsChecked="{Binding DeviceIntegrationEnabled}" VerticalAlignment="Center" />
                     </Grid>
                 </Border>
-                <Border Classes="setting-row" IsVisible="{Binding DeviceControllerManagementAvailable}">
+                <Border Classes="setting-row">
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                         <StackPanel VerticalAlignment="Center" Spacing="1">
                             <TextBlock Text="Controller management" Classes="setting-title" />
@@ -53,7 +53,7 @@
                 <Border Classes="section-header">
                     <TextBlock Text="POLICY" />
                 </Border>
-                <Border Classes="setting-row alt" IsVisible="{Binding DeviceControllerManagementAvailable}">
+                <Border Classes="setting-row alt">
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                         <TextBlock Text="Managed controller target" Classes="setting-title" VerticalAlignment="Center" />
                         <!-- The other two targets stay listed and disabled: the setting and the
@@ -77,18 +77,8 @@
                         </ComboBox>
                     </Grid>
                 </Border>
-                <Border Classes="setting-row">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <TextBlock Text="Device diagnostics" Classes="setting-title" VerticalAlignment="Center" />
-                        <ComboBox Grid.Column="1" Width="190" SelectedIndex="{Binding DeviceDiagnosticLevelIndex}">
-                            <ComboBoxItem Content="Minimal" />
-                            <ComboBoxItem Content="Standard" />
-                            <ComboBoxItem Content="Detailed" />
-                        </ComboBox>
-                    </Grid>
-                </Border>
                 <TextBlock Margin="10,10,10,0" Classes="caption" TextWrapping="Wrap"
-                           Text="Hardware controls and profiles live in the overlay's Device destination. Settings owns only startup, diagnostics, and top-level ownership policy." />
+                           Text="Hardware controls and profiles live in the overlay's Device destination. Settings owns only startup and top-level ownership policy." />
             </StackPanel>
         </Grid>
     </Border>

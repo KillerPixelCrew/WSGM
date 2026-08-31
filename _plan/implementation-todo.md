@@ -193,6 +193,75 @@ pinned submodule, so it can be versioned, consumed and reported against on its o
       backend, which should not arrive as a side effect of building the tab. And the attended
       device pass covering every asset change, which no automated gate can stand in for.
 
+## 2.0 full cleanup of `src\WSGM` - in progress
+
+Decision (2026-08-31): 2.0 ships from a `KillerPixelCrew` repository and recommends a full
+reinstall, so every upgrade/migration path for pre-2.0 state is removed with it. Nothing that works
+today may degrade; the goal is fewer files and lines with identical observable behavior. Baseline
+before this pass: ~91k lines / ~330 files under `src\WSGM` (61.5k code, 11.5k XML doc, 3.8k
+comment, 7.6k blank in `.cs`).
+
+Wave 1 (parallel, disjoint ownership; hub files edited only inside each concern):
+
+- [ ] **CEF/QAM.** Six gate patches become one data-driven `SteamGatePatch` plus declarations; ten
+      component-patch subclasses become rows; `SteamUiSessionHost` keeps session lifetime only and
+      each surface file owns its handlers/readers; `NativeQamCommandResult` becomes the toolkit
+      result; the three QAM service interfaces and their `Unavailable*` stand-ins collapse to a
+      nullable coordinator; `INativeQamAudioService` goes; `SteamCdp` gets one `Interpret`; the
+      unread frame-limit fields leave C# and TS; legacy Steam collection cleanup and
+      `CategoryTabs`/`CollectionId` retire; `verify-steam-assets.mjs` folds into `--check`.
+- [ ] **Device integration.** Delete `DeviceProfileStore`, the temporary-desired layer,
+      `PersistentEditTarget`, `PluginSettingsCoordinator` dead surface, `DeviceFeatureAvailability`,
+      `DeviceDiagnosticLevel`; collapse the three mirror enum pairs and six presentation records;
+      inline `CapabilityStateTracker` and freshness; one owner for the profile chain; merge the two
+      diagnostics files; share package helpers; drop dead parameters.
+- [ ] **Input/controllers.** Merge router replace/create and manager create/replace; one
+      stale-generation check; delete `VirtualTargetKind`, `Revision`, `ReconcileAsync`, write-only
+      state, `ChordTiming`; fold `CanonicalButtonSource`; Settings shares one SDL poller.
+- [ ] **Performance/display/power.** `PerformanceCommandState` helper; one DisplayConfig interop
+      file (`Interop\NativeDisplay.cs`) with `DisplayHdr` merged into `DisplayScale`;
+      `DisplayProfiles` enumerate/test/apply once; one refresh-rate cache; AutoTDP relay removed;
+      dead RTSS fields, `Resume`, `Invalidate`, `ReadVerticalRange`, `PolicyChanged`; `AutoTdpReplay`
+      to tests; explicit persistence targets and the `SavedDisplayScales` migration retire.
+- [x] **Radios/audio/storage.** Library enums instead of mirrors; `SteamLibraryVdf` dedupe; one
+      `libraryfolders.vdf` accessor on `Steam`; one mounted-volume walk in `NativeStorage`; marker
+      read once per format; `CardLibraryDecision`/`NativeDevicePath` co-located; audio state
+      writers go through `AudioManager` where the display-off contract allows. Left for the CEF
+      agent to adopt: `Steam.LibraryFoldersConfigPath`/`TryReadLibraryFolders`/`UserDataDirectory`,
+      `SteamLibraryVdf.ReadEntries`/`TryReadMarkerContentId`, and
+      `RemovableDriveManager.ClassifyDisk` + `NativeStorage.MountedVolumes` in
+      `LibraryTabManager`/`SteamArtwork`.
+- [ ] **Boot/shell/elevation/modes.** Dead `ShellRegistration.Install`, legacy auto-mode,
+      `LegacyPostureCleanup`, `--uninstall-app`/`--install`/`--pair-probe`, installer self-install
+      members, legacy lock-screen and registry-snapshot shapes; one process enumeration; one
+      `SelfElevation` runner; positional `UacState`; merged path-identity interop; duplicate
+      P/Invokes; game-mode surface creation once; transition rollback once; one-owner files folded.
+- [ ] **Settings/config.** Splash bound directly to `SplashConfig`; `DisplayProfileRow` gone;
+      execute-only `RelayCommand`; recorders back in the window; page table; one enum-default table
+      in `ConfigStore`; `Load` over `LoadForMutation`; legacy config fields deleted; unused theme
+      keys; test-only helpers out of production.
+
+Wave 2: overlay - one taskbar child window with three panels, sub-view table, `ArtworkView` on
+`OverlaySubView`, shared window helpers, table-driven device rows, `GlyphIcon` as geometry,
+`IPerformanceOverlaySource` gone, theme includes once.
+
+- [ ] **Overlay/UI.**
+
+Wave 3: visibility and documentation - types `internal` unless a contract needs `public`; XML docs
+state contract, ownership, lifetime, side effects and failure behavior only; chronology, review
+narration and duplicated topic-doc prose deleted; `AGENTS.md` rule updated to match.
+
+- [ ] **Visibility/docs pass.**
+- [ ] **Docs and trackers** reflect the new shapes (`docs\*.md`, per-folder `AGENTS.md`,
+      `overlay-and-input.md` invariant numbering, `Source\README.md`).
+- [ ] **Gates:** `dotnet build`, `dotnet test`, `npm run steam-assets:build`, `./eng/verify.ps1 -Fix`
+      green; line/file delta recorded here.
+
+Noted, not changed (product calls, kept working as-is): the five desired-state layers and OEM
+assignments have no UI writer (config-only); `ManualReviewedProfile` has no profile picker; the
+SDL/managed trigger thresholds differ (0.24 vs 0.5); `VolumeButtonService` writes Core Audio
+directly so the taskbar slider lags the OSD by one poll.
+
 ## Verification for this milestone
 
 - [x] `./eng/verify.ps1 -Fix`: formatting and repository invariants passed; Steam UI asset reproduced

@@ -60,47 +60,6 @@ internal static class EdidModes
         return [.. rates];
     }
 
-    /// <summary>
-    /// The adaptive-sync range a panel declares, when it declares one.
-    /// </summary>
-    /// <param name="edid">A complete EDID base block, or more.</param>
-    /// <returns>The inclusive vertical range in Hz, or null when no range descriptor is present.</returns>
-    /// <remarks>
-    /// This is what makes synthesized modes work at all: a driver will accept a rate the panel never
-    /// advertised as long as it falls inside this range. A panel with no range descriptor is the
-    /// case where `FrameDoubling` collapses to `NativeModes` in practice.
-    /// </remarks>
-    internal static (int MinimumHz, int MaximumHz)? ReadVerticalRange(byte[]? edid)
-    {
-        if (edid is null || edid.Length < BlockLength || !HasValidHeader(edid))
-        {
-            return null;
-        }
-
-        for (int index = 0; index < DescriptorCount; index++)
-        {
-            int offset = FirstDescriptor + (index * DescriptorLength);
-
-            // A descriptor with a zero pixel clock is a text descriptor; byte 3 names which kind,
-            // and 0xFD is the display range limits.
-            if (edid[offset] != 0 || edid[offset + 1] != 0 || edid[offset + 3] != 0xFD)
-            {
-                continue;
-            }
-
-            int minimum = edid[offset + 5];
-            int maximum = edid[offset + 6];
-            if (minimum is 0 || maximum <= minimum)
-            {
-                continue;
-            }
-
-            return (minimum, maximum);
-        }
-
-        return null;
-    }
-
     private static bool HasValidHeader(byte[] edid) =>
         edid[0] == 0x00
         && edid[1] == 0xFF

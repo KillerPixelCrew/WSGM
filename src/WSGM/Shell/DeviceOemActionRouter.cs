@@ -4,7 +4,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
-using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Input;
 
 namespace WSGM.Shell;
@@ -41,22 +40,8 @@ internal static class OemActionRules
         is OemAction.VirtualTargetRearButton1
         or OemAction.VirtualTargetRearButton2;
 
-    internal static bool IsAvailable(
-        OemAction action,
-        bool targetHasRearButtons,
-        out CapabilityReason? reason)
-    {
-        if (IsVirtualTargetButton(action) && !targetHasRearButtons)
-        {
-            reason = new CapabilityReason(
-                CapabilityReasonCode.Unsupported,
-                "The selected virtual controller target has no rear controls.");
-            return false;
-        }
-
-        reason = null;
-        return true;
-    }
+    internal static bool IsAvailable(OemAction action, bool targetHasRearButtons) =>
+        !IsVirtualTargetButton(action) || targetHasRearButtons;
 }
 
 /// <summary>Maps canonical OEM events to the closed WSGM-owned action vocabulary.</summary>
@@ -157,21 +142,21 @@ internal sealed class DeviceOemActionRouter : IDisposable
         _lifetime.Dispose();
     }
 
-    private void OnControls(DeviceOemControls notification)
+    private void OnControls(IReadOnlyList<OemControlDescriptor> controls)
     {
         lock (_gate)
         {
-            if (notification.Controls.Count > MaxControls
-                || notification.Controls.Any(control => !ValidControl(control))
-                || notification.Controls.Select(control => control.ControlId)
-                    .Distinct(StringComparer.Ordinal).Count() != notification.Controls.Count)
+            if (controls.Count > MaxControls
+                || controls.Any(control => !ValidControl(control))
+                || controls.Select(control => control.ControlId)
+                    .Distinct(StringComparer.Ordinal).Count() != controls.Count)
             {
                 Log.Warn("Device OEM control set rejected as malformed or duplicated.");
                 return;
             }
 
             _controls.Clear();
-            foreach (OemControlDescriptor control in notification.Controls)
+            foreach (OemControlDescriptor control in controls)
             {
                 _controls.Add(control.ControlId, control);
             }
@@ -216,7 +201,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
 
             action = ResolveActionUnderGate(control);
             if (!OemActionRules.IsAssignable(action, control.Placement)
-                || !OemActionRules.IsAvailable(action, _targetHasRearButtons, out _)
+                || !OemActionRules.IsAvailable(action, _targetHasRearButtons)
                 || control.RequiresControllerAcquisition && !_controllerManagementEnabled)
             {
                 Log.Warn($"Device OEM action unavailable: control={control.ControlId}, action={action}.");
@@ -346,9 +331,6 @@ internal sealed class DeviceOemActionRouter : IDisposable
     }
 
     private static bool ValidControl(OemControlDescriptor control) =>
-        !string.IsNullOrWhiteSpace(control.ControlId)
-        && control.ControlId.Length <= 64
-        && control.ControlId.All(character => char.IsAsciiLetterOrDigit(character)
-            || character is '.' or '-' or '_')
+        DeviceIdentifier.IsValid(control.ControlId, 64)
         && control.Display.TryValidate(out _);
 }

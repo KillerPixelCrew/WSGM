@@ -44,16 +44,14 @@ public sealed class DevicePlatformPolicyTests
             ApplicationOverrides = [new DeviceApplicationDesiredValue { ApplicationId = "game", Value = Value(18) }],
         };
 
-        Assert.Equal(20, DeviceDesiredStateResolver.Resolve(
-            preference, true, "balanced", "game", Value(20)).Value?.IntegerValue);
         Assert.Equal(18, DeviceDesiredStateResolver.Resolve(
-            preference, true, "balanced", "game", null).Value?.IntegerValue);
+            preference, true, "balanced", "game").Value?.IntegerValue);
         Assert.Equal(15, DeviceDesiredStateResolver.Resolve(
-            preference, true, "balanced", null, null).Value?.IntegerValue);
+            preference, true, "balanced", null).Value?.IntegerValue);
         Assert.Equal(12, DeviceDesiredStateResolver.Resolve(
-            preference, true, null, null, null).Value?.IntegerValue);
+            preference, true, null, null).Value?.IntegerValue);
         Assert.Equal(10, DeviceDesiredStateResolver.Resolve(
-            preference, false, null, null, null).Value?.IntegerValue);
+            preference, false, null, null).Value?.IntegerValue);
     }
 
     [Fact]

@@ -324,7 +324,6 @@ internal static partial class NativeMethods
     internal static partial bool IsIconic(nint hWnd);
 
     internal const int SwRestore = 9;
-    internal const int SwShowMaximized = 3;
 
     // ---- Touch-synthesized mouse message detection (overlay ghost-click eater) ----
     internal const uint WmMouseMove = 0x0200;
@@ -365,7 +364,6 @@ internal static partial class NativeMethods
     // ---- Notification suitability (volume OSD) ----
     internal const int QunsNotPresent = 1;
     internal const int QunsRunningD3dFullScreen = 3;
-    internal const int QunsAcceptsNotifications = 5;
 
     [LibraryImport("shell32.dll")]
     internal static partial int SHQueryUserNotificationState(out int state);
@@ -436,6 +434,11 @@ internal static partial class NativeMethods
     [LibraryImport("advapi32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool GetTokenInformation(nint tokenHandle, int tokenInformationClass, out uint tokenInformation, uint tokenInformationLength, out uint returnLength);
+
+    /// <summary>Buffer-based overload for variable-length token classes (integrity SID).</summary>
+    [LibraryImport("advapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetTokenInformation(nint tokenHandle, int tokenInformationClass, nint tokenInformation, uint tokenInformationLength, out uint returnLength);
 
     [LibraryImport("kernel32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

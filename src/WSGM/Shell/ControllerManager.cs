@@ -74,11 +74,9 @@ internal sealed class ControllerManager : IAsyncDisposable
 
     /// <summary>Serializes routing a sample against the neutralizations that must precede it.</summary>
     /// <remarks>
-    /// A lock cannot do this: the publication it protects is asynchronous. Deciding a sample's
-    /// route under <see cref="_stateGate"/> and then publishing outside it let a capture claim
-    /// neutralize the target in between, so the neutral packet was written first and the stale live
-    /// sample landed on top of it — and every later sample went to the UI, leaving the game holding
-    /// that control until capture was released.
+    /// A lock cannot do this: the publication it protects is asynchronous, and a route decided
+    /// under <see cref="_stateGate"/> but published outside it can land a stale live sample on top
+    /// of the neutral packet a capture claim just wrote.
     /// </remarks>
     private readonly SemaphoreSlim _routeGate = new(1, 1);
 
@@ -122,9 +120,8 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// <summary>Reports the projection change a lost target must produce.</summary>
     /// <param name="detail">Why the router faulted.</param>
     /// <remarks>
-    /// Without this the manager kept reporting Active after the backend stopped accepting frames,
-    /// so WSGM's own surfaces stayed on a managed source that had gone silent and the overlay said
-    /// controller management was working.
+    /// The manager must stop reporting Active once the backend stops accepting frames, or WSGM's
+    /// surfaces stay on a managed source that has gone silent.
     /// </remarks>
     private void OnRouterTargetFaulted(string detail)
     {
@@ -233,23 +230,16 @@ internal sealed class ControllerManager : IAsyncDisposable
                 return SetState(ControllerManagementState.Unavailable, health.Detail);
             }
 
-            // What the backend on this machine can actually create, in the vocabulary the settings
-            // use. The surfaces offer these and nothing else: choosing an advertised target the
-            // backend has no encoder for removed the managed target and left controller management
-            // Unavailable, which reads as a broken feature rather than an unimplemented one.
-            _supportedTargets =
-            [
-                .. Enum.GetValues<ManagedControllerTarget>()
-                    .Where(candidate => health.Capabilities.SupportedTargets.Contains(
-                        ControllerTargetSelection.ToVirtualTarget(candidate))),
-            ];
+            // What the backend on this machine can actually create: the surfaces offer these and
+            // nothing else, because an advertised target the backend has no encoder for reads as a
+            // broken feature rather than an unimplemented one.
+            _supportedTargets = [.. health.Capabilities.SupportedTargets];
 
             ResolvedControllerTarget resolved = ControllerTargetSelection.Resolve(
                 selection.GlobalDefault,
                 selection.Overrides,
                 applicationId);
-            if (!health.Capabilities.SupportedTargets.Contains(
-                ControllerTargetSelection.ToVirtualTarget(resolved.Target)))
+            if (!health.Capabilities.SupportedTargets.Contains(resolved.Target))
             {
                 return SetState(
                     ControllerManagementState.Unavailable,
@@ -257,10 +247,8 @@ internal sealed class ControllerManager : IAsyncDisposable
             }
 
             HidHideActivationResult hidHide = await _hidHide.StartAsync(
-                controllerManagementEnabled: true,
                 _controllerReaderApplication,
                 physicalDevices,
-                sourceGeneration,
                 cancellationToken).ConfigureAwait(false);
             if (!hidHide.Activated)
             {
@@ -269,16 +257,10 @@ internal sealed class ControllerManager : IAsyncDisposable
 
             try
             {
-                if (_router.Target is null)
-                {
-                    await CreateTargetUnderGateAsync(resolved, cancellationToken)
-                        .ConfigureAwait(false);
-                }
-                else
-                {
-                    await ReplaceTargetUnderGateAsync(resolved, cancellationToken)
-                        .ConfigureAwait(false);
-                }
+                await ApplyTargetUnderGateAsync(
+                    resolved,
+                    replace: _router.Target is not null,
+                    cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -478,14 +460,8 @@ internal sealed class ControllerManager : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(sample);
-        long generation = Interlocked.Read(ref _sourceGeneration);
-        if (sample.CycleGeneration != generation)
-        {
-            Log.Change(
-                "controller-stale-routed-sample",
-                $"Controller route refused a stale sample: sampleGeneration={sample.CycleGeneration}, activeGeneration={generation}.");
-            return false;
-        }
+        // Stale generations are refused at admission (Submit) and re-checked by the router's sample
+        // validator, which covers the generation changes ActivateSource can make mid-flight.
 
         // Raised before any routing decision and deliberately unfiltered, because this is what the
         // plugin reported. The filtered stream that follows is what the UI may act on; a diagnostic
@@ -793,10 +769,9 @@ internal sealed class ControllerManager : IAsyncDisposable
             _pendingSample = null;
         }
 
-        // Admission closes before the target is quietened, not after. With ordinary routing still
-        // permitted, a sample arriving once the router reached Neutral re-activated the source and
-        // published a non-neutral report, and the handoff then continued as though the target were
-        // quiet — so a slow or failed release could leave input held.
+        // Admission closes before the target is quietened, not after: a sample arriving once the
+        // router reaches Neutral would re-activate the source and publish a non-neutral report
+        // behind the handoff's back.
         bool neutralized = false;
         await _routeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -844,11 +819,10 @@ internal sealed class ControllerManager : IAsyncDisposable
             Log.Warn($"Controller make-safe could not verify target removal: {ex.Message}");
         }
 
-        // The sequence continues even when removal was unverified: leaving WSGM's HidHide entries
-        // behind would hide the physical controller from every application with nothing driving it,
-        // which is a worse outcome than an unverified removal. What it must not do is *claim* the
-        // removal — a virtual controller still enumerated beside the newly exposed physical one is
-        // duplicate input, and reporting ReleasedVerified for it makes that undiagnosable.
+        // The sequence continues even when removal was unverified — leaving WSGM's HidHide entries
+        // behind would hide the physical controller with nothing driving it — but it must not
+        // *claim* the removal: a virtual controller still enumerated beside the newly exposed
+        // physical one is duplicate input, and ReleasedVerified would make that undiagnosable.
         sequence.RecordTargetRemoved(targetRemoved);
         sequence.RecordHidHideRemoved(
             await CleanupHidHideUnderGateAsync(cancellationToken).ConfigureAwait(false));
@@ -916,7 +890,8 @@ internal sealed class ControllerManager : IAsyncDisposable
         {
             // Replacement is one operation on purpose: the old target is neutralized and removed
             // before the new one is created, so no window exists in which both are enumerated.
-            await ReplaceTargetUnderGateAsync(resolved, cancellationToken).ConfigureAwait(false);
+            await ApplyTargetUnderGateAsync(resolved, replace: true, cancellationToken)
+                .ConfigureAwait(false);
             return SetState(
                 ControllerManagementState.Active,
                 $"Managed target {resolved.Target} is active ({resolved.Source}).");
@@ -929,17 +904,27 @@ internal sealed class ControllerManager : IAsyncDisposable
         }
     }
 
-    private async Task CreateTargetUnderGateAsync(
+    private async Task ApplyTargetUnderGateAsync(
         ResolvedControllerTarget resolved,
+        bool replace,
         CancellationToken cancellationToken)
     {
         await _routeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            HidTargetHandle target = await _router.CreateAsync(
-                ControllerTargetSelection.ToVirtualTarget(resolved.Target),
-                _sourceGeneration,
-                cancellationToken).ConfigureAwait(false);
+            if (replace)
+            {
+                lock (_stateGate)
+                {
+                    _forwardingBlocked = true;
+                }
+            }
+
+            HidTargetHandle target = replace
+                ? await _router.ReplaceAsync(resolved.Target, _sourceGeneration, cancellationToken)
+                    .ConfigureAwait(false)
+                : await _router.CreateAsync(resolved.Target, _sourceGeneration, cancellationToken)
+                    .ConfigureAwait(false);
             _effective = resolved;
             bool captured;
             lock (_stateGate)
@@ -958,53 +943,11 @@ internal sealed class ControllerManager : IAsyncDisposable
                 _router.ActivateSource(_sourceGeneration);
             }
 
-            Log.Info(
-                $"Managed controller target created: {resolved.Target} ({resolved.Source}), "
-                + $"generation={target.Generation}, devices={_physicalDevices.Count}.");
-        }
-        finally
-        {
-            _routeGate.Release();
-        }
-    }
-
-    private async Task ReplaceTargetUnderGateAsync(
-        ResolvedControllerTarget resolved,
-        CancellationToken cancellationToken)
-    {
-        await _routeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            lock (_stateGate)
-            {
-                _forwardingBlocked = true;
-            }
-
-            HidTargetHandle target = await _router.ReplaceAsync(
-                ControllerTargetSelection.ToVirtualTarget(resolved.Target),
-                _sourceGeneration,
-                cancellationToken).ConfigureAwait(false);
-            _effective = resolved;
-            bool captured;
-            lock (_stateGate)
-            {
-                _forwardingBlocked = false;
-                captured = _uiCapture.IsCaptured;
-            }
-
-            if (captured)
-            {
-                await _router.NeutralizeAsync("ui-capture", cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            else
-            {
-                _router.ActivateSource(_sourceGeneration);
-            }
-
-            Log.Info(
-                $"Managed controller target replaced: {resolved.Target} ({resolved.Source}), "
-                + $"generation={target.Generation}.");
+            Log.Info(replace
+                ? $"Managed controller target replaced: {resolved.Target} ({resolved.Source}), "
+                    + $"generation={target.Generation}."
+                : $"Managed controller target created: {resolved.Target} ({resolved.Source}), "
+                    + $"generation={target.Generation}, devices={_physicalDevices.Count}.");
         }
         finally
         {
@@ -1025,5 +968,77 @@ internal sealed class ControllerManager : IAsyncDisposable
         StatusChanged?.Invoke(status);
         return status;
     }
+}
 
+/// <summary>Reference-counted controller capture for WSGM's visible surfaces.</summary>
+internal sealed class UiCaptureState
+{
+    private readonly HashSet<string> _surfaces = new(StringComparer.Ordinal);
+    private CanonicalButtons _suppressedForUi;
+    private CanonicalButtons _withheldFromGame;
+
+    /// <summary>Whether any WSGM surface currently holds capture.</summary>
+    internal bool IsCaptured => _surfaces.Count > 0;
+
+    /// <summary>Claims capture and remembers controls held before the first surface opened.</summary>
+    /// <returns><see langword="true"/> when this claim started capture.</returns>
+    internal bool Claim(string surfaceId, CanonicalButtons heldAtOpen)
+    {
+        bool wasCaptured = IsCaptured;
+        if (!_surfaces.Add(surfaceId))
+        {
+            Log.Change(
+                $"ui-capture.{surfaceId}",
+                $"Managed UI capture claim ignored: surface={surfaceId}, reason=already-claimed.");
+            return false;
+        }
+
+        if (!wasCaptured)
+        {
+            _suppressedForUi = heldAtOpen;
+            _withheldFromGame = heldAtOpen;
+        }
+
+        return !wasCaptured;
+    }
+
+    /// <summary>Releases a claim and reports whether the last known surface closed.</summary>
+    internal bool Release(string surfaceId)
+    {
+        if (!_surfaces.Remove(surfaceId))
+        {
+            Log.Change(
+                $"ui-capture.{surfaceId}",
+                $"Managed UI capture release ignored: surface={surfaceId}, reason=not-claimed.");
+            return false;
+        }
+
+        return !IsCaptured;
+    }
+
+    /// <summary>Removes buttons still held from before capture began.</summary>
+    internal CanonicalButtons FilterForUi(CanonicalButtons buttons)
+    {
+        _suppressedForUi &= buttons;
+        if (IsCaptured)
+        {
+            // Keep the most recent physical state. When the last surface closes, every control the
+            // UI was still using must be observed up before the same state can reach the game.
+            _withheldFromGame = buttons;
+        }
+
+        return buttons & ~_suppressedForUi;
+    }
+
+    /// <summary>Reports whether forwarding can resume without inventing a press edge.</summary>
+    internal bool CanResumeForwarding(CanonicalButtons buttons)
+    {
+        if (IsCaptured)
+        {
+            return false;
+        }
+
+        _withheldFromGame &= buttons;
+        return _withheldFromGame == CanonicalButtons.None;
+    }
 }

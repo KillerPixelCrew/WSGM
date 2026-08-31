@@ -8,7 +8,7 @@ public sealed class DeviceCapabilityRouterTests
     [Fact]
     public async Task DisconnectedRouterRejectsACommandWithAnActionableReason()
     {
-        await using DeviceCapabilityRouter router = new(cycleGeneration: 7, action => action());
+        await using DeviceCapabilityRouter router = new(action => action());
 
         CapabilityCommandResult result = await router.ExecuteAsync(
             "power.sustained",
@@ -25,15 +25,14 @@ public sealed class DeviceCapabilityRouterTests
     public async Task OnlyTheNewestPostedSnapshotCanReachTheUi()
     {
         List<Action> posted = [];
-        await using DeviceCapabilityRouter router = new(cycleGeneration: 7, posted.Add);
+        await using DeviceCapabilityRouter router = new(posted.Add);
         var notifications = 0;
         router.Changed += _ => notifications++;
 
-        router.SetTemporaryDesired(
-            "power.sustained",
-            instanceId: null,
-            new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = 18 });
-        router.ClearTemporaryDesired();
+        // Any two publications in a row will do; the point is that the older posted action
+        // is superseded and must not raise Changed when it finally runs on the UI thread.
+        router.UpdateDesiredContext(null, onAcPower: true, hardwareProfileId: null, applicationId: null);
+        router.UpdateDesiredContext(null, onAcPower: false, hardwareProfileId: null, applicationId: null);
 
         Assert.Equal(2, posted.Count);
         posted[0]();
@@ -45,7 +44,7 @@ public sealed class DeviceCapabilityRouterTests
     [Fact]
     public async Task DisposalClosesCommandAdmissionWithoutDisposingAnOwnedGate()
     {
-        DeviceCapabilityRouter router = new(cycleGeneration: 7, action => action());
+        DeviceCapabilityRouter router = new(action => action());
         await router.DisposeAsync();
 
         await Assert.ThrowsAsync<ObjectDisposedException>(() => router.ExecuteAsync(

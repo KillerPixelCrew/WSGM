@@ -6,14 +6,6 @@ namespace WSGM.Tests;
 public sealed class SessionModesTests
 {
     [Fact]
-    public void PreviewConstructor_DisablesLiveShellTransitions()
-    {
-        var modes = new SessionModes(new AppConfig(), monitor: null);
-
-        Assert.True(modes.IsPreviewOnly);
-    }
-
-    [Fact]
     public void PreviewTransitionRequests_AreInert()
     {
         var modes = new SessionModes(new AppConfig(), monitor: null);

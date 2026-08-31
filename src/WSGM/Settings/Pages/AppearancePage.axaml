@@ -60,26 +60,26 @@
                              (Core\ConfigStore): the splash title and caption are one
                              unwrapped line each, so the editor must not be able to
                              create a value that a later load would truncate. -->
-                        <TextBox Grid.Column="1" Width="170" Text="{Binding SplashText}" MaxLength="200"
+                        <TextBox Grid.Column="1" Width="170" Text="{Binding Splash.Text}" MaxLength="200"
                                  VerticalAlignment="Center" />
-                        <ToggleSwitch Grid.Column="2" IsChecked="{Binding SplashTextEnabled}" VerticalAlignment="Center"
+                        <ToggleSwitch Grid.Column="2" IsChecked="{Binding Splash.TextEnabled}" VerticalAlignment="Center"
                                       ToolTip.Tip="Show the text block (title and caption)" />
                     </Grid>
                 </Border>
                 <Border Classes="setting-row alt">
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                         <TextBlock Text="Caption" Classes="setting-title" VerticalAlignment="Center" />
-                        <TextBox Grid.Column="1" Width="170" Text="{Binding SplashCaption}" MaxLength="200"
+                        <TextBox Grid.Column="1" Width="170" Text="{Binding Splash.Caption}" MaxLength="200"
                                  VerticalAlignment="Center" PlaceholderText="No caption" />
                     </Grid>
                 </Border>
                 <Border Classes="setting-row">
                     <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                         <TextBlock Text="Text sizes" Classes="setting-title" VerticalAlignment="Center" />
-                        <NumericUpDown Grid.Column="1" Width="100" Value="{Binding SplashTitleFontSize}"
+                        <NumericUpDown Grid.Column="1" Width="100" Value="{Binding Splash.TitleFontSize}"
                                        Minimum="1" Maximum="400" Increment="1" FormatString="0"
                                        VerticalAlignment="Center" ToolTip.Tip="Title size (px)" />
-                        <NumericUpDown Grid.Column="2" Width="100" Value="{Binding SplashCaptionFontSize}"
+                        <NumericUpDown Grid.Column="2" Width="100" Value="{Binding Splash.CaptionFontSize}"
                                        Minimum="1" Maximum="200" Increment="1" FormatString="0"
                                        VerticalAlignment="Center" ToolTip.Tip="Caption size (px)" />
                     </Grid>
@@ -90,12 +90,14 @@
                          1024x640 minimum window's ~511px content height. -->
                     <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
                         <TextBlock Text="Spinner" Classes="setting-title" VerticalAlignment="Center" />
-                        <ComboBox Grid.Column="1" Width="140" ItemsSource="{Binding SplashSpinnerStyles}"
-                                  SelectedIndex="{Binding SplashSpinnerStyleIndex}" VerticalAlignment="Center" />
-                        <ComboBox Grid.Column="2" Width="110" ItemsSource="{Binding SplashSweepEdges}"
-                                  SelectedIndex="{Binding SplashSweepEdgeIndex}" VerticalAlignment="Center"
+                        <ComboBox Grid.Column="1" Width="140"
+                                  ItemsSource="{x:Static s:SettingsViewModel.SpinnerStyleValues}"
+                                  SelectedItem="{Binding Splash.SpinnerStyle}" VerticalAlignment="Center" />
+                        <ComboBox Grid.Column="2" Width="110"
+                                  ItemsSource="{x:Static s:SettingsViewModel.SweepEdgeValues}"
+                                  SelectedItem="{Binding Splash.SweepEdge}" VerticalAlignment="Center"
                                   ToolTip.Tip="Sweep edge — used by the Sweep line spinner style" />
-                        <NumericUpDown Grid.Column="3" Width="100" Value="{Binding SplashSpinnerSize}"
+                        <NumericUpDown Grid.Column="3" Width="100" Value="{Binding Splash.SpinnerSize}"
                                        Minimum="1" Maximum="1024" Increment="2" FormatString="0"
                                        VerticalAlignment="Center" ToolTip.Tip="Spinner size (px)" />
                     </Grid>
@@ -103,24 +105,26 @@
                 <Border Classes="setting-row">
                     <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
                         <TextBlock Text="Text position" Classes="setting-title" VerticalAlignment="Center" />
-                        <ComboBox Grid.Column="1" Width="104" ItemsSource="{Binding SplashTextPlacementModes}"
-                                  SelectedIndex="{Binding SplashTextPlacementModeIndex}" VerticalAlignment="Center" />
+                        <ComboBox Grid.Column="1" Width="104"
+                                  ItemsSource="{x:Static s:SettingsViewModel.TextPlacementModeValues}"
+                                  SelectedItem="{Binding TextPlacement.Mode}" VerticalAlignment="Center" />
                         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
-                            <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding SplashTextPlacementIsAnchor}">
-                                <ComboBox Width="122" ItemsSource="{Binding SplashPlacementAnchors}"
-                                          SelectedIndex="{Binding SplashTextAnchorIndex}" VerticalAlignment="Center" />
-                                <NumericUpDown Width="58" ShowButtonSpinner="False" Value="{Binding SplashTextPaddingX}"
+                            <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding TextPlacement.IsAnchor}">
+                                <ComboBox Width="122"
+                                          ItemsSource="{x:Static s:SettingsViewModel.PlacementAnchorValues}"
+                                          SelectedItem="{Binding TextPlacement.Anchor}" VerticalAlignment="Center" />
+                                <NumericUpDown Width="58" ShowButtonSpinner="False" Value="{Binding TextPlacement.PaddingX}"
                                                Minimum="0" Maximum="4096" FormatString="0" VerticalAlignment="Center"
                                                ToolTip.Tip="Padding X (px from the anchored edge)" />
-                                <NumericUpDown Width="58" ShowButtonSpinner="False" Value="{Binding SplashTextPaddingY}"
+                                <NumericUpDown Width="58" ShowButtonSpinner="False" Value="{Binding TextPlacement.PaddingY}"
                                                Minimum="0" Maximum="4096" FormatString="0" VerticalAlignment="Center"
                                                ToolTip.Tip="Padding Y (px from the anchored edge)" />
                             </StackPanel>
-                            <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding SplashTextPlacementIsAbsolute}">
-                                <NumericUpDown Width="72" ShowButtonSpinner="False" Value="{Binding SplashTextX}"
+                            <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding TextPlacement.IsAbsolute}">
+                                <NumericUpDown Width="72" ShowButtonSpinner="False" Value="{Binding TextPlacement.X}"
                                                Minimum="0" Maximum="16384" FormatString="0" VerticalAlignment="Center"
                                                ToolTip.Tip="X (logical px — device-specific; anchors are portable)" />
-                                <NumericUpDown Width="72" ShowButtonSpinner="False" Value="{Binding SplashTextY}"
+                                <NumericUpDown Width="72" ShowButtonSpinner="False" Value="{Binding TextPlacement.Y}"
                                                Minimum="0" Maximum="16384" FormatString="0" VerticalAlignment="Center"
                                                ToolTip.Tip="Y (logical px — device-specific; anchors are portable)" />
                             </StackPanel>
@@ -130,24 +134,26 @@
                 <Border Classes="setting-row alt">
                     <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
                         <TextBlock Text="Spinner position" Classes="setting-title" VerticalAlignment="Center" />
-                        <ComboBox Grid.Column="1" Width="104" ItemsSource="{Binding SplashPlacementModes}"
-                                  SelectedIndex="{Binding SplashSpinnerPlacementModeIndex}" VerticalAlignment="Center" />
+                        <ComboBox Grid.Column="1" Width="104"
+                                  ItemsSource="{x:Static s:SettingsViewModel.PlacementModeValues}"
+                                  SelectedItem="{Binding SpinnerPlacement.Mode}" VerticalAlignment="Center" />
                         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
-                            <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding SplashSpinnerPlacementIsAnchor}">
-                                <ComboBox Width="122" ItemsSource="{Binding SplashPlacementAnchors}"
-                                          SelectedIndex="{Binding SplashSpinnerAnchorIndex}" VerticalAlignment="Center" />
-                                <NumericUpDown Width="58" ShowButtonSpinner="False" Value="{Binding SplashSpinnerPaddingX}"
+                            <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding SpinnerPlacement.IsAnchor}">
+                                <ComboBox Width="122"
+                                          ItemsSource="{x:Static s:SettingsViewModel.PlacementAnchorValues}"
+                                          SelectedItem="{Binding SpinnerPlacement.Anchor}" VerticalAlignment="Center" />
+                                <NumericUpDown Width="58" ShowButtonSpinner="False" Value="{Binding SpinnerPlacement.PaddingX}"
                                                Minimum="0" Maximum="4096" FormatString="0" VerticalAlignment="Center"
                                                ToolTip.Tip="Padding X (px from the anchored edge)" />
-                                <NumericUpDown Width="58" ShowButtonSpinner="False" Value="{Binding SplashSpinnerPaddingY}"
+                                <NumericUpDown Width="58" ShowButtonSpinner="False" Value="{Binding SpinnerPlacement.PaddingY}"
                                                Minimum="0" Maximum="4096" FormatString="0" VerticalAlignment="Center"
                                                ToolTip.Tip="Padding Y (px from the anchored edge)" />
                             </StackPanel>
-                            <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding SplashSpinnerPlacementIsAbsolute}">
-                                <NumericUpDown Width="72" ShowButtonSpinner="False" Value="{Binding SplashSpinnerX}"
+                            <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding SpinnerPlacement.IsAbsolute}">
+                                <NumericUpDown Width="72" ShowButtonSpinner="False" Value="{Binding SpinnerPlacement.X}"
                                                Minimum="0" Maximum="16384" FormatString="0" VerticalAlignment="Center"
                                                ToolTip.Tip="X (logical px — device-specific; anchors are portable)" />
-                                <NumericUpDown Width="72" ShowButtonSpinner="False" Value="{Binding SplashSpinnerY}"
+                                <NumericUpDown Width="72" ShowButtonSpinner="False" Value="{Binding SpinnerPlacement.Y}"
                                                Minimum="0" Maximum="16384" FormatString="0" VerticalAlignment="Center"
                                                ToolTip.Tip="Y (logical px — device-specific; anchors are portable)" />
                             </StackPanel>
@@ -157,24 +163,26 @@
                 <Border Classes="setting-row">
                     <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
                         <TextBlock Text="Logo position" Classes="setting-title" VerticalAlignment="Center" />
-                        <ComboBox Grid.Column="1" Width="104" ItemsSource="{Binding SplashPlacementModes}"
-                                  SelectedIndex="{Binding SplashLogoPlacementModeIndex}" VerticalAlignment="Center" />
+                        <ComboBox Grid.Column="1" Width="104"
+                                  ItemsSource="{x:Static s:SettingsViewModel.PlacementModeValues}"
+                                  SelectedItem="{Binding LogoPlacement.Mode}" VerticalAlignment="Center" />
                         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
-                            <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding SplashLogoPlacementIsAnchor}">
-                                <ComboBox Width="122" ItemsSource="{Binding SplashPlacementAnchors}"
-                                          SelectedIndex="{Binding SplashLogoAnchorIndex}" VerticalAlignment="Center" />
-                                <NumericUpDown Width="58" ShowButtonSpinner="False" Value="{Binding SplashLogoPaddingX}"
+                            <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding LogoPlacement.IsAnchor}">
+                                <ComboBox Width="122"
+                                          ItemsSource="{x:Static s:SettingsViewModel.PlacementAnchorValues}"
+                                          SelectedItem="{Binding LogoPlacement.Anchor}" VerticalAlignment="Center" />
+                                <NumericUpDown Width="58" ShowButtonSpinner="False" Value="{Binding LogoPlacement.PaddingX}"
                                                Minimum="0" Maximum="4096" FormatString="0" VerticalAlignment="Center"
                                                ToolTip.Tip="Padding X (px from the anchored edge)" />
-                                <NumericUpDown Width="58" ShowButtonSpinner="False" Value="{Binding SplashLogoPaddingY}"
+                                <NumericUpDown Width="58" ShowButtonSpinner="False" Value="{Binding LogoPlacement.PaddingY}"
                                                Minimum="0" Maximum="4096" FormatString="0" VerticalAlignment="Center"
                                                ToolTip.Tip="Padding Y (px from the anchored edge)" />
                             </StackPanel>
-                            <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding SplashLogoPlacementIsAbsolute}">
-                                <NumericUpDown Width="72" ShowButtonSpinner="False" Value="{Binding SplashLogoX}"
+                            <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding LogoPlacement.IsAbsolute}">
+                                <NumericUpDown Width="72" ShowButtonSpinner="False" Value="{Binding LogoPlacement.X}"
                                                Minimum="0" Maximum="16384" FormatString="0" VerticalAlignment="Center"
                                                ToolTip.Tip="X (logical px — device-specific; anchors are portable)" />
-                                <NumericUpDown Width="72" ShowButtonSpinner="False" Value="{Binding SplashLogoY}"
+                                <NumericUpDown Width="72" ShowButtonSpinner="False" Value="{Binding LogoPlacement.Y}"
                                                Minimum="0" Maximum="16384" FormatString="0" VerticalAlignment="Center"
                                                ToolTip.Tip="Y (logical px — device-specific; anchors are portable)" />
                             </StackPanel>
@@ -201,7 +209,7 @@
                                 CornerRadius="4" VerticalAlignment="Center"
                                 BorderBrush="{StaticResource HcControlBorderBrush}" BorderThickness="1"
                                 Background="{Binding SplashBackgroundColorHex, Converter={x:Static c:HexBrushConverter.Instance}}"
-                                Click="OnSplashBackgroundSwatchClick" ToolTip.Tip="Pick a color" />
+                                Tag="Background" Click="OnSplashColorSwatchClick" ToolTip.Tip="Pick a color" />
                         <!-- 32 = the same cap NormalizeSplash puts on the persisted
                              color strings; the longest value that can ever parse is
                              "#AARRGGBB" or a known-color name. -->
@@ -215,7 +223,7 @@
                             <TextBlock Text="Vignette" Classes="setting-title" />
                             <TextBlock Text="Darkens the screen edges." Classes="caption" />
                         </StackPanel>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding SplashVignetteEnabled}" VerticalAlignment="Center" />
+                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding Splash.VignetteEnabled}" VerticalAlignment="Center" />
                     </Grid>
                 </Border>
                 <Border Classes="setting-row alt">
@@ -225,7 +233,7 @@
                                 CornerRadius="4" VerticalAlignment="Center"
                                 BorderBrush="{StaticResource HcControlBorderBrush}" BorderThickness="1"
                                 Background="{Binding SplashTextColorHex, Converter={x:Static c:HexBrushConverter.Instance}}"
-                                Click="OnSplashTextSwatchClick" ToolTip.Tip="Pick a color" />
+                                Tag="Text" Click="OnSplashColorSwatchClick" ToolTip.Tip="Pick a color" />
                         <TextBox Grid.Column="2" Width="100" Text="{Binding SplashTextColorHex}" MaxLength="32"
                                  VerticalAlignment="Center" />
                     </Grid>
@@ -237,7 +245,7 @@
                                 CornerRadius="4" VerticalAlignment="Center"
                                 BorderBrush="{StaticResource HcControlBorderBrush}" BorderThickness="1"
                                 Background="{Binding SplashCaptionColorHex, Converter={x:Static c:HexBrushConverter.Instance}}"
-                                Click="OnSplashCaptionSwatchClick" ToolTip.Tip="Pick a color" />
+                                Tag="Caption" Click="OnSplashColorSwatchClick" ToolTip.Tip="Pick a color" />
                         <TextBox Grid.Column="2" Width="100" Text="{Binding SplashCaptionColorHex}" MaxLength="32"
                                  VerticalAlignment="Center" />
                     </Grid>
@@ -249,7 +257,7 @@
                                 CornerRadius="4" VerticalAlignment="Center"
                                 BorderBrush="{StaticResource HcControlBorderBrush}" BorderThickness="1"
                                 Background="{Binding SplashSpinnerColorHex, Converter={x:Static c:HexBrushConverter.Instance}}"
-                                Click="OnSplashSpinnerSwatchClick" ToolTip.Tip="Pick a color" />
+                                Tag="Spinner" Click="OnSplashColorSwatchClick" ToolTip.Tip="Pick a color" />
                         <TextBox Grid.Column="2" Width="100" Text="{Binding SplashSpinnerColorHex}" MaxLength="32"
                                  VerticalAlignment="Center" />
                     </Grid>
@@ -263,14 +271,14 @@
                                        HorizontalAlignment="Center" VerticalAlignment="Center" />
                             <Image x:Name="LogoThumb" Stretch="Uniform" Margin="2" IsVisible="False" />
                         </Panel>
-                        <Button Grid.Column="2" Content="Browse" Click="OnBrowseLogo" VerticalAlignment="Center" />
-                        <Button Grid.Column="3" Content="Clear" Click="OnClearLogo" VerticalAlignment="Center" />
+                        <Button Grid.Column="2" Content="Browse" Tag="Logo" Click="OnBrowseImage" VerticalAlignment="Center" />
+                        <Button Grid.Column="3" Content="Clear" Tag="Logo" Click="OnClearImage" VerticalAlignment="Center" />
                     </Grid>
                 </Border>
                 <Border Classes="setting-row alt">
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                         <TextBlock Text="Logo max size" Classes="setting-title" VerticalAlignment="Center" />
-                        <NumericUpDown Grid.Column="1" Width="110" Value="{Binding SplashLogoMaxSize}"
+                        <NumericUpDown Grid.Column="1" Width="110" Value="{Binding Splash.LogoMaxSize}"
                                        Minimum="1" Maximum="4096" Increment="10" FormatString="0"
                                        VerticalAlignment="Center" ToolTip.Tip="Longest edge in logical px" />
                     </Grid>
@@ -284,8 +292,8 @@
                                        HorizontalAlignment="Center" VerticalAlignment="Center" />
                             <Image x:Name="BackgroundThumb" Stretch="Uniform" Margin="2" IsVisible="False" />
                         </Panel>
-                        <Button Grid.Column="2" Content="Browse" Click="OnBrowseBackground" VerticalAlignment="Center" />
-                        <Button Grid.Column="3" Content="Clear" Click="OnClearBackground" VerticalAlignment="Center" />
+                        <Button Grid.Column="2" Content="Browse" Tag="Background" Click="OnBrowseImage" VerticalAlignment="Center" />
+                        <Button Grid.Column="3" Content="Clear" Tag="Background" Click="OnClearImage" VerticalAlignment="Center" />
                     </Grid>
                 </Border>
 

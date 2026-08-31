@@ -57,7 +57,6 @@ public sealed class ConfigurationTests
             ManagedControllerTarget.SteamDeckComposite,
             config.DeviceIntegration.ControllerTarget);
         Assert.Equal(DeviceGlyphSelection.Automatic, config.DeviceIntegration.GlyphSelection);
-        Assert.Equal(DeviceDiagnosticLevel.Standard, config.DeviceIntegration.DiagnosticLevel);
         Assert.Equal(
             ManagedControllerTarget.SteamDeckComposite,
             Assert.Single(config.DeviceIntegration.ControllerTargets).Target);
@@ -144,13 +143,11 @@ public sealed class ConfigurationTests
             Hotkey = null!,
             GamepadChord = null!,
             Gestures = null!,
-            SavedDisplayScales = null!,
             SavedDisplayScaleEntries = null!,
             DisplayProfiles = null!,
             PreviousConsoleLockSchemeValues = null!,
             CardLibraries = null!,
             ForgottenInsertedCardIds = null!,
-            CategoryTabs = null!,
             CustomTabs = null!,
             LaunchWrappers = null!,
             SgdbLinks = null!,
@@ -168,13 +165,11 @@ public sealed class ConfigurationTests
         Assert.NotNull(normalized.Hotkey);
         Assert.NotNull(normalized.GamepadChord);
         Assert.NotNull(normalized.Gestures);
-        Assert.NotNull(normalized.SavedDisplayScales);
         Assert.NotNull(normalized.SavedDisplayScaleEntries);
         Assert.NotNull(normalized.DisplayProfiles);
         Assert.NotNull(normalized.PreviousConsoleLockSchemeValues);
         Assert.NotNull(normalized.CardLibraries);
         Assert.NotNull(normalized.ForgottenInsertedCardIds);
-        Assert.NotNull(normalized.CategoryTabs);
         Assert.NotNull(normalized.CustomTabs);
         Assert.NotNull(normalized.LaunchWrappers);
         Assert.NotNull(normalized.SgdbLinks);
@@ -1004,7 +999,7 @@ public sealed class ConfigurationTests
         bool current,
         bool requested,
         bool expected)
-        => Assert.Equal(expected, DisplayHdr.ShouldChange(available, current, requested));
+        => Assert.Equal(expected, DisplayScale.ShouldChange(available, current, requested));
 
     [Fact]
     public void GameModeBootFieldsRoundTripThroughSourceGeneratedJson()

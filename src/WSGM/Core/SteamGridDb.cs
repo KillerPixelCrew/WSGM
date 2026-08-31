@@ -84,11 +84,6 @@ public static class SteamGridDb
     public static string ResolveKey(AppConfig config)
         => (config.SteamGridDbApiKey ?? "").Trim();
 
-    /// <summary>Whether the user has set an API key (the feature can't run without one).</summary>
-    /// <param name="config">The loaded configuration.</param>
-    public static bool HasKey(AppConfig config)
-        => !string.IsNullOrWhiteSpace(config.SteamGridDbApiKey);
-
     /// <summary>Searches SteamGridDB for games by title (autocomplete).</summary>
     /// <param name="term">The search term.</param>
     /// <param name="key">The bearer API key (see <see cref="ResolveKey"/>).</param>

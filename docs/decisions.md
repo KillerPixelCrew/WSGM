@@ -32,10 +32,10 @@ waiting to happen.
   automatically unless its caller supplied `/NORESTART`.
 - The direct HKCU Winlogon shell replacement was **retired** (2026-08): running the session without
   Explorer ever initializing broke touch features, and the Explorer-first service boot is the
-  device-verified fix. `ShellRegistration.Install` is legacy-only (no caller); `Uninstall`, the
-  snapshot fields in config.json, auto mode, and `--unregister-shell` remain for migrating installed
-  devices — do not remove them while shell-registered installs exist in the field, and do not
-  re-register WSGM as the shell from any new code path.
+  device-verified fix. 2.0 deleted the registration path entirely (no install code, no auto mode);
+  `ShellRegistration.Uninstall`, the snapshot fields in config.json, and `--unregister-shell` remain
+  as a 2.0 install's own recovery and the uninstaller's restore. Do not re-register WSGM as the
+  shell from any new code path.
 - Elevated processes started by WSGM inherit elevation — that inheritance is the point of
   self-elevation: an elevated WSGM yields an elevated **Steam**, which is what lets Steam Input
   reach elevated windows and the Steam Overlay inject into elevated games (UIPI blocks both
@@ -58,9 +58,7 @@ waiting to happen.
   behavior, selects the fixed uninstall budget, and does not stop Steam. Removal of older builds
   falls back to the update event before the force-stop path.
 - **Never manage Windows device posture or automatic touch-keyboard policy:** game/desktop mode must
-  not capture or write `ConvertibleSlateMode` or `TouchKeyboardTapInvoke`. Windows owns both. The
-  legacy config fields and `LegacyPostureCleanup.Restore` exist only to undo values changed by older
-  builds; remove them only after that migration is no longer needed.
+  not capture or write `ConvertibleSlateMode` or `TouchKeyboardTapInvoke`. Windows owns both.
 - **The volume OSD must never interrupt an exclusive game:** the physical volume command is always
   applied in game mode. The indicator is non-activating and click-through, and is suppressed only
   for `SHQueryUserNotificationState`'s confirmed `QUNS_RUNNING_D3D_FULL_SCREEN` (and absent/locked

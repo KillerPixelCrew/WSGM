@@ -87,6 +87,7 @@ const sourcePaths = [
 const bundleEpilogue = "})();\n";
 const outputPath = join(assetDirectory, "NativeQamBootstrap.js");
 const catalogPath = join(repositoryRoot, "src", "WSGM", "Core", "SteamUiAssetCatalog.cs");
+const maximumAssetBytes = 256 * 1024;
 
 // Everything above this marker is type declaration that exists only to type the
 // injected script. The asset starts at the IIFE.
@@ -191,6 +192,32 @@ if (check) {
       `NativeQamBootstrapSha256 is ${currentHash}, but the built asset hashes to ${sha256}.`,
     );
   }
+
+  // The shipped set is one reviewed file. Anything else under the asset directory is either a
+  // stray build output or a new asset nobody decided to embed, and both must stop the gate.
+  const shipped = (await readdir(assetDirectory, { withFileTypes: true }))
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".js"))
+    .map((entry) => entry.name)
+    .sort((left, right) => left.localeCompare(right, "en", { sensitivity: "variant" }));
+  if (shipped.length !== 1 || shipped[0] !== "NativeQamBootstrap.js") {
+    problems.push(
+      `Steam UI assets must stay an explicit, reviewed set; found: ${shipped.join(", ") || "none"}.`,
+    );
+  }
+
+  // The asset is embedded and evaluated in one CDP call, so its bytes are the contract: bounded,
+  // UTF-8, and without a byte-order mark that would land inside the evaluated expression.
+  const bytes = await readFile(outputPath).catch(() => null);
+  if (bytes === null || bytes.length === 0 || bytes.length > maximumAssetBytes) {
+    problems.push(
+      `${relative(repositoryRoot, outputPath)} must be between 1 and ${maximumAssetBytes} bytes.`,
+    );
+  } else if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    problems.push(`${relative(repositoryRoot, outputPath)} must be UTF-8 without a byte-order mark.`);
+  } else {
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  }
+
   if (problems.length > 0) {
     throw new Error(`${problems.join("\n")}\nRun: npm run steam-assets:build`);
   }

@@ -61,16 +61,6 @@ internal enum PerformanceReadbackQuality
     Unavailable,
     Verified,
     AppliedUnverified,
-    Stale,
-}
-
-/// <summary>Health of the optional RTSS telemetry path.</summary>
-internal enum RtssTelemetryHealth
-{
-    Unavailable,
-    Healthy,
-    Stale,
-    Faulted,
 }
 
 /// <summary>Canonical WSGM application identity plus the profile identity understood by RTSS.</summary>
@@ -147,13 +137,11 @@ internal sealed record RtssCapabilities(
     };
 }
 
-/// <summary>One bounded adapter discovery result.</summary>
+/// <summary>One bounded adapter discovery result. Process identity is folded into Generation.</summary>
 internal sealed record RtssProbe(
     RtssAvailability Availability,
     string? Version,
     string? ExecutablePath,
-    int? ProcessId,
-    DateTimeOffset? ProcessStartedAt,
     long Generation,
     RtssCapabilities? Capabilities,
     string? Diagnostic);
@@ -163,7 +151,6 @@ internal sealed record RtssReadback(
     PerformanceValues Values,
     PerformanceReadbackQuality FrameLimitQuality,
     PerformanceReadbackQuality OverlayLevelQuality,
-    RtssTelemetryHealth TelemetryHealth,
     DateTimeOffset Timestamp);
 
 /// <summary>Narrow property update sent to the adapter.</summary>
@@ -221,6 +208,5 @@ internal sealed record PerformanceState(
     PerformanceValues Observed,
     PerformanceReadbackQuality FrameLimitQuality,
     PerformanceReadbackQuality OverlayLevelQuality,
-    RtssTelemetryHealth TelemetryHealth,
     DateTimeOffset? RefreshedAt,
     PerformanceCommandState Command);

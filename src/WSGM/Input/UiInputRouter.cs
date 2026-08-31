@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using WSGM.Core;
 using WSGM.Device.Sdk.Input;
 
@@ -39,11 +38,46 @@ internal sealed class UiInputRouter : IUiButtonSource, IDisposable
     /// </remarks>
     internal static TimeSpan HeldControlTimeout { get; } = TimeSpan.FromSeconds(2);
 
+    /// <summary>The canonical-to-UI button map, in canonical order.</summary>
+    private static readonly (CanonicalButtons Canonical, GamepadButtons Ui)[] Map =
+    [
+        (CanonicalButtons.DPadUp, GamepadButtons.DPadUp),
+        (CanonicalButtons.DPadDown, GamepadButtons.DPadDown),
+        (CanonicalButtons.DPadLeft, GamepadButtons.DPadLeft),
+        (CanonicalButtons.DPadRight, GamepadButtons.DPadRight),
+        (CanonicalButtons.Menu, GamepadButtons.Start),
+        (CanonicalButtons.View, GamepadButtons.Back),
+        (CanonicalButtons.LeftStick, GamepadButtons.LeftThumb),
+        (CanonicalButtons.RightStick, GamepadButtons.RightThumb),
+        (CanonicalButtons.LeftShoulder, GamepadButtons.LeftShoulder),
+        (CanonicalButtons.RightShoulder, GamepadButtons.RightShoulder),
+        (CanonicalButtons.A, GamepadButtons.A),
+        (CanonicalButtons.B, GamepadButtons.B),
+        (CanonicalButtons.X, GamepadButtons.X),
+        (CanonicalButtons.Y, GamepadButtons.Y),
+        (CanonicalButtons.RearPaddle1, GamepadButtons.L4),
+        (CanonicalButtons.RearPaddle2, GamepadButtons.R4),
+        (CanonicalButtons.RearPaddle3, GamepadButtons.L5),
+        (CanonicalButtons.RearPaddle4, GamepadButtons.R5),
+        (CanonicalButtons.Guide, GamepadButtons.Steam),
+        (CanonicalButtons.QuickAccess, GamepadButtons.QuickAccess),
+        (CanonicalButtons.LeftPadClick, GamepadButtons.LeftPadPress),
+        (CanonicalButtons.RightPadClick, GamepadButtons.RightPadPress),
+    ];
+
+    /// <summary>How far a trigger travels before it counts as a press on the managed source.</summary>
+    /// <remarks>
+    /// NOT the SDL path's threshold: SdlGamepads synthesizes its trigger buttons at 8000/32767
+    /// (about 0.24), so a trigger is easier to activate on SDL than here. The difference is
+    /// long-shipped behavior; align only with device re-verification.
+    /// </remarks>
+    private const float TriggerThreshold = 0.5f;
+
     private readonly IUiButtonSource _fallback;
     private readonly TimeProvider _time;
-    private readonly CanonicalButtonSource _managed = new();
     private UiInputSource _current = UiInputSource.SdlWithSteamLease;
     private GamepadButtons _suppressed;
+    private GamepadButtons _managedHeld;
     private DateTimeOffset _switchedAt;
     private bool _managedHealthy;
     private bool _disposed;
@@ -79,27 +113,36 @@ internal sealed class UiInputRouter : IUiButtonSource, IDisposable
             return;
         }
 
-        GamepadButtons held = CanonicalButtonSource.Translate(sample);
+        GamepadButtons held = Translate(sample);
         if (!_managedHealthy)
         {
             _managedHealthy = true;
-            // Seeded from this sample, not from the managed source's held state: this is the first
-            // sample it has ever seen, so that state is empty and the mask captured nothing. A
-            // control the user was already holding when management came online then arrived as a
-            // fresh press and could activate or dismiss whatever had focus.
+            // Seeded from this sample, not from the accumulated held state: this is the first
+            // sample the managed source has ever seen, so that state is empty and the mask would
+            // capture nothing. A control the user was already holding when management came online
+            // then arrived as a fresh press and could activate or dismiss whatever had focus.
             BeginSwitch(UiInputSource.ManagedCanonical, held);
         }
 
+        // Edges rather than state, because that is what navigation acts on: SDL reports a press
+        // once, and a canonical stream reports a held button on every sample. The held state keeps
+        // tracking while the fallback is current, so it is already correct at the moment a later
+        // switch happens rather than starting from nothing.
+        GamepadButtons pressed = held & ~_managedHeld;
+        _managedHeld = held;
         if (_current is not UiInputSource.ManagedCanonical)
         {
-            // Still tracked while the fallback is current, so the state is already correct at the
-            // moment a later switch happens rather than starting from nothing.
-            _managed.Submit(sample);
             return;
         }
 
         ReleaseSuppressed(held);
-        _managed.Submit(sample);
+        // Neither a press edge nor a release edge is emitted for a suppressed control: the user
+        // made neither, so reporting either would be inventing input.
+        GamepadButtons allowed = pressed & ~_suppressed;
+        if (allowed != 0)
+        {
+            ButtonPressed?.Invoke(allowed);
+        }
     }
 
     /// <summary>Reports that the managed source has stopped delivering.</summary>
@@ -136,7 +179,6 @@ internal sealed class UiInputRouter : IUiButtonSource, IDisposable
 
         _disposed = true;
         _fallback.ButtonPressed -= OnFallbackPressed;
-        _managed.ButtonPressed -= OnManagedPressed;
     }
 
     /// <summary>Switches the current source and suppresses whatever is held across the switch.</summary>
@@ -158,24 +200,15 @@ internal sealed class UiInputRouter : IUiButtonSource, IDisposable
         UiInputSource from = _current;
         // What the outgoing source had held is what must not produce edges on the incoming one.
         _suppressed = to is UiInputSource.ManagedCanonical
-            ? incomingHeld ?? _managed.Held
+            ? incomingHeld ?? _managedHeld
             : 0;
         _switchedAt = _time.GetUtcNow();
-        if (_current is UiInputSource.ManagedCanonical)
-        {
-            _managed.ButtonPressed -= OnManagedPressed;
-        }
-
         _current = to;
-        if (to is UiInputSource.ManagedCanonical)
-        {
-            _managed.ButtonPressed += OnManagedPressed;
-        }
-        else
+        if (to is not UiInputSource.ManagedCanonical)
         {
             // The managed source is no longer current, so its held state is stale. Leaving it would
             // swallow the first press after it comes back.
-            _managed.Reset();
+            _managedHeld = 0;
         }
 
         Log.Info(
@@ -206,87 +239,28 @@ internal sealed class UiInputRouter : IUiButtonSource, IDisposable
         }
     }
 
-    private void OnManagedPressed(GamepadButtons buttons)
+    /// <summary>Translates one canonical sample into the UI button vocabulary.</summary>
+    private static GamepadButtons Translate(CanonicalControllerSample sample)
     {
-        // Neither a press edge nor a release edge is emitted for a suppressed control: the user made
-        // neither, so reporting either would be inventing input.
-        GamepadButtons allowed = buttons & ~_suppressed;
-        if (allowed != 0)
+        GamepadButtons held = 0;
+        foreach ((CanonicalButtons canonical, GamepadButtons ui) in Map)
         {
-            ButtonPressed?.Invoke(allowed);
-        }
-    }
-}
-
-/// <summary>Reference-counted controller capture for WSGM's visible surfaces.</summary>
-internal sealed class UiCaptureState
-{
-    private readonly HashSet<string> _surfaces = new(StringComparer.Ordinal);
-    private CanonicalButtons _suppressedForUi;
-    private CanonicalButtons _withheldFromGame;
-
-    /// <summary>Whether any WSGM surface currently holds capture.</summary>
-    internal bool IsCaptured => _surfaces.Count > 0;
-
-    /// <summary>Claims capture and remembers controls held before the first surface opened.</summary>
-    /// <returns><see langword="true"/> when this claim started capture.</returns>
-    internal bool Claim(string surfaceId, CanonicalButtons heldAtOpen)
-    {
-        bool wasCaptured = IsCaptured;
-        if (!_surfaces.Add(surfaceId))
-        {
-            Log.Change(
-                $"ui-capture.{surfaceId}",
-                $"Managed UI capture claim ignored: surface={surfaceId}, reason=already-claimed.");
-            return false;
+            if ((sample.Buttons & canonical) != 0)
+            {
+                held |= ui;
+            }
         }
 
-        if (!wasCaptured)
+        if (sample.LeftTrigger >= TriggerThreshold)
         {
-            _suppressedForUi = heldAtOpen;
-            _withheldFromGame = heldAtOpen;
+            held |= GamepadButtons.LeftTrigger;
         }
 
-        return !wasCaptured;
-    }
-
-    /// <summary>Releases a claim and reports whether the last known surface closed.</summary>
-    internal bool Release(string surfaceId)
-    {
-        if (!_surfaces.Remove(surfaceId))
+        if (sample.RightTrigger >= TriggerThreshold)
         {
-            Log.Change(
-                $"ui-capture.{surfaceId}",
-                $"Managed UI capture release ignored: surface={surfaceId}, reason=not-claimed.");
-            return false;
+            held |= GamepadButtons.RightTrigger;
         }
 
-        return !IsCaptured;
-    }
-
-    /// <summary>Removes buttons still held from before capture began.</summary>
-    internal CanonicalButtons FilterForUi(CanonicalButtons buttons)
-    {
-        _suppressedForUi &= buttons;
-        if (IsCaptured)
-        {
-            // Keep the most recent physical state. When the last surface closes, every control the
-            // UI was still using must be observed up before the same state can reach the game.
-            _withheldFromGame = buttons;
-        }
-
-        return buttons & ~_suppressedForUi;
-    }
-
-    /// <summary>Reports whether forwarding can resume without inventing a press edge.</summary>
-    internal bool CanResumeForwarding(CanonicalButtons buttons)
-    {
-        if (IsCaptured)
-        {
-            return false;
-        }
-
-        _withheldFromGame &= buttons;
-        return _withheldFromGame == CanonicalButtons.None;
+        return held;
     }
 }

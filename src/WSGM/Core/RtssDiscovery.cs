@@ -175,8 +175,6 @@ internal sealed class RtssDiscovery
             RtssAvailability.AdapterUnavailable,
             registrationVersion.ToString(),
             executable,
-            process.ProcessId,
-            process.StartedAt,
             generation,
             null,
             "RTSS identity and documented profile API exports are verified.");
@@ -312,8 +310,6 @@ internal sealed class RtssDiscovery
             availability,
             version,
             executable,
-            null,
-            null,
             0,
             null,
             diagnostic);

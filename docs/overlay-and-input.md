@@ -44,6 +44,10 @@ handoffs and source faults use one forwarding-blocked state which is cleared onl
 created or replaced target. There is deliberately no parallel enum of hypothetical zero reasons:
 capture, routing admission, and target state are the mechanisms that actually decide delivery.
 
+The two sources synthesize trigger "buttons" at different travel: SDL at 8000/32767 (~0.24), the
+managed canonical path at 0.5. The difference is long-shipped behavior; align only with device
+re-verification.
+
 WSGM navigation switches to managed canonical input only after its first complete sample and keeps
 SDL live as the ready fallback. Controls held across that switch stay suppressed until released or
 for at most two seconds when the incoming source cannot observe them. Every completed source switch

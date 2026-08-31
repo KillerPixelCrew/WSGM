@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using WindowsDeviceControl;
 using WSGM.Core;
+using RadioPower = WindowsDeviceControl.WindowsRadio.Power;
 
 namespace WSGM.Shell;
 
@@ -289,8 +290,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         Log.Info("Radio panel: scanning started.");
         // Publish the cached scan list immediately — it is already there and
         // costs milliseconds — then ask for a fresh scan and let the live feeds
-        // fill in the rest. Waiting for the scan before showing anything is what
-        // made the list take ten seconds to appear.
+        // fill in the rest.
         QueueRefresh();
         StartFeeds();
         Rescan();
@@ -368,10 +368,8 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
 
     /// <summary>Serializes the Windows feed operations onto background threads.
     ///
-    /// Two reasons, both load-bearing. They BLOCK: a watcher can enumerate
-    /// devices for seconds, and starting another while that work was still
-    /// running froze the panel on open. And they
-    /// must not interleave — a stop racing a start would leave the watcher in
+    /// They BLOCK — a watcher can enumerate devices for seconds — and they
+    /// must not interleave: a stop racing a start would leave the watcher in
     /// whichever state finished last. UI-thread callers only, so the field
     /// needs no lock.
     ///
@@ -498,10 +496,9 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
 
         IReadOnlyList<WindowsRadio.WifiNetwork> networks = [];
         string? failure = null;
-        // Only a SUCCESSFUL listing counts as carrying a network list. Marking
-        // a failed one as included made Apply reconcile against an empty
-        // collection and wipe every row, so one transient WLAN-service error
-        // took away the Connect and Forget actions for networks still in range.
+        // Only a SUCCESSFUL listing counts as carrying a network list: a failed
+        // one would make Apply reconcile against an empty collection and wipe
+        // every row over a transient WLAN-service error.
         var listed = false;
 
         if (includeNetworks && wifiPower == RadioPower.On)
@@ -729,7 +726,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     {
         try
         {
-            return (RadioPower)WindowsRadio.GetPower(kind);
+            return WindowsRadio.GetPower(kind);
         }
         catch (Exception ex)
         {
@@ -767,10 +764,9 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             StatusText = "";
         }
 
-        // Only when the snapshot actually carried a network list. Reconciling
-        // the always-empty closed-panel list wiped the rows AND zeroed the
-        // signal that was just set — which is why the tile only showed bars
-        // after the panel had been opened once.
+        // Only when the snapshot actually carried a network list: reconciling
+        // the always-empty closed-panel list would wipe the rows and zero the
+        // signal that was just set.
         if (snapshot.IncludedNetworks)
         {
             ReconcileNetworks(snapshot.Networks);
@@ -854,7 +850,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
                 }
             }
             row.Signal = source.Signal;
-            row.Security = (WifiSecurity)source.Security;
+            row.Security = source.Security;
             row.Saved = source.Saved;
             // Carried through rather than dropped: a network the driver has
             // already rejected must not show an enabled Connect that can only
@@ -873,10 +869,9 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             Networks.RemoveAt(i);
         }
         // Only when the scan positively named a joined network. The interface
-        // status read in Apply is authoritative and already correct; clearing
-        // it here because no ROW happened to be marked connected (a hidden
-        // network, or a scan refresh mid-flight) made the taskbar lose its
-        // network name and signal bars the moment the panel opened.
+        // status read in Apply is authoritative and already correct; no row
+        // being marked connected (a hidden network, or a scan refresh
+        // mid-flight) is not evidence of a disconnect.
         if (connected.Length > 0)
         {
             ConnectedSsid = connected;

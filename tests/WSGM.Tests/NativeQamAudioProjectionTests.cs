@@ -77,8 +77,7 @@ public sealed class NativeQamAudioProjectionTests
         Assert.Equal(string.Empty, state.ActiveOutputDeviceId);
     }
 
-    private static AudioManager Manager() =>
-        new(_ => 0, action => action());
+    private static AudioManager Manager() => new();
 
     private static AudioEndpointEntry Endpoint(string id, string name) => new(id, name);
 }

@@ -145,7 +145,7 @@ public sealed class WindowIconCache : IDisposable
         }
 
         // Last resort: the exe's own first icon resource. These handles are ours.
-        var exe = GetProcessImagePath(processId);
+        var exe = NativeShellProcess.TryGetImagePath(processId);
         if (exe is null)
         {
             return null;
@@ -206,26 +206,6 @@ public sealed class WindowIconCache : IDisposable
         return 0;
     }
 
-    private static string? GetProcessImagePath(uint pid)
-    {
-        var process = NativeMethods.OpenProcess(NativeMethods.ProcessQueryLimitedInformation, false, pid);
-        if (process == 0)
-        {
-            return null;
-        }
-        try
-        {
-            var buffer = new char[1024];
-            var length = (uint)buffer.Length;
-            return NativeMethods.QueryFullProcessImageNameW(process, 0, buffer, ref length)
-                ? new string(buffer, 0, (int)length)
-                : null;
-        }
-        finally
-        {
-            NativeMethods.CloseHandle(process);
-        }
-    }
 
     private Bitmap? Render(nint hIcon) => IconRasterizer.Rasterize(hIcon, _pixelSize);
 }

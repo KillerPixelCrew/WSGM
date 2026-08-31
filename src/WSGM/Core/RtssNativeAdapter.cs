@@ -113,7 +113,6 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
             new PerformanceValues((int)frameLimit, (int)overlayLevel),
             PerformanceReadbackQuality.Verified,
             PerformanceReadbackQuality.Verified,
-            RtssTelemetryHealth.Unavailable,
             DateTimeOffset.UtcNow);
     }
 
@@ -242,8 +241,6 @@ internal sealed class SimulatedRtssAdapter : IRtssAdapter
             RtssAvailability.Ready,
             "overlay-test",
             null,
-            null,
-            DateTimeOffset.UtcNow,
             1,
             Capabilities,
             "Simulated RTSS state; no external process or profile is accessed."));
@@ -269,7 +266,6 @@ internal sealed class SimulatedRtssAdapter : IRtssAdapter
             values,
             PerformanceReadbackQuality.Verified,
             PerformanceReadbackQuality.Verified,
-            RtssTelemetryHealth.Healthy,
             DateTimeOffset.UtcNow));
     }
 

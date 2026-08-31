@@ -13,6 +13,7 @@ using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Input;
+using WSGM.Overlay;
 
 namespace WSGM.Shell;
 
@@ -49,64 +50,17 @@ internal enum DeviceOverlaySection
     Diagnostics,
 }
 
-/// <summary>Structured capability health rendered without parsing diagnostic prose.</summary>
-internal enum DeviceOverlayStatus
-{
-    None,
-    Available,
-    Warning,
-    Faulted,
-    Stale,
-    ExternallyOwned,
-    Unsupported,
-    Progress,
-}
-
 /// <summary>One presentation-only semantic capability row for the final Device destination.</summary>
 internal sealed record DeviceOverlayCapability(
     string CapabilityId,
     string? InstanceId,
     DeviceOverlaySection Section,
-    DeviceOverlayStatus Status,
+    DescriptorStatus Status,
     string Title,
     string Description,
     string TrailingText,
     bool CanInvoke,
     CapabilityValue? NextValue);
-
-/// <summary>Presentation-only state for the WSGM-owned physical-glyph selection command.</summary>
-internal sealed record DeviceOverlayGlyphSelection(
-    DeviceOverlayStatus Status,
-    string Title,
-    string Description,
-    string TrailingText,
-    bool CanCycle);
-
-/// <summary>Presentation-only state for the WSGM-owned AutoTDP switch.</summary>
-/// <remarks>
-/// AutoTDP is WSGM's, not a plugin capability: it moves the plugin's power limit rather than being
-/// one. It gets its own row for the same reason glyph selection does — synthesizing a pseudo
-/// capability would need a second dispatch path through the capability invoke.
-/// </remarks>
-internal sealed record DeviceOverlayAutoTdp(
-    DeviceOverlayStatus Status,
-    string Title,
-    string Description,
-    string TrailingText,
-    bool CanToggle);
-
-/// <summary>The managed-controller row on the Controller and motion page.</summary>
-/// <param name="Status">How healthy controller management currently is.</param>
-/// <param name="Title">Row title.</param>
-/// <param name="Description">What it is doing, or why it is not.</param>
-/// <param name="TrailingText">The target in effect, or why there is none.</param>
-/// <param name="CanCycle">Whether selecting the row changes the target.</param>
-internal sealed record DeviceOverlayController(
-    DeviceOverlayStatus Status,
-    string Title,
-    string Description,
-    string TrailingText,
-    bool CanCycle);
 
 /// <summary>One control in the glyph preview.</summary>
 /// <param name="Control">The physical control this glyph stands for.</param>
@@ -133,62 +87,25 @@ internal sealed record DeviceOverlayGlyphPreview(
     IReadOnlyList<DeviceOverlayGlyphPreviewItem> Items,
     bool InputTestAvailable);
 
-/// <summary>The named-hardware-profile row on the Profiles page.</summary>
-/// <param name="Status">Whether a profile is in effect.</param>
-/// <param name="Title">Row title.</param>
-/// <param name="Description">Which profiles exist, or where they are authored.</param>
-/// <param name="TrailingText">The selected profile, or NONE.</param>
-/// <param name="CanCycle">Whether selecting the row changes the profile.</param>
-internal sealed record DeviceOverlayProfile(
-    DeviceOverlayStatus Status,
-    string Title,
-    string Description,
-    string TrailingText,
-    bool CanCycle);
-
-/// <summary>The authored fan/lighting profile in force, and whether it is this game's own.</summary>
-/// <remarks>
-/// Distinct from <see cref="DeviceOverlayProfile"/>, which is the plugin's named HARDWARE profile.
-/// These are curves the user authored in Settings; the overlay only chooses between them (D22b),
-/// and the row says which scope the current choice came from because "quiet, for this game" and
-/// "quiet, for everything" are the same word with very different consequences.
-/// </remarks>
-internal sealed record DeviceOverlayAuthoredProfile(
-    DeviceOverlayStatus Status,
-    string Title,
-    string Description,
-    string TrailingText,
-    bool CanCycle);
-
-/// <summary>The one recovery action the Diagnostics page offers, when there is one.</summary>
-/// <remarks>
-/// Deliberately a single row rather than a panel of buttons. A faulted device cycle has exactly one
-/// user-facing remedy — try again — and everything else about recovery is automatic; offering more
-/// controls would imply choices that do not exist.
-/// </remarks>
-/// <param name="Status">How serious the current cycle state is.</param>
-/// <param name="Title">Row title.</param>
-/// <param name="Description">The failed cycle state.</param>
-/// <param name="TrailingText">Short state label.</param>
-internal sealed record DeviceOverlayRecovery(
-    DeviceOverlayStatus Status,
-    string Title,
-    string Description,
-    string TrailingText);
-
 /// <summary>Complete bounded Device-surface snapshot produced from coordinator-owned state.</summary>
+/// <remarks>
+/// The direct rows are WSGM's own controls — AutoTDP moves the plugin's power limit rather than
+/// being one, the controller target and glyph selection are WSGM settings, the profile rows are
+/// stored configuration, and recovery is an action on the cycle itself. Each carries its stable
+/// focus key as the <see cref="DescriptorRow.Id"/>, and a null row is simply not shown.
+/// </remarks>
 internal sealed record DeviceOverlaySnapshot(
     bool Visible,
     string Status,
     string Detail,
-    DeviceOverlayGlyphSelection? GlyphSelection,
+    DescriptorRow? GlyphSelection,
     IReadOnlyList<DeviceOverlayCapability> Capabilities,
-    DeviceOverlayAutoTdp? AutoTdp = null,
-    DeviceOverlayController? Controller = null,
-    DeviceOverlayRecovery? Recovery = null,
-    DeviceOverlayProfile? Profile = null,
+    DescriptorRow? AutoTdp = null,
+    DescriptorRow? Controller = null,
+    DescriptorRow? Recovery = null,
+    DescriptorRow? Profile = null,
     DeviceOverlayGlyphPreview? GlyphPreview = null,
-    DeviceOverlayAuthoredProfile? AuthoredProfile = null);
+    DescriptorRow? AuthoredProfile = null);
 
 /// <summary>Closed semantic source consumed by the Device overlay destination.</summary>
 internal interface IDeviceOverlaySource : IDisposable
@@ -272,76 +189,67 @@ internal interface IDeviceOverlaySource : IDisposable
 internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 {
     private readonly DeviceCoordinator _coordinator;
+    private readonly AutoTdpService? _autoTdp;
     private readonly PhysicalGlyphService _glyphs;
     private readonly object _sampleGate = new();
     private int _sampleObservers;
     private bool _disposed;
 
-    internal DeviceOverlayBridge(DeviceCoordinator coordinator)
+    internal DeviceOverlayBridge(DeviceCoordinator coordinator, AutoTdpService? autoTdp)
     {
         ArgumentNullException.ThrowIfNull(coordinator);
         _coordinator = coordinator;
+        _autoTdp = autoTdp;
         // One service over the coordinator's catalog, so its bounded geometry cache is shared by
         // every preview and is invalidated by the same catalog change that replaces the profiles.
         _glyphs = new PhysicalGlyphService(coordinator.PhysicalGlyphCatalog);
         _coordinator.StateChanged += OnStateChanged;
-        _coordinator.CapabilityViewsChanged += OnCapabilityViewsChanged;
+        _coordinator.Capabilities.Changed += OnCapabilityViewsChanged;
         _coordinator.ConfigurationChanged += OnConfigurationChanged;
-        // The AutoTDP row renders live state, not the stored setting, and that state changes with
-        // no capability view and no configuration change behind it.
-        _coordinator.AutoTdpStatusChanged += OnAutoTdpStatusChanged;
+        if (_autoTdp is not null)
+        {
+            // The AutoTDP row renders live state, not the stored setting, and that state changes
+            // with no capability view and no configuration change behind it.
+            _autoTdp.StatusChanged += OnAutoTdpStatusChanged;
+        }
     }
 
     public event Action? Changed;
 
-    /// <summary>Supplies the authored profile row, or null when there is nothing to show.</summary>
-    /// <remarks>
-    /// Attached by the session rather than read here: authored profiles and their selection live in
-    /// WSGM configuration, which this bridge deliberately does not reach into — it adapts the device
-    /// coordinator and nothing else. Unset means no row, which is the correct state for a session
-    /// that has no configuration to read.
-    /// </remarks>
-    internal Func<DeviceOverlayAuthoredProfile?>? AuthoredProfileSource { get; set; }
-
-    /// <summary>Advances the authored profile selection, when the session supplies a way to.</summary>
-    /// <remarks>
-    /// Same reason as <see cref="AuthoredProfileSource"/>: the selection lives in configuration and
-    /// applying it needs the device write path, neither of which this bridge owns. Unset makes the
-    /// cycle a no-op rather than an error, which is what the row already renders as.
-    /// </remarks>
-    internal Func<CancellationToken, Task>? AuthoredProfileCycle { get; set; }
-
     /// <inheritdoc/>
     public Task CycleAuthoredProfileAsync(CancellationToken cancellationToken = default) =>
-        AuthoredProfileCycle?.Invoke(cancellationToken) ?? Task.CompletedTask;
+        _coordinator.CycleAuthoredProfileAsync(cancellationToken);
 
     public DeviceOverlaySnapshot Snapshot()
     {
         DeviceCycleState state = _coordinator.State;
         InstalledDevicePackage? package = _coordinator.InstalledPackage;
-        List<DeviceOverlayCapability> capabilities = _coordinator.CapabilitySnapshot()
+        ControllerManagerStatus controllerStatus = _coordinator.Controllers.Snapshot();
+        List<DeviceOverlayCapability> capabilities = _coordinator.Capabilities.Snapshot()
             .Take(128)
             .Select(ToOverlayCapability)
             .ToList();
-        DeviceOverlayGlyphSelection glyphSelection = PhysicalGlyphSelectionView(
+        DescriptorRow glyphSelection = PhysicalGlyphSelectionView(
             _coordinator.PhysicalGlyphSelection,
             _coordinator.PhysicalGlyphSelectionSnapshot());
-        DeviceOverlayAutoTdp autoTdp = AutoTdpView(
+        DescriptorRow autoTdp = AutoTdpView(
             _coordinator.AutoTdpEnabled,
-            _coordinator.AutoTdpStatus);
-        DeviceOverlayRecovery? recovery = RecoveryView(state);
-        DeviceOverlayController? controller = ControllerView(
+            _autoTdp?.Status);
+        DescriptorRow? recovery = RecoveryView(state);
+        DescriptorRow? controller = ControllerView(
             _coordinator.ControllerManagementEnabled,
-            _coordinator.ControllerStatus);
-        DeviceOverlayProfile profile = ProfileView(
+            controllerStatus);
+        DescriptorRow profile = ProfileView(
             _coordinator.HardwareProfileIds,
             _coordinator.SelectedHardwareProfileId);
+        (IReadOnlyList<DeviceAuthoredProfile> Profiles, string? SelectedProfileId, bool ApplicationScoped)?
+            authored = _coordinator.AuthoredProfileSelection();
         DeviceOverlayGlyphPreview? glyphPreview = GlyphPreview(
             _coordinator.PhysicalGlyphSelectionSnapshot(),
             _glyphs,
             // The input test is live only while the plugin's canonical samples are actually
             // reaching WSGM. Offering it otherwise would show a map that can never light up.
-            _coordinator.ControllerStatus.UiSource is UiInputSource.ManagedCanonical);
+            controllerStatus.UiSource is UiInputSource.ManagedCanonical);
 
         if (package is { Valid: false })
         {
@@ -349,7 +257,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 $"wsgm.package.rejected.{package.Manifest?.Id ?? "unknown"}",
                 package.Manifest?.Version,
                 DeviceOverlaySection.Diagnostics,
-                DeviceOverlayStatus.Unsupported,
+                DescriptorStatus.Unsupported,
                 package.Manifest?.Id ?? "Invalid device package",
                 package.Detail ?? "The installed package did not pass validation.",
                 package.RejectionCode ?? "INVALID",
@@ -366,7 +274,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                     $"wsgm.package.multiple.{Path.GetFileName(packageRoot)}",
                     null,
                     DeviceOverlaySection.Diagnostics,
-                    DeviceOverlayStatus.Unsupported,
+                    DescriptorStatus.Unsupported,
                     Path.GetFileName(packageRoot),
                     $"{discovery.Detail} Path: {packageRoot}",
                     discovery.ErrorCode ?? "MULTIPLE",
@@ -396,7 +304,12 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             recovery,
             profile,
             glyphPreview,
-            AuthoredProfileSource?.Invoke());
+            authored is { } selection
+                ? AuthoredProfileView(
+                    selection.Profiles,
+                    selection.SelectedProfileId,
+                    selection.ApplicationScoped)
+                : null);
     }
 
     /// <summary>Projects controller management into the Controller and motion page's own row.</summary>
@@ -408,7 +321,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     /// is WSGM's own setting, so routing it through the plugin capability dispatch would mean a
     /// second meaning for a capability id and a branch inside the one invoke path.
     /// </remarks>
-    internal static DeviceOverlayController? ControllerView(
+    internal static DescriptorRow? ControllerView(
         bool enabled,
         ControllerManagerStatus status)
     {
@@ -420,13 +333,13 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             return null;
         }
 
-        DeviceOverlayStatus health = status.State switch
+        DescriptorStatus health = status.State switch
         {
-            ControllerManagementState.Active => DeviceOverlayStatus.Available,
-            ControllerManagementState.Idle => DeviceOverlayStatus.Stale,
-            ControllerManagementState.Faulted => DeviceOverlayStatus.Warning,
-            ControllerManagementState.Unavailable => DeviceOverlayStatus.Unsupported,
-            _ => DeviceOverlayStatus.None,
+            ControllerManagementState.Active => DescriptorStatus.Available,
+            ControllerManagementState.Idle => DescriptorStatus.Stale,
+            ControllerManagementState.Faulted => DescriptorStatus.Warning,
+            ControllerManagementState.Unavailable => DescriptorStatus.Unsupported,
+            _ => DescriptorStatus.None,
         };
         string trailing = status.Target is { } target ? TargetLabel(target) : "NONE";
         string description = status.Detail;
@@ -447,14 +360,15 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             description += " · restart the running game to change its target";
         }
 
-        return new DeviceOverlayController(
-            health,
+        return new DescriptorRow(
+            "device.controller-target",
             "Controller target",
             description,
             trailing,
             // Only when a change can actually take effect. Cycling into a target the backend cannot
             // bring up would replace one broken state with another.
-            CanCycle: status.State is not ControllerManagementState.Unavailable);
+            CanInvoke: status.State is not ControllerManagementState.Unavailable,
+            health);
     }
 
     /// <summary>Builds the glyph preview from the resolved profile and the glyph service.</summary>
@@ -498,7 +412,6 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 mapping.Control,
                 PhysicalGlyphSurface.DeviceDescription,
                 activeInputSourceIsManagedHandheld: true,
-                steamRouteSubjectIsHandheld: true,
                 PhysicalGlyphTheme.Dark,
                 scale: 1);
             if (!plan.UsesDeviceArtwork)
@@ -574,7 +487,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     /// what the user changes when they open this row mid-game.
     /// </para>
     /// </remarks>
-    internal static DeviceOverlayAuthoredProfile? AuthoredProfileView(
+    internal static DescriptorRow? AuthoredProfileView(
         IReadOnlyList<DeviceAuthoredProfile> profiles,
         string? selectedProfileId,
         bool applicationScoped)
@@ -596,14 +509,15 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         {
             // The stored choice names a profile that no longer exists. Said plainly rather than
             // shown as "none", because none is a state the user chose and this is not.
-            return new DeviceOverlayAuthoredProfile(
-                DeviceOverlayStatus.Warning,
+            return new DescriptorRow(
+                "device.authored-profile",
                 "Fan profile",
                 // Cyclable on purpose: pressing it moves to a profile that does exist, which is the
                 // fastest way out of the state for a user who is mid-game.
                 "The selected profile was deleted · press to choose another",
                 "MISSING",
-                CanCycle: true);
+                CanInvoke: true,
+                DescriptorStatus.Warning);
         }
 
         string scope = selected is null
@@ -612,12 +526,13 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 ? $"1 of {profiles.Count} · applies to this game only"
                 : $"1 of {profiles.Count} · applies to everything";
 
-        return new DeviceOverlayAuthoredProfile(
-            selected is null ? DeviceOverlayStatus.None : DeviceOverlayStatus.Available,
+        return new DescriptorRow(
+            "device.authored-profile",
             "Fan profile",
             scope,
             selected is null ? "NONE" : selected.Name.ToUpperInvariant(),
-            CanCycle: true);
+            CanInvoke: true,
+            selected is null ? DescriptorStatus.None : DescriptorStatus.Available);
     }
 
     /// <summary>Projects named hardware profiles into the Profiles page's own row.</summary>
@@ -629,33 +544,34 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     /// they can use it, so the row says where to author one when none exists yet — an absent row
     /// would just look like the feature is missing.
     /// </remarks>
-    internal static DeviceOverlayProfile ProfileView(
+    internal static DescriptorRow ProfileView(
         IReadOnlyList<string> profileIds,
         string? selected)
     {
         ArgumentNullException.ThrowIfNull(profileIds);
         if (profileIds.Count == 0)
         {
-            return new DeviceOverlayProfile(
-                DeviceOverlayStatus.None,
+            return new DescriptorRow(
+                "device.hardware-profile",
                 "Hardware profile",
                 "No profiles are defined · add profile values in Settings",
                 "NONE",
-                CanCycle: false);
+                CanInvoke: false);
         }
 
         bool active = selected is { Length: > 0 } && profileIds.Contains(selected, StringComparer.Ordinal);
         string description = active
             ? $"1 of {profileIds.Count} · overrides power and battery defaults while selected"
             : $"{profileIds.Count} defined · none selected";
-        return new DeviceOverlayProfile(
-            active ? DeviceOverlayStatus.Available : DeviceOverlayStatus.None,
+        return new DescriptorRow(
+            "device.hardware-profile",
             "Hardware profile",
             description,
             // A selection naming a profile that no longer defines anything reads as NONE, which is
             // what it now behaves as: the resolver finds no value under that name and falls through.
             active ? selected!.ToUpperInvariant() : "NONE",
-            CanCycle: true);
+            CanInvoke: true,
+            active ? DescriptorStatus.Available : DescriptorStatus.None);
     }
 
     /// <summary>The next profile in the cycle, with none between the last and the first.</summary>
@@ -704,18 +620,20 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     /// Absent when healthy. A recovery control that is always present but almost always inert trains
     /// a user to ignore it, which is the opposite of what it is for.
     /// </remarks>
-    internal static DeviceOverlayRecovery? RecoveryView(DeviceCycleState state)
+    internal static DescriptorRow? RecoveryView(DeviceCycleState state)
     {
         if (state is not DeviceCycleState.Faulted)
         {
             return null;
         }
 
-        return new DeviceOverlayRecovery(
-            DeviceOverlayStatus.Warning,
+        return new DescriptorRow(
+            "device.retry",
             "Retry device integration",
             $"{LifecycleLabel(state)} · starts one manual recovery attempt",
-            "READY");
+            "READY",
+            CanInvoke: true,
+            DescriptorStatus.Warning);
     }
 
     private static string TargetLabel(ManagedControllerTarget target) => target switch
@@ -735,29 +653,30 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     /// turned it on and sees nothing happening needs to know whether it is waiting for a game, held
     /// by a manual power change, or unable to find a power limit at all.
     /// </remarks>
-    internal static DeviceOverlayAutoTdp AutoTdpView(bool enabled, AutoTdpStatus? status)
+    internal static DescriptorRow AutoTdpView(bool enabled, AutoTdpStatus? status)
     {
+        const string autoTdpKey = "device.auto-tdp";
         if (!enabled)
         {
-            return new DeviceOverlayAutoTdp(
-                DeviceOverlayStatus.None,
+            return new DescriptorRow(
+                autoTdpKey,
                 "AutoTDP",
                 "Move the power limit from measured frame delivery",
                 "OFF",
-                CanToggle: true);
+                CanInvoke: true);
         }
 
         string detail = status?.Detail ?? "Starting.";
         string trailing = status?.Watts is { } watts
             ? watts.ToString(CultureInfo.InvariantCulture) + " W"
             : "ON";
-        DeviceOverlayStatus health = status?.State switch
+        DescriptorStatus health = status?.State switch
         {
-            AutoTdpState.Controlling => DeviceOverlayStatus.Available,
-            AutoTdpState.Paused => DeviceOverlayStatus.Warning,
-            AutoTdpState.Unavailable => DeviceOverlayStatus.Unsupported,
-            AutoTdpState.Idle => DeviceOverlayStatus.Stale,
-            _ => DeviceOverlayStatus.None,
+            AutoTdpState.Controlling => DescriptorStatus.Available,
+            AutoTdpState.Paused => DescriptorStatus.Warning,
+            AutoTdpState.Unavailable => DescriptorStatus.Unsupported,
+            AutoTdpState.Idle => DescriptorStatus.Stale,
+            _ => DescriptorStatus.None,
         };
         if (status?.FrametimeMs is { } frametime && status.TargetFrametimeMs is { } target)
         {
@@ -769,7 +688,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 $"{frametime:F1} ms against a {target:F1} ms deadline · {detail}");
         }
 
-        return new DeviceOverlayAutoTdp(health, "AutoTDP", detail, trailing, CanToggle: true);
+        return new DescriptorRow(autoTdpKey, "AutoTDP", detail, trailing, CanInvoke: true, health);
     }
 
     public async Task InvokeAsync(
@@ -802,8 +721,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     public Task CycleControllerTargetAsync(CancellationToken cancellationToken = default) =>
         _coordinator.SetControllerTargetAsync(
             NextTarget(
-                _coordinator.ControllerStatus.Target,
-                _coordinator.SupportedControllerTargets),
+                _coordinator.Controllers.Snapshot().Target,
+                _coordinator.Controllers.SupportedTargets),
             cancellationToken);
 
     public Task RetryDeviceCycleAsync(CancellationToken cancellationToken = default) =>
@@ -829,8 +748,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             _coordinator.PhysicalGlyphSelectionSnapshot(),
             control,
             PhysicalGlyphSurface.NavigationHint,
-            _coordinator.ControllerStatus.UiSource is UiInputSource.ManagedCanonical,
-            steamRouteSubjectIsHandheld: false,
+            _coordinator.Controllers.Snapshot().UiSource is UiInputSource.ManagedCanonical,
             PhysicalGlyphTheme.Dark,
             scale: 1);
         return plan.UsesDeviceArtwork ? plan : null;
@@ -847,7 +765,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         {
             if (_sampleObservers++ == 0)
             {
-                _coordinator.PhysicalSampleObserved += OnPhysicalSample;
+                _coordinator.Controllers.PhysicalSampleObserved += OnPhysicalSample;
             }
         }
 
@@ -863,7 +781,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 return;
             }
 
-            _coordinator.PhysicalSampleObserved -= OnPhysicalSample;
+            _coordinator.Controllers.PhysicalSampleObserved -= OnPhysicalSample;
         }
     }
 
@@ -935,15 +853,18 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 
         _disposed = true;
         _coordinator.StateChanged -= OnStateChanged;
-        _coordinator.CapabilityViewsChanged -= OnCapabilityViewsChanged;
+        _coordinator.Capabilities.Changed -= OnCapabilityViewsChanged;
         _coordinator.ConfigurationChanged -= OnConfigurationChanged;
-        _coordinator.AutoTdpStatusChanged -= OnAutoTdpStatusChanged;
+        if (_autoTdp is not null)
+        {
+            _autoTdp.StatusChanged -= OnAutoTdpStatusChanged;
+        }
 
         lock (_sampleGate)
         {
             if (_sampleObservers > 0)
             {
-                _coordinator.PhysicalSampleObserved -= OnPhysicalSample;
+                _coordinator.Controllers.PhysicalSampleObserved -= OnPhysicalSample;
                 _sampleObservers = 0;
             }
         }
@@ -959,7 +880,9 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 
     private void OnConfigurationChanged() => Changed?.Invoke();
 
-    private void OnAutoTdpStatusChanged() => Changed?.Invoke();
+    // Raised from AutoTDP's own tick loop; the overlay consumer is UI-owned, so marshal first.
+    private void OnAutoTdpStatusChanged(AutoTdpStatus _) =>
+        Avalonia.Threading.Dispatcher.UIThread.Post(() => Changed?.Invoke());
 
     private static DeviceOverlayCapability ToOverlayCapability(DeviceCapabilityView view)
     {
@@ -997,7 +920,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             descriptor.SupportsAction ? null : next);
     }
 
-    internal static DeviceOverlayGlyphSelection PhysicalGlyphSelectionView(
+    internal static DescriptorRow PhysicalGlyphSelectionView(
         DeviceGlyphSelection mode,
         PhysicalGlyphSelectionResult selection)
     {
@@ -1009,7 +932,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             _ => "AUTO",
         };
         string description;
-        DeviceOverlayStatus status;
+        DescriptorStatus status;
         if (selection.Profile is { } profile)
         {
             description = $"{profile.Manifest.DisplayName} · revision {profile.Manifest.Revision} · "
@@ -1018,13 +941,13 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                     ? " · selected reviewed profile is missing; Automatic fallback"
                     : string.Empty);
             status = selection.FellBackFromMissingManualProfile
-                ? DeviceOverlayStatus.Warning
-                : DeviceOverlayStatus.Available;
+                ? DescriptorStatus.Warning
+                : DescriptorStatus.Available;
         }
         else if (selection.FallbackReason is PhysicalGlyphFallbackReason.NativeSteamSelected)
         {
             description = "Steam and generic first-party glyphs remain unchanged.";
-            status = DeviceOverlayStatus.Available;
+            status = DescriptorStatus.Available;
         }
         else
         {
@@ -1036,15 +959,16 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                     "The package profile does not match this exact device; generic glyphs remain active.",
                 _ => "No reviewed physical profile is available; generic glyphs remain active.",
             };
-            status = DeviceOverlayStatus.Warning;
+            status = DescriptorStatus.Warning;
         }
 
-        return new DeviceOverlayGlyphSelection(
-            status,
+        return new DescriptorRow(
+            "device.glyph-selection",
             "Physical glyphs",
             description,
             trailing,
-            CanCycle: true);
+            CanInvoke: true,
+            status);
     }
 
     private static DeviceOverlaySection SectionFor(CapabilityRole role) => role switch
@@ -1077,48 +1001,48 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         _ => DeviceOverlaySection.Overview,
     };
 
-    private static DeviceOverlayStatus StatusFor(CapabilityProjection projection)
+    private static DescriptorStatus StatusFor(CapabilityProjection projection)
     {
         if (projection.Progress is CommandProgress.Pending)
         {
-            return DeviceOverlayStatus.Progress;
+            return DescriptorStatus.Progress;
         }
 
         if (projection.Progress is CommandProgress.Failed
             || projection.State.Quality is HardwareStateQuality.Faulted
             || projection.State.Reason?.Code is CapabilityReasonCode.TransportFaulted)
         {
-            return DeviceOverlayStatus.Faulted;
+            return DescriptorStatus.Faulted;
         }
 
         if (projection.Progress is CommandProgress.Uncertain || projection.DesiredValueOutOfRange)
         {
-            return DeviceOverlayStatus.Warning;
+            return DescriptorStatus.Warning;
         }
 
         if (projection.State.Quality is HardwareStateQuality.Stale
             || projection.State.Reason?.Code is CapabilityReasonCode.GenerationChanged
                 or CapabilityReasonCode.ObservationExpired)
         {
-            return DeviceOverlayStatus.Stale;
+            return DescriptorStatus.Stale;
         }
 
         if (projection.State.Reason?.Code is CapabilityReasonCode.ResourceConflict
             or CapabilityReasonCode.ResourceReleased)
         {
-            return DeviceOverlayStatus.ExternallyOwned;
+            return DescriptorStatus.ExternallyOwned;
         }
 
         if (projection.State.Reason?.Code is CapabilityReasonCode.Unsupported
             or CapabilityReasonCode.FirmwareNotVerified
             or CapabilityReasonCode.PrerequisiteMissing)
         {
-            return DeviceOverlayStatus.Unsupported;
+            return DescriptorStatus.Unsupported;
         }
 
         return projection.State.Available
-            ? DeviceOverlayStatus.Available
-            : DeviceOverlayStatus.Warning;
+            ? DescriptorStatus.Available
+            : DescriptorStatus.Warning;
     }
 
     private static CapabilityValue? NextValue(
@@ -1273,8 +1197,8 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
             Visible: true,
             Status: "Simulated handheld",
             Detail: "Preview data only · no plugin activation, hook, or device handle",
-            GlyphSelection: new DeviceOverlayGlyphSelection(
-                DeviceOverlayStatus.Available,
+            GlyphSelection: new DescriptorRow(
+                "device.glyph-selection",
                 "Physical glyphs",
                 "Preview-only physical presentation selection",
                 _glyphSelection switch
@@ -1283,7 +1207,8 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     1 => "STEAM",
                     _ => "REVIEWED",
                 },
-                CanCycle: true),
+                CanInvoke: true,
+                DescriptorStatus.Available),
             AutoTdp: DeviceOverlayBridge.AutoTdpView(
                 _autoTdp,
                 _autoTdp
@@ -1314,7 +1239,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     "preview.power.tdp",
                     null,
                     DeviceOverlaySection.PowerAndThermals,
-                    DeviceOverlayStatus.Available,
+                    DescriptorStatus.Available,
                     "TDP",
                     "Verified readback · resets on device power loss",
                     $"{_tdp} W",
@@ -1328,7 +1253,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     "preview.fan.mode",
                     null,
                     DeviceOverlaySection.PowerAndThermals,
-                    DeviceOverlayStatus.Available,
+                    DescriptorStatus.Available,
                     "Fan mode",
                     "Observed · stored on device",
                     fanModes[_fanMode],
@@ -1342,7 +1267,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     "preview.lighting",
                     null,
                     DeviceOverlaySection.LightingAndFeatures,
-                    DeviceOverlayStatus.Available,
+                    DescriptorStatus.Available,
                     "Lighting",
                     "Verified readback · stored on device",
                     _lighting ? "ON" : "OFF",
@@ -1356,7 +1281,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     "preview.temperature.cpu",
                     null,
                     DeviceOverlaySection.PowerAndThermals,
-                    DeviceOverlayStatus.Available,
+                    DescriptorStatus.Available,
                     "CPU temperature",
                     "Observed · read only",
                     "54 °C",
@@ -1366,7 +1291,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     "preview.rumble",
                     null,
                     DeviceOverlaySection.ControllerAndMotion,
-                    DeviceOverlayStatus.Available,
+                    DescriptorStatus.Available,
                     "Rumble",
                     "Short bounded preview action",
                     "RUN",

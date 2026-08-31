@@ -168,7 +168,7 @@ public sealed class NativeQamControllerTargetTests
     [Fact]
     public void TheUnavailableServiceStaysTheProjectionForASessionWithNoDevicePlatform()
     {
-        using UnavailableNativeQamControllerTargetService service = new();
+        using DeviceCoordinatorNativeQamControllerTargetService service = new(null);
 
         Assert.False(service.Current.Available);
         Assert.Empty(service.Current.Targets);

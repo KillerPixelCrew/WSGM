@@ -24,12 +24,10 @@ public sealed class SessionModes
     private DateTime _lastHomeLaunchUtc;
 
     private static readonly TimeSpan HomeLaunchCooldown = TimeSpan.FromSeconds(5);
-    // Budget for the WHOLE orderly exit: the first attempt including
-    // ExplorerControl's 8 s linger grace (device-proven 2026-08-09: remnants
-    // can outlive the old 2 s grace, and terminating them is what got the shell
-    // respawned), plus the respawn retry, which shares this same deadline
-    // rather than starting a fresh one. The transition still fails open when
-    // explorer is genuinely wedged.
+    // Budget for the WHOLE orderly exit: first attempt including ExplorerControl's
+    // linger grace plus the respawn retry, which shares this deadline rather than
+    // starting a fresh one (see docs\boot-and-shell.md). Fails open when explorer
+    // is genuinely wedged.
     private static readonly TimeSpan ExplorerExitTimeout = TimeSpan.FromSeconds(30);
 
     /// <summary>The warning shown when explorer refused its orderly exit and the
@@ -98,9 +96,6 @@ public sealed class SessionModes
         _desktopHost = desktopHost;
     }
 
-    /// <summary>Gets whether this coordinator is restricted to safe preview behavior.</summary>
-    internal bool IsPreviewOnly => _desktopHost is null;
-
     /// <summary>Applies a freshly loaded config (settings saved in another process).
     /// Reloads replace the config wholesale, so no runtime state may live on it.</summary>
     public void ApplyConfig(AppConfig config)
@@ -167,12 +162,9 @@ public sealed class SessionModes
 
     /// <summary>Desktop mode: stop reacting to Steam (no auto-relaunch, no overlay
     /// pop), drop Steam out of Big Picture, bring the desktop up. Returns
-    /// immediately — the Big Picture close, the display-scale restore and the
-    /// explorer start are all blocking and run off the UI thread, for the same
-    /// reason <see cref="EnterGameMode"/> does (a synchronous transition froze the
-    /// overlay for its full duration, including the 150 ms deferred close that
-    /// makes the panel disappear when the button was pressed). Only the monitor
-    /// pause (before anything can react to Steam leaving) and
+    /// immediately — the blocking Big Picture close, display-scale restore and
+    /// explorer start run off the UI thread so the overlay never freezes; only the
+    /// monitor pause (before anything can react to Steam leaving) and
     /// <see cref="DesktopModeStarting"/> stay UI-thread work.</summary>
     /// <param name="startSteamDesktop">Whether to start windowed Steam after the verified desktop
     /// is ready; used by boot-splash recovery because that path skips the normal boot launch.</param>
@@ -220,27 +212,8 @@ public sealed class SessionModes
                     Log.Error("Desktop-mode teardown failed", ex);
                 }
 
-                ExplorerDesktopResult result;
-                try
-                {
-                    result = await desktopHost.RestoreDesktopAsync(TimeSpan.FromSeconds(20))
-                        .ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    Log.Error("Explorer desktop restoration failed", ex);
-                    result = new ExplorerDesktopResult(
-                        ExplorerDesktopOutcome.Failed,
-                        ExplorerDesktopRoute.ScheduledTaskRecovery,
-                        0,
-                        0,
-                        ex.Message,
-                        // The exception may have happened after an anchor/scheduler launch crossed
-                        // its boundary. Unknown is unsafe for recreating a competing Shell_TrayWnd.
-                        launchDispatched: true,
-                        shellSurfacePresent: false,
-                        elapsed: TimeSpan.Zero);
-                }
+                ExplorerDesktopResult result = await RestoreDesktopSafelyAsync(
+                    desktopHost, "Explorer desktop restoration failed").ConfigureAwait(false);
 
                 string? rollbackSteamWarning = null;
                 if (result.Outcome is ExplorerDesktopOutcome.Failed && result.CanResumeGameModeSafely)
@@ -311,7 +284,7 @@ public sealed class SessionModes
     /// splash's Switch-to-desktop: the boot sequence skips its Big Picture start
     /// once the monitor is paused, but the session should still end up with Steam
     /// available in windowed mode. No-op when Steam already runs.</summary>
-    public void StartSteamDesktop()
+    private void StartSteamDesktop()
     {
         if (System.Threading.Volatile.Read(ref _shutdownRequested) != 0)
         {
@@ -489,6 +462,34 @@ public sealed class SessionModes
         });
     }
 
+    /// <summary>Runs the verified desktop restore, converting an exception into the fail-open
+    /// result. The exception may have happened after an anchor/scheduler launch crossed its
+    /// boundary, so it reports the launch as dispatched — Unknown is unsafe for recreating a
+    /// competing Shell_TrayWnd.</summary>
+    private static async System.Threading.Tasks.Task<ExplorerDesktopResult> RestoreDesktopSafelyAsync(
+        ExplorerDesktopHost desktopHost,
+        string failureContext)
+    {
+        try
+        {
+            return await desktopHost.RestoreDesktopAsync(TimeSpan.FromSeconds(20))
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(failureContext, ex);
+            return new ExplorerDesktopResult(
+                ExplorerDesktopOutcome.Failed,
+                ExplorerDesktopRoute.ScheduledTaskRecovery,
+                0,
+                0,
+                ex.Message,
+                launchDispatched: true,
+                shellSurfacePresent: false,
+                elapsed: TimeSpan.Zero);
+        }
+    }
+
     private async System.Threading.Tasks.Task RecoverDesktopAfterFailedGameModeCommitAsync(
         ExplorerDesktopHost desktopHost)
     {
@@ -519,25 +520,9 @@ public sealed class SessionModes
             Log.Error("Rolling Steam back after game-mode commit failure failed", ex);
         }
 
-        ExplorerDesktopResult restored;
-        try
-        {
-            restored = await desktopHost.RestoreDesktopAsync(TimeSpan.FromSeconds(20))
-                .ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            Log.Error("Restoring Explorer after game-mode commit failure failed", ex);
-            restored = new ExplorerDesktopResult(
-                ExplorerDesktopOutcome.Failed,
-                ExplorerDesktopRoute.ScheduledTaskRecovery,
-                0,
-                0,
-                ex.Message,
-                launchDispatched: true,
-                shellSurfacePresent: false,
-                elapsed: TimeSpan.Zero);
-        }
+        ExplorerDesktopResult restored = await RestoreDesktopSafelyAsync(
+            desktopHost, "Restoring Explorer after game-mode commit failure failed")
+            .ConfigureAwait(false);
 
         string warning = restored.Outcome switch
         {

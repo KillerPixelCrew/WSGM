@@ -9,6 +9,24 @@ using WSGM.Interop;
 
 namespace WSGM.Shell;
 
+/// <summary>What Steam's registrations at one card path need doing to them.</summary>
+internal enum CardLibraryAction
+{
+    /// <summary>Steam's view already matches the card that is in the reader.</summary>
+    None,
+
+    /// <summary>Registrations exist for a library that is not on this volume any
+    /// more; remove them and add nothing.</summary>
+    Purge,
+
+    /// <summary>Registrations exist for a DIFFERENT card, and the card now in the
+    /// reader carries its own library; replace them.</summary>
+    Replace,
+
+    /// <summary>The card carries a library Steam does not know about; add it.</summary>
+    Add,
+}
+
 /// <summary>Keeps Steam's install-folder list honest about which SD card is actually
 /// in the reader, driven by volume arrival/removal instead of by the user noticing.
 /// </summary>
@@ -209,7 +227,7 @@ internal sealed class CardVolumeMonitor : IDisposable
             cancellationToken.ThrowIfCancellationRequested();
             var key = SteamLibraryVdf.NormalizePath(libraryPath);
             var ids = registered.TryGetValue(key, out var at) ? at : [];
-            var action = CardLibraryDecision.Decide(cardContentId, ids);
+            var action = Decide(cardContentId, ids);
             if (action == CardLibraryAction.None)
             {
                 continue;
@@ -283,6 +301,46 @@ internal sealed class CardVolumeMonitor : IDisposable
         return changed;
     }
 
+    /// <summary>Decides what the registrations at one card path need. Pure, so the
+    /// rule is testable without a Steam client, a card reader, or a card. The
+    /// identity that settles it is the card's own marker content id, which travels
+    /// with the card — Steam's live folder API exposes no content ids at all, so
+    /// the comparison runs against <c>config\libraryfolders.vdf</c>.</summary>
+    /// <param name="cardContentId">The content id read from the volume's own
+    /// <c>SteamLibrary\libraryfolder.vdf</c>, or null when the volume carries no
+    /// Steam library (a blank card, or one formatted by something else).</param>
+    /// <param name="registeredContentIds">The content ids Steam has registered AT
+    /// THAT PATH. Usually zero or one; more than one is the duplicate state this
+    /// whole mechanism exists to clear.</param>
+    /// <returns>The action to apply.</returns>
+    internal static CardLibraryAction Decide(
+        string? cardContentId, IReadOnlyCollection<string> registeredContentIds)
+    {
+        ArgumentNullException.ThrowIfNull(registeredContentIds);
+        var registered = registeredContentIds
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToList();
+
+        if (string.IsNullOrWhiteSpace(cardContentId))
+        {
+            // Nothing on the volume claims to be a Steam library, so anything Steam
+            // still lists at this path belongs to a card that has left the reader.
+            return registered.Count > 0 ? CardLibraryAction.Purge : CardLibraryAction.None;
+        }
+        if (registered.Count == 0)
+        {
+            return CardLibraryAction.Add;
+        }
+        // Exactly the one registration, and it is this card's: leave it alone. Any
+        // other shape - a different id, or this id sitting next to a stale duplicate -
+        // has to be rebuilt, because Steam offers no way to drop just one of them by
+        // identity.
+        return registered.Count == 1
+            && string.Equals(registered[0], cardContentId, StringComparison.Ordinal)
+                ? CardLibraryAction.None
+                : CardLibraryAction.Replace;
+    }
+
     private static async Task<bool> ApplyAsync(
         CardLibraryAction action, string libraryPath, CancellationToken cancellationToken)
     {
@@ -314,50 +372,31 @@ internal sealed class CardVolumeMonitor : IDisposable
     {
         var systemDisks = RemovableDriveManager.ResolveSystemDisks();
         var found = new List<(string, string?)>();
-        foreach (var drive in DriveInfo.GetDrives())
+        foreach (var volume in NativeStorage.MountedVolumes())
         {
+            if (volume.DriveType != DriveType.Removable || !volume.Ready
+                || volume.DeviceType != NativeStorage.FileDeviceDisk || volume.Disk < 0
+                || RemovableDriveManager.ClassifyDisk(volume.Disk, systemDisks) is null)
+            {
+                continue;
+            }
+            var libraryPath = $@"{volume.Letter}:\SteamLibrary";
             try
             {
-                if (drive.DriveType != DriveType.Removable || !drive.IsReady
-                    || !IsRemovableCardVolume(drive, systemDisks))
-                {
-                    continue;
-                }
-                var libraryPath = Path.Combine(drive.Name, "SteamLibrary");
-                var marker = Path.Combine(libraryPath, "libraryfolder.vdf");
-                var contentId = File.Exists(marker)
-                    ? SteamLibraryVdf.ValuesOf(File.ReadAllText(marker), "contentid")
-                        .FirstOrDefault()
+                var contentId = SteamLibraryVdf.TryReadMarkerContentId(libraryPath, out var id)
+                    ? id
                     : null;
-                found.Add((libraryPath.TrimEnd('\\'), contentId));
+                found.Add((libraryPath, contentId));
             }
             catch (Exception ex)
             {
-                // A card pulled mid-scan throws here; the next notification re-runs.
-                Log.Warn($"Card volumes: could not inspect {drive.Name}: {ex.Message}");
+                // A card pulled mid-scan throws here — the volume is then SKIPPED, so
+                // an unreadable marker never purges a library. The next notification
+                // re-runs the scan.
+                Log.Warn($@"Card volumes: could not inspect {volume.Letter}:\: {ex.Message}");
             }
         }
         return found;
-    }
-
-    private static bool IsRemovableCardVolume(DriveInfo drive, HashSet<int> systemDisks)
-    {
-        var letter = char.ToUpperInvariant(drive.Name[0]);
-        using var volume = NativeStorage.OpenVolumeForQuery(letter);
-        if (volume.IsInvalid
-            || !NativeStorage.TryGetDeviceNumber(volume, out var type, out var disk)
-            || type != NativeStorage.FileDeviceDisk || disk < 0
-            || systemDisks.Contains(disk))
-        {
-            return false;
-        }
-        // Query access only, for the same reason the card scan uses it: a read handle
-        // on \\.\PhysicalDriveN needs elevation, so it would find nothing when WSGM
-        // runs unelevated.
-        using var physical = NativeStorage.OpenDiskForQuery(disk);
-        return !physical.IsInvalid
-            && NativeStorage.TryGetHotplugInfo(physical, out var media, out var hotplug)
-            && RemovableDriveManager.Classify(hotplug, media) is not null;
     }
 
     /// <summary>Content ids Steam has registered, grouped by normalized library path.
@@ -372,28 +411,16 @@ internal sealed class CardVolumeMonitor : IDisposable
     private static Dictionary<string, List<string>> ReadRegisteredContentIdsByPath()
     {
         var map = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-        var steamExe = Steam.ExePath;
-        if (steamExe is null)
-        {
-            return map;
-        }
         try
         {
-            var configPath = Path.Combine(
-                Path.GetDirectoryName(steamExe)!, "config", "libraryfolders.vdf");
-            if (!File.Exists(configPath))
+            if (!Steam.TryReadLibraryFolders(out _, out var text) || text is null)
             {
                 return map;
             }
-            var text = File.ReadAllText(configPath);
-            // Each entry lists path and contentid in order, so the two value lists
-            // align by entry — the same pairing the card label lookup relies on.
-            var paths = SteamLibraryVdf.ValuesOf(text, "path");
-            var ids = SteamLibraryVdf.ValuesOf(text, "contentid");
-            for (var i = 0; i < paths.Count && i < ids.Count; i++)
+            foreach (var entry in SteamLibraryVdf.ReadEntries(text))
             {
-                var key = SteamLibraryVdf.NormalizePath(paths[i]);
-                if (key.Length == 0)
+                var key = SteamLibraryVdf.NormalizePath(entry.Path);
+                if (key.Length == 0 || entry.ContentId is null)
                 {
                     continue;
                 }
@@ -401,7 +428,7 @@ internal sealed class CardVolumeMonitor : IDisposable
                 {
                     map[key] = list = [];
                 }
-                list.Add(ids[i]);
+                list.Add(entry.ContentId);
             }
         }
         catch (Exception ex)

@@ -89,22 +89,9 @@ public sealed class LibraryTabManager
             // reported value comes from whatever actually reached the CEF target.
             var reachedSteam = reachable ?? ok;
 
-            // One-time migration off the old collection approach: delete any collections
-            // WSGM created before and clear their stored ids.
-            if (ok)
-            {
-                await CleanupLegacyCollectionsAsync(config, cancellationToken).ConfigureAwait(false);
-            }
-
-            // CEF work above may take seconds. Merge only this sync's discovery and
-            // successful legacy-id clears into a freshly loaded config under the
-            // cross-process read-modify-write lock; never save the stale snapshot.
-            var clearedCards = config.CardLibraries.Where(c => string.IsNullOrEmpty(c.CollectionId))
-                .Select(c => c.ContentId).ToHashSet(StringComparer.Ordinal);
-            var clearedTabs = config.CustomTabs.Where(t => string.IsNullOrEmpty(t.CollectionId))
-                .Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
-            var remainingCategories = config.CategoryTabs.Select(c => c.CollectionId)
-                .ToHashSet(StringComparer.Ordinal);
+            // CEF work above may take seconds. Merge only this sync's discovery into a
+            // freshly loaded config under the cross-process read-modify-write lock;
+            // never save the stale snapshot.
             config = await MutateConfigAsync(fresh =>
             {
                 MergeDiscovery(fresh, discovered);
@@ -124,16 +111,6 @@ public sealed class LibraryTabManager
                         known.Title = native.Title;
                     }
                 }
-                foreach (var card in fresh.CardLibraries.Where(c => clearedCards.Contains(c.ContentId)))
-                {
-                    card.CollectionId = "";
-                }
-                foreach (var tab in fresh.CustomTabs.Where(t => clearedTabs.Contains(t.Id)))
-                {
-                    tab.CollectionId = "";
-                }
-                fresh.CategoryTabs.RemoveAll(
-                    category => !remainingCategories.Contains(category.CollectionId));
                 return fresh;
             }, cancellationToken).ConfigureAwait(false);
 
@@ -309,40 +286,6 @@ public sealed class LibraryTabManager
         // unknown rather than proven.
         bool? reachable = customTabs.Count > 0 ? true : null;
         return (tabs, reachable, false);
-    }
-
-    /// <summary>Deletes any Steam collections WSGM created under the previous
-    /// collection-based approach and clears their stored ids, so switching to injected
-    /// tabs leaves no orphaned collections behind.</summary>
-    private static async Task CleanupLegacyCollectionsAsync(
-        AppConfig config, CancellationToken cancellationToken)
-    {
-        async Task Drop(string id, Action clear)
-        {
-            if (!string.IsNullOrEmpty(id)
-                && await SteamCollections.DeleteByIdAsync(id, cancellationToken).ConfigureAwait(false))
-            {
-                clear();
-            }
-        }
-        foreach (var card in config.CardLibraries)
-        {
-            await Drop(card.CollectionId, () => card.CollectionId = "").ConfigureAwait(false);
-        }
-        foreach (var tab in config.CustomTabs)
-        {
-            await Drop(tab.CollectionId, () => tab.CollectionId = "").ConfigureAwait(false);
-        }
-        foreach (var cat in config.CategoryTabs.ToList())
-        {
-            var removed = string.IsNullOrEmpty(cat.CollectionId)
-                || await SteamCollections.DeleteByIdAsync(cat.CollectionId, cancellationToken)
-                    .ConfigureAwait(false);
-            if (removed)
-            {
-                config.CategoryTabs.Remove(cat);
-            }
-        }
     }
 
     /// <summary>Outcome of a card-badge push: reached the visible window, missed it
@@ -676,26 +619,21 @@ public sealed class LibraryTabManager
     public async Task ForgetCardAsync(string contentId,
         CancellationToken cancellationToken = default)
     {
-        var collectionId = await MutateConfigAsync(config =>
+        await MutateConfigAsync<object?>(config =>
         {
             var card = config.CardLibraries.FirstOrDefault(
                 c => string.Equals(c.ContentId, contentId, StringComparison.Ordinal));
             if (card is null)
             {
-                return "";
+                return null;
             }
             config.CardLibraries.Remove(card);
             if (!config.ForgottenInsertedCardIds.Contains(contentId, StringComparer.Ordinal))
             {
                 config.ForgottenInsertedCardIds.Add(contentId);
             }
-            return card.CollectionId;
+            return null;
         }, cancellationToken).ConfigureAwait(false);
-        if (!string.IsNullOrEmpty(collectionId))
-        {
-            await SteamCollections.DeleteByIdAsync(collectionId, cancellationToken)
-                .ConfigureAwait(false);
-        }
     }
 
     private static Task UpdateCardAsync(string contentId, Action<CardLibraryConfig> apply,
@@ -1082,8 +1020,6 @@ public sealed class LibraryTabManager
                 }
             }
             existing.AppIds = card.AppIds;
-            existing.LastSeenTicks = now;
-            existing.LastLetter = card.Letter.ToString();
         }
     }
 }

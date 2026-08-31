@@ -24,7 +24,7 @@ public sealed class NativeQamRefreshRateWriteTests
             return true;
         });
 
-        NativeQamCommandResult result = await adapter.ApplyPerfChangeAsync(
+        SteamUiCommandResult result = await adapter.ApplyPerfChangeAsync(
             new NativeQamPerfChange(NativeQamPerfSetting.RefreshRateHz, 60),
             "test",
             CancellationToken.None);
@@ -38,7 +38,7 @@ public sealed class NativeQamRefreshRateWriteTests
     {
         PerformanceServiceNativeQamAdapter adapter = Adapter(_ => false);
 
-        NativeQamCommandResult result = await adapter.ApplyPerfChangeAsync(
+        SteamUiCommandResult result = await adapter.ApplyPerfChangeAsync(
             new NativeQamPerfChange(NativeQamPerfSetting.RefreshRateHz, 48),
             "test",
             CancellationToken.None);
@@ -54,7 +54,7 @@ public sealed class NativeQamRefreshRateWriteTests
         // no applier and the write must say so rather than appear to succeed.
         PerformanceServiceNativeQamAdapter adapter = Adapter(null);
 
-        NativeQamCommandResult result = await adapter.ApplyPerfChangeAsync(
+        SteamUiCommandResult result = await adapter.ApplyPerfChangeAsync(
             new NativeQamPerfChange(NativeQamPerfSetting.RefreshRateHz, 60),
             "test",
             CancellationToken.None);
@@ -73,7 +73,7 @@ public sealed class NativeQamRefreshRateWriteTests
         // the coverage, because the refusal path is what keeps a dead control from looking alive.
         PerformanceServiceNativeQamAdapter adapter = Adapter(_ => true);
 
-        NativeQamCommandResult result = await adapter.ApplyPerfChangeAsync(
+        SteamUiCommandResult result = await adapter.ApplyPerfChangeAsync(
             new NativeQamPerfChange(NativeQamPerfSetting.AdvancedSettingsEnabled, 1),
             "test",
             CancellationToken.None);
@@ -95,7 +95,7 @@ public sealed class NativeQamRefreshRateWriteTests
             return Task.FromResult(true);
         };
 
-        NativeQamCommandResult result = await adapter.ApplyPerfChangeAsync(
+        SteamUiCommandResult result = await adapter.ApplyPerfChangeAsync(
             new NativeQamPerfChange(NativeQamPerfSetting.VariableRefreshRate, value),
             "test",
             CancellationToken.None);
@@ -112,7 +112,7 @@ public sealed class NativeQamRefreshRateWriteTests
         PerformanceServiceNativeQamAdapter adapter = Adapter(null);
         adapter.ApplyVariableRefreshRate = (_, _) => Task.FromResult(false);
 
-        NativeQamCommandResult result = await adapter.ApplyPerfChangeAsync(
+        SteamUiCommandResult result = await adapter.ApplyPerfChangeAsync(
             new NativeQamPerfChange(NativeQamPerfSetting.VariableRefreshRate, 1),
             "test",
             CancellationToken.None);
@@ -126,7 +126,7 @@ public sealed class NativeQamRefreshRateWriteTests
     {
         PerformanceServiceNativeQamAdapter adapter = Adapter(null);
 
-        NativeQamCommandResult result = await adapter.ApplyPerfChangeAsync(
+        SteamUiCommandResult result = await adapter.ApplyPerfChangeAsync(
             new NativeQamPerfChange(NativeQamPerfSetting.VariableRefreshRate, 1),
             "test",
             CancellationToken.None);

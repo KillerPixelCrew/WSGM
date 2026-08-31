@@ -79,15 +79,15 @@ internal sealed record NativeQamPerfLimits
 
     /// <summary>The same notches, for a display Steam considers external.</summary>
     /// <remarks>
-    /// EVERY display field in this message has an <c>_external</c> twin, and Valve's controls pick
-    /// which one to read from whether Steam thinks the panel is external — the Claw's built-in
-    /// panel reports <c>bDisplayIsExternal: true</c>, so on this hardware the external twin is the
-    /// one that renders and the internal one is dead weight. Supplying only the internal fields is
-    /// what left the frame-limit slider a grey bar with a label: the component rendered with an
-    /// empty notch list.
+    /// THE external-twin rule, referenced by every other twin here and by the delta reader: EVERY
+    /// display field in this message has an <c>_external</c> twin, and Valve's controls read and
+    /// write whichever side their own display test selects — the Claw's built-in panel reports
+    /// <c>bDisplayIsExternal: true</c>, so on this hardware the external twin is the one that
+    /// renders. Supplying only the internal fields left the frame-limit slider a grey bar with a
+    /// label: the component rendered with an empty notch list.
     /// <para>
-    /// WSGM manages one display and cannot tell the two cases apart usefully, so both carry the
-    /// same values rather than guessing which Steam will read.
+    /// WSGM manages one display and cannot tell the two cases apart usefully, so both twins carry
+    /// the same values rather than guessing which Steam will read.
     /// </para>
     /// </remarks>
     [JsonPropertyName("fps_limit_options_external")]
@@ -291,11 +291,8 @@ internal static class NativeQamPerfProjection
         {
             Limits = new NativeQamPerfLimits
             {
-                // Both twins carry the same values. Valve's controls read the internal or the
-                // external set depending on how Steam classifies the panel, and the Claw's built-in
-                // display reports as EXTERNAL — so on this hardware the external twin is the one
-                // that renders. Supplying only the internal set gave the frame-limit slider an
-                // empty notch list, which is the grey bar with a label.
+                // Both twins carry the same values; see the external-twin rule on
+                // NativeQamPerfLimits.FpsLimitOptionsExternal.
                 FpsLimitOptions = frameLimitOptions,
                 FpsLimitOptionsExternal = frameLimitOptions,
                 IsVrrSupported = support.VariableRefreshRateSupported ? true : null,
@@ -331,16 +328,12 @@ internal static class NativeQamPerfProjection
                 // Performance tab on 2026-08-30. Hiding a control by omitting its `limits` field is
                 // safe; advertising it in `limits` and then omitting its `settings` value is not —
                 // Valve's component renders, finds no value, and throws inside Steam's error
-                // boundary, taking the tab with it.
+                // boundary, taking the tab with it. So every field here is supplied exactly when
+                // the limits field that reveals its control is, and carries a concrete value: the
+                // lowest offered notch when no cap is set, never 0, because zero is filtered out of
+                // the options above and "off" is carried by the flag below.
                 //
-                // So every field here is supplied exactly when the limits field that reveals its
-                // control is, and carries a concrete value rather than null.
-                // The lowest offered notch when no cap is set, never 0: zero is filtered out of the
-                // options above, so reporting it would put the slider at a value outside its own
-                // range. "Off" is carried by the flag below, which is how Valve's row models it.
-                //
-                // The `_external` twins carry the same value for the same reason the limits do: the
-                // control reads one or the other, and on this hardware it reads the external one.
+                // The `_external` twins follow the rule on FpsLimitOptionsExternal.
                 FpsLimit = frameLimit,
                 FpsLimitExternal = frameLimit,
                 // Steam draws the cap and its on/off state from two fields. Without the flag the
@@ -362,9 +355,10 @@ internal static class NativeQamPerfProjection
     /// <summary>The lowest cap actually offered, or zero when none is.</summary>
     /// <remarks>
     /// Mirrors the filter applied to <c>fps_limit_options</c> above, so the value reported can never
-    /// be one the slider does not have a notch for.
+    /// be one the slider does not have a notch for. Shared with the frame-limit projection and the
+    /// enable-toggle default, which need the same "lowest playable cap" answer.
     /// </remarks>
-    private static int LowestOption(IReadOnlyList<int> options)
+    internal static int LowestOption(IReadOnlyList<int> options)
     {
         int lowest = 0;
         foreach (int option in options)
@@ -379,6 +373,3 @@ internal static class NativeQamPerfProjection
     }
 }
 
-/// <summary>Serializes the performance state with the client's own field names.</summary>
-[JsonSerializable(typeof(NativeQamPerfState))]
-internal sealed partial class NativeQamPerfJsonContext : JsonSerializerContext;

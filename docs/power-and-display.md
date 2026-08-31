@@ -66,7 +66,8 @@ controller (HandheldCompanion blocks controller wake by design) depends entirely
 notifications.
 
 **Coming back must not hang on any one notification** (reported 2026-08-19: a mute applied during a
-screen-off download never came back; `Core\DisplayMuteDecider.cs` now owns the pure display mapping
+screen-off download never came back; `DisplayMuteDecider` in `Shell\DisplayOffMuteService.cs` owns
+the pure display mapping
 and download/display reconciliation). Three rules make the restore path robust and none of them may
 be simplified away: the "we muted this" claim is cleared only after a **confirmed** unmute — the
 default endpoint is re-enumerated when the display wakes, and the old code cleared the flag _before_
@@ -80,7 +81,7 @@ dark half of the mute condition; **every other value restores** — dimmed and a
 add later — since an unrecognised state must never be the reason a device stays silent. The added
 `Mute on display off: user input while muted, …` line joins the remote test surface.
 
-**Keep-awake wake lock** (`Core\WakeLock.cs`, `Core\SteamDownloads.cs`, `Core\KeepAwakeDecider.cs`,
+**Keep-awake wake lock** (`Core\WakeLock.cs`, `Core\SteamDownloads.cs`,
 `Shell\KeepAwakeService.cs` — device-verified on the MSI Claw 2026-08-12, including the download
 hold across screen-off, the manual cycle, the indicator dot, and the idle-timeout rows): a Windows
 power request (`PowerCreateRequest` + `PowerRequestSystemRequired`) that blocks standby entry while
@@ -96,7 +97,8 @@ wins. Two independent holds, each its own request so `powercfg /requests` attrib
 `SteamClient.Downloads.RegisterForDownloadOverview` over the CEF bridge every 30 s (one-shot
 subscribe/unsubscribe; fires immediately with a snapshot, live-verified; active =
 `update_state != "None" && !paused`, and the Windows client's active state string is `Downloading`,
-NOT decky's Linux-documented `Updating`). Release is debounced (`KeepAwakeDecider`, 2 consecutive
+NOT decky's Linux-documented `Updating`). Release is debounced
+(`KeepAwakeService.NextDownloadHold`, 2 consecutive
 inactive polls) so queue gaps don't flap the hold; unreachable polls count as inactive for that
 wake-lock debounce so a dead Steam cannot pin the device awake. The separate activity answer
 consumed by display muting is stricter: an unreachable live client preserves the prior answer, and

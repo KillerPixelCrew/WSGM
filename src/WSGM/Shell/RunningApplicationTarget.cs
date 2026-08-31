@@ -77,18 +77,6 @@ internal sealed record ForegroundApplicationObservation(string? ExecutableName)
     internal static ForegroundApplicationObservation None { get; } = new((string?)null);
 }
 
-/// <summary>Read-only Steam source used by the session-owned target monitor.</summary>
-internal interface IRunningApplicationProbe
-{
-    ValueTask<IAsyncDisposable> SubscribeAsync(CancellationToken cancellationToken);
-
-    Task<SteamRunningAppObservation> ObserveAsync(CancellationToken cancellationToken);
-
-    Task<SteamRunningAppProfile> ResolveProfileAsync(
-        uint steamAppId,
-        CancellationToken cancellationToken);
-}
-
 /// <summary>Pure projection that never carries a previous application's identity forward.</summary>
 /// <remarks>
 /// Two identity sources, one answer. Steam wins whenever it names exactly one running application,
@@ -264,7 +252,7 @@ internal static class RunningApplicationTargetProjection
 /// Uses Steam's AppLifetime notification to retain a running-AppID set inside SharedJSContext.
 /// The managed side only reads the bounded set and never infers application changes from focus.
 /// </summary>
-internal sealed class SteamRunningApplicationProbe : IRunningApplicationProbe
+internal sealed class SteamRunningApplicationProbe
 {
     private const uint ShortcutAppIdFloor = 0x80000000;
     private static readonly TimeSpan EvaluationBudget = TimeSpan.FromSeconds(4);
@@ -525,11 +513,9 @@ internal sealed class SteamRunningApplicationProbe : IRunningApplicationProbe
 /// </summary>
 internal sealed class RunningApplicationMonitor : IAsyncDisposable
 {
-    private static readonly TimeSpan DefaultPollInterval = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan ProfileRetryInterval = TimeSpan.FromSeconds(10);
-    private readonly IRunningApplicationProbe _probe;
-    private readonly TimeSpan _pollInterval;
-    private readonly TimeProvider _timeProvider;
+    private readonly SteamRunningApplicationProbe _probe;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly SemaphoreSlim _observerSignal = new(0, 1);
     private readonly object _stateGate = new();
@@ -546,16 +532,12 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
     private bool _disposed;
 
     internal RunningApplicationMonitor(
-        IRunningApplicationProbe probe,
-        bool steamEnabled,
-        TimeSpan? pollInterval = null,
-        TimeProvider? timeProvider = null)
+        SteamRunningApplicationProbe probe,
+        bool steamEnabled)
     {
         _probe = probe ?? throw new ArgumentNullException(nameof(probe));
-        _pollInterval = BoundInterval(pollInterval ?? DefaultPollInterval);
-        _timeProvider = timeProvider ?? TimeProvider.System;
         _steamEnabled = steamEnabled;
-        _current = RunningApplicationTargetSnapshot.Initial(_timeProvider.GetUtcNow());
+        _current = RunningApplicationTargetSnapshot.Initial(DateTimeOffset.UtcNow);
         _loop = Task.Run(ObserveLoopAsync);
     }
 
@@ -700,8 +682,7 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
                 _profile = null;
                 _nextProfileRetry = default;
                 Publish(new SteamRunningAppObservation(false, [], 0, ex.Message), null);
-                await Task.Delay(_pollInterval, _timeProvider, cancellationToken)
-                    .ConfigureAwait(false);
+                await Task.Delay(PollInterval, cancellationToken).ConfigureAwait(false);
                 continue;
             }
 
@@ -712,8 +693,7 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
                     && !cancellationToken.IsCancellationRequested)
                 {
                     await ObserveOnceAsync(cancellationToken).ConfigureAwait(false);
-                    await Task.Delay(_pollInterval, _timeProvider, cancellationToken)
-                        .ConfigureAwait(false);
+                    await Task.Delay(PollInterval, cancellationToken).ConfigureAwait(false);
                 }
             }
         }
@@ -750,7 +730,7 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
             is [uint appId]
             ? appId
             : null;
-        DateTimeOffset now = _timeProvider.GetUtcNow();
+        DateTimeOffset now = DateTimeOffset.UtcNow;
         if (ShouldResolveProfile(singleAppId, _profileAppId, _profile, now, _nextProfileRetry))
         {
             _profileAppId = singleAppId;
@@ -799,7 +779,7 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
                 _current,
                 observation,
                 profile,
-                _timeProvider.GetUtcNow(),
+                DateTimeOffset.UtcNow,
                 _foreground);
             changed = next.Generation != _current.Generation;
             _current = next;
@@ -897,10 +877,6 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
         {
         }
     }
-
-    private static TimeSpan BoundInterval(TimeSpan interval) => interval < TimeSpan.FromMilliseconds(250)
-        ? TimeSpan.FromMilliseconds(250)
-        : interval > TimeSpan.FromSeconds(30) ? TimeSpan.FromSeconds(30) : interval;
 
     private sealed class ObservationLease(RunningApplicationMonitor owner) : IDisposable
     {

@@ -10,36 +10,32 @@ public sealed class CurveEditingTests
     private static CurvePoint[] Curve(params (int Input, int Output)[] points) =>
         [.. points.Select(point => new CurvePoint(point.Input, point.Output))];
 
-    [Fact]
-    public void NormalizeOrdersPointsAndClampsThemIntoTheDevicesBounds()
+    /// Test-local restatement of the contract the device router validates on apply
+    /// (1..64 points, inputs strictly ascending, everything inside the bounds), so
+    /// each edit operation can be checked against it.
+    private static bool SatisfiesRouterContract(IReadOnlyList<CurvePoint> points, CurveBounds bounds)
     {
-        IReadOnlyList<CurvePoint> curve = CurveEditing.Normalize(
-            Curve((80, 150), (20, -10), (50, 40)),
-            Fan);
+        if (points.Count is 0 or > CurveEditing.MaximumPoints)
+        {
+            return false;
+        }
 
-        Assert.Equal(Curve((20, 0), (50, 40), (80, 100)), curve);
-    }
+        for (int index = 0; index < points.Count; index++)
+        {
+            CurvePoint point = points[index];
+            if (point.Input != bounds.ClampInput(point.Input)
+                || point.Output != bounds.ClampOutput(point.Output))
+            {
+                return false;
+            }
 
-    [Fact]
-    public void NormalizeTurnsAnEmptyCurveIntoOneTheUserCanDrag()
-    {
-        // The router refuses an empty curve, and an empty input is a missing value rather than a
-        // request for silence.
-        IReadOnlyList<CurvePoint> curve = CurveEditing.Normalize([], Fan);
+            if (index > 0 && point.Input <= points[index - 1].Input)
+            {
+                return false;
+            }
+        }
 
-        Assert.Equal(2, curve.Count);
-        Assert.True(CurveEditing.IsValid(curve, Fan));
-    }
-
-    [Fact]
-    public void NormalizeCollapsesDuplicateInputsBecauseTheContractForbidsThem()
-    {
-        IReadOnlyList<CurvePoint> curve = CurveEditing.Normalize(
-            Curve((0, 10), (50, 20), (50, 60), (100, 80)),
-            Fan);
-
-        Assert.Equal(Curve((0, 10), (50, 60), (100, 80)), curve);
-        Assert.True(CurveEditing.IsValid(curve, Fan));
+        return true;
     }
 
     [Fact]
@@ -55,7 +51,7 @@ public sealed class CurveEditingTests
             Fan);
 
         Assert.Equal(59, curve[1].Input);
-        Assert.True(CurveEditing.IsValid(curve, Fan));
+        Assert.True(SatisfiesRouterContract(curve, Fan));
     }
 
     [Fact]
@@ -97,7 +93,7 @@ public sealed class CurveEditingTests
 
         Assert.Equal(3, curve.Count);
         Assert.Equal(70, curve[1].Output);
-        Assert.True(CurveEditing.IsValid(curve, Fan));
+        Assert.True(SatisfiesRouterContract(curve, Fan));
     }
 
     [Fact]
@@ -121,7 +117,7 @@ public sealed class CurveEditingTests
         IReadOnlyList<CurvePoint> curve = CurveEditing.Add(full, input: 90, output: 90, Fan);
 
         Assert.Equal(CurveEditing.MaximumPoints, curve.Count);
-        Assert.True(CurveEditing.IsValid(curve, Fan));
+        Assert.True(SatisfiesRouterContract(curve, Fan));
     }
 
     [Fact]
@@ -176,33 +172,6 @@ public sealed class CurveEditingTests
         // Two thirds of the way up a 0-100 rise is 66.67: rounding gives 67, truncation 66.
         Assert.Equal(67, CurveEditing.Evaluate(Curve((0, 0), (3, 100)), 2));
         Assert.Equal(33, CurveEditing.Evaluate(Curve((0, 0), (3, 100)), 1));
-    }
-
-    [Theory]
-    [InlineData(0, 0, 100, 100, true)]
-    // A falling curve is legal: only the INPUTS must ascend. Nothing says a device's output has to
-    // rise with its input, and refusing this would rule out every inverted control.
-    [InlineData(0, 100, 100, 0, true)]
-    [InlineData(100, 0, 0, 100, false)]
-    [InlineData(50, 0, 50, 100, false)]
-    public void ValidityMatchesTheContractTheRouterEnforces(
-        int firstInput,
-        int firstOutput,
-        int secondInput,
-        int secondOutput,
-        bool expected)
-    {
-        Assert.Equal(
-            expected,
-            CurveEditing.IsValid(
-                Curve((firstInput, firstOutput), (secondInput, secondOutput)),
-                Fan));
-    }
-
-    [Fact]
-    public void AnEmptyCurveIsNotValid()
-    {
-        Assert.False(CurveEditing.IsValid([], Fan));
     }
 
     [Fact]

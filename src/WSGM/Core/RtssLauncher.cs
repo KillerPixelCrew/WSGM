@@ -6,25 +6,10 @@ using System.Threading.Tasks;
 namespace WSGM.Core;
 
 /// <summary>
-/// Starts the verified RTSS installation when WSGM needs it and it is not running.
+/// Starts the verified RTSS installation when WSGM needs it and it is not running — only ever the
+/// executable discovery verified, and only once per session. The rationale is in
+/// <c>docs\rtss.md</c> ("WSGM starts RTSS").
 /// </summary>
-/// <remarks>
-/// WSGM depends on RTSS for the frame limit, the performance overlay and AutoTDP's frametimes, and
-/// on a handheld nobody wants to leave game mode to start a background service by hand. RTSS is
-/// normally launched by its own tray entry, which does not run before WSGM does on a service boot —
-/// so a machine that has RTSS installed and working still came up with performance controls
-/// unavailable, purely because of start order.
-/// <para>
-/// Only ever the executable discovery already verified: registered under a protected install root,
-/// signed, product name RTSS, version 7.3 or newer. This never resolves a path itself and never
-/// takes one from configuration, so it cannot be pointed at another program.
-/// </para>
-/// <para>
-/// One attempt per session. RTSS not appearing is a state worth reporting once, not something to
-/// retry into: a second copy of a single-instance program is at best wasted and at worst the
-/// "multiple processes match" case discovery already treats as degraded.
-/// </para>
-/// </remarks>
 internal sealed class RtssLauncher
 {
     /// <summary>How long to wait for a started RTSS to become visible to discovery.</summary>

@@ -31,10 +31,71 @@ internal sealed record DeviceInstalledPackageDiagnostic(
     string PackageId,
     string Version);
 
-/// <summary>Shared one-shot diagnostics pipe identity.</summary>
-internal static class DeviceCoordinatorDiagnosticsContract
+/// <summary>Current-user-only one-shot diagnostics server owned by the shell process.</summary>
+internal sealed class DeviceCoordinatorDiagnosticsServer : IAsyncDisposable
 {
-    internal static string PipeName(uint sessionId) => $"WSGM.DeviceCoordinator.{sessionId}";
+    private readonly string _pipeName;
+    private readonly Func<DeviceCoordinatorDiagnosticsSnapshot> _snapshot;
+    private readonly CancellationTokenSource _lifetime = new();
+    private readonly Task _worker;
+
+    internal DeviceCoordinatorDiagnosticsServer(
+        uint sessionId,
+        Func<DeviceCoordinatorDiagnosticsSnapshot> snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        _pipeName = $"WSGM.DeviceCoordinator.{sessionId}";
+        _snapshot = snapshot;
+        _worker = RunAsync(_lifetime.Token);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _lifetime.Cancel();
+        try
+        {
+            await _worker.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+
+        _lifetime.Dispose();
+    }
+
+    private async Task RunAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                await using NamedPipeServerStream pipe = new(
+                    _pipeName,
+                    PipeDirection.Out,
+                    NamedPipeServerStream.MaxAllowedServerInstances,
+                    PipeTransmissionMode.Byte,
+                    PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly,
+                    inBufferSize: 4096,
+                    outBufferSize: 64 * 1024);
+                await pipe.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
+                await JsonSerializer.SerializeAsync(
+                    pipe,
+                    _snapshot(),
+                    ConfigJsonContext.Default.DeviceCoordinatorDiagnosticsSnapshot,
+                    cancellationToken).ConfigureAwait(false);
+                await pipe.FlushAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                or JsonException)
+            {
+                Log.Warn($"Device diagnostics pipe recovered after failure: {ex.Message}");
+            }
+        }
+    }
 }
 
 /// <summary>Read-only client used by standalone Settings; it cannot own or command hardware.</summary>
@@ -50,7 +111,7 @@ internal static class DeviceCoordinatorDiagnosticsClient
         bounded.CancelAfter(timeout);
         await using NamedPipeClientStream pipe = new(
             ".",
-            DeviceCoordinatorDiagnosticsContract.PipeName(sessionId),
+            $"WSGM.DeviceCoordinator.{sessionId}",
             PipeDirection.In,
             PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
         try
