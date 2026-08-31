@@ -76,8 +76,7 @@ async function discoverIn(root) {
     .filter((entry) => entry.isFile() && entry.name.endsWith(".ts"))
     .map((entry) => join(root, entry.name))
     .filter(
-      (path) =>
-        !preludePaths.includes(path) && path !== componentsPath && path !== epiloguePath,
+      (path) => !preludePaths.includes(path) && path !== componentsPath && path !== epiloguePath,
     )
     .sort();
 }
