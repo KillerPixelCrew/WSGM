@@ -38,16 +38,16 @@ timeout or failure.
 
 Two findings recorded from `Shell\HidHideOwnership.cs`:
 
-- **Another tool's hide blinds discovery before WSGM's own transaction runs.** HandheldCompanion
-  had hidden the Claw's pad in both modes with an allowlist naming only itself: SDL reported no
-  gamepad, the plugin's HID enumeration could not see the pad it had just switched the device into,
-  and nothing anywhere mentioned HidHide. `EnsureReadableAsync` therefore allowlists WSGM before
-  the plugin's cycle starts — after discovery has failed it is too late for that cycle.
-- **HidHide stores application entries as NT device paths.** A ledger whose preexisting list
-  already contained `\Device\HarddiskVolume3\…\WSGM.exe` recorded a delta adding `C:\…\WSGM.exe`:
-  the allowlist grew on every activation, and because cleanup matches what it wrote, the duplicate
-  in the other notation was left behind on restore. `Contains`/`NormalizePath` compare both
-  notations for that reason.
+- **Another tool's hide blinds discovery before WSGM's own transaction runs.** HandheldCompanion had
+  hidden the Claw's pad in both modes with an allowlist naming only itself: SDL reported no gamepad,
+  the plugin's HID enumeration could not see the pad it had just switched the device into, and
+  nothing anywhere mentioned HidHide. `EnsureReadableAsync` therefore allowlists WSGM before the
+  plugin's cycle starts — after discovery has failed it is too late for that cycle.
+- **HidHide stores application entries as NT device paths.** A ledger whose preexisting list already
+  contained `\Device\HarddiskVolume3\…\WSGM.exe` recorded a delta adding `C:\…\WSGM.exe`: the
+  allowlist grew on every activation, and because cleanup matches what it wrote, the duplicate in
+  the other notation was left behind on restore. `Contains`/`NormalizePath` compare both notations
+  for that reason.
 
 ## Imported data and Device Lab
 

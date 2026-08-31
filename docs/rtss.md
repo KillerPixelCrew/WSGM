@@ -58,11 +58,11 @@ The shared performance contract already provides:
 
 ## WSGM starts RTSS
 
-WSGM depends on RTSS for the frame limit, the performance overlay and AutoTDP's frametimes, and on
-a handheld nobody wants to leave game mode to start a background service by hand. RTSS is normally
-launched by its own tray entry, which does not run before WSGM does on a service boot — so a
-machine that has RTSS installed and working still came up with performance controls unavailable,
-purely because of start order. `RtssLauncher` therefore starts it, under two rules:
+WSGM depends on RTSS for the frame limit, the performance overlay and AutoTDP's frametimes, and on a
+handheld nobody wants to leave game mode to start a background service by hand. RTSS is normally
+launched by its own tray entry, which does not run before WSGM does on a service boot — so a machine
+that has RTSS installed and working still came up with performance controls unavailable, purely
+because of start order. `RtssLauncher` therefore starts it, under two rules:
 
 - Only ever the executable discovery already verified: registered under a protected install root,
   signed, product name RTSS, version 7.3 or newer. It never resolves a path itself and never takes

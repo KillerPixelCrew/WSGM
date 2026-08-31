@@ -6,7 +6,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
 using WindowsDeviceControl;
-using WSGM.Core;
 
 namespace WSGM.Shell;
 

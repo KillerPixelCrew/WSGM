@@ -213,7 +213,9 @@ if (check) {
       `${relative(repositoryRoot, outputPath)} must be between 1 and ${maximumAssetBytes} bytes.`,
     );
   } else if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
-    problems.push(`${relative(repositoryRoot, outputPath)} must be UTF-8 without a byte-order mark.`);
+    problems.push(
+      `${relative(repositoryRoot, outputPath)} must be UTF-8 without a byte-order mark.`,
+    );
   } else {
     new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   }

@@ -1,5 +1,4 @@
 using WSGM.Core;
-using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Input;
 using WSGM.Shell;
 
