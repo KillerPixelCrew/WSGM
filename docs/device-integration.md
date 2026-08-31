@@ -115,8 +115,7 @@ reported to the plugin owner and is never blindly retried.
 `WSGM.Device.Sdk` is the one public API shared by WSGM, plugins, and Device Lab. It lives in its own
 repository (`KillerPixelCrew/WSGM.Device.Sdk`, MIT) and is pinned here as the
 `external\WSGM.Device.Sdk` submodule; see `AGENTS.md` for why its licence differs from WSGM's. It
-contains the
-exact plugin API version, one plugin lifecycle, practical semantic capability
+contains the exact plugin API version, one plugin lifecycle, practical semantic capability
 descriptors/state/commands/results, canonical controller and motion samples, haptic output, OEM
 events, glyph data/control maps, and a publication sink.
 
@@ -258,6 +257,12 @@ opening Settings mid-game.
 Device Lab is one optional developer-tools application with GUI and CLI modes over the same internal
 operations: doctor, inventory, capture, inspect/compare/correlate, fixture extraction, scaffold,
 glyph import, local plugin run, validate/test, and pack.
+
+It is built in `KillerPixelCrew/WSGM.DeviceLab` and reaches this repository only as the release
+pinned in `third_party\devicelab\devicelab.lock.json`, which the installer's optional `devicelab`
+component ships. Changing its behavior means changing it there and moving the pin; nothing under
+`third_party\devicelab\staging` is source. The ownership rules below still bind it, and its own
+repository is where they are now enforced.
 
 Read-only is the default. One explicit attended action may invoke plugin-owned
 snapshot/readback/restore code; it has no `--yes`, bulk, CI, imported recipe, trial-hash, receipt,

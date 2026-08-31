@@ -4,6 +4,13 @@ WSGM loads one administrator-installed device plugin through the public `WSGM.De
 A plugin owns exact device detection, hardware transports, semantic capabilities, input and output,
 diagnostics, and restoration. It supplies no UI code and cannot use WSGM internals.
 
+Both tools an author needs live outside this repository: `KillerPixelCrew/WSGM.Device.Sdk` is the
+contract, pinned here as the `external\WSGM.Device.Sdk` submodule; `KillerPixelCrew/WSGM.DeviceLab`
+is the tool, pinned here as a release digest in `third_party\devicelab\devicelab.lock.json`. Both
+are MIT, so a plugin carries whatever licence its author chooses. Inside this checkout, run
+`eng\acquire-devicelab.ps1` once and invoke `third_party\devicelab\staging\wsgm-device.exe`; the
+`wsgm-device` below is that executable, or an installed Device Lab.
+
 ## 1. Create and implement
 
 Use Device Lab's Plugin Developer flow, or scaffold from a confirmed capture:
@@ -18,8 +25,8 @@ package layout. A scaffolded plugin links only the MIT SDK, never WSGM, so the a
 licence freely — including a closed-source vendor plugin. The generated project keeps `LICENSE.txt`
 beside both build and publish output. Inside a WSGM checkout it references the SDK project through
 `external\WSGM.Device.Sdk`; installed Device Lab instead writes an explicit reference to the exact
-`WSGM.Device.Sdk.dll` shipped beside the tool. That path is validated before any scaffold file
-is written, so no undefined MSBuild property is emitted. Keep the reference on that exact API if the
+`WSGM.Device.Sdk.dll` shipped beside the tool. That path is validated before any scaffold file is
+written, so no undefined MSBuild property is emitted. Keep the reference on that exact API if the
 scaffold is moved to another machine. Implement exact detection first, then add direct device-owned
 services. Publish only semantic descriptors, state, input, and diagnostics through
 `IPluginHostAdapter`; vendor addresses, packets, handles, and recovery state stay inside the plugin.

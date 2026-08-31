@@ -36,8 +36,7 @@ $root = Split-Path -Parent $PSScriptRoot
 # repositories. Runtime tests use explicit-root seams.
 $scanned = @(
     "tests",
-    "plugins",
-    "src\WSGM.DeviceLab"
+    "plugins"
 )
 
 # A literal WSGM data path, or resolving the local-app-data root at all. The second pattern is the

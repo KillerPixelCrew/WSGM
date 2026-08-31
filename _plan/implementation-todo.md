@@ -40,19 +40,20 @@ WSGM.exe (self-contained CoreCLR)
   `- shell/session, overlay and Settings
 
 Real separate boundaries
-  WSGM.Device.Sdk       public plugin and package contract
-  WSGM.DeviceLab        independent diagnostic/authoring GUI + CLI
-  WSGM.LogonService     SYSTEM logon/watchdog process
-  WSGM.Launch           per-game medium-integrity wrapper
+  WSGM.LogonService                  SYSTEM logon/watchdog process
+  WSGM.Launch                        per-game medium-integrity wrapper
   native/SteamInput                  Steam Input lease/proxy ABI (submodule)
+  external/WSGM.Device.Sdk           public plugin and package contract (submodule, MIT)
   external/windows-device-control    radio/Wi-Fi/audio/brightness library (submodule)
+  third_party/devicelab              diagnostic/authoring GUI + CLI (pinned release)
   VIIPER                             native virtual-controller backend
 ```
 
-The solution contains seven projects in this repository: five product/tool projects, the built-in
-Claw plugin and one test project, plus the referenced library project from the device-control
-submodule. A process, project, helper, mirror, protocol or abstraction is not retained for future
-flexibility; it needs a current consumer or an OS, lifetime, packaging or public-contract boundary.
+The solution contains five projects from this repository — WSGM, Launch, LogonService, the built-in
+Claw plugin and one test project — plus the two submodule library projects it references. Device Lab
+is no longer built here at all. A process, project, helper, mirror, protocol or abstraction is not
+retained for future flexibility; it needs a current consumer or an OS, lifetime, packaging or
+public-contract boundary.
 
 ## Simplification milestone - complete in source
 
@@ -140,11 +141,20 @@ pinned submodule, so it can be versioned, consumed and reported against on its o
       back in as a project reference. WSGM keeps policy and wording; see `docs\radios.md` for that
       split. Verified: solution builds with zero warnings, 2,064 tests pass, and a clean
       `--recursive` clone builds from scratch.
-- [ ] **`WSGM.Device.Sdk`.** The reason the extraction started: pinning an SDK version through a
-      submodule instead of moving in lockstep with the application. Deliberately waits for one
-      confirming milestone, because the SDK is a published contract and a rushed split would strand
-      plugin authors on a version that is about to change.
-- [ ] **`claw-plugin`.** After the SDK, since it consumes it.
+- [x] **`WSGM.Device.Sdk`** (`external\WSGM.Device.Sdk`, public). The reason the extraction started:
+      plugin authors pin a contract version instead of moving in lockstep with the application.
+      **Relicensed MIT while WSGM stays GPL-3.0-or-later** — the assembly is linked into every
+      plugin, so the application's copyleft there would have made every plugin GPL-3, including any
+      vendor or OEM one. Clean to do: single author, no dependencies. 35 tests moved with it, plus
+      guards for the zero-dependency rule and the documentation gate.
+- [x] **`WSGM.DeviceLab`** (pinned release, public). 16k lines and 95 tests left this repository.
+      It is **not** a submodule: it carries its own SDK submodule, and building it inside this
+      solution would put two `WSGM.Device.Sdk` projects in one build from two pins that can drift.
+      The installer's optional `devicelab` component now ships the release pinned by digest in
+      `third_party\devicelab\devicelab.lock.json`, acquired and verified by
+      `eng\acquire-devicelab.ps1`. Users see no change; this repository stops compiling the tool.
+- [ ] **`claw-plugin`.** After the SDK, since it consumes it. It is the reference implementation the
+      SDK's documentation points at, so it should move before the SDK reaches 1.0.
 - [ ] **`steam-ui-toolkit`.** Generalize the CEF work so others can add and remove QAM and Settings
       surfaces. It consumes `windows-device-control` for the backends behind those surfaces, which
       is why that library moved first. Waits on the CEF simplification pass.

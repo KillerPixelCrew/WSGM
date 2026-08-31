@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "reviewedAtUtc": "2026-08-31T00:00:00Z",
+  "policy": "devicelab-pinned-release",
+  "notes": [
+    "Device Lab is a first-party tool in its own repository, not a vendored third party. It is pinned here for the same reason the controller components are: the installer ships a binary this repository does not build, so the exact bytes must be named and verified rather than assumed.",
+    "It is not built from source here because it references the plugin SDK as its own submodule. Building it inside WSGM's solution would put two WSGM.Device.Sdk projects in one build, from two pins that can drift apart.",
+    "No binary is checked in. eng/acquire-devicelab.ps1 downloads the pinned asset into a gitignored staging directory and refuses anything whose digest does not match."
+  ],
+  "component": {
+    "id": "devicelab",
+    "repository": "https://github.com/KillerPixelCrew/WSGM.DeviceLab",
+    "tag": "v0.1.0",
+    "version": "0.1.0",
+    "asset": "wsgm-device-0.1.0-win-x64.zip",
+    "assetUrl": "https://github.com/KillerPixelCrew/WSGM.DeviceLab/releases/download/v0.1.0/wsgm-device-0.1.0-win-x64.zip",
+    "assetSha256": "3CD8E2DD044BB1AF67B07931BA626774B7FD62BDC5B91CDA48CBA74E87B9A937",
+    "assetBytes": 77066518,
+    "executable": "wsgm-device.exe",
+    "selfContained": true,
+    "runtimeIdentifier": "win-x64",
+    "installerComponent": "devicelab",
+    "license": "MIT",
+    "notice": "The archive carries its own LICENSE.txt, THIRD_PARTY_NOTICES.md and the .NET runtime notices for the runtime it redistributes."
+  }
+}

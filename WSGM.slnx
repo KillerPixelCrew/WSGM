@@ -3,7 +3,6 @@
     <Project Path="external/WSGM.Device.Sdk/src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj" />
   </Folder>
   <Folder Name="/src/">
-    <Project Path="src/WSGM.DeviceLab/WSGM.DeviceLab.csproj" />
     <Project Path="src/WSGM.Launch/WSGM.Launch.csproj" />
     <Project Path="src/WSGM.LogonService/WSGM.LogonService.csproj" />
     <Project Path="src/WSGM/WSGM.csproj" />

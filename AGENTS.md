@@ -33,7 +33,6 @@ WSGM.exe (CoreCLR)
 
 Separate artifacts that still have a real boundary:
   external/WSGM.Device.Sdk           public plugin/package contract (submodule)
-  WSGM.DeviceLab                     independent diagnostic/authoring GUI + CLI
   WSGM.LogonService                  SYSTEM logon/watchdog process
   WSGM.Launch                        per-game medium-integrity wrapper
   native/SteamInput                  native Steam Input lease and proxy (submodule)
@@ -116,13 +115,17 @@ src\WSGM\bin\...\WSGM.exe --settings
 src\WSGM\bin\...\WSGM.exe --overlay-test
 node tools\WsgmLibTest\run-file.mjs <file.js>
 node tools\WsgmLibTest\qam-harness.mjs
-wsgm-device doctor|inventory|candidates
-wsgm-device inspect|compare|correlate <file>
-wsgm-device validate <plugin>|pack <plugin>
+
+# Device Lab is a pinned release, not a project here. Stage it, then run it from staging.
+./eng/acquire-devicelab.ps1
+third_party\devicelab\staging\wsgm-device.exe doctor|inventory|candidates
+third_party\devicelab\staging\wsgm-device.exe inspect|compare|correlate <file>
+third_party\devicelab\staging\wsgm-device.exe validate <plugin>|pack <plugin>
 ```
 
 `--settings` and `--overlay-test` are safe local UI modes. Read-only Device Lab observation and
-offline validation commands are safe.
+offline validation commands are safe. Changing Device Lab itself means working in its own
+repository; editing a staged copy changes nothing that ships.
 
 `--shell` may run only through `eng\dev-deploy.ps1`, only after
 `Get-CimInstance Win32_BaseBoard` reports product `MS-1T52`, only when the maintainer explicitly
@@ -183,6 +186,14 @@ not reformat untouched Rust simply to add a fmt gate.
 VIIPER and its controller drivers are pinned under `third_party\controller`. Build scripts acquire
 and validate the pinned source; the installer scopes VIIPER, usbip-win2 and HidHide to the controller
 component. Do not silently substitute a newer driver: the pin records a device-specific regression.
+
+**Device Lab is no longer built here.** It is `KillerPixelCrew/WSGM.DeviceLab` (MIT), and the
+installer's optional `devicelab` component ships a release pinned by digest in
+`third_party\devicelab\devicelab.lock.json`. `eng\acquire-devicelab.ps1` downloads and verifies it
+into a gitignored staging directory; no binary is checked in. It is pinned rather than referenced
+because it carries its own SDK submodule, and building it inside this solution would put two
+`WSGM.Device.Sdk` projects in one build from two pins that can drift apart. To ship a new Device
+Lab: tag a release there, then move the asset URL, digest and version here in one commit.
 
 The retired `native\Radio`, `native\VolumeControl`, DeviceHost, IPC transport and managed binding
 mirror must stay retired. Upgrade cleanup may still name old artifacts solely to remove them.

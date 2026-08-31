@@ -24,10 +24,12 @@ src/WSGM/Native/SteamInputLease/
 # concatenates and type-checks them, then runs the pinned Prettier over the emitted single asset.
 src/WSGM/Core/SteamUiAssets/Source/**/*.ts
 
-# The steam-input-lease submodule owns its own formatting and its own gates
-# (clippy, rustdoc). It is a separate repository; formatting it from here would
-# both create churn and dirty a submodule this repo only pins.
+# Submodules own their own formatting and their own gates. They are separate
+# repositories; formatting them from here would both create churn and dirty a
+# working tree this repo only pins — and the reformatted files could never be
+# committed from here anyway.
 native/SteamInput/
+external/
 
 # Vendored upstream source. Reformatting it would destroy the diff against
 # upstream, which is the whole point of keeping it re-syncable.

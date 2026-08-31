@@ -24,6 +24,10 @@
 /third_party/**/bin/
 /third_party/**/obj/
 
+# Acquired by eng\acquire-devicelab.ps1 from the digest pinned in devicelab.lock.json.
+# No third-party or first-party binary payload is ever checked in.
+/third_party/devicelab/staging/
+
 # User-specific files
 *.rsuser
 *.suo

@@ -65,25 +65,26 @@ try {
     dotnet restore WSGM.slnx -m:1
     if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed" }
 
-    # Vendored upstream source is reachable through a project reference but is not
-    # ours to restyle: reformatting it would destroy the diff against upstream, which
-    # is what makes it re-syncable. Its own gates are the upstream project's.
-    $vendored = "third_party/"
+    # Neither is ours to restyle, and both are reachable through a project reference.
+    # Reformatting vendored upstream source would destroy the diff against upstream, which is what
+    # makes it re-syncable; reformatting a submodule dirties a working tree this repository only
+    # pins, and the result could never be committed from here anyway. Each has its own gates.
+    $notOurs = @("third_party/", "external/")
 
-    $formatArgs = @("format", "WSGM.slnx", "whitespace", "--no-restore", "--verbosity", "minimal",
-        "--exclude", $vendored)
+    $formatArgs = @("format", "WSGM.slnx", "whitespace", "--no-restore", "--verbosity", "minimal")
+    foreach ($path in $notOurs) { $formatArgs += @("--exclude", $path) }
     if (-not $Fix) { $formatArgs += "--verify-no-changes" }
     & dotnet @formatArgs
     if ($LASTEXITCODE -ne 0) { throw "C# whitespace format check failed" }
 
-    $styleArgs = @("format", "WSGM.slnx", "style", "--no-restore", "--severity", "warn", "--verbosity", "minimal",
-        "--exclude", $vendored)
+    $styleArgs = @("format", "WSGM.slnx", "style", "--no-restore", "--severity", "warn", "--verbosity", "minimal")
+    foreach ($path in $notOurs) { $styleArgs += @("--exclude", $path) }
     if (-not $Fix) { $styleArgs += "--verify-no-changes" }
     & dotnet @styleArgs
     if ($LASTEXITCODE -ne 0) { throw "C# style check failed" }
 
-    $analyzerArgs = @("format", "WSGM.slnx", "analyzers", "--no-restore", "--severity", "warn", "--verbosity", "minimal",
-        "--exclude", $vendored)
+    $analyzerArgs = @("format", "WSGM.slnx", "analyzers", "--no-restore", "--severity", "warn", "--verbosity", "minimal")
+    foreach ($path in $notOurs) { $analyzerArgs += @("--exclude", $path) }
     if (-not $Fix) { $analyzerArgs += "--verify-no-changes" }
     & dotnet @analyzerArgs
     if ($LASTEXITCODE -ne 0) { throw "C# analyzer check failed" }

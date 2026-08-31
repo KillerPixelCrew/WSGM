@@ -131,13 +131,18 @@ function Copy-DotNetRuntimeNotices(
 }
 
 try {
+    # Device Lab is built in its own repository and pinned here by digest, not compiled from this
+    # tree. It references the plugin SDK as its own submodule, so building it inside this solution
+    # would put two WSGM.Device.Sdk projects in one build, from two pins that can drift apart.
+    # The acquired tree is already self-contained and already carries its own licence notices.
     $deviceLabDestination = Join-Path $temporaryRoot "Tools\DeviceLab"
-    Invoke-ComponentPublish `
-        "src\WSGM.DeviceLab\WSGM.DeviceLab.csproj" $deviceLabDestination $Version
-    # Device Lab is also self-contained and must carry the exact restored runtime notices.
-    Copy-DotNetRuntimeNotices `
-        (Join-Path $root "src\WSGM.DeviceLab\obj\project.assets.json") `
-        $deviceLabDestination
+    $deviceLabStaging = & (Join-Path $PSScriptRoot "acquire-devicelab.ps1")
+    New-Item -ItemType Directory -Path $deviceLabDestination -Force | Out-Null
+    Copy-Item -Path (Join-Path $deviceLabStaging "*") `
+        -Destination $deviceLabDestination -Recurse -Force
+    # The staging stamp records the pin for the acquire script; it is not part of the payload.
+    Remove-Item -LiteralPath (Join-Path $deviceLabDestination ".pinned-version") `
+        -Force -ErrorAction SilentlyContinue
 
     $allPluginManifests = @(
         Get-ChildItem -LiteralPath (Join-Path $root "plugins") `
