@@ -69,14 +69,6 @@ function createPerfNamespace() {
       return { ok: false, error: lastError };
     }
 
-    // Same rule as the audio namespace: stand aside for a real backend, reclaim one of our own.
-    // An orphaned Perf namespace is worse than an orphaned audio one — it leaves SystemPerfStore
-    // holding half-written state, which renders Valve's controls with no values behind them.
-    if (system.Perf && !system.Perf[ownedMarker]) {
-      lastError = "SteamClient.System.Perf already exists";
-      return { ok: false, error: lastError };
-    }
-
     if (!store()) {
       lastError = "SystemPerfStore unavailable";
       return { ok: false, error: lastError };
@@ -85,7 +77,7 @@ function createPerfNamespace() {
     // Every setter builds a protobuf delta and hands it to UpdateSettings, so that one method is
     // where all of them arrive. The delta is decoded on WSGM's side rather than here, because the
     // message shapes belong to the client and this half only forwards.
-    const api = {
+    const buildApi = () => ({
       // Decode first, always. SystemPerfStore's setters all end in
       // `UpdateSettings(request.serializeBase64String())`, so what arrives here is a BASE64
       // STRING, not the message — live-verified 2026-08-30 by round-tripping a request built by
@@ -98,24 +90,15 @@ function createPerfNamespace() {
         request(patchId, "updateSettings", { delta: decodeSettingsUpdate(payload) }, 0),
       RegisterForStateChanges: () => ({ unregister: () => {} }),
       RegisterForDiagnosticInfoChanges: () => ({ unregister: () => {} }),
-    };
+    });
 
-    try {
-      // Non-enumerable so it never shows up in a key walk of the namespace, and defined before
-      // the namespace is published so nothing can observe an unmarked one.
-      Object.defineProperty(api, ownedMarker, {
-        value: true,
-        configurable: true,
-        enumerable: false,
-      });
-      Object.defineProperty(system, "Perf", {
-        value: api,
-        configurable: true,
-        enumerable: true,
-        writable: false,
-      });
-    } catch (error) {
-      lastError = String(error);
+    // Stand aside for a real backend, reclaim one of our own — the primitive's rules, and it marks
+    // the namespace before publishing it so nothing can observe an unmarked one. An orphaned Perf
+    // namespace is worse than an orphaned audio one: it leaves SystemPerfStore holding half-written
+    // state, which renders Valve's controls with no values behind them.
+    const supplied = supplyNamespace(system, "Perf", ownedMarker, buildApi);
+    if (!supplied.ok) {
+      lastError = supplied.error;
       return { ok: false, error: lastError };
     }
 
@@ -147,10 +130,11 @@ function createPerfNamespace() {
       }
     }
 
-    try {
-      delete window.SteamClient.System.Perf;
-    } catch (error) {
-      lastError = String(error);
+    // Marker-checked, which this path was not: it deleted whatever was at System.Perf, so a real
+    // backend appearing under a still-installed gate would have been removed by WSGM's own cleanup.
+    const withdrawn = withdrawNamespace(window.SteamClient?.System, "Perf", ownedMarker);
+    if (!withdrawn.ok) {
+      lastError = withdrawn.error ?? "perf namespace withdrawal failed";
       return { ok: false, error: lastError };
     }
 

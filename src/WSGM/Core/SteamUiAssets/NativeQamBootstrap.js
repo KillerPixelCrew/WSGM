@@ -206,8 +206,10 @@
   // The same idea one level down: a method WSGM overlaid rather than a namespace it defined. The
   // second key carries the method that was replaced, so an overlay outliving the closure that made
   // it can still be unwound back to the client's own.
-  const ownedGetStateMarker = "__wsgmOwnedGetState";
-  const originalGetStateField = "__wsgmOriginalGetState";
+  const getState = {
+    marker: "__wsgmOwnedGetState",
+    original: "__wsgmOriginalGetState",
+  };
   const audioNamespace = createAudioNamespace();
   const networkGate = createNetworkGate();
   const bluetoothService = createBluetoothService();
@@ -363,6 +365,58 @@
     }
   };
   const memberClaimed = (host, member, keys) => claimed(host?.[member], keys);
+  // Supplies a namespace the client does not have — the Performance and audio backends Valve's own
+  // components were written against and the Windows client never defines.
+  //
+  // Distinct from claimMember, which overlays something that EXISTS. Three differences matter:
+  //
+  //   - Refusing a real backend is correct. A client that grows one must not be shadowed by a
+  //     projection of a different machine's hardware.
+  //   - Reclaiming our own is mandatory. A namespace outlives the bridge backing it — the bridge is a
+  //     window property that dies with the JS context, SteamClient does not — so after a context
+  //     reload an orphaned namespace is left whose methods call a bridge that is gone. Refusing there
+  //     stranded the client permanently: the probe saw a namespace, called the patch incompatible,
+  //     and Steam's audio page stayed empty until Steam itself restarted.
+  //   - Removal DELETES rather than restores, because there was nothing there to hand back.
+  //
+  // Defined rather than assigned, and non-writable: assignment would throw against a previous
+  // bridge's non-writable definition, under the "use strict" this whole asset runs in — turning a
+  // reclaim into exactly the refusal above.
+  // Takes a marker alone rather than a ClaimKeys pair, because nothing is displaced: there is no
+  // original to remember, and removal deletes.
+  const supplyNamespace = (host, name, marker, factory) => {
+    if (!host) {
+      return { ok: false, error: "namespace host unavailable" };
+    }
+    const current = host[name];
+    if (current && !claimed(current, { marker, original: marker })) {
+      return { ok: false, error: `${name} already exists` };
+    }
+    try {
+      const api = factory();
+      defineHidden(api, marker, true);
+      Object.defineProperty(host, name, {
+        value: api,
+        configurable: true,
+        enumerable: true,
+        writable: false,
+      });
+      return { ok: true, reclaimed: !!current };
+    } catch (error) {
+      return { ok: false, error: String(error) };
+    }
+  };
+  // Withdraws a supplied namespace. Only ever deletes one this bridge marked, so a real backend that
+  // appeared underneath is left alone.
+  const withdrawNamespace = (host, name, marker) => {
+    if (!host || !claimed(host[name], { marker, original: marker })) return { ok: true };
+    try {
+      delete host[name];
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: String(error) };
+    }
+  };
   // Claims an accessor property — a getter the client computes, that a gate answers differently.
   //
   // Separate from claimMember because the write has to be defineProperty rather than assignment:
@@ -471,13 +525,6 @@
         lastError = "SteamClient.System unavailable";
         return { ok: false, error: lastError };
       }
-      // Same rule as the audio namespace: stand aside for a real backend, reclaim one of our own.
-      // An orphaned Perf namespace is worse than an orphaned audio one — it leaves SystemPerfStore
-      // holding half-written state, which renders Valve's controls with no values behind them.
-      if (system.Perf && !system.Perf[ownedMarker]) {
-        lastError = "SteamClient.System.Perf already exists";
-        return { ok: false, error: lastError };
-      }
       if (!store()) {
         lastError = "SystemPerfStore unavailable";
         return { ok: false, error: lastError };
@@ -485,7 +532,7 @@
       // Every setter builds a protobuf delta and hands it to UpdateSettings, so that one method is
       // where all of them arrive. The delta is decoded on WSGM's side rather than here, because the
       // message shapes belong to the client and this half only forwards.
-      const api = {
+      const buildApi = () => ({
         // Decode first, always. SystemPerfStore's setters all end in
         // `UpdateSettings(request.serializeBase64String())`, so what arrives here is a BASE64
         // STRING, not the message — live-verified 2026-08-30 by round-tripping a request built by
@@ -498,23 +545,14 @@
           request(patchId, "updateSettings", { delta: decodeSettingsUpdate(payload) }, 0),
         RegisterForStateChanges: () => ({ unregister: () => {} }),
         RegisterForDiagnosticInfoChanges: () => ({ unregister: () => {} }),
-      };
-      try {
-        // Non-enumerable so it never shows up in a key walk of the namespace, and defined before
-        // the namespace is published so nothing can observe an unmarked one.
-        Object.defineProperty(api, ownedMarker, {
-          value: true,
-          configurable: true,
-          enumerable: false,
-        });
-        Object.defineProperty(system, "Perf", {
-          value: api,
-          configurable: true,
-          enumerable: true,
-          writable: false,
-        });
-      } catch (error) {
-        lastError = String(error);
+      });
+      // Stand aside for a real backend, reclaim one of our own — the primitive's rules, and it marks
+      // the namespace before publishing it so nothing can observe an unmarked one. An orphaned Perf
+      // namespace is worse than an orphaned audio one: it leaves SystemPerfStore holding half-written
+      // state, which renders Valve's controls with no values behind them.
+      const supplied = supplyNamespace(system, "Perf", ownedMarker, buildApi);
+      if (!supplied.ok) {
+        lastError = supplied.error;
         return { ok: false, error: lastError };
       }
       installed = true;
@@ -542,10 +580,11 @@
           lastError = String(error);
         }
       }
-      try {
-        delete window.SteamClient.System.Perf;
-      } catch (error) {
-        lastError = String(error);
+      // Marker-checked, which this path was not: it deleted whatever was at System.Perf, so a real
+      // backend appearing under a still-installed gate would have been removed by WSGM's own cleanup.
+      const withdrawn = withdrawNamespace(window.SteamClient?.System, "Perf", ownedMarker);
+      if (!withdrawn.ok) {
+        lastError = withdrawn.error ?? "perf namespace withdrawal failed";
         return { ok: false, error: lastError };
       }
       return { ok: true, removed: true };
@@ -728,12 +767,12 @@
       // already paid for: a successful install would make the next probe declare the patch
       // incompatible, tearing down what it had just done.
       const existing = manager.GetState;
-      originalGetState =
-        existing?.[ownedGetStateMarker] === true ? existing[originalGetStateField] : existing;
-      if (typeof originalGetState !== "function") {
+      const recoverable = claimed(existing, getState) ? existing[getState.original] : existing;
+      if (typeof recoverable !== "function") {
         lastError = "SteamOS Manager GetState is not recoverable";
         return { ok: false, error: lastError };
       }
+      originalGetState = recoverable;
       const overlaid = async (payload) => {
         // The original answer is kept and overlaid, never replaced: it carries real fields —
         // screen-reader support among them — that a fabricated reply would silently zero.
@@ -760,17 +799,11 @@
           return result;
         }
       };
-      Object.defineProperty(overlaid, ownedGetStateMarker, {
-        value: true,
-        configurable: true,
-        enumerable: false,
-      });
-      Object.defineProperty(overlaid, originalGetStateField, {
-        value: originalGetState,
-        configurable: true,
-        enumerable: false,
-      });
-      manager.GetState = overlaid;
+      const claim = claimMember(manager, "GetState", getState, () => overlaid);
+      if (!claim.ok) {
+        lastError = claim.error;
+        return { ok: false, error: lastError };
+      }
       installed = true;
       lastError = "";
       unsubscribe = subscribe(patchId, onState);
@@ -789,15 +822,10 @@
         unsubscribeSettings();
         unsubscribeSettings = null;
       }
-      if (manager && originalGetState) {
-        try {
-          if (manager.GetState?.[ownedGetStateMarker] === true) {
-            manager.GetState = originalGetState;
-          }
-        } catch (error) {
-          lastError = String(error);
-          return { ok: false, error: lastError };
-        }
+      const released = releaseMember(manager, "GetState", getState);
+      if (!released.ok) {
+        lastError = released.error ?? "GetState release failed";
+        return { ok: false, error: lastError };
       }
       latest = { available: false, min: 0, max: 0 };
       invalidate(modules());
@@ -811,7 +839,7 @@
       managerFound: !!manager,
       // What the C# verify step checks. "installed" alone is this closure's own bookkeeping; this
       // is the client actually carrying the overlay.
-      getStateOverlaid: manager?.GetState?.[ownedGetStateMarker] === true,
+      getStateOverlaid: memberClaimed(manager, "GetState", getState),
       settingsWatched: unsubscribeSettings !== null,
       available: latest.available,
       min: latest.min,
@@ -1553,20 +1581,7 @@
         lastError = "SteamClient.System unavailable";
         return { ok: false, error: lastError };
       }
-      // Never replace a REAL backend. On a client that grows one, WSGM must stand aside rather than
-      // shadow it with a projection of a different machine's audio.
-      //
-      // One WSGM already installed is a different case and must be reclaimed, not refused. A
-      // namespace outlives the bridge that backs it — the bridge is a window property and dies with
-      // the JS context, while SteamClient does not — so after a context reload an orphaned
-      // namespace is left behind whose methods call into a bridge that is gone. Refusing there
-      // stranded the client permanently: the probe saw a namespace, called the patch incompatible,
-      // and Steam's audio page stayed empty until Steam itself restarted.
-      if (system.Audio && !system.Audio[ownedMarker]) {
-        lastError = "SteamClient.System.Audio already exists";
-        return { ok: false, error: lastError };
-      }
-      const api = {
+      const buildApi = () => ({
         GetDevices: () =>
           request(patchId, "getDevices", null, 0).then((state) => ({
             activeOutputDeviceId: numberFor(state?.activeOutputDeviceId ?? ""),
@@ -1614,21 +1629,12 @@
         RegisterForAppAdded: register("appAdded"),
         RegisterForAppRemoved: register("appRemoved"),
         RegisterForAppVolumeChanged: register("appVolumeChanged"),
-      };
-      try {
-        Object.defineProperty(api, ownedMarker, {
-          value: true,
-          configurable: true,
-          enumerable: false,
-        });
-        Object.defineProperty(system, "Audio", {
-          value: api,
-          configurable: true,
-          enumerable: true,
-          writable: false,
-        });
-      } catch (error) {
-        lastError = String(error);
+      });
+      // Refusing a real backend and reclaiming our own orphan are both the primitive's job now; the
+      // reasoning for each lives with it.
+      const supplied = supplyNamespace(system, "Audio", ownedMarker, buildApi);
+      if (!supplied.ok) {
+        lastError = supplied.error;
         return { ok: false, error: lastError };
       }
       installed = true;
@@ -1657,12 +1663,9 @@
       }
       known = [];
       originalStoreState = null;
-      try {
-        if (window.SteamClient?.System?.Audio?.[ownedMarker] === true) {
-          delete window.SteamClient.System.Audio;
-        }
-      } catch (error) {
-        lastError = String(error);
+      const withdrawn = withdrawNamespace(window.SteamClient?.System, "Audio", ownedMarker);
+      if (!withdrawn.ok) {
+        lastError = withdrawn.error ?? "audio namespace withdrawal failed";
         return { ok: false, error: lastError };
       }
       return { ok: true, removed: true };

@@ -212,8 +212,10 @@
   // The same idea one level down: a method WSGM overlaid rather than a namespace it defined. The
   // second key carries the method that was replaced, so an overlay outliving the closure that made
   // it can still be unwound back to the client's own.
-  const ownedGetStateMarker = "__wsgmOwnedGetState";
-  const originalGetStateField = "__wsgmOriginalGetState";
+  const getState = {
+    marker: "__wsgmOwnedGetState",
+    original: "__wsgmOriginalGetState",
+  };
 
   const audioNamespace = createAudioNamespace();
   const networkGate = createNetworkGate();

@@ -170,12 +170,12 @@ function createSteamOsManagerGate() {
     // already paid for: a successful install would make the next probe declare the patch
     // incompatible, tearing down what it had just done.
     const existing = manager.GetState;
-    originalGetState =
-      existing?.[ownedGetStateMarker] === true ? existing[originalGetStateField] : existing;
-    if (typeof originalGetState !== "function") {
+    const recoverable = claimed(existing, getState) ? existing[getState.original] : existing;
+    if (typeof recoverable !== "function") {
       lastError = "SteamOS Manager GetState is not recoverable";
       return { ok: false, error: lastError };
     }
+    originalGetState = recoverable;
     const overlaid = async (payload) => {
       // The original answer is kept and overlaid, never replaced: it carries real fields —
       // screen-reader support among them — that a fabricated reply would silently zero.
@@ -202,17 +202,11 @@ function createSteamOsManagerGate() {
         return result;
       }
     };
-    Object.defineProperty(overlaid, ownedGetStateMarker, {
-      value: true,
-      configurable: true,
-      enumerable: false,
-    });
-    Object.defineProperty(overlaid, originalGetStateField, {
-      value: originalGetState,
-      configurable: true,
-      enumerable: false,
-    });
-    manager.GetState = overlaid;
+    const claim = claimMember(manager, "GetState", getState, () => overlaid);
+    if (!claim.ok) {
+      lastError = claim.error;
+      return { ok: false, error: lastError };
+    }
 
     installed = true;
     lastError = "";
@@ -233,15 +227,10 @@ function createSteamOsManagerGate() {
       unsubscribeSettings();
       unsubscribeSettings = null;
     }
-    if (manager && originalGetState) {
-      try {
-        if (manager.GetState?.[ownedGetStateMarker] === true) {
-          manager.GetState = originalGetState;
-        }
-      } catch (error) {
-        lastError = String(error);
-        return { ok: false, error: lastError };
-      }
+    const released = releaseMember(manager, "GetState", getState);
+    if (!released.ok) {
+      lastError = released.error ?? "GetState release failed";
+      return { ok: false, error: lastError };
     }
     latest = { available: false, min: 0, max: 0 };
     invalidate(modules());
@@ -256,7 +245,7 @@ function createSteamOsManagerGate() {
     managerFound: !!manager,
     // What the C# verify step checks. "installed" alone is this closure's own bookkeeping; this
     // is the client actually carrying the overlay.
-    getStateOverlaid: manager?.GetState?.[ownedGetStateMarker] === true,
+    getStateOverlaid: memberClaimed(manager, "GetState", getState),
     settingsWatched: unsubscribeSettings !== null,
     available: latest.available,
     min: latest.min,

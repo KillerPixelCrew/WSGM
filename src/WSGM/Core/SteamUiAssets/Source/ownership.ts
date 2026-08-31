@@ -157,6 +157,69 @@ const memberClaimed = (
   keys: ClaimKeys,
 ) => claimed(host?.[member], keys);
 
+// Supplies a namespace the client does not have — the Performance and audio backends Valve's own
+// components were written against and the Windows client never defines.
+//
+// Distinct from claimMember, which overlays something that EXISTS. Three differences matter:
+//
+//   - Refusing a real backend is correct. A client that grows one must not be shadowed by a
+//     projection of a different machine's hardware.
+//   - Reclaiming our own is mandatory. A namespace outlives the bridge backing it — the bridge is a
+//     window property that dies with the JS context, SteamClient does not — so after a context
+//     reload an orphaned namespace is left whose methods call a bridge that is gone. Refusing there
+//     stranded the client permanently: the probe saw a namespace, called the patch incompatible,
+//     and Steam's audio page stayed empty until Steam itself restarted.
+//   - Removal DELETES rather than restores, because there was nothing there to hand back.
+//
+// Defined rather than assigned, and non-writable: assignment would throw against a previous
+// bridge's non-writable definition, under the "use strict" this whole asset runs in — turning a
+// reclaim into exactly the refusal above.
+// Takes a marker alone rather than a ClaimKeys pair, because nothing is displaced: there is no
+// original to remember, and removal deletes.
+const supplyNamespace = (
+  host: Record<string, unknown> | null,
+  name: string,
+  marker: string,
+  factory: () => object,
+): ClaimOutcome => {
+  if (!host) {
+    return { ok: false, error: "namespace host unavailable" };
+  }
+  const current = host[name];
+  if (current && !claimed(current, { marker, original: marker })) {
+    return { ok: false, error: `${name} already exists` };
+  }
+  try {
+    const api = factory();
+    defineHidden(api, marker, true);
+    Object.defineProperty(host, name, {
+      value: api,
+      configurable: true,
+      enumerable: true,
+      writable: false,
+    });
+    return { ok: true, reclaimed: !!current };
+  } catch (error) {
+    return { ok: false, error: String(error) };
+  }
+};
+
+// Withdraws a supplied namespace. Only ever deletes one this bridge marked, so a real backend that
+// appeared underneath is left alone.
+const withdrawNamespace = (
+  host: Record<string, unknown> | null | undefined,
+  name: string,
+  marker: string,
+): { ok: boolean; error?: string } => {
+  if (!host || !claimed(host[name], { marker, original: marker })) return { ok: true };
+  try {
+    delete host[name];
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: String(error) };
+  }
+};
+
 // Claims an accessor property — a getter the client computes, that a gate answers differently.
 //
 // Separate from claimMember because the write has to be defineProperty rather than assignment:

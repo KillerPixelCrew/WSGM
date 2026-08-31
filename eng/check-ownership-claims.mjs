@@ -34,7 +34,7 @@ const primitives = asset.slice(start, end);
 
 const harness = `
 ${primitives}
-return { claimValue, releaseValue, claimMember, releaseMember, memberClaimed, claimAccessor, releaseAccessor, claimed };
+return { claimValue, releaseValue, claimMember, releaseMember, memberClaimed, claimAccessor, releaseAccessor, supplyNamespace, withdrawNamespace, claimed };
 `;
 const api = new Function(harness)();
 let failures = 0;
@@ -114,6 +114,47 @@ const keys = { marker: "__mark", original: "__orig" };
   api.claimMember(host, "Go", keys, wrapOnce);
   host.Go();
   check("member: reclaim replaces rather than stacking", order.join(",") === "wrap,native");
+}
+
+// --- supplied namespace: the Perf and audio backends the client does not have -------------------
+{
+  const marker = "__ns";
+  const system = {};
+  const supplied = api.supplyNamespace(system, "Audio", marker, () => ({ GetDevices: () => 1 }));
+  check("namespace: supplies one where the client has none", supplied.ok && !!system.Audio);
+  check("namespace: marker is not enumerable", !Object.keys(system.Audio).includes(marker));
+
+  // The trap this one paid for: an orphaned namespace outlives the bridge behind it, because the
+  // bridge dies with the JS context and SteamClient does not. Refusing here stranded the client.
+  const second = api.supplyNamespace(system, "Audio", marker, () => ({ GetDevices: () => 2 }));
+  check("namespace: reclaims its own orphan rather than refusing", second.ok && second.reclaimed);
+  check("namespace: the reclaim actually replaced it", system.Audio.GetDevices() === 2);
+
+  api.withdrawNamespace(system, "Audio", marker);
+  check("namespace: withdrawal deletes it", !("Audio" in system));
+}
+{
+  // A client that grows a real backend must not be shadowed, nor deleted by our cleanup.
+  const real = { GetDevices: () => "real" };
+  const system = { Audio: real };
+  const outcome = api.supplyNamespace(system, "Audio", "__ns", () => ({}));
+  check("namespace: stands aside for a real backend", !outcome.ok);
+  api.withdrawNamespace(system, "Audio", "__ns");
+  check("namespace: withdrawal leaves a real backend alone", system.Audio === real);
+}
+{
+  // Reclaim against a previous bridge's non-writable definition. Assignment would throw here under
+  // "use strict", which is why the primitive defines rather than assigns.
+  const marker = "__ns";
+  const system = {};
+  api.supplyNamespace(system, "Perf", marker, () => ({ n: 1 }));
+  const descriptor = Object.getOwnPropertyDescriptor(system, "Perf");
+  check(
+    "namespace: defined non-writable, as a previous bridge would leave it",
+    !descriptor.writable,
+  );
+  const again = api.supplyNamespace(system, "Perf", marker, () => ({ n: 2 }));
+  check("namespace: reclaims a non-writable definition", again.ok && system.Perf.n === 2);
 }
 
 // --- accessor claim: the network availability getter -------------------------------------------

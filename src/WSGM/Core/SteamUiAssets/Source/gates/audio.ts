@@ -223,21 +223,7 @@ function createAudioNamespace() {
       return { ok: false, error: lastError };
     }
 
-    // Never replace a REAL backend. On a client that grows one, WSGM must stand aside rather than
-    // shadow it with a projection of a different machine's audio.
-    //
-    // One WSGM already installed is a different case and must be reclaimed, not refused. A
-    // namespace outlives the bridge that backs it — the bridge is a window property and dies with
-    // the JS context, while SteamClient does not — so after a context reload an orphaned
-    // namespace is left behind whose methods call into a bridge that is gone. Refusing there
-    // stranded the client permanently: the probe saw a namespace, called the patch incompatible,
-    // and Steam's audio page stayed empty until Steam itself restarted.
-    if (system.Audio && !system.Audio[ownedMarker]) {
-      lastError = "SteamClient.System.Audio already exists";
-      return { ok: false, error: lastError };
-    }
-
-    const api = {
+    const buildApi = () => ({
       GetDevices: () =>
         request(patchId, "getDevices", null, 0).then((state: any) => ({
           activeOutputDeviceId: numberFor(state?.activeOutputDeviceId ?? ""),
@@ -285,22 +271,13 @@ function createAudioNamespace() {
       RegisterForAppAdded: register("appAdded"),
       RegisterForAppRemoved: register("appRemoved"),
       RegisterForAppVolumeChanged: register("appVolumeChanged"),
-    };
+    });
 
-    try {
-      Object.defineProperty(api, ownedMarker, {
-        value: true,
-        configurable: true,
-        enumerable: false,
-      });
-      Object.defineProperty(system, "Audio", {
-        value: api,
-        configurable: true,
-        enumerable: true,
-        writable: false,
-      });
-    } catch (error) {
-      lastError = String(error);
+    // Refusing a real backend and reclaiming our own orphan are both the primitive's job now; the
+    // reasoning for each lives with it.
+    const supplied = supplyNamespace(system, "Audio", ownedMarker, buildApi);
+    if (!supplied.ok) {
+      lastError = supplied.error;
       return { ok: false, error: lastError };
     }
 
@@ -332,12 +309,13 @@ function createAudioNamespace() {
     }
     known = [];
     originalStoreState = null;
-    try {
-      if (window.SteamClient?.System?.Audio?.[ownedMarker] === true) {
-        delete window.SteamClient.System.Audio;
-      }
-    } catch (error) {
-      lastError = String(error);
+    const withdrawn = withdrawNamespace(
+      window.SteamClient?.System,
+      "Audio",
+      ownedMarker,
+    );
+    if (!withdrawn.ok) {
+      lastError = withdrawn.error ?? "audio namespace withdrawal failed";
       return { ok: false, error: lastError };
     }
 
