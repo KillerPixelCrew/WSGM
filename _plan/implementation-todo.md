@@ -320,8 +320,10 @@ Wave 3: visibility and documentation.
       `Source\README.md` no longer claims the prelude lives here or that fragments are listed
       rather than discovered. `docs\rtss.md`, `power-and-display.md` and `device-security.md`
       absorbed the device evidence their mechanisms used to restate inline.
-- [ ] **Gates:** `dotnet build`, `dotnet test`, `npm run steam-assets:build`, `./eng/verify.ps1 -Fix`
-      green; line/file delta recorded here.
+- [x] **Gates:** `dotnet build`, `dotnet test`, `npm run steam-assets:build`, `./eng/verify.ps1 -Fix`
+      green; line/file delta recorded here. The latest feature milestone re-ran this complete gate:
+      41 native/Rust tests and 1,863 managed tests passed, and the Release build completed with zero
+      warnings/errors.
 
 Noted, not changed (product calls, kept working as-is): the five desired-state layers and OEM
 assignments have no UI writer (config-only); `ManualReviewedProfile` has no profile picker; the
@@ -348,6 +350,47 @@ directly so the taskbar slider lags the OSD by one poll.
       41 native tests passed, the Release build completed with zero warnings/errors, and all 1,821
       managed tests passed. The finished diff was inspected before commit.
 
+## Controller and Quick Settings milestone - complete in source
+
+- [x] Implement target-specific VIIPER Xbox 360 and DualShock 4 report encoders, feedback handling
+      and deterministic report tests; expose both targets in Settings now that their backends can
+      produce valid reports.
+- [x] Restore Steam Deck virtual-controller motion by projecting application gyro axes back into
+      Neptune's raw X/Z/-Y order and using the controller's 16-count-per-degree-per-second gyro and
+      16,384-count-per-g accelerometer scales.
+- [x] Add overlay charge-limit and lighting controls. Bounded numeric capabilities retain the
+      overlay's validated semantic-row path; RGB zones use an explicit-Apply color editor with
+      preview, presets, RGB steps and `#RRGGBB` keyboard entry so persistent device storage is never
+      written continuously while a user navigates the editor.
+- [x] Add Claw charge-limit source support in `WSGM.Device.Msi.Claw8A2Vm` and push commit
+      `f3a0a6f`. The capability uses the plugin's semantic charge-limit role, validates 60-100%,
+      verifies readback and restores the exact previous raw value after an uncertain write.
+- [x] Add native-QAM charge-limit and lighting projection to Steam Quick Settings. The live Steam
+      probe found a generic HSV component closed over in module `30519`, but its only export is the
+      controller-LED wrapper with an unrelated `SteamClient.Input.PreviewControllerLEDColor` side
+      effect, so WSGM composes Steam's safe row, slider and dropdown primitives instead.
+- [x] Populate the QAM microphone slider from the default capture endpoint and route its writes and
+      mute state independently from the default render endpoint. Capture-unavailable state clears
+      only the microphone control and leaves speaker volume usable.
+- [x] Exercise the composed asset in the QAM harness and live Steam CEF fixture. Device controls
+      rendered seven rows; speaker and microphone sliders held independent values; all temporary
+      patches and gates removed cleanly; no Core Audio or device capability write was issued.
+- [x] Remove the toolkit's stale WSGM-specific bridge allowlist. `steam-ui-toolkit` commit `ebdb485`
+      derives the immutable bridge vocabulary from each consumer's module publications and handlers;
+      its 78 managed tests and emitted ownership-claim suite pass, and WSGM verifies the installed
+      bridge configuration contains the three device-control commands.
+- [x] Run `./eng/verify.ps1 -Fix`: formatting and repository invariants passed; Steam UI asset
+      reproduced SHA-256 `1FC3EB40FCE67E2D344B1EFF7E5AE0F13602FE6FAE67EF44D7E1D9EA7CA3A765`;
+      41 native/Rust tests and all 1,863 managed tests passed; the Release build completed with zero
+      warnings/errors.
+- [x] Run `./build.ps1` and copy `publish\WSGM-Setup-1.5.1.exe` (160,348,233 bytes) to `Z:\`;
+      source and destination SHA-256 both
+      `C87D87565787834C35FA2DE06515A835264CB58B12737159FC09FF273C540564`.
+- [ ] Publish a new Claw plugin release and move `third_party\claw-plugin\claw-plugin.lock.json` to
+      its immutable asset digest. Tagging/publishing is maintainer-authorized work and has not been
+      inferred from source implementation; until this is done, the shipped pinned package lacks
+      the new charge-limit capability even though WSGM's overlay and CEF integration are complete.
+
 ## Verification for this milestone
 
 - [x] `./eng/verify.ps1 -Fix`: formatting and repository invariants passed; Steam UI asset reproduced
@@ -372,17 +415,20 @@ LoadingIndicators project file is also gone.
 These are capabilities that were already incomplete or explicitly future work. None was removed to
 make the architecture smaller.
 
-- [ ] Add real VIIPER Xbox 360 and DualShock 4 encoders; advertise each target only once its backend
-      can produce it.
-- [ ] Add working Claw charge-limit and RGB controls to the overlay settings and Steam CEF Quick
-      Settings. Probe and reuse Steam's native RGB color picker when its live surface permits safe
-      ownership and projection.
+- [x] Add real VIIPER Xbox 360 and DualShock 4 encoders; advertise each target only once its backend
+      can produce it. Restore Steam Deck gyro scaling and axis projection at the same report edge.
+- [x] Add working Claw charge-limit and RGB controls to the overlay settings and Steam CEF Quick
+      Settings. Probe Steam's native RGB picker and use its safe primitives without invoking the
+      exported controller-LED preview side effect. The new Claw charge-limit plugin source awaits
+      the explicitly authorized release/pin step recorded above.
 - [x] Project the shared performance services onto the redesigned overlay, including the complete
       per-application workflow on Device -> Profiles.
 - [ ] Add a WSGM-owned Windows Night Light backend. Valve's row depends on an unavailable,
       non-configurable gamescope gate and is not a viable revival.
-- [ ] Add capture-endpoint microphone volume, WASAPI session/per-app volume and multichannel speaker
-      configuration/reapply. The Claw's stereo endpoint cannot establish the multichannel contract.
+- [x] Add capture-endpoint microphone volume to QAM Quick Settings with independent render/capture
+      state and writes.
+- [ ] Add WASAPI session/per-app volume and multichannel speaker configuration/reapply. The Claw's
+      stereo endpoint cannot establish the multichannel contract.
 - [ ] Redesign the overlay presentation, especially Device, without moving state ownership out of
       its existing services.
 - [ ] Add Avalonia headless interaction tests, deterministic render capture and selective visual
