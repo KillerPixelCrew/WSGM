@@ -57,6 +57,11 @@ const preludePaths = [
   join(toolkitSourceDirectory, "rpc.ts"),
 ];
 
+// The toolkit's closing fragment, and the one file whose position IS load-bearing: it returns the
+// bridge's install result, so it has to follow every gate's top-level registration. Emitted last
+// for that reason alone — see the file itself.
+const epiloguePath = join(toolkitSourceDirectory, "epilogue.ts");
+
 // components.ts is emitted last by convention rather than by necessity. Nothing depends on it
 // being there — it is the UI layer, and reading the asset top-down as helpers, then gates, then
 // the components they render is worth keeping.
@@ -70,7 +75,10 @@ async function discoverIn(root) {
   return entries
     .filter((entry) => entry.isFile() && entry.name.endsWith(".ts"))
     .map((entry) => join(root, entry.name))
-    .filter((path) => !preludePaths.includes(path) && path !== componentsPath)
+    .filter(
+      (path) =>
+        !preludePaths.includes(path) && path !== componentsPath && path !== epiloguePath,
+    )
     .sort();
 }
 
@@ -79,6 +87,7 @@ const sourcePaths = [
   ...(await discoverIn(sourceDirectory)),
   ...(await discoverIn(join(sourceDirectory, "gates"))),
   componentsPath,
+  epiloguePath,
 ];
 
 // The builder closes the IIFE that bridge.ts opens. It used to be the last line of components.ts,
