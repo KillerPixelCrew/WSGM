@@ -17,7 +17,7 @@ namespace WSGM.Input;
 /// <remarks>
 /// VIIPER presents a virtual USB device through <c>usbip-win2</c>'s generic signed kernel driver, so
 /// WSGM ships no driver of its own and needs no per-device kernel code. WSGM packs the device's own
-/// wire frame (<see cref="SteamDeckNeptuneReport"/>) and submits it; VIIPER re-emits it to the host.
+/// target-specific wire state and submits it; VIIPER re-emits it to the host.
 /// <para>
 /// Everything here fails closed and fails quiet. A missing library, a missing USBIP driver, or a
 /// refused attach leaves controller management unavailable with a reason, and never takes down the
@@ -39,6 +39,8 @@ internal sealed class ViiperControllerBackend : IHidBackend
     private static readonly IReadOnlyList<ManagedControllerTarget> Supported =
     [
         ManagedControllerTarget.SteamDeckComposite,
+        ManagedControllerTarget.Xbox360,
+        ManagedControllerTarget.DualShock4,
     ];
 
     /// <summary>Rumble command identifier in the Deck's feedback report.</summary>
@@ -49,10 +51,14 @@ internal sealed class ViiperControllerBackend : IHidBackend
     private bool _initialized;
     private uint _deviceId;
     private uint _fastHandle;
+    private ManagedControllerTarget? _deviceKind;
     private long _generation;
     private HidTargetHandle? _target;
     private long? _removalUnverifiedGeneration;
     private bool _disposed;
+
+    /// <summary>The targets for which this build carries complete VIIPER wire encoders.</summary>
+    internal static IReadOnlyList<ManagedControllerTarget> SupportedTargets => Supported;
 
     /// <inheritdoc/>
     public event EventHandler<HidTargetOutput>? OutputReceived;
@@ -109,8 +115,16 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 throw new InvalidOperationException(detail);
             }
 
-            Check(NativeViiper.DeviceAdd(BusId, "steamdeck", out uint deviceId), "add the device");
+            string deviceType = kind switch
+            {
+                ManagedControllerTarget.SteamDeckComposite => "steamdeck",
+                ManagedControllerTarget.Xbox360 => "xbox360",
+                ManagedControllerTarget.DualShock4 => "dualshock4",
+                _ => throw new InvalidOperationException($"The backend cannot create a {kind} target."),
+            };
+            Check(NativeViiper.DeviceAdd(BusId, deviceType, out uint deviceId), "add the device");
             _deviceId = deviceId;
+            _deviceKind = kind;
             try
             {
                 // Neutral before attach: the host enumerates the device and starts polling
@@ -119,7 +133,12 @@ internal sealed class ViiperControllerBackend : IHidBackend
                     NativeViiper.DeviceOpenFast(BusId, deviceId, out uint handle),
                     "open the submission handle");
                 _fastHandle = handle;
-                SubmitUnderGate(initialNeutralState);
+                if (!SubmitUnderGate(initialNeutralState))
+                {
+                    throw new InvalidOperationException(
+                        "The controller backend rejected the initial neutral report.");
+                }
+
                 RegisterFeedbackUnderGate(deviceId);
                 Check(NativeViiper.DeviceAttach(BusId, deviceId), "attach the device");
             }
@@ -387,7 +406,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
     {
         try
         {
-            if (userData is null || data is null || length < 9)
+            if (userData is null || data is null || length <= 0)
             {
                 return;
             }
@@ -397,18 +416,9 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 return;
             }
 
-            ReadOnlySpan<byte> report = new(data, length);
-            if (report[0] != RumbleCommandId)
-            {
-                return;
-            }
-
-            // Deck rumble: two 16-bit speeds behind the command header. The canonical model is a
-            // 0..1 unit per motor, so the device's own scale never leaves this method.
-            float left = BinaryPrimitives.ReadUInt16LittleEndian(report[5..7]) / (float)ushort.MaxValue;
-            float right = BinaryPrimitives.ReadUInt16LittleEndian(report[7..9]) / (float)ushort.MaxValue;
             HidTargetHandle? target = backend._target;
-            if (target is null)
+            if (target is null || DecodeFeedback(target.Kind, new ReadOnlySpan<byte>(data, length))
+                is not { } motors)
             {
                 return;
             }
@@ -419,8 +429,8 @@ internal sealed class ViiperControllerBackend : IHidBackend
                     new HapticOutputFrame
                     {
                         TargetGeneration = target.Generation,
-                        LowFrequency = left,
-                        HighFrequency = right,
+                        LowFrequency = motors.LowFrequency,
+                        HighFrequency = motors.HighFrequency,
                         Timestamp = DateTimeOffset.UtcNow,
                     },
                     target.Kind));
@@ -432,14 +442,53 @@ internal sealed class ViiperControllerBackend : IHidBackend
         }
     }
 
+    /// <summary>Decodes one VIIPER target feedback frame into canonical rumble motors.</summary>
+    internal static (float LowFrequency, float HighFrequency)? DecodeFeedback(
+        ManagedControllerTarget kind,
+        ReadOnlySpan<byte> report) => kind switch
+        {
+            ManagedControllerTarget.SteamDeckComposite
+                when report.Length >= 9 && report[0] == RumbleCommandId =>
+                (BinaryPrimitives.ReadUInt16LittleEndian(report[5..7]) / (float)ushort.MaxValue,
+                    BinaryPrimitives.ReadUInt16LittleEndian(report[7..9]) / (float)ushort.MaxValue),
+            ManagedControllerTarget.Xbox360 when report.Length >= 2 =>
+                (report[0] / (float)byte.MaxValue, report[1] / (float)byte.MaxValue),
+            // DS4 orders the small/high-frequency motor first and the large/low-frequency motor
+            // second, followed by LED and flash state that WSGM deliberately does not own.
+            ManagedControllerTarget.DualShock4 when report.Length >= 7 =>
+                (report[1] / (float)byte.MaxValue, report[0] / (float)byte.MaxValue),
+            _ => null,
+        };
+
     private unsafe bool SubmitUnderGate(CanonicalControllerSample sample)
     {
         Span<byte> frame = stackalloc byte[SteamDeckNeptuneReport.Length];
-        SteamDeckNeptuneReport.Write(sample, frame);
+        int length = _deviceKind switch
+        {
+            ManagedControllerTarget.SteamDeckComposite => SteamDeckNeptuneReport.Length,
+            ManagedControllerTarget.Xbox360 => Xbox360Report.Length,
+            ManagedControllerTarget.DualShock4 => DualShock4Report.Length,
+            _ => 0,
+        };
+        switch (_deviceKind)
+        {
+            case ManagedControllerTarget.SteamDeckComposite:
+                SteamDeckNeptuneReport.Write(sample, frame[..length]);
+                break;
+            case ManagedControllerTarget.Xbox360:
+                Xbox360Report.Write(sample, frame[..length]);
+                break;
+            case ManagedControllerTarget.DualShock4:
+                DualShock4Report.Write(sample, frame[..length]);
+                break;
+            default:
+                return false;
+        }
+
         int status;
         fixed (byte* data = frame)
         {
-            status = NativeViiper.DeviceSetInputFast(_fastHandle, data, frame.Length);
+            status = NativeViiper.DeviceSetInputFast(_fastHandle, data, length);
         }
 
         if (status == NativeViiper.Ok)
@@ -473,6 +522,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
         uint deviceId = _deviceId;
         _deviceId = 0;
         _fastHandle = 0;
+        _deviceKind = null;
         bool removed = false;
         SafeNative(
             () =>

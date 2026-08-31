@@ -1,5 +1,4 @@
 using WSGM.Core;
-using WSGM.Device.Sdk.Input;
 using WSGM.Input;
 using WSGM.Shell;
 
@@ -8,18 +7,49 @@ namespace WSGM.Tests;
 public sealed class ControllerDependencyAdapterTests
 {
     [Fact]
-    public async Task ATargetTheBackendCannotPresentIsRefusedBeforeAnyNativeCall()
+    public void ProductionBackendAdvertisesExactlyTheTargetsWithWireEncoders()
     {
-        await using ViiperControllerBackend backend = new();
-        CanonicalControllerSample neutral = CanonicalControllerSample.Neutral(
-            0,
-            1,
-            DateTimeOffset.UnixEpoch);
+        Assert.Equal(
+            [
+                ManagedControllerTarget.SteamDeckComposite,
+                ManagedControllerTarget.Xbox360,
+                ManagedControllerTarget.DualShock4,
+            ],
+            ViiperControllerBackend.SupportedTargets);
+    }
 
-        InvalidOperationException error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            backend.CreateTargetAsync(ManagedControllerTarget.Xbox360, neutral, CancellationToken.None));
+    [Theory]
+    [InlineData(ManagedControllerTarget.Xbox360, new byte[] { 128, 255 }, 128 / 255f, 1f)]
+    [InlineData(
+        ManagedControllerTarget.DualShock4,
+        new byte[] { 64, 192, 0, 0, 0, 0, 0 },
+        192 / 255f,
+        64 / 255f)]
+    public void TargetFeedbackUsesTheCorrectMotorOrder(
+        ManagedControllerTarget target,
+        byte[] report,
+        float expectedLow,
+        float expectedHigh)
+    {
+        (float low, float high) = Assert.IsType<(float, float)>(
+            ViiperControllerBackend.DecodeFeedback(target, report));
 
-        Assert.Contains("Xbox360", error.Message, StringComparison.Ordinal);
+        Assert.Equal(expectedLow, low, 5);
+        Assert.Equal(expectedHigh, high, 5);
+    }
+
+    [Fact]
+    public void SteamDeckFeedbackKeepsItsSixteenBitMotorScale()
+    {
+        byte[] report = [0xEB, 0, 0, 0, 0, 0, 0x80, 0xFF, 0xFF];
+
+        (float low, float high) = Assert.IsType<(float, float)>(
+            ViiperControllerBackend.DecodeFeedback(
+                ManagedControllerTarget.SteamDeckComposite,
+                report));
+
+        Assert.Equal(32768 / (float)ushort.MaxValue, low, 5);
+        Assert.Equal(1f, high);
     }
 
     [Fact]

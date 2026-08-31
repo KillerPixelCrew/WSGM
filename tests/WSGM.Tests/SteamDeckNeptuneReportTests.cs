@@ -170,12 +170,31 @@ public sealed class SteamDeckNeptuneReportTests
             },
         });
 
-        Assert.Equal(100, BitConverter.ToInt16(gyroOnly, 30));
-        Assert.Equal(200, BitConverter.ToInt16(gyroOnly, 32));
-        Assert.Equal(300, BitConverter.ToInt16(gyroOnly, 34));
+        Assert.Equal(1600, BitConverter.ToInt16(gyroOnly, 30));
+        Assert.Equal(-4800, BitConverter.ToInt16(gyroOnly, 32));
+        Assert.Equal(3200, BitConverter.ToInt16(gyroOnly, 34));
         // The accelerometer was not declared, so its bytes stay zero rather than carrying a value
         // the device never reported.
         Assert.Equal(0, BitConverter.ToInt16(gyroOnly, 24));
+    }
+
+    [Fact]
+    public void AccelerometerUsesTheDeckRangeAndApplicationAxisBasis()
+    {
+        byte[] frame = Frame(Sample(CanonicalButtons.None) with
+        {
+            Motion = new MotionSample
+            {
+                HasAccelerometer = true,
+                AccelX = 0.5f,
+                AccelY = -0.25f,
+                AccelZ = 1f,
+            },
+        });
+
+        Assert.Equal(8192, BitConverter.ToInt16(frame, 24));
+        Assert.Equal(-16384, BitConverter.ToInt16(frame, 26));
+        Assert.Equal(-4096, BitConverter.ToInt16(frame, 28));
     }
 
     [Fact]

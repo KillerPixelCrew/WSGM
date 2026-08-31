@@ -190,9 +190,13 @@ prevent. An unverified or failed plugin answer still runs WSGM's removal; the re
 
 Controller management uses VIIPER directly. Its Steam Deck target carries all four rear controls and
 stick-touch fields through usbip-win2's pinned signed driver; WSGM's encoder supplies the complete
-Neptune frame. Xbox 360 and DualShock 4 remain advertised only when their VIIPER encoders are
-present. The shell never installs or repairs a driver at runtime. `third_party/controller/README.md`
-records the live-device evidence and exact pins.
+Neptune frame. Motion is converted from the SDK's application axes back to the Deck report's raw
+`X, Z, -Y` axes at 16 gyro counts per degree/second and 16384 accelerometer counts per g; leaving
+the values as normalized axes was why Steam saw a motion source but no usable gyro movement. Xbox
+360 and DualShock 4 now have their own VIIPER wire encoders and are advertised as selectable
+targets: X360 maps the standard buttons, byte triggers and signed sticks; DS4 additionally maps
+touch contacts, gyro and acceleration. The shell never installs or repairs a driver at runtime.
+`third_party/controller/README.md` records the live-device evidence and exact pins.
 
 ## Authored profiles
 

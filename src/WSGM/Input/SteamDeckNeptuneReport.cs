@@ -59,6 +59,12 @@ internal static class SteamDeckNeptuneReport
     // Byte 14: the quick-access button.
     private const byte Byte14QuickAccess = 0x04;
 
+    // The Deck IMU fields are signed 16-bit values over fixed physical ranges. Steam/SDL expose
+    // their application-space axes as raw X, raw Z, -raw Y, so WSGM reverses that transform while
+    // packing the canonical application-space sample.
+    private const float GyroCountsPerDegreePerSecond = 16f;
+    private const float AccelCountsPerG = 16384f;
+
     /// <summary>
     /// Writes one canonical sample into a Steam Deck frame.
     /// </summary>
@@ -151,16 +157,28 @@ internal static class SteamDeckNeptuneReport
 
         if (motion.HasAccelerometer)
         {
-            BinaryPrimitives.WriteInt16LittleEndian(destination[24..26], Clamp(motion.AccelX));
-            BinaryPrimitives.WriteInt16LittleEndian(destination[26..28], Clamp(motion.AccelY));
-            BinaryPrimitives.WriteInt16LittleEndian(destination[28..30], Clamp(motion.AccelZ));
+            BinaryPrimitives.WriteInt16LittleEndian(
+                destination[24..26],
+                ScaledMotion(motion.AccelX, AccelCountsPerG));
+            BinaryPrimitives.WriteInt16LittleEndian(
+                destination[26..28],
+                ScaledMotion(-motion.AccelZ, AccelCountsPerG));
+            BinaryPrimitives.WriteInt16LittleEndian(
+                destination[28..30],
+                ScaledMotion(motion.AccelY, AccelCountsPerG));
         }
 
         if (motion.HasGyro)
         {
-            BinaryPrimitives.WriteInt16LittleEndian(destination[30..32], Clamp(motion.GyroX));
-            BinaryPrimitives.WriteInt16LittleEndian(destination[32..34], Clamp(motion.GyroY));
-            BinaryPrimitives.WriteInt16LittleEndian(destination[34..36], Clamp(motion.GyroZ));
+            BinaryPrimitives.WriteInt16LittleEndian(
+                destination[30..32],
+                ScaledMotion(motion.GyroX, GyroCountsPerDegreePerSecond));
+            BinaryPrimitives.WriteInt16LittleEndian(
+                destination[32..34],
+                ScaledMotion(-motion.GyroZ, GyroCountsPerDegreePerSecond));
+            BinaryPrimitives.WriteInt16LittleEndian(
+                destination[34..36],
+                ScaledMotion(motion.GyroY, GyroCountsPerDegreePerSecond));
         }
 
         // The orientation quaternion at bytes 36..44 stays zero on purpose. WSGM publishes raw
@@ -184,6 +202,6 @@ internal static class SteamDeckNeptuneReport
     private static short Axis(float value) =>
         (short)Math.Clamp(MathF.Round(value * short.MaxValue), short.MinValue + 1, short.MaxValue);
 
-    private static short Clamp(float value) =>
-        (short)Math.Clamp(MathF.Round(value), short.MinValue + 1, short.MaxValue);
+    private static short ScaledMotion(float value, float scale) =>
+        (short)Math.Clamp(MathF.Round(value * scale), short.MinValue, short.MaxValue);
 }
