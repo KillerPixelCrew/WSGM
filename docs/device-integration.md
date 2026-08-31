@@ -112,7 +112,10 @@ reported to the plugin owner and is never blindly retried.
 
 ## Public SDK and glyph data
 
-`WSGM.Device.Sdk` is the one public API shared by WSGM, plugins, and Device Lab. It contains the
+`WSGM.Device.Sdk` is the one public API shared by WSGM, plugins, and Device Lab. It lives in its own
+repository (`KillerPixelCrew/WSGM.Device.Sdk`, MIT) and is pinned here as the
+`external\WSGM.Device.Sdk` submodule; see `AGENTS.md` for why its licence differs from WSGM's. It
+contains the
 exact plugin API version, one plugin lifecycle, practical semantic capability
 descriptors/state/commands/results, canonical controller and motion samples, haptic output, OEM
 events, glyph data/control maps, and a publication sink.

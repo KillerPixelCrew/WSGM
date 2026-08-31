@@ -1,8 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <TargetFramework>net10.0-windows</TargetFramework>
-    <LangVersion>latest</LangVersion>
-    <RootNamespace>WSGM.Device.Sdk</RootNamespace>
-    <!-- Public plugin type-identity boundary; deliberately a zero-dependency leaf. -->
-  </PropertyGroup>
-</Project>

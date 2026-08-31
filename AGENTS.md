@@ -32,7 +32,7 @@ WSGM.exe (CoreCLR)
   └─ overlay, settings and shell/session coordination
 
 Separate artifacts that still have a real boundary:
-  WSGM.Device.Sdk                    public plugin/package contract
+  external/WSGM.Device.Sdk           public plugin/package contract (submodule)
   WSGM.DeviceLab                     independent diagnostic/authoring GUI + CLI
   WSGM.LogonService                  SYSTEM logon/watchdog process
   WSGM.Launch                        per-game medium-integrity wrapper
@@ -150,6 +150,7 @@ and people asked for them:
 | --- | --- | --- |
 | `native\SteamInput` | `steam-input-lease` | a missing Rust toolchain |
 | `external\windows-device-control` | `windows-device-control` | an unresolvable csproj path |
+| `external\WSGM.Device.Sdk` | `WSGM.Device.Sdk` | an unresolvable csproj path |
 
 **Clone this repository with `--recursive`**, or run `git submodule update --init` after cloning.
 Never edit files under either path as if they were WSGM's: change them in their own repository, then
@@ -160,6 +161,13 @@ behind Wi-Fi, Bluetooth, pairing, Core Audio endpoints, panel brightness and the
 owns policy and wording on top of it; see `docs\radios.md` for that split. Its public surface is
 documented for IntelliSense and its build fails on an undocumented member, so a change there costs
 a documentation pass — that is deliberate.
+
+`external\WSGM.Device.Sdk` is the plugin contract, and it is **MIT while WSGM is GPL-3.0-or-later**.
+That is deliberate: the assembly is linked into every plugin, so the application's copyleft there
+would make every plugin GPL-3, including a vendor or OEM one. Do not "fix" the licence mismatch.
+It stays a zero-dependency leaf — anything it references, every plugin inherits and cannot give
+back — and its build fails on an undocumented public member. Both properties are guarded by tests
+in that repository and re-checked here against the pin.
 
 WSGM is no longer its only consumer, so **the ABI is a public compatibility promise, not an
 internal handshake.** Do not change the C ABI, `include\steam_input_lease.h`, or

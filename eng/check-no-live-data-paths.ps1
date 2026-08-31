@@ -31,12 +31,12 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 
 # Scanned: anything that may run on a developer's machine outside the shipped application.
-# Deliberately excluded: the shipped WSGM processes, which own the real directory, and
-# third_party\, which is vendored upstream source. Runtime tests use explicit-root seams.
+# Deliberately excluded: the shipped WSGM processes, which own the real directory; third_party\,
+# which is vendored upstream source; and external\, whose submodules enforce this in their own
+# repositories. Runtime tests use explicit-root seams.
 $scanned = @(
     "tests",
     "plugins",
-    "src\WSGM.Device.Sdk",
     "src\WSGM.DeviceLab"
 )
 

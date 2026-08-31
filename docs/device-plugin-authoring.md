@@ -13,10 +13,12 @@ wsgm-device scaffold --from <capture.wsgmcap> --out-dir <new-plugin-directory>
 ```
 
 The generated project contains a minimal `IDevicePlugin`, a six-field `plugin.wsgm.json`, an
-explicit x64 target, the GPL-3.0-or-later source header and license, and its package layout. The
-generated project keeps `LICENSE.txt` beside both build and publish output. Inside a WSGM checkout
-it references the SDK project; installed Device Lab instead writes an explicit reference to the
-exact `WSGM.Device.Sdk.dll` shipped beside the tool. That path is validated before any scaffold file
+explicit x64 target, an MIT `LICENSE.txt` the author is expected to put their own name in, and its
+package layout. A scaffolded plugin links only the MIT SDK, never WSGM, so the author picks its
+licence freely — including a closed-source vendor plugin. The generated project keeps `LICENSE.txt`
+beside both build and publish output. Inside a WSGM checkout it references the SDK project through
+`external\WSGM.Device.Sdk`; installed Device Lab instead writes an explicit reference to the exact
+`WSGM.Device.Sdk.dll` shipped beside the tool. That path is validated before any scaffold file
 is written, so no undefined MSBuild property is emitted. Keep the reference on that exact API if the
 scaffold is moved to another machine. Implement exact detection first, then add direct device-owned
 services. Publish only semantic descriptors, state, input, and diagnostics through

@@ -17,7 +17,12 @@ public sealed class DeviceBoundaryTests
     [Fact]
     public void DeviceSdkHasNoProjectOrPackageDependencies()
     {
-        XDocument sdk = LoadProject("src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj");
+        // The SDK lives in its own repository and guards this there too. It is re-checked from
+        // here because the pin is what WSGM actually builds: a submodule moved to a revision that
+        // acquired a dependency would hand every plugin that dependency, and this is the build
+        // that would ship it.
+        XDocument sdk = LoadProject(
+            "external/WSGM.Device.Sdk/src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj");
 
         Assert.Empty(sdk.Descendants("ProjectReference"));
         Assert.Empty(sdk.Descendants("PackageReference"));

@@ -4,3 +4,6 @@
 [submodule "external/windows-device-control"]
 	path = external/windows-device-control
 	url = https://github.com/KillerPixelCrew/windows-device-control
+[submodule "external/WSGM.Device.Sdk"]
+	path = external/WSGM.Device.Sdk
+	url = https://github.com/KillerPixelCrew/WSGM.Device.Sdk
