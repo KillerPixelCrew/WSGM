@@ -221,8 +221,8 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
     /// <summary>Maximum decoded payload size accepted from injected code.</summary>
     public const int MaximumPayloadCharacters = 16 * 1024;
 
-    private const string Namespace = "__wsgmSteamUi_v1_28d7c54a";
-    private const string BindingName = "__wsgmNativeBridge_v1_7b24d11c";
+    private const string Namespace = SteamUiBridgeIdentity.Namespace;
+    private const string BindingName = SteamUiBridgeIdentity.BindingName;
     private static readonly TimeSpan OperationTimeout = TimeSpan.FromSeconds(5);
     private readonly ISteamUiTransport _transport;
     private readonly SemaphoreSlim _gate = new(1, 1);

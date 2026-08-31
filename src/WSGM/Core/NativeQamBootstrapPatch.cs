@@ -83,7 +83,8 @@ public sealed class NativeQamBootstrapPatch : ISteamUiPatch
         }
         var result = await context.EvaluateAsync(
             TargetRole,
-            "(()=>{const b=window.__wsgmSteamUi_v1_28d7c54a;return JSON.stringify({ok:!!b,version:b&&b.version});})()",
+            $"(()=>{{const b=window.{SteamUiBridgeIdentity.Namespace};"
+                + "return JSON.stringify({ok:!!b,version:b&&b.version});})()",
             cancellationToken).ConfigureAwait(false);
         return result.Reachable
             && result.Value?.Contains("\"ok\":true", StringComparison.Ordinal) == true
@@ -99,7 +100,7 @@ public sealed class NativeQamBootstrapPatch : ISteamUiPatch
         await _bridge.RemoveAsync(cancellationToken).ConfigureAwait(false);
         var result = await context.EvaluateAsync(
             TargetRole,
-            "JSON.stringify({absent:!window.__wsgmSteamUi_v1_28d7c54a})",
+            $"JSON.stringify({{absent:!window.{SteamUiBridgeIdentity.Namespace}}})",
             cancellationToken).ConfigureAwait(false);
         return result.Reachable
             && result.Value?.Contains("\"absent\":true", StringComparison.Ordinal) == true

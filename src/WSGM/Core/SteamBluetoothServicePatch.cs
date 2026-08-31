@@ -23,7 +23,7 @@ namespace WSGM.Core;
 /// </remarks>
 public sealed class SteamBluetoothServicePatch : ISteamUiPatch
 {
-    private const string BridgeNamespace = "__wsgmSteamUi_v1_28d7c54a";
+    private const string BridgeNamespace = SteamUiBridgeIdentity.Namespace;
 
     /// <inheritdoc />
     public string Id => "wsgm.steam-bluetooth.service";
