@@ -40,12 +40,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly ISteamUiTransport _transport;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly SemaphoreSlim _synchronizeSignal = new(0, 1);
-    private readonly SemaphoreSlim _publicationSignal = new(0, 1);
-    private readonly object _requestGate = new();
     private readonly object _observationGate = new();
-    private readonly Dictionary<long, CancellationTokenSource> _inflightRequests = [];
-    private readonly HashSet<Task> _requestTasks = [];
     private readonly SteamUiModuleSet _modules;
+    private readonly SteamUiModuleRuntime _runtime;
     private readonly Func<CancellationToken, Task<bool>> _toggleQuickAccess;
     private readonly INativeQamTdpService _tdp;
 
@@ -96,9 +93,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly SteamUiBridgeHost _bridge;
     private readonly SteamUiPatchManager _patches;
     private readonly Task _synchronization;
-    private readonly Task _publication;
     private int _signalPending;
-    private int _publicationPending;
     private IDisposable? _performanceObservation;
     private volatile bool _enabled;
     private volatile bool _networkIndicatorEnabled;
@@ -139,7 +134,13 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         SetPatchStates(bootstrap: false, components: false);
         SetGlyphDeliveryPatchStates();
         _patches.SetGlobalEnabled(false);
-        _bridge.RequestReceived += OnRequestReceived;
+        // Traffic in both directions is the runtime's; which patches are applied when stays here,
+        // because that is this application's policy and not a general rule.
+        _runtime = new SteamUiModuleRuntime(
+            _bridge,
+            _modules,
+            commandsEnabled: () => _enabled,
+            publishEnabled: () => _enabled || _networkIndicatorEnabled);
         _backlightPoll = new Timer(OnBacklightPoll, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
         _networkPoll = new Timer(OnNetworkPoll, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(10));
         _networkPublishDebounce = new Timer(
@@ -158,7 +159,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
 
         _synchronization = Task.Run(SynchronizeLoopAsync);
-        _publication = Task.Run(PublishLoopAsync);
     }
 
     internal void Apply(bool enabled)
@@ -834,47 +834,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private static SemanticCommandResult From(NativeQamCommandResult result) =>
         new(result.Succeeded, result.Error);
 
-    private async Task PublishLoopAsync()
-    {
-        while (!_shutdown.IsCancellationRequested)
-        {
-            try
-            {
-                await _publicationSignal.WaitAsync(_shutdown.Token).ConfigureAwait(false);
-                Interlocked.Exchange(ref _publicationPending, 0);
-                if ((!_enabled && !_networkIndicatorEnabled) || !_bridge.IsReady)
-                {
-                    continue;
-                }
-
-                foreach (StatePublication publication in _modules.Publications)
-                {
-                    if (!publication.Enabled())
-                    {
-                        continue;
-                    }
-                    JsonElement? payload = await publication.Read().ConfigureAwait(false);
-                    if (payload is { } state)
-                    {
-                        await _bridge.PublishStateAsync(
-                                publication.PatchId,
-                                state,
-                                _shutdown.Token)
-                            .ConfigureAwait(false);
-                    }
-                }
-            }
-            catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
-            {
-                return;
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Steam UI semantic state publication failed: {ex.Message}");
-            }
-        }
-    }
-
     private void OnSemanticStateChanged() => QueueStatePublication();
 
     /// <remarks>
@@ -918,18 +877,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     private void OnNetworkPublishDebounce(object? state) => QueueStatePublication();
 
-    private void QueueStatePublication()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        if (Interlocked.Exchange(ref _publicationPending, 1) == 0)
-        {
-            _publicationSignal.Release();
-        }
-    }
+    private void QueueStatePublication() => _runtime.QueuePublication();
 
     private void SetPatchStates(bool bootstrap, bool components)
     {
@@ -1037,177 +985,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         observation?.Dispose();
     }
 
-    private void OnRequestReceived(object? sender, SteamUiBridgeRequest request)
-    {
-        if (request.Type == "cancel")
-        {
-            CancelInflightRequest(request.Sequence);
-            return;
-        }
-
-        Task task = RespondToRequestAsync(request);
-        lock (_requestGate)
-        {
-            _requestTasks.Add(task);
-        }
-        _ = ObserveRequestCompletionAsync(task);
-    }
-
-    private async Task RespondToRequestAsync(SteamUiBridgeRequest request)
-    {
-        using CancellationTokenSource requestCancellation =
-            CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
-        lock (_requestGate)
-        {
-            if (!_inflightRequests.TryAdd(request.Sequence, requestCancellation))
-            {
-                return;
-            }
-        }
-
-        SemanticCommandResult outcome;
-        try
-        {
-            if (!_enabled)
-            {
-                outcome = SemanticCommandResult.Refused;
-            }
-            else if (!_modules.TryGetCommand(
-                request.PatchId,
-                request.Command,
-                out SteamUiCommandDelegate? handler)
-                || handler is null)
-            {
-                outcome = SemanticCommandResult.Refused;
-            }
-            else
-            {
-                outcome = await handler(request, requestCancellation.Token).ConfigureAwait(false);
-            }
-        }
-        catch (OperationCanceledException) when (requestCancellation.IsCancellationRequested)
-        {
-            RemoveInflightRequest(request.Sequence);
-            return;
-        }
-        catch (Exception ex)
-        {
-            outcome = new SemanticCommandResult(false, ex.Message);
-        }
-
-        bool succeeded = outcome.Succeeded;
-        string? error = outcome.Error;
-        JsonElement? responsePayload = outcome.Payload;
-
-        // Every refusal, named. The reason was built here and handed straight back to the injected
-        // side, which has nowhere to put it — so a control the user operated that quietly did
-        // nothing left no trace at all on this side of the bridge. That is exactly the defect the
-        // repository rules call the most expensive recurring one, and it cost a session: Steam had
-        // a 28 W limit stored, the gate had forwarded it, and the EC was still at 30 W with not one
-        // line saying why.
-        //
-        // Log.Change keyed per patch and command, because a gate can repeat a refused write on its
-        // own schedule: the first prints, the repeats are counted.
-        if (!succeeded)
-        {
-            Log.Change(
-                $"steam.ui.request.{request.PatchId}.{request.Command}",
-                $"Steam UI request {request.PatchId}/{request.Command} did nothing: "
-                    + (error ?? "no reason reported"),
-                "warn ");
-        }
-
-        try
-        {
-            if (requestCancellation.IsCancellationRequested)
-            {
-                return;
-            }
-
-            await _bridge.RespondAsync(
-                    request,
-                    succeeded,
-                    responsePayload,
-                    error,
-                    requestCancellation.Token)
-                .ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (requestCancellation.IsCancellationRequested)
-        {
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Steam UI bridge response failed: {ex.Message}");
-        }
-        finally
-        {
-            RemoveInflightRequest(request.Sequence);
-        }
-    }
-
-    private void CancelInflightRequest(long sequence)
-    {
-        CancellationTokenSource? cancellation;
-        lock (_requestGate)
-        {
-            _inflightRequests.TryGetValue(sequence, out cancellation);
-        }
-
-        CancelSafely(cancellation);
-    }
-
-    private void CancelAllInflightRequests()
-    {
-        CancellationTokenSource[] inflight;
-        lock (_requestGate)
-        {
-            inflight = [.. _inflightRequests.Values];
-        }
-
-        foreach (CancellationTokenSource cancellation in inflight)
-        {
-            CancelSafely(cancellation);
-        }
-    }
-
-    private static void CancelSafely(CancellationTokenSource? cancellation)
-    {
-        try
-        {
-            cancellation?.Cancel();
-        }
-        catch (ObjectDisposedException)
-        {
-            // The request completed between the bounded lookup and cancellation.
-        }
-    }
-
-    private void RemoveInflightRequest(long sequence)
-    {
-        lock (_requestGate)
-        {
-            _inflightRequests.Remove(sequence);
-        }
-    }
-
-    private async Task ObserveRequestCompletionAsync(Task task)
-    {
-        try
-        {
-            await task.ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Steam UI semantic request failed unexpectedly: {ex.Message}");
-        }
-        finally
-        {
-            lock (_requestGate)
-            {
-                _requestTasks.Remove(task);
-            }
-        }
-    }
+    private void CancelAllInflightRequests() => _runtime.CancelAllInflight();
 
     /// <summary>Reads the power-limit payload: the watts and the switch beside them.</summary>
     /// <param name="payload">The request payload.</param>
@@ -1790,7 +1568,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _networkPoll.Dispose();
         _networkPublishDebounce.Dispose();
         _transport.GenerationChanged -= OnGenerationChanged;
-        _bridge.RequestReceived -= OnRequestReceived;
         _tdp.StateChanged -= OnSemanticStateChanged;
         _performance.StateChanged -= OnSemanticStateChanged;
         _autoTdp.StateChanged -= OnSemanticStateChanged;
@@ -1809,28 +1586,16 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
         _enabled = false;
         ReleasePerformanceObservation();
-        CancelAllInflightRequests();
+        // The runtime first: it stops answering, cancels what is in flight and drains its own
+        // request tasks, so nothing is still writing to the bridge when that is disposed below.
+        await _runtime.DisposeAsync().ConfigureAwait(false);
         _shutdown.Cancel();
         try
         {
-            await Task.WhenAll(_synchronization, _publication).ConfigureAwait(false);
+            await _synchronization.ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
-        }
-
-        Task[] requestTasks;
-        lock (_requestGate)
-        {
-            requestTasks = [.. _requestTasks];
-        }
-        try
-        {
-            await Task.WhenAll(requestTasks).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Steam UI semantic request cleanup failed: {ex.Message}");
         }
 
         await _patches.DisposeAsync().ConfigureAwait(false);
@@ -1841,7 +1606,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _performance.Dispose();
         _tdp.Dispose();
         _synchronizeSignal.Dispose();
-        _publicationSignal.Dispose();
         _shutdown.Dispose();
     }
 }
