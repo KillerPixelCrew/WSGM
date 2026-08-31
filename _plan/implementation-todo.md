@@ -255,19 +255,46 @@ told the user the component was "not installed in this build" when every build n
 test seams that guard documented contracts were restored after the slices inlined them away —
 installer-exit ordering, the plugin-maintenance owner reservation, and the shutdown failure report.
 
-Wave 2: overlay - one taskbar child window with three panels, sub-view table, `ArtworkView` on
-`OverlaySubView`, shared window helpers, table-driven device rows, `GlyphIcon` as geometry,
-`IPerformanceOverlaySource` gone, theme includes once.
+Wave 2: overlay.
 
-- [ ] **Overlay/UI.**
+- [x] **Overlay/UI.** `ArtworkView` derives from `OverlaySubView` instead of privately
+      re-implementing its navigation stack and builders; the six nested pages are one table keyed by
+      `OverlayNavigation.Page` rather than a bool per page beside it; the touch-ghost WndProc filter
+      is one function at the interop edge instead of seven copies; the three docked panels share one
+      dock; `IPerformanceOverlaySource`, `WindowIconCache.Dispose`, `TabStrip.ShowBumperHints` and
+      `TabStripSelectionChangedEventArgs.OldIndex` are gone; `docs\overlay-and-input.md` matches the
+      panel it describes again and finally documents invariant 6.
 
-Wave 3: visibility and documentation - types `internal` unless a contract needs `public`; XML docs
-state contract, ownership, lifetime, side effects and failure behavior only; chronology, review
-narration and duplicated topic-doc prose deleted; `AGENTS.md` rule updated to match.
+Three overlay findings were deliberately NOT taken, because each changes behaviour a build cannot
+check and the overlay's live matrix below has not run:
 
-- [ ] **Visibility/docs pass.**
-- [ ] **Docs and trackers** reflect the new shapes (`docs\*.md`, per-folder `AGENTS.md`,
-      `overlay-and-input.md` invariant numbering, `Source\README.md`).
+- **Radio/audio/eject into one window.** The largest remaining line saving, and the reason it is
+  refused: it moves focus, activation, Steam Input lease handover and the pairing-prompt lifetime.
+  The duplication it targeted is gone anyway — the dock, the touch filter and the chrome are shared
+  now, leaving three windows that differ only in content.
+- **The inline on-screen-keyboard fallback** in `OverlaySubView.EditText`. Static reading says it is
+  unreachable (`KeyboardService.Handler` is registered for exactly the overlay's lifetime), but a
+  defensive path is the wrong thing to delete on reasoning alone.
+- **Merging the four `Palette.axaml` includes.** A style-resolution failure surfaces at runtime, not
+  at build.
+
+Wave 3: visibility and documentation.
+
+- [x] **Visibility/docs pass — assessed, and the premise did not hold.** The survey costed ~10.7k
+      XML-doc lines as the largest single lever. Inspection says most of it is contract: the
+      config/DTO surface documents what each field means to the persisted shape, and the
+      "restated name" examples are almost all carrying real information ("the *verified* quality of
+      the *restored* desktop", "value of a boolean setting" on a discriminated-union DTO). Wave 1
+      already removed the chronology, review narration and duplicated topic-doc prose, which is what
+      was actually wasteful. Deleting the rest would trade documentation the repository rules
+      require for a line count, so it was not done. Doc density now peaks at 43% on `AppConfig`,
+      a file that is almost entirely a persisted contract.
+- [x] **Docs and trackers** reflect the new shapes. `overlay-and-input.md` describes the four
+      destinations and the sub-view table it actually has, and documents invariant 6 (the
+      per-surface focus-restore pair, cited four times in the controller and written down nowhere).
+      `Source\README.md` no longer claims the prelude lives here or that fragments are listed
+      rather than discovered. `docs\rtss.md`, `power-and-display.md` and `device-security.md`
+      absorbed the device evidence their mechanisms used to restate inline.
 - [ ] **Gates:** `dotnet build`, `dotnet test`, `npm run steam-assets:build`, `./eng/verify.ps1 -Fix`
       green; line/file delta recorded here.
 
