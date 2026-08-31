@@ -367,8 +367,12 @@ make the architecture smaller.
       its existing services.
 - [ ] Add Avalonia headless interaction tests, deterministic render capture and selective visual
       baselines before that redesign.
-- [ ] Evaluate richer read-only CDP developer tooling (screenshots are already in `qam-harness`;
-      DOM/CSS/source-map tooling remains a development-only spike).
+- [x] Evaluate richer read-only CDP developer tooling. Chrome DevTools MCP attaches to Steam's own
+      loopback CDP port, so evaluate/console/DOM/screenshot run against the live client; configured
+      project-scoped for both Claude Code (`.mcp.json`) and Codex (`.codex\config.toml`). Address
+      targets by title — SharedJSContext owns the module registry and the bridge, Big-Picture-Modus
+      owns the DOM and no webpack global — and keep `close_page` away from real Steam windows.
+      `tools\WsgmLibTest` stays the scripted path; the MCP client is for interactive investigation.
 
 ## Attended/live acceptance still required
 
