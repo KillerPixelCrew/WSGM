@@ -123,6 +123,47 @@ adapts Device Plugin capabilities onto it. Reasons:
 The two should *rhyme* — semantic, honest about uncertainty, refusals carrying a reason — so wiring
 one onto the other stays mechanical. They should not be the same type.
 
+## Forking or basing on Decky Loader — assessed and rejected
+
+Considered seriously, because the overlap looks large from outside. Two independent reasons say no,
+and the first is decisive on its own.
+
+**1. The licence forecloses it.** `_ref/decky-loader` is **GPL-2.0**, declared as `GPLv2` in both
+`backend/pyproject.toml` and `frontend/package.json` with no "or later" election. (The
+"any later version" wording in the LICENSE file is the standard GPL-2 appendix template, not the
+project's election.) That means:
+
+- A fork or derivative is GPL-2, so the toolkit could not be MIT. That kills the reason the whole
+  org is permissive — the SDK is MIT specifically so a vendor or OEM can ship a closed backend, and
+  a GPL-2 front-end framework above it would take that back.
+- **GPL-2.0-only is incompatible with GPL-3.0.** WSGM is GPL-3.0-or-later, so a Decky-derived
+  component could not legally be combined with WSGM's own code in one program. This is not a
+  preference; it is the one combination the two licences forbid outright.
+
+**2. The architectures point in opposite directions.** Decky is a **plugin loader for SteamOS**: it
+assumes the SteamOS surfaces already exist and adds to them. This toolkit **reconstructs surfaces
+that do not exist on Windows** — the three stable APIs exist precisely *because the backend is
+missing*, and on a Deck none of them would be needed. Concretely:
+
+- Decky's backend is Python (20 modules, poetry, PyInstaller). WSGM ships no Python and adding a
+  Python runtime to a Windows shell is a large, permanent dependency for no gain.
+- Decky assumes Linux — systemd, `/home/deck`, root, its own updater.
+- Decky has no probe / verify / remove-with-ownership lifecycle of the kind built here. That
+  discipline is what makes a Steam update degrade to Valve behaviour instead of breaking, and it is
+  the most valuable thing this toolkit has.
+
+**What is worth taking instead — compatibility, not code.** Two things, neither requiring a line of
+Decky's source:
+
+- **Coexistence.** Never collide with Decky's or CSSLoader's injected nodes, marker classes or
+  namespaces. WSGM already does this for CSSLoader — its own `wsgm-glyph-style` class, never
+  touching a `.css-loader-style` node — and the same rule generalizes.
+- **A Decky-plugin-compatible surface, if it is ever wanted**, is a feature that can be built *on*
+  the toolkit rather than derived *from* Decky. Implementing a compatible API is a different act from
+  reusing the implementation. Worth keeping as an option; not worth doing speculatively.
+
+Read Decky for what it teaches about Steam's front-end. Do not link, vendor or fork it.
+
 ## Features already built, worth shipping as features
 
 These are why this is more than plumbing. Each cost real live-verification and none of it is
