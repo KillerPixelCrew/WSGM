@@ -29,6 +29,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly SteamUiModuleRuntime _runtime;
     private readonly Func<CancellationToken, Task<bool>> _toggleQuickAccess;
     private readonly DeviceCoordinatorNativeQamTdpService _tdp;
+    private readonly DeviceCoordinatorNativeQamDeviceControlsService _deviceControls;
     private readonly DeviceCoordinatorNativeQamAutoTdpService _autoTdp;
     private readonly DeviceCoordinatorNativeQamControllerTargetService _controllerTarget;
     private readonly NativeQamBrightnessService _brightness;
@@ -111,6 +112,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(toggleQuickAccess);
         _toggleQuickAccess = toggleQuickAccess;
         _tdp = new DeviceCoordinatorNativeQamTdpService(deviceCoordinator);
+        _deviceControls = new DeviceCoordinatorNativeQamDeviceControlsService(deviceCoordinator);
         _performanceService = performance;
         _performance = new PerformanceServiceNativeQamAdapter(performance)
         {
@@ -131,14 +133,17 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _brightness = new NativeQamBrightnessService(
             () => !_disposed && _enabled,
             QueueStatePublication);
-        // WSGM's own asset, named here rather than reached for from inside the bridge.
+        _modules = new SteamUiModuleSet(CreateModules());
+        // WSGM's own asset and module-derived vocabulary, named here rather than reached for from
+        // inside the bridge. The toolkit has no WSGM patch ids of its own.
         _bridge = new SteamUiBridgeHost(
             _transport,
             new SteamUiInjectedAsset(
                 SteamUiAssetCatalog.LoadNativeQamBootstrap(),
-                SteamUiAssetCatalog.NativeQamBootstrapSha256));
+                SteamUiAssetCatalog.NativeQamBootstrapSha256),
+            _modules.AllowedCommands);
         _patches = new SteamUiPatchManager(_transport);
-        _modules = new SteamUiModuleSet(CreateModules());
+        _patches.Register(new NativeQamBootstrapPatch(_bridge));
         _modules.RegisterPatches(_patches);
         SetPatchStates(bootstrap: false, components: false);
         SetGlyphDeliveryPatchStates();
@@ -152,6 +157,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             publishEnabled: () => _enabled || _networkIndicatorEnabled);
         _transport.GenerationChanged += OnGenerationChanged;
         _tdp.StateChanged += OnSemanticStateChanged;
+        _deviceControls.StateChanged += OnSemanticStateChanged;
         _autoTdp.StateChanged += OnSemanticStateChanged;
         _onPerformanceStateChanged = _ => QueueStatePublication();
         _performanceService.StateChanged += _onPerformanceStateChanged;
@@ -376,8 +382,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     {
         List<ISteamUiModule> modules =
         [
-            new SteamUiModule("bootstrap", patches: [new NativeQamBootstrapPatch(_bridge)]),
-
             new SteamUiModule(
                 "shell",
                 commands: [new(ShellPatchId, "toggleQuickAccess", HandleToggleQuickAccessAsync)]),
@@ -531,6 +535,30 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                         SteamGatePatches.Brightness.Id,
                         "setBrightness",
                         _brightness.HandleSetBrightnessAsync),
+                ]),
+
+            new SteamUiModule(
+                "device-controls",
+                patches: [NativeQamComponentPatches.DeviceControls],
+                publications: [Publish(
+                    NativeQamComponentPatches.DeviceControls.Id,
+                    () => JsonSerializer.SerializeToElement(
+                        _deviceControls.Current,
+                        NativeQamSemanticJsonContext.Default.NativeQamDeviceControlsState))],
+                commands:
+                [
+                    new(
+                        NativeQamComponentPatches.DeviceControls.Id,
+                        "setChargeLimit",
+                        _deviceControls.HandleSetChargeLimitAsync),
+                    new(
+                        NativeQamComponentPatches.DeviceControls.Id,
+                        "setLightingBrightness",
+                        _deviceControls.HandleSetLightingBrightnessAsync),
+                    new(
+                        NativeQamComponentPatches.DeviceControls.Id,
+                        "setLightingColor",
+                        _deviceControls.HandleSetLightingColorAsync),
                 ]),
 
             new SteamUiModule("download-sort", patches: [new SteamDownloadSortPatch()]),
@@ -778,6 +806,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
         _transport.GenerationChanged -= OnGenerationChanged;
         _tdp.StateChanged -= OnSemanticStateChanged;
+        _deviceControls.StateChanged -= OnSemanticStateChanged;
         _performanceService.StateChanged -= _onPerformanceStateChanged;
         _autoTdp.StateChanged -= OnSemanticStateChanged;
         _controllerTarget.StateChanged -= OnSemanticStateChanged;
@@ -805,6 +834,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _autoTdp.Dispose();
         _audio?.Dispose();
         _controllerTarget.Dispose();
+        _deviceControls.Dispose();
         _tdp.Dispose();
         _synchronizeSignal.Dispose();
         _shutdown.Dispose();

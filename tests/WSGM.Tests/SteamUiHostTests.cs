@@ -23,11 +23,17 @@ public sealed class SteamUiTargetPolicyTests
 public sealed class SteamUiBridgeAuthorizerTests
 {
     private static readonly SteamUiGenerations Generations = new(1, 2, 3, 4, 5, 6);
+    private static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> Commands =
+        new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
+        {
+            ["wsgm.native-qam.tdp"] = ["setPrimaryLimit"],
+            ["wsgm.native-qam.frame-limit"] = ["setFrameLimit"],
+        };
 
     [Fact]
     public void AcceptsOnlyCurrentAllowlistedCommandOnce()
     {
-        var authorizer = new SteamUiBridgeAuthorizer(Generations);
+        var authorizer = new SteamUiBridgeAuthorizer(Generations, Commands);
         var request = Request("wsgm.native-qam.tdp", "setPrimaryLimit", 1, 10);
 
         Assert.True(authorizer.Authorize(request).Accepted);
@@ -39,7 +45,7 @@ public sealed class SteamUiBridgeAuthorizerTests
     [Fact]
     public void RejectsStaleGenerationAndActionReplay()
     {
-        var authorizer = new SteamUiBridgeAuthorizer(Generations);
+        var authorizer = new SteamUiBridgeAuthorizer(Generations, Commands);
         Assert.True(authorizer.Authorize(
             Request("wsgm.native-qam.frame-limit", "setFrameLimit", 1, 20)).Accepted);
         Assert.False(authorizer.Authorize(
@@ -54,7 +60,7 @@ public sealed class SteamUiBridgeAuthorizerTests
     [Fact]
     public void CancellationMustReferenceAcceptedSequence()
     {
-        var authorizer = new SteamUiBridgeAuthorizer(Generations);
+        var authorizer = new SteamUiBridgeAuthorizer(Generations, Commands);
         Assert.False(authorizer.Authorize(
             Request("wsgm.native-qam.frame-limit", "setFrameLimit", 5, 30) with
             {
@@ -113,9 +119,14 @@ public sealed class SteamUiAssetTests
         Assert.Contains("wsgm.native-qam.tdp", source, StringComparison.Ordinal);
         Assert.Contains("wsgm.native-qam.frame-limit", source, StringComparison.Ordinal);
         Assert.Contains("wsgm.native-qam.controller-target", source, StringComparison.Ordinal);
+        Assert.Contains("wsgm.native-qam.device-controls", source, StringComparison.Ordinal);
         Assert.Contains("setPrimaryLimit", source, StringComparison.Ordinal);
         Assert.Contains("setFrameLimit", source, StringComparison.Ordinal);
         Assert.Contains("setControllerTarget", source, StringComparison.Ordinal);
+        Assert.Contains("setChargeLimit", source, StringComparison.Ordinal);
+        Assert.Contains("setLightingBrightness", source, StringComparison.Ordinal);
+        Assert.Contains("setLightingColor", source, StringComparison.Ordinal);
+        Assert.Contains("onChangeComplete", source, StringComparison.Ordinal);
         Assert.Contains("persistence: \"automatic\"", source, StringComparison.Ordinal);
         Assert.Contains("latestStates.set(envelope.patchId, envelope.payload)", source,
             StringComparison.Ordinal);
@@ -303,6 +314,30 @@ public sealed class SteamUiPatchLifecycleTests
 public sealed class SteamUiSessionHostTests
 {
     [Fact]
+    public async Task BridgeVocabularyComesFromTheDeclaredModulesIncludingDeviceControls()
+    {
+        await using var transport = new SessionHostTransport();
+        await using var performance = new PerformanceService(
+            new SimulatedRtssAdapter(),
+            (_, _) => Task.CompletedTask);
+        await using var host = new SteamUiSessionHost(
+            transport,
+            _ => Task.FromResult(true),
+            null,
+            performance);
+
+        host.Apply(true);
+        await transport.BridgeInstalled.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await WaitForAsync(() => transport.BridgeConfiguration is not null);
+
+        Assert.Contains(
+            "\"wsgm.native-qam.device-controls\":[\"setChargeLimit\","
+                + "\"setLightingBrightness\",\"setLightingColor\"]",
+            transport.BridgeConfiguration,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task SharedContextGenerationCancelsInflightSemanticRequest()
     {
         await using var transport = new SessionHostTransport();
@@ -456,6 +491,7 @@ public sealed class SteamUiSessionHostTests
         };
         private int _downloadInstallations;
         private int _glyphInstallations;
+        private string? _bridgeConfiguration;
 
         public event EventHandler<SteamUiNotification>? NotificationReceived;
 
@@ -476,6 +512,8 @@ public sealed class SteamUiSessionHostTests
         internal TaskCompletionSource SecondGlyphInstall { get; } = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
+        internal string? BridgeConfiguration => Volatile.Read(ref _bridgeConfiguration);
+
         public ValueTask<IAsyncDisposable> SubscribeAsync(
             SteamUiTargetRole role,
             CancellationToken cancellationToken = default) =>
@@ -488,6 +526,10 @@ public sealed class SteamUiSessionHostTests
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (expression.Contains("\"allowed\":", StringComparison.Ordinal))
+            {
+                Volatile.Write(ref _bridgeConfiguration, expression);
+            }
             string value;
             if (expression.Contains("wsgm_qam_probe_", StringComparison.Ordinal))
             {
@@ -679,6 +721,7 @@ public sealed class NativeQamComponentPatchTests
         manager.Register(NativeQamComponentPatches.FrameLimit);
         manager.Register(NativeQamComponentPatches.ValveOverlayLevel);
         manager.Register(NativeQamComponentPatches.ControllerTarget);
+        manager.Register(NativeQamComponentPatches.DeviceControls);
 
         await manager.SynchronizeAsync();
 
@@ -696,8 +739,11 @@ public sealed class NativeQamComponentPatchTests
         Assert.Equal(
             SteamUiPatchState.Verified,
             snapshots["wsgm.native-qam.controller-target"].State);
-        Assert.Equal(4, transport.InstallCount);
-        Assert.Equal(4, snapshots.Values.Select(snapshot => snapshot.Fingerprint).Distinct().Count());
+        Assert.Equal(
+            SteamUiPatchState.Verified,
+            snapshots["wsgm.native-qam.device-controls"].State);
+        Assert.Equal(5, transport.InstallCount);
+        Assert.Equal(5, snapshots.Values.Select(snapshot => snapshot.Fingerprint).Distinct().Count());
     }
 
     [Fact]
@@ -829,7 +875,8 @@ public sealed class NativeQamComponentPatchTests
             }
             else if (expression.Contains("wsgm_native_frame_limit_probe_", StringComparison.Ordinal)
                 || expression.Contains("wsgm_native_valve_overlay_probe_", StringComparison.Ordinal)
-                || expression.Contains("wsgm_native_valve_tdp_probe_", StringComparison.Ordinal))
+                || expression.Contains("wsgm_native_valve_tdp_probe_", StringComparison.Ordinal)
+                || expression.Contains("wsgm_native_device_controls_probe_", StringComparison.Ordinal))
             {
                 value = $$"""
                     {"performanceActions":{{PerformanceActionsCount}},"performanceRoot":1,"nativeFields":1,"nativeLayout":1,"localization":1,"react":1}
@@ -848,6 +895,8 @@ public sealed class NativeQamComponentPatchTests
             {
                 string kind = expression.Contains("controllerTarget", StringComparison.Ordinal)
                     ? "controllerTarget"
+                    : expression.Contains("deviceControls", StringComparison.Ordinal)
+                        ? "deviceControls"
                     : expression.Contains("frameLimit", StringComparison.Ordinal)
                         ? "frameLimit"
                         : expression.Contains("valveOverlayLevel", StringComparison.Ordinal)

@@ -251,6 +251,10 @@
                     <!-- Power-tab sub-view: everything currently holding a wake lock. -->
                     <ov:WakeLockHoldersView x:Name="WakeLockHost" IsVisible="False" />
 
+                    <!-- Device RGB editor. It stages changes and commits once so persistent
+                         firmware lighting is never written continuously while navigating. -->
+                    <ov:DeviceColorView x:Name="DeviceColorHost" IsVisible="False" />
+
                     <!-- Device destination. Plugin rows come from the closed semantic descriptor
                          vocabulary; WSGM-owned commands are separate view models. Packages cannot
                          provide markup, styles, URLs, or arbitrary commands through this surface. -->

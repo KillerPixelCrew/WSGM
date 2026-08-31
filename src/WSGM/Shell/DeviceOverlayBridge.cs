@@ -60,7 +60,8 @@ internal sealed record DeviceOverlayCapability(
     string Description,
     string TrailingText,
     bool CanInvoke,
-    CapabilityValue? NextValue);
+    CapabilityValue? CurrentValue = null,
+    CapabilityValue? NextValue = null);
 
 /// <summary>One control in the glyph preview.</summary>
 /// <param name="Control">The physical control this glyph stands for.</param>
@@ -262,6 +263,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 package.Detail ?? "The installed package did not pass validation.",
                 package.RejectionCode ?? "INVALID",
                 false,
+                null,
                 null));
         }
 
@@ -279,6 +281,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                     $"{discovery.Detail} Path: {packageRoot}",
                     discovery.ErrorCode ?? "MULTIPLE",
                     false,
+                    null,
                     null));
             }
         }
@@ -895,9 +898,11 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         bool current = state.Available
             && state.Quality is HardwareStateQuality.Observed or HardwareStateQuality.Verified;
         CapabilityValue? next = NextValue(descriptor, displayed);
+        bool colorWrite = descriptor.ValueKind is CapabilityValueKind.Color
+            && displayed?.ColorValue is not null;
         bool canInvoke = current
             && (descriptor.SupportsAction
-                || descriptor.SupportsWrite && next is not null);
+                || descriptor.SupportsWrite && (next is not null || colorWrite));
         string description = (projection.Progress switch
         {
             CommandProgress.Pending => "Applying requested value…",
@@ -917,6 +922,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             description,
             FormatValue(displayed, descriptor.Unit),
             canInvoke,
+            displayed,
             descriptor.SupportsAction ? null : next);
     }
 
@@ -1244,6 +1250,11 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     "Verified readback · resets on device power loss",
                     $"{_tdp} W",
                     CanInvoke: true,
+                    CurrentValue: new CapabilityValue
+                    {
+                        Kind = CapabilityValueKind.Integer,
+                        IntegerValue = _tdp,
+                    },
                     NextValue: new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Integer,
@@ -1258,6 +1269,11 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     "Observed · stored on device",
                     fanModes[_fanMode],
                     CanInvoke: true,
+                    CurrentValue: new CapabilityValue
+                    {
+                        Kind = CapabilityValueKind.Choice,
+                        ChoiceValue = fanModes[_fanMode],
+                    },
                     NextValue: new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Choice,
@@ -1272,6 +1288,11 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     "Verified readback · stored on device",
                     _lighting ? "ON" : "OFF",
                     CanInvoke: true,
+                    CurrentValue: new CapabilityValue
+                    {
+                        Kind = CapabilityValueKind.Boolean,
+                        BooleanValue = _lighting,
+                    },
                     NextValue: new CapabilityValue
                     {
                         Kind = CapabilityValueKind.Boolean,
@@ -1286,6 +1307,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     "Observed · read only",
                     "54 °C",
                     CanInvoke: false,
+                    CurrentValue: null,
                     NextValue: null),
                 new DeviceOverlayCapability(
                     "preview.rumble",
@@ -1296,6 +1318,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     "Short bounded preview action",
                     "RUN",
                     CanInvoke: true,
+                    CurrentValue: null,
                     NextValue: null),
             ]);
     }

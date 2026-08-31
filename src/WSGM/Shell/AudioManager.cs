@@ -120,6 +120,53 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
     /// <summary>Gets the current master volume as display text.</summary>
     public string VolumeText => $"{(int)_volumePercent}%";
 
+    private double? _inputVolumePercent;
+
+    /// <summary>Gets or sets the default input's master volume, from 0 to 100.</summary>
+    /// <remarks>Null means Windows currently has no readable default capture endpoint.</remarks>
+    public double? InputVolumePercent
+    {
+        get => _inputVolumePercent;
+        set
+        {
+            if (value is not { } requested)
+            {
+                return;
+            }
+
+            int normalized = NormalizeVolume(requested);
+            if (_inputVolumePercent is { } current && Math.Abs(current - normalized) < 0.01)
+            {
+                return;
+            }
+
+            _inputVolumePercent = normalized;
+            Interlocked.Increment(ref _inputVolumeRevision);
+            if (normalized > 0)
+            {
+                InputMuted = false;
+            }
+            Raise(nameof(InputVolumePercent));
+            QueueInputVolumeWrite(normalized);
+        }
+    }
+
+    private bool _inputMuted;
+
+    /// <summary>Gets whether the default input endpoint is muted.</summary>
+    public bool InputMuted
+    {
+        get => _inputMuted;
+        private set
+        {
+            if (_inputMuted != value)
+            {
+                _inputMuted = value;
+                Raise(nameof(InputMuted));
+            }
+        }
+    }
+
     private bool _muted;
 
     /// <summary>Gets whether the default output endpoint is muted.</summary>
@@ -179,14 +226,18 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
     private int _ticks;
     private int _refreshing;
     private int _volumeRevision;
+    private int _inputVolumeRevision;
     private bool _disposed;
     private bool _stickyError;
     private string _endpointSummary = "";
     private readonly object _volumeGate = new();
+    private readonly object _inputVolumeGate = new();
     private readonly SemaphoreSlim _outputSelectionGate = new(1, 1);
     private readonly SemaphoreSlim _inputSelectionGate = new(1, 1);
     private int? _pendingVolume;
     private bool _volumeWorkerRunning;
+    private int? _pendingInputVolume;
+    private bool _inputVolumeWorkerRunning;
     private EndpointSelectionTracker _outputSelection;
     private EndpointSelectionTracker _inputSelection;
     private bool _hasOutputSnapshot;
@@ -226,11 +277,12 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
             return;
         }
         var volumeRevision = Volatile.Read(ref _volumeRevision);
+        var inputVolumeRevision = Volatile.Read(ref _inputVolumeRevision);
         _ = Task.Run(() =>
         {
             try
             {
-                var snapshot = ReadSnapshot(includeEndpoints, volumeRevision);
+                var snapshot = ReadSnapshot(includeEndpoints, volumeRevision, inputVolumeRevision);
                 Dispatcher.UIThread.Post(() =>
                 {
                     if (!_disposed)
@@ -255,15 +307,26 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
         int Volume,
         bool Muted,
         int VolumeRevision,
+        int InputVolumeResult,
+        int InputVolume,
+        bool InputMuted,
+        int InputVolumeRevision,
         bool IncludedEndpoints,
         int OutputResult,
         IReadOnlyList<CoreAudio.AudioEndpoint> Outputs,
         int InputResult,
         IReadOnlyList<CoreAudio.AudioEndpoint> Inputs);
 
-    private static Snapshot ReadSnapshot(bool includeEndpoints, int volumeRevision)
+    private static Snapshot ReadSnapshot(
+        bool includeEndpoints,
+        int volumeRevision,
+        int inputVolumeRevision)
     {
         var volumeResult = CoreAudio.GetVolume(out var volume, out var muted);
+        var inputVolumeResult = CoreAudio.GetVolume(
+            CoreAudio.AudioDirection.Capture,
+            out var inputVolume,
+            out var inputMuted);
         if (!includeEndpoints)
         {
             return new Snapshot(
@@ -271,6 +334,10 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
                 volume,
                 muted != 0,
                 volumeRevision,
+                inputVolumeResult,
+                inputVolume,
+                inputMuted != 0,
+                inputVolumeRevision,
                 false,
                 0,
                 [],
@@ -285,6 +352,10 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
             volume,
             muted != 0,
             volumeRevision,
+            inputVolumeResult,
+            inputVolume,
+            inputMuted != 0,
+            inputVolumeRevision,
             true,
             outputResult,
             outputs,
@@ -308,6 +379,26 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
         else
         {
             SetFailure("read volume", snapshot.VolumeResult);
+        }
+
+        if (snapshot.InputVolumeRevision == Volatile.Read(ref _inputVolumeRevision))
+        {
+            if (snapshot.InputVolumeResult >= 0)
+            {
+                ApplyInputVolume(snapshot.InputVolume, snapshot.InputMuted);
+                Log.Change(
+                    "audio.capture.volume",
+                    $"Default microphone volume is {snapshot.InputVolume}% "
+                        + $"(muted={snapshot.InputMuted}).");
+            }
+            else
+            {
+                ClearInputVolume();
+                Log.Change(
+                    "audio.capture.volume",
+                    $"Default microphone volume is unavailable "
+                        + $"(HRESULT 0x{snapshot.InputVolumeResult:X8}).");
+            }
         }
 
         if (!snapshot.IncludedEndpoints)
@@ -351,7 +442,11 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
         {
             var summary = $"Audio endpoints: {OutputEndpoints.Count} output(s), "
                 + $"default='{SelectedOutput?.Name ?? "none"}'; {InputEndpoints.Count} input(s), "
-                + $"default='{SelectedInput?.Name ?? "none"}'; volume={(int)VolumePercent}%, muted={Muted}.";
+                + $"default='{SelectedInput?.Name ?? "none"}'; volume={(int)VolumePercent}%, muted={Muted}; "
+                + $"microphone={(InputVolumePercent is { } inputVolume
+                    ? inputVolume.ToString("0", System.Globalization.CultureInfo.InvariantCulture) + "%"
+                    : "unavailable")}, "
+                + $"muted={InputMuted}.";
             if (_endpointSummary != summary)
             {
                 _endpointSummary = summary;
@@ -370,6 +465,30 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
             Raise(nameof(VolumeText));
         }
         Muted = muted;
+    }
+
+    private void ApplyInputVolume(int percentage, bool muted)
+    {
+        int normalized = NormalizeVolume(percentage);
+        if (_inputVolumePercent is not { } current || Math.Abs(current - normalized) >= 0.01)
+        {
+            _inputVolumePercent = normalized;
+            Raise(nameof(InputVolumePercent));
+        }
+        InputMuted = muted;
+    }
+
+    private void ClearInputVolume()
+    {
+        if (_inputVolumePercent is null)
+        {
+            return;
+        }
+
+        _inputVolumePercent = null;
+        _inputMuted = false;
+        Raise(nameof(InputVolumePercent));
+        Raise(nameof(InputMuted));
     }
 
     private static AudioEndpointEntry? FindDefault(
@@ -595,6 +714,80 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
         });
     }
 
+    private void QueueInputVolumeWrite(int percentage)
+    {
+        lock (_inputVolumeGate)
+        {
+            _pendingInputVolume = percentage;
+            if (_inputVolumeWorkerRunning)
+            {
+                return;
+            }
+            _inputVolumeWorkerRunning = true;
+        }
+
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                while (true)
+                {
+                    int requested;
+                    lock (_inputVolumeGate)
+                    {
+                        if (_pendingInputVolume is not int pending || _disposed)
+                        {
+                            _inputVolumeWorkerRunning = false;
+                            return;
+                        }
+                        requested = pending;
+                        _pendingInputVolume = null;
+                    }
+
+                    try
+                    {
+                        int result = CoreAudio.SetVolume(
+                            CoreAudio.AudioDirection.Capture,
+                            requested,
+                            out int muted);
+                        if (result >= 0)
+                        {
+                            Log.Info(
+                                $"Microphone volume set to {requested}% (muted={muted != 0}).");
+                            Dispatcher.UIThread.Post(() =>
+                            {
+                                if (!_disposed)
+                                {
+                                    ApplyInputVolume(requested, muted != 0);
+                                    _stickyError = false;
+                                    ErrorText = "";
+                                }
+                            });
+                        }
+                        else
+                        {
+                            PostFailure(
+                                $"Set microphone volume failed (HRESULT 0x{result:X8}).",
+                                sticky: true);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        PostFailure($"Microphone volume write failed: {ex.Message}", sticky: true);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                lock (_inputVolumeGate)
+                {
+                    _inputVolumeWorkerRunning = false;
+                }
+                Log.Warn($"Microphone volume write worker stopped: {ex.Message}");
+            }
+        });
+    }
+
     /// <summary>Adopts a volume state another WSGM writer has ALREADY applied to
     /// Core Audio — the hardware volume buttons — so the taskbar slider does not
     /// lag one poll behind the OSD. Presentation only: nothing is written back,
@@ -656,6 +849,10 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
         lock (_volumeGate)
         {
             _pendingVolume = null;
+        }
+        lock (_inputVolumeGate)
+        {
+            _pendingInputVolume = null;
         }
     }
 }

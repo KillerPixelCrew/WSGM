@@ -23,9 +23,9 @@ internal sealed record NativeQamAudioDevice(
 
 /// <summary>Audio as Steam's own menu renders it.</summary>
 /// <remarks>
-/// Volume and mute are system-wide rather than per endpoint. Steam's model allows a volume per
-/// device, but Windows' default endpoint is the one a user actually hears, and reporting a
-/// per-device volume WSGM cannot independently move would be a control that lies.
+/// Volume and mute follow Windows' default endpoint independently for render and capture. Steam's
+/// model allows values per device, but reporting a value for an inactive endpoint WSGM cannot
+/// independently move would be a control that lies.
 /// </remarks>
 /// <param name="Available">Whether audio can be observed and changed at all.</param>
 /// <param name="Devices">Every endpoint, output and input.</param>
@@ -33,6 +33,8 @@ internal sealed record NativeQamAudioDevice(
 /// <param name="ActiveInputDeviceId">The default capture endpoint, or empty.</param>
 /// <param name="VolumePercent">System volume, 0-100.</param>
 /// <param name="Muted">Whether the default render endpoint is muted.</param>
+/// <param name="InputVolumePercent">Default capture volume, 0-100, or null when unavailable.</param>
+/// <param name="InputMuted">Whether the default capture endpoint is muted.</param>
 /// <param name="StatusText">A human-readable fault, or empty.</param>
 internal sealed record NativeQamAudioState(
     bool Available,
@@ -41,6 +43,8 @@ internal sealed record NativeQamAudioState(
     string ActiveInputDeviceId,
     int VolumePercent,
     bool Muted,
+    int? InputVolumePercent,
+    bool InputMuted,
     string StatusText
 );
 
@@ -108,11 +112,11 @@ internal sealed class AudioManagerNativeQamAudioService : IDisposable
         SteamUiBridgeRequest request,
         CancellationToken cancellationToken)
     {
-        if (!NativeQamPayload.TryReadInt(request.Payload, "percent", 0, 100, out int percent))
+        if (!TryReadVolumePayload(request.Payload, out int percent, out bool input))
         {
             return new(false, "The audio volume payload is invalid.");
         }
-        return await SetVolumeAsync(percent, cancellationToken).ConfigureAwait(false);
+        return await SetVolumeAsync(percent, input, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Makes one endpoint the default for its direction.</summary>
@@ -173,17 +177,37 @@ internal sealed class AudioManagerNativeQamAudioService : IDisposable
     public async Task<SteamUiCommandResult> SetVolumeAsync(
         int percent,
         CancellationToken cancellationToken
+    ) => await SetVolumeAsync(percent, input: false, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>Sets the master volume for one audio direction.</summary>
+    /// <param name="percent">Target volume, 0-100.</param>
+    /// <param name="input">Whether to set the default capture endpoint.</param>
+    /// <param name="cancellationToken">Cancels the change.</param>
+    /// <returns>The outcome, as the native QAM reports outcomes.</returns>
+    public async Task<SteamUiCommandResult> SetVolumeAsync(
+        int percent,
+        bool input,
+        CancellationToken cancellationToken
     )
     {
         int clamped = Math.Clamp(percent, 0, 100);
         if (clamped != percent)
         {
-            Log.Info($"Native QAM audio: volume {percent} clamped to {clamped}.");
+            Log.Info(
+                $"Native QAM audio: {(input ? "microphone " : string.Empty)}volume "
+                    + $"{percent} clamped to {clamped}.");
         }
 
         await NativeQamUi.RunAsync(() =>
         {
-            _audio.VolumePercent = clamped;
+            if (input)
+            {
+                _audio.InputVolumePercent = clamped;
+            }
+            else
+            {
+                _audio.VolumePercent = clamped;
+            }
             Publish();
         }, cancellationToken).ConfigureAwait(false);
         return new SteamUiCommandResult(true, string.Empty);
@@ -220,13 +244,35 @@ internal sealed class AudioManagerNativeQamAudioService : IDisposable
         input = false;
         if (!NativeQamPayload.TryReadBoundedString(payload, "id", 512, out id)
             || !payload.TryGetProperty("input", out JsonElement inputProperty)
-            || inputProperty.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            || inputProperty.ValueKind is not (JsonValueKind.True or JsonValueKind.False)
+            || !NativeQamPayload.HasExactly(payload, 2))
         {
             return false;
         }
 
         input = inputProperty.ValueKind is JsonValueKind.True;
         return true;
+    }
+
+    private static bool TryReadVolumePayload(JsonElement payload, out int percent, out bool input)
+    {
+        input = false;
+        if (!NativeQamPayload.TryReadInt(payload, "percent", 0, 100, out percent))
+        {
+            return false;
+        }
+
+        if (!payload.TryGetProperty("input", out JsonElement inputProperty))
+        {
+            return NativeQamPayload.HasExactly(payload, 1);
+        }
+        if (inputProperty.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        {
+            return false;
+        }
+
+        input = inputProperty.ValueKind is JsonValueKind.True;
+        return NativeQamPayload.HasExactly(payload, 2);
     }
 
     /// <summary>
@@ -262,6 +308,10 @@ internal sealed class AudioManagerNativeQamAudioService : IDisposable
             audio.SelectedInput?.Id ?? string.Empty,
             (int)Math.Round(audio.VolumePercent),
             audio.Muted,
+            audio.InputVolumePercent is { } inputVolume
+                ? (int)Math.Round(inputVolume)
+                : null,
+            audio.InputMuted,
             available ? audio.ErrorText : "No audio endpoints are present.");
     }
 
@@ -295,6 +345,8 @@ internal sealed class AudioManagerNativeQamAudioService : IDisposable
         left.Available == right.Available
         && left.VolumePercent == right.VolumePercent
         && left.Muted == right.Muted
+        && left.InputVolumePercent == right.InputVolumePercent
+        && left.InputMuted == right.InputMuted
         && string.Equals(left.ActiveOutputDeviceId, right.ActiveOutputDeviceId, StringComparison.Ordinal)
         && string.Equals(left.ActiveInputDeviceId, right.ActiveInputDeviceId, StringComparison.Ordinal)
         && string.Equals(left.StatusText, right.StatusText, StringComparison.Ordinal)

@@ -37,6 +37,102 @@ public sealed class NativeQamSemanticServicesTests
     }
 
     [Fact]
+    public void DeviceControlsProjectionUsesSemanticRolesAndIndependentLightingZones()
+    {
+        NativeQamDeviceControlsState state =
+            DeviceCoordinatorNativeQamDeviceControlsService.Project(
+            [
+                IntegerDeviceView(
+                    "vendor.charge",
+                    CapabilityRole.ChargeLimit,
+                    DisplayKey.ChargeLimit,
+                    60,
+                    100,
+                    desired: 80,
+                    observed: 79),
+                IntegerDeviceView(
+                    "vendor.brightness",
+                    CapabilityRole.LightingBrightness,
+                    DisplayKey.Brightness,
+                    0,
+                    100,
+                    desired: 50,
+                    observed: 45),
+                ColorDeviceView("vendor.color", "right-ring", "Right ring", 0xFF8000),
+                ColorDeviceView("vendor.color", "buttons", "Buttons", 0x0080FF),
+            ]);
+
+        Assert.True(state.ChargeLimit?.Available);
+        Assert.Equal(60, state.ChargeLimit?.Minimum);
+        Assert.Equal(80, state.ChargeLimit?.Desired);
+        Assert.Equal(79, state.ChargeLimit?.Observed);
+        Assert.True(state.LightingBrightness?.Available);
+        Assert.Equal(2, state.LightingZones.Count);
+        Assert.Contains(state.LightingZones, zone =>
+            zone.Id == "right-ring"
+            && zone.Label == "Right ring"
+            && zone.ObservedColor == 0xFF8000);
+        Assert.Contains(state.LightingZones, zone =>
+            zone.Id == "buttons"
+            && zone.Label == "Buttons"
+            && zone.ObservedColor == 0x0080FF);
+    }
+
+    [Fact]
+    public void DeviceControlsProjectionFailsClosedForAmbiguousChargeRole()
+    {
+        DeviceCapabilityView first = IntegerDeviceView(
+            "first",
+            CapabilityRole.ChargeLimit,
+            DisplayKey.ChargeLimit,
+            60,
+            100,
+            desired: 80,
+            observed: 80);
+        DeviceCapabilityView second = IntegerDeviceView(
+            "second",
+            CapabilityRole.ChargeLimit,
+            DisplayKey.ChargeLimit,
+            60,
+            100,
+            desired: 80,
+            observed: 80);
+
+        NativeQamDeviceControlsState state =
+            DeviceCoordinatorNativeQamDeviceControlsService.Project([first, second]);
+
+        Assert.False(state.ChargeLimit?.Available);
+        Assert.Contains(
+            "ambiguous",
+            state.ChargeLimit?.StatusText,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void AmbiguousLightingZoneIsDroppedWithoutHidingIndependentControls()
+    {
+        NativeQamDeviceControlsState state =
+            DeviceCoordinatorNativeQamDeviceControlsService.Project(
+            [
+                IntegerDeviceView(
+                    "vendor.charge",
+                    CapabilityRole.ChargeLimit,
+                    DisplayKey.ChargeLimit,
+                    60,
+                    100,
+                    desired: 80,
+                    observed: 80),
+                ColorDeviceView("first", "ring", "First ring", 0xFF0000),
+                ColorDeviceView("second", "ring", "Second ring", 0x0000FF),
+                ColorDeviceView("buttons", "button zone", "Buttons", 0x00FF00),
+            ]);
+
+        Assert.True(state.ChargeLimit?.Available);
+        NativeQamLightingZoneState zone = Assert.Single(state.LightingZones);
+        Assert.Equal("button zone", zone.Id);
+    }
+
+    [Fact]
     public void UnavailableControllerServicePublishesNoSelectableTargets()
     {
         using var service = new DeviceCoordinatorNativeQamControllerTargetService(null);
@@ -147,6 +243,85 @@ public sealed class NativeQamSemanticServicesTests
                 DesiredSource = DeviceDesiredValueSource.ApplicationOverride,
                 PendingValue = Integer(19),
                 Progress = CommandProgress.Pending,
+            },
+            null);
+    }
+
+    private static DeviceCapabilityView IntegerDeviceView(
+        string capabilityId,
+        CapabilityRole role,
+        DisplayKey display,
+        int minimum,
+        int maximum,
+        int desired,
+        int observed)
+    {
+        CapabilityDescriptor descriptor = new()
+        {
+            CapabilityId = capabilityId,
+            Role = role,
+            ValueKind = CapabilityValueKind.Integer,
+            Display = new CapabilityDisplay { Key = display },
+            SupportsRead = true,
+            SupportsWrite = true,
+            Minimum = minimum,
+            Maximum = maximum,
+            Step = 1,
+            Unit = CapabilityUnit.Percent,
+            Persistence = CapabilityPersistence.DevicePersistent,
+        };
+        return DeviceView(descriptor, Integer(desired), Integer(observed));
+    }
+
+    private static DeviceCapabilityView ColorDeviceView(
+        string capabilityId,
+        string instanceId,
+        string label,
+        int color)
+    {
+        CapabilityDescriptor descriptor = new()
+        {
+            CapabilityId = capabilityId,
+            InstanceId = instanceId,
+            Role = CapabilityRole.LightingZoneColor,
+            ValueKind = CapabilityValueKind.Color,
+            Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = label },
+            SupportsRead = true,
+            SupportsWrite = true,
+            Persistence = CapabilityPersistence.DevicePersistent,
+        };
+        CapabilityValue value = new()
+        {
+            Kind = CapabilityValueKind.Color,
+            ColorValue = color,
+        };
+        return DeviceView(descriptor, value, value);
+    }
+
+    private static DeviceCapabilityView DeviceView(
+        CapabilityDescriptor descriptor,
+        CapabilityValue desired,
+        CapabilityValue observed)
+    {
+        CapabilityState state = new()
+        {
+            CapabilityId = descriptor.CapabilityId,
+            InstanceId = descriptor.InstanceId,
+            Available = true,
+            ObservedValue = observed,
+            Quality = HardwareStateQuality.Verified,
+            ObservedAt = DateTimeOffset.UtcNow,
+            DescriptorGeneration = 4,
+            CycleGeneration = 3,
+        };
+        return new DeviceCapabilityView(
+            descriptor,
+            new CapabilityProjection
+            {
+                State = state,
+                DesiredValue = desired,
+                DesiredSource = DeviceDesiredValueSource.GlobalDefault,
+                Progress = CommandProgress.Idle,
             },
             null);
     }

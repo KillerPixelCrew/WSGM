@@ -245,7 +245,7 @@ internal sealed class NativeQamComponentPatch : ISteamUiPatch
     }
 }
 
-/// <summary>The ten mounted native-QAM components, declared as data.</summary>
+/// <summary>The eleven mounted native-QAM components, declared as data.</summary>
 /// <remarks>
 /// Stateless, so one shared instance per component serves every registry. Which components are
 /// Valve's own reactivated exports and which are hand-built on Valve's field primitives — and
@@ -298,6 +298,13 @@ internal static class NativeQamComponentPatches
         "resolution",
         "native-qam-resolution-v1:performance-actions+performance-root+valve-dropdown",
         "wsgm_native_resolution_probe_");
+
+    /// <summary>Charge-limit and persistent device-lighting controls in Quick Settings.</summary>
+    internal static NativeQamComponentPatch DeviceControls { get; } = new(
+        "wsgm.native-qam.device-controls",
+        "deviceControls",
+        "native-qam-device-controls-v1:performance-root+valve-slider+valve-dropdown",
+        "wsgm_native_device_controls_probe_");
 
     /// <summary>Valve's power-limit toggle and slider pair.</summary>
     /// <remarks>

@@ -65,21 +65,17 @@ function createAudioNamespace() {
   const guidFor = (value) => deviceGuids.get(Number(value)) ?? null;
 
   // The store's device constructor ingests flOutputVolume/flInputVolume (0..1) into the map the
-  // sliders bind — omit them and every slider renders a grey bar over undefined. WSGM's volume is
-  // system-wide, so every device carries the same value; Windows' default endpoint is the one the
-  // user actually hears, and a per-device number WSGM cannot move would be an invented control.
-  const toDevice = (entry, flVolume) => ({
+  // sliders bind — omit them and that direction renders a grey bar over undefined. WSGM observes
+  // the two Windows defaults, so every endpoint of a direction carries that direction's current
+  // default value; exposing a per-device number for an inactive endpoint would be invented.
+  const toDevice = (entry, flOutputVolume, flInputVolume) => ({
     id: numberFor(entry.id),
     sName: entry.name,
     bHasOutput: entry.hasOutput === true,
     bHasInput: entry.hasInput === true,
-    // WSGM reports ONE volume: the default OUTPUT endpoint's. Copying it into the input field
-    // made Steam's microphone slider show the speaker volume and made the two move together,
-    // because both were the same number written twice. A capture endpoint's own volume needs a
-    // backend WSGM does not have yet, and until it does the honest answer is no value rather
-    // than the wrong one.
-    flOutputVolume: entry.hasOutput === true ? flVolume : undefined,
-    flInputVolume: undefined,
+    flOutputVolume: entry.hasOutput === true ? flOutputVolume : undefined,
+    flInputVolume:
+      entry.hasInput === true && flInputVolume !== null ? flInputVolume : undefined,
     // Speaker configuration and HDMI CEC reach a service WSGM does not supply. Reported empty and
     // false rather than invented, so those controls simply do not appear.
     currentConfig: {},
@@ -106,21 +102,31 @@ function createAudioNamespace() {
     }
   };
 
-  // The one volume WSGM tracks, as the 0..1 float Steam's sliders use.
-  const flVolumeOf = (state) => Math.min(1, Math.max(0, (Number(state?.volumePercent) || 0) / 100));
+  const flVolumeOf = (value) => {
+    if (value === null || value === undefined || !Number.isFinite(Number(value))) return null;
+    return Math.min(1, Math.max(0, Number(value) / 100));
+  };
 
   // Volume-changed dispatches fire ONLY when the volume moved. Steam shows its volume OSD on
   // every dispatch, and firing one per publish made the OSD pop up over and over while nothing
   // had changed. Null means no volume has been reported yet, so the first publish never counts
   // as a change either — construction already carries it.
-  let lastFlVolume: number | null = null;
+  let lastFlOutputVolume: number | null = null;
+  let lastFlInputVolume: number | null = null;
 
   const onState = (state) => {
     if (!installed || !state || !Array.isArray(state.devices)) return;
-    const flVolume = flVolumeOf(state);
-    const volumeChanged =
-      lastFlVolume !== null && Math.abs(flVolume - lastFlVolume) > VolumeEpsilon;
-    lastFlVolume = flVolume;
+    const flOutputVolume = flVolumeOf(state.volumePercent) ?? 0;
+    const flInputVolume = flVolumeOf(state.inputVolumePercent);
+    const outputVolumeChanged =
+      lastFlOutputVolume !== null
+      && Math.abs(flOutputVolume - lastFlOutputVolume) > VolumeEpsilon;
+    const inputVolumeChanged =
+      lastFlInputVolume !== null
+      && flInputVolume !== null
+      && Math.abs(flInputVolume - lastFlInputVolume) > VolumeEpsilon;
+    lastFlOutputVolume = flOutputVolume;
+    lastFlInputVolume = flInputVolume;
     // Numeric, because these ids flow to the store and its callbacks, and Steam's side of the
     // wire is numeric everywhere.
     const seen = state.devices.map((device) => numberFor(device.id));
@@ -132,7 +138,9 @@ function createAudioNamespace() {
       if (callbacks.deviceRemoved) callbacks.deviceRemoved(id as never);
     }
     for (const device of state.devices) {
-      if (callbacks.deviceAdded) callbacks.deviceAdded(toDevice(device, flVolume));
+      if (callbacks.deviceAdded) {
+        callbacks.deviceAdded(toDevice(device, flOutputVolume, flInputVolume));
+      }
       // (deviceId, DIRECTION, volume) — in that order. Read off the store's own methods
       // 2026-08-30: OnAudioDeviceVolumeChanged(e,t,r) forwards to OnVolumeUpdated(t,r), which is
       // m_mapVolumes.set(t, r). The direction is the KEY and the volume is the VALUE, and WSGM
@@ -143,12 +151,25 @@ function createAudioNamespace() {
       // Still gated on an actual change, unlike the direct path below, which also has to seed:
       // a store that registered these callbacks was constructed after the namespace existed and
       // therefore already read the volumes at construction.
-      if (volumeChanged && device.hasOutput === true && callbacks.deviceVolumeChanged) {
+      if (outputVolumeChanged && device.hasOutput === true && callbacks.deviceVolumeChanged) {
         const id = numberFor(device.id);
         callbacks.deviceVolumeChanged(
           id as never,
           AudioDirection.Output as never,
-          flVolume as never,
+          flOutputVolume as never,
+        );
+      }
+      if (
+        inputVolumeChanged
+        && flInputVolume !== null
+        && device.hasInput === true
+        && callbacks.deviceVolumeChanged
+      ) {
+        const id = numberFor(device.id);
+        callbacks.deviceVolumeChanged(
+          id as never,
+          AudioDirection.Input as never,
+          flInputVolume as never,
         );
       }
     }
@@ -169,7 +190,7 @@ function createAudioNamespace() {
         store.m_mapAudioDevices?.delete(id);
       }
       for (const device of state.devices) {
-        store.RegisterOrUpdateDevice(toDevice(device, flVolume));
+        store.RegisterOrUpdateDevice(toDevice(device, flOutputVolume, flInputVolume));
         // Update() copies the name, the directions and the CEC flags and nothing else — read
         // live 2026-08-30 — so registration never fills m_mapVolumes and this is its only path.
         //
@@ -184,19 +205,34 @@ function createAudioNamespace() {
         // Steam: a hardware button already shows WSGM's own overlay.
         const deviceId = numberFor(device.id);
         const entry = store.m_mapAudioDevices?.get(deviceId);
-        // The OUTPUT direction only, and only on a device that has one. This is the single volume
-        // WSGM observes; writing it to the input direction as well is what put the speaker volume
-        // on the microphone slider and made the two move as one.
-        for (const direction of device.hasOutput === true ? [AudioDirection.Output] : []) {
+        const volumes: Array<{ direction: number; value: number; changed: boolean }> = [];
+        if (device.hasOutput === true) {
+          volumes.push({
+            direction: AudioDirection.Output,
+            value: flOutputVolume,
+            changed: outputVolumeChanged,
+          });
+        }
+        if (device.hasInput === true && flInputVolume !== null) {
+          volumes.push({
+            direction: AudioDirection.Input,
+            value: flInputVolume,
+            changed: inputVolumeChanged,
+          });
+        } else if (device.hasInput === true) {
+          entry?.m_mapVolumes?.delete?.(AudioDirection.Input);
+        }
+        for (const volume of volumes) {
+          const { direction, value, changed } = volume;
           const held = entry?.getDeviceVolume?.(direction);
           const seeding = typeof held !== "number";
-          if (!seeding && !(volumeChanged && Math.abs(held - flVolume) > VolumeEpsilon)) {
+          if (!seeding && !(changed && Math.abs(held - value) > VolumeEpsilon)) {
             continue;
           }
 
           store.SuppressVolumeOverlay?.();
           try {
-            store.OnAudioDeviceVolumeChanged?.(deviceId, direction, flVolume);
+            store.OnAudioDeviceVolumeChanged?.(deviceId, direction, value);
           } finally {
             // Balanced whatever the dispatch does: the pair is a refcount, and leaking one would
             // suppress the user's own volume overlay for the rest of the session.
@@ -231,7 +267,13 @@ function createAudioNamespace() {
           overrideOutputDeviceId: NO_DEVICE,
           overrideInputDeviceId: NO_DEVICE,
           vecDevices: Array.isArray(state?.devices)
-            ? state.devices.map((device) => toDevice(device, flVolumeOf(state)))
+            ? state.devices.map((device) =>
+                toDevice(
+                  device,
+                  flVolumeOf(state?.volumePercent) ?? 0,
+                  flVolumeOf(state?.inputVolumePercent),
+                ),
+              )
             : [],
         })),
       // Empty until a session mixer exists. Steam then lists no per-application entries, which is
@@ -252,13 +294,13 @@ function createAudioNamespace() {
       // Math.round(1 * 100) or Math.round(0 * 100), which is why every drag set 100% or 0% and
       // the log showed "Taskbar volume set to 100%" the moment the slider was touched.
       //
-      // Only the output direction is forwarded. WSGM's backend moves the default endpoint's
-      // volume, which is the output one; forwarding the microphone's slider to it would have the
-      // two controls fight over the same number.
       SetDeviceVolume: (id, direction, volume) => {
-        if (direction !== AudioDirection.Output) return Promise.resolve();
+        if (direction !== AudioDirection.Output && direction !== AudioDirection.Input) {
+          return Promise.resolve();
+        }
         return request(patchId, "setVolume", {
           percent: Math.round(Math.min(1, Math.max(0, Number(volume) || 0)) * 100),
+          input: direction === AudioDirection.Input,
         });
       },
       SetAppVolume: () => Promise.resolve(),
@@ -308,6 +350,8 @@ function createAudioNamespace() {
       }
     }
     known = [];
+    lastFlOutputVolume = null;
+    lastFlInputVolume = null;
     originalStoreState = null;
     const withdrawn = withdrawNamespace(
       window.SteamClient?.System,

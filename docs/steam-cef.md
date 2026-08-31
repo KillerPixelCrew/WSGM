@@ -444,6 +444,17 @@ through that target's `Page.captureScreenshot` command. It replaces the old stan
 script and uses the same literal target shape as the rest of the harness. It does not focus,
 navigate, inject into, or otherwise operate the visible client.
 
+The production bridge receives its exact state/command vocabulary from
+`SteamUiModuleSet.AllowedCommands`; the toolkit contains no WSGM patch ids. The harness reads the
+bridge identity and schema from `external/steam-ui-toolkit` and reconstructs that same vocabulary
+from `SteamUiSessionHost`'s declarations because it does not run the managed host. This matters
+after the repository split: the first device-controls harness pass rebuilt the current vocabulary
+while the production toolkit still carried its older static dictionary, so the fixture rendered even
+though an installed bridge would reject the new subscription. Toolkit commit `ebdb485` removed that
+drift path, and a managed host test now inspects the emitted bridge configuration for all three
+device-control commands. `qam-device-controls-fixture.json` supplies the bounded charge, lighting,
+speaker and microphone state used for a non-hardware live render.
+
 `SteamUiPatchManager` is the only persistent patch scheduler. Each patch has an independent stable
 ID/version, target role, resource key, bounds, positive unique fingerprint, apply, functional
 verification, owned-resource removal, health, and kill switch. Conflicting resource keys serialize;
@@ -477,6 +488,21 @@ persisted profile is enabled, and `per_app.is_game_perf_profile_enabled` reports
 fact. Foreground observation later supplies the executable without changing the AppID. A delta that
 names an AppID other than the currently projected one is refused as stale before reset or any value
 write.
+
+Charge limit and device lighting are WSGM-owned Quick Settings rows selected by SDK semantic role,
+not by a Claw package id. A 2026-08-31 live probe of literal module `30519` in `chunk~2dcc5aaf7.js`
+found Steam's generic HSV implementation closed over by the module, but not exported. Its exported
+controller-LED wrapper calls `SteamClient.Input.PreviewControllerLEDColor`; mounting that wrapper
+for device lighting would add a Steam Input side effect unrelated to the plugin capability. WSGM
+therefore builds the same HSV interaction from the already-resolved Valve slider, dropdown, row and
+localization primitives. Hue, saturation and value remain local while dragging and a persistent
+plugin write is requested only from `onChangeComplete`. The WSGM overlay follows the same rule with
+one explicit Apply action.
+
+The live harness fixture rendered seven device rows (charge, lighting brightness, zone, preview and
+three HSV controls) and the Steam CEF MCP accessibility snapshot showed both speaker and microphone
+sliders carrying independent values. The harness then removed every temporary gate and disposed its
+bridge; it did not execute a device capability or Core Audio write.
 
 Injected code can request only the compiled patch/command vocabulary. The managed bridge validates
 schema, patch ID, command, payload size, monotonic request/action generations, current execution

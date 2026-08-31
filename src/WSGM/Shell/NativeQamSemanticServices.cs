@@ -63,6 +63,33 @@ internal sealed record NativeQamTdpState(
     string Progress,
     string StatusText);
 
+/// <summary>One bounded integer device control projected into Quick Settings.</summary>
+internal sealed record NativeQamDeviceRangeState(
+    bool Available,
+    int Minimum,
+    int Maximum,
+    int Step,
+    int? Desired,
+    int? Observed,
+    string Progress,
+    string StatusText);
+
+/// <summary>One independently writable lighting zone.</summary>
+internal sealed record NativeQamLightingZoneState(
+    string Id,
+    string Label,
+    bool Available,
+    int? DesiredColor,
+    int? ObservedColor,
+    string Progress,
+    string StatusText);
+
+/// <summary>Device charging and lighting controls shown in Steam Quick Settings.</summary>
+internal sealed record NativeQamDeviceControlsState(
+    NativeQamDeviceRangeState? ChargeLimit,
+    NativeQamDeviceRangeState? LightingBrightness,
+    IReadOnlyList<NativeQamLightingZoneState> LightingZones);
+
 /// <summary>The variable-refresh switch as WSGM's own row renders it.</summary>
 /// <param name="Available">Whether a device capability backs the switch at all.</param>
 /// <param name="Enabled">What the device reports now, not what was last asked for.</param>
@@ -1149,6 +1176,348 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : IDisposable
     internal sealed record TdpProjection(NativeQamTdpState State, string? InstanceId);
 }
 
+/// <summary>Projects charge-limit and persistent lighting capabilities into Quick Settings.</summary>
+/// <remarks>
+/// The projection selects capabilities by their SDK semantic roles, never by a device package's
+/// private ids. Commands re-resolve the descriptor at execution time and pass through the same
+/// coordinator validation and readback path as the overlay and profiles.
+/// </remarks>
+internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : IDisposable
+{
+    private static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(5);
+    private readonly DeviceCoordinator? _coordinator;
+    private bool _disposed;
+
+    internal DeviceCoordinatorNativeQamDeviceControlsService(DeviceCoordinator? coordinator)
+    {
+        _coordinator = coordinator;
+        if (_coordinator is not null)
+        {
+            _coordinator.Capabilities.Changed += OnCapabilityViewsChanged;
+        }
+    }
+
+    public event Action? StateChanged;
+
+    public NativeQamDeviceControlsState Current => Project(
+        _coordinator?.Capabilities.Snapshot() ?? []);
+
+    internal async Task<SteamUiCommandResult> HandleSetChargeLimitAsync(
+        SteamUiBridgeRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!NativeQamPayload.TryReadInt(request.Payload, "percent", 0, 100, out int percent)
+            || !NativeQamPayload.HasExactly(request.Payload, 1))
+        {
+            return new(false, "The charge-limit payload is invalid.");
+        }
+
+        return await SetIntegerAsync(
+            CapabilityRole.ChargeLimit,
+            percent,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    internal async Task<SteamUiCommandResult> HandleSetLightingBrightnessAsync(
+        SteamUiBridgeRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!NativeQamPayload.TryReadInt(request.Payload, "percent", 0, 100, out int percent)
+            || !NativeQamPayload.HasExactly(request.Payload, 1))
+        {
+            return new(false, "The lighting-brightness payload is invalid.");
+        }
+
+        return await SetIntegerAsync(
+            CapabilityRole.LightingBrightness,
+            percent,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    internal async Task<SteamUiCommandResult> HandleSetLightingColorAsync(
+        SteamUiBridgeRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!NativeQamPayload.TryReadBoundedString(request.Payload, "zone", 64, out string zone)
+            || !NativeQamPayload.TryReadInt(
+                request.Payload,
+                "color",
+                0,
+                0xFFFFFF,
+                out int color)
+            || !NativeQamPayload.HasExactly(request.Payload, 2))
+        {
+            return new(false, "The lighting-color payload is invalid.");
+        }
+
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_coordinator is null)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return new(false, "Device Integration is not active in this session.");
+        }
+
+        DeviceCapabilityView[] matches = _coordinator.Capabilities.Snapshot()
+            .Where(view => view.Descriptor.Role is CapabilityRole.LightingZoneColor
+                && string.Equals(view.Descriptor.InstanceId, zone, StringComparison.Ordinal))
+            .ToArray();
+        if (matches.Length != 1 || !WritableColor(matches[0]))
+        {
+            Log.Warn($"Native QAM lighting color refused: zone='{zone}', matches={matches.Length}.");
+            return new(false, "That lighting zone is unavailable or incompatible.");
+        }
+
+        return await ExecuteAsync(
+            matches[0],
+            new CapabilityValue
+            {
+                Kind = CapabilityValueKind.Color,
+                ColorValue = color,
+            },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<SteamUiCommandResult> SetIntegerAsync(
+        CapabilityRole role,
+        int value,
+        CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_coordinator is null)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return new(false, "Device Integration is not active in this session.");
+        }
+
+        DeviceCapabilityView[] matches = _coordinator.Capabilities.Snapshot()
+            .Where(view => view.Descriptor.Role == role)
+            .ToArray();
+        if (matches.Length != 1 || !WritableRange(matches[0], role, out _, out _, out _))
+        {
+            Log.Warn($"Native QAM device range refused: role={role}, matches={matches.Length}.");
+            return new(false, "That device control is unavailable or incompatible.");
+        }
+
+        CapabilityDescriptor descriptor = matches[0].Descriptor;
+        if (descriptor.Minimum is not int minimum
+            || descriptor.Maximum is not int maximum
+            || descriptor.Step is not int step
+            || value < minimum
+            || value > maximum
+            || (value - minimum) % step != 0)
+        {
+            return new(false, "The value is outside the device's current descriptor.");
+        }
+
+        return await ExecuteAsync(
+            matches[0],
+            new CapabilityValue
+            {
+                Kind = CapabilityValueKind.Integer,
+                IntegerValue = value,
+            },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<SteamUiCommandResult> ExecuteAsync(
+        DeviceCapabilityView view,
+        CapabilityValue value,
+        CancellationToken cancellationToken)
+    {
+        CapabilityCommandResult result = await _coordinator!.ExecuteCapabilityAsync(
+            view.Descriptor.CapabilityId,
+            view.Descriptor.InstanceId,
+            value,
+            CommandTimeout,
+            CapabilityCommandOrigin.User,
+            cancellationToken).ConfigureAwait(false);
+        bool succeeded = result.Outcome is
+            CommandOutcome.AppliedVerified or CommandOutcome.AppliedUnverified;
+        return new SteamUiCommandResult(
+            succeeded,
+            succeeded
+                ? null
+                : result.Reason?.Detail ?? $"The device command ended as {result.Outcome}.");
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        if (_coordinator is not null)
+        {
+            _coordinator.Capabilities.Changed -= OnCapabilityViewsChanged;
+        }
+    }
+
+    internal static NativeQamDeviceControlsState Project(
+        IReadOnlyList<DeviceCapabilityView> views)
+    {
+        NativeQamDeviceRangeState? charge = ProjectUniqueRange(
+            views,
+            CapabilityRole.ChargeLimit);
+        NativeQamDeviceRangeState? brightness = ProjectUniqueRange(
+            views,
+            CapabilityRole.LightingBrightness);
+        List<NativeQamLightingZoneState> zones = [];
+        IEnumerable<IGrouping<string, DeviceCapabilityView>> zoneGroups = views
+            .Where(candidate => candidate.Descriptor.Role is CapabilityRole.LightingZoneColor
+                && !string.IsNullOrWhiteSpace(candidate.Descriptor.InstanceId)
+                && candidate.Descriptor.InstanceId.Length <= 64)
+            .GroupBy(
+                candidate => candidate.Descriptor.InstanceId!,
+                StringComparer.Ordinal);
+        foreach (IGrouping<string, DeviceCapabilityView> group in zoneGroups
+            .Where(candidate => candidate.Count() == 1)
+            .Take(16))
+        {
+            DeviceCapabilityView view = group.Single();
+            CapabilityDescriptor descriptor = view.Descriptor;
+            string instanceId = group.Key;
+            bool compatible = WritableColor(view);
+            zones.Add(new NativeQamLightingZoneState(
+                instanceId,
+                descriptor.Display.Key is DisplayKey.Custom
+                    && !string.IsNullOrWhiteSpace(descriptor.Display.CustomLabel)
+                        ? NativeQamText.Bound(descriptor.Display.CustomLabel)
+                        : instanceId,
+                compatible,
+                ValidColor(view.Projection.DesiredValue),
+                ValidColor(view.Projection.State.ObservedValue),
+                ProgressText(view.Projection.Progress),
+                StatusText(view, compatible)));
+        }
+
+        return new NativeQamDeviceControlsState(charge, brightness, zones);
+    }
+
+    private static NativeQamDeviceRangeState? ProjectUniqueRange(
+        IReadOnlyList<DeviceCapabilityView> views,
+        CapabilityRole role)
+    {
+        DeviceCapabilityView[] matches = views
+            .Where(view => view.Descriptor.Role == role)
+            .ToArray();
+        if (matches.Length == 0)
+        {
+            return null;
+        }
+        if (matches.Length != 1
+            || !WritableRange(matches[0], role, out int minimum, out int maximum, out int step))
+        {
+            return new NativeQamDeviceRangeState(
+                false, 0, 100, 1, null, null, string.Empty,
+                $"The device published an incompatible or ambiguous {role} control.");
+        }
+
+        DeviceCapabilityView view = matches[0];
+        return new NativeQamDeviceRangeState(
+            true,
+            minimum,
+            maximum,
+            step,
+            ValidInteger(view.Projection.DesiredValue, minimum, maximum, step),
+            ValidInteger(view.Projection.State.ObservedValue, minimum, maximum, step),
+            ProgressText(view.Projection.Progress),
+            StatusText(view, available: true));
+    }
+
+    private static bool WritableRange(
+        DeviceCapabilityView view,
+        CapabilityRole expectedRole,
+        out int minimum,
+        out int maximum,
+        out int step)
+    {
+        CapabilityDescriptor descriptor = view.Descriptor;
+        minimum = descriptor.Minimum ?? 0;
+        maximum = descriptor.Maximum ?? 0;
+        step = descriptor.Step ?? 0;
+        CapabilityState state = view.Projection.State;
+        return descriptor.Role == expectedRole
+            && descriptor.ValueKind is CapabilityValueKind.Integer
+            && descriptor.Unit is CapabilityUnit.Percent
+            && descriptor.SupportsRead
+            && descriptor.SupportsWrite
+            && minimum >= 0
+            && maximum <= 100
+            && minimum < maximum
+            && step >= 1
+            && step <= maximum - minimum
+            && state.Available
+            && state.Quality is HardwareStateQuality.Observed or HardwareStateQuality.Verified;
+    }
+
+    private static bool WritableColor(DeviceCapabilityView view)
+    {
+        CapabilityDescriptor descriptor = view.Descriptor;
+        CapabilityState state = view.Projection.State;
+        return descriptor.Role is CapabilityRole.LightingZoneColor
+            && descriptor.ValueKind is CapabilityValueKind.Color
+            && descriptor.SupportsRead
+            && descriptor.SupportsWrite
+            && state.Available
+            && state.Quality is HardwareStateQuality.Observed or HardwareStateQuality.Verified
+            && (ValidColor(view.Projection.DesiredValue).HasValue
+                || ValidColor(state.ObservedValue).HasValue);
+    }
+
+    private static int? ValidInteger(
+        CapabilityValue? value,
+        int minimum,
+        int maximum,
+        int step) => value is
+        {
+            Kind: CapabilityValueKind.Integer,
+            IntegerValue: { } integer,
+        }
+        && integer >= minimum
+        && integer <= maximum
+        && (integer - minimum) % step == 0
+            ? integer
+            : null;
+
+    private static int? ValidColor(CapabilityValue? value) => value is
+    {
+        Kind: CapabilityValueKind.Color,
+        ColorValue: >= 0 and <= 0xFFFFFF,
+    }
+            ? value.ColorValue
+            : null;
+
+    private static string ProgressText(CommandProgress progress) => progress switch
+    {
+        CommandProgress.Pending => "applying",
+        CommandProgress.Completed => "completed",
+        CommandProgress.Failed => "failed",
+        CommandProgress.Uncertain => "uncertain",
+        _ => string.Empty,
+    };
+
+    private static string StatusText(DeviceCapabilityView view, bool available)
+    {
+        string? detail = view.LastResult?.Reason?.Detail
+            ?? view.Projection.State.Reason?.Detail;
+        if (!available && string.IsNullOrWhiteSpace(detail))
+        {
+            detail = "The device control is not currently available.";
+        }
+        else if (view.Projection.DesiredValueOutOfRange)
+        {
+            detail = "The desired value is outside the current descriptor.";
+        }
+
+        return NativeQamText.Bound(detail);
+    }
+
+    private void OnCapabilityViewsChanged(IReadOnlyList<DeviceCapabilityView> views) =>
+        StateChanged?.Invoke();
+}
+
 /// <summary>
 /// Projects WSGM's AutoTDP into Steam's native quick-access menu, beside the limit it moves.
 /// </summary>
@@ -1529,6 +1898,9 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService : IDispo
 [JsonSerializable(typeof(SteamNetworkState))]
 [JsonSerializable(typeof(SteamNetworkAccessPointState))]
 [JsonSerializable(typeof(NativeQamTdpState))]
+[JsonSerializable(typeof(NativeQamDeviceControlsState))]
+[JsonSerializable(typeof(NativeQamDeviceRangeState))]
+[JsonSerializable(typeof(NativeQamLightingZoneState))]
 [JsonSerializable(typeof(NativeQamAutoTdpState))]
 [JsonSerializable(typeof(NativeQamControllerTargetState))]
 [JsonSerializable(typeof(NativeQamFrameLimitState))]

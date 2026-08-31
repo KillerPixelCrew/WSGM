@@ -30,6 +30,7 @@ internal enum OverlayPage
     DeviceControllerAndMotion,
     DeviceOem,
     DeviceLightingAndFeatures,
+    DeviceColor,
     DeviceGlyphs,
     DeviceDiagnostics,
     System,
@@ -184,6 +185,7 @@ internal sealed class OverlayNavigation
         OverlayPage.Device or OverlayPage.DeviceOverview or OverlayPage.DeviceProfiles
             or OverlayPage.DevicePowerAndThermals or OverlayPage.DeviceControllerAndMotion
             or OverlayPage.DeviceOem or OverlayPage.DeviceLightingAndFeatures
+            or OverlayPage.DeviceColor
             or OverlayPage.DeviceGlyphs or OverlayPage.DeviceDiagnostics
             => OverlayDestination.Device,
         OverlayPage.System or OverlayPage.SystemWakeLocks => OverlayDestination.System,

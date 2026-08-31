@@ -30,6 +30,13 @@ library returns outcomes; the wording that reaches the user is WSGM's:
 The wording rules above are covered by tests in `tests\WSGM.Tests\RadioManagerTests.cs`; the library
 contracts they sit on are tested in the library's own repository.
 
+`Shell\AudioManager.cs` similarly owns the session's default render and capture endpoint state. The
+library's direction-aware `CoreAudio.GetVolume`/`SetVolume` calls are the only Windows edge; WSGM
+polls the two directions independently and coalesces each slider's writes separately. The Steam QAM
+projection must never copy speaker volume into the microphone field: a missing capture endpoint
+publishes a null input volume so Steam leaves that direction unavailable, while a present one
+receives its own 0-100 value and routes writes back with `AudioDirection.Capture`.
+
 ## Touch keyboard boundary
 
 The radio panel's credential and PIN entry uses WSGM's own `Controls\OnScreenKeyboard`; it never

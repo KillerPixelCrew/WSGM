@@ -535,21 +535,16 @@
     };
     const guidFor = (value) => deviceGuids.get(Number(value)) ?? null;
     // The store's device constructor ingests flOutputVolume/flInputVolume (0..1) into the map the
-    // sliders bind — omit them and every slider renders a grey bar over undefined. WSGM's volume is
-    // system-wide, so every device carries the same value; Windows' default endpoint is the one the
-    // user actually hears, and a per-device number WSGM cannot move would be an invented control.
-    const toDevice = (entry, flVolume) => ({
+    // sliders bind — omit them and that direction renders a grey bar over undefined. WSGM observes
+    // the two Windows defaults, so every endpoint of a direction carries that direction's current
+    // default value; exposing a per-device number for an inactive endpoint would be invented.
+    const toDevice = (entry, flOutputVolume, flInputVolume) => ({
       id: numberFor(entry.id),
       sName: entry.name,
       bHasOutput: entry.hasOutput === true,
       bHasInput: entry.hasInput === true,
-      // WSGM reports ONE volume: the default OUTPUT endpoint's. Copying it into the input field
-      // made Steam's microphone slider show the speaker volume and made the two move together,
-      // because both were the same number written twice. A capture endpoint's own volume needs a
-      // backend WSGM does not have yet, and until it does the honest answer is no value rather
-      // than the wrong one.
-      flOutputVolume: entry.hasOutput === true ? flVolume : undefined,
-      flInputVolume: undefined,
+      flOutputVolume: entry.hasOutput === true ? flOutputVolume : undefined,
+      flInputVolume: entry.hasInput === true && flInputVolume !== null ? flInputVolume : undefined,
       // Speaker configuration and HDMI CEC reach a service WSGM does not supply. Reported empty and
       // false rather than invented, so those controls simply do not appear.
       currentConfig: {},
@@ -574,20 +569,29 @@
         return null;
       }
     };
-    // The one volume WSGM tracks, as the 0..1 float Steam's sliders use.
-    const flVolumeOf = (state) =>
-      Math.min(1, Math.max(0, (Number(state?.volumePercent) || 0) / 100));
+    const flVolumeOf = (value) => {
+      if (value === null || value === undefined || !Number.isFinite(Number(value))) return null;
+      return Math.min(1, Math.max(0, Number(value) / 100));
+    };
     // Volume-changed dispatches fire ONLY when the volume moved. Steam shows its volume OSD on
     // every dispatch, and firing one per publish made the OSD pop up over and over while nothing
     // had changed. Null means no volume has been reported yet, so the first publish never counts
     // as a change either — construction already carries it.
-    let lastFlVolume = null;
+    let lastFlOutputVolume = null;
+    let lastFlInputVolume = null;
     const onState = (state) => {
       if (!installed || !state || !Array.isArray(state.devices)) return;
-      const flVolume = flVolumeOf(state);
-      const volumeChanged =
-        lastFlVolume !== null && Math.abs(flVolume - lastFlVolume) > VolumeEpsilon;
-      lastFlVolume = flVolume;
+      const flOutputVolume = flVolumeOf(state.volumePercent) ?? 0;
+      const flInputVolume = flVolumeOf(state.inputVolumePercent);
+      const outputVolumeChanged =
+        lastFlOutputVolume !== null &&
+        Math.abs(flOutputVolume - lastFlOutputVolume) > VolumeEpsilon;
+      const inputVolumeChanged =
+        lastFlInputVolume !== null &&
+        flInputVolume !== null &&
+        Math.abs(flInputVolume - lastFlInputVolume) > VolumeEpsilon;
+      lastFlOutputVolume = flOutputVolume;
+      lastFlInputVolume = flInputVolume;
       // Numeric, because these ids flow to the store and its callbacks, and Steam's side of the
       // wire is numeric everywhere.
       const seen = state.devices.map((device) => numberFor(device.id));
@@ -598,7 +602,9 @@
         if (callbacks.deviceRemoved) callbacks.deviceRemoved(id);
       }
       for (const device of state.devices) {
-        if (callbacks.deviceAdded) callbacks.deviceAdded(toDevice(device, flVolume));
+        if (callbacks.deviceAdded) {
+          callbacks.deviceAdded(toDevice(device, flOutputVolume, flInputVolume));
+        }
         // (deviceId, DIRECTION, volume) — in that order. Read off the store's own methods
         // 2026-08-30: OnAudioDeviceVolumeChanged(e,t,r) forwards to OnVolumeUpdated(t,r), which is
         // m_mapVolumes.set(t, r). The direction is the KEY and the volume is the VALUE, and WSGM
@@ -609,9 +615,18 @@
         // Still gated on an actual change, unlike the direct path below, which also has to seed:
         // a store that registered these callbacks was constructed after the namespace existed and
         // therefore already read the volumes at construction.
-        if (volumeChanged && device.hasOutput === true && callbacks.deviceVolumeChanged) {
+        if (outputVolumeChanged && device.hasOutput === true && callbacks.deviceVolumeChanged) {
           const id = numberFor(device.id);
-          callbacks.deviceVolumeChanged(id, AudioDirection.Output, flVolume);
+          callbacks.deviceVolumeChanged(id, AudioDirection.Output, flOutputVolume);
+        }
+        if (
+          inputVolumeChanged &&
+          flInputVolume !== null &&
+          device.hasInput === true &&
+          callbacks.deviceVolumeChanged
+        ) {
+          const id = numberFor(device.id);
+          callbacks.deviceVolumeChanged(id, AudioDirection.Input, flInputVolume);
         }
       }
       known = seen;
@@ -630,7 +645,7 @@
           store.m_mapAudioDevices?.delete(id);
         }
         for (const device of state.devices) {
-          store.RegisterOrUpdateDevice(toDevice(device, flVolume));
+          store.RegisterOrUpdateDevice(toDevice(device, flOutputVolume, flInputVolume));
           // Update() copies the name, the directions and the CEC flags and nothing else — read
           // live 2026-08-30 — so registration never fills m_mapVolumes and this is its only path.
           //
@@ -645,18 +660,33 @@
           // Steam: a hardware button already shows WSGM's own overlay.
           const deviceId = numberFor(device.id);
           const entry = store.m_mapAudioDevices?.get(deviceId);
-          // The OUTPUT direction only, and only on a device that has one. This is the single volume
-          // WSGM observes; writing it to the input direction as well is what put the speaker volume
-          // on the microphone slider and made the two move as one.
-          for (const direction of device.hasOutput === true ? [AudioDirection.Output] : []) {
+          const volumes = [];
+          if (device.hasOutput === true) {
+            volumes.push({
+              direction: AudioDirection.Output,
+              value: flOutputVolume,
+              changed: outputVolumeChanged,
+            });
+          }
+          if (device.hasInput === true && flInputVolume !== null) {
+            volumes.push({
+              direction: AudioDirection.Input,
+              value: flInputVolume,
+              changed: inputVolumeChanged,
+            });
+          } else if (device.hasInput === true) {
+            entry?.m_mapVolumes?.delete?.(AudioDirection.Input);
+          }
+          for (const volume of volumes) {
+            const { direction, value, changed } = volume;
             const held = entry?.getDeviceVolume?.(direction);
             const seeding = typeof held !== "number";
-            if (!seeding && !(volumeChanged && Math.abs(held - flVolume) > VolumeEpsilon)) {
+            if (!seeding && !(changed && Math.abs(held - value) > VolumeEpsilon)) {
               continue;
             }
             store.SuppressVolumeOverlay?.();
             try {
-              store.OnAudioDeviceVolumeChanged?.(deviceId, direction, flVolume);
+              store.OnAudioDeviceVolumeChanged?.(deviceId, direction, value);
             } finally {
               // Balanced whatever the dispatch does: the pair is a refcount, and leaking one would
               // suppress the user's own volume overlay for the rest of the session.
@@ -689,7 +719,13 @@
             overrideOutputDeviceId: NO_DEVICE,
             overrideInputDeviceId: NO_DEVICE,
             vecDevices: Array.isArray(state?.devices)
-              ? state.devices.map((device) => toDevice(device, flVolumeOf(state)))
+              ? state.devices.map((device) =>
+                  toDevice(
+                    device,
+                    flVolumeOf(state?.volumePercent) ?? 0,
+                    flVolumeOf(state?.inputVolumePercent),
+                  ),
+                )
               : [],
           })),
         // Empty until a session mixer exists. Steam then lists no per-application entries, which is
@@ -710,13 +746,13 @@
         // Math.round(1 * 100) or Math.round(0 * 100), which is why every drag set 100% or 0% and
         // the log showed "Taskbar volume set to 100%" the moment the slider was touched.
         //
-        // Only the output direction is forwarded. WSGM's backend moves the default endpoint's
-        // volume, which is the output one; forwarding the microphone's slider to it would have the
-        // two controls fight over the same number.
         SetDeviceVolume: (id, direction, volume) => {
-          if (direction !== AudioDirection.Output) return Promise.resolve();
+          if (direction !== AudioDirection.Output && direction !== AudioDirection.Input) {
+            return Promise.resolve();
+          }
           return request(patchId, "setVolume", {
             percent: Math.round(Math.min(1, Math.max(0, Number(volume) || 0)) * 100),
+            input: direction === AudioDirection.Input,
           });
         },
         SetAppVolume: () => Promise.resolve(),
@@ -762,6 +798,8 @@
         }
       }
       known = [];
+      lastFlOutputVolume = null;
+      lastFlInputVolume = null;
       originalStoreState = null;
       const withdrawn = withdrawNamespace(window.SteamClient?.System, "Audio", ownedMarker);
       if (!withdrawn.ok) {
@@ -1688,6 +1726,7 @@
     let controllerControl;
     let resolutionControl;
     let vrrControl;
+    let deviceControlsControl;
     // Valve's profile header, which carries the per-game profile toggle inside it — probed
     // 2026-08-30: the toggle is not a separately mountable export, so the two arrive together or
     // not at all. And Valve's reset button. Both are additive: WSGM built neither.
@@ -1762,6 +1801,12 @@
       resolution: Object.freeze({
         patchId: "wsgm.native-qam.resolution",
         command: "setResolution",
+      }),
+      deviceControls: Object.freeze({
+        patchId: "wsgm.native-qam.device-controls",
+        chargeCommand: "setChargeLimit",
+        brightnessCommand: "setLightingBrightness",
+        colorCommand: "setLightingColor",
       }),
       // Valve's own components. They carry no command because they never call WSGM directly: they
       // read SystemPerfStore and write through SteamClient.System.Perf.UpdateSettings, which is the
@@ -2009,6 +2054,88 @@
         current: typeof value.current === "string" ? value.current : "",
         statusText: typeof value.statusText === "string" ? value.statusText : "",
       };
+    };
+    const normalizeDeviceRange = (value) => {
+      if (value === null || value === undefined) return null;
+      if (!value || typeof value !== "object" || typeof value.available !== "boolean") return null;
+      const minimum = Number(value.minimum);
+      const maximum = Number(value.maximum);
+      const step = Number(value.step);
+      const desired = value.desired === null ? null : Number(value.desired);
+      const observed = value.observed === null ? null : Number(value.observed);
+      if (
+        !Number.isInteger(minimum) ||
+        !Number.isInteger(maximum) ||
+        !Number.isInteger(step) ||
+        minimum < 0 ||
+        maximum > 100 ||
+        minimum >= maximum ||
+        step < 1 ||
+        step > maximum - minimum ||
+        (desired !== null &&
+          (!Number.isInteger(desired) ||
+            desired < minimum ||
+            desired > maximum ||
+            (desired - minimum) % step !== 0)) ||
+        (observed !== null &&
+          (!Number.isInteger(observed) ||
+            observed < minimum ||
+            observed > maximum ||
+            (observed - minimum) % step !== 0))
+      )
+        return null;
+      return Object.freeze({
+        available: value.available,
+        minimum,
+        maximum,
+        step,
+        desired,
+        observed,
+        progress: normalizeText(value.progress),
+        statusText: normalizeText(value.statusText),
+      });
+    };
+    const normalizeDeviceControlsState = (value) => {
+      if (!value || typeof value !== "object" || !Array.isArray(value.lightingZones)) return null;
+      const chargeLimit = normalizeDeviceRange(value.chargeLimit);
+      const lightingBrightness = normalizeDeviceRange(value.lightingBrightness);
+      const lightingZones = [];
+      const ids = new Set();
+      for (const zone of value.lightingZones.slice(0, 16)) {
+        if (!zone || typeof zone !== "object") return null;
+        const id = normalizeText(zone.id);
+        const label = normalizeText(zone.label);
+        const desiredColor = zone.desiredColor === null ? null : Number(zone.desiredColor);
+        const observedColor = zone.observedColor === null ? null : Number(zone.observedColor);
+        if (
+          id.length > 64 ||
+          !id.trim() ||
+          !label ||
+          ids.has(id) ||
+          (desiredColor !== null &&
+            (!Number.isInteger(desiredColor) || desiredColor < 0 || desiredColor > 0xffffff)) ||
+          (observedColor !== null &&
+            (!Number.isInteger(observedColor) || observedColor < 0 || observedColor > 0xffffff))
+        )
+          return null;
+        ids.add(id);
+        lightingZones.push(
+          Object.freeze({
+            id,
+            label,
+            available: zone.available === true,
+            desiredColor,
+            observedColor,
+            progress: normalizeText(zone.progress),
+            statusText: normalizeText(zone.statusText),
+          }),
+        );
+      }
+      return Object.freeze({
+        chargeLimit,
+        lightingBrightness,
+        lightingZones: Object.freeze(lightingZones),
+      });
     };
     const normalizeFrameLimitState = (value) => {
       const common = normalizePerformanceCommon(value);
@@ -2485,6 +2612,247 @@
           disableSwitch,
         );
       };
+    const rgbToHsv = (color) => {
+      const red = ((color >> 16) & 0xff) / 255;
+      const green = ((color >> 8) & 0xff) / 255;
+      const blue = (color & 0xff) / 255;
+      const maximum = Math.max(red, green, blue);
+      const minimum = Math.min(red, green, blue);
+      const delta = maximum - minimum;
+      let hue = 0;
+      if (delta > 0) {
+        if (maximum === red) hue = 60 * (((green - blue) / delta) % 6);
+        else if (maximum === green) hue = 60 * ((blue - red) / delta + 2);
+        else hue = 60 * ((red - green) / delta + 4);
+      }
+      if (hue < 0) hue += 360;
+      return {
+        hue: Math.round(hue),
+        saturation: maximum === 0 ? 0 : Math.round((delta / maximum) * 100),
+        brightness: Math.round(maximum * 100),
+      };
+    };
+    const hsvToRgb = (hue, saturation, brightness) => {
+      const h = ((Number(hue) % 360) + 360) % 360;
+      const s = Math.min(100, Math.max(0, Number(saturation))) / 100;
+      const v = Math.min(100, Math.max(0, Number(brightness))) / 100;
+      const chroma = v * s;
+      const x = chroma * (1 - Math.abs(((h / 60) % 2) - 1));
+      const m = v - chroma;
+      let red = 0;
+      let green = 0;
+      let blue = 0;
+      if (h < 60) [red, green] = [chroma, x];
+      else if (h < 120) [red, green] = [x, chroma];
+      else if (h < 180) [green, blue] = [chroma, x];
+      else if (h < 240) [green, blue] = [x, chroma];
+      else if (h < 300) [red, blue] = [x, chroma];
+      else [red, blue] = [chroma, x];
+      return (
+        (Math.round((red + m) * 255) << 16) |
+        (Math.round((green + m) * 255) << 8) |
+        Math.round((blue + m) * 255)
+      );
+    };
+    const rgbCss = (color) => `#${Number(color).toString(16).padStart(6, "0")}`;
+    const createDeviceControlsControl = (controlRuntime) =>
+      function WsgmNativeDeviceControls() {
+        const state = useSemanticState(
+          controlRuntime,
+          "deviceControls",
+          normalizeDeviceControlsState,
+        );
+        const [selectedZone, setSelectedZone] = controlRuntime.react.useState("");
+        const chargeValue = state?.chargeLimit
+          ? (state.chargeLimit.observed ?? state.chargeLimit.desired)
+          : null;
+        const brightnessValue = state?.lightingBrightness
+          ? (state.lightingBrightness.observed ?? state.lightingBrightness.desired)
+          : null;
+        const zones = state?.lightingZones?.filter((zone) => zone.available) ?? [];
+        const zone = zones.find((candidate) => candidate.id === selectedZone) ?? zones[0] ?? null;
+        const color = zone ? (zone.observedColor ?? zone.desiredColor) : null;
+        const hsv = color === null ? null : rgbToHsv(color);
+        const chargeEcho = useEchoedValue(controlRuntime, chargeValue);
+        const brightnessEcho = useEchoedValue(controlRuntime, brightnessValue);
+        const hueEcho = useEchoedValue(controlRuntime, hsv?.hue ?? null);
+        const saturationEcho = useEchoedValue(controlRuntime, hsv?.saturation ?? null);
+        const colorBrightnessEcho = useEchoedValue(controlRuntime, hsv?.brightness ?? null);
+        if (!state) return note("deviceControls", "no state");
+        const definition = definitions.deviceControls;
+        const rows = [];
+        const appendSlider = (key, properties) => {
+          rows.push(
+            controlRuntime.react.createElement(
+              controlRuntime.row,
+              { key },
+              controlRuntime.react.createElement(controlRuntime.slider, properties),
+            ),
+          );
+        };
+        const send = (command, payload) =>
+          void request(
+            definition.patchId,
+            command,
+            payload,
+            nextActionGeneration(definition.patchId),
+          ).catch(() => {});
+        if (state.chargeLimit?.available && chargeEcho.value !== null) {
+          const range = state.chargeLimit;
+          appendSlider("wsgm-native-qam-charge-limit", {
+            label: "Battery charge limit",
+            min: range.minimum,
+            max: range.maximum,
+            step: range.step,
+            value: chargeEcho.value,
+            valueSuffix: "%",
+            showValue: true,
+            showBookendLabels: true,
+            disabled: isBusy(range.progress),
+            description: range.statusText || undefined,
+            onChange: chargeEcho.onChange,
+            onChangeComplete: (next) =>
+              chargeEcho.onChangeComplete(next, (percent) =>
+                send(definition.chargeCommand, { percent }),
+              ),
+          });
+        }
+        if (state.lightingBrightness?.available && brightnessEcho.value !== null) {
+          const range = state.lightingBrightness;
+          appendSlider("wsgm-native-qam-lighting-brightness", {
+            label: "Lighting brightness",
+            min: range.minimum,
+            max: range.maximum,
+            step: range.step,
+            value: brightnessEcho.value,
+            valueSuffix: "%",
+            showValue: true,
+            showBookendLabels: true,
+            disabled: isBusy(range.progress),
+            description: range.statusText || undefined,
+            onChange: brightnessEcho.onChange,
+            onChangeComplete: (next) =>
+              brightnessEcho.onChangeComplete(next, (percent) =>
+                send(definition.brightnessCommand, { percent }),
+              ),
+          });
+        }
+        if (zone && hsv) {
+          const options = zones.map((candidate) => ({
+            data: candidate.id,
+            label: candidate.label,
+          }));
+          rows.push(
+            controlRuntime.react.createElement(
+              controlRuntime.row,
+              { key: "wsgm-native-qam-lighting-zone" },
+              controlRuntime.react.createElement(controlRuntime.dropdown, {
+                label: "Lighting zone",
+                rgOptions: options,
+                selectedOption: zone.id,
+                onChange: (option) => {
+                  if (option && zones.some((candidate) => candidate.id === option.data)) {
+                    setSelectedZone(option.data);
+                  }
+                },
+                disabled: options.length < 2,
+                description: zone.statusText || undefined,
+                layout: "below",
+              }),
+            ),
+          );
+          const stagedColor = hsvToRgb(
+            hueEcho.value ?? hsv.hue,
+            saturationEcho.value ?? hsv.saturation,
+            colorBrightnessEcho.value ?? hsv.brightness,
+          );
+          rows.push(
+            controlRuntime.react.createElement(
+              controlRuntime.row,
+              { key: "wsgm-native-qam-lighting-preview" },
+              controlRuntime.react.createElement("div", {
+                title: rgbCss(stagedColor),
+                style: {
+                  background: rgbCss(stagedColor),
+                  border: "1px solid rgba(255,255,255,.7)",
+                  borderRadius: "4px",
+                  height: "32px",
+                  width: "100%",
+                },
+              }),
+            ),
+          );
+          const commitColor = (hue, saturation, brightness) =>
+            send(definition.colorCommand, {
+              zone: zone.id,
+              color: hsvToRgb(hue, saturation, brightness),
+            });
+          appendSlider("wsgm-native-qam-lighting-hue", {
+            label: localizeOr(controlRuntime, "#ColorPicker_Hue", "Hue"),
+            min: 0,
+            max: 360,
+            step: 1,
+            value: hueEcho.value,
+            valueSuffix: "°",
+            showValue: true,
+            disabled: isBusy(zone.progress),
+            trackStyleOverride: {
+              background: "linear-gradient(to right,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)",
+              "--left-track-color": "transparent",
+            },
+            onChange: hueEcho.onChange,
+            onChangeComplete: (next) =>
+              hueEcho.onChangeComplete(next, (hue) =>
+                commitColor(
+                  hue,
+                  saturationEcho.value ?? hsv.saturation,
+                  colorBrightnessEcho.value ?? hsv.brightness,
+                ),
+              ),
+          });
+          appendSlider("wsgm-native-qam-lighting-saturation", {
+            label: localizeOr(controlRuntime, "#ColorPicker_Saturation", "Saturation"),
+            min: 0,
+            max: 100,
+            step: 1,
+            value: saturationEcho.value,
+            valueSuffix: "%",
+            showValue: true,
+            disabled: isBusy(zone.progress),
+            onChange: saturationEcho.onChange,
+            onChangeComplete: (next) =>
+              saturationEcho.onChangeComplete(next, (saturation) =>
+                commitColor(
+                  hueEcho.value ?? hsv.hue,
+                  saturation,
+                  colorBrightnessEcho.value ?? hsv.brightness,
+                ),
+              ),
+          });
+          appendSlider("wsgm-native-qam-lighting-color-brightness", {
+            label: localizeOr(controlRuntime, "#ColorPicker_Brightness", "Brightness"),
+            min: 0,
+            max: 100,
+            step: 1,
+            value: colorBrightnessEcho.value,
+            valueSuffix: "%",
+            showValue: true,
+            disabled: isBusy(zone.progress),
+            onChange: colorBrightnessEcho.onChange,
+            onChangeComplete: (next) =>
+              colorBrightnessEcho.onChangeComplete(next, (brightness) =>
+                commitColor(
+                  hueEcho.value ?? hsv.hue,
+                  saturationEcho.value ?? hsv.saturation,
+                  brightness,
+                ),
+              ),
+          });
+        }
+        if (!rows.length) return note("deviceControls", "no compatible charge or lighting rows");
+        renderOutcomes.deviceControls = `rendered ${rows.length} row(s)`;
+        return controlRuntime.react.createElement(controlRuntime.react.Fragment, null, ...rows);
+      };
     // Steam's own FPS counter rows, which WSGM replaces with its RTSS-driven overlay. Identified by
     // localising the same tokens Steam did rather than by CSS class or visible text: the classes
     // are hashed per client build and the text changes with the user's language, while the token is
@@ -2618,6 +2986,17 @@
           ),
         );
       }
+      if (
+        placement === "quickSettings" &&
+        registrations.has("deviceControls") &&
+        deviceControlsControl
+      ) {
+        controls.push(
+          controlRuntime.react.createElement(deviceControlsControl, {
+            key: "wsgm-native-qam-device-controls",
+          }),
+        );
+      }
       if (!controls.length) {
         appendDiagnostics[placement] = { controls: 0, inserted: false, ownSection: false };
         return tree;
@@ -2726,6 +3105,7 @@
       controllerControl = createControllerControl(controlRuntime);
       resolutionControl = createResolutionControl(controlRuntime);
       vrrControl = createVrrControl(controlRuntime);
+      deviceControlsControl = createDeviceControlsControl(controlRuntime);
       // Selected by the localization token it draws, never by a minified export name: the names are
       // right for today's build and are not guaranteed for the next. Live-probed 2026-08-30 that
       // this token matches exactly one export of the components module.

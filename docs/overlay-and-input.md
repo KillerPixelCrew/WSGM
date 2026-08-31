@@ -13,14 +13,14 @@ ACTIVE destination's first row (HomeAppButton is invisible on the others). Note 
 navigation deliberately passes NO tab callbacks: during the 150 ms surface handover both navigations
 are alive, so routing LB/RB there would double-advance the panel's tabs.
 
-Destinations host in-place nested pages: five self-drawing sub-views over `OverlaySubView`
-(`LibraryTabsView`, `CardManagerView`, `ArtworkView`, `LaunchWrapperView`, `WakeLockHoldersView`),
-the XAML `PanelFormat`, and the Device sections. **The open page is `OverlayNavigation.Page`, not a
-flag per page** — the two used to be tracked separately and could disagree. Adding one means a row
-in `OverlayWindow`'s `SubViews` table (page, host, parent panel, destination, and any state the page
-releases on the way out); the enter/leave sequence, `AnySubView`, `DefaultFocusTarget`, the
-`Activated` teardown and B-cancel all read that table. Never a Popup/Flyout, which
-`GamepadNavigation` cannot reach.
+Destinations host in-place nested pages: six self-drawing sub-views over `OverlaySubView`
+(`LibraryTabsView`, `CardManagerView`, `ArtworkView`, `LaunchWrapperView`, `WakeLockHoldersView`,
+`DeviceColorView`), the XAML `PanelFormat`, and the Device sections. **The open page is
+`OverlayNavigation.Page`, not a flag per page** — the two used to be tracked separately and could
+disagree. Adding one means a row in `OverlayWindow`'s `SubViews` table (page, host, parent panel,
+destination, and any state the page releases on the way out); the enter/leave sequence,
+`AnySubView`, `DefaultFocusTarget`, the `Activated` teardown and B-cancel all read that table. Never
+a Popup/Flyout, which `GamepadNavigation` cannot reach.
 
 **Per-application performance profiles** are part of Device -> Profiles, not a second detector or a
 device-plugin feature. `PerformanceOverlayBridge` projects the session's one `PerformanceService`
@@ -31,6 +31,12 @@ shows the complete profile workflow. Identity-only Steam games stay visible as "
 and edits are stored for that AppID until foreground observation supplies the RTSS profile.
 Performance state changes rebuild both the owning Device page and its section-card count, so the
 Profiles page cannot disappear merely because no plugin publishes a hardware profile.
+
+Device lighting color opens `DeviceColorView` rather than cycling an opaque integer in the row.
+Presets, coarse RGB channel steps and exact `#RRGGBB` keyboard entry are staged locally; only the
+explicit Apply row invokes the capability. This is a persistence constraint, not presentation
+polish: the Claw has no volatile RGB path, so streaming a write on every controller step would wear
+and repeatedly commit its non-volatile lighting profile.
 
 **Text entry in the panel is a press-to-edit ROW, never a bare `TextBox`** (maintainer, on the
 format name reading as broken). Every editable name — the tab editor, card rename, filter patterns —

@@ -34,40 +34,101 @@ const assetPath = join(
   "SteamUiAssets",
   "NativeQamBootstrap.js",
 );
-const bridgeSourcePath = join(repositoryRoot, "src", "WSGM", "Core", "SteamUiBridge.cs");
+const toolkitRoot = join(repositoryRoot, "external", "steam-ui-toolkit", "src", "SteamUiToolkit");
+const bridgeIdentityPath = join(toolkitRoot, "SteamUiBridgeIdentity.cs");
+const bridgeSourcePath = join(toolkitRoot, "SteamUiBridge.cs");
+const sessionHostPath = join(repositoryRoot, "src", "WSGM", "Shell", "SteamUiSessionHost.cs");
+const componentPatchesPath = join(
+  repositoryRoot,
+  "src",
+  "WSGM",
+  "Core",
+  "NativeQamComponentPatches.cs",
+);
+const gatePatchesPath = join(repositoryRoot, "src", "WSGM", "Core", "SteamGatePatch.cs");
+const bluetoothServicePath = join(
+  repositoryRoot,
+  "src",
+  "WSGM",
+  "Shell",
+  "NativeQamBluetoothService.cs",
+);
 
 // These three are the host's, and are read from its source rather than copied. The allowlist in
 // particular is what a new control forgets: a patch id missing here makes subscribe() throw
 // "subscription not allowlisted" during render, which Steam's error boundary turns into a blank
 // tab rather than a missing row.
-const readHostConstant = (pattern, what) => {
-  const source = readFileSync(bridgeSourcePath, "utf8");
+const readSourceConstant = (path, pattern, what) => {
+  const source = readFileSync(path, "utf8");
   const match = source.match(pattern);
-  if (!match) throw new Error(`could not read ${what} from SteamUiBridge.cs`);
+  if (!match) throw new Error(`could not read ${what} from ${path}`);
   return match[1];
 };
 
 const readAllowlist = () => {
-  const source = readFileSync(bridgeSourcePath, "utf8");
-  const block = source.match(
-    /IReadOnlyDictionary<string, string\[\]> Commands =([\s\S]*?)\n {8}};/,
-  );
-  if (!block) throw new Error("could not read the allowlist from SteamUiBridge.cs");
-  const allowed = {};
-  const entry = /\["([^"]+)"\]\s*=\s*\[([^\]]*)\]/g;
-  let match;
-  while ((match = entry.exec(block[1])) !== null) {
-    allowed[match[1]] = [...match[2].matchAll(/"([^"]*)"/g)].map((m) => m[1]);
+  const host = readFileSync(sessionHostPath, "utf8");
+  const componentSource = readFileSync(componentPatchesPath, "utf8");
+  const gateSource = readFileSync(gatePatchesPath, "utf8");
+  const ids = new Map();
+  for (const match of componentSource.matchAll(
+    /internal static NativeQamComponentPatch\s+(\w+)\s*\{[^}]*\}\s*=\s*new\(\s*"([^"]+)"/g,
+  )) {
+    ids.set(`NativeQamComponentPatches.${match[1]}.Id`, match[2]);
   }
+  for (const match of gateSource.matchAll(
+    /internal static ISteamUiPatch\s+(\w+)\s*\{[^}]*\}\s*=\s*new SteamGatePatch\(\s*id:\s*"([^"]+)"/g,
+  )) {
+    ids.set(`SteamGatePatches.${match[1]}.Id`, match[2]);
+  }
+  ids.set(
+    "ShellPatchId",
+    readSourceConstant(
+      sessionHostPath,
+      /private const string ShellPatchId = "([^"]+)"/,
+      "shell id",
+    ),
+  );
+
+  const allowed = {};
+  for (const match of host.matchAll(
+    /new\(\s*((?:NativeQamComponentPatches|SteamGatePatches)\.\w+\.Id|ShellPatchId)\s*,\s*"([^"]+)"/g,
+  )) {
+    const patchId = ids.get(match[1]);
+    if (!patchId) throw new Error(`could not resolve command owner ${match[1]}`);
+    (allowed[patchId] ??= []).push(match[2]);
+  }
+
+  const bluetoothId = ids.get("SteamGatePatches.Bluetooth.Id");
+  const bluetoothSource = readFileSync(bluetoothServicePath, "utf8");
+  const bluetoothBlock = bluetoothSource.match(
+    /internal static readonly string\[\] Commands\s*=\s*\[([\s\S]*?)\];/,
+  );
+  if (!bluetoothId || !bluetoothBlock) throw new Error("could not read Bluetooth commands");
+  allowed[bluetoothId] = [...bluetoothBlock[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+
   if (!Object.keys(allowed).length) throw new Error("the allowlist parsed empty");
   return allowed;
 };
 
 const asset = readFileSync(assetPath, "utf8");
 const configuration = {
-  version: 1,
-  namespace: readHostConstant(/private const string Namespace = "([^"]+)"/, "the bridge namespace"),
-  binding: readHostConstant(/private const string BindingName = "([^"]+)"/, "the binding name"),
+  version: Number(
+    readSourceConstant(
+      bridgeSourcePath,
+      /public const int SchemaVersion = (\d+)/,
+      "schema version",
+    ),
+  ),
+  namespace: readSourceConstant(
+    bridgeIdentityPath,
+    /public const string Namespace = "([^"]+)"/,
+    "the bridge namespace",
+  ),
+  binding: readSourceConstant(
+    bridgeIdentityPath,
+    /public const string BindingName = "([^"]+)"/,
+    "the binding name",
+  ),
   // The product pins the asset's own hash so a changed script replaces a running bridge. The
   // harness does the same, for the same reason: without it an edit appears to do nothing.
   assetHash: createHash("sha256").update(asset).digest("hex").toUpperCase(),
@@ -77,6 +138,19 @@ const configuration = {
   timeoutMilliseconds: 5000,
   allowed: readAllowlist(),
 };
+const componentKinds = [
+  "autoTdp",
+  "frameLimit",
+  "controllerTarget",
+  "deviceControls",
+  "resolution",
+  "vrr",
+  "valveProfileHeader",
+  "valveReset",
+  "valveRefreshRate",
+  "valveOverlayLevel",
+  "valveTdp",
+];
 
 const targets = async () => {
   const response = await fetch("http://127.0.0.1:8080/json/list");
@@ -228,10 +302,18 @@ const install = async (session) => {
   const bridge = `window[${JSON.stringify(configuration.namespace)}]`;
   for (const gate of ["audio", "network", "bluetooth", "brightness", "perf", "steamOsManager"]) {
     const outcome = await session.evaluate(
-      `(()=>{const b=${bridge};if(!b||!b.${gate})return 'absent';` +
-        `try{return JSON.stringify(b.${gate}.install());}catch(e){return String(e);}})()`,
+      `(()=>{const b=${bridge};const g=b&&b.gate?b.gate(${JSON.stringify(gate)}):null;` +
+        `if(!g)return 'absent';try{return JSON.stringify(g.install());}catch(e){return String(e);}})()`,
     );
     console.log(`  ${gate.padEnd(11)} ${outcome}`);
+  }
+  for (const component of componentKinds) {
+    const outcome = await session.evaluate(
+      `(()=>{const b=${bridge};const g=b&&b.gate?b.gate('nativeComponents'):null;` +
+        `if(!g)return 'absent';try{return JSON.stringify(g.install(${JSON.stringify(component)}));}` +
+        `catch(e){return String(e);}})()`,
+    );
+    console.log(`  ${component.padEnd(18)} ${outcome}`);
   }
 };
 
@@ -242,15 +324,14 @@ const status = async (session) => {
       `const out={bridge:!!b,version:b&&b.version,` +
       `audioNamespace:!!(s&&s.Audio),audioOwned:!!(s&&s.Audio&&s.Audio.__wsgmOwnedNamespace===true),` +
       `perfNamespace:!!(s&&s.Perf),perfOwned:!!(s&&s.Perf&&s.Perf.__wsgmOwnedNamespace===true)};` +
-      `if(b){for(const g of ['audio','network','bluetooth','brightness','perf','steamOsManager']){` +
-      `try{out[g]=b[g]?b[g].status():'absent';}catch(e){out[g]='ERR '+e;}}` +
+      `if(b){for(const n of ['audio','network','bluetooth','brightness','perf','steamOsManager']){` +
+      `try{const g=b.gate?b.gate(n):null;out[n]=g?g.status():'absent';}catch(e){out[n]='ERR '+e;}}` +
       // nativeComponents.status takes a KIND. Calling it bare reports registered:false for every
       // component, which reads as "nothing registered" and is purely an artefact of the call.
-      `try{out.components={};for(const k of ['autoTdp','frameLimit','controllerTarget',` +
-      `'resolution','vrr','valveProfileHeader','valveReset','valveRefreshRate',` +
-      `'valveOverlayLevel','valveTdp']){` +
-      `const s=b.nativeComponents.status(k);out.components[k]=s.registered;}` +
-      `const any=b.nativeComponents.status('frameLimit');out.lastAppend=any.lastAppend;` +
+      `try{const c=b.gate?b.gate('nativeComponents'):null;if(!c)throw new Error('gate absent');` +
+      `out.components={};for(const k of ${JSON.stringify(componentKinds)}){` +
+      `const s=c.status(k);out.components[k]=s.registered;}` +
+      `const any=c.status('frameLimit');out.lastAppend=any.lastAppend;` +
       `out.renderOutcomes=any.renderOutcomes;out.rootWrapped=any.performanceRootWrapped;}` +
       `catch(e){out.components='ERR '+e;}}` +
       `return JSON.stringify(out,null,1);})()`,
@@ -282,8 +363,8 @@ const remove = async (session) => {
   const bridge = `window[${JSON.stringify(configuration.namespace)}]`;
   for (const gate of ["steamOsManager", "perf", "brightness", "bluetooth", "network", "audio"]) {
     const outcome = await session.evaluate(
-      `(()=>{const b=${bridge};if(!b||!b.${gate})return 'absent';` +
-        `try{return JSON.stringify(b.${gate}.remove());}catch(e){return String(e);}})()`,
+      `(()=>{const b=${bridge};const g=b&&b.gate?b.gate(${JSON.stringify(gate)}):null;` +
+        `if(!g)return 'absent';try{return JSON.stringify(g.remove());}catch(e){return String(e);}})()`,
     );
     console.log(`  ${gate.padEnd(11)} ${outcome}`);
   }

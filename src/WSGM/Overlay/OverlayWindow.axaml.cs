@@ -15,6 +15,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Core;
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Input;
 using WSGM.Shell;
@@ -155,6 +156,8 @@ public partial class OverlayWindow : Window
                 }
             }),
         new(OverlayPage.SystemWakeLocks, WakeLockHost, PanelSystem, OverlayDestination.System),
+        new(OverlayPage.DeviceColor, DeviceColorHost, PanelDevice, OverlayDestination.Device,
+            RefreshDevicePanel),
     ];
 
     /// <summary>The nested page currently owning the surface, or null at a destination root.</summary>
@@ -862,6 +865,14 @@ public partial class OverlayWindow : Window
                 return;
             }
 
+            if (capability.CurrentValue is
+                { Kind: CapabilityValueKind.Color, ColorValue: not null })
+            {
+                DeviceColorHost.Open(bridge, capability);
+                EnterSubView(OverlayPage.DeviceColor);
+                return;
+            }
+
             button.IsEnabled = false;
             try
             {
@@ -1196,6 +1207,7 @@ public partial class OverlayWindow : Window
         LaunchWrapperHost.Picked += OnLaunchFixGamePicked;
         LaunchWrapperHost.CustomPicked += OnCustomLaunchGamePicked;
         WakeLockHost.CloseRequested += LeaveWakeLockSubView;
+        DeviceColorHost.CloseRequested += LeaveDeviceColorSubView;
         InitializeLaunchFixLabels(viewModel);
 
         KeyDown += OnKeyDown;
@@ -1271,6 +1283,7 @@ public partial class OverlayWindow : Window
         LaunchWrapperHost.Picked -= OnLaunchFixGamePicked;
         LaunchWrapperHost.CustomPicked -= OnCustomLaunchGamePicked;
         WakeLockHost.CloseRequested -= LeaveWakeLockSubView;
+        DeviceColorHost.CloseRequested -= LeaveDeviceColorSubView;
         KeyDown -= OnKeyDown;
         Opened -= OnOpened;
         Activated -= OnActivated;
@@ -1506,6 +1519,7 @@ public partial class OverlayWindow : Window
         LeaveArtworkSubView();
         LeaveLaunchWrapperSubView();
         LeaveWakeLockSubView();
+        LeaveDeviceColorSubView();
 
         // The Device sections are not sub-views with hosts of their own, so leaving them is only
         // this: dropping the one thing a section page holds beyond its rendered controls.
@@ -2019,6 +2033,8 @@ public partial class OverlayWindow : Window
     private void EnterWakeLockSubView() => EnterSubView(OverlayPage.SystemWakeLocks);
 
     private void LeaveWakeLockSubView() => LeaveSubView(OverlayPage.SystemWakeLocks);
+
+    private void LeaveDeviceColorSubView() => LeaveSubView(OverlayPage.DeviceColor);
 
     private void EnterLaunchWrapperSubView() =>
         EnterSubView(OverlayPage.SteamLaunchConfiguration);
