@@ -95,7 +95,7 @@ public sealed class SteamBrightnessGatePatch : ISteamUiPatch
         CancellationToken cancellationToken) =>
         EvaluateAsync(
             context,
-            "return JSON.stringify(bridge.brightness.install());",
+            "return JSON.stringify(bridge.install());",
             "Brightness gate installation failed.",
             cancellationToken);
 
@@ -107,7 +107,7 @@ public sealed class SteamBrightnessGatePatch : ISteamUiPatch
             context,
             // The setter too: a revealed slider whose writes still reach the native stub is the
             // exact broken state this gate shipped with, and "installed" alone reported it healthy.
-            "const status=bridge.brightness.status();"
+            "const status=bridge.status();"
             + "return JSON.stringify({ok:status.installed&&status.available&&status.setterOwned,"
             + "status});",
             "Brightness gate verification failed.",
@@ -119,7 +119,7 @@ public sealed class SteamBrightnessGatePatch : ISteamUiPatch
         CancellationToken cancellationToken) =>
         EvaluateAsync(
             context,
-            "const removed=bridge.brightness.remove();const status=bridge.brightness.status();"
+            "const removed=bridge.remove();const status=bridge.status();"
             + "return JSON.stringify({ok:removed.ok&&!status.available});",
             "Brightness gate removal failed.",
             cancellationToken);
@@ -153,9 +153,10 @@ public sealed class SteamBrightnessGatePatch : ISteamUiPatch
         string fallback,
         CancellationToken cancellationToken)
     {
-        string expression = "(()=>{const bridge=window["
+        string expression = "(()=>{const b=window["
             + SteamCef.JsString(BridgeNamespace)
-            + "];if(!bridge||!bridge.brightness)return JSON.stringify({ok:false,error:'bridge unavailable'});"
+            + "];const bridge=b&&b.gate?b.gate('brightness'):null;"
+            + "if(!bridge)return JSON.stringify({ok:false,error:'bridge unavailable'});"
             + body
             + "})()";
         return SteamUiPatchEvaluation.EvaluateOutcomeAsync(

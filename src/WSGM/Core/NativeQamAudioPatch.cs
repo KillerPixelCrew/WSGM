@@ -104,7 +104,7 @@ public sealed class NativeQamAudioPatch : ISteamUiPatch
         CancellationToken cancellationToken) =>
         EvaluateAsync(
             context,
-            "return JSON.stringify(bridge.audio.install());",
+            "return JSON.stringify(bridge.install());",
             "Audio namespace installation failed.",
             cancellationToken);
 
@@ -114,7 +114,7 @@ public sealed class NativeQamAudioPatch : ISteamUiPatch
         CancellationToken cancellationToken) =>
         EvaluateAsync(
             context,
-            "const status=bridge.audio.status();"
+            "const status=bridge.status();"
             + "return JSON.stringify({ok:status.installed&&status.namespacePresent,status});",
             "Audio namespace verification failed.",
             cancellationToken);
@@ -125,7 +125,7 @@ public sealed class NativeQamAudioPatch : ISteamUiPatch
         CancellationToken cancellationToken) =>
         EvaluateAsync(
             context,
-            "const removed=bridge.audio.remove();const status=bridge.audio.status();"
+            "const removed=bridge.remove();const status=bridge.status();"
             + "return JSON.stringify({ok:removed.ok&&!status.namespacePresent});",
             "Audio namespace removal failed.",
             cancellationToken);
@@ -160,9 +160,13 @@ public sealed class NativeQamAudioPatch : ISteamUiPatch
         string fallback,
         CancellationToken cancellationToken)
     {
-        string expression = "(()=>{const bridge=window["
+        // `bridge` is bound to this patch's own gate, looked up in the registry the fragments
+        // register into. A missing gate reads the same as a missing bridge, because from here they
+        // are the same failure: nothing of ours is installed to talk to.
+        string expression = "(()=>{const b=window["
             + SteamCef.JsString(BridgeNamespace)
-            + "];if(!bridge||!bridge.audio)return JSON.stringify({ok:false,error:'bridge unavailable'});"
+            + "];const bridge=b&&b.gate?b.gate('audio'):null;"
+            + "if(!bridge)return JSON.stringify({ok:false,error:'bridge unavailable'});"
             + body
             + "})()";
         return SteamUiPatchEvaluation.EvaluateOutcomeAsync(

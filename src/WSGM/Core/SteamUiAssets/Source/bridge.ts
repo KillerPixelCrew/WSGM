@@ -11,8 +11,10 @@
     prior.assetHash === config.assetHash &&
     prior.contextGeneration === config.contextGeneration &&
     prior.documentGeneration === config.documentGeneration &&
-    prior.nativeComponents &&
-    typeof prior.nativeComponents.install === "function"
+    // A prior bridge that can still hand out gates is one this build can stand aside for. Asking
+    // for a specific gate by name would tie the reuse check to whichever surfaces the consumer
+    // happens to have.
+    typeof prior.gate === "function"
   ) {
     return JSON.stringify({ ok: true, reused: true, version: prior.version });
   }
@@ -39,7 +41,6 @@
   const pending = new Map();
   const subscribers = new Map();
   const latestStates = new Map();
-  const nativeComponents = createNativeComponentHost();
   let nextSequence = 0;
   let disposed = false;
 
@@ -175,21 +176,22 @@
     if (disposed) return;
     disposed = true;
     // Resident gates own callbacks, service overlays and timers outside the bridge namespace.
-    // Removing only nativeComponents left the Manager gate polling every second after the bridge
+    // Removing only the component host left the Manager gate polling every second after the bridge
     // that answered it had gone away, and left the other service wrappers calling dead closures.
-    for (const gate of [
-      steamOsManagerGate,
-      brightnessGate,
-      bluetoothService,
-      networkGate,
-      audioNamespace,
-      perfNamespace,
-    ]) {
+    //
+    // Every registered gate, not a list: a gate this file does not know about is exactly the case
+    // a list gets wrong, and it is the normal case once a consumer adds one.
+    for (const gate of gates.values()) {
+      const owned = gate as { remove?: () => unknown; dispose?: () => unknown };
+      // Both, where present. `remove` unwinds what the gate installed in the client; `dispose`
+      // releases what it holds inside this bridge, and the component host has only the latter.
       try {
-        gate.remove();
+        owned.remove?.();
+      } catch {}
+      try {
+        owned.dispose?.();
       } catch {}
     }
-    nativeComponents.dispose();
     for (const item of pending.values()) {
       clearTimeout(item.timer);
       item.reject(new Error(reason || "WSGM bridge disposed"));
@@ -217,12 +219,18 @@
     original: "__wsgmOriginalGetState",
   };
 
-  const audioNamespace = createAudioNamespace();
-  const networkGate = createNetworkGate();
-  const bluetoothService = createBluetoothService();
-  const brightnessGate = createBrightnessGate();
-  const steamOsManagerGate = createSteamOsManagerGate();
-  const perfNamespace = createPerfNamespace();
+  // Gates register themselves rather than being named here. The bridge used to construct each one
+  // by name and publish it under a fixed property, which meant this file had to list every surface
+  // its consumer happened to have — the one thing a reusable bridge cannot do.
+  //
+  // Registration is a top-level statement in each fragment, so it runs after this file and before
+  // anything asks for a gate. It also inherits the reuse check for free: when this file returns
+  // early because an identical bridge is already installed, the whole IIFE returns and no fragment
+  // registers over it.
+  const gates = new Map<string, unknown>();
+  const registerGate = (name: string, gate: unknown) => {
+    gates.set(name, gate);
+  };
   const bridge = Object.freeze({
     version: config.version,
     assetHash: config.assetHash,
@@ -232,41 +240,11 @@
     subscribe,
     deliver,
     dispose,
-    nativeComponents: Object.freeze({
-      install: nativeComponents.install,
-      remove: nativeComponents.remove,
-      status: nativeComponents.status,
-    }),
-    audio: Object.freeze({
-      install: audioNamespace.install,
-      remove: audioNamespace.remove,
-      status: audioNamespace.status,
-    }),
-    network: Object.freeze({
-      install: networkGate.install,
-      remove: networkGate.remove,
-      status: networkGate.status,
-    }),
-    bluetooth: Object.freeze({
-      install: bluetoothService.install,
-      remove: bluetoothService.remove,
-      status: bluetoothService.status,
-    }),
-    brightness: Object.freeze({
-      install: brightnessGate.install,
-      remove: brightnessGate.remove,
-      status: brightnessGate.status,
-    }),
-    steamOsManager: Object.freeze({
-      install: steamOsManagerGate.install,
-      remove: steamOsManagerGate.remove,
-      status: steamOsManagerGate.status,
-    }),
-    perf: Object.freeze({
-      install: perfNamespace.install,
-      remove: perfNamespace.remove,
-      status: perfNamespace.status,
-    }),
+    // Looked up at call time, not captured: a gate registers after this object is frozen, and the
+    // host asks for one long after that. Returning null for an unknown name rather than throwing
+    // keeps a patch whose fragment failed to load reporting "gate absent" instead of an exception
+    // with no name in it.
+    gate: (name: string) => gates.get(name) ?? null,
   });
   Object.defineProperty(window, config.namespace, {
     value: bridge,

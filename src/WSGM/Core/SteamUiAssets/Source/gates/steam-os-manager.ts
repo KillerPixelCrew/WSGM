@@ -250,3 +250,5 @@ function createSteamOsManagerGate() {
 
   return { install, remove, status };
 }
+
+registerGate("steamOsManager", createSteamOsManagerGate());

@@ -157,3 +157,5 @@ function createPerfNamespace() {
 
   return { install, remove, status };
 }
+
+registerGate("perf", createPerfNamespace());

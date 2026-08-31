@@ -106,7 +106,7 @@ public sealed class NativeQamPerfPatch : ISteamUiPatch
         CancellationToken cancellationToken) =>
         EvaluateAsync(
             context,
-            "return JSON.stringify(bridge.perf.install());",
+            "return JSON.stringify(bridge.install());",
             "Performance namespace installation failed.",
             cancellationToken);
 
@@ -116,7 +116,7 @@ public sealed class NativeQamPerfPatch : ISteamUiPatch
         CancellationToken cancellationToken) =>
         EvaluateAsync(
             context,
-            "const status=bridge.perf.status();"
+            "const status=bridge.status();"
             + "return JSON.stringify({ok:status.installed&&status.namespacePresent,status});",
             "Performance namespace verification failed.",
             cancellationToken);
@@ -127,7 +127,7 @@ public sealed class NativeQamPerfPatch : ISteamUiPatch
         CancellationToken cancellationToken) =>
         EvaluateAsync(
             context,
-            "const removed=bridge.perf.remove();const status=bridge.perf.status();"
+            "const removed=bridge.remove();const status=bridge.status();"
             + "return JSON.stringify({ok:removed.ok&&!status.namespacePresent});",
             "Performance namespace removal failed.",
             cancellationToken);
@@ -172,9 +172,10 @@ public sealed class NativeQamPerfPatch : ISteamUiPatch
         string fallback,
         CancellationToken cancellationToken)
     {
-        string expression = "(()=>{const bridge=window["
+        string expression = "(()=>{const b=window["
             + SteamCef.JsString(BridgeNamespace)
-            + "];if(!bridge||!bridge.perf)return JSON.stringify({ok:false,error:'bridge unavailable'});"
+            + "];const bridge=b&&b.gate?b.gate('perf'):null;"
+            + "if(!bridge)return JSON.stringify({ok:false,error:'bridge unavailable'});"
             + body
             + "})()";
         return SteamUiPatchEvaluation.EvaluateOutcomeAsync(

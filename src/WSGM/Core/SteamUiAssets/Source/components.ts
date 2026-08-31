@@ -1270,3 +1270,5 @@
     };
     return { install, remove, status, dispose: disposeHostResources };
   }
+
+registerGate("nativeComponents", createNativeComponentHost());

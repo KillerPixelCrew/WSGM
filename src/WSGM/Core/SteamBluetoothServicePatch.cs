@@ -95,7 +95,7 @@ public sealed class SteamBluetoothServicePatch : ISteamUiPatch
         CancellationToken cancellationToken) =>
         EvaluateAsync(
             context,
-            "return JSON.stringify(bridge.bluetooth.install());",
+            "return JSON.stringify(bridge.install());",
             "Bluetooth service installation failed.",
             cancellationToken);
 
@@ -105,7 +105,7 @@ public sealed class SteamBluetoothServicePatch : ISteamUiPatch
         CancellationToken cancellationToken) =>
         EvaluateAsync(
             context,
-            "const status=bridge.bluetooth.status();"
+            "const status=bridge.status();"
             + "return JSON.stringify({ok:status.installed&&status.replaced>0,status});",
             "Bluetooth service verification failed.",
             cancellationToken);
@@ -116,7 +116,7 @@ public sealed class SteamBluetoothServicePatch : ISteamUiPatch
         CancellationToken cancellationToken) =>
         EvaluateAsync(
             context,
-            "const removed=bridge.bluetooth.remove();const status=bridge.bluetooth.status();"
+            "const removed=bridge.remove();const status=bridge.status();"
             + "return JSON.stringify({ok:removed.ok&&!status.installed});",
             "Bluetooth service removal failed.",
             cancellationToken);
@@ -149,9 +149,10 @@ public sealed class SteamBluetoothServicePatch : ISteamUiPatch
         string fallback,
         CancellationToken cancellationToken)
     {
-        string expression = "(()=>{const bridge=window["
+        string expression = "(()=>{const b=window["
             + SteamCef.JsString(BridgeNamespace)
-            + "];if(!bridge||!bridge.bluetooth)return JSON.stringify({ok:false,error:'bridge unavailable'});"
+            + "];const bridge=b&&b.gate?b.gate('bluetooth'):null;"
+            + "if(!bridge)return JSON.stringify({ok:false,error:'bridge unavailable'});"
             + body
             + "})()";
         return SteamUiPatchEvaluation.EvaluateOutcomeAsync(

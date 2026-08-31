@@ -414,10 +414,11 @@ public abstract class NativeQamComponentPatch : ISteamUiPatch
         SteamUiPatchContext context,
         CancellationToken cancellationToken)
     {
-        string expression = "(()=>{const bridge=window["
+        string expression = "(()=>{const b=window["
             + SteamCef.JsString(BridgeNamespace)
-            + "];if(!bridge||!bridge.nativeComponents)return JSON.stringify({ok:false,error:'bridge unavailable'});"
-            + "return JSON.stringify(bridge.nativeComponents.install("
+            + "];const bridge=b&&b.gate?b.gate('nativeComponents'):null;"
+            + "if(!bridge)return JSON.stringify({ok:false,error:'bridge unavailable'});"
+            + "return JSON.stringify(bridge.install("
             + SteamCef.JsString(ComponentKind)
             + "));})()";
         return await EvaluateOutcomeAsync(
@@ -432,10 +433,11 @@ public abstract class NativeQamComponentPatch : ISteamUiPatch
         SteamUiPatchContext context,
         CancellationToken cancellationToken)
     {
-        string expression = "(()=>{const bridge=window["
+        string expression = "(()=>{const b=window["
             + SteamCef.JsString(BridgeNamespace)
-            + "];if(!bridge||!bridge.nativeComponents)return JSON.stringify({ok:false,error:'bridge unavailable'});"
-            + "const status=bridge.nativeComponents.status("
+            + "];const bridge=b&&b.gate?b.gate('nativeComponents'):null;"
+            + "if(!bridge)return JSON.stringify({ok:false,error:'bridge unavailable'});"
+            + "const status=bridge.status("
             + SteamCef.JsString(ComponentKind)
             + ");return JSON.stringify({ok:status.ok&&status.registered"
             + "&&status.hostVersion===1&&status.performanceRootWrapped,status});})()";
@@ -459,12 +461,13 @@ public abstract class NativeQamComponentPatch : ISteamUiPatch
         SteamUiPatchContext context,
         CancellationToken cancellationToken)
     {
-        string expression = "(()=>{const bridge=window["
+        string expression = "(()=>{const b=window["
             + SteamCef.JsString(BridgeNamespace)
-            + "];if(!bridge||!bridge.nativeComponents)return JSON.stringify({ok:true,absent:true});"
-            + "const removed=bridge.nativeComponents.remove("
+            + "];const bridge=b&&b.gate?b.gate('nativeComponents'):null;"
+            + "if(!bridge)return JSON.stringify({ok:true,absent:true});"
+            + "const removed=bridge.remove("
             + SteamCef.JsString(ComponentKind)
-            + ");const status=bridge.nativeComponents.status("
+            + ");const status=bridge.status("
             + SteamCef.JsString(ComponentKind)
             + ");return JSON.stringify({ok:removed.ok&&!status.registered});})()";
         return await EvaluateOutcomeAsync(
@@ -501,8 +504,9 @@ public abstract class NativeQamComponentPatch : ISteamUiPatch
         try
         {
             string expression = "(()=>{const b=window[" + SteamCef.JsString(BridgeNamespace)
-                + "];if(!b||!b.nativeComponents)return JSON.stringify({error:'bridge unavailable'});"
-                + "const s=b.nativeComponents.status(" + SteamCef.JsString(ComponentKind) + ");"
+                + "];const g=b&&b.gate?b.gate('nativeComponents'):null;"
+                + "if(!g)return JSON.stringify({error:'bridge unavailable'});"
+                + "const s=g.status(" + SteamCef.JsString(ComponentKind) + ");"
                 + "return JSON.stringify({append:s.lastAppend||{never:true},"
                 + "rows:s.renderOutcomes,toggle:s.toggleResolved});})()";
             SteamUiEvaluationResult evaluation = await context.EvaluateAsync(

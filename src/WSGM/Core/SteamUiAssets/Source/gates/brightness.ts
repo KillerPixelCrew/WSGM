@@ -164,3 +164,5 @@ function createBrightnessGate() {
 
   return { install, remove, status };
 }
+
+registerGate("brightness", createBrightnessGate());

@@ -169,3 +169,5 @@ function createBluetoothService() {
 
   return { install, remove, status };
 }
+
+registerGate("bluetooth", createBluetoothService());

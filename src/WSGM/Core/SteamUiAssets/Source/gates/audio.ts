@@ -333,3 +333,5 @@ function createAudioNamespace() {
 
   return { install, remove, status };
 }
+
+registerGate("audio", createAudioNamespace());

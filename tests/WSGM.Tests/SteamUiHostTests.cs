@@ -892,12 +892,16 @@ public sealed class NativeQamComponentPatchTests
                     {"performanceActions":{{PerformanceActionsCount}},"performanceRoot":1,"nativeFields":1,"nativeLayout":1,"localization":1,"react":1}
                     """;
             }
-            else if (expression.Contains("nativeComponents.install", StringComparison.Ordinal))
+            // Gates are reached through the bridge's registry now, so the expression names the gate
+            // once and then calls the operation on the local it was bound to.
+            else if (expression.Contains("gate('nativeComponents')", StringComparison.Ordinal)
+                && expression.Contains("bridge.install(", StringComparison.Ordinal))
             {
                 InstallCount++;
                 value = "{\"ok\":true}";
             }
-            else if (expression.Contains("nativeComponents.remove", StringComparison.Ordinal))
+            else if (expression.Contains("gate('nativeComponents')", StringComparison.Ordinal)
+                && expression.Contains("bridge.remove(", StringComparison.Ordinal))
             {
                 string kind = expression.Contains("controllerTarget", StringComparison.Ordinal)
                     ? "controllerTarget"

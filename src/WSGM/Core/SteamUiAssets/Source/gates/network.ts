@@ -219,3 +219,5 @@ function createNetworkGate() {
 
   return { install, remove, status };
 }
+
+registerGate("network", createNetworkGate());

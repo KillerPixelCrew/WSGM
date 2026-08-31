@@ -94,7 +94,7 @@ public sealed class SteamNetworkGatePatch : ISteamUiPatch
         CancellationToken cancellationToken) =>
         EvaluateAsync(
             context,
-            "return JSON.stringify(bridge.network.install());",
+            "return JSON.stringify(bridge.install());",
             "Network gate installation failed.",
             cancellationToken);
 
@@ -104,7 +104,7 @@ public sealed class SteamNetworkGatePatch : ISteamUiPatch
         CancellationToken cancellationToken) =>
         EvaluateAsync(
             context,
-            "const status=bridge.network.status();"
+            "const status=bridge.status();"
             + "return JSON.stringify({ok:status.installed&&status.available,status});",
             "Network gate verification failed.",
             cancellationToken);
@@ -115,7 +115,7 @@ public sealed class SteamNetworkGatePatch : ISteamUiPatch
         CancellationToken cancellationToken) =>
         EvaluateAsync(
             context,
-            "const removed=bridge.network.remove();const status=bridge.network.status();"
+            "const removed=bridge.remove();const status=bridge.status();"
             + "return JSON.stringify({ok:removed.ok&&!status.available});",
             "Network gate removal failed.",
             cancellationToken);
@@ -147,9 +147,10 @@ public sealed class SteamNetworkGatePatch : ISteamUiPatch
         string fallback,
         CancellationToken cancellationToken)
     {
-        string expression = "(()=>{const bridge=window["
+        string expression = "(()=>{const b=window["
             + SteamCef.JsString(BridgeNamespace)
-            + "];if(!bridge||!bridge.network)return JSON.stringify({ok:false,error:'bridge unavailable'});"
+            + "];const bridge=b&&b.gate?b.gate('network'):null;"
+            + "if(!bridge)return JSON.stringify({ok:false,error:'bridge unavailable'});"
             + body
             + "})()";
         return SteamUiPatchEvaluation.EvaluateOutcomeAsync(

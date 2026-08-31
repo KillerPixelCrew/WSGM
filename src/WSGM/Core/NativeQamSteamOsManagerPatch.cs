@@ -115,7 +115,7 @@ public sealed class NativeQamSteamOsManagerPatch : ISteamUiPatch
         CancellationToken cancellationToken) =>
         EvaluateAsync(
             context,
-            "return JSON.stringify(bridge.steamOsManager.install());",
+            "return JSON.stringify(bridge.install());",
             "SteamOS Manager state installation failed.",
             cancellationToken);
 
@@ -130,7 +130,7 @@ public sealed class NativeQamSteamOsManagerPatch : ISteamUiPatch
         CancellationToken cancellationToken) =>
         EvaluateAsync(
             context,
-            "const status=bridge.steamOsManager.status();"
+            "const status=bridge.status();"
             + "return JSON.stringify({ok:status.installed&&status.getStateOverlaid,status});",
             "SteamOS Manager state verification failed.",
             cancellationToken);
@@ -141,8 +141,8 @@ public sealed class NativeQamSteamOsManagerPatch : ISteamUiPatch
         CancellationToken cancellationToken) =>
         EvaluateAsync(
             context,
-            "const removed=bridge.steamOsManager.remove();"
-            + "const status=bridge.steamOsManager.status();"
+            "const removed=bridge.remove();"
+            + "const status=bridge.status();"
             + "return JSON.stringify({ok:removed.ok&&!status.getStateOverlaid});",
             "SteamOS Manager state removal failed.",
             cancellationToken);
@@ -196,10 +196,10 @@ public sealed class NativeQamSteamOsManagerPatch : ISteamUiPatch
         string fallback,
         CancellationToken cancellationToken)
     {
-        string expression = "(()=>{const bridge=window["
+        string expression = "(()=>{const b=window["
             + SteamCef.JsString(BridgeNamespace)
-            + "];if(!bridge||!bridge.steamOsManager)"
-            + "return JSON.stringify({ok:false,error:'bridge unavailable'});"
+            + "];const bridge=b&&b.gate?b.gate('steamOsManager'):null;"
+            + "if(!bridge)return JSON.stringify({ok:false,error:'bridge unavailable'});"
             + body
             + "})()";
         return SteamUiPatchEvaluation.EvaluateOutcomeAsync(
