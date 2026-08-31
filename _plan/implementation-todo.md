@@ -1,7 +1,7 @@
 # WSGM 2.0 implementation tracker
 
-Status: the aggressive simplification and PR #19 review-fix milestone is source-, gate-, package-
-and hand-off-complete as of 2026-08-31. Commit and push are the remaining operational steps.
+Status: the aggressive simplification and PR #19 review-fix milestone is source-, gate-, package-,
+hand-off-, commit- and push-complete as of 2026-08-31.
 
 Branch: `2.0` (PR #19 -> `master`)
 
@@ -133,7 +133,8 @@ durable evidence.
       `publish\WSGM-Setup-1.5.1.exe` (160,005,146 bytes).
 - [x] Installer copied to `Z:\WSGM-Setup-1.5.1.exe`; source and destination SHA-256 both
       `F69835445305BD4D3E4D98840AF304E9452C4B91F582D7114DF3FAD72AF40361`.
-- [ ] Commit the intended tree (excluding the maintainer's unrelated Rust edit) and push `2.0`.
+- [x] Intended tree committed as `7ddda25` and pushed on `2.0`; the maintainer's unrelated Rust edit
+      remained unstaged and untouched.
 
 Measured against the pre-milestone `HEAD`, the intended tree has 51 fewer tracked/source files and
 10,399 fewer net text lines while retaining the generated Steam asset and moving tests rather than
