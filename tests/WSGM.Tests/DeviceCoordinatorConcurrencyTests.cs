@@ -488,6 +488,38 @@ public sealed class DeviceCoordinatorConcurrencyTests
             DeviceCoordinator.TryCreateOwnerMutex(name));
     }
 
+    [Fact]
+    public async Task DevicePluginMaintenance_HoldsOwnerReservationThroughTheWholeOperation()
+    {
+        string name = $@"Local\WSGM.Tests.DeviceOwner.Maintenance.{Guid.NewGuid():N}";
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<int> maintenance = Program.RunDevicePluginMaintenanceWithOwnerReservationAsync(
+            name,
+            "test maintenance",
+            async () =>
+            {
+                entered.TrySetResult();
+                await release.Task.ConfigureAwait(false);
+                return 23;
+            });
+        int outcome = 0;
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(1));
+            Assert.Null(DeviceCoordinator.TryCreateOwnerMutex(name));
+        }
+        finally
+        {
+            release.TrySetResult();
+            outcome = await maintenance.WaitAsync(TimeSpan.FromSeconds(1));
+        }
+
+        Assert.Equal(23, outcome);
+        using Mutex reacquired = Assert.IsType<Mutex>(
+            DeviceCoordinator.TryCreateOwnerMutex(name));
+    }
+
     private static ControllerHandoff VerifiedHandoff() => new()
     {
         Step = ControllerHandoffStep.TopologyVerified,

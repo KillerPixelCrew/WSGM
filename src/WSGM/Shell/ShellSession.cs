@@ -1850,15 +1850,30 @@ public sealed class ShellSession : IAsyncDisposable
             failures.Add(ex);
         }
 
-        if (failures.Count > 0)
+        if (ShutdownFailure(failures) is { } unverified)
         {
-            throw new InvalidOperationException(
+            throw unverified;
+        }
+    }
+
+    /// <summary>Reports collected cleanup failures once, or null when every step was verified.</summary>
+    /// <remarks>
+    /// The single-failure case keeps that exception as the inner one rather than burying it in a
+    /// one-element aggregate, because the log line a maintainer reads is the inner message. That
+    /// every step still ran is guaranteed by the straight-line shutdown above, which has no early
+    /// return — this only decides how what failed is reported.
+    /// </remarks>
+    internal static Exception? ShutdownFailure(IReadOnlyList<Exception> failures)
+    {
+        ArgumentNullException.ThrowIfNull(failures);
+        return failures.Count == 0
+            ? null
+            : new InvalidOperationException(
                 "Application shutdown completed its remaining cleanup, but one or more steps were unverified.",
                 failures.Count == 1
                     ? failures[0]
                     : new AggregateException(
                         "Multiple application shutdown steps were unverified.", failures));
-        }
     }
 
     private void DisposeUiOwnedSessionResources()

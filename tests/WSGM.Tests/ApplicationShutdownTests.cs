@@ -1,4 +1,5 @@
 using WSGM.Core;
+using WSGM.Shell;
 
 namespace WSGM.Tests;
 
@@ -197,5 +198,70 @@ public sealed class ApplicationShutdownTests
 
         Assert.True(cleanupRan);
         Assert.Equal(ApplicationShutdownOutcome.Unverified, outcome);
+    }
+
+    [Fact]
+    public void VerifiedShutdownReportsNothing()
+    {
+        Assert.Null(ShellSession.ShutdownFailure([]));
+    }
+
+    [Fact]
+    public void ASingleUnverifiedStepIsReportedAsItselfRatherThanBuriedInAnAggregate()
+    {
+        var deviceFailure = new InvalidOperationException("device release unverified");
+
+        Exception? reported = ShellSession.ShutdownFailure([deviceFailure]);
+
+        Assert.IsType<InvalidOperationException>(reported);
+        Assert.Same(deviceFailure, reported.InnerException);
+    }
+
+    [Fact]
+    public void EveryUnverifiedStepSurvivesIntoTheReportedAggregate()
+    {
+        var device = new InvalidOperationException("device release unverified");
+        var explorer = new IOException("explorer restore unverified");
+
+        Exception? reported = ShellSession.ShutdownFailure([device, explorer]);
+
+        AggregateException aggregate = Assert.IsType<AggregateException>(reported!.InnerException);
+        Assert.Equal([device, explorer], aggregate.InnerExceptions);
+    }
+
+    [Fact]
+    public void SteamPreStopFailureStillRequestsUpdateCleanupAndLifetimeShutdown()
+    {
+        List<string> order = [];
+
+        Program.RunInstallerExitRequest(
+            ApplicationShutdownReason.Update,
+            () =>
+            {
+                order.Add("steam");
+                throw new InvalidOperationException("stop failed");
+            },
+            reason => order.Add($"request:{reason}"),
+            () => order.Add("shutdown"));
+
+        Assert.Equal(["steam", "request:Update", "shutdown"], order);
+    }
+
+    [Fact]
+    public void UninstallRequestDoesNotStopSteam()
+    {
+        var steamStops = 0;
+        var requested = ApplicationShutdownReason.Normal;
+        var lifetimeStopped = false;
+
+        Program.RunInstallerExitRequest(
+            ApplicationShutdownReason.Uninstall,
+            () => steamStops++,
+            reason => requested = reason,
+            () => lifetimeStopped = true);
+
+        Assert.Equal(0, steamStops);
+        Assert.Equal(ApplicationShutdownReason.Uninstall, requested);
+        Assert.True(lifetimeStopped);
     }
 }

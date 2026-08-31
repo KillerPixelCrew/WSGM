@@ -366,30 +366,44 @@ public static class Program
     }
 
     private static void RequestInstallerExit(ApplicationShutdownReason reason) =>
-        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        // Posted jobs only run once StartWithClassicDesktopLifetime pumps the dispatcher.
+        Avalonia.Threading.Dispatcher.UIThread.Post(() => RunInstallerExitRequest(
+            reason,
+            Steam.StopForUpdate,
+            ApplicationShutdownRequest.Request,
+            ApplicationShutdownRequest.ShutdownLifetime));
+
+    /// <summary>The installer-exit ordering, separated from the dispatcher and from Steam so it
+    /// can be proven without either.</summary>
+    /// <remarks>
+    /// Update reserves one bounded Steam/wrapper pre-stop window before the application's own
+    /// cleanup deadline; the installer waits for both windows plus handoff margin before its force
+    /// fallback. The try/finally is the contract: a failed pre-stop can never prevent WSGM cleanup
+    /// from starting. Uninstall deliberately does not stop Steam.
+    /// </remarks>
+    internal static void RunInstallerExitRequest(
+        ApplicationShutdownReason reason,
+        Action stopForUpdate,
+        Action<ApplicationShutdownReason> requestShutdown,
+        Action shutdownLifetime)
+    {
+        try
         {
-            // Posted jobs only run once StartWithClassicDesktopLifetime pumps the dispatcher.
-            // Update reserves one bounded Steam/wrapper pre-stop window before App's own cleanup
-            // deadline. The installer waits for both windows plus handoff margin before its force
-            // fallback; the try/finally is what guarantees a failed pre-stop can never prevent
-            // WSGM cleanup from starting. Uninstall deliberately does not stop Steam.
-            try
+            if (reason is ApplicationShutdownReason.Update)
             {
-                if (reason is ApplicationShutdownReason.Update)
-                {
-                    Steam.StopForUpdate();
-                }
+                stopForUpdate();
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                Log.Error("Steam/update-helper pre-stop failed; WSGM cleanup will still run", ex);
-            }
-            finally
-            {
-                ApplicationShutdownRequest.Request(reason);
-                ApplicationShutdownRequest.ShutdownLifetime();
-            }
-        });
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error("Steam/update-helper pre-stop failed; WSGM cleanup will still run", ex);
+        }
+        finally
+        {
+            requestShutdown(reason);
+            shutdownLifetime();
+        }
+    }
 
     /// <summary>Resolves the requested mode from explicit flags. No flag means the
     /// safe Settings surface; shell mode is only ever explicit (--shell/--boot).</summary>
@@ -492,15 +506,30 @@ public static class Program
         }
     }
 
-    private static async Task<int> RunDevicePluginMaintenanceUnderGateAsync(
+    private static Task<int> RunDevicePluginMaintenanceUnderGateAsync(
         DevicePluginMaintenanceMode mode,
         string? sourceDirectory,
-        string operation)
+        string operation) =>
+        RunDevicePluginMaintenanceWithOwnerReservationAsync(
+            DeviceCoordinator.ProductionOwnerName,
+            operation,
+            () => RunDevicePluginMaintenanceUnderOwnerAsync(mode, sourceDirectory, operation));
+
+    /// <summary>Runs one package-slot mutation while holding the machine-wide device-owner
+    /// marker, so plugin code can never load beside a slot that is being replaced.</summary>
+    /// <remarks>
+    /// The reservation is held for the WHOLE operation rather than taken per step: a stage that
+    /// released it between validation and the swap would let a coordinator start against a slot
+    /// that is halfway replaced. Separated from the maintenance body so that "held throughout"
+    /// can be proven against a private marker name instead of the production one.
+    /// </remarks>
+    internal static async Task<int> RunDevicePluginMaintenanceWithOwnerReservationAsync(
+        string ownerName,
+        string operation,
+        Func<Task<int>> maintenance)
     {
-        // Reserve the same machine marker as the running coordinator, held for the whole
-        // package replacement so device code can never load beside a slot mutation.
-        using Mutex? ownerReservation = DeviceCoordinator.TryCreateOwnerMutex(
-            DeviceCoordinator.ProductionOwnerName);
+        ArgumentNullException.ThrowIfNull(maintenance);
+        using Mutex? ownerReservation = DeviceCoordinator.TryCreateOwnerMutex(ownerName);
         if (ownerReservation is null)
         {
             Log.Error($"Device plugin maintenance: machine-wide device ownership is active or "
@@ -508,6 +537,14 @@ public static class Program
             return 1;
         }
 
+        return await maintenance().ConfigureAwait(false);
+    }
+
+    private static async Task<int> RunDevicePluginMaintenanceUnderOwnerAsync(
+        DevicePluginMaintenanceMode mode,
+        string? sourceDirectory,
+        string operation)
+    {
         try
         {
             if (mode is DevicePluginMaintenanceMode.Remove)

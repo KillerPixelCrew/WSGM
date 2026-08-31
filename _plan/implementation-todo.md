@@ -201,24 +201,29 @@ today may degrade; the goal is fewer files and lines with identical observable b
 before this pass: ~91k lines / ~330 files under `src\WSGM` (61.5k code, 11.5k XML doc, 3.8k
 comment, 7.6k blank in `.cs`).
 
+Wave 1 landed as commit `328f577`: 234 files, +6,834/-12,375, all seven slices. Measured against the
+baseline, `src\WSGM` is **295 tracked files and 88,961 lines** (from 315 / 93,943), with `.cs` at
+58,041 code / 10,757 XML doc / 3,631 comment lines. Gate green: formatting, 41 Rust tests, a Release
+build with zero warnings, the Steam asset reproducing its pinned hash, and 1,817 managed tests.
+
 Wave 1 (parallel, disjoint ownership; hub files edited only inside each concern):
 
-- [ ] **CEF/QAM.** Six gate patches become one data-driven `SteamGatePatch` plus declarations; ten
+- [x] **CEF/QAM.** Six gate patches become one data-driven `SteamGatePatch` plus declarations; ten
       component-patch subclasses become rows; `SteamUiSessionHost` keeps session lifetime only and
       each surface file owns its handlers/readers; `NativeQamCommandResult` becomes the toolkit
       result; the three QAM service interfaces and their `Unavailable*` stand-ins collapse to a
       nullable coordinator; `INativeQamAudioService` goes; `SteamCdp` gets one `Interpret`; the
       unread frame-limit fields leave C# and TS; legacy Steam collection cleanup and
       `CategoryTabs`/`CollectionId` retire; `verify-steam-assets.mjs` folds into `--check`.
-- [ ] **Device integration.** Delete `DeviceProfileStore`, the temporary-desired layer,
+- [x] **Device integration.** Delete `DeviceProfileStore`, the temporary-desired layer,
       `PersistentEditTarget`, `PluginSettingsCoordinator` dead surface, `DeviceFeatureAvailability`,
       `DeviceDiagnosticLevel`; collapse the three mirror enum pairs and six presentation records;
       inline `CapabilityStateTracker` and freshness; one owner for the profile chain; merge the two
       diagnostics files; share package helpers; drop dead parameters.
-- [ ] **Input/controllers.** Merge router replace/create and manager create/replace; one
+- [x] **Input/controllers.** Merge router replace/create and manager create/replace; one
       stale-generation check; delete `VirtualTargetKind`, `Revision`, `ReconcileAsync`, write-only
       state, `ChordTiming`; fold `CanonicalButtonSource`; Settings shares one SDL poller.
-- [ ] **Performance/display/power.** `PerformanceCommandState` helper; one DisplayConfig interop
+- [x] **Performance/display/power.** `PerformanceCommandState` helper; one DisplayConfig interop
       file (`Interop\NativeDisplay.cs`) with `DisplayHdr` merged into `DisplayScale`;
       `DisplayProfiles` enumerate/test/apply once; one refresh-rate cache; AutoTDP relay removed;
       dead RTSS fields, `Resume`, `Invalidate`, `ReadVerticalRange`, `PolicyChanged`; `AutoTdpReplay`
@@ -231,15 +236,24 @@ Wave 1 (parallel, disjoint ownership; hub files edited only inside each concern)
       `SteamLibraryVdf.ReadEntries`/`TryReadMarkerContentId`, and
       `RemovableDriveManager.ClassifyDisk` + `NativeStorage.MountedVolumes` in
       `LibraryTabManager`/`SteamArtwork`.
-- [ ] **Boot/shell/elevation/modes.** Dead `ShellRegistration.Install`, legacy auto-mode,
+- [x] **Boot/shell/elevation/modes.** Dead `ShellRegistration.Install`, legacy auto-mode,
       `LegacyPostureCleanup`, `--uninstall-app`/`--install`/`--pair-probe`, installer self-install
       members, legacy lock-screen and registry-snapshot shapes; one process enumeration; one
       `SelfElevation` runner; positional `UacState`; merged path-identity interop; duplicate
       P/Invokes; game-mode surface creation once; transition rollback once; one-owner files folded.
-- [ ] **Settings/config.** Splash bound directly to `SplashConfig`; `DisplayProfileRow` gone;
-      execute-only `RelayCommand`; recorders back in the window; page table; one enum-default table
-      in `ConfigStore`; `Load` over `LoadForMutation`; legacy config fields deleted; unused theme
-      keys; test-only helpers out of production.
+- [x] **Settings/config.** Splash bound directly to `SplashConfig` (the view model holds the section
+      and three `SplashPlacementEditor`s; the Appearance page binds `Splash.*` and enum values
+      instead of parallel index properties); `DisplayProfileRow` gone; execute-only `RelayCommand`;
+      recorders back in the window; page table; one enum-default table in `ConfigStore`; `Load` over
+      `LoadForMutation`; legacy config fields deleted; unused theme keys; test-only helpers out of
+      production.
+
+Two defects were introduced by the slices and caught by the gate rather than shipped: the unified
+`ConfigStore` enum-default table had started repairing an unreadable filter to enum member zero
+(`Collection`) instead of the neutral `Installed` filter, and the unavailable controller row still
+told the user the component was "not installed in this build" when every build now ships it. Three
+test seams that guard documented contracts were restored after the slices inlined them away —
+installer-exit ordering, the plugin-maintenance owner reservation, and the shutdown failure report.
 
 Wave 2: overlay - one taskbar child window with three panels, sub-view table, `ArtworkView` on
 `OverlaySubView`, shared window helpers, table-driven device rows, `GlyphIcon` as geometry,
