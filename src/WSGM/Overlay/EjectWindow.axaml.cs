@@ -1,8 +1,5 @@
-using System;
-using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
-using WSGM.Core;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
@@ -61,38 +58,8 @@ public partial class EjectWindow : Window
     /// mechanism as the audio panel).</summary>
     /// <param name="taskbarTop">The bar's top edge in physical screen pixels, or
     /// 0 when it is not on screen.</param>
-    internal void DockAboveTaskbar(int taskbarTop = 0)
-    {
-        var factor = Math.Clamp(_uiScale / DesktopScaling, 1.0, 3.0);
-        if (Math.Abs(factor - 1.0) >= 0.01)
-        {
-            Log.Info($"Eject panel UI scale {factor:0.##}x "
-                + $"(desktop DPI over current {DesktopScaling:0.##}).");
-            RootScale.LayoutTransform = new Avalonia.Media.ScaleTransform(factor, factor);
-        }
-
-        var screen = Screens.Primary ?? (Screens.ScreenCount > 0 ? Screens.All[0] : null);
-        if (screen is null)
-        {
-            return;
-        }
-        var area = screen.Bounds;
-        var bottom = taskbarTop > 0 ? taskbarTop : area.Y + area.Height;
-        Width = Math.Min(BaseWidth * factor, area.Width / DesktopScaling - 12);
-        Height = Math.Min(BaseHeight * factor, (bottom - area.Y) / DesktopScaling - 8);
-        UpdateLayout();
-
-        // Window scaling, not screen.Scaling — the screens cache is stale after
-        // a runtime display-scale flip (see OverlayWindow.DockToRightEdge).
-        var scale = DesktopScaling;
-        var width = (int)Math.Round(Width * scale);
-        var height = (int)Math.Round(Height * scale);
-        var gap = (int)Math.Round(2 * scale);
-        var margin = (int)Math.Round(6 * scale);
-        var x = area.X + area.Width - width - margin;
-        var y = Math.Max(area.Y, bottom - height - gap);
-        Position = new PixelPoint(x, y);
-    }
+    internal void DockAboveTaskbar(int taskbarTop = 0) => TaskbarPanel.DockAboveTaskbar(
+        this, RootScale, _uiScale, BaseWidth, BaseHeight, taskbarTop, "Eject");
 
     /// <summary>Selecting a row reveals its Eject action. It never ejects on its
     /// own: a stray tap must not pull a mounted game library.</summary>

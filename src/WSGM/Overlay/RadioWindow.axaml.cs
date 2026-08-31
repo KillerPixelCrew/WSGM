@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
@@ -130,40 +129,6 @@ public partial class RadioWindow : Window
         };
     }
 
-    /// <summary>Renders the panel at the user's desktop DPI. Game mode forces
-    /// every display to 100% scaling, which shrinks a DIP-sized panel — and the
-    /// on-screen keyboard inside it — to millimeters on dense handheld panels.
-    /// Same mechanism as the taskbar: a layout transform by the desktop factor,
-    /// with the window itself grown to hold the scaled content and clamped to
-    /// the display so it can never outgrow a short screen (the list scrolls).</summary>
-    /// <param name="taskbarTop">The bar's top edge in physical screen pixels, or
-    /// 0 when it is not on screen.</param>
-    private void ApplyTouchScale(int taskbarTop)
-    {
-        // Window scaling, not screen.Scaling — the screens cache is stale after
-        // a runtime display-scale flip (see OverlayWindow.DockToRightEdge).
-        var factor = Math.Clamp(_uiScale / DesktopScaling, 1.0, 3.0);
-        if (Math.Abs(factor - 1.0) >= 0.01)
-        {
-            Log.Info($"Radio panel UI scale {factor:0.##}x (desktop DPI over current {DesktopScaling:0.##}).");
-            RootScale.LayoutTransform = new Avalonia.Media.ScaleTransform(factor, factor);
-        }
-
-        var screen = Screens.Primary ?? (Screens.ScreenCount > 0 ? Screens.All[0] : null);
-        if (screen is not null)
-        {
-            // Clamp against the space above the bar, in DIPs. The content
-            // scroll viewer absorbs a shortened panel.
-            var bottom = taskbarTop > 0 ? taskbarTop : screen.Bounds.Y + screen.Bounds.Height;
-            var availableWidth = (screen.Bounds.Width / DesktopScaling) - 12;
-            var availableHeight = ((bottom - screen.Bounds.Y) / DesktopScaling) - 8;
-            Width = Math.Min(BaseWidth * factor, availableWidth);
-            Height = Math.Min(BaseHeight * factor, availableHeight);
-        }
-        // Sizes must be final before the dock computes the position.
-        UpdateLayout();
-    }
-
     /// <summary>Places the panel just above the taskbar, at the right-hand end
     /// where its tiles are.
     ///
@@ -173,44 +138,8 @@ public partial class RadioWindow : Window
     /// DPI-scaled.</summary>
     /// <param name="taskbarTop">The bar's top edge in physical screen pixels, or
     /// 0 when it is not on screen.</param>
-    internal void DockAboveTaskbar(int taskbarTop = 0)
-    {
-        ApplyTouchScale(taskbarTop);
-        var screen = Screens.Primary ?? (Screens.ScreenCount > 0 ? Screens.All[0] : null);
-        if (screen is null)
-        {
-            return;
-        }
-        var area = screen.Bounds;
-        // Window scaling, not screen.Scaling — the screens cache reports the
-        // pre-game-mode factor after the runtime display-scale flip, which is
-        // exactly when this window positions itself, and a wrong factor here
-        // parked the panel far from the bar (device-reported).
-        var scale = DesktopScaling;
-        var width = (int)Math.Round(Width * scale);
-        var height = (int)Math.Round(Height * scale);
-        // Small and deliberate: the panel should look attached to the bar, not
-        // floating above it.
-        var gap = (int)Math.Round(2 * scale);
-        var margin = (int)Math.Round(6 * scale);
-
-        // Measured against the bar's ACTUAL top edge rather than derived from the
-        // working area. The bar is a topmost window, not a registered appbar, so
-        // the working area does not account for it — deriving the position from
-        // screen height and bar height double-counted and left a visible gap.
-        var bottom = taskbarTop > 0 ? taskbarTop : area.Y + area.Height;
-
-        // Right-aligned, mirroring where the tiles are and where Windows puts
-        // its own quick settings.
-        var x = area.X + area.Width - width - margin;
-        var y = bottom - height - gap;
-        // Never let it run off the top of a short display.
-        if (y < area.Y)
-        {
-            y = area.Y;
-        }
-        Position = new PixelPoint(x, y);
-    }
+    internal void DockAboveTaskbar(int taskbarTop = 0) => TaskbarPanel.DockAboveTaskbar(
+        this, RootScale, _uiScale, BaseWidth, BaseHeight, taskbarTop, "Radio");
 
     /// <summary>Scrolls a newly focused row (or its action button) into the
     /// viewport. A no-op when it is already fully visible.</summary>
