@@ -835,7 +835,7 @@ internal static class DeviceCapabilityValidation
                     choice,
                     StringComparison.Ordinal)),
             CapabilityValueKind.Color => value.ColorValue is >= 0 and <= 0xFFFFFF,
-            CapabilityValueKind.Curve => CurveIsValid(value.CurveValue),
+            CapabilityValueKind.Curve => CurveIsValid(value.CurveValue, descriptor),
             CapabilityValueKind.Text => PlainText.TryValidate(
                 value.TextValue,
                 descriptor.MaximumLength ?? 0,
@@ -985,16 +985,33 @@ internal static class DeviceCapabilityValidation
         _ => true,
     };
 
-    private static bool CurveIsValid(IReadOnlyList<CurvePoint> points)
+    /// <summary>Point count, strictly ascending inputs, and outputs inside whatever bounds the
+    /// descriptor declared — the same three the authored-profile check applies.</summary>
+    /// <remarks>
+    /// The output bounds are checked here and not only in <see cref="DeviceProfileValidation"/>
+    /// because a curve can also be written straight through <c>ExecuteCapabilityAsync</c>, without
+    /// passing a profile. Every other numeric kind on this path is held to the declared minimum and
+    /// maximum, and the refusal message promises "shape or bounds" for all of them. Only the bounds
+    /// the device actually declared are enforced: a descriptor that leaves one unset is saying it
+    /// has no limit there, and inventing one would refuse a curve the device would have accepted.
+    /// </remarks>
+    private static bool CurveIsValid(IReadOnlyList<CurvePoint> points, CapabilityDescriptor descriptor)
     {
         if (points.Count is 0 or > 64)
         {
             return false;
         }
 
-        for (int index = 1; index < points.Count; index++)
+        for (int index = 0; index < points.Count; index++)
         {
-            if (points[index].Input <= points[index - 1].Input)
+            CurvePoint point = points[index];
+            if (index > 0 && point.Input <= points[index - 1].Input)
+            {
+                return false;
+            }
+
+            if ((descriptor.Minimum is { } minimum && point.Output < minimum)
+                || (descriptor.Maximum is { } maximum && point.Output > maximum))
             {
                 return false;
             }

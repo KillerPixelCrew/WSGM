@@ -71,6 +71,38 @@ public sealed class DevicePlatformPolicyTests
             duplicated with { Descriptors = [descriptor], Generation = 1 }, 3, 1, out _));
     }
 
+    // A curve can be written straight through ExecuteCapabilityAsync without passing an authored
+    // profile, so the declared output bounds have to be enforced on this path too — every other
+    // numeric kind here is, and the refusal message promises "shape or bounds" for all of them.
+    [Fact]
+    public void CurveWritesAreHeldToTheDeclaredOutputBoundsLikeEveryOtherNumericKind()
+    {
+        CapabilityDescriptor fanCurve = Descriptor() with
+        {
+            CapabilityId = "fan.curve",
+            Role = CapabilityRole.FanCurve,
+            ValueKind = CapabilityValueKind.Curve,
+            Display = new CapabilityDisplay { Key = DisplayKey.FanCurve },
+            Minimum = 0,
+            Maximum = 100,
+        };
+
+        Assert.True(DeviceCapabilityValidation.ValueMatches(Curve(0, 100), fanCurve, out _));
+        Assert.False(DeviceCapabilityValidation.ValueMatches(Curve(0, 101), fanCurve, out _));
+        Assert.False(DeviceCapabilityValidation.ValueMatches(Curve(-1, 100), fanCurve, out _));
+
+        // An undeclared bound means the device has no limit there; inventing one would refuse a
+        // curve it would have accepted.
+        CapabilityDescriptor unbounded = fanCurve with { Minimum = null, Maximum = null };
+        Assert.True(DeviceCapabilityValidation.ValueMatches(Curve(-500, 5000), unbounded, out _));
+    }
+
+    private static CapabilityValue Curve(int firstOutput, int secondOutput) => new()
+    {
+        Kind = CapabilityValueKind.Curve,
+        CurveValue = [new CurvePoint(0, firstOutput), new CurvePoint(100, secondOutput)],
+    };
+
     private static CapabilityValue Value(int value) => new()
     {
         Kind = CapabilityValueKind.Integer,
