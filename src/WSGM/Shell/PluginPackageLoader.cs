@@ -174,7 +174,12 @@ internal sealed class PluginPackageLoader : IDisposable
         {
             if (string.Equals(assemblyName.Name, SdkName, StringComparison.Ordinal))
             {
-                return null;
+                // The host's SDK is the type-identity boundary, whatever assembly version the
+                // plugin was compiled against. Deferring to the default context instead would
+                // re-check the version and refuse a plugin built against a different SDK build
+                // even when the contract still matches - the manifest apiVersion is the real
+                // compatibility gate, not the assembly version.
+                return typeof(IDevicePlugin).Assembly;
             }
 
             string? path = _resolver.ResolveAssemblyToPath(assemblyName);
