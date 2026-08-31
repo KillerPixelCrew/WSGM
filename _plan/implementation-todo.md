@@ -133,8 +133,8 @@ durable evidence.
       `publish\WSGM-Setup-1.5.1.exe` (160,006,841 bytes).
 - [x] Installer copied to `Z:\WSGM-Setup-1.5.1.exe`; source and destination SHA-256 both
       `F179E3F1B4757ED632AED0AC5D1993F219FDB77F5DB623E2FBBF385779761458`.
-- [x] Intended tree committed as `7ddda25` and pushed on `2.0`; the maintainer's unrelated Rust edit
-      remained unstaged and untouched.
+- [x] Intended tree committed as `7ddda25`, with the clean-checkout asset-format fix in `6d6762c`,
+      and pushed on `2.0`; the maintainer's unrelated Rust edit remained unstaged and untouched.
 
 Measured against the pre-milestone `HEAD`, the intended tree has 51 fewer tracked/source files and
 10,399 fewer net text lines while retaining the generated Steam asset and moving tests rather than
