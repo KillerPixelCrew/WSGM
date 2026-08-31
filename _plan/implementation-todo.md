@@ -171,8 +171,17 @@ pinned submodule, so it can be versioned, consumed and reported against on its o
       module is currently five scattered edits, so there is nothing a framework could host.
       **Planned in `_plan\steam-ui-toolkit.md`** — the three stable APIs (data constructs, RPC,
       reveal), the element framework, the surface mechanisms, the already-built features worth
-      shipping, and a six-step order where steps 1-5 improve WSGM whether or not the extraction ever
-      happens. Not started.
+      shipping, and a seven-step order where steps 1-5 improve WSGM whether or not the extraction
+      ever happens.
+      **Steps 1-5 are done**, each with the gate green: a surface is one declaration; the ownership
+      claim is one primitive instead of five hand-rolled ones, with every gate ported and an
+      executable check over the emitted asset; the bridge identity has one source of truth; asset
+      fragments are discovered rather than listed; and the publication pump and request router are
+      out of the session host. Three latent defects were found and fixed on the way, all of which
+      had passed every existing gate.
+      **Remaining: step 6 (extract) and step 7 (the extension host and Extensions tab)** — and the
+      attended device pass covering all five asset changes, which no automated gate can stand in
+      for.
 
 ## Verification for this milestone
 

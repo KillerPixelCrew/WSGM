@@ -251,6 +251,43 @@ of substance, and every concrete patch compiles against nothing but `System` and
 `ISteamUiPatch` — probe/apply/verify/remove with bounds, resource key and fingerprint — is already
 the right abstraction.
 
+## Progress
+
+Steps 1-5 are done and in `2.0`. Each landed with the gate green, and the notes below record what
+changed against the plan rather than restating it.
+
+- **1. A module is one declaration.** `ISteamUiModule` + `SteamUiModuleSet`, with duplicate module,
+  patch and command identity refused at startup. Verified the surface was unchanged: 19 patch
+  registrations, 11 publications, 31 command keys, 16 handlers, all identical sets. Publication
+  ORDER changed, which is safe because the pump reads each independently under its own patch id.
+- **2. The three APIs, named.** The ownership claim turned out to be the primitive underneath all
+  three, hand-rolled five ways — which is where the self-incompatibility teardown loop kept coming
+  from. `ownership.ts` now claims a value, a member, an accessor or a supplied namespace; every
+  gate is ported and **no hand-rolled marker write remains**. `rpc.ts` deduplicates the transport
+  reply and the query invalidation. **Three real defects were found in the process**, all of which
+  passed every existing gate: a `typeof` check that excluded functions, so an overlaid method
+  outlived its own removal; the Perf gate deleting `System.Perf` without checking the marker, so
+  WSGM's cleanup would remove a real backend; and `GetState` read before it was validated.
+  `eng/check-ownership-claims.mjs` now runs 26 scenarios against the **emitted** asset and is
+  wired into the gate — it is not a test that passes by construction, and re-introducing the
+  `typeof` defect fails four of its checks.
+- **3. One bridge identity.** Nine copies of the namespace literal, including two inside JavaScript
+  expression strings, now reference `SteamUiBridgeIdentity`. Both interpolated expressions verified
+  byte-identical in the compiled assembly.
+- **4. Fragments discovered, not listed.** The builder owns the IIFE close that `components.ts` used
+  to own, which had silently made that one fragment position-critical. Order comes from the
+  directory a fragment lives in. The emitted asset is purely reordered — sorted line multisets
+  differ by zero lines. Verified a new gate file is picked up with no builder edit, and that
+  removing it restores the previous hash exactly.
+- **5. The traffic directions extracted.** `SteamUiModuleRuntime` takes the publication pump, the
+  request router, in-flight cancellation and the refusal log; 324 lines out, host down to 1,611.
+  The synchronize loop deliberately stayed: it is policy about which patches are on when, and
+  extracting it would have meant a constructor of predicates describing one host's rules.
+
+**Not yet done: the attended device pass.** Steps 1-5 changed the injected asset five times. The
+automated gate proves the asset compiles, hashes, round-trips and that its claims behave; it cannot
+show that the QAM renders or that a slider moves hardware. That check is outstanding for all five.
+
 ## The work, in dependency order
 
 **1. Make a module one declaration.**
