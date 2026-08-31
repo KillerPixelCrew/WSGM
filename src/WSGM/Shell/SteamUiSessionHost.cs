@@ -9,6 +9,10 @@ using Avalonia.Threading;
 using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
+// The handler methods below read as this host's own vocabulary, and the module contract is the
+// same shape under a name that belongs to the contract rather than to this file.
+using SemanticCommandResult = WSGM.Core.SteamUiCommandResult;
+using StatePublication = WSGM.Core.SteamUiStatePublication;
 
 namespace WSGM.Shell;
 
@@ -18,6 +22,7 @@ namespace WSGM.Shell;
 internal sealed class SteamUiSessionHost : IAsyncDisposable
 {
     private const string BootstrapPatchId = "wsgm.native-qam.bootstrap";
+    private const string ShellPatchId = "wsgm.native-qam.shell";
     private const string TdpPatchId = "wsgm.native-qam.tdp";
     private const string FrameLimitPatchId = "wsgm.native-qam.frame-limit";
     private const string VrrPatchId = "wsgm.native-qam.vrr";
@@ -40,8 +45,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly object _observationGate = new();
     private readonly Dictionary<long, CancellationTokenSource> _inflightRequests = [];
     private readonly HashSet<Task> _requestTasks = [];
-    private readonly IReadOnlyList<StatePublication> _statePublications;
-    private readonly IReadOnlyDictionary<SemanticCommandKey, SemanticCommandHandler> _requestHandlers;
+    private readonly SteamUiModuleSet _modules;
     private readonly Func<CancellationToken, Task<bool>> _toggleQuickAccess;
     private readonly INativeQamTdpService _tdp;
 
@@ -128,69 +132,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             ? new UnavailableNativeQamControllerTargetService()
             : new DeviceCoordinatorNativeQamControllerTargetService(deviceCoordinator);
         _audio = audio is null ? null : new AudioManagerNativeQamAudioService(audio);
-        _statePublications = CreateStatePublications();
-        _requestHandlers = CreateRequestHandlers();
         _bridge = new SteamUiBridgeHost(_transport);
         _patches = new SteamUiPatchManager(_transport);
-        _patches.Register(new NativeQamBootstrapPatch(_bridge));
-        // The SteamOS Manager RPC seam and the rows it reveals, in place of the hand-rolled TDP
-        // row. The gate supplies the one answer the Windows client's service stub never fills in —
-        // is_tdp_limit_available and the watt range — and watches the steamos_tdp_limit client
-        // settings Valve's rows write, routing them to hardware. Both halves share the
-        // wsgm.native-qam.tdp id and its published state, so nothing else had to move.
-        _patches.Register(new NativeQamSteamOsManagerPatch());
-        _patches.Register(new NativeQamValveTdpPatch());
-        _patches.Register(new NativeQamAutoTdpPatch());
-        // The frame limit is WSGM's own row, deliberately, and this is the one place the Q12
-        // retirement does not apply. Valve's component is a NOTCH slider fed by
-        // fps_limit_options, and SteamOS itself stopped working that way when it unified frame
-        // limit and refresh rate into one continuous slider labelled "60 FPS (60 Hz)" — verified
-        // against a Steam Deck. Feeding the notch row a free 30-120 range put 91 labels in a strip
-        // that fits about twelve, and the row became unusable above the first few. The cap is a
-        // free number and the PAIRING is what snaps, so the row has to be notchless.
-        //
-        // The overlay level stays Valve's: it is genuinely five discrete levels.
-        _patches.Register(new NativeQamFrameLimitPatch());
-        _patches.Register(new NativeQamValveOverlayLevelPatch());
-        _patches.Register(new NativeQamControllerTargetPatch());
-
-        // WSGM's own VRR switch, not Valve's. Valve's component is gated on a react-query over
-        // SteamClient.System.DisplayManager, which this client does not define: the query never
-        // succeeds and the component returns null before it reads anything WSGM publishes, so the
-        // row was simply absent. Registered unconditionally — whether it appears is decided by
-        // whether the device publishes a variable-refresh capability, which the state carries.
-        _patches.Register(new NativeQamVrrPatch());
-        _patches.Register(new NativeQamValveProfileHeaderPatch());
-        _patches.Register(new NativeQamValveResetPatch());
-        _patches.Register(new NativeQamValveRefreshRatePatch());
-        if (_resolution is not null)
-        {
-            _patches.Register(new NativeQamResolutionPatch());
-        }
-
-        // The backend behind Valve's own Performance tab. Registered unconditionally because the
-        // performance service always exists; what the panel then shows is decided entirely by which
-        // fields the projected state carries, not by whether this patch installed.
-        _patches.Register(new NativeQamPerfPatch());
-        if (_audio is not null)
-        {
-            _patches.Register(new NativeQamAudioPatch());
-        }
-
-        // The gate reveals Steam's Wi-Fi surface, and the surface is only worth revealing if
-        // something can populate it — which is the radio manager.
-        if (_radios is not null)
-        {
-            _patches.Register(new SteamNetworkGatePatch());
-            _patches.Register(new SteamBluetoothServicePatch());
-        }
-
-        // No backend of WSGM's behind it: Steam's own brightness backend already works on Windows,
-        // and only its availability flag says otherwise. Registered unconditionally for that
-        // reason — it depends on nothing WSGM has to supply.
-        _patches.Register(new SteamBrightnessGatePatch());
-        _patches.Register(new SteamDownloadSortPatch());
-        _patches.Register(new SteamInputGlyphStylePatch(_glyphDeliveryState));
+        _modules = new SteamUiModuleSet(CreateModules());
+        _modules.RegisterPatches(_patches);
         SetPatchStates(bootstrap: false, components: false);
         SetGlyphDeliveryPatchStates();
         _patches.SetGlobalEnabled(false);
@@ -422,68 +367,225 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
     }
 
-    private IReadOnlyList<StatePublication> CreateStatePublications()
+    /// <summary>
+    /// Every Steam UI surface this session offers, one declaration each: the patches that install
+    /// it, the state it publishes, and the commands it answers.
+    /// </summary>
+    /// <remarks>
+    /// A surface used to be four separate edits in this file — a registration, a publication row, a
+    /// command row and an id constant — which is how one could be added with a control that
+    /// rendered and did nothing. Here the whole surface is one entry, and a module whose backend is
+    /// absent is simply not declared.
+    /// </remarks>
+    private IReadOnlyList<ISteamUiModule> CreateModules()
     {
-        List<StatePublication> publications =
+        List<ISteamUiModule> modules =
         [
-            new(TdpPatchId, () => _enabled, () => Ready(JsonSerializer.SerializeToElement(
-                _tdp.Current,
-                NativeQamSemanticJsonContext.Default.NativeQamTdpState))),
-            new(AutoTdpPatchId, () => _enabled, () => Ready(JsonSerializer.SerializeToElement(
-                _autoTdp.Current,
-                NativeQamSemanticJsonContext.Default.NativeQamAutoTdpState))),
-            new(FrameLimitPatchId, () => _enabled, () => Ready(JsonSerializer.SerializeToElement(
-                _performance.FrameLimit,
-                NativeQamSemanticJsonContext.Default.NativeQamFrameLimitState))),
-            new(VrrPatchId, () => _enabled, () => Ready(JsonSerializer.SerializeToElement(
-                _performance.Vrr,
-                NativeQamSemanticJsonContext.Default.NativeQamVrrState))),
+            new SteamUiModule("bootstrap", patches: [new NativeQamBootstrapPatch(_bridge)]),
+
+            new SteamUiModule(
+                "shell",
+                commands: [new(ShellPatchId, "toggleQuickAccess", HandleToggleQuickAccessAsync)]),
+
+            // The SteamOS Manager RPC seam and the rows it reveals, in place of the hand-rolled TDP
+            // row. The gate supplies the one answer the Windows client's service stub never fills
+            // in — is_tdp_limit_available and the watt range — and watches the steamos_tdp_limit
+            // client settings Valve's rows write, routing them to hardware. Both halves share the
+            // wsgm.native-qam.tdp id and its published state, so nothing else had to move.
+            new SteamUiModule(
+                "tdp",
+                patches: [new NativeQamSteamOsManagerPatch(), new NativeQamValveTdpPatch()],
+                publications: [Publish(TdpPatchId, () => JsonSerializer.SerializeToElement(
+                    _tdp.Current,
+                    NativeQamSemanticJsonContext.Default.NativeQamTdpState))],
+                commands: [new(TdpPatchId, "setPrimaryLimit", HandlePowerLimitAsync)]),
+
+            new SteamUiModule(
+                "auto-tdp",
+                patches: [new NativeQamAutoTdpPatch()],
+                publications: [Publish(AutoTdpPatchId, () => JsonSerializer.SerializeToElement(
+                    _autoTdp.Current,
+                    NativeQamSemanticJsonContext.Default.NativeQamAutoTdpState))],
+                commands: [new(AutoTdpPatchId, "setAutoTdp", HandleAutoTdpAsync)]),
+
+            // The frame limit is WSGM's own row, deliberately, and this is the one place the Q12
+            // retirement does not apply. Valve's component is a NOTCH slider fed by
+            // fps_limit_options, and SteamOS itself stopped working that way when it unified frame
+            // limit and refresh rate into one continuous slider labelled "60 FPS (60 Hz)" —
+            // verified against a Steam Deck. Feeding the notch row a free 30-120 range put 91
+            // labels in a strip that fits about twelve, and the row became unusable above the first
+            // few. The cap is a free number and the PAIRING is what snaps, so the row has to be
+            // notchless.
+            new SteamUiModule(
+                "frame-limit",
+                patches: [new NativeQamFrameLimitPatch()],
+                publications: [Publish(FrameLimitPatchId, () => JsonSerializer.SerializeToElement(
+                    _performance.FrameLimit,
+                    NativeQamSemanticJsonContext.Default.NativeQamFrameLimitState))],
+                commands:
+                [
+                    new(FrameLimitPatchId, "setFrameLimit", HandleFrameLimitAsync),
+                    new(FrameLimitPatchId, "setRefreshRate", HandleRefreshRateAsync),
+                ]),
+
+            // The overlay level stays Valve's: it is genuinely five discrete levels.
+            new SteamUiModule(
+                "overlay-level",
+                patches: [new NativeQamValveOverlayLevelPatch()]),
+
+            new SteamUiModule(
+                "controller-target",
+                patches: [new NativeQamControllerTargetPatch()],
+                publications:
+                [
+                    Publish(ControllerTargetPatchId, () => JsonSerializer.SerializeToElement(
+                        _controllerTarget.Current,
+                        NativeQamSemanticJsonContext.Default.NativeQamControllerTargetState)),
+                ],
+                commands:
+                [
+                    new(ControllerTargetPatchId, "setControllerTarget", HandleControllerTargetAsync),
+                ]),
+
+            // WSGM's own VRR switch, not Valve's. Valve's component is gated on a react-query over
+            // SteamClient.System.DisplayManager, which this client does not define: the query never
+            // succeeds and the component returns null before it reads anything WSGM publishes, so
+            // the row was simply absent. Declared unconditionally — whether it appears is decided
+            // by whether the device publishes a variable-refresh capability, which the state
+            // carries.
+            new SteamUiModule(
+                "vrr",
+                patches:
+                [
+                    new NativeQamVrrPatch(),
+                    new NativeQamValveProfileHeaderPatch(),
+                    new NativeQamValveResetPatch(),
+                    new NativeQamValveRefreshRatePatch(),
+                ],
+                publications: [Publish(VrrPatchId, () => JsonSerializer.SerializeToElement(
+                    _performance.Vrr,
+                    NativeQamSemanticJsonContext.Default.NativeQamVrrState))],
+                commands: [new(VrrPatchId, "setVariableRefreshRate", HandleVrrAsync)]),
+
+            // The backend behind Valve's own Performance tab. Declared unconditionally because the
+            // performance service always exists; what the panel then shows is decided entirely by
+            // which fields the projected state carry, not by whether this patch installed.
             // Valve's protobuf field names stay on their dedicated source-generated boundary.
-            new(PerfPatchId, () => _enabled, () => Ready(JsonSerializer.SerializeToElement(
-                _performance.PerfState,
-                NativeQamPerfJsonContext.Default.NativeQamPerfState))),
-            new(ControllerTargetPatchId, () => _enabled, () => Ready(
-                JsonSerializer.SerializeToElement(
-                    _controllerTarget.Current,
-                    NativeQamSemanticJsonContext.Default.NativeQamControllerTargetState))),
-            new(BrightnessPatchId, () => _enabled, ReadBrightnessPublication),
+            new SteamUiModule(
+                "perf",
+                patches: [new NativeQamPerfPatch()],
+                publications: [Publish(PerfPatchId, () => JsonSerializer.SerializeToElement(
+                    _performance.PerfState,
+                    NativeQamPerfJsonContext.Default.NativeQamPerfState))],
+                commands: [new(PerfPatchId, "updateSettings", HandlePerformanceDeltaAsync)]),
+
+            // No backend of WSGM's behind it: Steam's own brightness backend already works on
+            // Windows, and only its availability flag says otherwise. Declared unconditionally for
+            // that reason — it depends on nothing WSGM has to supply.
+            new SteamUiModule(
+                "brightness",
+                patches: [new SteamBrightnessGatePatch()],
+                publications: [new(BrightnessPatchId, () => _enabled, ReadBrightnessPublication)],
+                commands: [new(BrightnessPatchId, "setBrightness", HandleBrightnessAsync)]),
+
+            new SteamUiModule("download-sort", patches: [new SteamDownloadSortPatch()]),
+
+            new SteamUiModule(
+                "glyph-style",
+                patches: [new SteamInputGlyphStylePatch(_glyphDeliveryState)]),
         ];
 
-        if (_radios is { } radios)
+        if (_resolution is { } resolution)
         {
-            publications.Add(new StatePublication(
-                BluetoothPatchId,
-                () => _enabled,
-                async () => JsonSerializer.SerializeToElement(
-                    await ReadBluetoothStateAsync(radios).ConfigureAwait(false),
-                    NativeQamSemanticJsonContext.Default.SteamBluetoothState)));
-            publications.Add(new StatePublication(
-                NetworkGatePatchId,
-                () => _enabled || _networkIndicatorEnabled,
-                async () => JsonSerializer.SerializeToElement(
-                    await ReadNetworkStateAsync(_networkIndicatorEnabled).ConfigureAwait(false),
-                    NativeQamSemanticJsonContext.Default.SteamNetworkState)));
+            modules.Add(new SteamUiModule(
+                "resolution",
+                patches: [new NativeQamResolutionPatch()],
+                publications: [Publish(ResolutionPatchId, () => JsonSerializer.SerializeToElement(
+                    resolution.Current,
+                    NativeQamSemanticJsonContext.Default.NativeQamResolutionState))],
+                commands: [new(ResolutionPatchId, "setResolution", HandleResolutionAsync)]));
         }
+
         if (_audio is { } audio)
         {
             // Publishing once after injection updates the store whose availability was cached when
             // Steam started before the replacement namespace existed.
-            publications.Add(new StatePublication(
-                AudioPatchId,
-                () => _enabled,
-                () => Ready(SerializeAudioState(audio.Current))));
+            modules.Add(new SteamUiModule(
+                "audio",
+                patches: [new NativeQamAudioPatch()],
+                publications:
+                [
+                    Publish(AudioPatchId, () => SerializeAudioState(audio.Current)),
+                ],
+                commands:
+                [
+                    new(AudioPatchId, "getDevices", HandleAudioDevicesAsync),
+                    new(AudioPatchId, "setDefaultDevice", HandleAudioDeviceAsync),
+                    new(AudioPatchId, "setVolume", HandleAudioVolumeAsync),
+                ]));
         }
-        if (_resolution is { } resolution)
+
+        // The gate reveals Steam's Wi-Fi surface, and the surface is only worth revealing if
+        // something can populate it — which is the radio manager. Bluetooth rides the same
+        // condition for the same reason.
+        if (_radios is { } radios)
         {
-            publications.Add(new StatePublication(
-                ResolutionPatchId,
-                () => _enabled,
-                () => Ready(JsonSerializer.SerializeToElement(
-                    resolution.Current,
-                    NativeQamSemanticJsonContext.Default.NativeQamResolutionState))));
+            modules.Add(new SteamUiModule(
+                "network",
+                patches: [new SteamNetworkGatePatch()],
+                publications:
+                [
+                    // The one publication not gated on _enabled alone: the header Wi-Fi indicator
+                    // is shown on the desktop side too, where the rest of the QAM is not.
+                    new(NetworkGatePatchId,
+                        () => _enabled || _networkIndicatorEnabled,
+                        async () => JsonSerializer.SerializeToElement(
+                            await ReadNetworkStateAsync(_networkIndicatorEnabled)
+                                .ConfigureAwait(false),
+                            NativeQamSemanticJsonContext.Default.SteamNetworkState)),
+                ],
+                commands:
+                [
+                    new(NetworkGatePatchId, "startScan", HandleNetworkScanStartAsync),
+                    new(NetworkGatePatchId, "stopScan", HandleNetworkScanStopAsync),
+                ]));
+
+            modules.Add(new SteamUiModule(
+                "bluetooth",
+                patches: [new SteamBluetoothServicePatch()],
+                publications:
+                [
+                    new(BluetoothPatchId, () => _enabled, async () =>
+                        JsonSerializer.SerializeToElement(
+                            await ReadBluetoothStateAsync(radios).ConfigureAwait(false),
+                            NativeQamSemanticJsonContext.Default.SteamBluetoothState)),
+                ],
+                commands:
+                [
+                    .. BluetoothCommands.Select(command =>
+                        new SteamUiCommandHandler(BluetoothPatchId, command, HandleBluetoothAsync)),
+                ]));
         }
-        return publications;
+
+        return modules;
     }
+
+    /// <summary>The Bluetooth commands, all answered by one handler that switches on the name.</summary>
+    private static readonly string[] BluetoothCommands =
+    [
+        "setDiscovering",
+        "pair",
+        "cancelPair",
+        "connect",
+        "disconnect",
+        "forget",
+        "setTrusted",
+        "setWakeAllowed",
+    ];
+
+    /// <summary>Publishes a value that is always readable while the session is enabled.</summary>
+    private StatePublication Publish(string patchId, Func<JsonElement> read) =>
+        new(patchId, () => _enabled, () => Ready(read()));
 
     private static ValueTask<JsonElement?> Ready(JsonElement payload) =>
         ValueTask.FromResult<JsonElement?>(payload);
@@ -494,52 +596,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 new SteamBrightnessState(percent),
                 NativeQamSemanticJsonContext.Default.SteamBrightnessState))
             : ValueTask.FromResult<JsonElement?>(null);
-
-    private IReadOnlyDictionary<SemanticCommandKey, SemanticCommandHandler> CreateRequestHandlers()
-    {
-        var handlers = new Dictionary<SemanticCommandKey, SemanticCommandHandler>
-        {
-            [new("wsgm.native-qam.shell", "toggleQuickAccess")] = HandleToggleQuickAccessAsync,
-            [new(TdpPatchId, "setPrimaryLimit")] = HandlePowerLimitAsync,
-            [new(FrameLimitPatchId, "setFrameLimit")] = HandleFrameLimitAsync,
-            [new(FrameLimitPatchId, "setRefreshRate")] = HandleRefreshRateAsync,
-            [new(BrightnessPatchId, "setBrightness")] = HandleBrightnessAsync,
-            [new(VrrPatchId, "setVariableRefreshRate")] = HandleVrrAsync,
-            [new(AutoTdpPatchId, "setAutoTdp")] = HandleAutoTdpAsync,
-            [new(ControllerTargetPatchId, "setControllerTarget")] = HandleControllerTargetAsync,
-            [new(PerfPatchId, "updateSettings")] = HandlePerformanceDeltaAsync,
-        };
-        if (_resolution is not null)
-        {
-            handlers[new(ResolutionPatchId, "setResolution")] = HandleResolutionAsync;
-        }
-        if (_audio is not null)
-        {
-            handlers[new(AudioPatchId, "getDevices")] = HandleAudioDevicesAsync;
-            handlers[new(AudioPatchId, "setDefaultDevice")] = HandleAudioDeviceAsync;
-            handlers[new(AudioPatchId, "setVolume")] = HandleAudioVolumeAsync;
-        }
-        if (_radios is not null)
-        {
-            handlers[new(NetworkGatePatchId, "startScan")] = HandleNetworkScanStartAsync;
-            handlers[new(NetworkGatePatchId, "stopScan")] = HandleNetworkScanStopAsync;
-            foreach (string command in new[]
-            {
-                "setDiscovering",
-                "pair",
-                "cancelPair",
-                "connect",
-                "disconnect",
-                "forget",
-                "setTrusted",
-                "setWakeAllowed",
-            })
-            {
-                handlers[new(BluetoothPatchId, command)] = HandleBluetoothAsync;
-            }
-        }
-        return handlers;
-    }
 
     private async Task<SemanticCommandResult> HandleToggleQuickAccessAsync(
         SteamUiBridgeRequest request,
@@ -791,7 +847,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                     continue;
                 }
 
-                foreach (StatePublication publication in _statePublications)
+                foreach (StatePublication publication in _modules.Publications)
                 {
                     if (!publication.Enabled())
                     {
@@ -1016,9 +1072,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             {
                 outcome = SemanticCommandResult.Refused;
             }
-            else if (!_requestHandlers.TryGetValue(
-                new SemanticCommandKey(request.PatchId, request.Command),
-                out SemanticCommandHandler? handler))
+            else if (!_modules.TryGetCommand(
+                request.PatchId,
+                request.Command,
+                out SteamUiCommandDelegate? handler)
+                || handler is null)
             {
                 outcome = SemanticCommandResult.Refused;
             }
@@ -1712,29 +1770,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
 
         return true;
-    }
-
-    private sealed record StatePublication(
-        string PatchId,
-        Func<bool> Enabled,
-        Func<ValueTask<JsonElement?>> Read);
-
-    private readonly record struct SemanticCommandKey(string PatchId, string Command);
-
-    private delegate Task<SemanticCommandResult> SemanticCommandHandler(
-        SteamUiBridgeRequest request,
-        CancellationToken cancellationToken);
-
-    private readonly record struct SemanticCommandResult(
-        bool Succeeded,
-        string? Error,
-        JsonElement? Payload = null)
-    {
-        internal static SemanticCommandResult Applied { get; } = new(true, null);
-
-        internal static SemanticCommandResult Refused { get; } = new(
-            false,
-            "The requested semantic service is not active.");
     }
 
     /// <inheritdoc />
