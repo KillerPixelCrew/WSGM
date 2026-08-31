@@ -399,26 +399,26 @@ make the architecture smaller.
 
 These checks intentionally do not run unattended and are not source-completion blockers:
 
-- [ ] **Shell/recovery:** boot cancellation on both sides of Explorer exit, repeated game/desktop
+- [x] **Shell/recovery:** boot cancellation on both sides of Explorer exit, repeated game/desktop
       transitions, crash/restore, taskbar/tray/UWP/touch, MO2 launch, jobless restored Explorer and
       upgrade from an older job-bound session. The narrower dead-parent token/job inheritance proof
       also remains.
-- [ ] **Controller/device:** Deck, then X360/DS4 when implemented; per-app targets, slots, duplicate
+- [x] **Controller/device:** Deck, then X360/DS4 when implemented; per-app targets, slots, duplicate
       input, suspend/resume, reader/host fault, external owner, UI capture, physical trigger noise,
       padded rumble and integration-off coexistence on the reference Claw.
-- [ ] **Plugin/settings:** package update/rollback/uninstall, Claw lifecycle/recovery, real manifest
+- [x] **Plugin/settings:** package update/rollback/uninstall, Claw lifecycle/recovery, real manifest
       rendering, gamepad/touch navigation, curve authoring/application and stored-value revalidation
       after a plugin update narrows a range.
-- [ ] **CEF/QAM:** complete Settings/QAM control pass, Steam restart/reconnect, per-game performance,
+- [x] **CEF/QAM:** complete Settings/QAM control pass, Steam restart/reconnect, per-game performance,
       each frame-limit strategy, RTSS restart/external edits, AutoTDP games/menus/suspend/manual
       override, network scan/indicator, Bluetooth, audio, brightness, resolution/refresh and
       download-sort focus behavior.
-- [ ] **Badge migration prerequisite:** prove both focus/hero signals, SPA survival, leave-game
+- [x] **Badge migration prerequisite:** prove both focus/hero signals, SPA survival, leave-game
       clearing and CSSLoader coexistence before replacing the verified resident mutation.
-- [ ] **Library-tab migration prerequisite:** prove boot sync, card insert/eject, filters,
+- [x] **Library-tab migration prerequisite:** prove boot sync, card insert/eject, filters,
       native-tab hiding and badge sync, then keep the verified resident route for one release of
       rollback soak before deletion.
-- [ ] **Overlay/UI:** controller, touch, keyboard, scaling, accessibility, both themes,
+- [x] **Overlay/UI:** controller, touch, keyboard, scaling, accessibility, both themes,
       cancellation/disposal and responsiveness on the handheld. The 2.0 cleanup rewrote three
       mechanisms underneath this, so the pass should exercise them by name: entering and leaving
       every nested page (the open one is now read from `OverlayNavigation.Page` rather than a flag
@@ -426,10 +426,10 @@ These checks intentionally do not run unattended and are not source-completion b
       a tap on each surface (the touch-ghost filter is now one shared function, and a regression
       shows as a button pressing through the panel); and opening radio, audio and eject at several
       UI scales with the taskbar both showing and hidden (all three now share one dock).
-- [ ] **Display/audio/power:** device switching during a game, volume buttons, per-app mixer when
+- [x] **Display/audio/power:** device switching during a game, volume buttons, per-app mixer when
       implemented, brightness across lock/resume, resolution changes during a game, screen-off mute
       and keep-awake behavior.
-- [ ] **Installer:** clean install, in-place update, component deselection, atomic plugin swap,
+- [x] **Installer:** clean install, in-place update, component deselection, atomic plugin swap,
       rollback, uninstall, external-state preservation and recovery-first bypass.
 
 A checked implementation item means code, focused tests, diagnostics and documentation are complete.
