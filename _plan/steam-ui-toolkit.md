@@ -284,9 +284,30 @@ changed against the plan rather than restating it.
   The synchronize loop deliberately stayed: it is policy about which patches are on when, and
   extracting it would have meant a constructor of predicates describing one host's rules.
 
-**Not yet done: the attended device pass.** Steps 1-5 changed the injected asset five times. The
-automated gate proves the asset compiles, hashes, round-trips and that its claims behave; it cannot
-show that the QAM renders or that a slider moves hardware. That check is outstanding for all five.
+- **6, first half — the boundary is real.** The two remaining ties to WSGM are cut: the machinery
+  writes through `ISteamUiLog`, which the host installs, and the bridge takes the script it injects
+  rather than reaching for `SteamUiAssetCatalog`. `SteamUiToolkitBoundaryTests` reads the thirteen
+  files being lifted and fails on either coming back — both would compile cleanly and, because the
+  sink keeps lines landing in the same file, would look correct too.
+- **7, first half — the extension host.** `SteamUiExtensionHost` discovers packages, validates
+  them, and reports every one it refused with a reason. JavaScript extensions only in this version:
+  they can already add, hide and reorganize through the three APIs, and in-process assembly loading
+  is a separate decision. A script is confined to its package; every patch must be prefixed with
+  the extension's own id.
+
+**Remaining.**
+
+- **6, second half — the repo split.** Mechanical: `filter-repo`, MIT, own CI, submodule. Three
+  small helpers still need to travel with the transport (`SteamCef.IsAllowedDebuggerUrl`,
+  `SteamCef.IsSteamPortOwner`, `NativeTcp.ListListeners`), and WSGM's asset builder needs to read
+  the prelude fragments from the submodule while keeping its own gates. Left until last so the
+  extension host travels with it rather than being moved twice.
+- **7, second half — the Extensions tab**, and the decision about whether extensions may have a
+  .NET backend at all.
+- **The attended device pass.** Steps 1-5 changed the injected asset five times. The automated gate
+  proves the asset compiles, hashes, round-trips and that its ownership claims behave; it cannot
+  show that the QAM renders or that a slider moves hardware. That check is outstanding for all of
+  them, and for the bridge now being handed its asset rather than loading it.
 
 ## The work, in dependency order
 
