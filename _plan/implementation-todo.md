@@ -377,7 +377,13 @@ These checks intentionally do not run unattended and are not source-completion b
       native-tab hiding and badge sync, then keep the verified resident route for one release of
       rollback soak before deletion.
 - [ ] **Overlay/UI:** controller, touch, keyboard, scaling, accessibility, both themes,
-      cancellation/disposal and responsiveness on the handheld.
+      cancellation/disposal and responsiveness on the handheld. The 2.0 cleanup rewrote three
+      mechanisms underneath this, so the pass should exercise them by name: entering and leaving
+      every nested page (the open one is now read from `OverlayNavigation.Page` rather than a flag
+      per page, and the peer keyboard must still close on every leave including the format panel);
+      a tap on each surface (the touch-ghost filter is now one shared function, and a regression
+      shows as a button pressing through the panel); and opening radio, audio and eject at several
+      UI scales with the taskbar both showing and hidden (all three now share one dock).
 - [ ] **Display/audio/power:** device switching during a game, volume buttons, per-app mixer when
       implemented, brightness across lock/resume, resolution changes during a game, screen-off mute
       and keep-awake behavior.
