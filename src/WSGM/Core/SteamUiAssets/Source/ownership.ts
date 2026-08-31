@@ -1,5 +1,23 @@
 // Ownership claims: the one primitive every gate needs and every gate used to hand-roll.
 //
+// Three ways to change Steam's front-end, and every gate uses one of them. Naming which is not
+// decoration — it decides what "installed" means, what a probe may check, and what removal owes:
+//
+//   FEED A DATA CONSTRUCT   supplyNamespace / withdrawNamespace
+//     Give a store the shape it was written against, where the client has none. Nothing is
+//     displaced, so removal deletes. Perf, audio.
+//
+//   ANSWER AN RPC           claimMember / releaseMember  (with rpc.ts)
+//     Overlay a method the client already has. Something IS displaced, so removal restores it, and
+//     the overlay must carry it — see rpc.ts for the reply shape and the query invalidation that
+//     make the answer visible. SteamOS Manager GetState, Bluetooth stubs, the brightness setter.
+//
+//   REVEAL WHAT IS GATED    claimValue / releaseValue, claimAccessor / releaseAccessor
+//     Flip the one flag or getter that hides a surface the client can already serve. Narrow and
+//     reversible, and never the platform constant: setting TS.IS_STEAMOS produces the same row
+//     while changing unrelated client behaviour everywhere, which is the spoof D16 forbids.
+//     Brightness availability, network availability.
+//
 // A gate changes something the client owns. Three things then have to be true, and getting any of
 // them wrong has cost a device session:
 //

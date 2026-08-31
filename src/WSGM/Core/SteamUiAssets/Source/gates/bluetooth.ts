@@ -27,22 +27,8 @@ function createBluetoothService() {
 
   const modules = () => getWebpackRuntime("bluetooth-service");
 
-  // Steam reads a transport reply, never a bare value: BSuccess decides whether the caller
-  // proceeds at all, and Body().toObject() is what the store consumes.
-  const reply = (body) => ({
-    BSuccess: () => true,
-    BFailed: () => false,
-    GetEResult: () => 1,
-    Body: () => ({ ...body, toObject: () => body }),
-  });
-
-  const invalidate = (req) => {
-    try {
-      req?.("21371")?.L?.invalidateQueries({ queryKey });
-    } catch {
-      // A client whose query layer moved keeps the stale answer; the row simply does not update.
-    }
-  };
+  const reply = transportReply;
+  const invalidate = (req) => invalidateQuery(req, queryKey);
 
   // WSGM sends its own field names and the mapping into Steam's lives here, so the client's
   // schema stays in the half that has to change when the client is rebuilt.

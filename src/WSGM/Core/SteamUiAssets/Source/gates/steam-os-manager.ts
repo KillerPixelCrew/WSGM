@@ -55,13 +55,7 @@ function createSteamOsManagerGate() {
     return null;
   };
 
-  const invalidate = (req) => {
-    try {
-      req?.("21371")?.L?.invalidateQueries({ queryKey });
-    } catch {
-      // A moved query layer keeps the stale answer; the row simply does not appear.
-    }
-  };
+  const invalidate = (req) => invalidateQuery(req, queryKey);
 
   const onState = (state) => {
     if (!installed || !state) return;
@@ -192,12 +186,7 @@ function createSteamOsManagerGate() {
             tdp_limit_max: latest.max,
           },
         };
-        return {
-          BSuccess: () => true,
-          BFailed: () => false,
-          GetEResult: () => 1,
-          Body: () => ({ ...merged, toObject: () => merged }),
-        };
+        return transportReply(merged);
       } catch {
         return result;
       }

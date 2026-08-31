@@ -461,6 +461,37 @@
       return { ok: false, error: String(error) };
     }
   };
+  // Answering what Steam asks.
+  //
+  // The client calls a service method and reads a transport reply, not a bare value. Two gates
+  // answer such calls — the SteamOS Manager's GetState and the Bluetooth service's stubs — and both
+  // had built the same reply shape and the same query invalidation by hand.
+  //
+  // Overlaying the method itself is an ownership claim (claimMember); what is here is the rest of
+  // the job, which is the half that is easy to forget.
+  // The shape Steam reads back from a service call. BSuccess decides whether the caller proceeds at
+  // all, so a reply that omits it is discarded before its body is ever looked at; Body().toObject()
+  // is what the store then consumes.
+  const transportReply = (body) => ({
+    BSuccess: () => true,
+    BFailed: () => false,
+    GetEResult: () => 1,
+    Body: () => ({ ...body, toObject: () => body }),
+  });
+  // Replacing a stub is only half the job: react-query still holds the answer the stub gave, so the
+  // UI keeps rendering the refusal until the query that cached it is invalidated. Live-verified that
+  // the query client's invalidateQueries is reachable at module 21371.
+  //
+  // Failure is swallowed on purpose. A client whose query layer moved keeps the stale answer and the
+  // row simply does not update — which is a degraded surface, not a broken one, and never a reason to
+  // tear down a gate that is otherwise working.
+  const invalidateQuery = (req, queryKey) => {
+    try {
+      req?.("21371")?.L?.invalidateQueries({ queryKey });
+    } catch {
+      // Intentionally ignored; see above.
+    }
+  };
   // The performance surface is the largest absent backend: SystemPerfStore's constructor
   // optional-chains through a SteamClient.System.Perf that does not exist on Windows, so its state
   // stays empty and every control renders null. Availability for each control is read out of that
@@ -658,13 +689,7 @@
       }
       return null;
     };
-    const invalidate = (req) => {
-      try {
-        req?.("21371")?.L?.invalidateQueries({ queryKey });
-      } catch {
-        // A moved query layer keeps the stale answer; the row simply does not appear.
-      }
-    };
+    const invalidate = (req) => invalidateQuery(req, queryKey);
     const onState = (state) => {
       if (!installed || !state) return;
       latest = {
@@ -789,12 +814,7 @@
               tdp_limit_max: latest.max,
             },
           };
-          return {
-            BSuccess: () => true,
-            BFailed: () => false,
-            GetEResult: () => 1,
-            Body: () => ({ ...merged, toObject: () => merged }),
-          };
+          return transportReply(merged);
         } catch {
           return result;
         }
@@ -1026,21 +1046,8 @@
     // and WSGM only carries them through from the state it was given.
     let latest = { is_service_available: false, adapters: [], devices: [] };
     const modules = () => getWebpackRuntime("bluetooth-service");
-    // Steam reads a transport reply, never a bare value: BSuccess decides whether the caller
-    // proceeds at all, and Body().toObject() is what the store consumes.
-    const reply = (body) => ({
-      BSuccess: () => true,
-      BFailed: () => false,
-      GetEResult: () => 1,
-      Body: () => ({ ...body, toObject: () => body }),
-    });
-    const invalidate = (req) => {
-      try {
-        req?.("21371")?.L?.invalidateQueries({ queryKey });
-      } catch {
-        // A client whose query layer moved keeps the stale answer; the row simply does not update.
-      }
-    };
+    const reply = transportReply;
+    const invalidate = (req) => invalidateQuery(req, queryKey);
     // WSGM sends its own field names and the mapping into Steam's lives here, so the client's
     // schema stays in the half that has to change when the client is rebuilt.
     const onState = (state) => {

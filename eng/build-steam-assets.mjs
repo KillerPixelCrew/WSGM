@@ -31,6 +31,9 @@ const sourcePaths = [
   // helpers are shared rather than re-derived per gate — which is how the same teardown trap was
   // paid for three separate times.
   join(sourceDirectory, "ownership.ts"),
+  // Answering an RPC: the reply shape Steam reads back, and the query invalidation without which
+  // a replaced stub keeps rendering the refusal it cached.
+  join(sourceDirectory, "rpc.ts"),
   join(sourceDirectory, "gates", "performance.ts"),
   join(sourceDirectory, "gates", "steam-os-manager.ts"),
   join(sourceDirectory, "gates", "brightness.ts"),
