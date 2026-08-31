@@ -154,6 +154,7 @@ and people asked for them:
 | `native\SteamInput` | `steam-input-lease` | a missing Rust toolchain |
 | `external\windows-device-control` | `windows-device-control` | an unresolvable csproj path |
 | `external\WSGM.Device.Sdk` | `WSGM.Device.Sdk` | an unresolvable csproj path |
+| `external\steam-ui-toolkit` | `steam-ui-toolkit` | a csproj path AND a Steam asset that will not compile |
 
 **Clone this repository with `--recursive`**, or run `git submodule update --init` after cloning.
 Never edit files under either path as if they were WSGM's: change them in their own repository, then
@@ -164,6 +165,19 @@ behind Wi-Fi, Bluetooth, pairing, Core Audio endpoints, panel brightness and the
 owns policy and wording on top of it; see `docs\radios.md` for that split. Its public surface is
 documented for IntelliSense and its build fails on an undocumented member, so a change there costs
 a documentation pass — that is deliberate.
+
+`external\steam-ui-toolkit` is the CDP transport, the probe/apply/verify/remove patch lifecycle,
+the bridge, the module contract and the extension host. **WSGM keeps every surface** — the gates,
+the QAM rows, the components, and the policy about which patches are applied when. The test for
+where something belongs: does it name a Steam module id, a localization token, or a WSGM service?
+Then it is WSGM's. Does it describe how to find and own such a thing safely? Then it is the
+toolkit's.
+
+The injected asset spans both and is still ONE script, because it is evaluated in one CDP call:
+`eng\build-steam-assets.mjs` takes the prelude from the submodule and WSGM's fragments from
+`Core\SteamUiAssets\Source`, and compiles them together. A gate is a new file in `gates\` and
+nothing else — the builder holds no list. WSGM supplies the three things the toolkit refuses to
+assume: where to log, what script to inject, and where Steam is installed.
 
 `external\WSGM.Device.Sdk` is the plugin contract, and it is **MIT while WSGM is GPL-3.0-or-later**.
 That is deliberate: the assembly is linked into every plugin, so the application's copyleft there

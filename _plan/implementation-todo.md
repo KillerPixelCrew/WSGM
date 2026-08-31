@@ -35,7 +35,7 @@ WSGM.exe (self-contained CoreCLR)
   |- one collectible in-process Device Plugin runtime
   |- controller management (VIIPER + HidHide)
   |- RTSS performance control + AutoTDP
-  |- one persistent Steam CEF transport + patch/session host
+  |- the Steam CEF surfaces: gates, QAM rows, components, session host
   |- Wi-Fi, Bluetooth, Core Audio and touch-keyboard integration
   `- shell/session, overlay and Settings
 
@@ -45,6 +45,7 @@ Real separate boundaries
   native/SteamInput                  Steam Input lease/proxy ABI (submodule)
   external/WSGM.Device.Sdk           public plugin and package contract (submodule, MIT)
   external/windows-device-control    radio/Wi-Fi/audio/brightness library (submodule)
+  external/steam-ui-toolkit          CDP transport, patch lifecycle, bridge, modules (submodule)
   third_party/devicelab              diagnostic/authoring GUI + CLI (pinned release)
   third_party/claw-plugin            built-in MSI Claw device package (pinned release)
   VIIPER                             native virtual-controller backend
@@ -173,15 +174,23 @@ pinned submodule, so it can be versioned, consumed and reported against on its o
       reveal), the element framework, the surface mechanisms, the already-built features worth
       shipping, and a seven-step order where steps 1-5 improve WSGM whether or not the extraction
       ever happens.
-      **Steps 1-5 are done**, each with the gate green: a surface is one declaration; the ownership
-      claim is one primitive instead of five hand-rolled ones, with every gate ported and an
-      executable check over the emitted asset; the bridge identity has one source of truth; asset
-      fragments are discovered rather than listed; and the publication pump and request router are
-      out of the session host. Three latent defects were found and fixed on the way, all of which
-      had passed every existing gate.
-      **Remaining: step 6 (extract) and step 7 (the extension host and Extensions tab)** — and the
-      attended device pass covering all five asset changes, which no automated gate can stand in
-      for.
+      **Steps 1-6 are done and the extension host from step 7 with them**, each with the gate
+      green. A surface is one declaration; the ownership claim is one primitive instead of five
+      hand-rolled ones, with every gate ported and an executable check over the emitted asset; the
+      three ways to change Steam are named; the bridge identity has one source of truth; asset
+      fragments are discovered rather than listed; the publication pump and request router are out
+      of the session host; the bridge is a gate registry rather than a list of WSGM's surfaces; and
+      the whole machinery is now `KillerPixelCrew/steam-ui-toolkit`, pinned at
+      `external\steam-ui-toolkit`. The composed asset emits the identical hash it did before the
+      split.
+      **Four latent defects were found and fixed on the way**, all of which had passed every
+      existing gate: a `typeof` check that excluded functions, so an overlaid method outlived its
+      own removal; the Perf gate deleting its namespace without checking the marker, so WSGM's own
+      cleanup would have removed a real backend; `GetState` read before it was validated; and the
+      bridge naming its consumer's gates, which only surfaced when the prelude was compiled alone.
+      **Remaining: the Extensions tab** (the host exists; the surface does not), the decision on
+      whether extensions may carry a .NET backend, and the attended device pass covering every
+      asset change, which no automated gate can stand in for.
 
 ## Verification for this milestone
 
