@@ -374,8 +374,9 @@ make the architecture smaller.
 
 - [ ] Add real VIIPER Xbox 360 and DualShock 4 encoders; advertise each target only once its backend
       can produce it.
-- [ ] Read and implement the Claw charge-limit encoding; add charge fields to the SteamOS Manager
-      seam. Read the RGB effect/animation protocol before adding those controls.
+- [ ] Add working Claw charge-limit and RGB controls to the overlay settings and Steam CEF Quick
+      Settings. Probe and reuse Steam's native RGB color picker when its live surface permits safe
+      ownership and projection.
 - [x] Project the shared performance services onto the redesigned overlay, including the complete
       per-application workflow on Device -> Profiles.
 - [ ] Add a WSGM-owned Windows Night Light backend. Valve's row depends on an unavailable,
