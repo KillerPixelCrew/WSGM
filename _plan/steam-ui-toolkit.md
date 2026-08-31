@@ -2,8 +2,11 @@
 
 **What it is:** a framework to add, hide and reorganize elements in Steam's Big Picture front-end,
 plus the reconstructed SteamOS surfaces WSGM already built, plus a pipe so other developers can plug
-their own backend behind them. Decky Loader's territory, from the other direction: not a plugin
-loader for a Deck, but the mechanism for rebuilding SteamOS's front-end anywhere Steam runs.
+their own backend behind them — and an Extensions tab that third-party plugins populate.
+
+Decky Loader's territory, approached from the other side: not a plugin loader for a Deck, but the
+mechanism for rebuilding SteamOS's front-end anywhere Steam runs. **There is no Decky for Windows**,
+so this is not a port and has no ecosystem to be compatible with. It is the first one.
 
 WSGM keeps **what it changes**. The surfaces are its product; the method is not.
 
@@ -152,17 +155,63 @@ missing*, and on a Deck none of them would be needed. Concretely:
   discipline is what makes a Steam update degrade to Valve behaviour instead of breaking, and it is
   the most valuable thing this toolkit has.
 
-**What is worth taking instead — compatibility, not code.** Two things, neither requiring a line of
-Decky's source:
+**3. There is no Decky for Windows, so there is no ecosystem to be compatible with.** This is the
+reason compatibility is not worth pursuing even setting the licence aside. Decky's plugins carry
+Python backends and assume Linux paths, systemd and SteamOS binaries. A Windows loader that
+implemented `@decky/api` and `@decky/ui` faithfully would inherit the API and almost none of the
+plugins — the work of compatibility, without the payoff of an ecosystem.
 
-- **Coexistence.** Never collide with Decky's or CSSLoader's injected nodes, marker classes or
-  namespaces. WSGM already does this for CSSLoader — its own `wsgm-glyph-style` class, never
-  touching a `.css-loader-style` node — and the same rule generalizes.
-- **A Decky-plugin-compatible surface, if it is ever wanted**, is a feature that can be built *on*
-  the toolkit rather than derived *from* Decky. Implementing a compatible API is a different act from
-  reusing the implementation. Worth keeping as an option; not worth doing speculatively.
+**What is worth taking instead — coexistence, not code.** Never collide with Decky's or CSSLoader's
+injected nodes, marker classes or namespaces. WSGM already does this for CSSLoader — its own
+`wsgm-glyph-style` class, never touching a `.css-loader-style` node — and the rule generalizes to
+anything else sharing SharedJSContext.
 
-Read Decky for what it teaches about Steam's front-end. Do not link, vendor or fork it.
+Read Decky for what it teaches about Steam's front-end. Do not link, vendor or fork it. Build the
+extension model natively instead, which is the next section.
+
+## Extensions — a tab fed by plugins
+
+The requirement: **an Extensions tab that third-party plugins populate.** Decky's category, built for
+Windows, rather than a port of Decky.
+
+The pleasant part is that this is mostly assembly, not invention. Nearly every piece already exists:
+
+| Need | Already built |
+| --- | --- |
+| mount a tab into the QAM | localization-token mounting, used by every current row |
+| host → page state | `SteamUiStatePublication` |
+| page → host commands | `SteamUiCommandHandler`, with `actionGeneration` handled centrally |
+| load, verify and unload untrusted code | the Device Plugin runtime: collectible `AssemblyLoadContext`, one slot, validated manifest |
+| package, validate, pack | Device Lab's `validate` / `pack`, already generalizable |
+| survive a Steam update | probe / apply / verify / remove with ownership |
+
+**An extension is a module loaded at runtime.** That is the unification worth aiming at: step 1 of
+this plan defines `ISteamUiModule` as the internal contract for a surface. An extension is the same
+contract, discovered from a package directory instead of compiled in. If those two things end up as
+one mechanism, the framework is right; if they end up as two, something is wrong.
+
+**Shape, mirroring the Device Plugin because that pattern is proven here:**
+
+- `extension.wsgm.json` — id, name, version, exact API version, entry points.
+- A frontend fragment: the extension's own TypeScript, compiled and hashed like any module fragment,
+  contributing rows or a panel to the Extensions tab.
+- An optional .NET backend implementing an extension contract, reached through the existing
+  publication/command pair. **No Python, no second runtime** — the bridge WSGM already has is the
+  extension↔host RPC.
+
+**Honesty about isolation, same as the Device SDK.** An extension's backend loaded in-process has the
+host's authority. Validate integrity — manifest, bounds, managed x64 entry, hashes — and say plainly
+that this is not a sandbox. A collectible load context buys clean unload, not containment. The one
+thing that must hold is that a broken or hostile extension cannot take down the shell: the same
+fail-open rule every patch already follows.
+
+**Ownership split.** The toolkit provides the extension host — discovery, load, lifecycle, the tab
+mechanism, the package contract. The consumer decides policy: where packages live, whether extensions
+are enabled at all, and what the tab is called. WSGM's answer is a Settings toggle and a package
+directory; another consumer's may be neither.
+
+This is deliberately **after** steps 1–5. An extension host built before modules are one declaration
+would harden the five-places problem into a public contract.
 
 ## Features already built, worth shipping as features
 
@@ -251,6 +300,10 @@ wiring behind them.
 a library WSGM compiles against with no second copy of anything, so the Device Lab / plugin two-SDK
 conflict does not arise.
 
+**7. The extension host and Extensions tab.** Last, and only once a module is one declaration — an
+extension host built earlier would harden the five-places problem into a public contract that
+third parties depend on. See the Extensions section above.
+
 ## Risks, stated plainly
 
 - **This subsystem holds the most live-verified behaviour in the repository**, most of it
@@ -268,7 +321,11 @@ Steps 1-5 are WSGM-internal refactors that stand on their own merit; step 6 is t
 the toolkit never ships, 1-5 still leave WSGM better** — the property to protect. Do not let the
 extraction goal justify a change that does not improve WSGM on its own.
 
-Suggested: **1 → attended → 2 → attended → 3 + 4 → attended → 5 → attended → 6.**
+Suggested: **1 → attended → 2 → attended → 3 + 4 → attended → 5 → attended → 6 → 7.**
+
+Step 7 (extensions) is the point of the whole exercise from a user's perspective, and the most
+tempting to start early. Starting it before step 1 would publish the current five-places module shape
+as a third-party contract, and that is not a mistake this project could take back.
 
 Nothing is started. `Q16` (the CEF simplification pass) overlaps step 1 substantially and should be
 folded into it rather than run separately.
