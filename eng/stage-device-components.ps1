@@ -144,106 +144,68 @@ try {
     Remove-Item -LiteralPath (Join-Path $deviceLabDestination ".pinned-version") `
         -Force -ErrorAction SilentlyContinue
 
-    $allPluginManifests = @(
-        Get-ChildItem -LiteralPath (Join-Path $root "plugins") `
-            -Filter "plugin.wsgm.json" -File -Recurse |
-        Where-Object { $_.FullName -notmatch "[\\/](?:bin|obj)[\\/]" } |
-        Sort-Object FullName
-    )
-    $pluginManifests = @(
-        $allPluginManifests |
-            Where-Object {
-                $candidateManifest = Get-Content -LiteralPath $_.FullName -Raw |
-                    ConvertFrom-Json -Depth 32
-                [string]$candidateManifest.id -ceq $BuiltInPackageId
-            }
-    )
-    if ($pluginManifests.Count -ne 1) {
-        throw "Release staging requires exactly one '$BuiltInPackageId' manifest; found $($pluginManifests.Count)."
+    # The built-in device package is built, validated and packed in its own repository and pinned
+    # here by digest. It references the plugin SDK as its own submodule, so building it inside this
+    # solution would put two WSGM.Device.Sdk projects in one build, from two pins free to drift.
+    # The acquired tree already carries its manifest, glyph artwork, licence and notices.
+    $pluginStaging = & (Join-Path $PSScriptRoot "acquire-claw-plugin.ps1")
+    $lockedPlugin = Get-Content -LiteralPath `
+        (Join-Path $root "third_party\claw-plugin\claw-plugin.lock.json") -Raw | ConvertFrom-Json
+
+    $manifestFile = Join-Path $pluginStaging "plugin.wsgm.json"
+    $manifest = Get-Content -LiteralPath $manifestFile -Raw | ConvertFrom-Json -Depth 32
+    $packageId = [string]$manifest.id
+    $entryAssembly = [string]$manifest.entryAssembly
+    if ($packageId -cne $BuiltInPackageId) {
+        throw "The pinned package declares id '$packageId', not the expected '$BuiltInPackageId'."
+    }
+    $safeSegment = '^[A-Za-z0-9._-]+$'
+    if ($packageId -notmatch $safeSegment -or
+        [string]$manifest.version -notmatch '^[0-9]+(?:\.[0-9]+){1,3}$') {
+        throw "$manifestFile has an unsafe package id or version."
+    }
+    if ([IO.Path]::IsPathRooted($entryAssembly) -or
+        [IO.Path]::GetFileName($entryAssembly) -cne $entryAssembly -or
+        [IO.Path]::GetExtension($entryAssembly) -cne '.dll') {
+        throw "$manifestFile must name a package-root entry assembly."
     }
 
-    foreach ($manifestFile in $pluginManifests) {
-        Assert-RegularSourceFile $manifestFile.FullName
-        $sourceDirectory = $manifestFile.Directory.FullName
-        $projectFiles = @(Get-ChildItem -LiteralPath $sourceDirectory -Filter "*.csproj" -File)
-        if ($projectFiles.Count -ne 1) {
-            throw "$sourceDirectory must contain exactly one plugin project."
-        }
+    $packageDestination = Join-Path $temporaryRoot "Packages\$packageId"
+    New-Item -ItemType Directory -Path $packageDestination -Force | Out-Null
+    Copy-Item -Path (Join-Path $pluginStaging "*") `
+        -Destination $packageDestination -Recurse -Force
+    # The staging stamp records the pin for the acquire script; it is not package content.
+    Remove-Item -LiteralPath (Join-Path $packageDestination ".pinned-version") `
+        -Force -ErrorAction SilentlyContinue
 
-        $manifest = Get-Content -LiteralPath $manifestFile.FullName -Raw | ConvertFrom-Json -Depth 32
-        $packageId = [string]$manifest.id
-        $packageVersion = [string]$manifest.version
-        $entryAssembly = [string]$manifest.entryAssembly
-        $safeSegment = '^[A-Za-z0-9._-]+$'
-        if ($packageId -notmatch $safeSegment -or $packageVersion -notmatch '^[0-9]+(?:\.[0-9]+){1,3}$') {
-            throw "$($manifestFile.FullName) has an unsafe package id or version."
+    foreach ($required in @("PROVENANCE.md", "THIRD_PARTY_NOTICES.md", "LICENSE.txt", $entryAssembly)) {
+        if (-not (Test-Path -LiteralPath (Join-Path $packageDestination $required) -PathType Leaf)) {
+            throw "The pinned package is missing required content: $required"
         }
-        if ([IO.Path]::IsPathRooted($entryAssembly) -or
-            [IO.Path]::GetFileName($entryAssembly) -cne $entryAssembly -or
-            [IO.Path]::GetExtension($entryAssembly) -cne '.dll') {
-            throw "$($manifestFile.FullName) must name a package-root entry assembly."
-        }
+    }
 
-        $packageDestination = Join-Path $temporaryRoot "Packages\$packageId"
-        Invoke-ComponentPublish `
-            ([IO.Path]::GetRelativePath($root, $projectFiles[0].FullName)) `
-            $packageDestination $packageVersion -PlatformX64 -FrameworkDependent
-
-        Get-ChildItem -LiteralPath $packageDestination -Filter "*.pdb" -File -Recurse |
-            Remove-Item -Force
-        Copy-Item -LiteralPath $manifestFile.FullName `
-            -Destination (Join-Path $packageDestination "plugin.wsgm.json")
-
-        foreach ($metadataName in @("PROVENANCE.md", "THIRD_PARTY_NOTICES.md")) {
-            $metadataPath = Join-Path $sourceDirectory $metadataName
-            if (-not (Test-Path -LiteralPath $metadataPath -PathType Leaf)) {
-                throw "Required built-in package notice is missing: $metadataPath"
-            }
-            Assert-RegularSourceFile $metadataPath
-            Copy-Item -LiteralPath $metadataPath -Destination $packageDestination
+    # Package validation treats glyph artwork as optional, so a package that lost it still passes
+    # every other gate and simply ships without physical glyphs. The lock file records that this
+    # package is known to carry them, which turns a silent feature loss into a build failure.
+    $expectedGlyphFiles = [int]$lockedPlugin.component.glyphFiles
+    if ($expectedGlyphFiles -gt 0) {
+        $stagedGlyphs = @(Get-ChildItem -LiteralPath (Join-Path $packageDestination "glyphs") `
+            -File -Recurse -ErrorAction SilentlyContinue)
+        if ($stagedGlyphs.Count -ne $expectedGlyphFiles) {
+            throw ("The pinned package carries $($stagedGlyphs.Count) glyph file(s); " +
+                "claw-plugin.lock.json expects $expectedGlyphFiles.")
         }
+        Write-Host "  glyph assets staged: $($stagedGlyphs.Count) file(s)"
+    }
 
-        # Physical glyph artwork, if the package ships any. The importer discovers profiles purely
-        # by directory (glyphs/profiles/*.json, glyphs/assets/<sha256>.<ext>), so the layout is
-        # copied through verbatim; every file is checked for link redirection the same way the
-        # manifest and notices are, because these are read from the installed package at runtime.
-        $glyphSource = Join-Path $sourceDirectory "glyphs"
-        if (Test-Path -LiteralPath $glyphSource -PathType Container) {
-            $glyphFiles = @(Get-ChildItem -LiteralPath $glyphSource -File -Recurse)
-            foreach ($glyphFile in $glyphFiles) {
-                Assert-RegularSourceFile $glyphFile.FullName
-                $relative = [IO.Path]::GetRelativePath($sourceDirectory, $glyphFile.FullName)
-                $target = Join-Path $packageDestination $relative
-                $targetParent = Split-Path -Parent $target
-                if (-not (Test-Path -LiteralPath $targetParent -PathType Container)) {
-                    New-Item -ItemType Directory -Path $targetParent -Force | Out-Null
-                }
-                Copy-Item -LiteralPath $glyphFile.FullName -Destination $target -Force
-            }
-            Write-Host "  glyph assets staged: $($glyphFiles.Count) file(s)"
-        }
-
-        # The built-in package is first-party GPL code. Materialize the package copy
-        # from the repository's authoritative license instead of maintaining a duplicate.
-        $licensePath = Join-Path $root "LICENSE"
-        if (-not (Test-Path -LiteralPath $licensePath -PathType Leaf)) {
-            throw "Repository GPL license is missing: $licensePath"
-        }
-        Assert-RegularSourceFile $licensePath
-        Copy-Item -LiteralPath $licensePath `
-            -Destination (Join-Path $packageDestination "LICENSE.txt") -Force
-
-        if (-not (Test-Path -LiteralPath (Join-Path $packageDestination $entryAssembly) -PathType Leaf)) {
-            throw "Published package $packageId did not produce entry assembly $entryAssembly."
-        }
-        # Run the product's own bounded offline validator against the exact bytes
-        # that will be handed to the installer. This never loads plugin code,
-        # loads plugin code or probes hardware.
-        $validator = Join-Path $deviceLabDestination "wsgm-device.exe"
-        $validationOutput = @(& $validator validate $packageDestination 2>&1)
-        if ($LASTEXITCODE -ne 0) {
-            throw "Offline package validation failed for $packageId`: $($validationOutput -join [Environment]::NewLine)"
-        }
+    # Re-run the product's own bounded offline validator against the exact bytes that will be
+    # handed to the installer. The plugin's own repository validated what it packed; this validates
+    # what ships, which is the only claim this build can make. It never loads plugin code or probes
+    # hardware.
+    $validator = Join-Path $deviceLabDestination "wsgm-device.exe"
+    $validationOutput = @(& $validator validate $packageDestination 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Offline package validation failed for $packageId`: $($validationOutput -join [Environment]::NewLine)"
     }
 
     foreach ($component in @("Tools", "Packages")) {

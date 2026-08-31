@@ -35,8 +35,7 @@ $root = Split-Path -Parent $PSScriptRoot
 # which is vendored upstream source; and external\, whose submodules enforce this in their own
 # repositories. Runtime tests use explicit-root seams.
 $scanned = @(
-    "tests",
-    "plugins"
+    "tests"
 )
 
 # A literal WSGM data path, or resolving the local-app-data root at all. The second pattern is the

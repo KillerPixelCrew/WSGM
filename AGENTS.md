@@ -187,13 +187,26 @@ VIIPER and its controller drivers are pinned under `third_party\controller`. Bui
 and validate the pinned source; the installer scopes VIIPER, usbip-win2 and HidHide to the controller
 component. Do not silently substitute a newer driver: the pin records a device-specific regression.
 
-**Device Lab is no longer built here.** It is `KillerPixelCrew/WSGM.DeviceLab` (MIT), and the
-installer's optional `devicelab` component ships a release pinned by digest in
-`third_party\devicelab\devicelab.lock.json`. `eng\acquire-devicelab.ps1` downloads and verifies it
-into a gitignored staging directory; no binary is checked in. It is pinned rather than referenced
-because it carries its own SDK submodule, and building it inside this solution would put two
-`WSGM.Device.Sdk` projects in one build from two pins that can drift apart. To ship a new Device
-Lab: tag a release there, then move the asset URL, digest and version here in one commit.
+**Neither Device Lab nor the built-in device package is built here.** Both are separate MIT
+repositories shipped as releases pinned by digest, because each carries its own SDK submodule and
+building either inside this solution would put two `WSGM.Device.Sdk` projects in one build from two
+pins free to drift apart:
+
+| Component | Repository | Lock file | Acquired by |
+| --- | --- | --- | --- |
+| Device Lab | `WSGM.DeviceLab` | `third_party\devicelab\devicelab.lock.json` | `eng\acquire-devicelab.ps1` |
+| Built-in package | `WSGM.Device.Msi.Claw8A2Vm` | `third_party\claw-plugin\claw-plugin.lock.json` | `eng\acquire-claw-plugin.ps1` |
+
+No binary is checked in; both staging directories are generated and gitignored. To ship a new one:
+tag a release there, then move the asset URL, digest, size and version here in one commit.
+
+**Never re-push an existing tag.** It re-runs that repository's release workflow and replaces the
+asset with a fresh build, which is never byte-identical, breaking every pin. Cut a new version.
+
+The package lock also records `glyphFiles`. Package validation treats glyph artwork as optional, so
+a package that silently lost it passes every gate and renders Valve's default glyphs forever; the
+count turns that into a build failure. Change it only when the package deliberately ships a
+different number.
 
 The retired `native\Radio`, `native\VolumeControl`, DeviceHost, IPC transport and managed binding
 mirror must stay retired. Upgrade cleanup may still name old artifacts solely to remove them.

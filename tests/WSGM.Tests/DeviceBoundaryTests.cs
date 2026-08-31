@@ -9,6 +9,10 @@ public sealed class DeviceBoundaryTests
     {
         string[] references = ProjectReferences("src/WSGM/WSGM.csproj").ToArray();
 
+        // The SDK is the only device reference WSGM may hold: it is the type identity the host and
+        // a plugin agree on. The plugin itself and Device Lab now live in their own repositories,
+        // so this also catches either being pulled back in as a project rather than a pinned
+        // release — which would rebuild the two-SDK conflict those splits exist to avoid.
         Assert.Contains("WSGM.Device.Sdk", references);
         Assert.DoesNotContain("WSGM.Device.Msi.Claw8A2Vm", references);
         Assert.DoesNotContain("WSGM.DeviceLab", references);

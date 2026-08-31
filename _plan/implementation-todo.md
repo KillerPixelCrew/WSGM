@@ -46,12 +46,13 @@ Real separate boundaries
   external/WSGM.Device.Sdk           public plugin and package contract (submodule, MIT)
   external/windows-device-control    radio/Wi-Fi/audio/brightness library (submodule)
   third_party/devicelab              diagnostic/authoring GUI + CLI (pinned release)
+  third_party/claw-plugin            built-in MSI Claw device package (pinned release)
   VIIPER                             native virtual-controller backend
 ```
 
-The solution contains five projects from this repository — WSGM, Launch, LogonService, the built-in
-Claw plugin and one test project — plus the two submodule library projects it references. Device Lab
-is no longer built here at all. A process, project, helper, mirror, protocol or abstraction is not
+The solution contains four projects from this repository — WSGM, Launch, LogonService and one test
+project — plus the two submodule library projects it references. Device Lab and the built-in device
+package are no longer built here at all. A process, project, helper, mirror, protocol or abstraction is not
 retained for future flexibility; it needs a current consumer or an OS, lifetime, packaging or
 public-contract boundary.
 
@@ -153,8 +154,17 @@ pinned submodule, so it can be versioned, consumed and reported against on its o
       The installer's optional `devicelab` component now ships the release pinned by digest in
       `third_party\devicelab\devicelab.lock.json`, acquired and verified by
       `eng\acquire-devicelab.ps1`. Users see no change; this repository stops compiling the tool.
-- [ ] **`claw-plugin`.** After the SDK, since it consumes it. It is the reference implementation the
-      SDK's documentation points at, so it should move before the SDK reaches 1.0.
+- [x] **`WSGM.Device.Msi.Claw8A2Vm`** (pinned release, public, MIT). The reference implementation
+      the SDK documentation points at — a reference nobody may copy is not a reference, which is
+      why it is permissive rather than GPL-3. Pinned rather than a submodule for the same reason as
+      Device Lab. Its own repository builds, validates and packs the `.wsgmpkg` with a pinned
+      Device Lab, dogfooding the whole SDK → Lab → package pipeline; WSGM re-validates the expanded
+      tree before staging, because a package is only as trustworthy as the last validator that saw
+      the exact bytes shipped.
+      **Caught in the move:** the first packed release silently lost all 24 glyph files. MSBuild
+      never copied them and package validation treats glyphs as optional, so it passed every gate
+      and would have rendered Valve's default glyphs forever. Both the pack script and the lock
+      file now assert the count.
 - [ ] **`steam-ui-toolkit`.** Generalize the CEF work so others can add and remove QAM and Settings
       surfaces. It consumes `windows-device-control` for the backends behind those surfaces, which
       is why that library moved first. Waits on the CEF simplification pass.
