@@ -43,6 +43,13 @@ try {
     npm run steam-assets:check
     if ($LASTEXITCODE -ne 0) { throw "Steam UI asset is not current with its TypeScript source" }
 
+    # Runs the shipped asset's ownership claims against the scenarios that cost device sessions:
+    # reclaiming a previous bridge's work rather than tearing it down, and restoring exactly what
+    # was displaced. Nothing else in this gate can observe that — the C# tests never execute the
+    # injected JavaScript, and the drift check only proves it is current, not that it is correct.
+    npm run steam-assets:claims
+    if ($LASTEXITCODE -ne 0) { throw "Steam UI ownership claim check failed" }
+
     & "$PSScriptRoot\check-agent-guidance.ps1"
 
     # Cheap source scan, before anything is built: a test or probe that can resolve the real

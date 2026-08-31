@@ -9,11 +9,14 @@
 function createNetworkGate() {
   const property = "networkManagementAvailable";
   const patchId = "wsgm.steam-network.gate";
-  const getterMarker = "__wsgmOwnedGetter";
-  const originalGetterField = "__wsgmOriginalGetterDescriptor";
-  const scanMarker = "__wsgmOwnedNetworkScan";
-  const originalScanField = "__wsgmOriginalNetworkScan";
-  let original: PropertyDescriptor | undefined;
+  const availability = {
+    marker: "__wsgmOwnedGetter",
+    original: "__wsgmOriginalGetterDescriptor",
+  };
+  const scan = {
+    marker: "__wsgmOwnedNetworkScan",
+    original: "__wsgmOriginalNetworkScan",
+  };
   let target: object | null = null;
   let lastError = "";
   let scanWrapped = false;
@@ -114,36 +117,16 @@ function createNetworkGate() {
 
     // The getter lives on the prototype, so that is what is replaced and restored. Defining it
     // on the instance would shadow rather than replace, and removal would leave the shadow.
+    //
+    // Marked as ours for the same reason the namespaces are: the compatibility probe checks that
+    // the getter currently reads false, and a successful override makes it read true. Left
+    // unmarked, the patch reads its own success as "the client already reports this available,
+    // stand aside", declares itself incompatible, and tears down — taking the network list with
+    // it. The claim primitive is what keeps that from being re-derived here.
     const proto = Object.getPrototypeOf(instance);
-    const descriptor = Object.getOwnPropertyDescriptor(proto, property);
-    if (!descriptor || descriptor.configurable !== true) {
-      lastError = "network availability getter is not configurable";
-      return { ok: false, error: lastError };
-    }
-
-    try {
-      // Marked as ours for the same reason the namespaces are: the compatibility probe checks
-      // that the getter currently reads false, and a successful override makes it read true. Left
-      // unmarked, the patch reads its own success as "the client already reports this available,
-      // stand aside", declares itself incompatible, and tears down — taking the network list with
-      // it.
-      const owned = () => true;
-      const originalDescriptor =
-        descriptor.get?.[getterMarker] === true ? descriptor.get[originalGetterField] : descriptor;
-      Object.defineProperty(owned, getterMarker, {
-        value: true,
-        configurable: true,
-        enumerable: false,
-      });
-      Object.defineProperty(owned, originalGetterField, {
-        value: originalDescriptor,
-        configurable: true,
-        enumerable: false,
-      });
-      Object.defineProperty(proto, property, { get: owned, configurable: true });
-      original = originalDescriptor;
-    } catch (error) {
-      lastError = String(error);
+    const claim = claimAccessor(proto, property, availability, () => true);
+    if (!claim.ok) {
+      lastError = claim.error;
       return { ok: false, error: lastError };
     }
     target = proto;
@@ -164,28 +147,25 @@ function createNetworkGate() {
     const net = window.SteamClient?.System?.Network;
     if (!net || scanWrapped) return;
     const wrap = (name: string, command: string) => {
+      // Checked before claiming, not inside the factory: a client without this method is one this
+      // gate leaves alone entirely, and claiming would mark and reassign something that is not a
+      // method at all.
       const current = net[name];
-      const inner = current?.[scanMarker] === true ? current[originalScanField] : current;
-      if (typeof inner !== "function") return null;
-      const wrapped = function (this: unknown, ...args: unknown[]) {
-        // A scan request that cannot reach WSGM must not stop Steam's own call. Promise
-        // rejection is handled explicitly; a try/catch only sees synchronous construction.
-        void request(patchId, command, null).catch(() => {});
+      const existing = claimed(current, scan) ? current[scan.original] : current;
+      if (typeof existing !== "function") return null;
 
-        return inner.apply(this, args);
-      };
-      Object.defineProperty(wrapped, scanMarker, {
-        value: true,
-        configurable: true,
-        enumerable: false,
+      let inner: ((...a: unknown[]) => unknown) | null = null;
+      const claim = claimMember(net, name, scan, (original) => {
+        inner = original as (...a: unknown[]) => unknown;
+        return function (this: unknown, ...args: unknown[]) {
+          // A scan request that cannot reach WSGM must not stop Steam's own call. Promise
+          // rejection is handled explicitly; a try/catch only sees synchronous construction.
+          void request(patchId, command, null).catch(() => {});
+
+          return inner!.apply(this, args);
+        };
       });
-      Object.defineProperty(wrapped, originalScanField, {
-        value: inner,
-        configurable: true,
-        enumerable: false,
-      });
-      net[name] = wrapped;
-      return inner;
+      return claim.ok ? inner : null;
     };
 
     originalStart = wrap("StartScanningForNetworks", "startScan");
@@ -196,12 +176,8 @@ function createNetworkGate() {
   const unwrapScanning = () => {
     const net = window.SteamClient?.System?.Network;
     if (!net || !scanWrapped) return;
-    if (net.StartScanningForNetworks?.[scanMarker] === true && originalStart) {
-      net.StartScanningForNetworks = originalStart;
-    }
-    if (net.StopScanningForNetworks?.[scanMarker] === true && originalStop) {
-      net.StopScanningForNetworks = originalStop;
-    }
+    releaseMember(net, "StartScanningForNetworks", scan);
+    releaseMember(net, "StopScanningForNetworks", scan);
     originalStart = null;
     originalStop = null;
     scanWrapped = false;
@@ -214,19 +190,14 @@ function createNetworkGate() {
       unsubscribe = null;
     }
     removeNetworkState(true);
-    if (!target || !original) return { ok: true, absent: true };
-    try {
-      const current = Object.getOwnPropertyDescriptor(target, property);
-      if (current?.get?.[getterMarker] === true) {
-        Object.defineProperty(target, property, original);
-      }
-    } catch (error) {
-      lastError = String(error);
+    if (!target) return { ok: true, absent: true };
+    const released = releaseAccessor(target, property, availability);
+    if (!released.ok) {
+      lastError = released.error ?? "network availability release failed";
       return { ok: false, error: lastError };
     }
 
     target = null;
-    original = undefined;
     return { ok: true, removed: true };
   };
 

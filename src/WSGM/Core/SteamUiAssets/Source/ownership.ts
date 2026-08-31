@@ -112,10 +112,15 @@ const claimMember = (
       ? (current as Record<string, unknown>)[keys.original]
       : current;
     const next = replacement(original) as Record<string, unknown>;
-    if (next && typeof next === "object") {
-      defineHidden(next, keys.marker, true);
-      defineHidden(next, keys.original, original);
+    // Functions as well as objects: every member claim so far replaces a METHOD, and `typeof` a
+    // function is "function", not "object". Excluding it left the replacement unmarked, so the
+    // release found nothing of ours and handed nothing back — the overlay outlived its own
+    // removal.
+    if (!next || (typeof next !== "object" && typeof next !== "function")) {
+      return { ok: false, error: "claim replacement cannot carry its marker" };
     }
+    defineHidden(next, keys.marker, true);
+    defineHidden(next, keys.original, original);
     host[member] = next;
     return { ok: true, reclaimed };
   } catch (error) {
@@ -151,3 +156,60 @@ const memberClaimed = (
   member: string,
   keys: ClaimKeys,
 ) => claimed(host?.[member], keys);
+
+// Claims an accessor property — a getter the client computes, that a gate answers differently.
+//
+// Separate from claimMember because the write has to be defineProperty rather than assignment:
+// assigning to a getter-backed property either calls a setter that is not there or throws, and
+// defining the replacement on the INSTANCE instead of where the accessor lives would shadow rather
+// than replace, leaving the shadow behind after removal. The marker goes on the replacement getter
+// and carries the whole original descriptor, because that is what has to be handed back.
+//
+// Refuses a non-configurable property rather than throwing: a client that locked it is a client
+// this gate stands aside for.
+const claimAccessor = (
+  host: object | null,
+  property: string,
+  keys: ClaimKeys,
+  getter: () => unknown,
+): ClaimOutcome => {
+  if (!host) {
+    return { ok: false, error: "claim host unavailable" };
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(host, property);
+  if (!descriptor || descriptor.configurable !== true) {
+    return { ok: false, error: "property is not configurable" };
+  }
+  try {
+    const reclaimed = claimed(descriptor.get, keys);
+    const original = reclaimed
+      ? (descriptor.get as unknown as Record<string, unknown>)[keys.original]
+      : descriptor;
+    defineHidden(getter, keys.marker, true);
+    defineHidden(getter, keys.original, original);
+    Object.defineProperty(host, property, { get: getter, configurable: true });
+    return { ok: true, reclaimed };
+  } catch (error) {
+    return { ok: false, error: String(error) };
+  }
+};
+
+// Restores the descriptor a claimed accessor displaced.
+const releaseAccessor = (
+  host: object | null,
+  property: string,
+  keys: ClaimKeys,
+): { ok: boolean; error?: string } => {
+  if (!host) return { ok: true };
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(host, property);
+    if (!claimed(descriptor?.get, keys)) return { ok: true };
+    const original = (descriptor!.get as unknown as Record<string, unknown>)[keys.original];
+    if (original) {
+      Object.defineProperty(host, property, original as PropertyDescriptor);
+    }
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: String(error) };
+  }
+};
