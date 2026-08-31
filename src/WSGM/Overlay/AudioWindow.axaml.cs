@@ -18,12 +18,6 @@ public partial class AudioWindow : Window
     /// <summary>The slider receives controller focus when the panel opens.</summary>
     internal InputElement DefaultFocusTarget => VolumeSlider;
 
-    /// <summary>Design-time constructor required by the Avalonia XAML loader.</summary>
-    public AudioWindow()
-        : this(new AudioManager())
-    {
-    }
-
     /// <summary>Creates an audio panel over the supplied live manager.</summary>
     /// <param name="audio">The taskbar-owned audio manager.</param>
     /// <param name="uiScale">The desktop-DPI scale factor for WSGM UI.</param>
@@ -38,18 +32,7 @@ public partial class AudioWindow : Window
             _audio.Refresh();
             VolumeSlider.Focus(NavigationMethod.Directional);
         };
-        KeyDown += (_, e) =>
-        {
-            if (e.Key == Key.Escape)
-            {
-                Close();
-            }
-        };
-        // Same delayed-touch defense as the taskbar and radio panel. The
-        // controller owns the matching 150 ms deferred close.
-        Win32Properties.AddWndProcHookCallback(
-            this,
-            Interop.NativeMethods.SwallowTouchSynthesizedMouse);
+        TaskbarPanel.WirePanelBehaviour(this);
     }
 
     private void OnRefreshClicked(object? sender, RoutedEventArgs e) => _audio.Refresh();

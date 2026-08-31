@@ -38,12 +38,6 @@ public partial class RadioWindow : Window
     private string _promptSsid = "";
     private uint _promptToken;
 
-    /// <summary>Design-time constructor. Avalonia's XAML loader needs it.</summary>
-    public RadioWindow()
-        : this(new RadioManager(), bluetooth: false)
-    {
-    }
-
     /// <summary>The window's design size in DIPs, before the touch scale.</summary>
     private const double BaseWidth = 500;
     private const double BaseHeight = 600;
@@ -109,24 +103,7 @@ public partial class RadioWindow : Window
             _radios.PairingRequested -= OnPairingRequested;
             _radios.PropertyChanged -= OnRadiosPropertyChanged;
         };
-        // Controller navigation moves focus with Focus(Directional), which does
-        // NOT raise RequestBringIntoView — a network or device row below the
-        // fold would take focus while staying offscreen. Ask for it explicitly,
-        // exactly as the taskbar's scrolling strips do.
-        ListScroller.AddHandler(GotFocusEvent, OnRowGotFocus, RoutingStrategies.Bubble);
-        // Same touch-promotion defense as the overlay and taskbar (invariant 3):
-        // Avalonia never marks touch handled, so DefWindowProc synthesizes a
-        // late mouse click that would press whatever sits under the panel.
-        Win32Properties.AddWndProcHookCallback(
-            this,
-            Interop.NativeMethods.SwallowTouchSynthesizedMouse);
-        KeyDown += (_, e) =>
-        {
-            if (e.Key == Avalonia.Input.Key.Escape)
-            {
-                Close();
-            }
-        };
+        TaskbarPanel.WirePanelBehaviour(this, ListScroller);
     }
 
     /// <summary>Places the panel just above the taskbar, at the right-hand end
@@ -143,14 +120,6 @@ public partial class RadioWindow : Window
 
     /// <summary>Scrolls a newly focused row (or its action button) into the
     /// viewport. A no-op when it is already fully visible.</summary>
-    private void OnRowGotFocus(object? sender, Avalonia.Input.FocusChangedEventArgs e)
-    {
-        if (e.Source is Control control && control is not ScrollViewer)
-        {
-            control.BringIntoView();
-        }
-    }
-
     /// <summary>Shows the Wi-Fi or Bluetooth tab. Lets an already-open panel
     /// honour the tile that was tapped instead of staying on whichever tab it
     /// happened to open on.</summary>
