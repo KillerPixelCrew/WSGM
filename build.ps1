@@ -10,10 +10,10 @@ $csproj = Get-Content "$root\src\WSGM\WSGM.csproj" -Raw
 if ($csproj -notmatch '<Version>([^<]+)</Version>') { throw "No <Version> found in WSGM.csproj" }
 $version = $Matches[1]
 
-# This check uses only checked-in assets and Node built-ins. Run it before the
-# native toolchains so stale generated Steam UI code fails immediately.
+# This check rebuilds the asset from its TypeScript source and compares, so stale generated Steam
+# UI code fails immediately. Run before the native toolchains for that reason.
 Write-Host "== Validating release inputs ==" -ForegroundColor Cyan
-npm run steam-assets:verify
+npm run steam-assets:check
 if ($LASTEXITCODE -ne 0) { throw "Steam UI asset drift check failed" }
 
 # The Steam Input gate is built from the source in native\SteamInput on every

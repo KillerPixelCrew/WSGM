@@ -54,7 +54,7 @@ if (-not $SkipBuild) {
     Write-Host '== Publishing WSGM (self-contained JIT) ==' -ForegroundColor Cyan
     # Preserve the release build environment that build.ps1 uses for native dependencies.
     $env:Path += ";${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer"
-    npm run steam-assets:verify
+    npm run steam-assets:check
     if ($LASTEXITCODE -ne 0) { throw 'Steam UI asset drift check failed' }
     dotnet publish (Join-Path $root 'src\WSGM\WSGM.csproj') -c Release -r win-x64 `
         -o $appPublish -m:1
