@@ -295,19 +295,28 @@ changed against the plan rather than restating it.
   is a separate decision. A script is confined to its package; every patch must be prefixed with
   the extension's own id.
 
+- **6, second half — extracted.** `KillerPixelCrew/steam-ui-toolkit`, MIT, public, pinned at
+  `external\steam-ui-toolkit`, with its own CI running the claim check against the emitted prelude.
+  The composed asset rebuilds to the identical hash it had before the split.
+
+  Compiling the prelude alone is what found the last coupling: `bridge.ts` would not build without
+  the gates, because it constructed each by name and published it under a fixed property. Gates
+  register themselves now, and the prelude build fails if that returns. Wiring WSGM back on also
+  moved six types from `internal` to `public` — including the four transport seams a consumer needs
+  to test against a fake wire — each of which the documentation gate caught as CS1591 first.
+
 **Remaining.**
 
-- **6, second half — the repo split.** Mechanical: `filter-repo`, MIT, own CI, submodule. Three
-  small helpers still need to travel with the transport (`SteamCef.IsAllowedDebuggerUrl`,
-  `SteamCef.IsSteamPortOwner`, `NativeTcp.ListListeners`), and WSGM's asset builder needs to read
-  the prelude fragments from the submodule while keeping its own gates. Left until last so the
-  extension host travels with it rather than being moved twice.
-- **7, second half — the Extensions tab**, and the decision about whether extensions may have a
-  .NET backend at all.
-- **The attended device pass.** Steps 1-5 changed the injected asset five times. The automated gate
-  proves the asset compiles, hashes, round-trips and that its ownership claims behave; it cannot
-  show that the QAM renders or that a slider moves hardware. That check is outstanding for all of
-  them, and for the bridge now being handed its asset rather than loading it.
+- **The Extensions tab.** Deferred: the host is built and tested, the surface is not. Picking it up
+  means mounting a tab, rendering one row per loaded extension, and showing the refusals
+  `SteamUiExtensionHost` already reports — it returns rejected extensions with their reason
+  precisely so a tab can say why one is not there.
+- **Whether extensions may carry a .NET backend.** Deliberately unanswered. A JavaScript extension
+  already reaches the three APIs; adding in-process assembly loading is a separate decision with
+  its own consequences, and it should not arrive as a side effect of building the tab.
+- **The attended device pass.** Every asset change in steps 1-6 is proven by construction and by
+  the automated gate — that the asset compiles, hashes, round-trips, and that its ownership claims
+  behave. Whether the QAM renders is a device question.
 
 ## The work, in dependency order
 

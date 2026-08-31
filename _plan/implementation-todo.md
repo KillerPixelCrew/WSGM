@@ -188,9 +188,10 @@ pinned submodule, so it can be versioned, consumed and reported against on its o
       own removal; the Perf gate deleting its namespace without checking the marker, so WSGM's own
       cleanup would have removed a real backend; `GetState` read before it was validated; and the
       bridge naming its consumer's gates, which only surfaced when the prelude was compiled alone.
-      **Remaining: the Extensions tab** (the host exists; the surface does not), the decision on
-      whether extensions may carry a .NET backend, and the attended device pass covering every
-      asset change, which no automated gate can stand in for.
+      **Remaining, and deferred by decision: the Extensions tab.** The host is built and tested;
+      the surface is not, and it is not next. Also open: whether extensions may carry a .NET
+      backend, which should not arrive as a side effect of building the tab. And the attended
+      device pass covering every asset change, which no automated gate can stand in for.
 
 ## Verification for this milestone
 
