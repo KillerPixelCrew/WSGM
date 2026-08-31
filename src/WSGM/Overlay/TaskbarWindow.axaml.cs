@@ -209,8 +209,7 @@ public partial class TaskbarWindow : Window
 
     private InputElement? FindFirstTile()
     {
-        // The first APP TILE, not the window's first button (that is the home
-        // button since the three-zone rebuild).
+        // The first APP TILE, not the window's first button — that one is the home button.
         foreach (var descendant in Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(AppTiles))
         {
             if (descendant is Button { IsEffectivelyVisible: true } button)

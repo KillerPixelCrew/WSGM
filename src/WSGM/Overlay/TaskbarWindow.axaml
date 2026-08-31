@@ -59,31 +59,11 @@
                  viewport once it overflows. Vertical scrolling is Disabled so the
                  window keeps its SizeToContent="Height" behaviour.
 
-                 Does the scrollbar appearing at the overflow threshold change the
-                 bar's height? VERIFIED for Avalonia 11.3.18's own Fluent template
-                 (src/Avalonia.Themes.Fluent/Controls/ScrollViewer.xaml at tag
-                 11.3.18, read from the tagged source — the NuGet package ships
-                 only compiled XAML): PART_HorizontalScrollBar sits in the template
-                 Grid's Auto row, and the style `^[AllowAutoHide=True] /template/
-                 ScrollContentPresenter#PART_ContentPresenter` sets Grid.RowSpan=2
-                 / Grid.ColumnSpan=2, so the presenter spans the star row AND that
-                 Auto row; Grid.EnsureMinSizeInDefinitionRange (Avalonia
-                 Grid.cs @11.3.18) distributes a spanning child's height into the
-                 non-Auto definitions and keeps Auto ones "tight", so the ~12 px
-                 scrollbar row is absorbed by the 44 px tile height instead of
-                 being added to it.
-                 NOT verified: WSGM renders under FluentAvaloniaTheme 2.4.1, whose
-                 own ScrollViewer control theme REPLACES that template, and the
-                 FluentAvalonia repo publishes no v2.4.1 tag to read it from (the
-                 shipped 2.4.1 assembly does contain the same PART_ names). Its
-                 current source hard-codes RowSpan="2"/ColumnSpan="2" on the
-                 presenter unconditionally, which would give the same outcome —
-                 that is an assumption, not a confirmed fact for the pinned build.
-                 It does not matter either way: SizeChanged → SnapToBottomEdge
-                 re-docks the bar flush to the bottom edge whenever its height does
-                 change.
-                 Controller focus is scrolled into view explicitly in the
-                 code-behind (OnStripGotFocus) — see the comment there. -->
+                 A scrollbar appearing at the overflow threshold cannot leave the bar
+                 mis-docked whatever the theme does with its height: SizeChanged →
+                 SnapToBottomEdge re-docks it flush to the bottom edge. Controller
+                 focus is scrolled into view explicitly in the code-behind
+                 (OnStripGotFocus) — see the comment there. -->
             <ScrollViewer Grid.Column="1"
                           x:Name="TileScroller"
                           HorizontalScrollBarVisibility="Auto"
