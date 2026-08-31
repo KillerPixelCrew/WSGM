@@ -10,7 +10,12 @@
 # AGENTS.md and every CLAUDE.md symlink beside one ARE tracked on purpose — they are
 # the instructions a contributor's AI reads, so they have to ship with the repo.
 .claude/
-.codex/
+# Excluded per-entry rather than as a directory: git cannot re-include a file inside an excluded
+# directory, and config.toml below has to stay tracked.
+.codex/*
+# ...except Codex's project-scoped server config, which is shared tooling rather than session
+# state: it attaches an MCP client to Steam's CEF port and is identical on every machine.
+!.codex/config.toml
 .cursor/
 .aider*
 
@@ -507,5 +512,5 @@ $RECYCLE.BIN/
 # External reference clones (nested repos, not part of WSGM)
 _ref/
 
-# Local MCP server config (per-machine)
-.mcp.json
+# The MCP server config is tracked: it holds no machine-specific path, only the loopback CDP port
+# Steam already listens on, so every contributor gets the same Steam UI tooling.
