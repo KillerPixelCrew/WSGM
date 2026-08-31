@@ -15,8 +15,8 @@ namespace WSGM.Controls;
 /// A drawing rather than an image control, because there is nothing to load. The SDK's package
 /// loader has already turned the plugin's SVG into a normalized path model, and
 /// <see cref="PhysicalGlyphService"/> has already turned that into Avalonia geometry — so rendering
-/// is a transform and a fill, with no parser, no decoder and no external SVG library in the
-/// NativeAOT executable.
+/// is a transform and a fill, with no parser, decoder, or external SVG library in the resident
+/// application.
 /// <para>
 /// Nothing here reaches for a profile, a package or a file. The plan is supplied, and a plan that
 /// carries no artwork draws nothing, which is how a device with no glyph profile renders as blank
@@ -58,10 +58,8 @@ internal sealed class PhysicalGlyphImage : Control
 
     /// <inheritdoc/>
     /// <remarks>
-    /// The decoded bitmap is native memory, and it used to be released only when this same control
-    /// decoded a different PNG. Rebuilding a glyph preview clears the visual tree and creates new
-    /// instances, so every discarded one held its bitmap until finalization and repeated
-    /// capability-state refreshes in the resident shell accumulated them.
+    /// Raster plans own native bitmap memory. Glyph-preview rebuilds replace controls, so detach is
+    /// the deterministic release boundary.
     /// </remarks>
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {

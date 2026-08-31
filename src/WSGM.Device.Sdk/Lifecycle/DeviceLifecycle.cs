@@ -11,16 +11,15 @@ namespace WSGM.Device.Sdk.Lifecycle;
 /// turning controller management off, and a temporarily degraded capability are all state that
 /// happens *inside* one cycle — none of them is a transition here.
 /// <para>
-/// There is deliberately no state meaning "the host crashed". An unexpected host exit is a fault
-/// within the running cycle, handled by restart, backoff, and then <see cref="Faulted"/>. Making
-/// it a lifecycle state would let a crash read as an intentional deactivation and a handoff to an
-/// external manager that never happened.
+/// There is no separate state for a runtime task fault. It is handled within the running cycle by
+/// cleanup, bounded restart, and then <see cref="Faulted"/>; it is not an intentional deactivation
+/// or a handoff to another manager.
 /// </para>
 /// </remarks>
 [JsonConverter(typeof(JsonStringEnumConverter<DeviceCycleState>))]
 public enum DeviceCycleState
 {
-    /// <summary>Device Integration is off. No host, device service, or hook exists.</summary>
+    /// <summary>Device Integration is off. No plugin runtime, device service, or hook exists.</summary>
     Disabled,
 
     /// <summary>The exact board matched. Capabilities are still being probed.</summary>
@@ -48,7 +47,7 @@ public enum DeviceCycleState
     Deactivating,
 
     /// <summary>
-    /// The host failed repeatedly and will not be restarted automatically.
+    /// The plugin runtime failed repeatedly and will not be restarted automatically.
     /// </summary>
     /// <remarks>
     /// This state fails open: the virtual target and WSGM's HidHide entries are removed so the user

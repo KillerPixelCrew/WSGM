@@ -3,13 +3,12 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Input;
-using WSGM.Device.Sdk.Ipc;
 using WSGM.Device.Sdk.Settings;
 
 namespace WSGM.Device.Sdk.Plugin;
 
 /// <summary>
-/// Semantic publication surface DeviceHost gives to exactly one active plugin.
+/// Semantic publication surface WSGM gives to exactly one active plugin.
 /// </summary>
 /// <remarks>
 /// No method carries a raw transport, arbitrary operation, path, script, or executable. The plugin
@@ -23,7 +22,7 @@ public interface IPluginHostAdapter
     /// <summary>Publishes an immutable replacement descriptor set.</summary>
     /// <param name="descriptors">Complete descriptor set.</param>
     /// <param name="cancellationToken">Cancels publication.</param>
-    /// <returns>A task completing after DeviceHost accepted it.</returns>
+    /// <returns>A task completing after WSGM accepted it.</returns>
     ValueTask PublishDescriptorsAsync(
         CapabilityDescriptorSet descriptors,
         CancellationToken cancellationToken);
@@ -31,7 +30,7 @@ public interface IPluginHostAdapter
     /// <summary>Publishes one capability observation.</summary>
     /// <param name="state">Live semantic state.</param>
     /// <param name="cancellationToken">Cancels publication.</param>
-    /// <returns>A task completing after DeviceHost accepted it.</returns>
+    /// <returns>A task completing after WSGM accepted it.</returns>
     ValueTask PublishCapabilityStateAsync(
         CapabilityState state,
         CancellationToken cancellationToken);
@@ -40,7 +39,7 @@ public interface IPluginHostAdapter
     /// <param name="devices">Plugin-owned physical interfaces.</param>
     /// <param name="output">What the controller can do with haptic output, or null for none.</param>
     /// <param name="cancellationToken">Cancels publication.</param>
-    /// <returns>A task completing after DeviceHost accepted them.</returns>
+    /// <returns>A task completing after WSGM accepted them.</returns>
     ValueTask PublishPhysicalDevicesAsync(
         IReadOnlyList<PhysicalDeviceIdentity> devices,
         HapticCapabilities? output,
@@ -57,7 +56,7 @@ public interface IPluginHostAdapter
     /// <summary>Publishes the closed set of assignable OEM controls.</summary>
     /// <param name="controls">Logical device controls.</param>
     /// <param name="cancellationToken">Cancels publication.</param>
-    /// <returns>A task completing after DeviceHost accepted them.</returns>
+    /// <returns>A task completing after WSGM accepted them.</returns>
     ValueTask PublishOemControlsAsync(
         IReadOnlyList<OemControlDescriptor> controls,
         CancellationToken cancellationToken);
@@ -65,7 +64,7 @@ public interface IPluginHostAdapter
     /// <summary>Publishes one deduplicated OEM-control event.</summary>
     /// <param name="controlEvent">Logical event.</param>
     /// <param name="cancellationToken">Cancels publication.</param>
-    /// <returns>A task completing after DeviceHost accepted it.</returns>
+    /// <returns>A task completing after WSGM accepted it.</returns>
     ValueTask PublishOemEventAsync(
         OemControlEvent controlEvent,
         CancellationToken cancellationToken);
@@ -73,7 +72,7 @@ public interface IPluginHostAdapter
     /// <summary>Declares the settings WSGM should draw, validate, store, and localize.</summary>
     /// <param name="manifest">Typed elements and the sections they belong to.</param>
     /// <param name="cancellationToken">Cancels publication.</param>
-    /// <returns>A task completing after DeviceHost accepted it.</returns>
+    /// <returns>A task completing after WSGM accepted it.</returns>
     /// <remarks>
     /// A declaration, never UI. WSGM refuses a manifest that does not validate and keeps the
     /// previous one, so a plugin cannot half-draw a page by publishing a broken replacement.
@@ -89,7 +88,7 @@ public interface IPluginHostAdapter
     /// <summary>Writes one diagnostic line into WSGM's log.</summary>
     /// <param name="level">How much the line matters.</param>
     /// <param name="scope">Subsystem producing it, used as the log prefix.</param>
-    /// <param name="message">The line; truncated past <see cref="DeviceTraceMessage.MaxMessageLength"/>.</param>
+    /// <param name="message">The line; truncated past <see cref="PluginTrace.MaxMessageLength"/>.</param>
     /// <remarks>
     /// Deliberately synchronous, void, and documented never to throw, unlike every publication on
     /// this interface. That is the whole point: a plugin author instruments a decision only if
@@ -103,4 +102,15 @@ public interface IPluginHostAdapter
     /// </para>
     /// </remarks>
     void Trace(DeviceTraceLevel level, string scope, string message);
+
+    /// <summary>Reports a background service failure that invalidates the active device cycle.</summary>
+    /// <param name="scope">Subsystem that faulted.</param>
+    /// <param name="message">Bounded diagnostic detail.</param>
+    /// <remarks>
+    /// Use this only when work started by the plugin fails after its initiating lifecycle call has
+    /// already returned. Synchronous lifecycle and command failures continue to travel through
+    /// their normal result or exception path.
+    /// </remarks>
+    void ReportFault(string scope, string message) =>
+        Trace(DeviceTraceLevel.Error, scope, message);
 }

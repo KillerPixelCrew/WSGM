@@ -135,7 +135,7 @@ public sealed class PluginSettingRowViewModelTests
     {
         PluginSettingRowViewModel row = new(
             Descriptor(CapabilityValueKind.Choice, choices: ["quiet", "loud"]),
-            new CapabilityValue { Kind = CapabilityValueKind.Choice, TextValue = "loud" });
+            new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = "loud" });
 
         Assert.Equal("loud", row.SelectedChoice?.Value);
     }
@@ -147,9 +147,26 @@ public sealed class PluginSettingRowViewModelTests
         // a different one on the next save.
         PluginSettingRowViewModel row = new(
             Descriptor(CapabilityValueKind.Choice, choices: ["quiet", "loud"]),
-            new CapabilityValue { Kind = CapabilityValueKind.Choice, TextValue = "gone" });
+            new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = "gone" });
 
         Assert.Null(row.SelectedChoice);
+    }
+
+    [Fact]
+    public void SelectingAChoicePublishesTheChoiceField()
+    {
+        PluginSettingRowViewModel row = new(
+            Descriptor(CapabilityValueKind.Choice, choices: ["quiet", "loud"]),
+            new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = "quiet" });
+        CapabilityValue? edited = null;
+        row.Edited += (_, value) => edited = value;
+
+        row.SelectedChoice = row.Choices.Single(choice => choice.Value == "loud");
+
+        Assert.NotNull(edited);
+        Assert.Equal(CapabilityValueKind.Choice, edited.Kind);
+        Assert.Equal("loud", edited.ChoiceValue);
+        Assert.Null(edited.TextValue);
     }
 
     [Fact]

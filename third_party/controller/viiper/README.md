@@ -54,9 +54,8 @@ Two toolchains are required and the script names them rather than failing obscur
 compiler for cgo. Without a C compiler Go quietly sets `CGO_ENABLED=0` and then reports "build
 constraints exclude all Go files", which says nothing about the real cause.
 
-The library exposes a flat C ABI over blittable types, so WSGM's NativeAOT executable binds it
-directly through `LibraryImport` — the same arrangement as the Rust helpers, and the reason no helper
-process is needed for a virtual controller.
+The library exposes a flat C ABI over blittable types, so WSGM binds it directly through
+`LibraryImport`. VIIPER owns the virtual USB implementation in-process; no helper process is needed.
 
 ## Build baseline
 

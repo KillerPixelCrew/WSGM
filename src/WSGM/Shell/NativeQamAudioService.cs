@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Threading;
 using WSGM.Core;
 
 namespace WSGM.Shell;
@@ -157,8 +158,27 @@ internal sealed class AudioManagerNativeQamAudioService : INativeQamAudioService
             return new NativeQamCommandResult(false, "No audio device was named.");
         }
 
-        AudioEndpointEntry? entry = (input ? _audio.InputEndpoints : _audio.OutputEndpoints)
-            .FirstOrDefault(candidate => string.Equals(candidate.Id, deviceId, StringComparison.Ordinal));
+        AudioEndpointEntry? entry = null;
+        await RunUiAsync(() =>
+        {
+            entry = (input ? _audio.InputEndpoints : _audio.OutputEndpoints)
+                .FirstOrDefault(candidate => string.Equals(candidate.Id, deviceId, StringComparison.Ordinal));
+            if (entry is null)
+            {
+                return;
+            }
+
+            if (input)
+            {
+                _audio.SelectedInput = entry;
+            }
+            else
+            {
+                _audio.SelectedOutput = entry;
+            }
+
+            Publish();
+        }, cancellationToken).ConfigureAwait(false);
         if (entry is null)
         {
             Log.Warn(
@@ -167,25 +187,8 @@ internal sealed class AudioManagerNativeQamAudioService : INativeQamAudioService
             return new NativeQamCommandResult(false, "That audio device is no longer present.");
         }
 
-        // Selection runs on the manager's own property, which is what the taskbar sets too, so both
-        // surfaces move the same state rather than racing two paths to the same endpoint.
-        await Task.Run(
-            () =>
-            {
-                if (input)
-                {
-                    _audio.SelectedInput = entry;
-                }
-                else
-                {
-                    _audio.SelectedOutput = entry;
-                }
-            },
-            cancellationToken).ConfigureAwait(false);
-
         Log.Info(
             $"Native QAM audio: default {(input ? "input" : "output")} set to '{entry.Name}'.");
-        Publish();
         return new NativeQamCommandResult(true, string.Empty);
     }
 
@@ -201,8 +204,11 @@ internal sealed class AudioManagerNativeQamAudioService : INativeQamAudioService
             Log.Info($"Native QAM audio: volume {percent} clamped to {clamped}.");
         }
 
-        await Task.Run(() => _audio.VolumePercent = clamped, cancellationToken).ConfigureAwait(false);
-        Publish();
+        await RunUiAsync(() =>
+        {
+            _audio.VolumePercent = clamped;
+            Publish();
+        }, cancellationToken).ConfigureAwait(false);
         return new NativeQamCommandResult(true, string.Empty);
     }
 
@@ -259,6 +265,13 @@ internal sealed class AudioManagerNativeQamAudioService : INativeQamAudioService
     private void OnAudioChanged(object? sender, PropertyChangedEventArgs e) => Publish();
 
     private void OnEndpointsChanged(object? sender, EventArgs e) => Publish();
+
+    /// <summary>Runs one AudioManager operation on the UI thread that owns its observable state.</summary>
+    private static Task RunUiAsync(Action action, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Dispatcher.UIThread.InvokeAsync(action).GetTask();
+    }
 
     private void Publish()
     {

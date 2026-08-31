@@ -101,13 +101,22 @@ public sealed class DeviceIntegrationOffTests
         Assert.True(sequence.HidHideRemoved);
     }
 
-    [Fact]
-    public void AutoTdpFollowsTheMasterSwitchRatherThanItsOwn()
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, true)]
+    public void AutoTdpStartupAndReloadShareTheMasterSwitchPolicy(
+        bool integrationEnabled,
+        bool autoTdpEnabled,
+        bool expected)
     {
-        // Stored on, integration off: AutoTDP must not be writing a power limit to a device WSGM is
-        // supposed to have let go of.
-        DeviceIntegrationConfig config = new() { Enabled = false, AutoTdpEnabled = true };
+        DeviceIntegrationConfig config = new()
+        {
+            Enabled = integrationEnabled,
+            AutoTdpEnabled = autoTdpEnabled,
+        };
 
-        Assert.False(config.Enabled && config.AutoTdpEnabled);
+        Assert.Equal(expected, ShellSession.ShouldRunAutoTdp(config));
     }
 }

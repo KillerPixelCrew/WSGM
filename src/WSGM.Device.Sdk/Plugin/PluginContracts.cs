@@ -5,12 +5,12 @@ using System.Threading.Tasks;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Identity;
 using WSGM.Device.Sdk.Input;
-using WSGM.Device.Sdk.Ipc;
 using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Device.Sdk.Settings;
 
 namespace WSGM.Device.Sdk.Plugin;
 
-/// <summary>The device-package entry point loaded by one DeviceHost process.</summary>
+/// <summary>The entry point of the sole installed device package.</summary>
 /// <remarks>
 /// The interface is semantic at the host boundary. Implementations own their hardware transports
 /// internally; none of those transports or handles can be returned through this API.
@@ -28,7 +28,7 @@ public interface IDevicePlugin : IAsyncDisposable
         PluginDetectionContext context,
         CancellationToken cancellationToken);
 
-    /// <summary>Begins one process-long device cycle.</summary>
+    /// <summary>Begins one device cycle.</summary>
     /// <param name="context">Host adapter, cycle generation, and package-owned state directory.</param>
     /// <param name="cancellationToken">Cancels startup and requires acquired services to unwind.</param>
     /// <returns>The plugin's aggregate operational state after startup.</returns>
@@ -138,7 +138,7 @@ public sealed record PluginDetectionResult
 /// <summary>Inputs to one process-long start.</summary>
 public sealed record PluginStartContext
 {
-    /// <summary>Semantic publication surface implemented by DeviceHost.</summary>
+    /// <summary>Semantic publication surface implemented by WSGM.</summary>
     public required IPluginHostAdapter Host { get; init; }
 
     /// <summary>Cycle generation owning all handles opened during startup.</summary>
@@ -248,7 +248,7 @@ public sealed record PluginControllerRelease
     public IReadOnlyList<PhysicalDeviceIdentity> ReleasedDevices { get; init; } = [];
 }
 
-/// <summary>Why one process-long device cycle is ending.</summary>
+/// <summary>Why one device cycle is ending.</summary>
 public enum PluginStopReason
 {
     /// <summary>WSGM is exiting normally.</summary>
@@ -271,6 +271,9 @@ public enum PluginStopReason
 
     /// <summary>Startup failed after plugin activation may have begun.</summary>
     StartFailed,
+
+    /// <summary>A plugin-owned background service failed during an active cycle.</summary>
+    RuntimeFault,
 }
 
 /// <summary>Terminal cleanup request.</summary>

@@ -5,7 +5,6 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
-using WSGM.Device.Sdk.Ipc;
 
 namespace WSGM.Shell;
 
@@ -49,32 +48,26 @@ internal sealed class DeviceCoordinatorDiagnosticsServer : IAsyncDisposable
             {
                 await using NamedPipeServerStream pipe = new(
                     _pipeName,
-                    PipeDirection.InOut,
+                    PipeDirection.Out,
                     NamedPipeServerStream.MaxAllowedServerInstances,
                     PipeTransmissionMode.Byte,
                     PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly,
                     inBufferSize: 4096,
                     outBufferSize: 64 * 1024);
                 await pipe.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
-                await using DeviceFrameStream frames = new(pipe);
-                byte[] payload = JsonSerializer.SerializeToUtf8Bytes(
+                await JsonSerializer.SerializeAsync(
+                    pipe,
                     _snapshot(),
-                    ConfigJsonContext.Default.DeviceCoordinatorDiagnosticsSnapshot);
-                await frames.WriteAsync(new FrameHeader
-                {
-                    PayloadLength = payload.Length,
-                    ProtocolVersion = DeviceProtocol.Version,
-                    MessageType = DeviceMessageType.DiagnosticsSnapshot,
-                    RequestId = 1,
-                    Flags = FrameFlags.IsResponse,
-                }, payload, cancellationToken).ConfigureAwait(false);
+                    ConfigJsonContext.Default.DeviceCoordinatorDiagnosticsSnapshot,
+                    cancellationToken).ConfigureAwait(false);
+                await pipe.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 return;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-                or InvalidDataException)
+                or JsonException)
             {
                 Log.Warn($"Device diagnostics pipe recovered after failure: {ex.Message}");
             }

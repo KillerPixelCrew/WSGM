@@ -18,8 +18,8 @@
     file-scoped on purpose - exempting a whole file would let an unrelated write slip in beside the
     guard that justified the exemption.
 
-    Production WSGM processes resolve that directory legitimately - ConfigStore, Log, and the
-    DeviceHost package-state boundary own it - so their source is not scanned. Everything that runs
+    Production WSGM processes resolve that directory legitimately - ConfigStore and Log own it - so
+    their source is not scanned. Everything that runs
     as a test, plugin, or developer tool is.
 #>
 [CmdletBinding()]
@@ -32,7 +32,7 @@ $root = Split-Path -Parent $PSScriptRoot
 
 # Scanned: anything that may run on a developer's machine outside the shipped application.
 # Deliberately excluded: the shipped WSGM processes, which own the real directory, and
-# third_party\, which is vendored upstream source. DeviceHost tests use its explicit-root seam.
+# third_party\, which is vendored upstream source. Runtime tests use explicit-root seams.
 $scanned = @(
     "tests",
     "plugins",

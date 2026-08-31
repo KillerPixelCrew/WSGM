@@ -8,7 +8,7 @@ namespace WSGM.Device.Sdk.Identity;
 /// </summary>
 /// <remarks>
 /// This is the observed half of identity: the manifest declares predicates, this records what the
-/// machine actually reports. Producing it is platform work owned by Device Lab and the device host;
+/// machine actually reports. Producing it is platform work owned by Device Lab and WSGM's runtime;
 /// the contract only fixes which facts exist and how they compare, so both sides agree on what
 /// "matched" means.
 /// <para>

@@ -7,7 +7,7 @@
   const out = {};
   for (const id of [
     "wsgm.native-qam.resolution",
-    "wsgm.native-qam.valve-vrr",
+    "wsgm.native-qam.vrr",
     "wsgm.native-qam.frame-limit",
   ]) {
     try {

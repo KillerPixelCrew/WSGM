@@ -211,25 +211,18 @@ internal sealed partial class NativePackageSource : IDisposable
 
     private static NativeEntryInformation ReadInformation(SafeFileHandle handle, string path)
     {
-        if (GetFileInformationByHandle(
-            handle.DangerousGetHandle(),
-            out ByHandleFileInformation information) == 0)
+        if (!NativePathIdentityReader.TryRead(
+            handle,
+            out NativePathInformation information,
+            out int error))
         {
-            throw NativeIoException("inspect", path, Marshal.GetLastPInvokeError());
-        }
-
-        ulong length = ((ulong)information.FileSizeHigh << 32) | information.FileSizeLow;
-        if (length > long.MaxValue)
-        {
-            throw new InvalidDataException($"Package source entry is too large: '{path}'.");
+            throw NativeIoException("inspect", path, error);
         }
 
         return new NativeEntryInformation(
-            information.FileAttributes,
-            new NativePathIdentity(
-                information.VolumeSerialNumber,
-                ((ulong)information.FileIndexHigh << 32) | information.FileIndexLow),
-            (long)length);
+            information.Attributes,
+            information.Identity,
+            information.Length);
     }
 
     private static IOException NativeIoException(string operation, string path, int error) =>
@@ -241,28 +234,6 @@ internal sealed partial class NativePackageSource : IDisposable
         uint Attributes,
         NativePathIdentity Identity,
         long Length);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativeFileTime
-    {
-        public uint LowDateTime;
-        public uint HighDateTime;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct ByHandleFileInformation
-    {
-        public uint FileAttributes;
-        public NativeFileTime CreationTime;
-        public NativeFileTime LastAccessTime;
-        public NativeFileTime LastWriteTime;
-        public uint VolumeSerialNumber;
-        public uint FileSizeHigh;
-        public uint FileSizeLow;
-        public uint NumberOfLinks;
-        public uint FileIndexHigh;
-        public uint FileIndexLow;
-    }
 
     private const uint GenericRead = 0x80000000;
     private const uint FileReadAttributes = 0x00000080;
@@ -287,11 +258,6 @@ internal sealed partial class NativePackageSource : IDisposable
         uint creationDisposition,
         uint flagsAndAttributes,
         nint templateFile);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    private static partial int GetFileInformationByHandle(
-        nint file,
-        out ByHandleFileInformation information);
 
     private static SafeFileHandle OpenPath(
         string path,

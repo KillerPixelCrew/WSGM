@@ -8,7 +8,7 @@ namespace WSGM.Device.Sdk.Capabilities;
 /// </summary>
 /// <remarks>
 /// The distinction that matters most is <see cref="Observed"/> versus <see cref="Verified"/>: a
-/// successful IPC reply is not a hardware readback. A plugin that accepted a command and got no
+/// successful command result is not a hardware readback. A plugin that accepted a command and got no
 /// error has <see cref="Observed"/> at best; only an independent read of the value it wrote earns
 /// <see cref="Verified"/>. Collapsing the two would let the UI show a value the hardware never took.
 /// </remarks>

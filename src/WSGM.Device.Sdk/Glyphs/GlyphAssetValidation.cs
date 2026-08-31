@@ -36,28 +36,13 @@ internal sealed record AssetImportResult(ImportedGlyphAsset? Asset, GlyphAssetIm
 }
 
 /// <summary>
-/// Accepts an SVG asset and hands its bytes through unchanged.
+/// Validates an SVG asset for both passthrough and WSGM's bounded path renderer.
 /// </summary>
 /// <remarks>
-/// This deliberately does not sanitize. It used to: an allowlist of permitted root attributes,
-/// elements, path attributes and colour forms, with the accepted geometry re-serialized into a
-/// canonical document that was what actually shipped. That was removed as security theatre, and the
-/// reasoning is worth keeping because it applies to anything else tempted in the same direction.
-/// <para>
-/// A plugin is a .NET assembly that DeviceHost loads and runs. It already has WMI, HID and EC
-/// access, and nothing stops it opening a socket to Steam's own debug port and driving CEF directly.
-/// Sanitizing the artwork it ships therefore protected nothing that was not already open, while
-/// costing real capability: every one of the twenty glyphs in the first packaged profile was refused
-/// for carrying a <c>width</c> attribute, and the Claw's controller illustration was refused for
-/// grouping its paths with <c>&lt;g stroke-width&gt;</c> — the artwork is a drawing, and the
-/// re-serializer destroyed exactly the grouping a drawing needs.
-/// </para>
-/// <para>
-/// What remains is integrity rather than defence, and it is the same shape as the PNG path beside
-/// it: the bytes must be UTF-8, well-formed XML rooted at an <c>svg</c> element, and carry a view
-/// box or an intrinsic size, so a corrupt file fails at import with a clear reason instead of
-/// rendering as nothing in Steam. The bytes that ship are the author's own.
-/// </para>
+/// The original SVG bytes pass through to Steam. Import verifies UTF-8, bounded well-formed XML,
+/// an <c>svg</c> root, and declared dimensions, then extracts only the paths WSGM's Avalonia
+/// renderer understands. Unsupported drawing features affect that local projection without
+/// rewriting or rejecting the author's document.
 /// </remarks>
 internal static class GlyphSvgNormalizer
 {
@@ -75,9 +60,8 @@ internal static class GlyphSvgNormalizer
 
         XmlReaderSettings settings = new()
         {
-            // The document is never resolved against anything external, and no DTD is processed.
-            // That is not about the plugin — it is about not letting a corrupt file turn an import
-            // into a fetch.
+            // Imported artwork is self-contained: external resolution and DTD processing are not
+            // part of the glyph package contract.
             DtdProcessing = DtdProcessing.Prohibit,
             XmlResolver = null,
             IgnoreComments = true,
@@ -87,6 +71,7 @@ internal static class GlyphSvgNormalizer
 
         GlyphViewBox? viewBox;
         List<NormalizedGlyphPath> paths = [];
+        int commandCount = 0;
         try
         {
             using StringReader text = new(source);
@@ -97,7 +82,7 @@ internal static class GlyphSvgNormalizer
             }
 
             viewBox = ReadViewBox(reader);
-            ExtractPaths(reader, paths);
+            ExtractPaths(reader, paths, ref commandCount);
         }
         catch (XmlException exception)
         {
@@ -107,6 +92,21 @@ internal static class GlyphSvgNormalizer
         if (viewBox is null)
         {
             return Failure(asset, "SVG needs a viewBox, or a positive intrinsic width and height.");
+        }
+
+        if (asset.ViewBox is { } declaredViewBox && declaredViewBox != viewBox.Value)
+        {
+            return AssetImportResult.Failure(
+                asset.Sha256,
+                GlyphAssetImportCode.DimensionMismatch,
+                $"Declared viewBox {declaredViewBox} does not match SVG viewBox {viewBox.Value}.");
+        }
+
+        if (commandCount > GlyphProfileLimits.MaxSvgCommands)
+        {
+            return Failure(
+                asset,
+                $"SVG contains more than {GlyphProfileLimits.MaxSvgCommands} path commands.");
         }
 
         return AssetImportResult.Success(new ImportedGlyphAsset
@@ -133,6 +133,7 @@ internal static class GlyphSvgNormalizer
     /// <summary>Collects the paths WSGM's own renderer can draw.</summary>
     /// <param name="reader">Reader positioned on the root element.</param>
     /// <param name="paths">Receives one entry per path found.</param>
+    /// <param name="commandCount">Running total used to enforce the package command budget.</param>
     /// <remarks>
     /// Deliberately forgiving. Anything it does not understand — an element it has no renderer for,
     /// an attribute outside the handful below — is skipped rather than treated as a fault, because
@@ -145,13 +146,16 @@ internal static class GlyphSvgNormalizer
     /// outlines.
     /// </para>
     /// </remarks>
-    private static void ExtractPaths(XmlReader reader, List<NormalizedGlyphPath> paths)
+    private static void ExtractPaths(
+        XmlReader reader,
+        List<NormalizedGlyphPath> paths,
+        ref int commandCount)
     {
         Presentation root = ReadPresentation(
             reader,
             new Presentation("currentColor", "none", 0, "nonzero", "butt", "miter"));
         List<Presentation> inherited = [root];
-        while (reader.Read() && paths.Count < GlyphProfileLimits.MaxSvgPaths)
+        while (reader.Read())
         {
             if (reader.NodeType == XmlNodeType.EndElement)
             {
@@ -172,7 +176,15 @@ internal static class GlyphSvgNormalizer
             if (reader.LocalName == "path")
             {
                 string? data = reader.GetAttribute("d");
-                if (!string.IsNullOrWhiteSpace(data)
+                if (!string.IsNullOrWhiteSpace(data))
+                {
+                    commandCount = Math.Min(
+                        GlyphProfileLimits.MaxSvgCommands + 1,
+                        commandCount + CountCommands(data));
+                }
+
+                if (paths.Count < GlyphProfileLimits.MaxSvgPaths
+                    && !string.IsNullOrWhiteSpace(data)
                     && data.Length <= GlyphProfileLimits.MaxPathDataLength)
                 {
                     paths.Add(new NormalizedGlyphPath
@@ -193,6 +205,21 @@ internal static class GlyphSvgNormalizer
                 inherited.Add(current);
             }
         }
+    }
+
+    private static int CountCommands(string pathData)
+    {
+        const string Commands = "MmZzLlHhVvCcSsQqTtAa";
+        int count = 0;
+        foreach (char character in pathData)
+        {
+            if (Commands.IndexOf(character) >= 0)
+            {
+                count++;
+            }
+        }
+
+        return count;
     }
 
     /// <summary>Overlays an element's presentation attributes onto what it inherits.</summary>

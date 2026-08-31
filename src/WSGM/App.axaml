@@ -13,7 +13,7 @@
             <ResourceDictionary.MergedDictionaries>
                 <!-- Boot-splash spinner styles. Merged BEFORE Palette.axaml so
                      the Hc* tokens stay authoritative on any key collision. -->
-                <ResourceInclude Source="avares://LoadingIndicators.Avalonia/LoadingIndicators.axaml" />
+                <ResourceInclude Source="avares://WSGM/ThirdParty/LoadingIndicators/LoadingIndicators.axaml" />
                 <ResourceInclude Source="/Themes/Palette.axaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>

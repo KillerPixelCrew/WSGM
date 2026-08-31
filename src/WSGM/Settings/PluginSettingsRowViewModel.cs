@@ -11,8 +11,8 @@ namespace WSGM.Settings;
 /// <remarks>
 /// One row type for every value kind rather than a type per kind, because the page templates by
 /// visibility: each control binds to the one property its kind uses and shows itself through the
-/// matching <c>Is…</c> flag. A template selector would need runtime type inspection, which this
-/// NativeAOT surface does not have.
+/// matching <c>Is…</c> flag. Keeping that shape in one row also keeps refresh and edit publication
+/// identical for every setting kind.
 /// <para>
 /// The row never writes to the device or to configuration. It reports an edit and the owning page
 /// decides what to do with it, which keeps the Settings/overlay boundary intact — a setting
@@ -49,7 +49,7 @@ public sealed class PluginSettingRowViewModel : INotifyPropertyChanged
     /// <summary>The declared setting this row edits.</summary>
     public string SettingId => _descriptor.SettingId;
 
-    /// <summary>Label text. A custom label is the plugin's own untrusted plain text.</summary>
+    /// <summary>Label text. A custom label is bounded plugin-supplied plain text.</summary>
     /// <remarks>
     /// Rendered as text and never as markup. <see cref="CapabilityDisplay"/> already bounds and
     /// validates it; this only chooses between the localized key and the custom string.
@@ -58,9 +58,8 @@ public sealed class PluginSettingRowViewModel : INotifyPropertyChanged
         ? _descriptor.Display.CustomLabel ?? _descriptor.SettingId
         : _descriptor.Display.Key.ToString();
 
-    // No description property, deliberately: CapabilityDisplay carries a label and nothing else, and
-    // adding a second free-text field to the SDK to fill a row would widen the untrusted-text
-    // surface for presentation's sake. A setting that needs explaining needs a clearer label.
+    // CapabilityDisplay carries one label and no description. A setting that needs explanation
+    // needs a clearer label rather than a second text field in the SDK.
 
     /// <summary>Legal options for a choice setting.</summary>
     public IReadOnlyList<CapabilityChoice> Choices { get; }
@@ -182,7 +181,7 @@ public sealed class PluginSettingRowViewModel : INotifyPropertyChanged
                 Publish(new CapabilityValue
                 {
                     Kind = CapabilityValueKind.Choice,
-                    TextValue = choice.Value,
+                    ChoiceValue = choice.Value,
                 });
             }
         }
@@ -202,7 +201,7 @@ public sealed class PluginSettingRowViewModel : INotifyPropertyChanged
         _integerValue = value.IntegerValue ?? Minimum;
         _textValue = value.TextValue ?? string.Empty;
         _selectedChoice = Choices.FirstOrDefault(
-            choice => string.Equals(choice.Value, value.TextValue, StringComparison.Ordinal));
+            choice => string.Equals(choice.Value, value.ChoiceValue, StringComparison.Ordinal));
         Raise(nameof(BooleanValue));
         Raise(nameof(IntegerValue));
         Raise(nameof(TextValue));

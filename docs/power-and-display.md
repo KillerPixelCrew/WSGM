@@ -44,11 +44,10 @@ the Claw's screen times out under Modern Standby; it does (device-verified 2026-
 `Display state: off/on` and `Mute on display off: …` log lines are the whole remote test surface, so
 preserve them. Only a mute WSGM applied itself is undone (a user who muted on purpose stays muted),
 and the service restores on `ProcessExit` so a normal exit while the screen is dark cannot strand
-the device muted; a hard kill still can, which is why the toggle defaults off. Muting goes through
-the native helper's APPCOMMAND
-
-**toggle** (`WsgmVolumeCommand(8)`) after reading the current state — there is no absolute set-mute
-export, so never call it without checking `WsgmVolumeGet` first.
+the device muted; a hard kill still can, which is why the toggle defaults off. The managed Core
+Audio boundary reads the current endpoint before claiming the mute, then applies an absolute
+`IAudioEndpointVolume.SetMute` value. The read preserves the user-mute ownership rule; the absolute
+write avoids a read/toggle race during recovery.
 
 **The wake side listens on every signal Windows has, because there is no way to ASK.** No user-mode
 API reports current display power state (`GetDevicePowerState` explicitly excludes displays), so a

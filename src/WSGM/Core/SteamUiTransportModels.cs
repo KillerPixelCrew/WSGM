@@ -11,9 +11,6 @@ public enum SteamUiTargetRole
     /// <summary>The headless Steam context that owns client stores and webpack modules.</summary>
     SharedJsContext,
 
-    /// <summary>The native controller-oriented Quick Access popup.</summary>
-    QuickAccess,
-
     /// <summary>The Big Picture window, which renders the pages the user is looking at.</summary>
     /// <remarks>
     /// Distinct from <see cref="SharedJsContext"/>, which owns the route and the module registry but
@@ -134,6 +131,19 @@ public interface ISteamUiTransport : IAsyncDisposable
     Task<SteamUiEvaluationResult> EvaluateAsync(
         SteamUiTargetRole role,
         string expression,
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Adds or removes one named Runtime binding for repository-owned injected code.</summary>
+    /// <param name="role">The allowlisted target that owns the binding.</param>
+    /// <param name="bindingName">The exact private binding name.</param>
+    /// <param name="installed">Whether the binding should exist.</param>
+    /// <param name="timeout">The complete request deadline.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    Task SetRuntimeBindingAsync(
+        SteamUiTargetRole role,
+        string bindingName,
+        bool installed,
         TimeSpan timeout,
         CancellationToken cancellationToken = default);
 

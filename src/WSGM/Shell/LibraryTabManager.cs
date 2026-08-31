@@ -193,87 +193,56 @@ public sealed class LibraryTabManager
     /// <param name="cancellationToken">Cancels the wait.</param>
     public async Task SyncOnBootAsync(CancellationToken cancellationToken = default)
     {
-        var waitingForBigPicture = false;
-        for (var attempt = 0; attempt < 30 && !cancellationToken.IsCancellationRequested; attempt++)
+        _ = await SteamUiReadiness.RunWhenReadyAsync(
+            "Library tabs (boot)",
+            async token =>
         {
-            try
+            CefEvalResult probe = await SteamUiTransportSession.EvaluateAsync(
+                "JSON.stringify(!!window.webpackChunksteamui&&!!window.collectionStore"
+                    + "&&!!window.appStore)",
+                TimeSpan.FromSeconds(4),
+                token).ConfigureAwait(false);
+            if (!probe.Reachable || probe.Value != "true")
             {
-                // First probe after 3 s: on a mode return or an already-running Steam
-                // the UI is ready immediately and the badge should not wait 8 s; on a
-                // cold boot the early probe just misses quietly and the loop retries.
-                await Task.Delay(attempt == 0 ? 3000 : 5000, cancellationToken).ConfigureAwait(false);
-                if (!SteamUiReadiness.IsReady)
+                return false;
+            }
+
+            LibraryTabSyncResult result = await SyncAllDetailedAsync(token).ConfigureAwait(false);
+            Log.Info($"Library tabs (boot): {result.Summary}");
+            LibraryTabBootAction action = LibraryTabBootSyncPolicy.Decide(result);
+            if (action == LibraryTabBootAction.RetryFullSync)
+            {
+                // A half-initialized appStore can be reachable but reject a filter. The badge
+                // targets another context, so its success must never make us abandon the tabs.
+                return false;
+            }
+            if (action == LibraryTabBootAction.Complete)
+            {
+                return true;
+            }
+
+            // The tabs succeeded but the visible-window badge did not. Retry only the badge; the
+            // full filter evaluation must not run every five seconds.
+            for (int attempt = 0; attempt < 30 && !token.IsCancellationRequested; attempt++)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5), token).ConfigureAwait(false);
+                AppConfig config = await Task.Run(ConfigStore.Load, token).ConfigureAwait(false);
+                BadgePush push = await PushCardBadgesAsync(config, token).ConfigureAwait(false);
+                if (push == BadgePush.Pushed)
                 {
-                    if (!waitingForBigPicture)
-                    {
-                        waitingForBigPicture = true;
-                        Log.Info("Library tabs (boot): waiting for the Big Picture window before CEF sync.");
-                    }
-                    continue;
+                    Log.Info("Library tabs (boot): card badge installed.");
+                    return true;
                 }
-                if (waitingForBigPicture)
+                if (push == BadgePush.Disabled)
                 {
-                    waitingForBigPicture = false;
-                    Log.Info("Library tabs (boot): Big Picture is ready; probing its library stores.");
-                }
-                var probe = await SteamCef.EvaluateAsync(
-                    "JSON.stringify(!!window.webpackChunksteamui&&!!window.collectionStore"
-                        + "&&!!window.appStore)",
-                    TimeSpan.FromSeconds(4), cancellationToken).ConfigureAwait(false);
-                if (probe.Reachable && probe.Value == "true")
-                {
-                    var result = await SyncAllDetailedAsync(cancellationToken).ConfigureAwait(false);
-                    Log.Info($"Library tabs (boot): {result.Summary}");
-                    var action = LibraryTabBootSyncPolicy.Decide(result);
-                    if (action == LibraryTabBootAction.RetryFullSync)
-                    {
-                        // A half-initialized appStore can be reachable but reject a
-                        // filter. The badge targets another context, so its success
-                        // must never make us abandon the missing tabs.
-                        continue;
-                    }
-                    if (action == LibraryTabBootAction.Complete)
-                    {
-                        return;
-                    }
-                    // The tabs succeeded but the visible-window badge did not. Retry
-                    // ONLY the badge (cheap: config load + one evaluation); the full
-                    // filter evaluation must not re-run every 5 s.
-                    for (; attempt < 30 && !cancellationToken.IsCancellationRequested; attempt++)
-                    {
-                        await Task.Delay(5000, cancellationToken).ConfigureAwait(false);
-                        var config = await Task.Run(ConfigStore.Load, cancellationToken)
-                            .ConfigureAwait(false);
-                        var push = await PushCardBadgesAsync(config, cancellationToken)
-                            .ConfigureAwait(false);
-                        if (push == BadgePush.Pushed)
-                        {
-                            Log.Info("Library tabs (boot): card badge installed.");
-                            return;
-                        }
-                        if (push == BadgePush.Disabled)
-                        {
-                            // Nothing to wait for — the badges are switched off, so
-                            // retrying would only reload the config and re-retract.
-                            Log.Info("Library tabs (boot): card badges are turned off.");
-                            return;
-                        }
-                    }
-                    Log.Info("Library tabs (boot): badge target not reachable in time — "
-                        + "it will install on the next sync.");
-                    return;
+                    Log.Info("Library tabs (boot): card badges are turned off.");
+                    return true;
                 }
             }
-            catch (OperationCanceledException)
-            {
-                return;
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Library tabs (boot) probe failed: {ex.Message}");
-            }
-        }
-        Log.Info("Library tabs (boot): Steam UI not reachable in time — will sync on overlay open.");
+            Log.Info("Library tabs (boot): badge target not reachable in time; "
+                + "it will install on the next sync.");
+            return true;
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Builds the ordered injected-tab list: custom filter tabs (evaluated over

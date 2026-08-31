@@ -4,7 +4,6 @@ using System.IO.Pipes;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using WSGM.Device.Sdk.Ipc;
 using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Core;
@@ -52,24 +51,18 @@ internal static class DeviceCoordinatorDiagnosticsClient
         await using NamedPipeClientStream pipe = new(
             ".",
             DeviceCoordinatorDiagnosticsContract.PipeName(sessionId),
-            PipeDirection.InOut,
+            PipeDirection.In,
             PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
         try
         {
             await pipe.ConnectAsync(bounded.Token).ConfigureAwait(false);
-            await using DeviceFrameStream frames = new(pipe);
-            DeviceFrame? frame = await frames.ReadAsync(bounded.Token).ConfigureAwait(false);
-            if (frame is null || !IsExpectedResponse(frame.Header))
-            {
-                throw new InvalidDataException("Device diagnostics response envelope is invalid.");
-            }
-
-            return JsonSerializer.Deserialize(
-                frame.Payload,
-                ConfigJsonContext.Default.DeviceCoordinatorDiagnosticsSnapshot);
+            return await JsonSerializer.DeserializeAsync(
+                pipe,
+                ConfigJsonContext.Default.DeviceCoordinatorDiagnosticsSnapshot,
+                bounded.Token).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is IOException or TimeoutException or OperationCanceledException
-            or JsonException or InvalidDataException)
+            or JsonException)
         {
             if (cancellationToken.IsCancellationRequested)
             {
@@ -79,10 +72,4 @@ internal static class DeviceCoordinatorDiagnosticsClient
             return null;
         }
     }
-
-    /// <summary>Accepts only the one exact framed response used by this build composition.</summary>
-    internal static bool IsExpectedResponse(FrameHeader header) =>
-        header.ProtocolVersion == DeviceProtocol.Version
-        && header.MessageType is DeviceMessageType.DiagnosticsSnapshot
-        && (header.Flags & FrameFlags.IsResponse) != 0;
 }

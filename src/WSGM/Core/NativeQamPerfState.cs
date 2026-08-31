@@ -57,7 +57,8 @@ internal sealed record NativeQamPerfState
 /// Deliberately partial. The message also carries CPU governor bounds, FSR sharpness bounds, split
 /// scaling filters and scalers, external-display refresh bounds, and
 /// <c>is_dynamic_refresh_rate_in_steam_supported</c>; none is supplied, so none of those controls
-/// renders. That is the first of the two hiding layers described in <c>_plan\qam-overhaul.md</c>.
+/// renders. The two-layer ownership and hiding contract is documented in
+/// <c>docs\steam-cef.md</c>.
 /// <para>
 /// <c>tdp_limit_min</c>/<c>tdp_limit_max</c> exist in this message and are still not supplied: no
 /// component in the performance bundle renders a TDP control, so the fields would be read by

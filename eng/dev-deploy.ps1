@@ -11,7 +11,7 @@
 #
 # This script is for the attended dev loop only. It is not part of any release path, CI never
 # calls it, and it deliberately does not touch WSGM.LogonService.exe (Program Files, elevation,
-# and it changes rarely) or the DeviceHost/plugin slot (administrator-owned, replaced only by the
+# and it changes rarely) or the plugin slot (administrator-owned, replaced only by the
 # installer).
 [CmdletBinding()]
 param(
@@ -51,12 +51,13 @@ if (-not (Test-Path -LiteralPath $binDirectory)) {
 }
 
 if (-not $SkipBuild) {
-    Write-Host '== Publishing WSGM (NativeAOT) ==' -ForegroundColor Cyan
-    # ILCompiler finds the VS linker via vswhere, exactly as build.ps1 arranges it.
+    Write-Host '== Publishing WSGM (self-contained JIT) ==' -ForegroundColor Cyan
+    # Preserve the release build environment that build.ps1 uses for native dependencies.
     $env:Path += ";${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer"
     npm run steam-assets:verify
     if ($LASTEXITCODE -ne 0) { throw 'Steam UI asset drift check failed' }
-    dotnet publish (Join-Path $root 'src\WSGM\WSGM.csproj') -c Release -r win-x64 -o $appPublish
+    dotnet publish (Join-Path $root 'src\WSGM\WSGM.csproj') -c Release -r win-x64 `
+        -o $appPublish -m:1
     if ($LASTEXITCODE -ne 0) { throw 'dotnet publish failed' }
 }
 

@@ -144,7 +144,7 @@ public enum SampleQuality
 /// <b>This model is deliberately complete rather than minimal.</b> It defines every control the
 /// virtual targets WSGM presents can express — Steam Deck Composite, Xbox 360, and DualShock 4 —
 /// even where no plugin reports one yet. That is the opposite of the usual rule for this SDK, and
-/// the reason is the API version: it is an exact integer match across WSGM, DeviceHost, Device Lab,
+/// the reason is the API version: it is an exact integer match across WSGM, Device Lab,
 /// and every installed plugin, so adding one control later is a breaking rebuild for every plugin
 /// that exists. The target set is fixed and its control surface is knowable today, so the contract
 /// is settled once here instead of a button at a time.

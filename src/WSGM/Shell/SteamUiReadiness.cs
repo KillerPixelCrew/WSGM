@@ -1,3 +1,6 @@
+using System;
+using System.Threading;
+using System.Threading.Tasks;
 using WSGM.Core;
 
 namespace WSGM.Shell;
@@ -15,4 +18,57 @@ internal static class SteamUiReadiness
     /// <summary>Pure form of <see cref="IsReady"/> for regression coverage.</summary>
     internal static bool CanDriveAutomaticCef(bool steamRunning, bool bigPictureVisible)
         => steamRunning && bigPictureVisible;
+
+    /// <summary>Runs one bounded automatic CEF operation after Big Picture and its target are ready.</summary>
+    /// <param name="operation">Stable diagnostic name.</param>
+    /// <param name="attemptAsync">Returns true when the operation completed, false to retry.</param>
+    /// <param name="cancellationToken">Cancels the wait.</param>
+    /// <returns>Whether the operation completed within the bounded retry window.</returns>
+    internal static async Task<bool> RunWhenReadyAsync(
+        string operation,
+        Func<CancellationToken, Task<bool>> attemptAsync,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(operation);
+        ArgumentNullException.ThrowIfNull(attemptAsync);
+        bool waitingForBigPicture = false;
+        for (int attempt = 0; attempt < 30 && !cancellationToken.IsCancellationRequested; attempt++)
+        {
+            try
+            {
+                await Task.Delay(
+                    attempt == 0 ? TimeSpan.FromSeconds(3) : TimeSpan.FromSeconds(5),
+                    cancellationToken).ConfigureAwait(false);
+                if (!IsReady)
+                {
+                    if (!waitingForBigPicture)
+                    {
+                        waitingForBigPicture = true;
+                        Log.Info($"{operation}: waiting for the Big Picture window.");
+                    }
+                    continue;
+                }
+                if (waitingForBigPicture)
+                {
+                    waitingForBigPicture = false;
+                    Log.Info($"{operation}: Big Picture is ready; probing CEF.");
+                }
+                if (await attemptAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    return true;
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"{operation} attempt failed: {ex.Message}");
+            }
+        }
+
+        Log.Info($"{operation}: Steam UI not reachable in time; deferring until the next trigger.");
+        return false;
+    }
 }

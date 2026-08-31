@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using System.Threading;
 using WSGM.Core;
 
 namespace WSGM.Interop;
@@ -31,7 +32,9 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
     private readonly System.Threading.Timer _poll;
     private nint _hook;
     private nint _lastWindow;
+    private nint _pendingWindow;
     private string _current = string.Empty;
+    private int _evaluationQueued;
     private bool _disposed;
 
     /// <summary>Creates the watcher and begins observing.</summary>
@@ -115,7 +118,40 @@ internal sealed unsafe partial class ForegroundWindowWatcher : IDisposable
         // a handle open and a path read on whatever thread Windows delivered the event on.
         if (eventType == EventSystemForeground && window != 0)
         {
-            Evaluate(window);
+            Interlocked.Exchange(ref _pendingWindow, window);
+            if (Interlocked.Exchange(ref _evaluationQueued, 1) == 0)
+            {
+                ThreadPool.UnsafeQueueUserWorkItem(
+                    static watcher => watcher.DrainWinEvents(),
+                    this,
+                    preferLocal: false);
+            }
+        }
+    }
+
+    private void DrainWinEvents()
+    {
+        while (true)
+        {
+            nint window = Interlocked.Exchange(ref _pendingWindow, 0);
+            if (window != 0)
+            {
+                try
+                {
+                    Evaluate(window);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"Foreground watcher evaluation failed: {ex.Message}");
+                }
+            }
+
+            Interlocked.Exchange(ref _evaluationQueued, 0);
+            if (Volatile.Read(ref _pendingWindow) == 0
+                || Interlocked.Exchange(ref _evaluationQueued, 1) != 0)
+            {
+                return;
+            }
         }
     }
 

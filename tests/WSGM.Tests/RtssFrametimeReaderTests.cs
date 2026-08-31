@@ -102,6 +102,24 @@ public sealed class RtssFrametimeReaderTests
     }
 
     [Fact]
+    public void ARecentSampleFromBeforeTheTickCounterWrapRemainsLive()
+    {
+        FakeRegion region = new();
+        region.WriteEntry(
+            0,
+            7,
+            @"C:\game.exe",
+            time0: uint.MaxValue - 200,
+            time1: uint.MaxValue - 50,
+            frames: 10);
+
+        RtssFrametimeSample sample = Assert.Single(
+            RtssFrametimeReader.Parse(region, (1L << 32) + 100, out _));
+
+        Assert.Equal(151, sample.AgeMs);
+    }
+
+    [Fact]
     public void AnEntryTimedInTheFutureIsDiscardedRatherThanTrusted()
     {
         FakeRegion region = new();

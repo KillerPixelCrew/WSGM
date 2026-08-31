@@ -3,11 +3,11 @@ using System.Windows.Input;
 
 namespace WSGM.Core;
 
-/// <summary>A minimal, reflection-free <see cref="ICommand"/> that forwards
+/// <summary>A minimal <see cref="ICommand"/> that forwards
 /// <see cref="Execute"/> to a captured delegate and gates it through an optional
 /// <c>canExecute</c> predicate. Used by the view models so XAML buttons can bind
 /// commands without any Avalonia (or other UI-framework) dependency, which keeps
-/// the type NativeAOT-safe and unit-testable in isolation.</summary>
+/// the type small and unit-testable in isolation.</summary>
 public sealed class RelayCommand : ICommand
 {
     private readonly Action _execute;

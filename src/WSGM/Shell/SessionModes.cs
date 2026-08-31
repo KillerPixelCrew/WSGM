@@ -320,13 +320,17 @@ public sealed class SessionModes
         }
         if (Steam.IsRunning)
         {
+            Log.Info("Skipping desktop Steam start: Steam is already running.");
             return;
         }
         if (Steam.ExePath is { } exe)
         {
             Log.Info("Starting Steam (desktop mode, no Big Picture).");
             AppLauncher.Start(exe, "", elevated: false);
+            return;
         }
+
+        Log.Warn("Desktop Steam start skipped: no Steam installation was detected.");
     }
 
     /// <summary>Game mode: ask Steam to enter Big Picture immediately (the protocol
@@ -356,6 +360,7 @@ public sealed class SessionModes
         }
         _ = System.Threading.Tasks.Task.Run(async () =>
         {
+            bool explorerWasRemoved = false;
             try
             {
                 string? steamWarning;
@@ -431,6 +436,7 @@ public sealed class SessionModes
                         Log.Error("Rolling Steam back after Explorer exit failure failed", ex);
                     }
                 }
+                explorerWasRemoved = exited && !preserveDesktop;
 
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
@@ -459,6 +465,12 @@ public sealed class SessionModes
             catch (Exception ex)
             {
                 Log.Error("Game-mode transition failed", ex);
+                if (explorerWasRemoved)
+                {
+                    await RecoverDesktopAfterFailedGameModeCommitAsync(desktopHost)
+                        .ConfigureAwait(false);
+                    return;
+                }
                 try
                 {
                     ExitBigPicture();
@@ -475,6 +487,73 @@ public sealed class SessionModes
                 EndTransition();
             }
         });
+    }
+
+    private async System.Threading.Tasks.Task RecoverDesktopAfterFailedGameModeCommitAsync(
+        ExplorerDesktopHost desktopHost)
+    {
+        try
+        {
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (_monitor is not null)
+                {
+                    _monitor.Paused = true;
+                }
+                DesktopModeStarting?.Invoke();
+            });
+        }
+        catch (Exception ex)
+        {
+            // Continue to the fail-open desktop restore even when one partially-created game-mode
+            // surface fails to tear down. Leaving the session without Explorer is the worse state.
+            Log.Error("Rolling back game-mode resources after commit failure failed", ex);
+        }
+
+        try
+        {
+            ExitBigPicture();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Rolling Steam back after game-mode commit failure failed", ex);
+        }
+
+        ExplorerDesktopResult restored;
+        try
+        {
+            restored = await desktopHost.RestoreDesktopAsync(TimeSpan.FromSeconds(20))
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Restoring Explorer after game-mode commit failure failed", ex);
+            restored = new ExplorerDesktopResult(
+                ExplorerDesktopOutcome.Failed,
+                ExplorerDesktopRoute.ScheduledTaskRecovery,
+                0,
+                0,
+                ex.Message,
+                launchDispatched: true,
+                shellSurfacePresent: false,
+                elapsed: TimeSpan.Zero);
+        }
+
+        string warning = restored.Outcome switch
+        {
+            ExplorerDesktopOutcome.Degraded => ExplorerDesktopDegradedWarning,
+            ExplorerDesktopOutcome.Failed => ExplorerDesktopPendingWarning,
+            _ => ExplorerExitFailedWarning,
+        };
+        try
+        {
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                SteamStartFailed?.Invoke(warning));
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Reporting game-mode rollback result failed", ex);
+        }
     }
 
     /// <summary>Asks Steam to leave Big Picture (Steam keeps running). No-op if

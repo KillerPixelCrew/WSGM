@@ -77,7 +77,7 @@ public static class SteamInputShim
     /// <summary>Export name the payload carries, used as proof of ownership.</summary>
     /// <remarks>
     /// Scanned for as raw bytes rather than parsed out of the PE export table: the
-    /// answer is the same, it needs no PE reader in a NativeAOT binary, and no
+    /// answer is the same, it avoids a full PE parser for one ownership marker, and no
     /// foreign controller DLL contains this string.
     /// </remarks>
     private const string OwnershipSignature = "WsgmSteamInputGateProxy";

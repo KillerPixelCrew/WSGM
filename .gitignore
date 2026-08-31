@@ -18,12 +18,10 @@
 # eng/build-steam-input-lease.ps1 on every build. Generated, never committed —
 # the library source in native/SteamInput is the tracked copy.
 /src/WSGM/Native/SteamInputLease/
-/src/WSGM/Native/Radio/
 /src/WSGM/Native/Viiper/
 
 # The vendored Rust library's own build output.
 /native/SteamInput/target/
-/native/Radio/target/
 /native/Standby/target/
 
 # Vendored upstream source builds in place; only its sources are tracked.

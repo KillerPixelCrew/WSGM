@@ -330,11 +330,6 @@ public sealed record NormalizedGlyphPath
 public sealed record NormalizedGlyphSvg
 {
     /// <summary>The author's own SVG bytes, unmodified.</summary>
-    /// <remarks>
-    /// Previously a canonical document rebuilt from an allowlisted subset of the source, which
-    /// silently discarded grouping and any attribute the allowlist had not anticipated. Artwork is a
-    /// drawing; re-drawing it was never WSGM's job.
-    /// </remarks>
     public required ReadOnlyMemory<byte> SvgUtf8 { get; init; }
 
     /// <summary>Coordinate bounds, from the view box or the intrinsic size.</summary>

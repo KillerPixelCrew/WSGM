@@ -70,6 +70,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
     private readonly object _gate = new();
 
     private Task _worker = Task.CompletedTask;
+    private Task _lastStop = Task.CompletedTask;
     private CancellationTokenSource? _generation;
     private RunningApplicationTargetSnapshot? _running;
     private int? _restoreTo;
@@ -117,6 +118,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
     internal void Apply(bool enabled)
     {
         Task worker;
+        Task stop;
         CancellationTokenSource? generation;
         lock (_gate)
         {
@@ -135,7 +137,13 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 CancellationTokenSource started =
                     CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
                 _generation = started;
-                _worker = Task.Run(() => RunAsync(started.Token), started.Token);
+                Task priorStop = _lastStop;
+                _worker = Task.Run(async () =>
+                {
+                    await priorStop.ConfigureAwait(false);
+                    started.Token.ThrowIfCancellationRequested();
+                    await RunAsync(started.Token).ConfigureAwait(false);
+                }, started.Token);
                 return;
             }
 
@@ -143,9 +151,11 @@ internal sealed class AutoTdpService : IAsyncDisposable
             generation = _generation;
             _worker = Task.CompletedTask;
             _generation = null;
+            stop = StopGenerationAsync(worker, generation);
+            _lastStop = stop;
         }
 
-        Observe(StopGenerationAsync(worker, generation), "AutoTDP stop");
+        Log.Observe(stop, "AutoTDP stop");
     }
 
     /// <summary>Records the running application whose frames are being judged.</summary>
@@ -191,6 +201,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         Task worker;
+        Task lastStop;
         CancellationTokenSource? generation;
         lock (_gate)
         {
@@ -202,10 +213,16 @@ internal sealed class AutoTdpService : IAsyncDisposable
             _disposed = true;
             _enabled = false;
             worker = _worker;
+            lastStop = _lastStop;
             generation = _generation;
             _worker = Task.CompletedTask;
             _generation = null;
         }
+
+        // A disable may already be restoring the previous value. Let that finish before stopping a
+        // newer generation or disposing the shared write gate; otherwise its late write would race
+        // a disposed semaphore and could leave AutoTDP's value latched during shutdown.
+        await lastStop.ConfigureAwait(false);
 
         // The tick loop ends first and the restore follows, while the write path still works:
         // exiting with WSGM's probe value latched would leave the user's handheld on a limit they
@@ -438,7 +455,6 @@ internal sealed class AutoTdpService : IAsyncDisposable
         lock (_gate)
         {
             restoreTo = _restoreTo;
-            _restoreTo = null;
         }
 
         if (restoreTo is not { } watts || power is null)
@@ -462,6 +478,17 @@ internal sealed class AutoTdpService : IAsyncDisposable
         // timed out, or skipped is the one message that makes the handheld's real state
         // undiagnosable from a log.
         bool restored = await WriteAsync(power, decision, cancellationToken).ConfigureAwait(false);
+        lock (_gate)
+        {
+            if (restored && _restoreTo == watts)
+            {
+                _restoreTo = null;
+            }
+            else if (!restored)
+            {
+                _resync = true;
+            }
+        }
         Publish(
             AutoTdpState.Off,
             watts,
@@ -552,23 +579,4 @@ internal sealed class AutoTdpService : IAsyncDisposable
         StatusChanged?.Invoke(status);
     }
 
-    private static void Observe(Task task, string operation)
-    {
-        _ = ObserveAsync(task, operation);
-
-        static async Task ObserveAsync(Task task, string operation)
-        {
-            try
-            {
-                await task.ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"{operation} failed: {ex.Message}");
-            }
-        }
-    }
 }

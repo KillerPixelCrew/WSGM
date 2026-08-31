@@ -11,18 +11,16 @@ $root = Split-Path -Parent $PSScriptRoot
 # without relocating the caller's shell, including when a step below throws.
 Push-Location $root
 try {
-    if (-not $SkipPrettier) {
-        # A directory-existence check alone would keep using a stale Prettier
-        # after a package.json/lockfile bump, so the local gate would format
-        # differently from CI's always-fresh `npm ci` — a locally green run that
-        # fails format:check in CI with no visible cause.
-        if (-not (Test-Path "node_modules") -or
-            (Get-Item "package-lock.json").LastWriteTimeUtc -gt (Get-Item "node_modules").LastWriteTimeUtc) {
-            npm ci --ignore-scripts --prefer-offline --no-audit --no-fund `
-                --fetch-retries=2 --fetch-timeout=30000
-            if ($LASTEXITCODE -ne 0) { throw "npm ci failed" }
-        }
+    # Asset generation uses TypeScript even when formatting is skipped. Provision once for both
+    # paths; -SkipPrettier skips only the formatting command it names.
+    if (-not (Test-Path "node_modules") -or
+        (Get-Item "package-lock.json").LastWriteTimeUtc -gt (Get-Item "node_modules").LastWriteTimeUtc) {
+        npm ci --ignore-scripts --prefer-offline --no-audit --no-fund `
+            --fetch-retries=2 --fetch-timeout=30000
+        if ($LASTEXITCODE -ne 0) { throw "npm ci failed" }
+    }
 
+    if (-not $SkipPrettier) {
         if ($Fix) {
             npm run format
         }
@@ -56,14 +54,15 @@ try {
     # a setup that installs a version nobody reviewed.
     & "$PSScriptRoot\assert-controller-pin.ps1"
 
-    # The vendored Rust libraries are validated and built before the .NET build,
-    # which needs their staged output present. -Validate adds each library's own
+    # The vendored Rust library is validated and built before the .NET build,
+    # which needs its staged output present. -Validate adds the library's own
     # gates (clippy as errors, unit tests) so a change there fails here rather than
     # in a release build.
     & "$PSScriptRoot\build-steam-input-lease.ps1" -Validate
-    & "$PSScriptRoot\build-radio.ps1" -Validate
 
-    dotnet restore WSGM.slnx
+    # This small solution does not benefit from one MSBuild node per logical CPU; on the
+    # high-core reference handheld that left dozens of idle child processes after test runs.
+    dotnet restore WSGM.slnx -m:1
     if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed" }
 
     # Vendored upstream source is reachable through a project reference but is not
@@ -89,11 +88,11 @@ try {
     & dotnet @analyzerArgs
     if ($LASTEXITCODE -ne 0) { throw "C# analyzer check failed" }
 
-    dotnet build WSGM.slnx --configuration Release --no-restore --warnaserror
+    dotnet build WSGM.slnx --configuration Release --no-restore --warnaserror -m:1
     if ($LASTEXITCODE -ne 0) { throw "dotnet build failed" }
 
     dotnet test WSGM.slnx --configuration Release --no-build --settings coverlet.runsettings `
-        --collect:"XPlat Code Coverage" --results-directory TestResults --logger "console;verbosity=normal"
+        --collect:"XPlat Code Coverage" --results-directory TestResults --logger "console;verbosity=normal" -m:1
     if ($LASTEXITCODE -ne 0) { throw "dotnet test failed" }
 }
 finally {

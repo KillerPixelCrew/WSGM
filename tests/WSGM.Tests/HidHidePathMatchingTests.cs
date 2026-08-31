@@ -14,9 +14,9 @@ namespace WSGM.Tests;
 /// </remarks>
 public sealed class HidHidePathMatchingTests
 {
-    private const string DosPath = @"C:\Program Files\WSGM\DeviceHost\WSGM.DeviceHost.exe";
+    private const string DosPath = @"C:\Program Files\WSGM\WSGM.exe";
     private const string DevicePath =
-        @"\Device\HarddiskVolume3\Program Files\WSGM\DeviceHost\WSGM.DeviceHost.exe";
+        @"\Device\HarddiskVolume3\Program Files\WSGM\WSGM.exe";
 
     [Fact]
     public void AnEntryStoredAsADevicePathIsRecognisedFromItsDriveLetterForm()
@@ -44,7 +44,7 @@ public sealed class HidHidePathMatchingTests
         // Volume numbering is assigned by Windows and is not stable across machines or boots, so it
         // must not be part of the comparison.
         Assert.True(HidHideOwnedDeltaManager.Contains(
-            [@"\Device\HarddiskVolume7\Program Files\WSGM\DeviceHost\WSGM.DeviceHost.exe"],
+            [@"\Device\HarddiskVolume7\Program Files\WSGM\WSGM.exe"],
             DosPath));
     }
 
@@ -61,7 +61,7 @@ public sealed class HidHidePathMatchingTests
     {
         // Only the volume prefix is ignored. Everything that identifies the file still has to agree.
         Assert.False(HidHideOwnedDeltaManager.Contains(
-            [@"C:\Other\DeviceHost\WSGM.DeviceHost.exe"],
+            [@"C:\Other\WSGM\WSGM.exe"],
             DosPath));
     }
 
@@ -83,7 +83,7 @@ public sealed class HidHidePathMatchingTests
     public void AUncPathKeepsItsServerAndShare()
     {
         // There is no volume to strip, and the server and share are part of what identifies it.
-        const string unc = @"\\build\tools\WSGM.DeviceHost.exe";
+        const string unc = @"\\build\tools\WSGM.exe";
 
         Assert.Equal(unc, HidHideOwnedDeltaManager.NormalizePath(unc));
         Assert.False(HidHideOwnedDeltaManager.Contains([unc], DosPath));

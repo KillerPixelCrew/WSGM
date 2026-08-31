@@ -57,7 +57,7 @@ public static class SteamDownloads
     /// <param name="cancellationToken">Cancels the exchange.</param>
     public static async Task<DownloadOverview?> QueryAsync(CancellationToken cancellationToken = default)
     {
-        var result = await SteamCef.EvaluateAsync(OverviewExpression, EvalTimeout, cancellationToken)
+        var result = await SteamUiTransportSession.EvaluateAsync(OverviewExpression, EvalTimeout, cancellationToken)
             .ConfigureAwait(false);
         return result.Reachable ? Parse(result.Value) : null;
     }

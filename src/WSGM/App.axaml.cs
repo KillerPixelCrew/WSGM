@@ -1,5 +1,4 @@
 using System;
-using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -16,9 +15,6 @@ public class App : Application
     // Deliberate root for the headless shell session — without it the session
     // (and its config watcher) would survive only via incidental GC reachability.
     private ShellSession? _session;
-    // Installer rollback can be recovering from an orphaned DeviceHost. Keep a second handle to
-    // setup's unowned global marker for this process's complete lifetime, including Settings mode.
-    private Mutex? _installerRollbackOwnerReservation;
     private bool _shutdownInProgress;
     private bool _sessionStopped;
     private ApplicationShutdownOutcome? _shutdownOutcome;
@@ -32,20 +28,6 @@ public class App : Application
     /// <inheritdoc />
     public override void OnFrameworkInitializationCompleted()
     {
-        if (Program.InstallerRollbackWithoutDeviceIntegration)
-        {
-            _installerRollbackOwnerReservation = DeviceCoordinator.TryRetainOwnerMutex(
-                DeviceCoordinator.ProductionOwnerName);
-            if (_installerRollbackOwnerReservation is not null)
-            {
-                Program.ReportInstallerRollbackOwnerRetained();
-            }
-            else
-            {
-                Log.Error("Installer rollback could not retain the machine-wide device-owner marker.");
-            }
-        }
-
         // Accent first, before any window exists — every mode (shell, overlay
         // test, settings, welcome) shows the configured accent from first paint.
         var config = ConfigStore.Load();
@@ -60,10 +42,7 @@ public class App : Application
                     // No main window — the shell session runs headless until the
                     // overlay is summoned. Keep the app alive explicitly.
                     desktop.ShutdownMode = Avalonia.Controls.ShutdownMode.OnExplicitShutdown;
-                    _session = new ShellSession(
-                        config,
-                        serviceBoot: Program.ServiceBoot,
-                        suppressDeviceIntegration: Program.InstallerRollbackWithoutDeviceIntegration);
+                    _session = new ShellSession(config, serviceBoot: Program.ServiceBoot);
                     _ = ObserveSessionStartupAsync(_session.StartAsync(), desktop);
                     break;
 
@@ -99,8 +78,7 @@ public class App : Application
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             Log.Error("Shell session startup failed", ex);
-            Environment.ExitCode = 1;
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => desktop.Shutdown());
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => desktop.Shutdown(1));
         }
     }
 
@@ -140,7 +118,7 @@ public class App : Application
             _shutdownInProgress = false;
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {
-                desktop.Shutdown();
+                desktop.Shutdown(ApplicationShutdownCoordinator.ExitCodeFor(outcome));
             }
         }
     }

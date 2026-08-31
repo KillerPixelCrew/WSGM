@@ -145,6 +145,12 @@ public sealed record PluginSettingDescriptor
             return false;
         }
 
+        if (!TryValidateValue(Default, out string? defaultError))
+        {
+            error = $"setting '{SettingId}' has an invalid default: {defaultError}";
+            return false;
+        }
+
         error = null;
         return true;
     }
@@ -309,3 +315,8 @@ public sealed record PluginSettingsManifest
         return true;
     }
 }
+
+/// <summary>One validated effective value passed back to a plugin.</summary>
+/// <param name="SettingId">Declared setting identifier.</param>
+/// <param name="Value">Value validated against the current declaration.</param>
+public readonly record struct DeviceSettingValue(string SettingId, CapabilityValue Value);

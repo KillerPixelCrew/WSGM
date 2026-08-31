@@ -18,21 +18,20 @@ effort.
 
 **Logon service + boot flow** (`src\WSGM.LogonService`, `Core\BootManifest.cs`,
 `Core\BootManifestWriter.cs`, `Shell\ExplorerReadiness.cs`): the SYSTEM service (raw SCM +
-`SERVICE_ACCEPT_SESSIONCHANGE`, NativeAOT, no ServiceBase) reacts to `WTS_SESSION_LOGON` only (not
-console connect — fast-user-switch keeps what runs), reads the per-user
-`%LOCALAPPDATA%\WSGM\boot.json` **boot manifest** (projected from config.json by WSGM on `--setup`,
-settings saves, and every shell start; the service treats it as untrusted and only ever launches the
-named exe AS THAT USER), and launches `WSGM.exe --boot` via `CreateProcessAsUserW` — with the user's
-elevated **linked token** when the manifest says so (legal under the service's SeTcbPrivilege; no
-UAC prompt at logon). A startup catch-up sweep covers autologons that beat the auto-start service
-(fresh = logged on < 60 s). The service watchdog holds the launched pid: dirty exit + active
-session + no explorer → allow the session-owned shell anchor five seconds to restore its normal
-medium/jobless Explorer, then start explorer with the UNLINKED token only if no shell appeared
-(explorer must stay unelevated), once per logon, never relaunching WSGM. This bounded grace prevents
-the anchor and SYSTEM watchdog from creating competing shells; the watchdog remains the outer
-fallback when the anchor is absent or broken. Service log: `%ProgramData%\WSGM\wsgm-service.log`
-(SYSTEM must not write user dirs); WSGM's own
-`Run mode: Shell (service boot, elevated=…, session N)` line keeps wsgm.log the primary surface.
+`SERVICE_ACCEPT_SESSIONCHANGE`, no ServiceBase) reacts to `WTS_SESSION_LOGON` only (not console
+connect — fast-user-switch keeps what runs), reads the per-user `%LOCALAPPDATA%\WSGM\boot.json`
+**boot manifest** (projected from config.json by WSGM on `--setup`, settings saves, and every shell
+start; the service treats it as untrusted and only ever launches the named exe AS THAT USER), and
+launches `WSGM.exe --boot` via `CreateProcessAsUserW` — with the user's elevated **linked token**
+when the manifest says so (legal under the service's SeTcbPrivilege; no UAC prompt at logon). A
+startup catch-up sweep covers autologons that beat the auto-start service (fresh = logged on < 60
+s). The service watchdog holds the launched pid: dirty exit + active session + no explorer → allow
+the session-owned shell anchor five seconds to restore its normal medium/jobless Explorer, then
+start explorer with the UNLINKED token only if no shell appeared (explorer must stay unelevated),
+once per logon, never relaunching WSGM. This bounded grace prevents the anchor and SYSTEM watchdog
+from creating competing shells; the watchdog remains the outer fallback when the anchor is absent or
+broken. Service log: `%ProgramData%\WSGM\wsgm-service.log` (SYSTEM must not write user dirs); WSGM's
+own `Run mode: Shell (service boot, elevated=…, session N)` line keeps wsgm.log the primary surface.
 
 **The service fires BEFORE Winlogon starts explorer** (device-verified 2026-08-07), so `--boot` runs
 the takeover unconditionally — never gate it on `IsRunningInSession()` at start (that exact gate
@@ -125,15 +124,15 @@ so WSGM keeps its tray retired while a late Explorer may still appear. An older-
 taskbar is never ended without a verified repair owner: takeover stays in desktop mode and the UI
 gives the explicit sign-out/reboot-once instruction. On abnormal WSGM loss the anchor waits briefly
 for another recovery actor, preserves any existing shell surface, checks that the session is still
-active, and only then restores Explorer. The installed anchor is the same AOT payload under the
-distinct `WSGM.ShellAnchor.exe` image name. Restart Manager excludes that image, so installer force
-fallback can stop the primary `WSGM.exe` first, wait for the companion's bounded recovery-settled
-acknowledgement, and retire only the companion image in the installer's Terminal Services session
-after its preserve/restore decision while holding that session-local event name against a new
-anchor. A missing acknowledgement defers companion replacement rather than killing the only
-remaining desktop-recovery owner; silent setup keeps the old companion for a later maintenance pass
-instead of converting that deferral into an automatic reboot. Before explicitly retiring the anchor,
-normal disposal verifies or restores a usable desktop; logoff retires it without launching.
+active, and only then restores Explorer. The installed anchor is the same application payload under
+the distinct `WSGM.ShellAnchor.exe` image name. Restart Manager excludes that image, so installer
+force fallback can stop the primary `WSGM.exe` first, wait for the companion's bounded
+recovery-settled acknowledgement, and retire only the companion image in the installer's Terminal
+Services session after its preserve/restore decision while holding that session-local event name
+against a new anchor. A missing acknowledgement defers companion replacement rather than killing the
+only remaining desktop-recovery owner; silent setup keeps the old companion for a later maintenance
+pass instead of converting that deferral into an automatic reboot. Before explicitly retiring the
+anchor, normal disposal verifies or restores a usable desktop; logoff retires it without launching.
 Application shutdown rejects new mode and Steam-launch commands and waits for the one in-flight
 transition and boot worker under the process's single outer deadline. Device cleanup runs before
 that wait, and the anchor remains alive if the deadline or desktop verification fails so owner-loss
@@ -165,14 +164,9 @@ both windows plus handoff margin before force-stop; a failed Steam pre-stop stil
 cleanup. Setup records the initial shell/settings classification once; a post-shutdown refusal,
 retry, or cancellation before file mutation releases its device reservations and restores the old
 service through its installer-tagged start plus that exact runtime mode instead of classifying the
-temporary stopped state. If DeviceHost exit could not be verified, the restored shell suppresses
-Device Integration for that process, bypasses package-slot startup inspection, and does not count as
-a crash-loop start. Rollback therefore cannot admit a second hardware cycle or disarm game-mode
-boot; before setup releases its owner handle, the restored process opens the same unowned global
-marker, acknowledges retention, and keeps it for process lifetime. A setup retry or ordinary WSGM
-restart returns to normal admission. Uninstall allows twenty seconds for WSGM cleanup and does not
-force-close Steam. It holds the same global package/owner reservations through `[UninstallDelete]`;
-cancellation before uninstall mutation restores the service and prior runtime.
+temporary stopped state. Uninstall allows twenty seconds for WSGM cleanup and does not force-close
+Steam. It holds the same global package/owner reservations through `[UninstallDelete]`; cancellation
+before uninstall mutation restores the service and prior runtime.
 
 **Steam integration** (`Core\Steam.cs`, `Core\SteamInputBlocker.cs`, `Shell\SessionModes.cs`,
 `Overlay\OverlayController.cs`): everything is protocol URLs — start/focus =
@@ -249,38 +243,10 @@ replacement shell runs elevated, so this gate is WSGM-specific and its device ve
 must be tracked via the `Tray host created (… WM_COPYDATA filter …)` / `Tray icon Added/Rejected`
 log lines.
 
-A third rule guards the OUTBOUND side: (c) **a registered callback message is relayed only when it
-lies in `WM_USER..0xFFFF`** — `TrayProtocol.IsRelayableCallback`, enforced in `TrayHost.SendClick`
-immediately after the existing "registered no callback message" drop and before the `IsWindow`
-check. The tray wire is attacker-reachable by design: the UIPI allowance in (b) exists precisely so
-a Medium-IL process can push WM_COPYDATA into WSGM's High-IL `Shell_TrayWnd`, the sender's callback
-HWND is taken verbatim off that wire, and the relay itself (`SendNotifyMessageW`) travels outbound
-from High IL, where UIPI restricts nothing. Without the bound a Medium-IL process could register an
-icon naming an ELEVATED window with `uCallbackMessage` = `WM_CLOSE` or `WM_SYSCOMMAND` and have the
-tray deliver it on the next click. Three parts of the shape are deliberate:
-
-- **The filter is on the message, never on the target's integrity level.** WSGM itself launches
-  Handheld Companion / RTSS / MSI Afterburner elevated (`Core\KnownStartupApps.cs`), and `TrayHost`
-  documents WinForms-hosted tray menus as device-verified consumers — an IL-based filter would kill
-  tray clicks for exactly the apps the handheld depends on.
-- **Registration is untouched.** `TrayProtocol.TryParse`, `TrayIconTable.Apply` and the WM_COPYDATA
-  return value are byte-identical; a rejected NIM_ADD reads to shell32 as failure and well-behaved
-  apps then re-add in a loop. An icon with a non-relayable callback still registers, still renders,
-  and still shows its tooltip — only its click is dropped, and the drop is logged ONCE per tray host
-  (a per-click `Log.Warn` would push the boot/takeover/lease lines out of the capped log, which is
-  the same rule that keeps tray logging to Added/Removed).
-- **The lower bound is `WM_USER` (0x0400), not `WM_APP`.** WinForms `NotifyIcon` registers WM_USER +
-  1024 and Qt's `QSystemTrayIcon` uses WM_APP + 101; a tighter bound would silently break real
-  applications.
-
-Two honest caveats belong with this, because the guard is a mitigation and not a fix. First, **no
-supported Win32 API identifies the sender of a WM_COPYDATA**, so WSGM cannot authenticate the
-registering process at all — bounding the message value is the whole of the defence. The related
-reading that WM_COPYDATA's `wParam` (which WSGM's WndProc ignores; it forwards only `lParam`) would
-carry the same untrusted handle anyway comes from ReactOS/Wine sources, NOT from anything verified
-against live shell32 — treat it as informed inference, not as established behaviour. Second, the
-residual is NOT closed: an attacker who registers an icon can still make WSGM deliver ANY message in
-`WM_USER..0xFFFF` to any window it names, including the `RegisterWindowMessage` range 0xC000..0xFFFF
-that real applications use for private IPC, and on a version-0/3 icon the accompanying `wParam` is
-the wire `uid` — a fully attacker-chosen 32-bit value. The values stay bounded (`Notify` composes
-them), so there is no pointer primitive, but a targeted private-IPC message remains reachable.
+A third rule guards the outbound side: (c) **relay only application-defined callback messages in
+`WM_USER..0xFFFF`**. `TrayProtocol.IsRelayableCallback` applies that range in `TrayHost.SendClick`;
+system messages such as `WM_CLOSE` are never forwarded. The check is on the message rather than the
+target integrity level because supported elevated tray applications still need clicks. Registration
+remains successful for an out-of-range callback so shell32 does not enter an add/reject loop; only
+activation is dropped and logged once per tray-host lifetime. `WM_USER` is the lower bound because
+WinForms uses `WM_USER + 1024`, while Qt uses an even higher `WM_APP` value.

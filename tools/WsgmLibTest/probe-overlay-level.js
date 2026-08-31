@@ -4,7 +4,13 @@
   const chunk = window.webpackChunksteamui;
   if (!chunk) return "no webpackChunksteamui";
   let runtime = null;
-  chunk.push([[Symbol("wsgm-brightness2-probe")], {}, (r) => { runtime = r; }]);
+  chunk.push([
+    [Symbol("wsgm-brightness2-probe")],
+    {},
+    (r) => {
+      runtime = r;
+    },
+  ]);
   if (!runtime) return "no runtime";
   const store = runtime("59547")?.mG?.Get?.();
   const out = { flDisplayBrightness: store?.m_flDisplayBrightness };

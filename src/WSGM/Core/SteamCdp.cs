@@ -102,7 +102,7 @@ public static class SteamCdp
         string libraryPath, string? label = null, bool replaceExisting = false,
         CancellationToken cancellationToken = default)
     {
-        var result = await SteamCef.EvaluateAsync(
+        var result = await SteamUiTransportSession.EvaluateAsync(
             BuildAddExpression(libraryPath, label, replaceExisting),
             TimeSpan.FromSeconds(10), cancellationToken)
             .ConfigureAwait(false);
@@ -138,7 +138,7 @@ public static class SteamCdp
             return new SteamLibraryRemoveResult(SteamLibraryRemoveStatus.Rejected,
                 "ContentIdPathAmbiguous");
         }
-        var result = await SteamCef.EvaluateAsync(
+        var result = await SteamUiTransportSession.EvaluateAsync(
             BuildRemoveExpression(libraryPath), TimeSpan.FromSeconds(10), cancellationToken)
             .ConfigureAwait(false);
         if (!result.Reachable)
@@ -164,7 +164,7 @@ public static class SteamCdp
     public static async Task<SteamLibraryRemoveResult> RemoveLibrariesAtPathAsync(
         string libraryPath, CancellationToken cancellationToken = default)
     {
-        var result = await SteamCef.EvaluateAsync(
+        var result = await SteamUiTransportSession.EvaluateAsync(
             BuildRemoveExpression(libraryPath), TimeSpan.FromSeconds(10), cancellationToken)
             .ConfigureAwait(false);
         if (!result.Reachable)
@@ -200,7 +200,7 @@ public static class SteamCdp
             return new SteamLibraryLabelResult(SteamLibraryLabelStatus.Rejected,
                 "ContentIdPathAmbiguous");
         }
-        var result = await SteamCef.EvaluateAsync(
+        var result = await SteamUiTransportSession.EvaluateAsync(
             BuildLabelExpression(libraryPath, label), TimeSpan.FromSeconds(10), cancellationToken)
             .ConfigureAwait(false);
         if (!result.Reachable)

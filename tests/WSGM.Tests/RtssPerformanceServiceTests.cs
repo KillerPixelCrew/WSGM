@@ -471,6 +471,31 @@ public sealed class PerformanceServiceTests
     }
 
     [Fact]
+    public async Task ExplicitGlobalEditDoesNotOverwriteTheActiveApplicationSnapshot()
+    {
+        await using var adapter = new FakeRtssAdapter();
+        var policy = new PerformancePolicy(
+            new PerformanceValues(60, 1),
+            [new PerformanceApplicationPolicy("steam:7", "game.exe", new PerformanceValues(40, 3))]);
+        await using var service = CreateService(adapter, policy);
+        await service.SetTargetAsync(new RtssApplicationTarget("steam:7", "game.exe", 123));
+        adapter.Applies.Clear();
+
+        PerformanceCommandState command = await service.SetAsync(
+            PerformanceControl.FrameLimit,
+            55,
+            PerformancePersistenceTarget.Global,
+            "settings",
+            "explicit-global");
+
+        Assert.Equal(PerformanceCommandPhase.SucceededVerified, command.Phase);
+        RtssApplyRequest request = Assert.Single(adapter.Applies);
+        Assert.Equal(string.Empty, request.RtssProfileName);
+        Assert.Equal(40, service.Current.Desired.FrameLimit);
+        Assert.Equal(40, service.Current.Observed.FrameLimit);
+    }
+
+    [Fact]
     public async Task SimultaneousClientsAreSerializedThroughOneAdapterPath()
     {
         await using var adapter = new FakeRtssAdapter();

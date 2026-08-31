@@ -61,9 +61,6 @@ public sealed class NativeQamSemanticServicesTests
 
         NativeQamFrameLimitState frame =
             PerformanceServiceNativeQamAdapter.ProjectFrameLimit(state, enabled: true);
-        NativeQamOverlayLevelState overlay =
-            PerformanceServiceNativeQamAdapter.ProjectOverlayLevel(state, enabled: true);
-
         Assert.True(frame.Available);
         Assert.Equal(0, frame.MinimumFps);
         Assert.Equal(1000, frame.MaximumFps);
@@ -72,23 +69,6 @@ public sealed class NativeQamSemanticServicesTests
         Assert.True(frame.SupportsReadback);
         Assert.Equal("verified", frame.ReadbackQuality);
         Assert.Equal("application", frame.PolicyLayer);
-        Assert.Equal(new[] { 0, 1 }, overlay.Levels);
-        Assert.Equal(1, overlay.DesiredLevel);
-        Assert.Equal(0, overlay.ObservedLevel);
-        Assert.Equal("global", overlay.PolicyLayer);
-    }
-
-    [Fact]
-    public void SimulationOverlayProjectionRetainsAllPublishedLevels()
-    {
-        PerformanceState state = PerformanceStateFixture(
-            new HashSet<int> { 0, 1, 2, 3, 4 },
-            PerformanceCommandState.Idle);
-
-        NativeQamOverlayLevelState overlay =
-            PerformanceServiceNativeQamAdapter.ProjectOverlayLevel(state, enabled: true);
-
-        Assert.Equal(new[] { 0, 1, 2, 3, 4 }, overlay.Levels);
     }
 
     [Fact]
@@ -106,13 +86,8 @@ public sealed class NativeQamSemanticServicesTests
 
         NativeQamFrameLimitState frame =
             PerformanceServiceNativeQamAdapter.ProjectFrameLimit(state, enabled: true);
-        NativeQamOverlayLevelState overlay =
-            PerformanceServiceNativeQamAdapter.ProjectOverlayLevel(state, enabled: true);
-
         Assert.Equal("timed-out", frame.Progress);
         Assert.Equal("RTSS readback timed out.", frame.Fault);
-        Assert.Equal("idle", overlay.Progress);
-        Assert.Empty(overlay.Fault);
     }
 
     private static PerformanceState PerformanceStateFixture(

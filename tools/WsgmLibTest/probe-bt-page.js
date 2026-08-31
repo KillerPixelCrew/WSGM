@@ -1,6 +1,12 @@
 (async () => {
   let req;
-  window.webpackChunksteamui.push([["wsgm_btafter_" + Date.now()], {}, (r) => { req = r; }]);
+  window.webpackChunksteamui.push([
+    ["wsgm_btafter_" + Date.now()],
+    {},
+    (r) => {
+      req = r;
+    },
+  ]);
   const out = {};
   const st = req("21371").L.getQueryState(["BluetoothManagerService", "State"]);
   out.cached = st && st.data;

@@ -14,7 +14,7 @@ recording for WSGM's own UI.
 - Peer-window edge callbacks must log the attempted direction before transferring focus.
 - **Device-specific firmware suppression does not belong here.** The Claw's `Win+G`/`Win+Tab`
   suppressor is exact-device policy for one board's firmware and lives in its plugin
-  (`plugins\WSGM.Device.Msi.Claw8A2Vm\`), which runs in DeviceHost. Adding it to this module would
+  (`plugins\WSGM.Device.Msi.Claw8A2Vm\`), which runs only with that installed plugin. Adding it to this module would
   turn a per-device workaround into general WSGM input interception, which the rule above forbids —
   and would keep it installed on hardware it was never written for.
 

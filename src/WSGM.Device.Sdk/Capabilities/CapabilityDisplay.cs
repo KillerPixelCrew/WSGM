@@ -12,9 +12,8 @@ namespace WSGM.Device.Sdk.Capabilities;
 /// formatting, localization resources, or anything executable through this path.
 /// <para>
 /// <see cref="CustomLabel"/> is the escape hatch for a genuinely device-specific control that no key
-/// covers — an unusual vendor toggle. It is untrusted plain text: length-bounded, control characters
-/// rejected, and escaped at every sink. It is never a format string, never markup, and never a
-/// localization key.
+/// covers — an unusual vendor toggle. It is bounded plugin-supplied text, never a format string,
+/// markup, or localization key.
 /// </para>
 /// </remarks>
 public sealed record CapabilityDisplay
@@ -26,7 +25,7 @@ public sealed record CapabilityDisplay
     public required DisplayKey Key { get; init; }
 
     /// <summary>
-    /// Untrusted plain-text label, used only when <see cref="Key"/> is
+    /// Bounded plugin-supplied label, used only when <see cref="Key"/> is
     /// <see cref="DisplayKey.Custom"/>. Not localized: WSGM cannot translate text it did not author.
     /// </summary>
     public string? CustomLabel { get; init; }
@@ -71,7 +70,7 @@ public sealed record CapabilityDisplay
 [JsonConverter(typeof(JsonStringEnumConverter<DisplayKey>))]
 public enum DisplayKey
 {
-    /// <summary>Use <see cref="CapabilityDisplay.CustomLabel"/> as untrusted plain text.</summary>
+    /// <summary>Use <see cref="CapabilityDisplay.CustomLabel"/> as bounded plugin text.</summary>
     Custom,
 
     /// <summary>"TDP".</summary>

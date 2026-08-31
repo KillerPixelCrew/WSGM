@@ -144,7 +144,7 @@ public sealed class UiInputRouterTests
         router.Submit(Sample(CanonicalButtons.A));
         Assert.Empty(seen);
 
-        time.Advance(SourceSwitch.HeldControlTimeout + TimeSpan.FromSeconds(1));
+        time.Advance(UiInputRouter.HeldControlTimeout + TimeSpan.FromSeconds(1));
         router.Submit(Sample(CanonicalButtons.A));
         router.Submit(Sample(CanonicalButtons.None));
         router.Submit(Sample(CanonicalButtons.A));
@@ -250,5 +250,41 @@ public sealed class UiInputRouterTests
         public override DateTimeOffset GetUtcNow() => _now;
 
         internal void Advance(TimeSpan delta) => _now += delta;
+    }
+}
+
+public sealed class UiCaptureTests
+{
+    [Fact]
+    public void ReleasingAnUnknownSurfaceDoesNotReportCaptureEnded()
+    {
+        UiCaptureState capture = new();
+
+        Assert.False(capture.Release("overlay"));
+    }
+
+    [Fact]
+    public void NestedSurfacesKeepCaptureUntilTheLastKnownClaimCloses()
+    {
+        UiCaptureState capture = new();
+        capture.Claim("overlay", CanonicalButtons.Guide);
+        capture.Claim("settings", CanonicalButtons.None);
+
+        Assert.False(capture.Release("overlay"));
+        Assert.True(capture.IsCaptured);
+        Assert.True(capture.Release("settings"));
+        Assert.False(capture.IsCaptured);
+    }
+
+    [Fact]
+    public void AControlStillHeldWhenCaptureClosesCannotLeakIntoTheGame()
+    {
+        UiCaptureState capture = new();
+        capture.Claim("overlay", CanonicalButtons.None);
+        Assert.Equal(CanonicalButtons.A, capture.FilterForUi(CanonicalButtons.A));
+
+        Assert.True(capture.Release("overlay"));
+        Assert.False(capture.CanResumeForwarding(CanonicalButtons.A));
+        Assert.True(capture.CanResumeForwarding(CanonicalButtons.None));
     }
 }

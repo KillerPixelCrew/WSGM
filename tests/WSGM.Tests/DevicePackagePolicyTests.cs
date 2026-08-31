@@ -3,8 +3,8 @@ using System.Text;
 using System.Text.Json;
 using WSGM.Core;
 using WSGM.Device.Sdk;
-using WSGM.Device.Sdk.Ipc;
 using WSGM.Device.Sdk.Packaging;
+using WSGM.Device.Sdk.Serialization;
 using WSGM.Interop;
 
 namespace WSGM.Tests;
@@ -1080,19 +1080,11 @@ public sealed class DevicePackagePolicyTests : IDisposable
     [InlineData("--uninstall-app")]
     [InlineData("--install-device-plugin")]
     [InlineData("--remove-device-plugin")]
-    [InlineData("--installer-rollback-no-device")]
     [InlineData("--overlay-test")]
     public void RecoveryAndMaintenanceModes_BypassTheStartupCardinalityRefusal(string argument)
     {
         Assert.False(Program.ShouldEnforceDevicePackageCardinality([argument]));
         Assert.True(Program.ShouldEnforceDevicePackageCardinality(["--settings"]));
-    }
-
-    [Fact]
-    public void InstallerRollbackShellBypassesCardinalityUntilItsNoDeviceSessionIsRestored()
-    {
-        Assert.False(Program.ShouldEnforceDevicePackageCardinality(
-            ["--shell", "--installer-rollback-no-device"]));
     }
 
     [Theory]
@@ -1129,7 +1121,7 @@ public sealed class DevicePackagePolicyTests : IDisposable
             Path.Combine(package, "plugin.wsgm.json"),
             JsonSerializer.SerializeToUtf8Bytes(
                 manifest,
-                DeviceWireJsonContext.Default.PluginManifest));
+                DeviceJsonContext.Default.PluginManifest));
         File.Copy(
             typeof(DevicePackagePolicyTests).Assembly.Location,
             Path.Combine(package, "plugin.dll"));

@@ -10,23 +10,15 @@ $ErrorActionPreference = 'Stop'
 $destinationRoot = [System.IO.Path]::GetFullPath($Destination)
 New-Item -ItemType Directory -Path $destinationRoot -Force | Out-Null
 
-$sources = @(
+$lockPath = Join-Path $PSScriptRoot "..\third_party\controller\controller-components.lock.json"
+$lock = Get-Content -LiteralPath $lockPath -Raw | ConvertFrom-Json
+$sources = @($lock.components | ForEach-Object {
     @{
-        Id = 'HIDMaestro'
-        Repository = 'https://github.com/hifihedgehog/HIDMaestro.git'
-        Commit = '46054b862830fcec7bc98d72ccb7c4f0c0179fb1'
-    },
-    @{
-        Id = 'usbip-win2'
-        Repository = 'https://github.com/vadimgrn/usbip-win2.git'
-        Commit = '7c219953101cc5d0ec9a0bcb3eb87259cf72bedd'
-    },
-    @{
-        Id = 'HidHide'
-        Repository = 'https://github.com/nefarius/HidHide.git'
-        Commit = '722d997ce75db58f5aa36e40ca920f99022c020a'
+        Id = $_.id
+        Repository = $_.repository
+        Commit = $_.commit
     }
-)
+})
 
 foreach ($source in $sources) {
     $sourceDirectory = Join-Path $destinationRoot $source.Id

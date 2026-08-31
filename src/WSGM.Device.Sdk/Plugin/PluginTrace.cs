@@ -1,28 +1,33 @@
 using System;
-using WSGM.Device.Sdk.Ipc;
 
 namespace WSGM.Device.Sdk.Plugin;
 
+/// <summary>Severity of a plugin diagnostic.</summary>
+public enum DeviceTraceLevel
+{
+    /// <summary>A normal decision, observation, or state change.</summary>
+    Info,
+
+    /// <summary>A degraded, refused, or fallback path.</summary>
+    Warn,
+
+    /// <summary>A failure the plugin could not handle.</summary>
+    Error,
+}
+
 /// <summary>
-/// Ambient diagnostic sink for the one plugin running in a DeviceHost process.
+/// Ambient diagnostic sink for the active device plugin.
 /// </summary>
 /// <remarks>
 /// This is deliberately shaped like WSGM's own <c>Log</c>, static and no-op until installed, and
-/// for the same reason: instrumentation that costs plumbing does not get written. The interface
-/// method <see cref="IPluginHostAdapter.Trace"/> is the transport and stays the contract; this is
-/// the front door for the layers that never see the adapter.
-/// <para>
-/// A plugin is not a library — DeviceHost hosts exactly one, for one process lifetime, so there is
-/// no second sink to confuse and no ambient state shared between tenants. Tests install their own
-/// sink or leave it uninstalled, in which case every call here is a branch and a return.
-/// </para>
-/// <para>
-/// Never trace from a sample or polling loop. The controller reader runs at ~125 Hz and would
-/// out-write everything else in the log, which is the failure this exists to fix, not to cause.
-/// </para>
+/// for the same reason: instrumentation that costs plumbing does not get written. Tests may install
+/// a sink or leave it unset. Sample loops must not trace because controller input runs at ~125 Hz.
 /// </remarks>
 public static class PluginTrace
 {
+    /// <summary>Longest plugin diagnostic WSGM records.</summary>
+    public const int MaxMessageLength = 1024;
+
     private static IPluginHostAdapter? _sink;
 
     /// <summary>Routes subsequent trace calls to a host adapter.</summary>

@@ -30,6 +30,16 @@ internal sealed record NativeQamResolutionState(
     string Current,
     string StatusText);
 
+/// <summary>One connected access point fed through Steam's own network-store ingestion path.</summary>
+internal sealed record SteamNetworkAccessPointState(
+    string Ssid,
+    int Strength,
+    bool Secured,
+    bool Connected);
+
+/// <summary>The connected network-store projection that drives Steam's header indicator.</summary>
+internal sealed record SteamNetworkState(IReadOnlyList<SteamNetworkAccessPointState> Networks);
+
 /// <summary>The unified frame-limit row, shaped like SteamOS's own.</summary>
 /// <remarks>
 /// One continuous slider bookended by the panel's limits, plus a separate switch for off — verified
@@ -58,21 +68,6 @@ internal sealed record NativeQamFrameLimitState(
     int? RefreshMaxHz = null,
     int? CurrentRefreshHz = null,
     IReadOnlyList<int>? RefreshRates = null);
-
-internal sealed record NativeQamOverlayLevelState(
-    bool Available,
-    IReadOnlyList<int> Levels,
-    int? DesiredLevel,
-    int? ObservedLevel,
-    bool SupportsReadback,
-    string ReadbackQuality,
-    string PolicyLayer,
-    bool ApplicationTargetAvailable,
-    string TargetProfile,
-    string AdapterAvailability,
-    string Progress,
-    string Fault,
-    string StatusText);
 
 internal sealed record NativeQamTdpState(
     bool Available,
@@ -136,8 +131,8 @@ internal static class NativeQamText
 {
     /// <summary>Longest status text a projection sends.</summary>
     /// <remarks>
-    /// Bounded because the text can carry a plugin's or a driver's own message, which is untrusted
-    /// length. The page has one line for it, so a longer one would only push the control off screen.
+    /// Plugin and driver messages have no useful display length guarantee. The page has one line,
+    /// so longer text is truncated before delivery.
     /// </remarks>
     private const int MaximumLength = 240;
 
@@ -197,10 +192,6 @@ internal sealed class PerformanceServiceNativeQamAdapter : IDisposable
         _service.Current,
         _service.Enabled,
         PerfSupport?.Invoke());
-
-    internal NativeQamOverlayLevelState OverlayLevel => ProjectOverlayLevel(
-        _service.Current,
-        _service.Enabled);
 
     /// <summary>The variable-refresh switch, straight from the device capability.</summary>
     /// <remarks>
@@ -598,38 +589,6 @@ internal sealed class PerformanceServiceNativeQamAdapter : IDisposable
             // The stops that mode slides between. Windows accepts a MODE, not a rate: it either
             // has 75 Hz or it does not, and asking for 72 gets a refusal, not the nearest thing.
             support?.RefreshRates);
-    }
-
-    internal static NativeQamOverlayLevelState ProjectOverlayLevel(
-        PerformanceState state,
-        bool enabled)
-    {
-        RtssCapabilities? capabilities = state.Probe.Capabilities;
-        int[] levels = capabilities is null
-            ? []
-            : capabilities.OverlayLevels
-                .Where(value => capabilities.IsValid(PerformanceControl.OverlayLevel, value))
-                .Distinct()
-                .Order()
-                .ToArray();
-        bool supported = levels.Length > 0;
-        bool available = enabled
-            && state.Probe.Availability == RtssAvailability.Ready
-            && supported;
-        return new NativeQamOverlayLevelState(
-            available,
-            levels,
-            ValidValue(state.Desired.OverlayLevel, capabilities, PerformanceControl.OverlayLevel),
-            ValidValue(state.Observed.OverlayLevel, capabilities, PerformanceControl.OverlayLevel),
-            supported && capabilities!.OverlayLevelReadback,
-            ReadbackText(state.OverlayLevelQuality),
-            LayerText(state.OverlayLevelLayer),
-            state.Target is not null,
-            Bound(state.Target?.RtssProfileName),
-            AvailabilityText(state.Probe.Availability),
-            ProgressText(state.Command, PerformanceControl.OverlayLevel),
-            FaultText(state.Command, PerformanceControl.OverlayLevel),
-            StatusText(state, PerformanceControl.OverlayLevel, available));
     }
 
     private void OnStateChanged(PerformanceState state) => StateChanged?.Invoke();
@@ -1329,12 +1288,13 @@ internal sealed record SteamBrightnessState(int Percent);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(SteamBrightnessState))]
+[JsonSerializable(typeof(SteamNetworkState))]
+[JsonSerializable(typeof(SteamNetworkAccessPointState))]
 [JsonSerializable(typeof(NativeQamTdpState))]
 [JsonSerializable(typeof(NativeQamAutoTdpState))]
 [JsonSerializable(typeof(NativeQamControllerTargetState))]
 [JsonSerializable(typeof(NativeQamFrameLimitState))]
 [JsonSerializable(typeof(NativeQamResolutionState))]
-[JsonSerializable(typeof(NativeQamOverlayLevelState))]
 [JsonSerializable(typeof(NativeQamVrrState))]
 [JsonSerializable(typeof(SteamBluetoothState))]
 [JsonSerializable(typeof(SteamBluetoothDevice))]

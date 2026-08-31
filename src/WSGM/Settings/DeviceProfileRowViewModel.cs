@@ -99,7 +99,15 @@ public sealed class DeviceProfileRowViewModel : INotifyPropertyChanged
 
             _color = bounded;
             Raise(nameof(Color));
+            Raise(nameof(PickerColor));
         }
+    }
+
+    /// <summary>The authored colour in the type consumed directly by Avalonia's picker.</summary>
+    public Avalonia.Media.Color PickerColor
+    {
+        get => Avalonia.Media.Color.FromUInt32((uint)(0xFF000000 | (_color ?? 0)));
+        set => Color = (value.R << 16) | (value.G << 8) | value.B;
     }
 
     /// <summary>Whether this profile authors a colour.</summary>

@@ -53,7 +53,6 @@ public sealed class SteamUiBridgeAuthorizer
             // command belongs to this control, not to the separate manual-refresh row that stays
             // hidden while a cap owns the rate.
             ["wsgm.native-qam.frame-limit"] = ["setFrameLimit", "setRefreshRate"],
-            ["wsgm.native-qam.overlay-level"] = ["setOverlayLevel"],
             ["wsgm.native-qam.controller-target"] = ["setControllerTarget"],
 
             // Hand-built like the resolution row above, and for the same kind of reason: Valve
@@ -61,7 +60,6 @@ public sealed class SteamUiBridgeAuthorizer
             // SteamClient.System.DisplayManager, which this client does not define. The query never
             // succeeds and the component returns null before reading anything WSGM publishes.
             ["wsgm.native-qam.vrr"] = ["setVariableRefreshRate"],
-            ["wsgm.native-qam.performance-data"] = ["subscribe", "unsubscribe"],
             ["wsgm.native-qam.shell"] = ["toggleQuickAccess"],
 
             // Audio is supplied as a namespace rather than drawn as a row, so its vocabulary is the
@@ -88,11 +86,9 @@ public sealed class SteamUiBridgeAuthorizer
             // Valve's own components, mounted rather than built. No commands: they write through
             // SteamClient.System.Perf.UpdateSettings, which is the perf entry above. The ids are
             // listed so that a subscription from one can never throw the way the row above did.
-            ["wsgm.native-qam.valve-vrr"] = [],
             ["wsgm.native-qam.valve-profile-header"] = [],
             ["wsgm.native-qam.valve-reset"] = [],
             ["wsgm.native-qam.valve-refresh-rate"] = [],
-            ["wsgm.native-qam.valve-frame-limit"] = [],
             ["wsgm.native-qam.valve-overlay-level"] = [],
 
             // Valve's power-limit pair. No commands: they write the steamos_tdp_limit client
@@ -228,7 +224,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
     private const string Namespace = "__wsgmSteamUi_v1_28d7c54a";
     private const string BindingName = "__wsgmNativeBridge_v1_7b24d11c";
     private static readonly TimeSpan OperationTimeout = TimeSpan.FromSeconds(5);
-    private readonly PersistentSteamUiTransport _transport;
+    private readonly ISteamUiTransport _transport;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private SteamUiBridgeAuthorizer _authorizer = new(default);
     private SteamUiGenerations _generations;
@@ -237,9 +233,9 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
 
     /// <summary>Creates a bridge over the process-owned persistent transport.</summary>
     /// <param name="transport">The single Steam UI transport owner.</param>
-    public SteamUiBridgeHost(PersistentSteamUiTransport transport)
+    public SteamUiBridgeHost(ISteamUiTransport transport)
     {
-        _transport = transport;
+        _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         _transport.NotificationReceived += OnNotificationReceived;
         _transport.GenerationChanged += OnGenerationChanged;
     }
@@ -260,16 +256,10 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         try
         {
             var snapshot = FindSharedSnapshot();
-            await _transport.InvokeCdpAsync(
+            await _transport.SetRuntimeBindingAsync(
                 SteamUiTargetRole.SharedJsContext,
-                "Runtime.enable",
-                null,
-                OperationTimeout,
-                cancellationToken).ConfigureAwait(false);
-            await _transport.InvokeCdpAsync(
-                SteamUiTargetRole.SharedJsContext,
-                "Runtime.addBinding",
-                writer => writer.WriteString("name", BindingName),
+                BindingName,
+                true,
                 OperationTimeout,
                 cancellationToken).ConfigureAwait(false);
 
@@ -385,10 +375,10 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
                     + "try{delete window[k];}catch(e){}return JSON.stringify({ok:true});})()",
                 OperationTimeout,
                 cancellationToken).ConfigureAwait(false);
-            await _transport.InvokeCdpAsync(
+            await _transport.SetRuntimeBindingAsync(
                 SteamUiTargetRole.SharedJsContext,
-                "Runtime.removeBinding",
-                writer => writer.WriteString("name", BindingName),
+                BindingName,
+                false,
                 OperationTimeout,
                 cancellationToken).ConfigureAwait(false);
         }
@@ -578,8 +568,20 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         _transport.NotificationReceived -= OnNotificationReceived;
         _transport.GenerationChanged -= OnGenerationChanged;
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        await RemoveAsync(timeout.Token).ConfigureAwait(false);
-        _gate.Dispose();
+        try
+        {
+            await RemoveAsync(timeout.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+        {
+            // Steam may still be reachable while its document is already tearing down. Bridge
+            // cleanup is best effort; it must not abort the enclosing desktop-restore sequence.
+            Log.Warn("Steam UI bridge removal exceeded the shutdown budget.");
+        }
+        finally
+        {
+            _gate.Dispose();
+        }
     }
 }
 

@@ -1,3 +1,4 @@
+using WSGM.Core;
 using WSGM.Shell;
 
 namespace WSGM.Tests;
@@ -132,6 +133,27 @@ public sealed class RunningApplicationTargetTests : IDisposable
     }
 
     [Fact]
+    public void UnresolvedShortcutProfileIsRetriedAfterItsBackoff()
+    {
+        uint shortcutAppId = 0x8000002A;
+        DateTimeOffset now = DateTimeOffset.Parse("2026-08-30T12:00:00Z");
+        SteamRunningAppProfile unresolved = new(null, null, "Transient CEF failure.");
+
+        Assert.False(RunningApplicationMonitor.ShouldResolveProfile(
+            shortcutAppId,
+            shortcutAppId,
+            unresolved,
+            now,
+            now.AddSeconds(1)));
+        Assert.True(RunningApplicationMonitor.ShouldResolveProfile(
+            shortcutAppId,
+            shortcutAppId,
+            unresolved,
+            now.AddSeconds(1),
+            now.AddSeconds(1)));
+    }
+
+    [Fact]
     public void ForegroundApplicationSuppliesTheIdentitySteamDoesNotHave()
     {
         // The whole point of the second source: on the desktop, or for a title Steam never
@@ -167,6 +189,49 @@ public sealed class RunningApplicationTargetTests : IDisposable
 
         Assert.Equal("steam:42", target.ApplicationId);
         Assert.Equal("game.exe", target.RtssProfileName);
+    }
+
+    [Fact]
+    public void ForegroundSuppliesOrdinarySteamGamesMissingRtssProfile()
+    {
+        DateTimeOffset now = DateTimeOffset.Parse("2026-08-30T12:00:00Z");
+
+        RunningApplicationTargetSnapshot target = RunningApplicationTargetProjection.Apply(
+            RunningApplicationTargetSnapshot.Initial(now),
+            new SteamRunningAppObservation(true, [42], 2, null),
+            new SteamRunningAppProfile(null, null, "Steam exposes no executable."),
+            now,
+            new ForegroundApplicationObservation("game.exe"));
+
+        Assert.Equal(RunningApplicationTargetState.Active, target.State);
+        Assert.Equal("steam:42", target.ApplicationId);
+        Assert.Equal((uint)42, target.SteamAppId);
+        Assert.Equal("game.exe", target.RtssProfileName);
+    }
+
+    [Fact]
+    public void ForegroundResolvedSteamProfileSurvivesAltTab()
+    {
+        DateTimeOffset now = DateTimeOffset.Parse("2026-08-30T12:00:00Z");
+        SteamRunningAppObservation observation = new(true, [42], 2, null);
+        SteamRunningAppProfile unresolved = new(null, null, "Steam exposes no executable.");
+        RunningApplicationTargetSnapshot game = RunningApplicationTargetProjection.Apply(
+            RunningApplicationTargetSnapshot.Initial(now),
+            observation,
+            unresolved,
+            now,
+            new ForegroundApplicationObservation("game.exe"));
+
+        RunningApplicationTargetSnapshot altTabbed = RunningApplicationTargetProjection.Apply(
+            game,
+            observation,
+            unresolved,
+            now.AddSeconds(1),
+            new ForegroundApplicationObservation("chrome.exe"));
+
+        Assert.Equal("steam:42", altTabbed.ApplicationId);
+        Assert.Equal("game.exe", altTabbed.RtssProfileName);
+        Assert.Equal(game.Generation, altTabbed.Generation);
     }
 
     [Fact]
@@ -248,11 +313,72 @@ public sealed class RunningApplicationTargetTests : IDisposable
         Assert.Equal(first.Generation, second.Generation);
     }
 
+    [Fact]
+    public async Task DeliberatelyDisabledCefStillAllowsForegroundApplicationPolicy()
+    {
+        await using var transport = new DisabledTransport();
+        var probe = new SteamRunningApplicationProbe(transport);
+        SteamRunningAppObservation observation = await probe.ObserveAsync(CancellationToken.None);
+
+        RunningApplicationTargetSnapshot target = RunningApplicationTargetProjection.Apply(
+            RunningApplicationTargetSnapshot.Initial(DateTimeOffset.UtcNow),
+            observation,
+            null,
+            DateTimeOffset.UtcNow,
+            new ForegroundApplicationObservation("game.exe"));
+
+        Assert.True(observation.Reachable);
+        Assert.Empty(observation.AppIds);
+        Assert.Equal(RunningApplicationTargetState.Active, target.State);
+        Assert.Equal("game.exe", target.RtssProfileName);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_tempDirectory))
         {
             Directory.Delete(_tempDirectory, recursive: true);
         }
+    }
+
+    private sealed class DisabledTransport : ISteamUiTransport
+    {
+        public event EventHandler<SteamUiNotification>? NotificationReceived
+        {
+            add { }
+            remove { }
+        }
+
+        public event EventHandler<SteamUiTransportSnapshot>? GenerationChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public ValueTask<IAsyncDisposable> SubscribeAsync(
+            SteamUiTargetRole role,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<SteamUiEvaluationResult> EvaluateAsync(
+            SteamUiTargetRole role,
+            string expression,
+            TimeSpan timeout,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(SteamUiEvaluationResult.Unavailable(
+                "Steam CEF integration disabled in settings.",
+                default));
+
+        public Task SetRuntimeBindingAsync(
+            SteamUiTargetRole role,
+            string bindingName,
+            bool installed,
+            TimeSpan timeout,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public IReadOnlyList<SteamUiTransportSnapshot> GetSnapshots() => [];
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }

@@ -15,7 +15,7 @@
   ]);
   if (!req || !req.m) return JSON.stringify({ error: "webpack unavailable" });
 
-  // Every token passed to localizeOr in NativeQamBootstrap.ts.
+  // Every token passed to localizeOr in the native-QAM component source.
   const wanted = [
     "#QuickAccess_Tab_Perf_AutoTDP",
     "#QuickAccess_Tab_Perf_LimitFrameRate",

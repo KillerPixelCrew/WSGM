@@ -279,10 +279,9 @@ public partial class RadioWindow : Window
         _applyingSwitch = false;
     }
 
-    // The radio manager's user-action calls reach WSGM.Radio.dll directly, so a
-    // missing or mismatched helper throws out of these async void handlers — i.e.
-    // unhandled, killing the shell process. A radio action must never do that:
-    // log it and leave the panel usable.
+    // These handlers sit at an async-void UI boundary. A Windows radio or audio
+    // failure must be observed here so one unavailable device cannot terminate
+    // the shell process.
     private static async Task RunRadioActionAsync(Task action, string operation)
     {
         try
@@ -486,9 +485,8 @@ public partial class RadioWindow : Window
         var text = PromptInput.Text ?? "";
         var ssid = _promptSsid;
         var token = _promptToken;
-        // An empty PIN cannot answer the provide-pin ceremony: the helper reads
-        // it as the no-PIN Accept overload, so the pairing fails for a reason
-        // the user never sees. Keep the prompt open instead.
+        // An empty PIN cannot answer the provide-pin ceremony. Keep the prompt
+        // open instead of asking WinRT to accept with the wrong overload.
         if (mode == PromptMode.PairingPin && text.Length == 0)
         {
             PromptDetail.Text = "Enter the PIN shown on the device to continue.";

@@ -1,6 +1,4 @@
 using System.Collections.Concurrent;
-using System.Runtime.InteropServices;
-using System.Text;
 using WSGM.Interop;
 using WSGM.Shell;
 
@@ -15,7 +13,7 @@ public sealed class AudioManagerTests
     [InlineData(48.6, 49)]
     [InlineData(100, 100)]
     [InlineData(150, 100)]
-    public void SliderValuesAreRoundedAndBoundedForTheNativeAbi(double value, int expected)
+    public void SliderValuesAreRoundedAndBoundedForCoreAudio(double value, int expected)
         => Assert.Equal(expected, AudioManager.NormalizeVolume(value));
 
     [Fact]
@@ -26,28 +24,12 @@ public sealed class AudioManagerTests
     }
 
     [Fact]
-    public void EndpointRecordsDecodeTheFixedNativeLayout()
+    public void InvalidEndpointFlowsFailWithoutCallingCom()
     {
-        Assert.Equal(1540, NativeVolumeControl.EndpointRecordSize);
-        var memory = Marshal.AllocHGlobal(NativeVolumeControl.EndpointRecordSize);
-        try
-        {
-            Marshal.Copy(new byte[NativeVolumeControl.EndpointRecordSize], 0, memory,
-                NativeVolumeControl.EndpointRecordSize);
-            WriteUtf16(memory, 0, "{render-device-id}");
-            WriteUtf16(memory, 512 * 2, "Handheld speakers");
-            Marshal.WriteInt32(memory, NativeVolumeControl.EndpointRecordSize - 4, 1);
+        var result = CoreAudio.ListEndpoints(-1, out var endpoints);
 
-            var endpoint = NativeVolumeControl.ReadEndpoint(memory);
-
-            Assert.Equal("{render-device-id}", endpoint.Id);
-            Assert.Equal("Handheld speakers", endpoint.Name);
-            Assert.True(endpoint.IsDefault);
-        }
-        finally
-        {
-            Marshal.FreeHGlobal(memory);
-        }
+        Assert.Equal(unchecked((int)0x80070057), result);
+        Assert.Empty(endpoints);
     }
 
     [Fact]
@@ -76,8 +58,8 @@ public sealed class AudioManagerTests
         AudioManager.Reconcile(
             entries,
             [
-                new NativeVolumeControl.AudioEndpoint("stay", "New name", true),
-                new NativeVolumeControl.AudioEndpoint("new", "Dock speakers", false),
+                new CoreAudio.AudioEndpoint("stay", "New name", true),
+                new CoreAudio.AudioEndpoint("new", "Dock speakers", false),
             ]);
 
         Assert.Equal(2, entries.Count);
@@ -122,11 +104,5 @@ public sealed class AudioManagerTests
             TimeSpan.FromSeconds(5)));
         Assert.Equal(["first", "second"], calls);
         Assert.Equal(0, overlappingCalls);
-    }
-
-    private static void WriteUtf16(nint record, int offset, string value)
-    {
-        var bytes = Encoding.Unicode.GetBytes(value + '\0');
-        Marshal.Copy(bytes, 0, record + offset, bytes.Length);
     }
 }

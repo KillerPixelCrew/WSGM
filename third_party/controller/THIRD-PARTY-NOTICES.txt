@@ -1,15 +1,8 @@
 WSGM controller dependency notices
 ==================================
 
-This source tree does not contain the external binaries named below. If a future approved
-ControllerHost distribution includes them, the corresponding license text in this directory must
-ship with that component.
-
-HIDMaestro 1.7.0
-Copyright (c) 2026 HIDMaestro Contributors
-License: MIT
-Source: https://github.com/hifihedgehog/HIDMaestro
-License text: licenses/HIDMaestro-MIT.txt
+The controller installer component ships the external binaries named below with the corresponding
+license texts in this directory. VIIPER carries its own notice beside libviiper.dll.
 
 usbip-win2 0.9.7.7
 Copyright (c) 2021-2026, Vadym Hrynchyshyn <vadimgrn@gmail.com>

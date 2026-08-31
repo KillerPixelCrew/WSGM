@@ -1,3 +1,4 @@
+using System;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -7,6 +8,12 @@ namespace WSGM.Interop;
 
 /// <summary>Stable filesystem identity for one existing path.</summary>
 internal readonly record struct NativePathIdentity(uint VolumeSerialNumber, ulong FileId);
+
+/// <summary>Stable identity and bounded metadata read from one already-open path handle.</summary>
+internal readonly record struct NativePathInformation(
+    NativePathIdentity Identity,
+    uint Attributes,
+    long Length);
 
 /// <summary>Reads filesystem identity without following application-owned path conventions.</summary>
 internal static partial class NativePathIdentityReader
@@ -32,30 +39,60 @@ internal static partial class NativePathIdentityReader
             0);
         if (rawHandle == -1)
         {
-            int error = Marshal.GetLastPInvokeError();
-            if (error is ErrorFileNotFound or ErrorPathNotFound)
+            int openError = Marshal.GetLastPInvokeError();
+            if (openError is ErrorFileNotFound or ErrorPathNotFound)
             {
                 return null;
             }
 
             throw new IOException(
                 $"Could not inspect filesystem identity for '{path}'.",
-                new Win32Exception(error));
+                new Win32Exception(openError));
         }
         using SafeFileHandle handle = new(rawHandle, ownsHandle: true);
 
-        if (GetFileInformationByHandle(
-            handle.DangerousGetHandle(),
-            out ByHandleFileInformation information) == 0)
+        if (!TryRead(handle, out NativePathInformation information, out int error))
         {
-            int error = Marshal.GetLastPInvokeError();
             throw new IOException(
                 $"Could not read filesystem identity for '{path}'.",
                 new Win32Exception(error));
         }
 
-        ulong fileId = ((ulong)information.FileIndexHigh << 32) | information.FileIndexLow;
-        return new NativePathIdentity(information.VolumeSerialNumber, fileId);
+        return information.Identity;
+    }
+
+    /// <summary>Reads identity, attributes, and length from an owned open handle.</summary>
+    internal static bool TryRead(
+        SafeFileHandle handle,
+        out NativePathInformation result,
+        out int error)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+        if (GetFileInformationByHandle(
+            handle.DangerousGetHandle(),
+            out ByHandleFileInformation information) == 0)
+        {
+            result = default;
+            error = Marshal.GetLastPInvokeError();
+            return false;
+        }
+
+        ulong length = ((ulong)information.FileSizeHigh << 32) | information.FileSizeLow;
+        if (length > long.MaxValue)
+        {
+            result = default;
+            error = 223; // ERROR_FILE_TOO_LARGE
+            return false;
+        }
+
+        result = new NativePathInformation(
+            new NativePathIdentity(
+                information.VolumeSerialNumber,
+                ((ulong)information.FileIndexHigh << 32) | information.FileIndexLow),
+            information.FileAttributes,
+            (long)length);
+        error = 0;
+        return true;
     }
 
     [StructLayout(LayoutKind.Sequential)]

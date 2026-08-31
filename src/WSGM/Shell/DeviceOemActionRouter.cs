@@ -68,9 +68,8 @@ internal sealed class DeviceOemActionRouter : IDisposable
     private readonly object _gate = new();
     private readonly Dictionary<string, OemControlDescriptor> _controls = new(StringComparer.Ordinal);
     private readonly Dictionary<string, DateTimeOffset> _recentEvents = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _held = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _lifetime = new();
-    private DeviceHostClient? _client;
+    private DevicePluginRuntime? _client;
     private DeviceOemActionServices? _actions;
     private DeviceDesiredProfile? _profile;
     private long _cycleGeneration;
@@ -88,7 +87,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
         }
     }
 
-    internal void Attach(DeviceHostClient client, long cycleGeneration)
+    internal void Attach(DevicePluginRuntime client, long cycleGeneration)
     {
         ArgumentNullException.ThrowIfNull(client);
         lock (_gate)
@@ -158,7 +157,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
         _lifetime.Dispose();
     }
 
-    private void OnControls(WSGM.Device.Sdk.Ipc.DeviceOemControlsNotification notification)
+    private void OnControls(DeviceOemControls notification)
     {
         lock (_gate)
         {
@@ -200,10 +199,9 @@ internal sealed class DeviceOemActionRouter : IDisposable
                 return;
             }
 
-            string heldKey = $"{input.SourceGeneration}:{input.ControlId}:{input.Press}";
             if (input.Edge is OemControlEdge.Released)
             {
-                _held.Remove(heldKey);
+                Log.Info($"Device OEM release observed: control={input.ControlId}; actions run on press only.");
                 return;
             }
 
@@ -215,8 +213,6 @@ internal sealed class DeviceOemActionRouter : IDisposable
                 Log.Info($"Device OEM duplicate suppressed: control={input.ControlId}.");
                 return;
             }
-
-            _held.Add(heldKey);
 
             action = ResolveActionUnderGate(control);
             if (!OemActionRules.IsAssignable(action, control.Placement)
@@ -305,12 +301,8 @@ internal sealed class DeviceOemActionRouter : IDisposable
         // virtual target's own Steam and Quick Access buttons — the plugin puts them in the
         // controller sample, and Steam responds to its controller natively. WSGM neither intercepts
         // them nor synthesizes anything on their behalf.
-        //
-        // They used to be WSGM's: OEM1 opened the WSGM overlay, and OEM2 fell through to WSGM's
-        // Device page whenever Steam's Quick Access did not answer, so on a machine where the
-        // native QAM was unreachable both of the device's buttons belonged to WSGM. Putting a WSGM
-        // surface on a hardware button is the user's decision, made through the hotkey assignment
-        // in Settings, and an unassigned button does nothing here.
+        // Putting a WSGM surface on a hardware button is an explicit Settings assignment; an
+        // unassigned button does nothing here.
         return OemAction.Disabled;
     }
 
@@ -339,7 +331,6 @@ internal sealed class DeviceOemActionRouter : IDisposable
     private void ResetUnderGate()
     {
         _recentEvents.Clear();
-        _held.Clear();
     }
 
     private void DetachUnderGate()

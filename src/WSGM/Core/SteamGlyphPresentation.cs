@@ -182,6 +182,13 @@ internal sealed record SteamInputGlyphPresentation(
             .Where(mapping => mapping.Presence is GlyphControlPresence.Present)
             .Select(mapping => mapping.Control)
             .ToHashSet();
+        foreach (GlyphControlAlias alias in profile.Manifest.Aliases)
+        {
+            if (present.Contains(alias.PhysicalControl))
+            {
+                present.Add(alias.LogicalControl);
+            }
+        }
         GlyphControlId[] absent = Enum.GetValues<GlyphControlId>()
             .Where(control => !present.Contains(control))
             .OrderBy(control => control)

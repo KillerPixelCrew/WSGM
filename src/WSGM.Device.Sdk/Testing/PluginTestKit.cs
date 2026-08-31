@@ -4,13 +4,12 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Input;
-using WSGM.Device.Sdk.Ipc;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Settings;
 
 namespace WSGM.Device.Sdk.Testing;
 
-/// <summary>In-memory DeviceHost adapter for focused plugin tests.</summary>
+/// <summary>In-memory host adapter for focused plugin tests.</summary>
 /// <remarks>The adapter records only the semantic publications available to production plugins.</remarks>
 public sealed class TestPluginHostAdapter : IPluginHostAdapter
 {

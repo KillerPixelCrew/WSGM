@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Channels;
@@ -28,91 +27,6 @@ internal interface IPhysicalHapticSink
     Task ApplyAsync(HapticOutputFrame frame, CancellationToken cancellationToken);
 
     Task StopAsync(long targetGeneration, string reason, CancellationToken cancellationToken);
-}
-
-internal sealed class DeterministicFakeHapticSink : IPhysicalHapticSink
-{
-    private readonly object _gate = new();
-    private readonly List<HapticOutputFrame> _frames = [];
-    private readonly List<string> _stopReasons = [];
-
-    internal DeterministicFakeHapticSink(long sourceGeneration, HapticCapabilities? capabilities = null)
-    {
-        SourceGeneration = sourceGeneration;
-        Capabilities = capabilities ?? new()
-        {
-            LowFrequency = OutputChannelSupport.Native,
-            HighFrequency = OutputChannelSupport.Native,
-            MaxFramesPerSecond = 60,
-        };
-    }
-
-    public long SourceGeneration { get; set; }
-
-    public bool IsOwned { get; set; } = true;
-
-    public HapticCapabilities Capabilities { get; set; }
-
-    internal Exception? NextFailure { get; set; }
-
-    internal IReadOnlyList<HapticOutputFrame> Frames
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return _frames.ToArray();
-            }
-        }
-    }
-
-    internal IReadOnlyList<string> StopReasons
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return _stopReasons.ToArray();
-            }
-        }
-    }
-
-    public Task ApplyAsync(HapticOutputFrame frame, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        lock (_gate)
-        {
-            ThrowIfFaultRequested();
-            _frames.Add(frame);
-            return Task.CompletedTask;
-        }
-    }
-
-    public Task StopAsync(
-        long targetGeneration,
-        string reason,
-        CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        lock (_gate)
-        {
-            ThrowIfFaultRequested();
-            _stopReasons.Add(reason);
-            _frames.Add(HapticOutputFrame.Stop(targetGeneration, DateTimeOffset.UtcNow));
-            return Task.CompletedTask;
-        }
-    }
-
-    private void ThrowIfFaultRequested()
-    {
-        if (NextFailure is not { } failure)
-        {
-            return;
-        }
-
-        NextFailure = null;
-        throw failure;
-    }
 }
 
 internal sealed class ControllerOutputRouter : IAsyncDisposable
@@ -538,9 +452,15 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
             _sourceGeneration,
             _lastSequence,
             _timeProvider.GetUtcNow(),
-            out _))
+            out string refusal))
         {
-            await NeutralizeAsync("source-invalid", cancellationToken).ConfigureAwait(false);
+            Log.Warn(
+                $"Managed controller input was neutralized: reason={refusal}, "
+                    + $"sampleGeneration={sample.CycleGeneration}, "
+                    + $"activeGeneration={_sourceGeneration}, sequence={sample.Sequence}, "
+                    + $"previousSequence={_lastSequence}, quality={sample.Quality}.");
+            await NeutralizeAsync($"source-invalid:{refusal}", cancellationToken)
+                .ConfigureAwait(false);
             return false;
         }
 

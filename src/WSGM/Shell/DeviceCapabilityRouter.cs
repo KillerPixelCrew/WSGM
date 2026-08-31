@@ -24,7 +24,7 @@ internal sealed record DeviceCapabilityView(
     CapabilityCommandResult? LastResult);
 
 /// <summary>
-/// Validates and projects the semantic capability stream owned by one DeviceHost generation.
+/// Validates and projects the semantic capability stream owned by one plugin generation.
 /// </summary>
 internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 {
@@ -38,14 +38,14 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     /// <summary>Last logged availability per capability, so only changes are written.</summary>
     private readonly Dictionary<DeviceCapabilityKey, bool> _availability = [];
     private readonly Dictionary<DeviceCapabilityKey, SemaphoreSlim> _commandGates = [];
-    private readonly Dictionary<Guid, DeviceCapabilityKey> _timedOutCommands = [];
     private CapabilityStateTracker _states;
-    private DeviceHostClient? _client;
+    private DevicePluginRuntime? _client;
     private DeviceDesiredProfile? _desiredProfile;
     private string? _hardwareProfileId;
     private string? _applicationId;
     private long _descriptorGeneration;
     private long _cycleGeneration;
+    private long _publishRevision;
     private bool _onAcPower = true;
     private bool _connected;
     private bool _disposed;
@@ -61,7 +61,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     /// <summary>Raised on the UI dispatcher with a complete immutable projection.</summary>
     internal event Action<IReadOnlyList<DeviceCapabilityView>>? Changed;
 
-    internal void Attach(DeviceHostClient client, long cycleGeneration)
+    internal void Attach(DevicePluginRuntime client, long cycleGeneration)
     {
         ArgumentNullException.ThrowIfNull(client);
         lock (_gate)
@@ -75,11 +75,11 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             _states.ResetTo(cycleGeneration);
             _lastResults.Clear();
             _pendingValues.Clear();
-            _timedOutCommands.Clear();
+            _availability.Clear();
+            _commandGates.Clear();
             _connected = true;
             client.DescriptorSetReceived += OnDescriptorSet;
             client.CapabilityStateReceived += OnStateDelta;
-            client.LateCommandResultReceived += OnLateCommandResult;
         }
 
         Publish();
@@ -154,6 +154,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         SemaphoreSlim commandGate;
         lock (_gate)
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
             if (!_commandGates.TryGetValue(key, out commandGate!))
             {
                 commandGate = new SemaphoreSlim(1, 1);
@@ -165,7 +166,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         try
         {
             CapabilityCommand command;
-            DeviceHostClient client;
+            DevicePluginRuntime client;
             CapabilityCommandResult? refusal = PrepareCommand(key, value, timeout, out command, out client);
             if (refusal is not null)
             {
@@ -175,13 +176,26 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 
             Publish();
             CapabilityCommandResult result;
+            bool terminal = true;
             try
             {
-                result = await client.ExecuteCommandAsync(command, cancellationToken)
-                    .ConfigureAwait(false);
+                DeviceCommandDispatch dispatch = await client.ExecuteCommandAsync(
+                    command,
+                    cancellationToken).ConfigureAwait(false);
+                result = dispatch.Immediate;
                 if (result.CommandId != command.CommandId)
                 {
-                    result = Uncertain(command, "DeviceHost returned a different command ID.");
+                    result = Uncertain(command, "The plugin returned a different command ID.");
+                }
+                else if (dispatch.LateCompletion is not null)
+                {
+                    terminal = false;
+                    _ = ObserveLateCommandAsync(
+                        key,
+                        command.CommandId,
+                        command.ExpectedCycleGeneration,
+                        client,
+                        dispatch.LateCompletion);
                 }
             }
             catch (OperationCanceledException)
@@ -197,11 +211,6 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                         Retryable: true),
                     CompletedAt = DateTimeOffset.UtcNow,
                 };
-                lock (_gate)
-                {
-                    _timedOutCommands[command.CommandId] = key;
-                }
-
                 _ = CancelBestEffortAsync(client, command.CommandId);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -209,7 +218,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 result = Uncertain(command, ex.Message);
             }
 
-            ReconcileResult(key, result);
+            ReconcileResult(key, result, terminal);
             return result;
         }
         finally
@@ -272,11 +281,8 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         {
             _disposed = true;
             DetachUnderGate();
-            foreach (SemaphoreSlim commandGate in _commandGates.Values)
-            {
-                commandGate.Dispose();
-            }
-
+            // An admitted ExecuteAsync releases its local gate in finally. Clearing the index
+            // blocks reuse without disposing a semaphore an in-flight command still owns.
             _commandGates.Clear();
         }
 
@@ -288,7 +294,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         CapabilityValue? value,
         TimeSpan timeout,
         out CapabilityCommand command,
-        out DeviceHostClient client)
+        out DevicePluginRuntime client)
     {
         DateTimeOffset now = DateTimeOffset.UtcNow;
         Guid commandId = Guid.NewGuid();
@@ -309,7 +315,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             {
                 client = null!;
                 return Reject(command, CapabilityReasonCode.HostUnavailable,
-                    "DeviceHost is not connected.", retryable: true);
+                    "The device plugin runtime is not connected.", retryable: true);
             }
 
             client = _client;
@@ -410,6 +416,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             _pendingValues.Clear();
             _lastResults.Clear();
             _temporaryDesired.Clear();
+            _availability.Clear();
         }
 
         Publish();
@@ -430,15 +437,19 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                     _cycleGeneration,
                     out error))
             {
-                Log.Warn($"Device capability state rejected: key={key}, "
-                    + $"{error ?? "invalid sequence or key"}");
+                Log.Change(
+                    $"device-capability-state-rejected/{key}",
+                    $"Device capability state rejected: key={key}, "
+                        + $"{error ?? "invalid sequence or key"}");
                 return;
             }
 
             DeltaRejection rejection = _states.Apply(delta);
             if (rejection is not DeltaRejection.None)
             {
-                Log.Warn($"Device capability delta rejected: key={key}, reason={rejection}.");
+                Log.Change(
+                    $"device-capability-delta-rejected/{key}",
+                    $"Device capability delta rejected: key={key}, reason={rejection}.");
                 return;
             }
 
@@ -484,14 +495,25 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         Log.Warn($"Device capability unavailable: {key} — {reason}");
     }
 
-    private void OnLateCommandResult(CapabilityCommandResult result)
+    private async Task ObserveLateCommandAsync(
+        DeviceCapabilityKey key,
+        Guid commandId,
+        long cycleGeneration,
+        DevicePluginRuntime client,
+        Task<CapabilityCommandResult> completion)
     {
-        DeviceCapabilityKey key;
+        CapabilityCommandResult result = await completion.ConfigureAwait(false);
         lock (_gate)
         {
-            if (!_timedOutCommands.Remove(result.CommandId, out key))
+            if (!_connected
+                || !ReferenceEquals(_client, client)
+                || _cycleGeneration != cycleGeneration
+                || result.CommandId != commandId)
             {
-                Log.Warn($"Uncorrelated late device command result ignored: command={result.CommandId}.");
+                Log.Warn(
+                    $"Late device command result ignored: command={result.CommandId}, expected={commandId}, "
+                        + $"resultGeneration={cycleGeneration}, activeGeneration={_cycleGeneration}, "
+                        + $"connected={_connected}, sameRuntime={ReferenceEquals(_client, client)}.");
                 return;
             }
         }
@@ -501,13 +523,18 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         ReconcileResult(key, result);
     }
 
-    private void ReconcileResult(DeviceCapabilityKey key, CapabilityCommandResult result)
+    private void ReconcileResult(
+        DeviceCapabilityKey key,
+        CapabilityCommandResult result,
+        bool terminal = true)
     {
         lock (_gate)
         {
-            _pendingValues.Remove(key);
+            if (terminal)
+            {
+                _pendingValues.Remove(key);
+            }
             _lastResults[key] = result;
-            _timedOutCommands.Remove(result.CommandId);
         }
 
         Log.Info($"Device command: capability={key}, command={result.CommandId}, "
@@ -532,7 +559,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                     Quality = HardwareStateQuality.Stale,
                     Reason = new CapabilityReason(
                         CapabilityReasonCode.HostUnavailable,
-                        "DeviceHost is disconnected.",
+                        "The device plugin is disconnected.",
                         Retryable: true),
                 };
             }
@@ -607,20 +634,39 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         {
             _client.DescriptorSetReceived -= OnDescriptorSet;
             _client.CapabilityStateReceived -= OnStateDelta;
-            _client.LateCommandResultReceived -= OnLateCommandResult;
         }
 
         _client = null;
         _connected = false;
+        _availability.Clear();
+        _commandGates.Clear();
     }
 
     private void Publish()
     {
-        IReadOnlyList<DeviceCapabilityView> snapshot = Snapshot(DateTimeOffset.UtcNow);
-        _postToUi(() => Changed?.Invoke(snapshot));
+        IReadOnlyList<DeviceCapabilityView> snapshot;
+        long revision;
+        lock (_gate)
+        {
+            snapshot = BuildSnapshotUnderGate(DateTimeOffset.UtcNow);
+            revision = ++_publishRevision;
+        }
+
+        _postToUi(() =>
+        {
+            lock (_gate)
+            {
+                if (_disposed || revision != _publishRevision)
+                {
+                    return;
+                }
+            }
+
+            Changed?.Invoke(snapshot);
+        });
     }
 
-    private static async Task CancelBestEffortAsync(DeviceHostClient client, Guid commandId)
+    private static async Task CancelBestEffortAsync(DevicePluginRuntime client, Guid commandId)
     {
         try
         {

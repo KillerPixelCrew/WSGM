@@ -42,58 +42,21 @@ waiting to happen.
   otherwise); WSGM's own overlay/edge swipes over elevated windows ride the same chain. The flip
   side: an **elevated explorer breaks UWP** (touch keyboard, store apps) — that's what invariant 5
   protects.
-- **Accepted security posture (do not "fix" by contorting the design):** the whole class of
-  same-user medium→high findings is accepted by design. WSGM is a per-user shell that deliberately
-  self-elevates and runs user-configured inputs — the boot manifest (`boot.json`), live
-  `config.json` reload / auto-relaunch, `SelfElevation` launching configured home/startup apps, the
-  HKCU-sourced Steam path, the co-located helper DLL (`WSGM.VolumeControl.dll`) and the install→run
-  handoff all live in `%LOCALAPPDATA%`, which same-user medium-IL code already owns. UAC is not a
-  Microsoft security boundary, so a same-user attacker who can pre-plant those inputs is out of
-  scope. Do NOT relocate the install, add per-action UAC prompts, code-sign-gate DLL loads, or
-  otherwise trade the design/UX to close these — a reviewer re-raising them should be answered
-  "accepted by design," not patched. What IS worth doing (and already done) is _transparent_
-  hardening that costs nothing: absolute `System32` paths for launched system tools
-  (`ConsoleTool.System32`), reparse-point/ no-follow/no-overwrite checks before elevated file ops in
-  user-writable dirs, DACL-scoping named kernel objects to the current user, and bounds/decode-size
-  checks on parsed untrusted input.
-- **The update-exit event (`Local\WSGM.ExitForUpdate`) is an accepted same-user capability, and it
-  is neither availability-only nor harmless.** `Core\UpdateExitWatcher` creates it with an explicit
-  DACL granting this user's SID and `BUILTIN\Administrators` `EVENT_MODIFY_STATE | SYNCHRONIZE`
-  (`0x00100002`) plus a medium mandatory label, so any same-user medium process — not only the
-  elevated setup — can signal it. Two consequences are accepted, and a review must state them
-  correctly rather than downgrading them:
-  - **It is not availability-only.** The callback (`Program.Main`'s `UpdateExitWatcher.Start`
-    handler) runs `Steam.StopForUpdate()`, which activates `steam://exit` through
-    `AppLauncher.StartProtocol` → `Process.Start(… UseShellExecute = true)` (`Core\AppLauncher.cs`).
-    WSGM is normally elevated in game mode, so the shell resolves that protocol's **HKCU** handler
-    with WSGM's token. The HKCU hijack itself is already accepted above (same-user medium→high,
-    `%LOCALAPPDATA%`/HKCU are the attacker's own store); what the event adds is only _timing
-    control_ over when the pre-planted handler runs. Do not describe this path as a mere shutdown
-    request.
-  - **It can force an update-style Steam stop and game-mode exit.** The graceful path now runs the
-    bounded application cleanup and verifies an Explorer desktop before `lifetime.Shutdown()` exits
-    with code 0. If cleanup reaches its outer deadline, the separately rooted Explorer anchor keeps
-    the owner-loss recovery path alive through process exit. The logon service still starts its own
-    Explorer fallback only on a dirty exit (`WSGM.LogonService\SessionLauncher.Watch`:
-    `dirtyExit = !exitKnown || waitResult != WAIT_OBJECT_0 || exitCode != 0`); it is not the
-    recovery owner for a successful update handoff. A same-user process can therefore disrupt Steam
-    and end game mode on demand, but the accepted capability no longer intentionally strands the
-    session without a desktop.
-  - **The hardening that is kept is the cheap kind, and the grant must not be narrowed.** The medium
-    label keeps low-IL/sandboxed code from signalling at all, and the watcher's `ResetEvent` at
-    start drops a stale signal so a relaunched instance does not shut itself straight back down. Do
-    **not** tighten the DACL: the unelevated Settings instance needs `EVENT_MODIFY_STATE` for that
-    reset and for the `OpenEventW` fallback, and "one `SetEvent` releases every instance" is the
-    contract `StopRunningInstances` in `installer\WSGM.iss` depends on. The event name and the
-    `0x00100002` mask are a **cross-version** contract — during an upgrade the object is created by
-    the OLD build and the new installer only opens it by name — so drifting either one silently
-    breaks graceful update shutdown and leaves the injected Steam Input payload mapped.
-- **Uninstall uses a separate graceful-exit event.** `Local\WSGM.ExitForUninstall` carries the same
-  same-user DACL and stale-signal behavior, but selects the frozen 20-second uninstall budget and
-  does not call `Steam.StopForUpdate`. The uninstaller falls back to `Local\WSGM.ExitForUpdate` when
-  removing an older build, then uses the same force-stop fallback. This keeps the update event's
-  cross-version name and semantics intact while avoiding an unnecessary Steam/game termination
-  during uninstall.
+- **WSGM's per-user inputs remain per-user.** The boot manifest, live configuration, HKCU Steam
+  registration, and install-to-run handoff intentionally remain in the user's profile even when WSGM
+  elevates. Keep validation that improves correctness without changing that model: absolute
+  system-tool paths, no-follow/no-overwrite file operations, correctly scoped kernel objects, and
+  bounded external-data parsers. Do not add publisher tiers or per-action prompts to compensate for
+  inputs the same user already controls.
+- **`Local\WSGM.ExitForUpdate` is a cross-version coordination contract.** Its name, user plus
+  Administrators `EVENT_MODIFY_STATE | SYNCHRONIZE` grant (`0x00100002`), medium label, and startup
+  reset must remain compatible with older running builds. One signal releases every WSGM instance;
+  the update path stops Steam, runs bounded application cleanup, and verifies Explorer recovery. The
+  unelevated Settings instance also needs the event grant, so narrowing it breaks ordinary update
+  shutdown.
+- **Uninstall uses `Local\WSGM.ExitForUninstall`.** It keeps the same event-access and stale-signal
+  behavior, selects the fixed uninstall budget, and does not stop Steam. Removal of older builds
+  falls back to the update event before the force-stop path.
 - **Never manage Windows device posture or automatic touch-keyboard policy:** game/desktop mode must
   not capture or write `ConvertibleSlateMode` or `TouchKeyboardTapInvoke`. Windows owns both. The
   legacy config fields and `LegacyPostureCleanup.Restore` exist only to undo values changed by older

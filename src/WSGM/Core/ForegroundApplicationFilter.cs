@@ -49,6 +49,8 @@ public static class ForegroundApplicationFilter
         "wsgm.exe",
         "wsgm.launch.exe",
         "wsgm.devicelab.exe",
+        "steam.exe",
+        "gameoverlayui.exe",
 
         // The shell itself, and the windows it puts in front of things.
         "explorer.exe",

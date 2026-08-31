@@ -1,10 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using WSGM.Device.Sdk.Ipc;
+using WSGM.Device.Sdk.Serialization;
 
 namespace WSGM.Device.Sdk.Glyphs;
 
@@ -42,6 +43,9 @@ public enum GlyphPackageImportCode
 
     /// <summary>The source returned the same profile identifier more than once.</summary>
     DuplicateProfile,
+
+    /// <summary>The package profile directory could not be inspected.</summary>
+    ProfileEnumerationFailed,
 
     /// <summary>A hash-addressed artwork file was absent or exceeded its byte budget.</summary>
     AssetMissing,
@@ -84,8 +88,8 @@ public static class GlyphPackageImporter
     private const int MaxNoticePathLength = 256;
     private const int MaxJsonDepth = 12;
 
-    private static readonly DeviceWireJsonContext ReadContext = new(
-        new JsonSerializerOptions(DeviceWireJsonContext.Default.Options)
+    private static readonly DeviceJsonContext ReadContext = new(
+        new JsonSerializerOptions(DeviceJsonContext.Default.Options)
         {
             MaxDepth = MaxJsonDepth,
         });
@@ -100,7 +104,23 @@ public static class GlyphPackageImporter
         List<ImportedGlyphProfile> profiles = [];
         List<GlyphPackageImportError> errors = [];
         HashSet<string> profileIds = new(StringComparer.Ordinal);
-        IReadOnlyList<string> discovered = source.EnumerateProfileIds() ?? [];
+        IReadOnlyList<string> discovered;
+        try
+        {
+            discovered = source.EnumerateProfileIds() ?? [];
+        }
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException
+            or InvalidDataException
+            or NotSupportedException)
+        {
+            errors.Add(new GlyphPackageImportError(
+                string.Empty,
+                "glyphs/profiles",
+                GlyphPackageImportCode.ProfileEnumerationFailed,
+                $"The profile directory could not be read ({exception.GetType().Name})."));
+            return new GlyphPackageImportResult([], errors);
+        }
 
         foreach (string profileId in discovered.Take(MaxProfiles).Order(StringComparer.Ordinal))
         {

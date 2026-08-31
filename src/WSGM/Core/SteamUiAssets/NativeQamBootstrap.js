@@ -15,13 +15,45 @@
   ) {
     return JSON.stringify({ ok: true, reused: true, version: prior.version });
   }
-  if (prior && typeof prior.dispose === "function") prior.dispose("generation replaced");
+  if (prior) {
+    // Older bridge versions disposed only the component host. Ask every exposed gate to unwind
+    // while its closure still has the original methods/descriptors, then dispose the bridge. This
+    // is the compatibility bridge that lets the new uniform ownership markers replace the old
+    // per-gate ones without stacking on dead wrappers.
+    for (const gateName of [
+      "steamOsManager",
+      "brightness",
+      "bluetooth",
+      "network",
+      "audio",
+      "perf",
+    ]) {
+      try {
+        prior[gateName]?.remove?.();
+      } catch {}
+    }
+    if (typeof prior.dispose === "function") prior.dispose("generation replaced");
+  }
   const pending = new Map();
   const subscribers = new Map();
   const latestStates = new Map();
   const nativeComponents = createNativeComponentHost();
   let nextSequence = 0;
   let disposed = false;
+  // One reviewed runtime tap for every gate. Capturing webpack's runtime by pushing an empty
+  // chunk is the proven primitive; six private copies only made it possible for their safety and
+  // diagnostics to drift. This helper captures the runtime but never evaluates an unknown module.
+  const getWebpackRuntime = (scope) => {
+    let runtime;
+    window.webpackChunksteamui.push([
+      [`wsgm_${scope}_${Date.now()}`],
+      {},
+      (value) => {
+        runtime = value;
+      },
+    ]);
+    return runtime;
+  };
   const allowed = (patchId, command) => {
     const commands = config.allowed[patchId];
     return Array.isArray(commands) && commands.includes(command);
@@ -42,12 +74,21 @@
   // Zero was meant as "no user-initiated row action here", which is true of a gate. Rather than
   // repeat the counter at each such call site, an absent or non-positive generation is allocated
   // one here, so no caller can construct an invalid envelope at all.
-  const gateActionGenerations = new Map();
-  const validActionGeneration = (patchId, actionGeneration) => {
-    if (Number.isInteger(actionGeneration) && actionGeneration > 0) return actionGeneration;
-    const next = (gateActionGenerations.get(patchId) || 0) + 1;
-    gateActionGenerations.set(patchId, next);
+  const actionGenerations = new Map();
+  const nextActionGeneration = (patchId) => {
+    const next = (actionGenerations.get(patchId) || 0) + 1;
+    actionGenerations.set(patchId, next);
     return next;
+  };
+  const validActionGeneration = (patchId, actionGeneration) => {
+    if (Number.isInteger(actionGeneration) && actionGeneration > 0) {
+      actionGenerations.set(
+        patchId,
+        Math.max(actionGenerations.get(patchId) || 0, actionGeneration),
+      );
+      return actionGeneration;
+    }
+    return nextActionGeneration(patchId);
   };
   // The generation is optional: a gate has no user-initiated row action to number, and one is
   // allocated for it above. Row controls pass their own so an echo can be matched to the write.
@@ -129,6 +170,21 @@
   const dispose = (reason) => {
     if (disposed) return;
     disposed = true;
+    // Resident gates own callbacks, service overlays and timers outside the bridge namespace.
+    // Removing only nativeComponents left the Manager gate polling every second after the bridge
+    // that answered it had gone away, and left the other service wrappers calling dead closures.
+    for (const gate of [
+      steamOsManagerGate,
+      brightnessGate,
+      bluetoothService,
+      networkGate,
+      audioNamespace,
+      perfNamespace,
+    ]) {
+      try {
+        gate.remove();
+      } catch {}
+    }
     nativeComponents.dispose();
     for (const item of pending.values()) {
       clearTimeout(item.timer);
@@ -137,6 +193,7 @@
     pending.clear();
     subscribers.clear();
     latestStates.clear();
+    actionGenerations.clear();
   };
   // Stamped on every namespace WSGM defines on SteamClient, so a later probe can tell OUR namespace
   // from a real backend. Without it the two are indistinguishable and the compatibility check reads
@@ -404,17 +461,7 @@
     // One forward in flight at a time. The timer ticks every second and the host's own command
     // budget is longer than that, so without this a slow write would be re-sent underneath itself.
     let forwarding = false;
-    const modules = () => {
-      let req;
-      window.webpackChunksteamui.push([
-        ["wsgm_steamos_" + Date.now()],
-        {},
-        (r) => {
-          req = r;
-        },
-      ]);
-      return req;
-    };
+    const modules = () => getWebpackRuntime("steamos-manager");
     // The Manager service, found structurally: the export whose surface has GetState and the
     // screen-reader refresh no other service carries. Its sibling GV (Telemetry) also has
     // GetState, which is why a bare GetState match is not enough.
@@ -603,7 +650,9 @@
       }
       if (manager && originalGetState) {
         try {
-          manager.GetState = originalGetState;
+          if (manager.GetState?.[ownedGetStateMarker] === true) {
+            manager.GetState = originalGetState;
+          }
         } catch (error) {
           lastError = String(error);
           return { ok: false, error: lastError };
@@ -611,6 +660,8 @@
       }
       latest = { available: false, min: 0, max: 0 };
       invalidate(modules());
+      manager = null;
+      originalGetState = null;
       return { ok: true, removed: true };
     };
     const status = () => ({
@@ -649,6 +700,7 @@
     // the flag to be hidden, a successful apply made it visible, and the patch manager tore down
     // its own work every poll — the row flickered in and out on a ~25-second cycle on the device.
     const revealedMarker = "__wsgmBrightnessRevealed";
+    const originalValueField = "__wsgmOriginalBrightnessAvailability";
     const ownedSetterMarker = "__wsgmOwnedSetBrightness";
     const originalSetterField = "__wsgmOriginalSetBrightness";
     let originalValue;
@@ -658,14 +710,7 @@
     let lastPercent = null;
     const displayStore = () => {
       try {
-        let req;
-        window.webpackChunksteamui.push([
-          ["wsgm_brightness_store_" + Date.now()],
-          {},
-          (r) => {
-            req = r;
-          },
-        ]);
+        const req = getWebpackRuntime("brightness-store");
         return req?.("59547")?.mG?.Get?.() ?? null;
       } catch {
         return null;
@@ -756,12 +801,24 @@
         return { ok: false, error: lastError };
       }
       try {
-        if (message[revealedMarker] !== true) {
-          originalValue = message[field];
-        }
+        // Reclaiming a previous bridge's reveal must also recover what that bridge replaced.
+        // Keeping the value only in the old closure restored `undefined`; Steam's `?? true`
+        // availability hook then kept the row visible after removal.
+        originalValue =
+          message[revealedMarker] === true && Object.hasOwn(message, originalValueField)
+            ? message[originalValueField]
+            : message[revealedMarker] === true
+              ? false
+              : message[field];
         message[field] = true;
         Object.defineProperty(message, revealedMarker, {
           value: true,
+          configurable: true,
+          enumerable: false,
+          writable: false,
+        });
+        Object.defineProperty(message, originalValueField, {
+          value: originalValue,
           configurable: true,
           enumerable: false,
           writable: false,
@@ -776,6 +833,7 @@
         try {
           message[field] = originalValue;
           delete message[revealedMarker];
+          delete message[originalValueField];
         } catch {}
         return { ok: false, error: lastError };
       }
@@ -797,6 +855,7 @@
       try {
         message[field] = originalValue;
         delete message[revealedMarker];
+        delete message[originalValueField];
       } catch (error) {
         lastError = String(error);
         return { ok: false, error: lastError };
@@ -831,6 +890,8 @@
   function createBluetoothService() {
     const patchId = "wsgm.steam-bluetooth.service";
     const queryKey = ["BluetoothManagerService", "State"];
+    const methodMarker = "__wsgmOwnedBluetoothService";
+    const originalMethodField = "__wsgmOriginalBluetoothServiceMethod";
     const originals = new Map();
     let installed = false;
     let lastError = "";
@@ -838,17 +899,7 @@
     // Steam's own device and adapter shapes, which are not ours to describe: the store reads them
     // and WSGM only carries them through from the state it was given.
     let latest = { is_service_available: false, adapters: [], devices: [] };
-    const modules = () => {
-      let req;
-      window.webpackChunksteamui.push([
-        ["wsgm_bluetooth_" + Date.now()],
-        {},
-        (r) => {
-          req = r;
-        },
-      ]);
-      return req;
-    };
+    const modules = () => getWebpackRuntime("bluetooth-service");
     // Steam reads a transport reply, never a bare value: BSuccess decides whether the caller
     // proceeds at all, and Body().toObject() is what the store consumes.
     const reply = (body) => ({
@@ -910,13 +961,30 @@
         return { ok: false, error: lastError };
       }
       const forward = (command) => (payload) =>
-        request(patchId, command, payload ?? null, 0).then(
+        request(patchId, command, payload ?? null).then(
           () => reply({ success: true }),
           () => reply({ success: false }),
         );
       const replace = (name, replacement) => {
-        originals.set(name, RF[name]);
+        const current = RF[name];
+        const original = current?.[methodMarker] === true ? current[originalMethodField] : current;
+        originals.set(name, original);
+        Object.defineProperty(replacement, methodMarker, {
+          value: true,
+          configurable: true,
+          enumerable: false,
+        });
+        Object.defineProperty(replacement, originalMethodField, {
+          value: original,
+          configurable: true,
+          enumerable: false,
+        });
         RF[name] = replacement;
+      };
+      const restore = () => {
+        for (const [name, original] of originals) {
+          if (RF[name]?.[methodMarker] === true) RF[name] = original;
+        }
       };
       try {
         replace("GetState", () => Promise.resolve(reply(latest)));
@@ -938,6 +1006,8 @@
         replace("SetWakeAllowed", forward("setWakeAllowed"));
       } catch (error) {
         lastError = String(error);
+        restore();
+        originals.clear();
         return { ok: false, error: lastError };
       }
       installed = true;
@@ -956,7 +1026,9 @@
       const req = modules();
       const RF = req?.("60517")?.RF;
       if (RF) {
-        for (const [name, original] of originals) RF[name] = original;
+        for (const [name, original] of originals) {
+          if (RF[name]?.[methodMarker] === true) RF[name] = original;
+        }
       }
       originals.clear();
       latest = { is_service_available: false, adapters: [], devices: [] };
@@ -984,25 +1056,94 @@
   function createNetworkGate() {
     const property = "networkManagementAvailable";
     const patchId = "wsgm.steam-network.gate";
+    const getterMarker = "__wsgmOwnedGetter";
+    const originalGetterField = "__wsgmOriginalGetterDescriptor";
+    const scanMarker = "__wsgmOwnedNetworkScan";
+    const originalScanField = "__wsgmOriginalNetworkScan";
     let original;
     let target = null;
     let lastError = "";
     let scanWrapped = false;
     let originalStart = null;
     let originalStop = null;
+    let unsubscribe = null;
+    let syntheticKeys = [];
     const store = () => {
       try {
-        let req;
-        window.webpackChunksteamui.push([
-          ["wsgm_network_store_" + Date.now()],
-          {},
-          (r) => {
-            req = r;
-          },
-        ]);
+        const req = getWebpackRuntime("network-store");
         return req?.("77347")?.OQ?.Get() ?? null;
       } catch {
         return null;
+      }
+    };
+    const removeNetworkState = (refresh) => {
+      const instance = store();
+      if (instance) {
+        const keys = new Set(syntheticKeys);
+        // Compatibility cleanup for the retired standalone indicator, which used this exact
+        // bounded id range but could not hand its closure-owned key list to the new gate.
+        const deviceId = instance.m_WirelessDevice?.id;
+        if (deviceId !== undefined) {
+          for (let index = 0; index < 24; index += 1) keys.add(`${deviceId}:${990001 + index}`);
+        }
+        for (const key of keys) instance.m_mapNetworkAccessPoints?.delete(key);
+        instance.m_bIsConnectedToANetwork = instance.IsAnyDeviceConnected();
+        instance.m_bIsConnectingToANetwork = instance.IsAnyDeviceConnecting();
+      }
+      syntheticKeys = [];
+      if (refresh) {
+        try {
+          window.SteamClient?.System?.Network?.ForceRefresh?.();
+        } catch {}
+      }
+    };
+    // One resident owner now reveals AND feeds the network surface. The previous standalone
+    // indicator installed a second script against this same store, with its own version sentinel
+    // and retry timer; bridge state gives the generation-aware gate the same verified connected AP
+    // for the header. Scan lifetime remains an observation of Steam's page, not an invented
+    // connection protocol: its argument order has not been read from the client.
+    const onState = (state) => {
+      const instance = store();
+      const networks = Array.isArray(state?.networks) ? state.networks.slice(0, 24) : [];
+      if (!instance || !instance.m_WirelessDevice) {
+        lastError = "network store has no wireless device";
+        return;
+      }
+      if (networks.length === 0) {
+        removeNetworkState(true);
+        lastError = "";
+        return;
+      }
+      try {
+        const device = JSON.parse(JSON.stringify(instance.m_WirelessDevice));
+        if (!device.wireless) device.wireless = { aps: [], esecurity_supported: 0 };
+        const accessPoints = networks.map((network, index) => ({
+          id: 990001 + index,
+          esecurity: network.secured ? 16 : 0,
+          estrength: Math.max(1, Math.min(4, Number(network.strength) || 1)),
+          ssid: String(network.ssid || ""),
+          is_active: network.connected === true,
+          is_autoconnect: network.connected === true,
+          is_hidden: false,
+        }));
+        const keys = accessPoints.map((accessPoint) => `${device.id}:${accessPoint.id}`);
+        for (const key of syntheticKeys) {
+          if (!keys.includes(key)) instance.m_mapNetworkAccessPoints.delete(key);
+        }
+        for (const key of keys) instance.m_mapNetworkAccessPoints.delete(key);
+        device.estate = networks.some((network) => network.connected === true) ? 5 : device.estate;
+        device.wireless.aps = accessPoints;
+        accessPoints.forEach((accessPoint) => {
+          instance.SetDeviceInfo(device, accessPoint.id);
+          const entry = instance.m_mapNetworkAccessPoints.get(`${device.id}:${accessPoint.id}`);
+          if (entry) entry.MarkAsNotPresent = () => {};
+        });
+        instance.m_bIsConnectedToANetwork = instance.IsAnyDeviceConnected();
+        instance.m_bIsConnectingToANetwork = instance.IsAnyDeviceConnecting();
+        syntheticKeys = keys;
+        lastError = "";
+      } catch (error) {
+        lastError = String(error);
       }
     };
     const install = () => {
@@ -1027,20 +1168,30 @@
         // stand aside", declares itself incompatible, and tears down — taking the network list with
         // it.
         const owned = () => true;
-        Object.defineProperty(owned, "__wsgmOwnedGetter", {
+        const originalDescriptor =
+          descriptor.get?.[getterMarker] === true
+            ? descriptor.get[originalGetterField]
+            : descriptor;
+        Object.defineProperty(owned, getterMarker, {
           value: true,
           configurable: true,
           enumerable: false,
         });
+        Object.defineProperty(owned, originalGetterField, {
+          value: originalDescriptor,
+          configurable: true,
+          enumerable: false,
+        });
         Object.defineProperty(proto, property, { get: owned, configurable: true });
+        original = originalDescriptor;
       } catch (error) {
         lastError = String(error);
         return { ok: false, error: lastError };
       }
-      original = descriptor;
       target = proto;
       lastError = "";
       wrapScanning();
+      unsubscribe = subscribe(patchId, onState);
       return { ok: true, installed: true, available: instance[property] === true };
     };
     // Steam's own UI calls these when its network page opens and closes, so they are exactly the
@@ -1054,16 +1205,26 @@
       const net = window.SteamClient?.System?.Network;
       if (!net || scanWrapped) return;
       const wrap = (name, command) => {
-        const inner = net[name];
+        const current = net[name];
+        const inner = current?.[scanMarker] === true ? current[originalScanField] : current;
         if (typeof inner !== "function") return null;
-        net[name] = function (...args) {
-          try {
-            request(patchId, command, null, 0);
-          } catch {
-            // A scan request that cannot reach WSGM must not stop Steam's own call.
-          }
+        const wrapped = function (...args) {
+          // A scan request that cannot reach WSGM must not stop Steam's own call. Promise
+          // rejection is handled explicitly; a try/catch only sees synchronous construction.
+          void request(patchId, command, null).catch(() => {});
           return inner.apply(this, args);
         };
+        Object.defineProperty(wrapped, scanMarker, {
+          value: true,
+          configurable: true,
+          enumerable: false,
+        });
+        Object.defineProperty(wrapped, originalScanField, {
+          value: inner,
+          configurable: true,
+          enumerable: false,
+        });
+        net[name] = wrapped;
         return inner;
       };
       originalStart = wrap("StartScanningForNetworks", "startScan");
@@ -1073,17 +1234,29 @@
     const unwrapScanning = () => {
       const net = window.SteamClient?.System?.Network;
       if (!net || !scanWrapped) return;
-      if (originalStart) net.StartScanningForNetworks = originalStart;
-      if (originalStop) net.StopScanningForNetworks = originalStop;
+      if (net.StartScanningForNetworks?.[scanMarker] === true && originalStart) {
+        net.StartScanningForNetworks = originalStart;
+      }
+      if (net.StopScanningForNetworks?.[scanMarker] === true && originalStop) {
+        net.StopScanningForNetworks = originalStop;
+      }
       originalStart = null;
       originalStop = null;
       scanWrapped = false;
     };
     const remove = () => {
       unwrapScanning();
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = null;
+      }
+      removeNetworkState(true);
       if (!target || !original) return { ok: true, absent: true };
       try {
-        Object.defineProperty(target, property, original);
+        const current = Object.getOwnPropertyDescriptor(target, property);
+        if (current?.get?.[getterMarker] === true) {
+          Object.defineProperty(target, property, original);
+        }
       } catch (error) {
         lastError = String(error);
         return { ok: false, error: lastError };
@@ -1135,6 +1308,7 @@
       return { unregister: () => (callbacks[slot] = null) };
     };
     let known = [];
+    let originalStoreState = null;
     // Steam's audio identities are NUMBERS: the live store keeps m_activeOutputDeviceId as a
     // uint32 with 0xFFFFFFFF for none (read off the running client, 2026-08-30). WSGM's endpoint
     // ids are Windows GUID strings, so devices listed by name but nothing could ever match as
@@ -1195,17 +1369,10 @@
     // `m_bAvailable` is computed once in the constructor, which ran at client start when
     // SteamClient.System.Audio did not exist, so the audio section would stay hidden forever.
     // Live-verified 2026-08-30: the flag is writable and RegisterOrUpdateDevice is the store's own
-    // ingestion path, exactly as SteamNetworkIndicator already does for the network store.
+    // ingestion path, the same verified path the network gate now owns for the network store.
     const liveStore = () => {
       try {
-        let req;
-        window.webpackChunksteamui.push([
-          ["wsgm_audio_store_" + Date.now()],
-          {},
-          (r) => {
-            req = r;
-          },
-        ]);
+        const req = getWebpackRuntime("audio-store");
         const store = req?.("1409")?.F5;
         return store && "m_bAvailable" in store ? store : null;
       } catch {
@@ -1229,10 +1396,11 @@
       // Numeric, because these ids flow to the store and its callbacks, and Steam's side of the
       // wire is numeric everywhere.
       const seen = state.devices.map((device) => numberFor(device.id));
+      const removed = known.filter((id) => !seen.includes(id));
       // Removals first: a device that has gone must leave the store before a re-read of the device
       // list can describe the set as complete, or the picker keeps an endpoint that is not there.
-      for (const id of known) {
-        if (!seen.includes(id) && callbacks.deviceRemoved) callbacks.deviceRemoved(id);
+      for (const id of removed) {
+        if (callbacks.deviceRemoved) callbacks.deviceRemoved(id);
       }
       for (const device of state.devices) {
         if (callbacks.deviceAdded) callbacks.deviceAdded(toDevice(device, flVolume));
@@ -1257,9 +1425,14 @@
       const store = liveStore();
       if (!store) return;
       try {
+        originalStoreState ??= {
+          available: store.m_bAvailable === true,
+          output: Number(store.m_activeOutputDeviceId) || NO_DEVICE,
+          input: Number(store.m_activeInputDeviceId) || NO_DEVICE,
+        };
         store.m_bAvailable = true;
-        for (const id of known) {
-          if (!seen.includes(id)) store.m_mapAudioDevices?.delete(id);
+        for (const id of removed) {
+          store.m_mapAudioDevices?.delete(id);
         }
         for (const device of state.devices) {
           store.RegisterOrUpdateDevice(toDevice(device, flVolume));
@@ -1404,9 +1577,23 @@
         unsubscribe = null;
       }
       for (const slot of Object.keys(callbacks)) callbacks[slot] = null;
+      const store = liveStore();
+      if (store) {
+        try {
+          for (const id of known) store.m_mapAudioDevices?.delete(id);
+          store.m_bAvailable = originalStoreState?.available ?? false;
+          store.m_activeOutputDeviceId = originalStoreState?.output ?? NO_DEVICE;
+          store.m_activeInputDeviceId = originalStoreState?.input ?? NO_DEVICE;
+        } catch (error) {
+          lastError = "audio store cleanup failed: " + String(error);
+        }
+      }
       known = [];
+      originalStoreState = null;
       try {
-        delete window.SteamClient.System.Audio;
+        if (window.SteamClient?.System?.Audio?.[ownedMarker] === true) {
+          delete window.SteamClient.System.Audio;
+        }
       } catch (error) {
         lastError = String(error);
         return { ok: false, error: lastError };
@@ -1426,28 +1613,19 @@
   function createNativeComponentHost() {
     const registrations = new Map();
     const listeners = new Set();
-    const actionGenerations = new Map();
     let runtime;
     let controlRuntime;
-    let tdpControl;
     let autoTdpControl;
     let frameLimitControl;
-    let overlayLevelControl;
     let controllerControl;
     let resolutionControl;
     let vrrControl;
-    // Valve's own VRR control, rendered rather than rebuilt. It reads its state from
-    // SystemPerfStore and writes through SteamClient.System.Perf.UpdateSettings, both of which WSGM
-    // now supplies, so mounting it needs no props and no shim of its own — which is the entire
-    // point of reactivating a component instead of hand-building a row that looks like it.
-    let valveVrrControl;
     // Valve's profile header, which carries the per-game profile toggle inside it — probed
     // 2026-08-30: the toggle is not a separately mountable export, so the two arrive together or
     // not at all. And Valve's reset button. Both are additive: WSGM built neither.
     let valveProfileHeaderControl;
     let valveResetControl;
     let valveRefreshRateControl;
-    let valveFrameLimitControl;
     let valveOverlayLevelControl;
     // Valve's power-limit pair. They arrive as two exports, not one row: the toggle reveals the
     // slider through the steamos_tdp_limit_enabled setting, which is how SteamOS models "off" for
@@ -1464,6 +1642,7 @@
     let originalUseMemo;
     let patchedUseMemo;
     let disposedHost = false;
+    let lastPatchError = "";
     // One entry per wrapped tab, because "the perf panel appended fine" and "Quick Settings never
     // rendered" are different facts that a single field could only report as one.
     const appendDiagnostics = {
@@ -1489,10 +1668,6 @@
       return null;
     };
     const definitions = Object.freeze({
-      tdp: Object.freeze({
-        patchId: "wsgm.native-qam.tdp",
-        command: "setPrimaryLimit",
-      }),
       autoTdp: Object.freeze({
         patchId: "wsgm.native-qam.auto-tdp",
         command: "setAutoTdp",
@@ -1503,10 +1678,6 @@
         patchId: "wsgm.native-qam.frame-limit",
         command: "setFrameLimit",
         refreshCommand: "setRefreshRate",
-      }),
-      overlayLevel: Object.freeze({
-        patchId: "wsgm.native-qam.overlay-level",
-        command: "setOverlayLevel",
       }),
       controllerTarget: Object.freeze({
         patchId: "wsgm.native-qam.controller-target",
@@ -1528,10 +1699,6 @@
       // read SystemPerfStore and write through SteamClient.System.Perf.UpdateSettings, which is the
       // perf patch's vocabulary, not theirs. They still need an entry here — install() refuses any
       // kind that is not a declared definition.
-      valveVrr: Object.freeze({
-        patchId: "wsgm.native-qam.valve-vrr",
-        command: "",
-      }),
       valveProfileHeader: Object.freeze({
         patchId: "wsgm.native-qam.valve-profile-header",
         command: "",
@@ -1547,13 +1714,7 @@
         patchId: "wsgm.native-qam.valve-refresh-rate",
         command: "",
       }),
-      // Valve's frame-limit slider and performance-overlay selector, replacing the hand-rolled
-      // rows that imitated them — the retirement Q12 always intended once the Perf backend could
-      // feed the real components.
-      valveFrameLimit: Object.freeze({
-        patchId: "wsgm.native-qam.valve-frame-limit",
-        command: "",
-      }),
+      // Valve's performance-overlay selector replaces the retired hand-rolled imitation.
       valveOverlayLevel: Object.freeze({
         patchId: "wsgm.native-qam.valve-overlay-level",
         command: "",
@@ -1566,15 +1727,6 @@
         command: "",
       }),
     });
-    // Which tab each kind renders in. Everything defaults to the Performance panel; Quick Settings
-    // holds the display controls S14 puts there. A kind listed nowhere renders nowhere, which is
-    // the honest failure for a typo.
-    const quickSettingsKinds = new Set(["resolution", "valveRefreshRate"]);
-    const nextActionGeneration = (patchId) => {
-      const next = (actionGenerations.get(patchId) || 0) + 1;
-      actionGenerations.set(patchId, next);
-      return next;
-    };
     const notify = () => {
       for (const listener of [...listeners]) {
         try {
@@ -1606,17 +1758,6 @@
         (value) => value && typeof value === "object" && predicate(value),
       );
       return matches.length === 1 ? matches[0] : null;
-    };
-    const getRuntime = () => {
-      let found;
-      window.webpackChunksteamui.push([
-        ["wsgm_native_components_" + Date.now()],
-        {},
-        (value) => {
-          found = value;
-        },
-      ]);
-      return found;
     };
     const createControlRuntime = () => {
       const reactFactory = uniqueFactory([
@@ -1700,49 +1841,6 @@
         enabled: value.enabled,
         controlling: value.controlling,
         watts,
-        progress: normalizeText(value.progress),
-        statusText: normalizeText(value.statusText),
-      });
-    };
-    const normalizeTdpState = (value) => {
-      if (!value || typeof value !== "object" || typeof value.available !== "boolean") return null;
-      if (!value.available) {
-        return Object.freeze({
-          available: false,
-          minimumWatts: null,
-          maximumWatts: null,
-          stepWatts: null,
-          desiredWatts: null,
-          observedWatts: null,
-          progress: normalizeText(value.progress),
-          statusText: normalizeText(value.statusText),
-        });
-      }
-      const min = Number(value.minimumWatts);
-      const max = Number(value.maximumWatts);
-      const step = Number(value.stepWatts);
-      const desired = typeof value.desiredWatts === "number" ? value.desiredWatts : null;
-      const observed = typeof value.observedWatts === "number" ? value.observedWatts : null;
-      if (
-        !Number.isInteger(min) ||
-        !Number.isInteger(max) ||
-        !Number.isInteger(step) ||
-        min < 1 ||
-        max > 200 ||
-        min >= max ||
-        step < 1 ||
-        step > max - min ||
-        (desired !== null && (!Number.isInteger(desired) || desired < min || desired > max)) ||
-        (observed !== null && (!Number.isInteger(observed) || observed < min || observed > max))
-      )
-        return null;
-      return Object.freeze({
-        available: value.available,
-        minimumWatts: min,
-        maximumWatts: max,
-        stepWatts: step,
-        desiredWatts: desired,
-        observedWatts: observed,
         progress: normalizeText(value.progress),
         statusText: normalizeText(value.statusText),
       });
@@ -1936,34 +2034,6 @@
         refreshRates: refreshUsable ? Object.freeze(refreshRates) : Object.freeze([]),
       });
     };
-    const normalizeOverlayLevelState = (value) => {
-      const common = normalizePerformanceCommon(value);
-      if (!common || !Array.isArray(value.levels) || value.levels.length > 5) return null;
-      const levels = [];
-      for (const item of value.levels) {
-        const level = Number(item);
-        if (!Number.isInteger(level) || level < 0 || level > 4 || levels.includes(level))
-          return null;
-        levels.push(level);
-      }
-      levels.sort((left, right) => left - right);
-      const desiredLevel = value.desiredLevel === null ? null : Number(value.desiredLevel);
-      const observedLevel = value.observedLevel === null ? null : Number(value.observedLevel);
-      if (
-        (desiredLevel !== null &&
-          (!Number.isInteger(desiredLevel) || !levels.includes(desiredLevel))) ||
-        (observedLevel !== null &&
-          (!Number.isInteger(observedLevel) || !levels.includes(observedLevel))) ||
-        (common.available && levels.length === 0)
-      )
-        return null;
-      return Object.freeze({
-        ...common,
-        levels: Object.freeze(levels),
-        desiredLevel,
-        observedLevel,
-      });
-    };
     const useSemanticState = (controlRuntime, kind, normalize) => {
       const definition = definitions[kind];
       const [state, setState] = controlRuntime.react.useState(null);
@@ -2046,55 +2116,6 @@
       const text = textOf(localized);
       return text && text.length > 0 && text[0] !== "#" ? localized : fallback;
     };
-    const createTdpControl = (controlRuntime) =>
-      function WsgmNativeTdpControl() {
-        const state = useSemanticState(controlRuntime, "tdp", normalizeTdpState);
-        // Both hooks run before any early return: a control that renders nothing until its state
-        // arrives would otherwise change its hook count the moment it does, which React treats as a
-        // fatal error and would take the whole panel down with it.
-        const value = state ? (state.observedWatts ?? state.desiredWatts) : null;
-        const echoed = useEchoedValue(controlRuntime, value);
-        if (!state) return note("tdp", "no state");
-        if (!state.available)
-          return note("tdp", "unavailable: " + (state.statusText || "no reason"));
-        if (value === null) return note("tdp", "no observed or desired watts");
-        renderOutcomes.tdp = "rendered";
-        const definition = definitions.tdp;
-        const setValue = (watts) => {
-          if (!Number.isInteger(watts) || watts < state.minimumWatts || watts > state.maximumWatts)
-            return;
-          void request(
-            definition.patchId,
-            definition.command,
-            { watts },
-            nextActionGeneration(definition.patchId),
-          ).catch(() => {});
-        };
-        return controlRuntime.react.createElement(controlRuntime.slider, {
-          label: localizeOr(controlRuntime, "#QuickAccess_Tab_Perf_TDPLimitEnabled", "TDP limit"),
-          explainer: localizeOr(
-            controlRuntime,
-            "#QuickAccess_Tab_Perf_TDPLimit_Explainer",
-            "Sets the sustained power limit for the processor.",
-          ),
-          explainerTitle: localizeOr(
-            controlRuntime,
-            "#QuickAccess_Tab_Perf_TDPLimitEnabled",
-            "TDP limit",
-          ),
-          valueSuffix: localizeOr(controlRuntime, "#QuickAccess_Tab_Perf_TDPLimitUnits", "W"),
-          min: state.minimumWatts,
-          max: state.maximumWatts,
-          step: state.stepWatts,
-          value: echoed.value,
-          showValue: true,
-          showBookendLabels: true,
-          disabled: isBusy(state.progress),
-          description: state.statusText || undefined,
-          onChange: echoed.onChange,
-          onChangeComplete: (next) => echoed.onChangeComplete(next, setValue),
-        });
-      };
     // WSGM's own variable-refresh switch. Valve ships one, and it cannot be used: its component is
     // gated on a react-query over SteamClient.System.DisplayManager, whose GetState this client
     // does not define — the query never succeeds and the component returns null before it reads a
@@ -2396,44 +2417,6 @@
           disableSwitch,
         );
       };
-    const createOverlayLevelControl = (controlRuntime) =>
-      function WsgmNativeOverlayLevelControl() {
-        const state = useSemanticState(controlRuntime, "overlayLevel", normalizeOverlayLevelState);
-        if (!state) return note("overlayLevel", "no state");
-        if (!state.available)
-          return note("overlayLevel", "unavailable: " + (state.statusText || "no reason"));
-        const selected = state.observedLevel ?? state.desiredLevel;
-        if (selected === null || !state.levels.includes(selected))
-          return note("overlayLevel", `level ${selected} is not among [${state.levels}]`);
-        renderOutcomes.overlayLevel = "rendered";
-        const options = state.levels.map((level) => ({
-          data: level,
-          label: level === 0 ? "Off" : level === 1 ? "On" : String(level),
-        }));
-        const definition = definitions.overlayLevel;
-        const setValue = (option) => {
-          if (!option || !state.levels.includes(option.data)) return;
-          void request(
-            definition.patchId,
-            definition.command,
-            { value: option.data, persistence: "automatic" },
-            nextActionGeneration(definition.patchId),
-          ).catch(() => {});
-        };
-        return controlRuntime.react.createElement(controlRuntime.dropdown, {
-          label: localizeOr(
-            controlRuntime,
-            "#QuickAccess_Tab_Perf_Overlay_Level",
-            "Performance overlay",
-          ),
-          rgOptions: options,
-          selectedOption: selected,
-          onChange: setValue,
-          disabled: isBusy(state.progress) || options.length < 2,
-          description: state.fault || state.statusText || undefined,
-          layout: "below",
-        });
-      };
     // Steam's own FPS counter rows, which WSGM replaces with its RTSS-driven overlay. Identified by
     // localising the same tokens Steam did rather than by CSS class or visible text: the classes
     // are hashed per client build and the text changes with the user's language, while the token is
@@ -2512,7 +2495,11 @@
           inner,
           component: function WsgmNativeQamFilteredPerformance(props) {
             lastHidden = 0;
-            return hideNativeRows(controlRuntime, inner(props), labels, 0);
+            const filtered = hideNativeRows(controlRuntime, inner(props), labels, 0);
+            if (appendDiagnostics.perf) {
+              appendDiagnostics.perf.nativeRowsHidden = lastHidden;
+            }
+            return filtered;
           },
         };
       }
@@ -2521,173 +2508,45 @@
     const appendControls = (controlRuntime, tree, placement = "perf") => {
       // Rendered React elements from Steam's own untyped runtime.
       const controls = [];
-      // A kind renders in exactly one tab. Registration says the host backs it; placement says
-      // where it belongs, and the two are deliberately separate questions.
-      const wants = (kind) =>
-        registrations.has(kind) &&
-        (quickSettingsKinds.has(kind) ? "quickSettings" : "perf") === placement;
-      // First, because it names the profile everything below it edits. Valve's own header carries
-      // the per-game toggle inside it, so mounting this is what gives the panel a per-application
-      // profile concept at all.
-      if (wants("valveProfileHeader") && valveProfileHeaderControl) {
+      // The one visible ordering table. It is the device-set order: profile identity, observation,
+      // pacing, VRR, power, automatic power, display, controller, reset. A kind's registration,
+      // component and placement are checked in one loop instead of three parallel structures and
+      // ten almost-identical append branches.
+      const rows = [
+        [
+          "valveProfileHeader",
+          "wsgm-native-qam-valve-profile-header",
+          valveProfileHeaderControl,
+          "perf",
+        ],
+        [
+          "valveOverlayLevel",
+          "wsgm-native-qam-valve-overlay-level",
+          valveOverlayLevelControl,
+          "perf",
+        ],
+        ["frameLimit", "wsgm-native-qam-frame-limit", frameLimitControl, "perf"],
+        ["vrr", "wsgm-native-qam-vrr", vrrControl, "perf"],
+        ["valveTdp", "wsgm-native-qam-valve-tdp-enabled", valveTdpToggleControl, "perf"],
+        ["valveTdp", "wsgm-native-qam-valve-tdp", valveTdpSliderControl, "perf"],
+        ["autoTdp", "wsgm-native-qam-auto-tdp", autoTdpControl, "perf"],
+        ["resolution", "wsgm-native-qam-resolution", resolutionControl, "quickSettings"],
+        [
+          "valveRefreshRate",
+          "wsgm-native-qam-valve-refresh-rate",
+          valveRefreshRateControl,
+          "quickSettings",
+        ],
+        ["controllerTarget", "wsgm-native-qam-controller-target", controllerControl, "perf"],
+        ["valveReset", "wsgm-native-qam-valve-reset", valveResetControl, "perf"],
+      ];
+      for (const [kind, key, component, rowPlacement] of rows) {
+        if (rowPlacement !== placement || !registrations.has(kind) || !component) continue;
         controls.push(
           controlRuntime.react.createElement(
             controlRuntime.row,
-            { key: "wsgm-native-qam-valve-profile-header" },
-            controlRuntime.react.createElement(valveProfileHeaderControl),
-          ),
-        );
-      }
-      // The order below is the maintainer's, set on the device: overlay level, frame limit and its
-      // switch, VRR, TDP with AutoTDP behind it, and the controller last. It reads from what you
-      // look at while playing down to what you set once — not from the order the rows were built.
-      // The overlay is what you turn on to judge everything under it, so it comes first.
-      if (wants("valveOverlayLevel") && valveOverlayLevelControl) {
-        controls.push(
-          controlRuntime.react.createElement(
-            controlRuntime.row,
-            { key: "wsgm-native-qam-valve-overlay-level" },
-            controlRuntime.react.createElement(valveOverlayLevelControl),
-          ),
-        );
-      }
-      if (wants("overlayLevel")) {
-        controls.push(
-          controlRuntime.react.createElement(
-            controlRuntime.row,
-            { key: "wsgm-native-qam-overlay-level" },
-            controlRuntime.react.createElement(overlayLevelControl),
-          ),
-        );
-      }
-      // The unified row: one slider that is the frame cap while a cap is set and the refresh rate
-      // once the switch beside it turns the cap off.
-      if (wants("frameLimit")) {
-        controls.push(
-          controlRuntime.react.createElement(
-            controlRuntime.row,
-            { key: "wsgm-native-qam-frame-limit" },
-            controlRuntime.react.createElement(frameLimitControl),
-          ),
-        );
-      }
-      if (wants("valveFrameLimit") && valveFrameLimitControl) {
-        controls.push(
-          controlRuntime.react.createElement(
-            controlRuntime.row,
-            { key: "wsgm-native-qam-valve-frame-limit" },
-            controlRuntime.react.createElement(valveFrameLimitControl),
-          ),
-        );
-      }
-      // Directly under the frame limit, because variable refresh is the other answer to the same
-      // question: hold a cadence by capping frames, or by letting the panel follow them.
-      //
-      // WSGM's own row, not Valve's. Valve's VRR component is gated on
-      // SteamClient.System.DisplayManager, which this client does not have — its GetState returns
-      // null, the query never succeeds, and the component returns null before it reads anything
-      // WSGM publishes. Live-probed 2026-08-30; supplying that namespace is a separate piece of
-      // work, and this row runs on the device capability that is already verified.
-      if (wants("vrr")) {
-        controls.push(
-          controlRuntime.react.createElement(
-            controlRuntime.row,
-            { key: "wsgm-native-qam-vrr" },
-            controlRuntime.react.createElement(vrrControl),
-          ),
-        );
-      }
-      if (wants("valveVrr") && valveVrrControl) {
-        controls.push(
-          controlRuntime.react.createElement(
-            controlRuntime.row,
-            { key: "wsgm-native-qam-valve-vrr" },
-            controlRuntime.react.createElement(valveVrrControl),
-          ),
-        );
-      }
-      // Valve's own power-limit pair. Two rows, because that is how SteamOS models this control:
-      // the toggle is "off" and the slider only appears behind it, which is why the slider has no
-      // zero position. Both are gated on is_tdp_limit_available, which the SteamOS Manager gate
-      // supplies — this row does not exist until that RPC answers.
-      if (wants("valveTdp") && valveTdpToggleControl) {
-        controls.push(
-          controlRuntime.react.createElement(
-            controlRuntime.row,
-            { key: "wsgm-native-qam-valve-tdp-enabled" },
-            controlRuntime.react.createElement(valveTdpToggleControl),
-          ),
-        );
-      }
-      if (wants("valveTdp") && valveTdpSliderControl) {
-        controls.push(
-          controlRuntime.react.createElement(
-            controlRuntime.row,
-            { key: "wsgm-native-qam-valve-tdp" },
-            controlRuntime.react.createElement(valveTdpSliderControl),
-          ),
-        );
-      }
-      if (wants("tdp")) {
-        controls.push(
-          controlRuntime.react.createElement(
-            controlRuntime.row,
-            { key: "wsgm-native-qam-tdp" },
-            controlRuntime.react.createElement(tdpControl),
-          ),
-        );
-      }
-      // Straight after the power limit, because AutoTDP is what moves it. A user who sees the
-      // slider change on its own finds the explanation in the next row rather than hunting for it.
-      if (wants("autoTdp")) {
-        controls.push(
-          controlRuntime.react.createElement(
-            controlRuntime.row,
-            { key: "wsgm-native-qam-auto-tdp" },
-            controlRuntime.react.createElement(autoTdpControl),
-          ),
-        );
-      }
-      if (wants("resolution")) {
-        controls.push(
-          controlRuntime.react.createElement(
-            controlRuntime.row,
-            { key: "wsgm-native-qam-resolution" },
-            controlRuntime.react.createElement(resolutionControl),
-          ),
-        );
-      }
-      // Valve's refresh-rate row follows resolution in Quick Settings: the two describe the same
-      // display, and reading them apart would separate cause from consequence under the pairing
-      // strategies.
-      if (wants("valveRefreshRate") && valveRefreshRateControl) {
-        controls.push(
-          controlRuntime.react.createElement(
-            controlRuntime.row,
-            { key: "wsgm-native-qam-valve-refresh-rate" },
-            controlRuntime.react.createElement(valveRefreshRateControl),
-          ),
-        );
-      }
-      // Last of the performance controls, because it is the one setting that is not about this
-      // session's frame pacing at all.
-      if (wants("controllerTarget")) {
-        controls.push(
-          controlRuntime.react.createElement(
-            controlRuntime.row,
-            { key: "wsgm-native-qam-controller-target" },
-            controlRuntime.react.createElement(controllerControl),
-          ),
-        );
-      }
-      // Last, because it undoes everything above it. A reset sitting among the controls it clears
-      // is one mis-aimed press away from wiping a profile the user was in the middle of tuning.
-      if (wants("valveReset") && valveResetControl) {
-        controls.push(
-          controlRuntime.react.createElement(
-            controlRuntime.row,
-            { key: "wsgm-native-qam-valve-reset" },
-            controlRuntime.react.createElement(valveResetControl),
+            { key },
+            controlRuntime.react.createElement(component),
           ),
         );
       }
@@ -2759,7 +2618,6 @@
         ownSection: true,
         tree: JSON.stringify(describe(tree, 0)).slice(0, 600),
         nativeFiltered: native !== tree,
-        nativeRowsHidden: lastHidden,
       };
       return controlRuntime.react.createElement(controlRuntime.react.Fragment, null, native, own);
     };
@@ -2771,21 +2629,32 @@
         controlRuntime.react.useMemo === patchedUseMemo
       )
         return true;
-      runtime = getRuntime();
-      if (!runtime || !runtime.m) return false;
+      runtime = getWebpackRuntime("native-components");
+      if (!runtime || !runtime.m) {
+        lastPatchError = "webpack runtime unavailable";
+        return false;
+      }
       const performanceFactory = uniqueFactory([
         "#QuickAccess_Tab_Perf_Common_Settings",
         "#QuickAccess_Tab_Perf_BatteryTimeRemaining",
         "TS.ON_FRAME",
       ]);
       controlRuntime = createControlRuntime();
-      if (!performanceFactory || !controlRuntime) return false;
+      if (!performanceFactory) {
+        lastPatchError = "performance panel factory was not a unique match";
+        return false;
+      }
+      if (!controlRuntime) {
+        lastPatchError = "React, fields, layout or localization runtime was not a unique match";
+        return false;
+      }
       performanceRoot = uniqueFunction(runtime(performanceFactory[0]), ["TS.ON_FRAME", "return"]);
-      if (!performanceRoot) return false;
-      tdpControl = createTdpControl(controlRuntime);
+      if (!performanceRoot) {
+        lastPatchError = "performance panel root was not a unique match";
+        return false;
+      }
       autoTdpControl = createAutoTdpControl(controlRuntime);
       frameLimitControl = createFrameLimitControl(controlRuntime);
-      overlayLevelControl = createOverlayLevelControl(controlRuntime);
       controllerControl = createControllerControl(controlRuntime);
       resolutionControl = createResolutionControl(controlRuntime);
       vrrControl = createVrrControl(controlRuntime);
@@ -2797,9 +2666,6 @@
         "#QuickAccess_Tab_Perf_LimitFrameRate",
       ]);
       const perfExports = perfComponents ? runtime(perfComponents[0]) : null;
-      valveVrrControl = perfExports
-        ? uniqueFunction(perfExports, ["#QuickAccess_Tab_Perf_EnableVRR"])
-        : null;
       valveProfileHeaderControl = perfExports
         ? uniqueFunction(perfExports, ["#QuickAccess_Tab_Perf_GameSpecificSettings"])
         : null;
@@ -2808,9 +2674,6 @@
         : null;
       valveRefreshRateControl = perfExports
         ? uniqueFunction(perfExports, ["#QuickAccess_Tab_Perf_RefreshRate"])
-        : null;
-      valveFrameLimitControl = perfExports
-        ? uniqueFunction(perfExports, ["#QuickAccess_Tab_Perf_LimitFrameRate"])
         : null;
       valveOverlayLevelControl = perfExports
         ? uniqueFunction(perfExports, ["#QuickAccess_Tab_Perf_Overlay_Level"])
@@ -2914,7 +2777,12 @@
         return result;
       };
       controlRuntime.react.useMemo = patchedUseMemo;
-      return controlRuntime.react.useMemo === patchedUseMemo;
+      if (controlRuntime.react.useMemo !== patchedUseMemo) {
+        lastPatchError = "React useMemo wrapper could not be installed";
+        return false;
+      }
+      lastPatchError = "";
+      return true;
     };
     const install = (kind) => {
       if (disposedHost || !Object.hasOwn(definitions, kind))
@@ -2922,7 +2790,7 @@
       if (!ensurePatched())
         return {
           ok: false,
-          error: "native performance root was already initialized or incompatible",
+          error: lastPatchError || "native performance root is incompatible",
         };
       registrations.set(kind, definitions[kind].patchId);
       notify();
@@ -2931,7 +2799,6 @@
     const remove = (kind) => {
       if (!Object.hasOwn(definitions, kind)) return { ok: true, absent: true };
       registrations.delete(kind);
-      actionGenerations.delete(definitions[kind].patchId);
       notify();
       if (
         !registrations.size &&
@@ -2958,11 +2825,11 @@
       // And this says which rows drew, and why the others did not.
       renderOutcomes,
       toggleResolved: !!(controlRuntime && controlRuntime.toggle),
+      lastError: lastPatchError,
     });
     const disposeHostResources = () => {
       disposedHost = true;
       registrations.clear();
-      actionGenerations.clear();
       notify();
       listeners.clear();
       if (controlRuntime && originalUseMemo && controlRuntime.react.useMemo === patchedUseMemo)

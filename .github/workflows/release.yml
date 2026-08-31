@@ -52,9 +52,9 @@ jobs:
           $mver = $parts -join '.'
           (Get-Content src/WSGM/app.manifest) -replace 'assemblyIdentity version="[^"]*"', "assemblyIdentity version=`"$mver`"" | Set-Content src/WSGM/app.manifest
 
-      # windows-latest ships VS Build Tools (NativeAOT linker) and Inno Setup 6 —
+      # windows-latest ships the .NET SDK, native build tools, and Inno Setup 6 —
       # exactly what build.ps1 expects locally.
-      - name: Build (NativeAOT publish + installer)
+      - name: Build (self-contained publish + installer)
         shell: pwsh
         run: .\build.ps1
 

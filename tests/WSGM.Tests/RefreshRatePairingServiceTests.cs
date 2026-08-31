@@ -76,6 +76,21 @@ public sealed class RefreshRatePairingServiceTests
     }
 
     [Fact]
+    public void FailedRestoreRetainsTheOriginalForARetry()
+    {
+        Harness harness = new();
+        harness.Service.SetStrategy(FrameLimitStrategy.FrameDoubling);
+        harness.Service.ApplyForCap(30);
+        harness.ApplySucceeds = false;
+
+        Assert.False(harness.Service.Restore());
+        harness.ApplySucceeds = true;
+        Assert.True(harness.Service.Restore());
+
+        Assert.Equal([30, 120], harness.Applied);
+    }
+
+    [Fact]
     public void SetStrategy_BackToCapOnly_HandsTheDisplayBackImmediately()
     {
         Harness harness = new();
@@ -144,7 +159,7 @@ public sealed class RefreshRatePairingServiceTests
 
         public int AcceptedReads { get; private set; }
 
-        public bool ApplySucceeds { get; init; } = true;
+        public bool ApplySucceeds { get; set; } = true;
 
         private int Current { get; set; } = 120;
     }

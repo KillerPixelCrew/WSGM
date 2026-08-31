@@ -2,6 +2,7 @@ using System.Text.Json;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
+using WSGM.Shell;
 
 namespace WSGM.Tests;
 
@@ -17,7 +18,11 @@ public sealed class PluginSettingsDeclarationCacheTests
                 SettingId = settingId,
                 ValueKind = CapabilityValueKind.Boolean,
                 Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Flag" },
-                Default = new CapabilityValue { Kind = CapabilityValueKind.Boolean },
+                Default = new CapabilityValue
+                {
+                    Kind = CapabilityValueKind.Boolean,
+                    BooleanValue = false,
+                },
                 SectionId = "one",
             },
         ],
@@ -92,5 +97,27 @@ public sealed class PluginSettingsDeclarationCacheTests
 
         Assert.Single(config.DeviceIntegration.PluginSettings);
         Assert.Null(config.DeviceIntegration.PluginSettings[0].Declaration);
+    }
+
+    [Fact]
+    public void PublishingADeclarationRetiresEveryOlderPresentationCache()
+    {
+        AppConfig config = WithScope(Manifest("old.flag"));
+        config.DeviceIntegration.PluginSettings.Add(new PluginSettingsScope
+        {
+            DeviceDefinitionId = "msi.claw8-new",
+            PluginId = "wsgm.device.msi",
+        });
+
+        PluginSettingsCoordinator.CacheDeclaration(
+            config,
+            "msi.claw8-new",
+            "wsgm.device.msi",
+            Manifest("new.flag"));
+
+        Assert.Null(config.DeviceIntegration.PluginSettings[0].Declaration);
+        Assert.Equal(
+            "new.flag",
+            config.DeviceIntegration.PluginSettings[1].Declaration?.Settings[0].SettingId);
     }
 }

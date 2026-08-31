@@ -12,7 +12,6 @@ internal sealed class VolumeButtonService : IDisposable
     private readonly MessageWindow _window;
     private readonly VolumeIndicator _indicator;
     private bool _gameModeActive;
-    private bool _nativeHelperUnavailable;
     private bool _disposed;
 
     /// <summary>Creates the game-mode volume handler on the Avalonia UI thread.</summary>
@@ -64,14 +63,9 @@ internal sealed class VolumeButtonService : IDisposable
             return;
         }
 
-        if (_nativeHelperUnavailable)
-        {
-            return;
-        }
-
         try
         {
-            var result = NativeVolumeControl.ApplyCommand(command, out var percentage, out var muted);
+            var result = CoreAudio.ApplyCommand(command, out var percentage, out var muted);
             if (result >= 0)
             {
                 Log.Info($"Volume button {VolumeAppCommands.Describe(command)} applied to the default audio endpoint " +
@@ -91,20 +85,12 @@ internal sealed class VolumeButtonService : IDisposable
                 Log.Warn($"Volume button {VolumeAppCommands.Describe(command)} failed (HRESULT 0x{result:X8}).");
             }
         }
-        catch (DllNotFoundException ex)
+        catch (Exception ex)
         {
-            DisableForMissingNativeHelper(ex);
+            Log.Error(
+                $"Volume button {VolumeAppCommands.Describe(command)} failed unexpectedly.",
+                ex);
         }
-        catch (EntryPointNotFoundException ex)
-        {
-            DisableForMissingNativeHelper(ex);
-        }
-    }
-
-    private void DisableForMissingNativeHelper(Exception ex)
-    {
-        _nativeHelperUnavailable = true;
-        Log.Error("Game-mode volume buttons disabled: WSGM.VolumeControl.dll is unavailable.", ex);
     }
 
     /// <summary>Unsubscribes and relinquishes shell-hook ownership.</summary>

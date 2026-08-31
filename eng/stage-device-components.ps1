@@ -1,12 +1,10 @@
 <#[
 .SYNOPSIS
-    Publishes every JIT-only device component into an isolated release staging tree.
+    Publishes Device Lab and the built-in device plugin into release staging.
 
 .DESCRIPTION
-    WSGM's NativeAOT app tree is deliberately not an input or output of this script. DeviceHost
-    and Device Lab receive separate self-contained JIT outputs; Device Lab contains both GUI and
-    CLI modes.
-    plugin packages remain managed libraries loaded into DeviceHost. The one package is assembled
+    Device Lab receives a separate self-contained output with GUI and CLI modes. Plugin packages
+    remain managed libraries loaded by WSGM. The one package is assembled
     from its compiled output plus only the manifest and license notices named below; source captures and build diagnostics never
     enter the package.
 #>
@@ -57,9 +55,9 @@ function Invoke-ComponentPublish(
         "--self-contained", $(if ($FrameworkDependent) { "false" } else { "true" }),
         "--output", $Destination,
         "/p:Version=$ComponentVersion",
-        "/p:PublishAot=false",
         "/p:PublishSingleFile=false",
-        "/p:TreatWarningsAsErrors=true"
+        "/p:TreatWarningsAsErrors=true",
+        "-m:1"
     )
     if ($NoRestore) { $arguments += "--no-restore" }
     if ($PlatformX64) { $arguments += "/p:PlatformTarget=x64" }
@@ -133,15 +131,6 @@ function Copy-DotNetRuntimeNotices(
 }
 
 try {
-    $hostDestination = Join-Path $temporaryRoot "DeviceHost"
-    Invoke-ComponentPublish `
-        "src\WSGM.DeviceHost\WSGM.DeviceHost.csproj" $hostDestination $Version
-    # DeviceHost is self-contained. Stage the exact restored runtime pack's full
-    # license and third-party notice rather than a hand-maintained summary.
-    Copy-DotNetRuntimeNotices `
-        (Join-Path $root "src\WSGM.DeviceHost\obj\project.assets.json") `
-        $hostDestination
-
     $deviceLabDestination = Join-Path $temporaryRoot "Tools\DeviceLab"
     Invoke-ComponentPublish `
         "src\WSGM.DeviceLab\WSGM.DeviceLab.csproj" $deviceLabDestination $Version
@@ -244,7 +233,7 @@ try {
         }
         # Run the product's own bounded offline validator against the exact bytes
         # that will be handed to the installer. This never loads plugin code,
-        # starts DeviceHost, or probes hardware.
+        # loads plugin code or probes hardware.
         $validator = Join-Path $deviceLabDestination "wsgm-device.exe"
         $validationOutput = @(& $validator validate $packageDestination 2>&1)
         if ($LASTEXITCODE -ne 0) {
@@ -252,7 +241,7 @@ try {
         }
     }
 
-    foreach ($component in @("DeviceHost", "Tools", "Packages")) {
+    foreach ($component in @("Tools", "Packages")) {
         $destination = Join-Path $outputFull $component
         if (Test-Path -LiteralPath $destination) {
             throw "Refusing to overwrite existing component staging: $destination"
@@ -268,4 +257,4 @@ finally {
     }
 }
 
-Write-Host "JIT device components staged under $outputFull."
+Write-Host "Device tools and package staged under $outputFull."

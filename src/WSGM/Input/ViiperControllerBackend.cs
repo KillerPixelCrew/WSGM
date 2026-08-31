@@ -186,8 +186,12 @@ internal sealed class ViiperControllerBackend : IHidBackend
 
             // The device stopped accepting input, so this target is gone whatever WSGM still
             // believes. Dropping it here is what turns a silent retry loop into the router's
-            // fault path: it stops output, detaches, and lets the manager run make-safe.
+            // fault path. DeviceRemove still has to run before the handle is forgotten: VIIPER
+            // owns a device object and feedback callback beyond WSGM's bookkeeping, and losing the
+            // managed handle without removing that object leaked both for the rest of the process.
             lost = true;
+            bool removed = RemoveDeviceUnderGate();
+            _removalUnverifiedGeneration = removed ? null : target.Generation;
             _target = null;
         }
         finally

@@ -6,7 +6,7 @@ using WSGM.Device.Sdk.Identity;
 
 namespace WSGM.Core;
 
-/// <summary>NativeAOT-safe read-only machine identity used before plugin code is loaded.</summary>
+/// <summary>Read-only machine identity used before plugin code is loaded.</summary>
 public static class DeviceMachineIdentity
 {
     /// <summary>Reads stable SMBIOS values exposed by Windows in the hardware registry hive.</summary>

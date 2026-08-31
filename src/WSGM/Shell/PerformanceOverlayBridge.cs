@@ -73,17 +73,47 @@ internal sealed class PerformanceOverlayBridge : IPerformanceOverlaySource, IDis
             "overlay-level" => PerformanceControl.OverlayLevel,
             _ => throw new InvalidOperationException("The performance row is not actionable."),
         };
+        await SetNextAsync(control, "overlay", cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Cycles the overlay level through the same policy the UI row owns.</summary>
+    internal async Task<bool> CycleOverlayLevelAsync(
+        string origin,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        PerformanceState state = _service.Current;
+        if (!_service.Enabled
+            || state.Probe.Availability is not RtssAvailability.Ready
+            || state.Probe.Capabilities?.Supports(PerformanceControl.OverlayLevel) is not true)
+        {
+            return false;
+        }
+
+        PerformanceCommandState result = await SetNextAsync(
+            PerformanceControl.OverlayLevel,
+            origin,
+            cancellationToken).ConfigureAwait(false);
+        return result.Phase is PerformanceCommandPhase.SucceededVerified
+            or PerformanceCommandPhase.AppliedUnverified;
+    }
+
+    private async Task<PerformanceCommandState> SetNextAsync(
+        PerformanceControl control,
+        string origin,
+        CancellationToken cancellationToken)
+    {
         PerformanceState state = _service.Current;
         RtssCapabilities capabilities = state.Probe.Capabilities
             ?? throw new InvalidOperationException("RTSS capabilities are unavailable.");
         int next = control == PerformanceControl.FrameLimit
             ? NextFrameLimit(state, capabilities)
             : NextOverlayLevel(state, capabilities);
-        await _service.SetAsync(
+        return await _service.SetAsync(
             control,
             next,
             PerformancePersistenceTarget.Automatic,
-            "overlay",
+            origin,
             Guid.NewGuid().ToString("N"),
             cancellationToken).ConfigureAwait(false);
     }

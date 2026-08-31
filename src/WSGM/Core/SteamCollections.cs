@@ -34,7 +34,7 @@ public static class SteamCollections
             "return JSON.stringify({ok:true,collections:cols});}" +
             "catch(e){return JSON.stringify({ok:false,err:String((e&&e.message)||e)});}})()";
 
-        var result = await SteamCef.EvaluateAsync(expression, Budget, cancellationToken)
+        var result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, cancellationToken)
             .ConfigureAwait(false);
         if (!result.Reachable || result.Value is null)
         {
@@ -91,7 +91,7 @@ public static class SteamCollections
         }
         var expression = "(()=>JSON.stringify({values:[" + string.Join(",", filterExpressions
             .Select(static value => "JSON.parse((" + value + "))")) + "]}))()";
-        var result = await SteamCef.EvaluateAsync(expression, Budget, cancellationToken)
+        var result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, cancellationToken)
             .ConfigureAwait(false);
         if (!result.Reachable || result.Value is null)
         {
@@ -168,7 +168,7 @@ public static class SteamCollections
             "return JSON.stringify({ok:true,apps:out});}" +
             "catch(e){return JSON.stringify({ok:false,err:String((e&&e.message)||e)});}})()";
 
-        var result = await SteamCef.EvaluateAsync(expression, Budget, cancellationToken)
+        var result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, cancellationToken)
             .ConfigureAwait(false);
         if (!result.Reachable || result.Value is null)
         {
@@ -230,7 +230,7 @@ public static class SteamCollections
             "return JSON.stringify({ok:true,tags:out});}" +
             "catch(e){return JSON.stringify({ok:false,err:String((e&&e.message)||e)});}})()";
 
-        var result = await SteamCef.EvaluateAsync(expression, Budget, cancellationToken)
+        var result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, cancellationToken)
             .ConfigureAwait(false);
         if (!result.Reachable || result.Value is null)
         {
@@ -292,7 +292,7 @@ public static class SteamCollections
             "return JSON.stringify({ok:true,deleted:true});}" +
             "catch(e){return JSON.stringify({ok:false,err:String((e&&e.message)||e)});}})()";
 
-        var result = await SteamCef.EvaluateAsync(expression, Budget, cancellationToken)
+        var result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, cancellationToken)
             .ConfigureAwait(false);
         if (!result.Reachable || result.Value is null)
         {

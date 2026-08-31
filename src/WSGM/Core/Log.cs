@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace WSGM.Core;
 
@@ -79,6 +80,26 @@ public static class Log
     /// <param name="ex">The exception to record.</param>
     public static void Error(string message, Exception ex) => Write("error", $"{message}: {ex}");
 
+    /// <summary>Observes a detached operation and records any non-cancellation failure.</summary>
+    /// <param name="task">Operation whose exception must be observed.</param>
+    /// <param name="operation">Diagnostic name of the operation.</param>
+    internal static void Observe(Task task, string operation) => _ = ObserveAsync(task, operation);
+
+    private static async Task ObserveAsync(Task task, string operation)
+    {
+        try
+        {
+            await task.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            Warn($"{operation} failed: {ex.Message}");
+        }
+    }
+
     /// <summary>
     /// Records a polled state under a key, writing only when it differs from what that key last
     /// recorded.
@@ -129,16 +150,9 @@ public static class Log
     }
 
     /// <summary>Moves the live log aside when it passes <see cref="MaxLogBytes"/>,
-    /// keeping one previous file. Best-effort: a held-open file just leaves rotation
-    /// for the next attempt, so appends keep working either way. Callers serialize
-    /// this through <see cref="Gate"/>, or run it before logging starts (Init).
-    ///
-    /// The shell, Settings and the elevated one-shots all append to the same file, so
-    /// <see cref="Gate"/> alone is not enough: two processes that both saw an oversized
-    /// file used to delete each other's archive (the second Delete removed the copy the
-    /// first had just moved into place), destroying up to 5 MB of the primary remote
-    /// diagnosis surface. A named mutex plus a re-check inside it makes the loser see
-    /// the already-rotated small file and do nothing.</summary>
+    /// keeping one previous file. Rotation is best effort so an open file never blocks
+    /// later appends. A named mutex and an in-lock size check serialize the shell,
+    /// Settings and elevated processes that share the log.</summary>
     private static void RotateIfLarge()
     {
         var path = _path;

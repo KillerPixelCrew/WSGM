@@ -16,7 +16,6 @@
 #define AppURL "https://github.com/NightHammer1000/WSGM"
 #define PublishRoot "..\publish"
 #define AppPublishDir "..\publish\App"
-#define DeviceHostPublishDir "..\publish\DeviceHost"
 #define DevicePackagesPublishDir "..\publish\Packages"
 #define DeviceToolsPublishDir "..\publish\Tools"
 
@@ -62,8 +61,7 @@ Name: "german"; MessagesFile: "compiler:Languages\German.isl"
 
 [Types]
 ; Core-only is first and therefore the unattended/default choice. Installing the
-; Device Integration bytes is still inert: config defaults off and no DeviceHost
-; starts until the user explicitly enables the feature in WSGM Settings.
+; Device Integration bytes are inert until the user explicitly enables the feature.
 Name: "core"; Description: "Core WSGM"
 Name: "full"; Description: "Core WSGM + Device Integration"
 Name: "custom"; Description: "Custom"; Flags: iscustom
@@ -83,18 +81,18 @@ Name: "controller"; Description: "Virtual controller support (requires the USBIP
 ; It is never offered outside setup (INV-020): the hub restart drops the built-in controller, the
 ; touch digitiser and the keyboard, which underneath a running game mode would leave the user with
 ; no input and no way back.
-Name: "usbipdriver"; Description: "Install the usbip-win2 USB/IP driver (signed third-party kernel driver; USB devices restart briefly and a reboot is required)"; GroupDescription: "Virtual controller"; Components: controller
+Name: "usbipdriver"; Description: "Install the USB/IP and HidHide controller drivers (USB devices restart briefly and a reboot is required)"; GroupDescription: "Virtual controller"; Components: controller
 
 [CustomMessages]
 english.SteamMissing=Steam was not found on this PC.%n%nWSGM is Steam-exclusive and boots straight into Steam Big Picture. Install Steam from steampowered.com, sign in once, and then run this setup again.
 german.SteamMissing=Steam wurde auf diesem PC nicht gefunden.%n%nWSGM funktioniert ausschließlich mit Steam und startet direkt in Steam Big Picture. Installiere Steam von steampowered.com, melde dich einmal an und führe dieses Setup danach erneut aus.
 
 [Files]
-; Only the NativeAOT app component is visible to this installer section. DeviceHost,
-; Device Lab, and plugin packages are staged in sibling component directories, so
-; the legacy DLL glob below cannot accidentally flatten JIT/plugin dependencies into {app}.
+; WSGM is self-contained; Device Lab and plugin packages stay in sibling component trees.
 Source: "{#AppPublishDir}\WSGM.exe"; DestDir: "{app}"; Flags: ignoreversion
-; The fixed-purpose Explorer recovery owner is the same AOT payload under a distinct process image.
+Source: "{#AppPublishDir}\WSGM.deps.json"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#AppPublishDir}\WSGM.runtimeconfig.json"; DestDir: "{app}"; Flags: ignoreversion
+; The fixed-purpose Explorer recovery owner is the same payload under a distinct process image.
 ; Installer force fallback can therefore end WSGM.exe without killing the owner that must restore
 ; Explorer. If its bounded recovery acknowledgement is unavailable, an interactive operation may
 ; defer replacement/deletion to reboot; a silent update keeps the old image and never auto-reboots.
@@ -104,39 +102,32 @@ Source: "{#AppPublishDir}\WSGM.Launch.exe"; DestDir: "{app}"; Flags: ignoreversi
 ; launches the per-user WSGM.exe via the boot manifest — as that user, which is
 ; why the user-writable app path is not an escalation.
 Source: "{#AppPublishDir}\WSGM.LogonService.exe"; DestDir: "{autopf}\WSGM"; Flags: ignoreversion
-; Read-only radio diagnostic. Reports what the docs cannot settle for a given
-; machine: whether radio control works with no shell running, and whether the
-; Wi-Fi scan is blocked by the location-consent gate.
-Source: "{#AppPublishDir}\WSGM.RadioProbe.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#AppPublishDir}\*.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#AppPublishDir}\*.dll"; DestDir: "{app}"; Excludes: "libviiper.dll"; Flags: ignoreversion
 Source: "{#AppPublishDir}\SteamInputLease-*.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#AppPublishDir}\SteamInputLease-*.md"; DestDir: "{app}"; Flags: ignoreversion
 ; WSGM's authoritative GPL-3.0-or-later license, staged from the repository root.
 Source: "{#AppPublishDir}\LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
 ; Third-party license texts for managed packages (src\WSGM\Licenses\).
 Source: "{#AppPublishDir}\LoadingIndicators.Avalonia-UNLICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
-; VIIPER creates the virtual controller. Its notices ship beside the library the
-; *.dll glob above already carries. Both are skipifsourcedoesntexist because the
-; library is only built when the release machine has a Go toolchain; without it
-; controller management is simply unavailable, which is a supported state.
-Source: "{#AppPublishDir}\NOTICE.md"; DestDir: "{app}"; DestName: "VIIPER-NOTICE.md"; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#AppPublishDir}\libviiper.h"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+; VIIPER creates the virtual controller. The release build requires and validates the library,
+; header, license, and notice before invoking setup; missing component bytes fail the build.
+Source: "{#AppPublishDir}\libviiper.dll"; DestDir: "{app}"; Flags: ignoreversion; Components: controller
+Source: "{#AppPublishDir}\libviiper.h"; DestDir: "{app}"; Flags: ignoreversion; Components: controller
+Source: "{#AppPublishDir}\VIIPER-LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion; Components: controller
+Source: "{#AppPublishDir}\VIIPER-NOTICE.md"; DestDir: "{app}"; Flags: ignoreversion; Components: controller
 ; The driver step's script. It ships unconditionally rather than under the component so that a user
 ; who adds the controller component to an existing install, or who needs to re-run the step after a
 ; failure, already has it on disk. It does nothing unless invoked.
 Source: "Install-UsbipDriver.ps1"; DestDir: "{app}"; Flags: ignoreversion
 ; The USB/IP driver installer itself, already verified against the reviewed digest and signer on the
-; release machine and verified again by the script before it is run. Carrying it means a freshly
-; imaged handheld can install the driver before its Wi-Fi is configured. skipifsourcedoesntexist
-; because a release machine without network cannot stage it; the script then downloads the identical
-; pinned asset. It ships under the controller component only — it is 26 MB nobody else needs.
-Source: "{#AppPublishDir}\USBip-0.9.7.7-x64.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist; Components: controller
+; release machine and verified again by the script before it is run. Carrying both installers means
+; a freshly imaged handheld can install the controller stack before its Wi-Fi is configured. The
+; release build requires them; they ship under the controller component only.
+Source: "{#AppPublishDir}\USBip-0.9.7.7-x64.exe"; DestDir: "{app}"; Flags: ignoreversion; Components: controller
+Source: "{#AppPublishDir}\HidHide_1.5.230_x64.exe"; DestDir: "{app}"; Flags: ignoreversion; Components: controller
 Source: "..\third_party\controller\licenses\usbip-win2-BSD-2-Clause.txt"; DestDir: "{app}"; Flags: ignoreversion; Components: controller
-; DeviceHost and the one plugin package are administrator-protected. The package
-; is explicit trusted hardware code and never loads from a user-writable path.
-; This glob also carries the exact self-contained .NET runtime license/notices
-; asserted by eng\assert-component-staging.ps1 into every DeviceHost install.
-Source: "{#DeviceHostPublishDir}\*"; DestDir: "{autopf}\WSGM\DeviceHost"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: device
+Source: "..\third_party\controller\licenses\HidHide-MIT.txt"; DestDir: "{app}"; Flags: ignoreversion; Components: controller
+; The one plugin package is administrator-protected and never loads from a user-writable path.
 Source: "{#DevicePackagesPublishDir}\*"; DestDir: "{autopf}\WSGM\DevicePlugins\.staging"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: device
 ; Device Lab never owns the production cycle and remains an explicit custom
 ; component. Its attended hardware actions still require interactive consent;
@@ -161,6 +152,7 @@ Filename: "{autopf}\WSGM\WSGM.LogonService.exe"; Parameters: "--install"; Flags:
 ; without the driver is a supported state where controller management reports itself unavailable —
 ; so this can never strand a WSGM install on a driver problem.
 Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\Install-UsbipDriver.ps1"""; StatusMsg: "Installing the USB/IP driver for virtual controller support..."; Tasks: usbipdriver; Flags: runhidden waituntilterminated
+Filename: "{app}\HidHide_1.5.230_x64.exe"; Parameters: "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL /SP-"; StatusMsg: "Installing HidHide for physical controller isolation..."; Tasks: usbipdriver; Flags: runhidden waituntilterminated skipifdoesntexist
 ; Update restart: if the shell was running it comes back as the shell; a plain
 ; settings instance comes back as settings (no args = DecideMode).
 Filename: "{app}\WSGM.exe"; Parameters: "--shell"; Flags: nowait; Check: WasShellRunning
@@ -194,9 +186,23 @@ Type: filesandordirs; Name: "{commonappdata}\WSGM"
 [InstallDelete]
 ; Self-contained component publishes must replace their complete previous closure.
 ; Overlaying would retain deleted assemblies and the retired CommandLine/ProbeHost tools.
-; PrepareToInstall has already stopped WSGM and its DeviceHost child before this runs.
+; Remove the pre-collapse DeviceHost tree when updating a development installation.
 Type: filesandordirs; Name: "{autopf}\WSGM\DeviceHost"
+; Core Audio now runs through managed COM interop. Remove the retired native helper on upgrade.
+Type: files; Name: "{app}\WSGM.VolumeControl.dll"
+Type: files; Name: "{app}\WSGM.Radio.dll"
+Type: files; Name: "{app}\WSGM.RadioProbe.exe"
 Type: filesandordirs; Name: "{app}\Tools"
+; Component deselection must remove optional controller payloads left by an earlier full install.
+; Selected components copy them back during [Files].
+Type: files; Name: "{app}\libviiper.dll"
+Type: files; Name: "{app}\libviiper.h"
+Type: files; Name: "{app}\VIIPER-LICENSE.txt"
+Type: files; Name: "{app}\VIIPER-NOTICE.md"
+Type: files; Name: "{app}\USBip-0.9.7.7-x64.exe"
+Type: files; Name: "{app}\HidHide_1.5.230_x64.exe"
+Type: files; Name: "{app}\usbip-win2-BSD-2-Clause.txt"
+Type: files; Name: "{app}\HidHide-MIT.txt"
 ; Package bytes stage outside runtime discovery. CurStepChanged swaps this whole
 ; sibling into the sole installed slot after every file has landed successfully.
 Type: filesandordirs; Name: "{autopf}\WSGM\DevicePlugins\.staging"
@@ -219,13 +225,10 @@ const
   FileAttributeReparsePoint = $00000400;
   InvalidFileAttributes = $FFFFFFFF;
   InvalidHandleValue = $FFFFFFFF;
-  LabelSecurityInformation = $00000010;
   ScManagerConnect = $0001;
-  SddlRevision1 = 1;
   ServiceQueryStatus = $0004;
   ServiceRunning = $00000004;
   ServiceStopped = $00000001;
-  Th32csSnapProcess = $00000002;
   WaitAbandoned = $00000080;
   WaitObject0 = $00000000;
 
@@ -235,19 +238,6 @@ type
     shrCompleted,
     shrTimedOut,
     shrFailed);
-
-  TProcessEntry32 = record
-    Size: LongWord;
-    Usage: LongWord;
-    ProcessId: LongWord;
-    DefaultHeapId: LongWord;
-    ModuleId: LongWord;
-    ThreadCount: LongWord;
-    ParentProcessId: LongWord;
-    PriorityClassBase: Integer;
-    Flags: LongWord;
-    ExeFile: array[0..259] of Char;
-  end;
 
   TWin32FindData = record
     FileAttributes: LongWord;
@@ -277,19 +267,15 @@ type
 
 var
   DeviceOwnerHandle: THandle;
-  DeviceOwnerReservedForMutation: Boolean;
   DevicePackageGateHandle: THandle;
   DevicePackageGateOwned: Boolean;
   ShellAnchorReplacementSafe: Boolean;
-  SetupDeviceHostStateVerified: Boolean;
   SetupPostInstallCompleted: Boolean;
   SetupRuntimeClassificationCaptured: Boolean;
   SetupServiceExisted: Boolean;
   SetupServiceStateCaptured: Boolean;
   SetupServiceWasRunning: Boolean;
   SetupShutdownApplied: Boolean;
-  RollbackOwnerRetentionAcknowledged: Boolean;
-  UninstallDeviceHostStateVerified: Boolean;
   UninstallMutationStarted: Boolean;
   UninstallServiceExisted: Boolean;
   UninstallServiceWasRunning: Boolean;
@@ -321,17 +307,15 @@ begin
       Result := True;
 end;
 
-// Steam is WSGM's only prerequisite (the exe itself is NativeAOT self-contained).
+// Steam is WSGM's only application prerequisite; the .NET runtime ships with WSGM.
 // Without it an installed WSGM can only show its "install Steam" warning, so
 // block setup up front and tell the user what to do instead.
 function InitializeSetup(): Boolean;
 begin
   DeviceOwnerHandle := 0;
-  DeviceOwnerReservedForMutation := False;
   DevicePackageGateHandle := 0;
   DevicePackageGateOwned := False;
   ShellAnchorReplacementSafe := True;
-  SetupDeviceHostStateVerified := False;
   SetupPostInstallCompleted := False;
   SetupRuntimeClassificationCaptured := False;
   SetupServiceExisted := False;
@@ -354,7 +338,7 @@ end;
 // happened to supply /NORESTART.
 function NeedRestart(): Boolean;
 begin
-  Result := WasUpgrade and not WizardSilent();
+  Result := (WasUpgrade or WizardIsTaskSelected('usbipdriver')) and not WizardSilent();
 end;
 
 function WasShellRunning(): Boolean;
@@ -383,10 +367,6 @@ function OpenServiceW(hSCManager: THandle; lpServiceName: String;
 function CreateEventW(lpEventAttributes: LongWord; bManualReset, bInitialState: BOOL;
   lpName: String): THandle;
   external 'CreateEventW@kernel32.dll stdcall';
-function ConvertStringSecurityDescriptorToSecurityDescriptorW(
-  StringSecurityDescriptor: String; StringSDRevision: LongWord;
-  var SecurityDescriptor: LongWord; SecurityDescriptorSize: LongWord): BOOL;
-  external 'ConvertStringSecurityDescriptorToSecurityDescriptorW@advapi32.dll stdcall';
 function CreateMutexW(lpMutexAttributes: LongWord; bInitialOwner: BOOL;
   lpName: String): THandle;
   external 'CreateMutexW@kernel32.dll stdcall';
@@ -404,18 +384,9 @@ function FindNextFileW(hFindFile: THandle;
   external 'FindNextFileW@kernel32.dll stdcall';
 function FindCloseK(hFindFile: THandle): BOOL;
   external 'FindClose@kernel32.dll stdcall';
-function CreateToolhelp32SnapshotK(dwFlags, th32ProcessID: LongWord): THandle;
-  external 'CreateToolhelp32Snapshot@kernel32.dll stdcall';
-function Process32FirstW(hSnapshot: THandle; var Entry: TProcessEntry32): BOOL;
-  external 'Process32FirstW@kernel32.dll stdcall';
-function Process32NextW(hSnapshot: THandle; var Entry: TProcessEntry32): BOOL;
-  external 'Process32NextW@kernel32.dll stdcall';
 function QueryServiceStatusK(hService: THandle;
   var ServiceStatus: TServiceStatus): BOOL;
   external 'QueryServiceStatus@advapi32.dll stdcall';
-function SetKernelObjectSecurityK(Handle: THandle; SecurityInformation,
-  SecurityDescriptor: LongWord): BOOL;
-  external 'SetKernelObjectSecurity@advapi32.dll stdcall';
 function SetEvent(hEvent: THandle): BOOL;
   external 'SetEvent@kernel32.dll stdcall';
 function ResetEventK(hEvent: THandle): BOOL;
@@ -426,8 +397,6 @@ function CloseHandleK(hObject: THandle): BOOL;
   external 'CloseHandle@kernel32.dll stdcall';
 function CloseServiceHandleK(hSCObject: THandle): BOOL;
   external 'CloseServiceHandle@advapi32.dll stdcall';
-function LocalFreeK(Memory: LongWord): LongWord;
-  external 'LocalFree@kernel32.dll stdcall';
 function GetCurrentProcessIdK(): LongWord;
   external 'GetCurrentProcessId@kernel32.dll stdcall';
 function ProcessIdToSessionIdK(dwProcessId: LongWord;
@@ -475,7 +444,6 @@ begin
   begin
     CloseHandleK(DeviceOwnerHandle);
     DeviceOwnerHandle := 0;
-    DeviceOwnerReservedForMutation := False;
   end;
 end;
 
@@ -508,15 +476,8 @@ var
 begin
   if DeviceOwnerHandle <> 0 then
   begin
-    if DeviceOwnerReservedForMutation then
-    begin
-      Result := True;
-      Exit;
-    end;
-
-    // A previous refusal retained somebody else's marker while restoring WSGM. Under the package
-    // gate, drop that observation and create again so a retry proves whether another handle remains.
-    ReleaseDeviceOwnerReservation();
+    Result := True;
+    Exit;
   end;
 
   Result := False;
@@ -530,69 +491,14 @@ begin
   if CreationError = ErrorAlreadyExists then
   begin
     Log('A machine-wide WSGM or Device Lab owner is still active');
-    // Keep this unowned handle across rollback startup. It cannot authorize mutation, but it closes
-    // the gap in which the existing owner could exit before the restored process retains the object.
+    CloseHandleK(DeviceOwnerHandle);
+    DeviceOwnerHandle := 0;
     Exit;
   end;
 
-  // WSGM elects ownership by object creation. Keep this handle open but never wait on or release
-  // the mutex, so the reservation has no thread affinity during setup or uninstall mutation.
-  DeviceOwnerReservedForMutation := True;
+  // Runtime ownership is elected by object creation rather than mutex acquisition. Holding the
+  // new object prevents WSGM or Device Lab from opening the plugin while package files move.
   Result := True;
-end;
-
-function ProcessEntryImage(const Entry: TProcessEntry32): String;
-var
-  I: Integer;
-begin
-  Result := '';
-  for I := 0 to 259 do
-  begin
-    if Entry.ExeFile[I] = #0 then Exit;
-    Result := Result + Entry.ExeFile[I];
-  end;
-end;
-
-function VerifyNoDeviceHostProcesses(): Boolean;
-var
-  Entry: TProcessEntry32;
-  EnumerationError: LongWord;
-  HasEntry: Boolean;
-  Snapshot: THandle;
-begin
-  Result := False;
-  Snapshot := CreateToolhelp32SnapshotK(Th32csSnapProcess, 0);
-  if Snapshot = InvalidHandleValue then
-  begin
-    Log('Could not snapshot running processes before Device Plugin mutation');
-    Exit;
-  end;
-
-  try
-    Entry.Size := SizeOf(Entry);
-    HasEntry := Process32FirstW(Snapshot, Entry);
-    while HasEntry do
-    begin
-      if CompareText(ProcessEntryImage(Entry), 'WSGM.DeviceHost.exe') = 0 then
-      begin
-        Log('A WSGM.DeviceHost process remains after WSGM shutdown');
-        Exit;
-      end;
-      Entry.Size := SizeOf(Entry);
-      HasEntry := Process32NextW(Snapshot, Entry);
-    end;
-
-    EnumerationError := GetLastErrorK();
-    if EnumerationError <> ErrorNoMoreFiles then
-    begin
-      Log('DeviceHost process enumeration ended with error ' +
-        IntToStr(EnumerationError));
-      Exit;
-    end;
-    Result := True;
-  finally
-    CloseHandleK(Snapshot);
-  end;
 end;
 
 function InspectDeviceDirectory(const Path, Description: String;
@@ -775,7 +681,6 @@ begin
       not DeleteInspectedDeviceDirectory(
         Installed, 'Installed Device Plugin slot', InstalledExists) then
       RaiseException('Could not remove every Device Plugin package and recovery root.');
-    DelTree(ExpandConstant('{autopf}\WSGM\DeviceHost'), True, True, True);
     Exit;
   end;
 
@@ -815,7 +720,13 @@ begin
 
   if not RenameFile(Staging, Installed) then
   begin
-    if HadInstalled then RenameFile(Previous, Installed);
+    if HadInstalled then
+    begin
+      if not RenameFile(Previous, Installed) then
+        RaiseException('Could not install the replacement Device Plugin or restore the previous slot. ' +
+          'The previous package remains in the recovery directory.');
+      Log('Replacement Device Plugin publication failed; restored the previous active slot');
+    end;
     RaiseException('Could not atomically install the replacement Device Plugin.');
   end;
 
@@ -1154,84 +1065,12 @@ begin
   Sleep(1500);
 end;
 
-function ApplyMediumMandatoryLabelToEvent(const EventHandle: THandle;
-  const Operation: String): Boolean;
-var
-  SecurityDescriptor: LongWord;
-begin
-  SecurityDescriptor := 0;
-  Result := ConvertStringSecurityDescriptorToSecurityDescriptorW(
-    'S:(ML;;NW;;;ME)', SddlRevision1, SecurityDescriptor, 0);
-  if not Result then
-  begin
-    Log(Operation + ': could not build the medium-integrity event label');
-    Exit;
-  end;
-
-  try
-    // Keep CreateEventW's same-user DACL intact. Only lower the mandatory label so the restored
-    // medium-integrity Settings process can signal this elevated installer's acknowledgement;
-    // no-write-up still excludes low-integrity callers.
-    Result := SetKernelObjectSecurityK(
-      EventHandle, LabelSecurityInformation, SecurityDescriptor);
-    if not Result then
-      Log(Operation + ': could not apply the medium-integrity event label');
-  finally
-    LocalFreeK(SecurityDescriptor);
-  end;
-end;
-
-function CreateRollbackOwnerAcknowledgementEvent(
-  const Operation: String): THandle;
-var
-  CreationError: LongWord;
-begin
-  Result := CreateEventW(
-    0, True, False, 'Local\WSGM.InstallerRollback.DeviceOwnerRetained');
-  CreationError := GetLastErrorK();
-  if Result = 0 then
-  begin
-    Log(Operation + ': could not create the rollback owner-retention acknowledgement');
-    Exit;
-  end;
-  if CreationError = ErrorAlreadyExists then
-  begin
-    // Only this recovery attempt creates the channel. Refuse a pre-existing object rather than
-    // inheriting its unknown DACL, reset mode, or a handle that can spoof acknowledgement.
-    Log(Operation + ': rollback owner-retention acknowledgement already existed');
-    CloseHandleK(Result);
-    Result := 0;
-    Exit;
-  end;
-
-  if not ApplyMediumMandatoryLabelToEvent(Result, Operation) then
-  begin
-    Log(Operation + ': could not secure the rollback owner-retention acknowledgement');
-    CloseHandleK(Result);
-    Result := 0;
-    Exit;
-  end;
-  if not ResetEventK(Result) then
-  begin
-    Log(Operation + ': could not reset the rollback owner-retention acknowledgement');
-    CloseHandleK(Result);
-    Result := 0;
-  end;
-end;
-
 procedure RestoreStoppedServiceAndRuntime(const Operation: String;
-  ServiceExisted, ServiceWasRunning, RuntimeWasShell, RuntimeWasRunning,
-  DeviceHostStateVerified: Boolean);
+  ServiceExisted, ServiceWasRunning, RuntimeWasShell, RuntimeWasRunning: Boolean);
 var
   Arguments, RuntimePath, ServicePath: String;
-  ReadyEvent: THandle;
   R: Integer;
-  WaitResult: LongWord;
 begin
-  RollbackOwnerRetentionAcknowledged := DeviceOwnerHandle = 0;
-  // This rollback runs only before setup/uninstall file mutation. A verified restore is called after
-  // both reservations are released. An unverified restore keeps the owner handle, releases only the
-  // package gate, and carries the suppression/handle-retention handshake below.
   if ServiceExisted and ServiceWasRunning then
   begin
     // Use the service's installer path rather than `sc start`: --install tags the SCM start so a
@@ -1260,23 +1099,9 @@ begin
     // Do not re-run legacy auto-mode classification during rollback. The initially observed
     // settings process must come back as settings even if Explorer recovery is still settling.
     Arguments := '--settings';
-  if not DeviceHostStateVerified then
-    Arguments := Arguments + ' --installer-rollback-no-device';
-
-  ReadyEvent := 0;
-  if not DeviceHostStateVerified and (DeviceOwnerHandle <> 0) then
-    ReadyEvent := CreateRollbackOwnerAcknowledgementEvent(Operation);
 
   if not Exec(RuntimePath, Arguments, '', SW_SHOWNORMAL, ewNoWait, R) then
     Log(Operation + ': could not restart the previous WSGM runtime');
-  if ReadyEvent <> 0 then
-  begin
-    WaitResult := WaitForSingleObjectK(ReadyEvent, 5000);
-    RollbackOwnerRetentionAcknowledged := WaitResult = WaitObject0;
-    if not RollbackOwnerRetentionAcknowledged then
-      Log(Operation + ': rollback runtime did not retain the owner marker; keeping the installer reservation');
-    CloseHandleK(ReadyEvent);
-  end;
 end;
 
 procedure RestoreStoppedSetupRuntime();
@@ -1286,7 +1111,7 @@ begin
   SetupShutdownApplied := False;
   RestoreStoppedServiceAndRuntime(
     'Setup rollback', SetupServiceExisted, SetupServiceWasRunning,
-    WasShell, WasRunning, SetupDeviceHostStateVerified);
+    WasShell, WasRunning);
 end;
 
 procedure RestoreStoppedUninstallRuntime();
@@ -1295,7 +1120,7 @@ begin
   UninstallShutdownApplied := False;
   RestoreStoppedServiceAndRuntime(
     'Uninstall rollback', UninstallServiceExisted, UninstallServiceWasRunning,
-    UninstallWasShell, UninstallWasRunning, UninstallDeviceHostStateVerified);
+    UninstallWasShell, UninstallWasRunning);
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -1346,35 +1171,18 @@ begin
   if WasRunning then
     Sleep(500);
   SetupShutdownApplied := True;
-  SetupDeviceHostStateVerified := False;
 
-  // The package gate has prevented any new host startup since before shutdown. Atomically reserve
-  // the exact global hardware-owner marker, then prove that no old or orphaned DeviceHost remains.
-  // Both handles stay live through [InstallDelete], [Files] staging, and the post-install swap.
+  // WSGM now loads its one plugin in-process. The package gate prevents new package maintenance,
+  // and the owner marker proves neither WSGM nor Device Lab can have plugin code loaded while the
+  // protected slot moves. Both handles stay live through staging and publication.
   if not ReserveDeviceOwner() then
   begin
-    ReleaseDevicePackageGateReservation();
+    ReleaseDevicePublicationReservations();
     RestoreStoppedSetupRuntime();
-    if RollbackOwnerRetentionAcknowledged then
-      ReleaseDeviceOwnerReservation();
     Result := 'A WSGM or Device Lab hardware owner is still active on this machine. ' +
       'Close it and try setup again.';
     Exit;
   end;
-  if not VerifyNoDeviceHostProcesses() then
-  begin
-    // Let the rollback runtime start while this process still owns the machine marker. A current
-    // WSGM opens the same unowned object and acknowledges its process-lifetime retention before this
-    // handle closes; an older/non-starting build leaves this installer as the fail-closed owner.
-    ReleaseDevicePackageGateReservation();
-    RestoreStoppedSetupRuntime();
-    if RollbackOwnerRetentionAcknowledged then
-      ReleaseDeviceOwnerReservation();
-    Result := 'A DeviceHost process is still running, or its state could not be verified. ' +
-      'Setup refused to replace device files.';
-    Exit;
-  end;
-  SetupDeviceHostStateVerified := True;
   if not CleanupStaleDevicePluginStaging() then
   begin
     ReleaseDevicePublicationReservations();
@@ -1406,10 +1214,8 @@ end;
 function InitializeUninstall(): Boolean;
 begin
   DeviceOwnerHandle := 0;
-  DeviceOwnerReservedForMutation := False;
   DevicePackageGateHandle := 0;
   DevicePackageGateOwned := False;
-  UninstallDeviceHostStateVerified := False;
   UninstallMutationStarted := False;
   UninstallServiceExisted := False;
   UninstallServiceWasRunning := False;
@@ -1438,25 +1244,12 @@ begin
   UninstallShutdownApplied := True;
   if not ReserveDeviceOwner() then
   begin
-    ReleaseDevicePackageGateReservation();
+    ReleaseDevicePublicationReservations();
     RestoreStoppedUninstallRuntime();
-    if RollbackOwnerRetentionAcknowledged then
-      ReleaseDeviceOwnerReservation();
     MsgBox('A WSGM or Device Lab hardware owner is still active on this machine. ' +
       'Close it and try uninstall again.', mbCriticalError, MB_OK);
     Exit;
   end;
-  if not VerifyNoDeviceHostProcesses() then
-  begin
-    ReleaseDevicePackageGateReservation();
-    RestoreStoppedUninstallRuntime();
-    if RollbackOwnerRetentionAcknowledged then
-      ReleaseDeviceOwnerReservation();
-    MsgBox('A DeviceHost process is still running, or its state could not be verified. ' +
-      'Uninstall refused to remove device files.', mbCriticalError, MB_OK);
-    Exit;
-  end;
-  UninstallDeviceHostStateVerified := True;
   Result := True;
 end;
 

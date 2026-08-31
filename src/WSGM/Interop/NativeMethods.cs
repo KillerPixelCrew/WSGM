@@ -527,7 +527,7 @@ internal static partial class NativeMethods
     [LibraryImport("ntdll.dll")]
     internal static partial void RtlGetNtVersionNumbers(out uint major, out uint minor, out uint build);
 
-    // ---- System status (taskbar clock/battery cluster; Wi-Fi comes from NativeRadio) ----
+    // ---- System status (taskbar clock/battery cluster; Wi-Fi lives in WindowsRadio) ----
     /// <summary>SYSTEM_POWER_STATUS: BatteryFlag 128 = no system battery, 255 = unknown;
     /// BatteryLifePercent 255 = unknown.</summary>
     [StructLayout(LayoutKind.Sequential)]

@@ -1,4 +1,3 @@
-using WSGM.Device.Sdk.Ipc;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Testing;
 

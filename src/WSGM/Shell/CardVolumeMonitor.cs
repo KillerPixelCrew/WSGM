@@ -30,7 +30,7 @@ namespace WSGM.Shell;
 /// <c>GUID_DEVINTERFACE_VOLUME</c> device notification (see
 /// <see cref="MessageWindow.RegisterVolumeNotifications"/>), not a WMI query for a
 /// disk model — a model match only ever works for the one reader it was written
-/// against, and WMI is COM, which this NativeAOT binary cannot use. The notification
+/// against. The notification
 /// arrives BEFORE Windows has finished mounting and lettering the volume, so every
 /// reaction goes through <see cref="SettleDelay"/> first and the whole set of drives is
 /// rescanned rather than the reported device being resolved back to a mount point.

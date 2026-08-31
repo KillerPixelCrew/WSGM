@@ -1,6 +1,5 @@
 using WSGM.Core;
 using WSGM.Device.Sdk.Input;
-using WSGM.Device.Sdk.Ipc;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Input;
 using WSGM.Shell;
@@ -9,7 +8,7 @@ namespace WSGM.Tests;
 
 public sealed class ControllerManagerTests
 {
-    private const string HostApplication = @"C:\Program Files\WSGM\DeviceHost\WSGM.DeviceHost.exe";
+    private const string HostApplication = @"C:\Program Files\WSGM\WSGM.exe";
 
     [Fact]
     public async Task DisabledSelectionStartsOffAndTouchesNoHidHideOrBackendState()
@@ -277,6 +276,27 @@ public sealed class ControllerManagerTests
     }
 
     [Fact]
+    public async Task AControlPressedInsideTheSurfaceCannotLeakIntoTheGameWhenItCloses()
+    {
+        Harness harness = new();
+        await using ControllerManager manager = harness.Manager;
+        await StartActiveAsync(manager);
+
+        await manager.ClaimUiAsync("overlay", CancellationToken.None);
+        Assert.False(await manager.RouteAsync(
+            Sample(1, CanonicalButtons.A),
+            CancellationToken.None));
+        manager.ReleaseUi("overlay");
+
+        Assert.False(await manager.RouteAsync(
+            Sample(2, CanonicalButtons.A),
+            CancellationToken.None));
+        Assert.True(await manager.RouteAsync(
+            Sample(3, CanonicalButtons.None),
+            CancellationToken.None));
+    }
+
+    [Fact]
     public async Task NestedSurfacesKeepCaptureUntilTheLastOneCloses()
     {
         Harness harness = new();
@@ -293,6 +313,26 @@ public sealed class ControllerManagerTests
     }
 
     [Fact]
+    public async Task LifecycleBlockNeutralizesOnceAndRoutesLaterSamplesOnlyToTheUi()
+    {
+        Harness harness = new();
+        await using ControllerManager manager = harness.Manager;
+        await StartActiveAsync(manager);
+        List<CanonicalControllerSample> ui = [];
+        manager.UiSampleReceived += ui.Add;
+
+        await manager.RouteAsync(Sample(1, CanonicalButtons.A), CancellationToken.None);
+        await manager.BlockForwardingAsync("suspending", CancellationToken.None);
+        bool routed = await manager.RouteAsync(
+            Sample(2, CanonicalButtons.None),
+            CancellationToken.None);
+
+        Assert.False(routed);
+        Assert.Single(ui);
+        Assert.Single(harness.Backend.Operations, operation => operation == "neutralize:1");
+    }
+
+    [Fact]
     public async Task AVerifiedMakeSafeRemovesTheTargetAndOnlyWsgmOwnedHidHideEntries()
     {
         Harness harness = new(
@@ -301,7 +341,7 @@ public sealed class ControllerManagerTests
         await using ControllerManager manager = harness.Manager;
         await StartActiveAsync(manager);
 
-        DeviceControllerHandoffResponse response = await manager.MakeSafeAsync(
+        ControllerHandoff response = await manager.MakeSafeAsync(
             HandoffScope.ControllerOnly,
             _ => Task.FromResult(PluginRelease(ControllerHandoffStep.TopologyVerified)),
             CancellationToken.None);
@@ -353,9 +393,9 @@ public sealed class ControllerManagerTests
         await using ControllerManager manager = harness.Manager;
         await StartActiveAsync(manager);
 
-        DeviceControllerHandoffResponse response = await manager.MakeSafeAsync(
+        ControllerHandoff response = await manager.MakeSafeAsync(
             HandoffScope.FullDeactivation,
-            _ => Task.FromException<DeviceControllerHandoffResponse>(
+            _ => Task.FromException<ControllerHandoff>(
                 new TimeoutException("The plugin never answered.")),
             CancellationToken.None);
 
@@ -373,7 +413,7 @@ public sealed class ControllerManagerTests
         await using ControllerManager manager = harness.Manager;
         await StartActiveAsync(manager);
 
-        DeviceControllerHandoffResponse response = await manager.MakeSafeAsync(
+        ControllerHandoff response = await manager.MakeSafeAsync(
             HandoffScope.ControllerOnly,
             _ => Task.FromResult(PluginRelease(ControllerHandoffStep.TopologyUnverified)),
             CancellationToken.None);
@@ -389,7 +429,7 @@ public sealed class ControllerManagerTests
         await using ControllerManager manager = harness.Manager;
         await StartActiveAsync(manager);
 
-        DeviceControllerHandoffResponse response = await manager.MakeSafeAsync(
+        ControllerHandoff response = await manager.MakeSafeAsync(
             HandoffScope.ControllerOnly,
             _ => Task.FromResult(PluginRelease(
                 ControllerHandoffStep.TopologyVerified,
@@ -493,7 +533,7 @@ public sealed class ControllerManagerTests
         Buttons = buttons,
     };
 
-    private static DeviceControllerHandoffResponse PluginRelease(
+    private static ControllerHandoff PluginRelease(
         ControllerHandoffStep step,
         IReadOnlyList<PhysicalDeviceIdentity>? released = null) => new()
         {

@@ -10,7 +10,7 @@ public sealed class PluginSettingsRoundTripTests
     private const string Device = "msi.claw8";
     private const string Plugin = "wsgm.device.msi";
 
-    private static PluginSettingsManifest Manifest() => new()
+    private static PluginSettingsManifest Manifest(string label = "Flag") => new()
     {
         Sections = [new PluginSettingSection { SectionId = "one", Key = SettingSectionKey.General }],
         Settings =
@@ -19,8 +19,12 @@ public sealed class PluginSettingsRoundTripTests
             {
                 SettingId = "vendor.flag",
                 ValueKind = CapabilityValueKind.Boolean,
-                Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Flag" },
-                Default = new CapabilityValue { Kind = CapabilityValueKind.Boolean },
+                Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = label },
+                Default = new CapabilityValue
+                {
+                    Kind = CapabilityValueKind.Boolean,
+                    BooleanValue = false,
+                },
                 SectionId = "one",
             },
         ],
@@ -112,5 +116,46 @@ public sealed class PluginSettingsRoundTripTests
         SettingsViewModel viewModel = new(config);
 
         Assert.False(viewModel.PluginSettingSections[0].Rows[0].BooleanValue);
+    }
+
+    [Fact]
+    public void TheMostRecentlyPublishedDeclarationWinsOverAStaleScope()
+    {
+        AppConfig config = Config(Manifest("Stale"));
+        PluginSettingsScope current = new()
+        {
+            DeviceDefinitionId = "msi.claw8-current",
+            PluginId = Plugin,
+            Declaration = Manifest("Current"),
+        };
+        config.DeviceIntegration.PluginSettings.Add(current);
+
+        SettingsViewModel viewModel = new(config);
+
+        Assert.Equal("Current", viewModel.PluginSettingSections[0].Rows[0].Label);
+    }
+
+    [Fact]
+    public void SettingsSelectsOnlyTheCurrentlyInstalledPluginDeclaration()
+    {
+        AppConfig config = Config(Manifest("Replaced"));
+        config.DeviceIntegration.PluginSettings.Add(new PluginSettingsScope
+        {
+            DeviceDefinitionId = "other.device",
+            PluginId = "wsgm.device.current",
+            Declaration = Manifest("Installed"),
+        });
+
+        SettingsViewModel viewModel = new(config, "wsgm.device.current");
+
+        Assert.Equal("Installed", viewModel.PluginSettingSections[0].Rows[0].Label);
+    }
+
+    [Fact]
+    public void EmptyPluginSlotDoesNotExposeAReplacedPluginDeclaration()
+    {
+        SettingsViewModel viewModel = new(Config(Manifest("Replaced")), installedPluginId: null);
+
+        Assert.False(viewModel.PluginSettingsAvailable);
     }
 }

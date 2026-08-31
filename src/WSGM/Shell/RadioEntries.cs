@@ -2,7 +2,7 @@ using System.ComponentModel;
 
 namespace WSGM.Shell;
 
-/// <summary>How a Wi-Fi network protects itself, mirroring the helper's codes.</summary>
+/// <summary>How a Wi-Fi network protects itself.</summary>
 public enum WifiSecurity
 {
     /// <summary>No authentication; joining needs no password.</summary>
@@ -328,7 +328,7 @@ public sealed class BluetoothDeviceEntry : INotifyPropertyChanged
     /// <summary>Gets whether this device can be connected/disconnected on
     /// demand — true only for devices with audio endpoints. Everything else
     /// (mice, gamepads) reconnects on its own initiative when used, and
-    /// Windows offers no host-side connect for them; the row then shows only
+    /// Windows offers no general reconnect operation for them; the row then shows only
     /// Pair or Remove, the same choice the Settings app makes.</summary>
     public bool AudioConnectable
     {

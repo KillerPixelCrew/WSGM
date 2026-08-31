@@ -1,8 +1,3 @@
-using System;
-using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
-
 namespace WSGM.Core;
 
 /// <summary>Adds Name / Size / Type sort buttons to the header of Big Picture's
@@ -33,58 +28,18 @@ namespace WSGM.Core;
 ///
 /// <para>Accepted fragility, same class as the injected library tabs: the title token
 /// and the JSX runtime's export names are what a major Steam UI update could move.
-/// <see cref="DisableAsync"/> and a Steam restart both fully recover.</para></summary>
-public static class SteamDownloadSort
+/// Registry removal and a Steam restart both fully recover.</para></summary>
+internal static class SteamDownloadSort
 {
-    private static readonly TimeSpan Budget = TimeSpan.FromSeconds(12);
+    internal static string InstallExpression =>
+        "(()=>{try{" + ResidentSetup
+        + "return W.dlSortInstall();}"
+        + "catch(e){return JSON.stringify({ok:false,err:String((e&&e.stack)||e)});}})()";
 
-    /// <summary>Installs the resident sort-button script (idempotent). Safe to call
-    /// before the user has ever opened the Downloads page: the patch applies on that
-    /// page's next render.</summary>
-    /// <param name="cancellationToken">Cancels the exchange.</param>
-    /// <returns>True when the script reported itself installed.</returns>
-    /// <remarks>Sorting covers the whole queue including the item currently being
-    /// downloaded; a paused queue is never resumed by a sort.</remarks>
-    public static async Task<bool> EnableAsync(CancellationToken cancellationToken = default)
-    {
-        var expression =
-            "(()=>{try{" + ResidentSetup +
-            "return W.dlSortInstall();}" +
-            "catch(e){return JSON.stringify({ok:false,err:String((e&&e.stack)||e)});}})()";
-        var result = await SteamCef.EvaluateAsync(expression, Budget, cancellationToken)
-            .ConfigureAwait(false);
-        if (!result.Reachable || result.Value is null)
-        {
-            return false;
-        }
-        try
-        {
-            using var document = JsonDocument.Parse(result.Value);
-            var root = document.RootElement;
-            if (root.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True)
-            {
-                Log.Info("Download queue sort injected.");
-                return true;
-            }
-            var err = root.TryGetProperty("err", out var e) ? e.GetString() : null;
-            Log.Warn($"Download queue sort injection failed: {err}.");
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Download queue sort parse failed: {ex.Message}");
-        }
-        return false;
-    }
-
-    /// <summary>Unwraps the patched JSX runtime and re-renders, removing the buttons
-    /// from the live Steam session. Best-effort; a Steam restart also recovers.</summary>
-    /// <param name="cancellationToken">Cancels the exchange.</param>
-    public static Task<CefEvalResult> DisableAsync(CancellationToken cancellationToken = default)
-        => SteamCef.EvaluateAsync(
-            "(()=>{try{var W=window.__wsgm;if(W&&W.dlSortRemove)W.dlSortRemove();"
-            + "return JSON.stringify({ok:true});}"
-            + "catch(e){return JSON.stringify({ok:false,err:String(e)});}})()",
-            Budget, cancellationToken);
+    internal const string RemoveExpression =
+        "(()=>{try{var W=window.__wsgm;if(W&&W.dlSortRemove)W.dlSortRemove();"
+        + "return JSON.stringify({ok:true});}"
+        + "catch(e){return JSON.stringify({ok:false,err:String(e)});}})()";
 
     // The resident script. Guarded by dlSortVer so re-running only refreshes the
     // functions — bump BOTH literals below ("W.dlSortVer!==1" and "W.dlSortVer=1")

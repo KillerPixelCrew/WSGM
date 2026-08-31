@@ -106,38 +106,15 @@ public sealed class DeviceOverlayDirectRowTests
     {
         // A recovery control that is always present but almost always inert trains a user to ignore
         // it, which is the opposite of what it is for.
-        Assert.Null(DeviceOverlayBridge.RecoveryView(
-            DeviceCycleState.Active,
-            retryAvailableAt: null,
-            DateTimeOffset.UnixEpoch));
-    }
-
-    [Fact]
-    public void APendingRetryWaitsRatherThanOfferingAnActionThatWouldBeRefused()
-    {
-        DateTimeOffset now = DateTimeOffset.UnixEpoch;
-        DeviceOverlayRecovery? row = DeviceOverlayBridge.RecoveryView(
-            DeviceCycleState.Faulted,
-            now.AddMinutes(2),
-            now);
-
-        Assert.NotNull(row);
-        Assert.False(row.CanRetry);
-        Assert.Equal("WAIT", row.TrailingText);
-        Assert.Equal(DeviceOverlayStatus.Progress, row.Status);
+        Assert.Null(DeviceOverlayBridge.RecoveryView(DeviceCycleState.Active));
     }
 
     [Fact]
     public void AnAvailableRetryIsOfferedAndCarriesTheCycleState()
     {
-        DateTimeOffset now = DateTimeOffset.UnixEpoch;
-        DeviceOverlayRecovery? row = DeviceOverlayBridge.RecoveryView(
-            DeviceCycleState.Faulted,
-            now.AddSeconds(-1),
-            now);
+        DeviceOverlayRecovery? row = DeviceOverlayBridge.RecoveryView(DeviceCycleState.Faulted);
 
         Assert.NotNull(row);
-        Assert.True(row.CanRetry);
         Assert.Equal("READY", row.TrailingText);
         // The row says what is wrong, not only that a button exists.
         Assert.Contains("·", row.Description, StringComparison.Ordinal);
@@ -170,7 +147,6 @@ public sealed class DeviceOverlayDirectRowTests
     [Fact]
     public void EachWsgmRowIsCountedIntoItsOwnSection()
     {
-        DateTimeOffset now = DateTimeOffset.UnixEpoch;
         DeviceOverlaySnapshot snapshot = new(
             Visible: true,
             Status: "Active",
@@ -186,10 +162,7 @@ public sealed class DeviceOverlayDirectRowTests
             Controller: DeviceOverlayBridge.ControllerView(
                 enabled: true,
                 Status(ControllerManagementState.Idle, ManagedControllerTarget.Xbox360)),
-            Recovery: DeviceOverlayBridge.RecoveryView(
-                DeviceCycleState.Faulted,
-                now.AddSeconds(-1),
-                now));
+            Recovery: DeviceOverlayBridge.RecoveryView(DeviceCycleState.Faulted));
 
         Assert.Equal(
             new[]

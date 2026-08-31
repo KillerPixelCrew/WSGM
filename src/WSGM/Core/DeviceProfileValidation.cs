@@ -30,7 +30,7 @@ public enum DeviceProfileRejection
 /// Checks an authored profile against the descriptor the device publishes right now.
 /// </summary>
 /// <remarks>
-/// Authoring happens with no plugin running: <c>--settings</c> starts no DeviceHost, so a curve is
+/// Authoring happens with no plugin running: <c>--settings</c> starts no device runtime, so a curve is
 /// built against whatever bounds were last known and the device may since have been updated,
 /// swapped, or downgraded. Applying one blindly would send the plugin a curve it refuses, and the
 /// user would see a profile that silently does nothing.

@@ -323,6 +323,9 @@ internal sealed class RtssDiscovery
 internal sealed class WindowsRtssDiscoveryEnvironment : IRtssDiscoveryEnvironment
 {
     private const string UninstallKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RTSS";
+    private readonly object _identityGate = new();
+    private readonly Dictionary<string, CachedFileIdentity> _identities =
+        new(StringComparer.OrdinalIgnoreCase);
 
     public IReadOnlyList<string> ProtectedInstallRoots { get; } =
     [
@@ -354,7 +357,10 @@ internal sealed class WindowsRtssDiscoveryEnvironment : IRtssDiscoveryEnvironmen
             }
             catch (Exception ex)
             {
-                Log.Warn($"RTSS discovery could not read the {view} registration: {ex.Message}");
+                Log.Change(
+                    $"rtss.discovery.registration.{view}",
+                    $"RTSS discovery could not read the {view} registration: {ex.Message}",
+                    "warn ");
             }
         }
 
@@ -372,18 +378,44 @@ internal sealed class WindowsRtssDiscoveryEnvironment : IRtssDiscoveryEnvironmen
                     new HashSet<string>(StringComparer.Ordinal), false);
             }
 
+            DateTime lastWrite = file.LastWriteTimeUtc;
+            lock (_identityGate)
+            {
+                if (_identities.TryGetValue(path, out CachedFileIdentity? cached)
+                    && cached.Length == file.Length
+                    && cached.LastWriteTimeUtc == lastWrite)
+                {
+                    return cached.Identity;
+                }
+            }
+
             FileVersionInfo version = FileVersionInfo.GetVersionInfo(path);
             bool is64Bit = false;
             IReadOnlySet<string> exports = Path.GetExtension(path).Equals(".dll", StringComparison.OrdinalIgnoreCase)
                 ? PeExportReader.Read(path, out is64Bit)
                 : new HashSet<string>(StringComparer.Ordinal);
             bool signatureValid = NativeAuthenticode.VerifyFile(path) == 0;
-            return new(true, file.Length, version.ProductName, version.FileVersion, is64Bit,
-                exports, signatureValid);
+            RtssFileIdentity identity = new(
+                true,
+                file.Length,
+                version.ProductName,
+                version.FileVersion,
+                is64Bit,
+                exports,
+                signatureValid);
+            lock (_identityGate)
+            {
+                _identities[path] = new(file.Length, lastWrite, identity);
+            }
+
+            return identity;
         }
         catch (Exception ex)
         {
-            Log.Warn($"RTSS discovery could not inspect {Path.GetFileName(path)}: {ex.Message}");
+            Log.Change(
+                $"rtss.discovery.file.{Path.GetFileName(path)}",
+                $"RTSS discovery could not inspect {Path.GetFileName(path)}: {ex.Message}",
+                "warn ");
             return new(false, 0, null, null, false,
                 new HashSet<string>(StringComparer.Ordinal), false);
         }
@@ -406,13 +438,21 @@ internal sealed class WindowsRtssDiscoveryEnvironment : IRtssDiscoveryEnvironmen
                 }
                 catch (Exception ex)
                 {
-                    Log.Warn($"RTSS discovery could not inspect process {process.Id}: {ex.Message}");
+                    Log.Change(
+                        "rtss.discovery.process",
+                        $"RTSS discovery could not inspect process {process.Id}: {ex.Message}",
+                        "warn ");
                 }
             }
         }
 
         return result;
     }
+
+    private sealed record CachedFileIdentity(
+        long Length,
+        DateTime LastWriteTimeUtc,
+        RtssFileIdentity Identity);
 }
 
 /// <summary>Bounded PE export-table reader; it never maps or executes the inspected DLL.</summary>

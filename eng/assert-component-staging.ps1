@@ -32,27 +32,13 @@ Require-File "App\WSGM.exe"
 Require-File "App\WSGM.Launch.exe"
 Require-File "App\WSGM.LogonService.exe"
 Require-File "App\LICENSE.txt"
-Require-File "DeviceHost\WSGM.DeviceHost.exe"
-Require-File "DeviceHost\DotNetRuntime-LICENSE.txt"
-Require-File "DeviceHost\DotNetRuntime-THIRD-PARTY-NOTICES.txt"
 Require-File "Tools\DeviceLab\wsgm-device.exe"
 Require-File "Tools\DeviceLab\THIRD_PARTY_NOTICES.md"
 Require-File "Tools\DeviceLab\DotNetRuntime-LICENSE.txt"
 Require-File "Tools\DeviceLab\DotNetRuntime-THIRD-PARTY-NOTICES.txt"
 
-foreach ($directory in @("App", "DeviceHost", "Tools", "Packages")) {
+foreach ($directory in @("App", "Tools", "Packages")) {
     Assert-NoLinks (Join-Path $outputFull $directory)
-}
-
-& "$PSScriptRoot\check-aot-isolation.ps1" -OutputDirectory (Join-Path $outputFull "App")
-
-$hostForbidden = @(
-    Get-ChildItem -LiteralPath (Join-Path $outputFull "DeviceHost") -File -Recurse |
-    Where-Object { $_.Name -in @("WSGM.exe", "WSGM.Launch.exe", "WSGM.LogonService.exe") `
-        -or $_.Name -like "WSGM.Device.Msi.*" }
-)
-if ($hostForbidden.Count -gt 0) {
-    throw "DeviceHost staging contains app or plugin binaries: $($hostForbidden.Name -join ', ')"
 }
 
 $packageRoots = @(

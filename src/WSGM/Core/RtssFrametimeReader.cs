@@ -198,11 +198,11 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
                 continue;
             }
 
-            // The tick counters are 32-bit and wrap every 49.7 days, so the age is computed on the
-            // low 32 bits of the current tick count and a negative result is discarded rather than
-            // reported as a huge age.
-            long age = unchecked((uint)now) - (long)time1;
-            if (age is < 0 or > MaximumAgeMs)
+            // Both values are the low 32 bits of GetTickCount. Unsigned subtraction is the clock's
+            // native wrap arithmetic; a genuinely future timestamp becomes a huge age and fails
+            // the same freshness bound without a special rollover branch.
+            long age = unchecked((uint)now - time1);
+            if (age > MaximumAgeMs)
             {
                 continue;
             }

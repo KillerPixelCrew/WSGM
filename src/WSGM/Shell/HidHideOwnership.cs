@@ -90,159 +90,6 @@ internal interface IHidHideAdapter
         CancellationToken cancellationToken);
 }
 
-internal sealed class DeterministicFakeHidHideAdapter : IHidHideAdapter
-{
-    private readonly object _gate = new();
-    private List<string> _applications;
-    private List<string> _devices;
-    private long _revision;
-
-    internal DeterministicFakeHidHideAdapter(
-        IEnumerable<string>? applications = null,
-        IEnumerable<string>? devices = null,
-        bool active = true)
-    {
-        _applications = applications?.ToList() ?? [];
-        _devices = devices?.ToList() ?? [];
-        Active = active;
-        Health = active ? HidHideHealthState.Ready : HidHideHealthState.Inactive;
-    }
-
-    internal HidHideHealthState Health { get; set; }
-
-    internal bool Active { get; set; }
-
-    internal Exception? NextReadFailure { get; set; }
-
-    internal Exception? NextMutationFailure { get; set; }
-
-    internal int? FailMutationAttempt { get; set; }
-
-    internal Action<DeterministicFakeHidHideAdapter>? BeforeNextMutation { get; set; }
-
-    internal int ReadCount { get; private set; }
-
-    internal int MutationCount { get; private set; }
-
-    internal int MutationAttemptCount { get; private set; }
-
-    public Task<HidHideExactSnapshot> ReadAsync(CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        lock (_gate)
-        {
-            ReadCount++;
-            if (NextReadFailure is { } failure)
-            {
-                NextReadFailure = null;
-                throw failure;
-            }
-
-            return Task.FromResult(SnapshotUnderGate());
-        }
-    }
-
-    public Task<HidHideMutationResult> TryMutateAsync(
-        HidHideExactSnapshot expected,
-        HidHideEntryMutation mutation,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(expected);
-        ArgumentNullException.ThrowIfNull(mutation);
-        cancellationToken.ThrowIfCancellationRequested();
-        lock (_gate)
-        {
-            MutationAttemptCount++;
-            BeforeNextMutation?.Invoke(this);
-            BeforeNextMutation = null;
-            if (FailMutationAttempt == MutationAttemptCount)
-            {
-                FailMutationAttempt = null;
-                throw new IOException("Injected HidHide mutation failure.");
-            }
-
-            if (NextMutationFailure is { } failure)
-            {
-                NextMutationFailure = null;
-                throw failure;
-            }
-
-            HidHideExactSnapshot current = SnapshotUnderGate();
-            if (!current.ExactStateEquals(expected))
-            {
-                return Task.FromResult(new HidHideMutationResult(
-                    false,
-                    current,
-                    "HidHide changed before the conditional mutation."));
-            }
-
-            List<string> entries = mutation.EntryKind is HidHideEntryKind.Application
-                ? _applications
-                : _devices;
-            if (mutation.Mutation is HidHideMutationKind.Add)
-            {
-                entries.Add(mutation.Value);
-            }
-            else
-            {
-                int index = entries.FindIndex(value =>
-                    string.Equals(value, mutation.Value, StringComparison.Ordinal));
-                if (index < 0)
-                {
-                    return Task.FromResult(new HidHideMutationResult(
-                        false,
-                        current,
-                        "The exact entry is absent."));
-                }
-
-                entries.RemoveAt(index);
-            }
-
-            MutationCount++;
-            _revision++;
-            return Task.FromResult(new HidHideMutationResult(
-                true,
-                SnapshotUnderGate(),
-                "Applied."));
-        }
-    }
-
-    internal void ExternalReplace(
-        IEnumerable<string>? applications = null,
-        IEnumerable<string>? devices = null,
-        bool? active = null)
-    {
-        lock (_gate)
-        {
-            if (applications is not null)
-            {
-                _applications = applications.ToList();
-            }
-
-            if (devices is not null)
-            {
-                _devices = devices.ToList();
-            }
-
-            if (active is { } activeValue)
-            {
-                Active = activeValue;
-                Health = activeValue ? HidHideHealthState.Ready : HidHideHealthState.Inactive;
-            }
-
-            _revision++;
-        }
-    }
-
-    private HidHideExactSnapshot SnapshotUnderGate() => new(
-        _revision,
-        Health,
-        Active,
-        _applications,
-        _devices,
-        Health.ToString());
-}
-
 internal enum HidHideOwnedDeltaState
 {
     Pending,
@@ -284,34 +131,6 @@ internal interface IHidHideOwnershipStore
     Task SaveAsync(HidHideOwnershipLedger ledger, CancellationToken cancellationToken);
 
     Task DeleteAsync(CancellationToken cancellationToken);
-}
-
-internal sealed class InMemoryHidHideOwnershipStore : IHidHideOwnershipStore
-{
-    internal HidHideOwnershipLedger? Ledger { get; private set; }
-
-    internal int SaveCount { get; private set; }
-
-    public Task<HidHideOwnershipLedger?> LoadAsync(CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(Ledger);
-    }
-
-    public Task SaveAsync(HidHideOwnershipLedger ledger, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        Ledger = ledger;
-        SaveCount++;
-        return Task.CompletedTask;
-    }
-
-    public Task DeleteAsync(CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        Ledger = null;
-        return Task.CompletedTask;
-    }
 }
 
 internal sealed class FileHidHideOwnershipStore : IHidHideOwnershipStore
@@ -410,11 +229,11 @@ internal sealed class HidHideOwnedDeltaManager
 
     /// <summary>Makes WSGM able to read devices HidHide is hiding, before it needs to.</summary>
     /// <param name="controllerManagementEnabled">Whether controller management may run at all.</param>
-    /// <param name="deviceHostApplication">The DeviceHost image path to allow.</param>
+    /// <param name="controllerReaderApplication">The WSGM image path to allow.</param>
     /// <param name="cancellationToken">Cancels the check.</param>
     /// <returns>A description of what was found, for the log.</returns>
     /// <remarks>
-    /// <see cref="StartAsync"/> allowlists DeviceHost too, but only as the first step of WSGM's own
+    /// <see cref="StartAsync"/> allowlists WSGM too, but only as the first step of WSGM's own
     /// hiding transaction — which is to say only once WSGM already knows which devices to hide. That
     /// ordering assumes WSGM is the only thing using HidHide. When something else hid the controller
     /// first, the plugin cannot see the device it is being asked to discover, discovery finds
@@ -432,10 +251,10 @@ internal sealed class HidHideOwnedDeltaManager
     /// </remarks>
     internal async Task<string> EnsureReadableAsync(
         bool controllerManagementEnabled,
-        string deviceHostApplication,
+        string controllerReaderApplication,
         CancellationToken cancellationToken)
     {
-        if (!controllerManagementEnabled || string.IsNullOrWhiteSpace(deviceHostApplication))
+        if (!controllerManagementEnabled || string.IsNullOrWhiteSpace(controllerReaderApplication))
         {
             return "Controller management is off; HidHide was not consulted.";
         }
@@ -455,7 +274,7 @@ internal sealed class HidHideOwnedDeltaManager
                 return "HidHide is hiding nothing; no allowance needed.";
             }
 
-            if (Contains(snapshot.Applications, deviceHostApplication))
+            if (Contains(snapshot.Applications, controllerReaderApplication))
             {
                 return $"HidHide hides {snapshot.Devices.Count} device(s); WSGM is already allowed.";
             }
@@ -465,7 +284,7 @@ internal sealed class HidHideOwnedDeltaManager
                 new HidHideEntryMutation(
                     HidHideMutationKind.Add,
                     HidHideEntryKind.Application,
-                    deviceHostApplication),
+                    controllerReaderApplication),
                 cancellationToken).ConfigureAwait(false);
             if (!mutation.Applied)
             {
@@ -484,7 +303,7 @@ internal sealed class HidHideOwnedDeltaManager
 
     internal async Task<HidHideActivationResult> StartAsync(
         bool controllerManagementEnabled,
-        string deviceHostApplication,
+        string controllerReaderApplication,
         IReadOnlyList<PhysicalDeviceIdentity> physicalDevices,
         long targetGeneration,
         CancellationToken cancellationToken)
@@ -494,21 +313,15 @@ internal sealed class HidHideOwnedDeltaManager
             return new(false, "Controller management is off; HidHide was untouched.", null);
         }
 
-        ArgumentException.ThrowIfNullOrWhiteSpace(deviceHostApplication);
+        ArgumentException.ThrowIfNullOrWhiteSpace(controllerReaderApplication);
         ArgumentNullException.ThrowIfNull(physicalDevices);
         await _transition.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             if (await _store.LoadAsync(cancellationToken).ConfigureAwait(false) is { } existing)
             {
-                // A ledger from a previous run, because this one has written none yet. It exists
-                // precisely for this case — WSGM died holding HidHide entries — so recovering it is
-                // the whole point of the file, not a reason to refuse.
-                //
-                // It used to refuse. CleanupAsync only accepts a matching transaction id and target
-                // generation, which a new session can never present, so an orphaned ledger blocked
-                // controller management permanently and nothing could ever clear it. One crash at
-                // the wrong moment cost the feature for good (device-observed 2026-08-29).
+                // A ledger loaded before this run writes anything records an interrupted ownership
+                // transaction. Recover it before admitting a new transaction.
                 HidHideCleanupResult recovery = await CleanupUnderGateAsync(existing, cancellationToken)
                     .ConfigureAwait(false);
                 if (!recovery.Verified)
@@ -548,7 +361,7 @@ internal sealed class HidHideOwnedDeltaManager
                     snapshot,
                     ledger,
                     HidHideEntryKind.Application,
-                    deviceHostApplication,
+                    controllerReaderApplication,
                     cancellationToken).ConfigureAwait(false);
 
                 foreach (string instancePath in physicalDevices
@@ -565,7 +378,7 @@ internal sealed class HidHideOwnedDeltaManager
                         cancellationToken).ConfigureAwait(false);
                 }
 
-                if (!Contains(snapshot.Applications, deviceHostApplication)
+                if (!Contains(snapshot.Applications, controllerReaderApplication)
                     || physicalDevices.Where(device => device.RequiresHiding)
                         .Any(device => !Contains(snapshot.Devices, device.InstancePath)))
                 {
@@ -780,8 +593,8 @@ internal sealed class HidHideOwnedDeltaManager
     /// paths — <c>\Device\HarddiskVolume3\Program Files\…</c> — while WSGM knows its own executables
     /// by drive letter, so the two never matched and WSGM added a second entry for a path that was
     /// already there. Device-observed 2026-08-29: a ledger whose preexisting list already contained
-    /// <c>\Device\HarddiskVolume3\…\WSGM.DeviceHost.exe</c> recorded a delta adding
-    /// <c>C:\…\WSGM.DeviceHost.exe</c>.
+    /// <c>\Device\HarddiskVolume3\…\WSGM.exe</c> recorded a delta adding
+    /// <c>C:\…\WSGM.exe</c>.
     /// <para>
     /// That is not cosmetic. The allowlist grew on every activation, and cleanup matches what it
     /// wrote, so the duplicate in the other notation would have been left behind on restore.

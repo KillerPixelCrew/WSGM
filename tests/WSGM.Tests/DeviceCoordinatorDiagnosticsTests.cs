@@ -1,33 +1,11 @@
 using System.Text.Json;
 using WSGM.Core;
-using WSGM.Device.Sdk.Ipc;
 using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Tests;
 
 public sealed class DeviceCoordinatorDiagnosticsTests
 {
-    [Fact]
-    public void ResponseEnvelope_RequiresTheOneExactWireVersion()
-    {
-        FrameHeader expected = new()
-        {
-            PayloadLength = 0,
-            ProtocolVersion = DeviceProtocol.Version,
-            MessageType = DeviceMessageType.DiagnosticsSnapshot,
-            RequestId = 1,
-            Flags = FrameFlags.IsResponse,
-        };
-
-        Assert.True(DeviceCoordinatorDiagnosticsClient.IsExpectedResponse(expected));
-        Assert.False(DeviceCoordinatorDiagnosticsClient.IsExpectedResponse(
-            expected with { ProtocolVersion = (ushort)(DeviceProtocol.Version + 1) }));
-        Assert.False(DeviceCoordinatorDiagnosticsClient.IsExpectedResponse(
-            expected with { MessageType = DeviceMessageType.DiagnosticsRequest }));
-        Assert.False(DeviceCoordinatorDiagnosticsClient.IsExpectedResponse(
-            expected with { Flags = FrameFlags.None }));
-    }
-
     [Fact]
     public void Snapshot_RoundTripsOneOptionalInstalledPackageWithoutASecondSchema()
     {

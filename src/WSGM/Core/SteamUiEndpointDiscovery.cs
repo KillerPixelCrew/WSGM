@@ -43,9 +43,7 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery
     public async Task<SteamUiEndpoint?> DiscoverAsync(
         SteamUiTargetRole role, CancellationToken cancellationToken)
     {
-        // Returning null here abandons the whole Steam UI injection, and it used to do so without
-        // a word: no endpoint, no surface, and nothing in the log saying the discovery had even
-        // been attempted.
+        // Returning null abandons Steam UI injection, so preserve the decisive discovery reason.
         if (!IsSteamPortOwner(out string ownership))
         {
             Log.Change(
@@ -99,14 +97,6 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery
                 && Uri.TryCreate(url, UriKind.Absolute, out var sharedUri)
                 && sharedUri.Scheme == Uri.UriSchemeHttps
                 && sharedUri.Host == "steamloopback.host",
-            SteamUiTargetRole.QuickAccess =>
-                type == "page"
-                && title == "QuickAccess"
-                && url.StartsWith("about:blank?", StringComparison.Ordinal)
-                && url.Contains("createflags", StringComparison.Ordinal)
-                && url.Contains("browserviewpopup", StringComparison.Ordinal)
-                && url.Contains("openerid", StringComparison.Ordinal),
-
             // Steam's top-level window, identified by the shape of its creation URL rather than by
             // its title or its document address. The title is localized — "Big-Picture-Modus" on a
             // German client — and the URL reported here is the URL the target was CREATED with, not

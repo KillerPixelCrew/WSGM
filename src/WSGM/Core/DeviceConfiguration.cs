@@ -12,13 +12,12 @@ public static class DeviceFeatureAvailability
 {
     /// <summary>Whether the controller component ships in this build.</summary>
     /// <remarks>
-    /// Both conditions this gate was waiting on now ship. <c>libviiper.dll</c> is built from source
-    /// on every release build and staged beside <c>WSGM.exe</c>, and setup carries an explicitly
-    /// ticked task that installs the <c>usbip-win2</c> USB/IP driver the backend attaches through.
+    /// <c>libviiper.dll</c> is built from source for every release and setup carries the
+    /// <c>usbip-win2</c> driver used by the backend.
     /// <para>
     /// This constant answers only whether the component exists in the build. Whether it works on
     /// the machine in front of the user is a runtime question with several distinct answers — no
-    /// library, no driver, attach refused, host faulted — and belongs where they can be told apart
+    /// library, no driver, attach refused, runtime faulted — and belongs where they can be told apart
     /// and reported truthfully, which is <c>ControllerManagerStatus</c>. Do not fold a machine
     /// probe back in here.
     /// </para>
@@ -105,10 +104,9 @@ public sealed class PluginSettingsScope
     /// The manifest the plugin published when it last ran, or null when none has been seen.
     /// </summary>
     /// <remarks>
-    /// Cached because Settings has to draw the page without the plugin: <c>--settings</c> starts no
-    /// DeviceHost, and the manifest is published by plugin code rather than declared in
-    /// <c>plugin.wsgm.json</c>, so there is nothing to read at rest and loading plugin code in the
-    /// settings process is not an option.
+    /// Cached because Settings has to draw the page without activating device hardware. The
+    /// declaration is published by plugin code rather than stored in <c>plugin.wsgm.json</c>, so
+    /// there is nothing equivalent to read from the installed package at rest.
     /// <para>
     /// It is a cache and never the authority. The shell replaces it whenever a running plugin
     /// publishes, and stored values are still reconciled against the live declaration when one
@@ -205,7 +203,7 @@ public sealed class DeviceAuthoredProfile
 /// <remarks>
 /// A mutable configuration class rather than the SDK's <c>CurvePoint</c> struct, matching every
 /// other stored shape in this file: configuration is deserialized, normalized in place, and
-/// re-serialized, and the SDK's value types exist for the wire rather than for that.
+/// re-serialized, while the SDK value is an immutable runtime contract.
 /// </remarks>
 public sealed class AuthoredCurvePoint
 {

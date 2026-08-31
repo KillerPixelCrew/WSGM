@@ -1,4 +1,4 @@
-// Builds the injected Steam UI asset from its TypeScript source.
+// Builds the injected Steam UI asset from its ordered TypeScript source fragments.
 //
 // The shipped asset is reviewable JavaScript, not a bundle: a maintainer reads it
 // beside the page it is injected into, and the drift gate hashes it. So this
@@ -15,7 +15,7 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,7 +24,17 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..");
 const assetDirectory = join(repositoryRoot, "src", "WSGM", "Core", "SteamUiAssets");
 const sourceDirectory = join(assetDirectory, "Source");
-const sourcePath = join(sourceDirectory, "NativeQamBootstrap.ts");
+const sourcePaths = [
+  join(sourceDirectory, "types.ts"),
+  join(sourceDirectory, "bridge.ts"),
+  join(sourceDirectory, "gates", "performance.ts"),
+  join(sourceDirectory, "gates", "steam-os-manager.ts"),
+  join(sourceDirectory, "gates", "brightness.ts"),
+  join(sourceDirectory, "gates", "bluetooth.ts"),
+  join(sourceDirectory, "gates", "network.ts"),
+  join(sourceDirectory, "gates", "audio.ts"),
+  join(sourceDirectory, "components.ts"),
+];
 const outputPath = join(assetDirectory, "NativeQamBootstrap.js");
 const catalogPath = join(repositoryRoot, "src", "WSGM", "Core", "SteamUiAssetCatalog.cs");
 
@@ -52,14 +62,29 @@ function run(command, args, options = {}) {
 const temporaryRoot = await mkdtemp(join(tmpdir(), "wsgm-steam-assets-"));
 let compiled;
 try {
+  const inputDirectory = join(temporaryRoot, "input");
+  const outputDirectory = join(temporaryRoot, "output");
+  await mkdir(inputDirectory);
+  await mkdir(outputDirectory);
+  const combinedSourcePath = join(inputDirectory, "NativeQamBootstrap.ts");
+  const source = (await Promise.all(sourcePaths.map((path) => readFile(path, "utf8")))).join("");
+  await writeFile(combinedSourcePath, source, "utf8");
+  const temporaryProject = join(temporaryRoot, "tsconfig.json");
+  await writeFile(
+    temporaryProject,
+    JSON.stringify({
+      extends: join(sourceDirectory, "tsconfig.json"),
+      compilerOptions: { outDir: outputDirectory, rootDir: inputDirectory },
+      files: [combinedSourcePath],
+    }),
+    "utf8",
+  );
   run("node", [
     join(repositoryRoot, "node_modules", "typescript", "lib", "tsc.js"),
     "--project",
-    sourceDirectory,
-    "--outDir",
-    temporaryRoot,
+    temporaryProject,
   ]);
-  compiled = await readFile(join(temporaryRoot, "NativeQamBootstrap.js"), "utf8");
+  compiled = await readFile(join(outputDirectory, "NativeQamBootstrap.js"), "utf8");
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });
 }
@@ -67,7 +92,7 @@ try {
 const markerIndex = compiled.indexOf(bundleMarker);
 if (markerIndex < 0) {
   throw new Error(
-    `${relative(repositoryRoot, sourcePath)} must contain "${bundleMarker}" so the emitted asset has an exact start.`,
+    `${relative(repositoryRoot, sourcePaths[1])} must contain "${bundleMarker}" so the emitted asset has an exact start.`,
   );
 }
 

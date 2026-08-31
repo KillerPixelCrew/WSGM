@@ -37,7 +37,7 @@ public enum CapabilityReasonCode
     /// <summary>The observation expired under the freshness policy.</summary>
     ObservationExpired,
 
-    /// <summary>The host is not running, so nothing can be observed or commanded.</summary>
+    /// <summary>The plugin runtime is unavailable, so nothing can be observed or commanded.</summary>
     HostUnavailable,
 
     /// <summary>The firmware is outside the range this implementation was verified against.</summary>

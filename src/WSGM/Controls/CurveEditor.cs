@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Controls;
@@ -97,8 +99,15 @@ internal sealed class CurveEditor : Control
     internal void AddPointAtWidestGap()
     {
         IReadOnlyList<CurvePoint> points = Points;
-        if (points.Count is 0 or >= CurveEditing.MaximumPoints)
+        if (points.Count == 0)
         {
+            LogEditRefused("add", "the curve has no points to split");
+            return;
+        }
+
+        if (points.Count >= CurveEditing.MaximumPoints)
+        {
+            LogEditRefused("add", $"the {CurveEditing.MaximumPoints}-point limit is already reached");
             return;
         }
 
@@ -118,11 +127,14 @@ internal sealed class CurveEditor : Control
         // ascending, so there is no room between them.
         if (at < 0 || widest < 2)
         {
+            LogEditRefused("add", $"the widest input gap is {widest}, leaving no integer midpoint");
             return;
         }
 
         int input = points[at - 1].Input + (widest / 2);
-        Commit(CurveEditing.Add(points, input, CurveEditing.Evaluate(points, input), CurveBounds));
+        TryCommit(
+            CurveEditing.Add(points, input, CurveEditing.Evaluate(points, input), CurveBounds),
+            "add");
     }
 
     /// <summary>Removes the selected point.</summary>
@@ -131,11 +143,14 @@ internal sealed class CurveEditor : Control
         IReadOnlyList<CurvePoint> updated = CurveEditing.Remove(Points, SelectedIndex);
         if (ReferenceEquals(updated, Points))
         {
+            LogEditRefused(
+                "remove",
+                $"selection {SelectedIndex} is absent, an endpoint, or part of the two-point minimum");
             return;
         }
 
         SelectedIndex = Math.Min(SelectedIndex, updated.Count - 1);
-        Commit(updated);
+        TryCommit(updated, "remove");
     }
 
     /// <inheritdoc />
@@ -217,16 +232,25 @@ internal sealed class CurveEditor : Control
         // a point and positioning it are one gesture rather than two.
         if (!TryToCurve(position, out int input, out int output))
         {
+            LogEditRefused(
+                "pointer-add",
+                $"position {position} is outside the usable plot or the device bounds are invalid");
             return;
         }
 
         IReadOnlyList<CurvePoint> updated = CurveEditing.Add(Points, input, output, CurveBounds);
         if (ReferenceEquals(updated, Points))
         {
+            LogEditRefused(
+                "pointer-add",
+                $"the {CurveEditing.MaximumPoints}-point limit is already reached");
             return;
         }
 
-        Commit(updated);
+        if (!TryCommit(updated, "pointer-add"))
+        {
+            return;
+        }
         int added = IndexOfInput(updated, CurveBounds.ClampInput(input));
         SelectedIndex = added;
         _dragIndex = added;
@@ -249,7 +273,7 @@ internal sealed class CurveEditor : Control
             input,
             output,
             CurveBounds);
-        Commit(updated);
+        TryCommit(updated, "pointer-move");
         e.Handled = true;
     }
 
@@ -269,32 +293,15 @@ internal sealed class CurveEditor : Control
 
     /// <inheritdoc />
     /// <remarks>
-    /// Left and right move the selection between points; the arrows with a modifier, and the
-    /// gamepad's own navigation, move the selected point itself. Without this the editor is
-    /// unreachable in game mode, where there is no pointer at all.
+    /// Left and right move the selection between points, up and down change its output, and
+    /// Shift+left/right changes an interior point's input. Gamepad navigation mirrors the
+    /// unmodified arrows so either of the controller's input paths produces the same action.
     /// </remarks>
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
-        IReadOnlyList<CurvePoint> points = Points;
-        if (points.Count == 0)
-        {
-            return;
-        }
-
-        bool moving = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
         switch (e.Key)
         {
-            case Key.Left when !moving:
-                SelectedIndex = Math.Max(0, SelectedIndex - 1);
-                e.Handled = true;
-                return;
-            case Key.Right when !moving:
-                SelectedIndex = SelectedIndex < 0
-                    ? 0
-                    : Math.Min(points.Count - 1, SelectedIndex + 1);
-                e.Handled = true;
-                return;
             case Key.Delete:
                 RemoveSelectedPoint();
                 e.Handled = true;
@@ -305,12 +312,84 @@ internal sealed class CurveEditor : Control
                 return;
         }
 
-        if (SelectedIndex < 0 || SelectedIndex >= points.Count)
+        if (ApplyDirectionalKey(
+            e.Key,
+            e.KeyModifiers.HasFlag(KeyModifiers.Shift),
+            "keyboard"))
         {
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>Applies one gamepad direction to the focused editor.</summary>
+    /// <param name="direction">The physical direction reported by controller navigation.</param>
+    /// <remarks>
+    /// This mirrors the unmodified keyboard arrows: left and right choose a point, while up and
+    /// down change its output. Steam's desktop-layout arrow and SDL's copy of the same press must
+    /// produce identical edits so the cross-source suppression in <c>GamepadNavigation</c> cannot
+    /// make the result depend on which event arrived first.
+    /// </remarks>
+    internal void ApplyDirection(NavigationDirection direction)
+    {
+        Key key = direction switch
+        {
+            NavigationDirection.Left => Key.Left,
+            NavigationDirection.Right => Key.Right,
+            NavigationDirection.Up => Key.Up,
+            NavigationDirection.Down => Key.Down,
+            _ => Key.None,
+        };
+        if (key == Key.None)
+        {
+            LogEditRefused("gamepad", $"direction {direction} has no curve-edit action");
             return;
         }
 
-        (int inputStep, int outputStep) = e.Key switch
+        ApplyDirectionalKey(key, moving: false, "gamepad");
+    }
+
+    private bool ApplyDirectionalKey(Key key, bool moving, string inputSource)
+    {
+        if (key is not (Key.Left or Key.Right or Key.Up or Key.Down))
+        {
+            return false;
+        }
+
+        IReadOnlyList<CurvePoint> points = Points;
+        if (points.Count == 0)
+        {
+            LogEditRefused(inputSource, "the curve has no points");
+            return true;
+        }
+
+        if (!moving && key is Key.Left or Key.Right)
+        {
+            int nextIndex = key == Key.Left
+                ? Math.Max(0, SelectedIndex - 1)
+                : SelectedIndex < 0
+                    ? 0
+                    : Math.Min(points.Count - 1, SelectedIndex + 1);
+            if (nextIndex == SelectedIndex)
+            {
+                LogEditRefused(
+                    $"{inputSource}-select",
+                    $"selection {SelectedIndex} is already at the {key.ToString().ToLowerInvariant()} edge");
+                return true;
+            }
+
+            SelectedIndex = nextIndex;
+            return true;
+        }
+
+        if (SelectedIndex < 0 || SelectedIndex >= points.Count)
+        {
+            LogEditRefused(
+                $"{inputSource}-move",
+                $"selection {SelectedIndex} is outside the curve");
+            return true;
+        }
+
+        (int inputStep, int outputStep) = key switch
         {
             Key.Left when moving => (-1, 0),
             Key.Right when moving => (1, 0),
@@ -318,28 +397,42 @@ internal sealed class CurveEditor : Control
             Key.Down => (0, -1),
             _ => (0, 0),
         };
-
         if (inputStep == 0 && outputStep == 0)
         {
-            return;
+            return true;
         }
 
         CurvePoint point = points[SelectedIndex];
-        Commit(CurveEditing.Move(
-            points,
-            SelectedIndex,
-            point.Input + inputStep,
-            point.Output + outputStep,
-            CurveBounds));
-        e.Handled = true;
+        TryCommit(
+            CurveEditing.Move(
+                points,
+                SelectedIndex,
+                point.Input + inputStep,
+                point.Output + outputStep,
+                CurveBounds),
+            $"{inputSource}-move");
+        return true;
     }
 
-    private void Commit(IReadOnlyList<CurvePoint> updated)
+    private bool TryCommit(IReadOnlyList<CurvePoint> updated, string operation)
     {
+        if (ReferenceEquals(updated, Points) || updated.SequenceEqual(Points))
+        {
+            LogEditRefused(operation, "the requested point is already at its permitted bound");
+            return false;
+        }
+
         Points = updated;
         InvalidateVisual();
         CurveChanged?.Invoke(updated);
+        return true;
     }
+
+    private void LogEditRefused(string operation, string reason) =>
+        Log.Change(
+            "curve-editor.refusal",
+            $"Curve edit refused: operation={operation}, reason={reason}, "
+                + $"points={Points.Count}, selected={SelectedIndex}.");
 
     private static int IndexOfInput(IReadOnlyList<CurvePoint> points, int input)
     {

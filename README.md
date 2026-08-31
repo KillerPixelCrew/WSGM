@@ -121,8 +121,8 @@ Steam CEF bridge behind the library features, elevation and recovery — lives i
 **Upgrading:** run the newer setup. **Uninstall:** Windows Settings → Apps → WSGM — it restores
 every machine setting it changed and removes its files.
 
-Building from source: `.\build.ps1` (needs the .NET SDK, VS C++ build tools, a Rust toolchain and
-Inno Setup 6) → `publish\WSGM-Setup-<version>.exe`.
+Building from source: `.\build.ps1` (needs the .NET SDK, Rust with the MSVC toolchain, Go, Git, a
+cgo-capable GCC, and Inno Setup 6) → `publish\WSGM-Setup-<version>.exe`.
 
 ## Credits
 

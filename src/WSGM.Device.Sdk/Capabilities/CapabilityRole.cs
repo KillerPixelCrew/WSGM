@@ -143,12 +143,9 @@ public enum CapabilityValueKind
     /// Short plain text the user types.
     /// </summary>
     /// <remarks>
-    /// The only kind that is not constrained by construction, so it carries the same treatment as
-    /// <see cref="CapabilityDisplay.CustomLabel"/>: a declared maximum length, control characters
-    /// and bidirectional overrides rejected, escaped at every sink. That bound exists to stop a
-    /// malformed string corrupting a log line or rendering as something other than what it says —
-    /// not to contain the plugin, which already holds WMI, HID, and EC access and is not an
-    /// attacker in this model.
+    /// The only kind not constrained by construction, so it carries the same text contract as
+    /// <see cref="CapabilityDisplay.CustomLabel"/>: a declared maximum length with control and
+    /// bidirectional formatting characters rejected.
     /// </remarks>
     Text,
 }
@@ -203,8 +200,8 @@ public static class CapabilityRoleExtensions
     /// generic role has no such home, which is exactly why the plugin may place it.
     /// <para>
     /// Written as an explicit list rather than a name-prefix check. A future role named
-    /// <c>GenericPowerLimit</c> would silently become placeable under a prefix rule, and reflection
-    /// over enum names is not available to this NativeAOT surface anyway.
+    /// <c>GenericPowerLimit</c> would silently become placeable under a prefix rule; adding a role
+    /// must require an explicit decision here.
     /// </para>
     /// </remarks>
     public static bool IsGeneric(this CapabilityRole role) => role is

@@ -20,10 +20,13 @@ TestResults/
 # would make the next build fail the check against its own fresh copy.
 src/WSGM/Native/SteamInputLease/
 
-# The vendored Rust libraries keep their own formatting and their own gates
+# These are ordered lexical fragments, not standalone TypeScript programs. The Steam asset builder
+# concatenates and type-checks them, then runs the pinned Prettier over the emitted single asset.
+src/WSGM/Core/SteamUiAssets/Source/**/*.ts
+
+# The vendored Rust library keeps its own formatting and its own gates
 # (clippy, rustdoc); reformatting their docs here would only create churn.
 native/SteamInput/
-native/Radio/
 
 # Vendored upstream source. Reformatting it would destroy the diff against
 # upstream, which is the whole point of keeping it re-syncable.

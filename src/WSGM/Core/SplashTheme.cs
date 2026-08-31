@@ -280,15 +280,10 @@ internal static class SplashTheme
                 return null;
             }
 
-            // Same explicit-null repairs a loaded config.json gets — the archive
-            // contents are untrusted.
+            // Apply the same explicit-null repairs as a loaded config.json.
             ConfigStore.NormalizeSplash(splash);
-            // Rule for every path-like field: a path out of the archive's JSON is
-            // NEVER passed through — absolute, relative or UNC alike. It may only
-            // ever be a file this import actually staged, or "" when the archive
-            // bundled no such entry. The caller thumbnails these paths immediately,
-            // so a pass-through would make a shared theme reach out to e.g.
-            // \\attacker\share\x.png with no user action.
+            // Archive paths never escape the import transaction: only files staged by this import
+            // are returned, or an empty path when the archive omits the image.
             splash.LogoImagePath = ExtractImage(archive, LogoEntryBaseName, targetImageDirectory, extractedFiles) ?? "";
             splash.BackgroundImagePath =
                 ExtractImage(archive, BackgroundEntryBaseName, targetImageDirectory, extractedFiles) ?? "";

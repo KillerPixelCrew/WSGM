@@ -1,10 +1,17 @@
 using System.Text.Json;
 using WSGM.Core;
+using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Tests;
 
 public sealed class ConfigurationTests
 {
+    [Fact]
+    public void JsonNullIsRejectedInsteadOfBecomingSilentDefaults()
+    {
+        Assert.Throws<JsonException>(() => ConfigStore.DeserializeConfig("null"));
+    }
+
     [Fact]
     public void AnUnknownDeviceEnumNameIsRepairedInsteadOfDiscardingTheWholeFile()
     {
@@ -59,6 +66,73 @@ public sealed class ConfigurationTests
         Assert.Equal(
             WSGM.Device.Sdk.Capabilities.CapabilityValueKind.None,
             Assert.Single(profile.Capabilities).GlobalDefault!.Kind);
+    }
+
+    [Fact]
+    public void UnknownPerformanceAndCachedDeclarationEnumsDoNotDiscardTheConfig()
+    {
+        const string json = """
+        {
+          "AccentColor": "#FF00AA",
+          "Performance": { "FrameLimitStrategy": "FutureStrategy" },
+          "DeviceIntegration": {
+            "PluginSettings": [
+              {
+                "DeviceDefinitionId": "device",
+                "PluginId": "plugin",
+                "Declaration": {
+                  "Sections": [ { "SectionId": "general", "Key": "FutureSection" } ],
+                  "Settings": [
+                    {
+                      "SettingId": "future",
+                      "ValueKind": "FutureValue",
+                      "Display": { "Key": "FutureLabel" },
+                      "Default": { "Kind": "FutureValue" },
+                      "Unit": "FutureUnit"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+        """;
+
+        AppConfig? config = ConfigStore.DeserializeConfig(json);
+
+        Assert.NotNull(config);
+        Assert.Equal("#FF00AA", config.AccentColor);
+        Assert.Equal(FrameLimitStrategy.FrameLimitOnly, config.Performance.FrameLimitStrategy);
+        Assert.Equal(
+            CapabilityValueKind.None,
+            Assert.Single(Assert.Single(config.DeviceIntegration.PluginSettings)
+                .Declaration!.Settings).ValueKind);
+    }
+
+    [Fact]
+    public void NormalizeRepairsAnExplicitNullRtssProfileName()
+    {
+        var config = new AppConfig
+        {
+            Performance = new PerformanceConfig
+            {
+                Applications =
+                [
+                    new PerformanceApplicationConfig
+                    {
+                        ApplicationId = "steam:10",
+                        RtssProfileName = null!,
+                        UsePerGameProfile = true,
+                    },
+                ],
+            },
+        };
+
+        PerformanceApplicationConfig application = Assert.Single(
+            ConfigStore.Normalize(config).Performance.Applications);
+
+        Assert.Equal(string.Empty, application.RtssProfileName);
+        Assert.True(application.UsePerGameProfile);
     }
 
     [Fact]

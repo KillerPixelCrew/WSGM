@@ -6,7 +6,7 @@
   "approvalNotes": [
     "HIDMaestro was dropped: its steam-deck-composite profile names only two of the four rear controls and carries no stick-touch fields, and it generates and locally signs driver packages whose INF versions are stamped from the current date, so an exact signed driver could not be reproduced.",
     "VIIPER's steamdeck device carries every control the canonical model defines and needs no WSGM-signed driver: it rides usbip-win2's WHLK-certified/attestation-signed generic USB/IP client driver.",
-    "No separate ControllerHost process is needed. libviiper exposes a flat C ABI over blittable types, so the NativeAOT WSGM executable binds it directly."
+    "No separate ControllerHost process is needed. libviiper exposes a flat C ABI over blittable types, so WSGM binds it directly."
   ],
   "staging": {
     "publishRoot": "publish/App",

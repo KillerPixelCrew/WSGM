@@ -11,14 +11,13 @@ namespace WSGM.Interop;
 /// (CM_Request_Device_EjectW) and the media-level dismount sequence
 /// (FSCTL_LOCK_VOLUME → FSCTL_DISMOUNT_VOLUME → IOCTL_STORAGE_EJECT_MEDIA).
 ///
-/// Everything here is cfgmgr32/kernel32 — no COM, no WMI — so it is legal under
-/// the NativeAOT publish. Devnode discovery goes through the cfgmgr32 interface
-/// list rather than SetupAPI's devinfo sets: same data, no variable-size
-/// detail-struct marshalling.
+/// Everything here is cfgmgr32/kernel32 — no COM and no WMI. Devnode discovery
+/// goes through the cfgmgr32 interface list rather than SetupAPI's devinfo sets:
+/// same data, no variable-size detail-struct marshalling.
 ///
 /// The two fixed-layout records are decoded from documented offsets by pure
-/// span readers, so the layouts are unit-testable from a synthetic buffer (the
-/// NativeRadio approach).</summary>
+/// span readers, so the layouts are unit-testable from a synthetic buffer without
+/// a live device.</summary>
 internal static unsafe partial class NativeStorage
 {
     // ---- return codes / constants ----

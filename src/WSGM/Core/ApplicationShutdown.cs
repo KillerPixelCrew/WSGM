@@ -62,6 +62,9 @@ internal static class ApplicationShutdownRequest
 /// </summary>
 internal static class ApplicationShutdownCoordinator
 {
+    internal static int ExitCodeFor(ApplicationShutdownOutcome outcome) =>
+        outcome is ApplicationShutdownOutcome.Clean ? 0 : 1;
+
     internal static TimeSpan BudgetFor(ApplicationShutdownReason reason) => reason switch
     {
         ApplicationShutdownReason.Update => TimeSpan.FromSeconds(10),
@@ -131,6 +134,7 @@ internal static class ApplicationShutdownCoordinator
 
             if (remaining <= TimeSpan.Zero)
             {
+                ObserveLateCleanup(cleanup, reason);
                 ReportTimeout(reason, budget);
                 return ApplicationShutdownOutcome.TimedOut;
             }
@@ -139,6 +143,7 @@ internal static class ApplicationShutdownCoordinator
             Task completed = await Task.WhenAny(cleanup, timeout).ConfigureAwait(false);
             if (!ReferenceEquals(completed, cleanup))
             {
+                ObserveLateCleanup(cleanup, reason);
                 ReportTimeout(reason, budget);
                 return ApplicationShutdownOutcome.TimedOut;
             }
@@ -159,5 +164,20 @@ internal static class ApplicationShutdownCoordinator
     private static void ReportTimeout(ApplicationShutdownReason reason, TimeSpan budget) =>
         Log.Warn(
             $"Application shutdown exceeded the {budget.TotalSeconds:0.#} s {reason} budget; "
-            + "process exit will close the DeviceHost job and recovery will reconcile next start.");
+            + "process exit will release process-owned resources and recovery will reconcile next start.");
+
+    private static void ObserveLateCleanup(Task cleanup, ApplicationShutdownReason reason) =>
+        _ = ObserveAsync(cleanup, reason);
+
+    private static async Task ObserveAsync(Task cleanup, ApplicationShutdownReason reason)
+    {
+        try
+        {
+            await cleanup.ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Application shutdown failed after its outer deadline ({reason})", ex);
+        }
+    }
 }

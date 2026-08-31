@@ -34,6 +34,7 @@ internal static class SteamDeckNeptuneReport
     private const byte Byte8R1 = 0x04;
     private const byte Byte8L2 = 0x02;
     private const byte Byte8R2 = 0x01;
+    private const float DigitalTriggerThreshold = 0.2f;
 
     // Byte 9: the lower-left paddle, the menu cluster, and the d-pad.
     private const byte Byte9L5 = 0x80;
@@ -94,8 +95,8 @@ internal static class SteamDeckNeptuneReport
             | Mask(buttons, CanonicalButtons.LeftShoulder, Byte8L1)
             | Mask(buttons, CanonicalButtons.RightShoulder, Byte8R1)
             // The Deck reports a digital edge for each trigger alongside its analogue value.
-            | (sample.LeftTrigger > 0 ? Byte8L2 : 0)
-            | (sample.RightTrigger > 0 ? Byte8R2 : 0));
+            | (sample.LeftTrigger > DigitalTriggerThreshold ? Byte8L2 : 0)
+            | (sample.RightTrigger > DigitalTriggerThreshold ? Byte8R2 : 0));
 
         destination[9] = (byte)(Mask(buttons, CanonicalButtons.RearPaddle3, Byte9L5)
             | Mask(buttons, CanonicalButtons.Menu, Byte9Menu)

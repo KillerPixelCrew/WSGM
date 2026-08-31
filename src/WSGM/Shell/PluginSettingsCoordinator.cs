@@ -5,7 +5,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Ipc;
 using WSGM.Device.Sdk.Settings;
 
 namespace WSGM.Shell;
@@ -49,7 +48,8 @@ internal sealed class PluginSettingsCoordinator : IDisposable
     internal const string FallbackSectionId = "wsgm:other";
 
     private readonly object _gate = new();
-    private DeviceHostClient? _client;
+    private readonly SemaphoreSlim _deliveryGate = new(1, 1);
+    private DevicePluginRuntime? _client;
     private PluginSettingsManifest? _manifest;
     private string _deviceDefinitionId = string.Empty;
     private string _pluginId = string.Empty;
@@ -74,12 +74,12 @@ internal sealed class PluginSettingsCoordinator : IDisposable
     /// <summary>
     /// Begins tracking a plugin's settings for one cycle.
     /// </summary>
-    /// <param name="client">The connected host client.</param>
+    /// <param name="client">The active in-process plugin runtime.</param>
     /// <param name="deviceDefinitionId">Device definition the values are keyed under.</param>
     /// <param name="pluginId">Plugin the values are keyed under.</param>
     /// <param name="config">Current configuration, for stored values.</param>
     internal void Attach(
-        DeviceHostClient client,
+        DevicePluginRuntime client,
         string deviceDefinitionId,
         string pluginId,
         AppConfig config
@@ -239,10 +239,9 @@ internal sealed class PluginSettingsCoordinator : IDisposable
             plugin = _pluginId;
         }
 
-        // Cached so Settings can draw the page with no plugin running: --settings starts no
-        // DeviceHost, and a manifest is published by plugin code rather than declared at rest, so
-        // this is the only moment WSGM ever sees one. Off the caller's thread because this is the
-        // host's message pump and the write takes the cross-process config lock.
+        // Cached so Settings can draw the page without activating hardware. A declaration is
+        // published by plugin code rather than stored in the package manifest, so this is the only
+        // moment WSGM sees it. The config write stays off the runtime callback thread.
         if (device.Length > 0 && plugin.Length > 0)
         {
             _ = Task.Run(() =>
@@ -270,7 +269,7 @@ internal sealed class PluginSettingsCoordinator : IDisposable
         PublishAndPush();
     }
 
-    private static void CacheDeclaration(
+    internal static void CacheDeclaration(
         AppConfig config,
         string device,
         string plugin,
@@ -287,6 +286,17 @@ internal sealed class PluginSettingsCoordinator : IDisposable
             scopes.Add(scope);
         }
 
+        // Only the active scope may describe the page. Keep older scopes' authored values and
+        // profiles for a future device match, but clear their presentation cache so Settings never
+        // renders a declaration from a device definition that is no longer active.
+        foreach (PluginSettingsScope candidate in scopes)
+        {
+            if (!ReferenceEquals(candidate, scope))
+            {
+                candidate.Declaration = null;
+            }
+        }
+
         scope.Declaration = manifest;
     }
 
@@ -294,55 +304,63 @@ internal sealed class PluginSettingsCoordinator : IDisposable
 
     private async Task PublishAndPushAsync(CancellationToken cancellationToken)
     {
-        PluginSettingsManifest? manifest;
-        DeviceHostClient? client;
-        IReadOnlyList<PluginSettingValue> stored;
-        lock (_gate)
-        {
-            manifest = _manifest;
-            client = _client;
-            stored = StoredUnderGate();
-        }
-
-        if (manifest is null)
-        {
-            Changed?.Invoke(Empty);
-            return;
-        }
-
-        PluginSettingsResolution resolution = PluginSettingsResolver.Resolve(manifest, stored);
-        foreach (EffectivePluginSetting rejected in resolution.Values.Where(
-            value => value.Origin is PluginSettingOrigin.Rejected))
-        {
-            Log.Warn(
-                $"Plugin setting '{rejected.SettingId}' fell back to its default: {rejected.Reason}");
-        }
-
-        if (resolution.Orphans.Count > 0)
-        {
-            Log.Info(
-                "Plugin settings no longer declared: "
-                + string.Join(", ", resolution.Orphans));
-        }
-
-        Changed?.Invoke(Project(manifest, resolution));
-
-        if (client is null)
-        {
-            return;
-        }
-
-        IReadOnlyList<DeviceSettingValue> values =
-            [.. resolution.Values.Select(value => new DeviceSettingValue(value.SettingId, value.Value))];
+        await _deliveryGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await client.ApplySettingsValuesAsync(values, cancellationToken).ConfigureAwait(false);
+            PluginSettingsManifest? manifest;
+            DevicePluginRuntime? client;
+            IReadOnlyList<PluginSettingValue> stored;
+            lock (_gate)
+            {
+                manifest = _manifest;
+                client = _client;
+                stored = StoredUnderGate();
+            }
+
+            if (manifest is null)
+            {
+                Changed?.Invoke(Empty);
+                return;
+            }
+
+            PluginSettingsResolution resolution = PluginSettingsResolver.Resolve(manifest, stored);
+            foreach (EffectivePluginSetting rejected in resolution.Values.Where(
+                value => value.Origin is PluginSettingOrigin.Rejected))
+            {
+                Log.Warn(
+                    $"Plugin setting '{rejected.SettingId}' fell back to its default: {rejected.Reason}");
+            }
+
+            if (resolution.Orphans.Count > 0)
+            {
+                Log.Info(
+                    "Plugin settings no longer declared: "
+                    + string.Join(", ", resolution.Orphans));
+            }
+
+            Changed?.Invoke(Project(manifest, resolution));
+
+            if (client is null)
+            {
+                return;
+            }
+
+            IReadOnlyList<DeviceSettingValue> values =
+                [.. resolution.Values.Select(value => new DeviceSettingValue(value.SettingId, value.Value))];
+            try
+            {
+                await client.ApplySettingsValuesAsync(values, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // The plugin keeps whatever it had. Reporting this matters because the surface will now
+                // show values the plugin is not acting on, which is otherwise invisible.
+                Log.Warn($"Plugin settings not delivered: {ex.Message}");
+            }
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        finally
         {
-            // The plugin keeps whatever it had. Reporting this matters because the surface will now
-            // show values the plugin is not acting on, which is otherwise invisible.
-            Log.Warn($"Plugin settings not delivered: {ex.Message}");
+            _deliveryGate.Release();
         }
     }
 

@@ -122,10 +122,13 @@ switches therefore initialize disabled and native Valve rendering remains unchan
 was read-only; final cleanup confirmed the selector and all four tier namespaces were absent.
 
 8. **Adding a library to a RUNNING Steam goes through Steam's own front-end, never its internals.**
-   `Core\SteamCef.cs` drives Steam's CEF remote-debugging port (localhost:8080) → WebSocket
-   `Runtime.evaluate` → `SteamClient.InstallFolder.AddInstallFolder("<path>")`, so Steam adds,
-   persists, mounts and scans on its own thread with no restart. The port only opens when Steam
-   starts with the `<SteamDir>\.cef-enable-remote-debugging` flag present, so
+   The shell's `PersistentSteamUiTransport` drives Steam's CEF remote-debugging port
+   (localhost:8080) → WebSocket `Runtime.evaluate` →
+   `SteamClient.InstallFolder.AddInstallFolder("<path>")`, so Steam adds, persists, mounts and scans
+   on its own thread with no restart. Repository-owned one-shot operations borrow that same
+   transport through `SteamUiTransportSession`; they cannot discover a target or open a second
+   socket stack. The port only opens when Steam starts with the
+   `<SteamDir>\.cef-enable-remote-debugging` flag present, so
    `SteamCef.EnsureRemoteDebuggingEnabled()` writes it before `Steam.LaunchBigPicture` cold-starts
    Steam (game mode always has the port). **Security posture of the CEF port (accepted, reviewed —
    do not "fix" without reading this).** The port is unauthenticated (Steam's CEF has no auth — a
@@ -182,28 +185,29 @@ was read-only; final cleanup confirmed the selector and all four tier namespaces
    `RegisterDeviceNotification` subscription to **`GUID_DEVINTERFACE_VOLUME`** on the process
    message-only window. It must be that and not the broadcast `DBT_DEVTYP_VOLUME` message, which
    Windows sends only to TOP-LEVEL windows and which a `HWND_MESSAGE` window therefore never
-   receives. It must also not be WMI (`Win32_DiskDrive` + a model string): that is COM, which
-   NativeAOT WSGM cannot use, and a model match only works for the one reader it was written
-   against. The notification arrives BEFORE the volume is mounted and lettered, so the reaction
-   settles 3 s and rescans all drives rather than resolving the reported device path. The decision
-   is `cardContentId` (from the card's own marker, the identity that travels with the card) against
-   the ids registered for that path in `libraryfolders.vdf` — Steam's live folder API exposes no
-   content id at all, which is why the file is the source. Gated on the CEF master switch and off in
-   `--overlay-test`. **A running Steam process and a reachable SharedJSContext are NOT proof that a
-   cold-start UI is ready for autonomous mutation** (device-observed 2026-08-22). On failed boot PID
-   12064, the input proxy had completely initialized in 2 ms with zero fallback calls, CEF accepted
-   the download-sort injection, and the card monitor began replacing `D:\SteamLibrary` before a Big
-   Picture window existed; that boot never produced the window. Manual Steam starts with the same
-   proxy produced it. `SteamUiReadiness` therefore gates automatic card reconciliation, tab and
-   card-manifest sync, Wi-Fi feed, download-state polling, and download-sort injection on the
-   process-owned `SDL_app` Big Picture window. Card-volume notification and scanning still start
-   immediately so an already-present card and removals are not missed, but live Add/Remove is
-   deferred and retried until the window exists. Desktop download polling and manual/overlay-driven
-   operations remain immediate because they are not acting on a half-built game-mode session.
-   `SteamCollections` remains only as the read/filter bridge and one-time cleanup for collection IDs
-   created by pre-injection builds. New tabs never create collections. CEF unreachability must save
-   the desired configuration but fail open with a retryable warning; it must not replace the last
-   successfully injected definitions.
+   receives. It must also not be WMI (`Win32_DiskDrive` + a model string): a model match only works
+   for the one reader it was written against and does not provide the volume arrival identity this
+   reconciliation needs. The notification arrives BEFORE the volume is mounted and lettered, so the
+   reaction settles 3 s and rescans all drives rather than resolving the reported device path. The
+   decision is `cardContentId` (from the card's own marker, the identity that travels with the card)
+   against the ids registered for that path in `libraryfolders.vdf` — Steam's live folder API
+   exposes no content id at all, which is why the file is the source. Gated on the CEF master switch
+   and off in `--overlay-test`. **A running Steam process and a reachable SharedJSContext are NOT
+   proof that a cold-start UI is ready for autonomous mutation** (device-observed 2026-08-22). On
+   failed boot PID 12064, the input proxy had completely initialized in 2 ms with zero fallback
+   calls, CEF accepted the download-sort injection, and the card monitor began replacing
+   `D:\SteamLibrary` before a Big Picture window existed; that boot never produced the window.
+   Manual Steam starts with the same proxy produced it. `SteamUiReadiness` therefore gates automatic
+   card reconciliation, tab and card-manifest sync, and download-state polling on the process-owned
+   `SDL_app` Big Picture window. The registered Wi-Fi and download-sort patches instead wait on
+   their allowlisted CEF target and generation; they do not own another readiness loop. Card-volume
+   notification and scanning still start immediately so an already-present card and removals are not
+   missed, but live Add/Remove is deferred and retried until the window exists. Desktop download
+   polling and manual/overlay-driven operations remain immediate because they are not acting on a
+   half-built game-mode session. `SteamCollections` remains only as the read/filter bridge and
+   one-time cleanup for collection IDs created by pre-injection builds. New tabs never create
+   collections. CEF unreachability must save the desired configuration but fail open with a
+   retryable warning; it must not replace the last successfully injected definitions.
 
    **`nFolderIndex` is a STABLE ID, not an array position (live-measured 2026-08-23 against this
    machine's Steam).** Removing an install folder does not renumber the ones after it: removing
@@ -254,40 +258,40 @@ was read-only; final cleanup confirmed the selector and all four tier namespaces
 
 10. **Steam-page bridge (the VISIBLE window, not SharedJSContext).** `Core\SteamPageBridge.cs` reads
     the current game and injects the "On: <card>" badge into the **visible** Big-Picture/library
-    window (`SteamCef.EvaluateOnVisibleWindowAsync`) — SharedJSContext is HEADLESS (empty DOM, no
-    images), it only holds the stores/React. The visible window is selected by shape, not localized
-    title (a `page` whose url has `createflags` and lacks `openerid`/`browserviewpopup`). Current
-    game = the appid of the **largest WIDE visible** `assets/<appid>/...` image (the hero banner) —
-    device-verified robust across art naming (some games serve `library_hero`, others a hashed
-    `assets/<id>/<hash>`; both put the appid in the path). Match by `width>=600 && width>height` so
-    the portrait grid capsules are skipped and the badge CLEARS when leaving a game. NEVER match the
-    `library_hero` filename alone — many games don't use it. The badge is a resident
-    `MutationObserver` + fixed-position pill. `CurrentAppIdJs` resolves to **`{id,src}`**, not a
-    bare number: it is ONE source string shared by the C# reader and the resident badge (so the
-    center/visibility rules cannot drift between them), and `src` names the signal that matched —
-    `focus` (the focused element's React fiber, tried first) or `hero image`. The badge's `curId()`
-    unwraps `.id`. `Log` prints the signal, so a detection that silently shifts from one signal to
-    the other is visible in a pasted `wsgm.log` instead of hiding behind a generic label. Bump
-    `BadgeScriptVersion` whenever the resident script text changes, and re-probe both branches
-    against a live Steam (`tools/WsgmLibTest`) before shipping a change here. Artwork apply
-    (SteamGridDB feature) is the robust `SharedJSContext` API
+    window (`SteamUiTransportSession.EvaluateOnVisibleWindowAsync`) — SharedJSContext is HEADLESS
+    (empty DOM, no images), it only holds the stores/React. The visible window is selected by shape,
+    not localized title (a `page` whose url has `createflags` and lacks
+    `openerid`/`browserviewpopup`). Current game = the appid of the **largest WIDE visible**
+    `assets/<appid>/...` image (the hero banner) — device-verified robust across art naming (some
+    games serve `library_hero`, others a hashed `assets/<id>/<hash>`; both put the appid in the
+    path). Match by `width>=600 && width>height` so the portrait grid capsules are skipped and the
+    badge CLEARS when leaving a game. NEVER match the `library_hero` filename alone — many games
+    don't use it. The badge is a resident `MutationObserver` + fixed-position pill. `CurrentAppIdJs`
+    resolves to **`{id,src}`**, not a bare number: it is ONE source string shared by the C# reader
+    and the resident badge (so the center/visibility rules cannot drift between them), and `src`
+    names the signal that matched — `focus` (the focused element's React fiber, tried first) or
+    `hero image`. The badge's `curId()` unwraps `.id`. `Log` prints the signal, so a detection that
+    silently shifts from one signal to the other is visible in a pasted `wsgm.log` instead of hiding
+    behind a generic label. Bump `BadgeScriptVersion` whenever the resident script text changes, and
+    re-probe both branches against a live Steam (`tools/WsgmLibTest`) before shipping a change here.
+    Artwork apply (SteamGridDB feature) is the robust `SharedJSContext` API
     `SteamClient.Apps.Clear/SetCustomArtworkForApp(appid, base64, ext, assetType)` (grid=0/hero=1/
     logo=2/wide=3/icon=4; clear→~500ms→set; icons alone need FS writes) — data on SharedJSContext,
-    DOM on the visible window, always. **Header Wi-Fi indicator (`Core\SteamNetworkIndicator.cs`,
+    DOM on the visible window, always. **Header Wi-Fi indicator (the registered network gate,
     live-verified):** Big Picture's header Wi-Fi icon is empty on Windows because Steam's backend
     sends device reports with an empty `wireless.aps` list, so `SystemNetworkStore`
     (SharedJSContext) never sees a connected access point. WSGM injects a synthetic AP (real SSID +
-    signal from `NativeRadio.WifiStatus`, polled by `Shell\NetworkIndicatorService.cs`) through the
-    store's own `SetDeviceInfo` ingestion (plain protobuf-toObject shape; estate 5=Connected,
-    estrength 0-4 = filled arcs). Residency: do NOT wrap `OnNetworkDevicesChanged` — the backend
-    holds the bound callback registered at init and a property wrap never fires (verified); instead
-    the synthetic AP instance gets a no-op `MarkAsNotPresent`, which pins it across the backend's
-    periodic reports. Removal = delete the map entry + `SteamClient.System.Network.ForceRefresh()`;
-    disabled on desktop transitions like tabs/badge. **CSSLoader-Desktop coexistence (device- +
-    source-verified):** Steam's CEF allows concurrent CDP clients, and CSSLoader only
-    appends/removes `<style>` in `document.head`. Namespace everything under `window.__wsgm`, give
-    injected nodes a unique `wsgm-badge` class (never `css-loader-style`, which CSSLoader
-    bulk-removes), never touch `document.head`, and never disable the debug flag or port.
+    signal from `Interop\WindowsRadio.GetWifiStatus`) through the store's own `SetDeviceInfo`
+    ingestion (plain protobuf-toObject shape; estate 5=Connected, estrength 0-4 = filled arcs).
+    Residency: do NOT wrap `OnNetworkDevicesChanged` — the backend holds the bound callback
+    registered at init and a property wrap never fires (verified); instead the synthetic AP instance
+    gets a no-op `MarkAsNotPresent`, which pins it across the backend's periodic reports. Removal =
+    delete the map entry + `SteamClient.System.Network.ForceRefresh()`; disabled on desktop
+    transitions like tabs/badge. **CSSLoader-Desktop coexistence (device- + source-verified):**
+    Steam's CEF allows concurrent CDP clients, and CSSLoader only appends/removes `<style>` in
+    `document.head`. Namespace everything under `window.__wsgm`, give injected nodes a unique
+    `wsgm-badge` class (never `css-loader-style`, which CSSLoader bulk-removes), never touch
+    `document.head`, and never disable the debug flag or port.
 
 11. **Writing a game's launch configuration (`Core\SteamLaunchConfig.cs`, live-probed 2026-08-12).**
     The Tools tab's per-game launch fixes configure the RUNNING Steam client over SharedJSContext
@@ -392,30 +396,62 @@ was read-only; final cleanup confirmed the selector and all four tier namespaces
 
 **Turning a CEF feature off must RETRACT, not just stop pushing.** The injected tabs, badges,
 synthetic Wi-Fi AP and download-sort buttons are resident in Steam's CEF session and survive until
-Steam restarts. The master switch fails every evaluation closed — including WSGM's own `Disable*`
-calls — so `ShellSession` owns it and awaits the retractions BEFORE closing the choke point
-(`ApplyCefMasterSwitch`); a sub-toggle going off retracts through the same kill switches inside the
-sync (`LibraryTabManager`), and the Wi-Fi indicator's and download sort's start gates are live
-fields, not the boot-time `_config`, so their toggles apply without a re-logon. The overlay's
-per-feature button visibility is recomputed on config reload as well, so a disabled feature loses
-its entry point immediately.
+Steam restarts. The master switch fails every evaluation closed — including WSGM's own removal calls
+— so `ShellSession` awaits removal before closing the choke point. Wi-Fi is no longer a standalone
+resident: the registered network gate owns its availability override, scan observation, store feed,
+verification and cleanup as one generation-aware resource. Download sorting likewise uses the
+MainWindow patch lifecycle rather than a private readiness loop and sentinel. The remaining legacy
+residents — tabs and the page badge — retain explicit removal until their individual attended
+migrations land.
 
 ## Persistent Steam UI host and native Quick Access
 
-WSGM 2.0 adds one process-owned persistent transport beside the proven one-shot paths. It reuses the
-same loopback listener ownership, target URL/origin, and Steam process validation; it does not open
-a new local listener or weaken the accepted port-8080 posture. Connections are reference-counted by
-allowlisted target role and carry browser, target, session, frame, execution-context, and document
-generations. Requests, notifications, payloads, outstanding work, deadlines, reconnect attempts, and
-diagnostics are bounded. A lost target or context advances its generation, invalidates stale work,
-and reconnects asynchronously without delaying Steam launch or a shell transition.
+WSGM owns exactly one CEF transport. `PersistentSteamUiTransport` is the sole target-discovery and
+CDP-socket owner. `SteamCef` now owns only the remote-debugging opt-in and pure endpoint/JavaScript
+validation helpers; it has no evaluation surface. Repository-owned one-shot callers use the
+session-attached transport through the internal `SteamUiTransportSession`, so a settings reload can
+close the same choke point without constructing a parallel connection stack. The transport reuses
+the same loopback listener ownership, target URL/origin and Steam-process validation and does not
+open a local listener. Connections are reference-counted by allowlisted target role and carry
+browser, target, session, frame, execution-context and document generations. Runtime, Page and DOM
+domains are enabled before a generation is announced ready, so in-place MainWindow replacement is
+observable. Releasing the last lease invalidates that ownership generation; a concurrent replacement
+subscriber cannot adopt the cancelled connection attempt. The CEF master also gates direct transport
+consumers, including the running-application observer, while foreground executable observation
+remains available.
+
+The injected native-Quick-Access asset is authored as ordered TypeScript source fragments:
+`types.ts`, `bridge.ts`, one file per gate, and `components.ts`. The asset builder concatenates the
+fragments into one lexical scope before compiling because Steam receives one self-contained script;
+this removes the 3,160-line editing surface without adding a runtime module loader or changing one
+byte of the generated asset. The bridge owns the single webpack-runtime resolver and action
+generation allocator, while the component file owns the visible row table and order.
+
+`SteamUiSessionHost` is the sole state/publication and semantic-request owner. Its state projections
+are a publication table, and its `(patchId, command)` dispatch is a handler table with payload
+readers named for each wire shape. This keeps every refusal on the existing host-side diagnostic
+path and makes patch coverage auditable without another orchestration layer or more files.
+
+The card badge and library tabs deliberately remain on their verified legacy resident scripts for
+now. A read-only named-module probe can establish that their primitives still exist, but cannot
+prove resident installation, SPA survival, current-game clearing, CSSLoader coexistence, native-tab
+hiding, or rollback. The tab migration also retains the documented one-release legacy rollback
+during its attended soak. Moving either path without those mutation checks would trade working,
+device-verified behavior for an unverified source cleanup.
+
+`tools/WsgmLibTest/qam-harness.mjs screenshot [file.png]` captures the uniquely matched MainWindow
+through that target's `Page.captureScreenshot` command. It replaces the old standalone screenshot
+script and uses the same literal target shape as the rest of the harness. It does not focus,
+navigate, inject into, or otherwise operate the visible client.
 
 `SteamUiPatchManager` is the only persistent patch scheduler. Each patch has an independent stable
 ID/version, target role, resource key, bounds, positive unique fingerprint, apply, functional
 verification, owned-resource removal, health, and kill switch. Conflicting resource keys serialize;
-one incompatible or degraded patch does not disable another. Disabling the CEF master first removes
-the persistent patches and bridge, then retracts the legacy resident features, and only then closes
-the evaluation choke point.
+one incompatible or degraded patch does not disable another. Every target generation queues the same
+synchronization path, and a SharedJSContext generation change cancels semantic commands authorized
+against the replaced document. Disabling the CEF master first removes the registered patches and
+bridge, then retracts the remaining legacy residents, and only then closes the evaluation choke
+point.
 
 The native-QAM bootstrap is embedded, hash-locked repository JavaScript. Live probing on 2026-08-28
 found exactly one current SharedJSContext module for each of the TDP availability gate, TDP
@@ -474,8 +510,8 @@ independent:
   running, so defining the namespace afterwards leaves the flag false forever and the section stays
   hidden. Live-verified 2026-08-30: with the namespace installed, the singleton still reported
   `bAvailable: false`. The running store has to be written to directly — its `m_bAvailable` is
-  writable and `RegisterOrUpdateDevice` is its own ingestion path, the same shape
-  `SteamNetworkIndicator` already uses for the network store.
+  writable and `RegisterOrUpdateDevice` is its own ingestion path, the same shape the registered
+  network gate uses for the network store.
 - **A component may sit behind a platform constant no data can reach.** Night mode is
   `IN_GAMESCOPE`; several performance rows are wrapped in a gamescope feature gate; the Quick
   Settings audio section is `!IN_VR && bAvailable`. A row behind a pure platform constant cannot be
@@ -558,8 +594,8 @@ because they tested invented token shapes:
 Wi-Fi is the one to be careful about. Steam's Windows backend does push real
 `CMsgNetworkDevicesData` reports — the store's `hasWirelessDevice` and `isWifiEnabled` are genuinely
 true — but every report carries an **empty `wireless.aps`**, so it never enumerates networks. Any
-access point visible in a live probe is WSGM's own synthetic one from
-`Core\SteamNetworkIndicator.cs` and is not evidence to the contrary.
+access point visible in a live probe may be WSGM's synthetic one from the registered network gate
+and is not evidence to the contrary.
 
 Audio is the cheapest gate in the project: the store's flag is literally
 `m_bAvailable = null != SteamClient.System.Audio`, so supplying that one namespace is the whole of
@@ -585,11 +621,11 @@ Forcing every module in the bundle to evaluate is not a read-only operation no m
 then does with the result.
 
 A probe is read-only only when every module it resolves is named as a literal and every value it
-constructs is one whose source it has already read. `probe-perf-accessors.js` is the shape to copy —
-it resolves `28013` and `74514` by id and inspects prototypes rather than instantiating to discover.
-When a class cannot be reached that way, read its factory source as a string
-(`String(runtime.m[id])`) and stop; do not go looking for it by construction. The three classes this
-probe wanted were never found anyway, so the entire risk bought nothing.
+constructs is one whose source it has already read. `probe-perf-components.js` is the shape to copy:
+it reads the named `83571` factory as text and constructs nothing. When a class cannot be reached
+that way, read its factory source as a string (`String(runtime.m[id])`) and stop; do not go looking
+for it by construction. The three classes this probe wanted were never found anyway, so the entire
+risk bought nothing.
 
 **Do not set `force_deck_perf_tab`.** It is Valve's own gate override
 (`U(e) = e || force_deck_perf_tab`) and a persisted client setting, and it force-shows every row

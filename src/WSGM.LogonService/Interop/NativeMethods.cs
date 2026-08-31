@@ -3,8 +3,8 @@ using System.Runtime.InteropServices;
 namespace WSGM.LogonService.Interop;
 
 /// <summary>Flat Win32 surface for the logon service: SCM plumbing, WTS session
-/// queries, token handling, and CreateProcessAsUser. LibraryImport + blittable
-/// only (NativeAOT, no COM).</summary>
+/// queries, token handling, and CreateProcessAsUser. The service keeps this boundary
+/// source-generated and free of process-wide COM state.</summary>
 internal static partial class NativeMethods
 {
     // ---- Service control manager: hosting ----

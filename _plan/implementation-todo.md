@@ -1,423 +1,199 @@
-# WSGM 2.0 simplification and delivery plan
+# WSGM 2.0 implementation tracker
 
-Status: structural simplification complete in source and build (2026-08-29); the Steam UI revival
-push (S12/S14/S15) landed 2026-08-30 and is live on the reference device; what remains below is
-attended acceptance, a handful of named feature gaps, and the Q16 CEF unification.
+Status: the aggressive simplification and PR #19 review-fix milestone is source-, gate-, package-
+and hand-off-complete as of 2026-08-31. Commit and push are the remaining operational steps.
 
-Branch: `2.0` (PR #19 → master)
+Branch: `2.0` (PR #19 -> `master`)
 
-Purpose: simplify the implementation without removing any fixed 2.0 feature.
+This is the repository's only progress tracker. Mechanism details and device findings live in the
+focused `docs\` topics; historical implementation plans and review transcripts were removed after
+their actionable work was absorbed here and in the code.
 
-This is the only progress tracker. The other `_plan` files describe architecture, decisions,
-requirements, exact Claw hardware facts, and glyph behavior; they are not parallel checklists.
-Completed phases below are compressed to the decisions and constraints that must not be
-re-litigated; the full narratives live in git history at the commits that closed them.
+## Preservation contract
 
-## Non-negotiable outcome
+Simplification must preserve every established outcome. WSGM remains Steam-exclusive and retains:
 
-The overhaul preserves: a real public Device SDK and community Device Plugins; full MSI Claw 8 AI+
-A2VM support; Device Lab GUI and CLI workflows; Steam Deck Composite, Xbox 360, and DualShock 4;
-global and per-application controller targets; HidHide, managed WSGM UI input, output routing, and
-Steam Input fallback; persistent Steam CEF, native QAM, RTSS, and shared performance state;
-frametime-driven AutoTDP; plugin-owned physical glyphs in Steam and WSGM; the Home/Steam/Device/
-System overlay redesign; and safe update, uninstall, handoff, recovery, and release validation.
+- Explorer-first logon initialization, boot cover, shell takeover, desktop restoration, tray and
+  recovery behavior;
+- the single community Device Plugin package, public SDK, Device Lab, MSI Claw integration and
+  plugin-declared settings/glyphs;
+- Steam Deck Composite output, controller ownership, HidHide, WSGM UI capture, per-app policy and
+  Steam Input fallback;
+- one persistent Steam CEF session with native-QAM performance, network, Bluetooth, audio,
+  brightness, resolution/refresh, glyph, library, artwork, download and launch-option features;
+- RTSS performance control, shared policy and frametime-driven AutoTDP;
+- the overlay, Settings, SD-card, display/HDR, screen-off audio, keep-awake, update, uninstall and
+  recovery flows.
 
-No simplification item may satisfy itself by deleting, disabling, or indefinitely deferring one of
-these outcomes.
+No completed item below was closed by disabling a feature. Existing device/live evidence remains
+valid, but this source refactor does not claim a new attended pass.
 
-## The architecture that replaced the framework
-
-Roughly 68,000 lines of hypothetical multi-plugin ecosystem (ranking, trust tiers, evidence locks,
-promotion, traceability generation, and the projects that hosted it) were replaced by:
+## Current implementation
 
 ```text
-WSGM.exe
-  ├─ DeviceRuntime ── DeviceHost.exe ── one installed plugin ── hardware
-  ├─ ControllerManager ── VIIPER + HidHide ── Deck / X360 / DS4
-  ├─ PerformanceManager ── RTSS + AutoTDP
-  ├─ SteamUiHost ── native QAM + physical glyphs
-  └─ Overlay and Settings consume those same services
+WSGM.exe (self-contained CoreCLR)
+  |- one collectible in-process Device Plugin runtime
+  |- controller management (VIIPER + HidHide)
+  |- RTSS performance control + AutoTDP
+  |- one persistent Steam CEF transport + patch/session host
+  |- managed Wi-Fi, Bluetooth, Core Audio and touch-keyboard integration
+  `- shell/session, overlay and Settings
 
-WSGM.Device.Sdk
-  one AOT-safe public semantic API shared by WSGM, DeviceHost, plugins, and Device Lab
+Real separate boundaries
+  WSGM.Device.Sdk       public plugin and package contract
+  WSGM.DeviceLab        independent diagnostic/authoring GUI + CLI
+  WSGM.LogonService     SYSTEM logon/watchdog process
+  WSGM.Launch           per-game medium-integrity wrapper
+  native/SteamInput     Steam Input lease/proxy ABI
+  VIIPER                native virtual-controller backend
 ```
 
-**The hard one-plugin rule is fully implemented and tested**: package-root cardinality is counted
-before anything else starts; 0 → core WSGM with Device Integration unavailable; 1 → validate or
-show the device error; 2+ → refuse normal startup listing each path, with recovery/maintenance
-commands bypassing the refusal. Updates stage outside discovery and atomically replace the sole
-slot. Project count is not a score: a project remains separate only for NativeAOT, executable
-lifetime, packaging, or public plugin ownership.
+The solution contains seven projects: five product/tool projects, the built-in Claw plugin and one
+test project. A process, project, helper, mirror, protocol or abstraction is not retained for future
+flexibility; it needs a current consumer or an OS, lifetime, packaging or public-contract boundary.
 
-## Completed phases — decisions that stand
+## Simplification milestone - complete in source
 
-Every item in S0–S5, S7 (source), S9 (source), S10 (source), S11 (source), and S13 (source) is
-done with tests, diagnostics, and docs; `eng/verify.ps1` and `build.ps1` pass. What follows is the
-distilled record; do not re-litigate these.
+- [x] **Drop NativeAOT and its compensating architecture.** WSGM, Launch and the logon service are
+      self-contained CoreCLR applications. Managed COM/WinRT and the one package-local plugin load
+      are direct. AOT isolation checks, annotations and publish workarounds are gone.
+- [x] **Collapse DeviceHost into WSGM.** The sole plugin loads through one collectible
+      `AssemblyLoadContext` and one lifecycle adapter in the owning process. DeviceHost, its process
+      manager, named-pipe protocol, shared input ring, wire DTOs, restart state machine and installer
+      staging tree are deleted. Package replacement still reserves the same machine-wide owner and
+      never moves files while plugin code is loaded.
+- [x] **Delete native radio and volume shims.** Wi-Fi uses the Windows WLAN API, Bluetooth uses
+      managed WinRT, audio uses managed Core Audio, feedback uses waveOut and the touch keyboard is
+      invoked directly. The Rust Radio workspace, C++ volume helper, native ABI wrappers, staging
+      scripts and shipped helper binaries are gone. Rationale and device constraints moved to
+      `docs\radios.md`.
+- [x] **Collapse one-consumer projects and mirrors.** LoadingIndicators source is linked into WSGM;
+      the duplicate SteamInterop binding tree is replaced by links to the canonical binding; device
+      tests are merged into `WSGM.Tests`; the obsolete DeviceHost project is removed.
+- [x] **Make one CEF system.** `PersistentSteamUiTransport` is the only CDP connection owner.
+      One-shot calls lease that transport; the second `SteamCef` socket/evaluation stack is gone.
+      Download sorting is a managed MainWindow patch, network availability/scanning/indicator state
+      is one gate, lifecycle is centralized, host routing/publication are tables, and the QAM source
+      is split into ordered TypeScript fragments that still produce the same single hashed asset.
+      The card badge and library tabs retain their proven resident mutations while using the unified
+      transport; replacing those mutations requires the attended matrices below.
+- [x] **Remove dead and parallel policy paths.** Legacy controller source/output types, unused
+      performance-profile models, duplicate network services, unused CEF rollback rows, production
+      test fakes, redundant readiness loops, duplicate task observers, repeated native declarations
+      and zero-consumer helpers are deleted or merged into their surviving owners.
+- [x] **Simplify packaging.** The running shell stack is one self-contained managed closure instead
+      of separate WSGM and DeviceHost closures. Device Lab remains an independently runnable,
+      optional tool with its own closure; the plugin remains a package component. VIIPER and both
+      pinned controller drivers are required, verified release inputs instead of a build that could
+      silently ship an incomplete selected component. MSBuild runs single-node to avoid the
+      high-core-machine node explosion seen during this work.
+- [x] **Clean comments and documentation.** Public API XML documentation now describes contracts,
+      ownership, lifetime, side effects and failure behavior. Review chronology, stale AOT/host/IPC
+      claims, oversized threat-model essays and comments for deleted mechanisms were removed.
+      Still-valid rationale was moved to the focused topic docs.
+- [x] **Resolve the proposed RTSSSharedMemoryNET substitution.** It wraps the RTSS OSD shared-memory
+      surface but does not replace WSGM's profile API. Vendoring its C++/CLI project would add a
+      language/project boundary while leaving the profile implementation in place, so the direct,
+      tested `IFrametimeSource`/`IRtssAdapter` implementation remains.
 
-- **S0/S0.1 Explorer semantics.** The normal desktop handoff produces an initialized,
-  medium-integrity, current-session, **jobless** Explorer via a captured canonical shell parent
-  (`PROC_THREAD_ATTRIBUTE_PARENT_PROCESS`); scheduled-task Explorer launch is recovery-only and
-  reported degraded. Detail in `docs/boot-and-shell.md` / `docs/elevation.md`. Measured 2026-08-29:
-  a dead designated parent still parents a child (attribute half proven); whether it still supplies
-  token/job association is the narrower open question below.
-- **S1 Governance removal.** Traceability manifests, evidence locks, requirement IDs: gone. One
-  architecture doc, one decision record, one requirements doc, this tracker.
-- **S2 Protected slot.** Trust tiers, ranking, signature rotation, quarantine: gone. Path
-  containment, protected-directory enforcement, package-local loading, and the install warning stay
-  because they prevent concrete broken/elevation paths.
-- **S3 Thin SDK.** One integer API version, one `IDevicePlugin` lifecycle, exact wire equality (no
-  min/max negotiation), adopt-or-delete applied to every test-only contract type, one glyph loader,
-  one JSON context per device assembly. AOT-clean is proven by `eng/check-aot-isolation.ps1`.
-- **S4 DeviceHost.** One package load, one lifecycle, one pipe, one shared input ring (42 ns/sample),
-  one cycle generation, one restart policy, bounded shutdown. No generic idempotency caches — an
-  uncertain hardware write returns its uncertainty, never auto-retries.
-- **S5 Device Lab.** One app, GUI+CLI over the same operations; fixed CLI verb set mirrored in the
-  root `AGENTS.md` safe-command table; one capture schema; attended-only hardware mutation with no
-  `--yes` by design.
-- **S6 Claw plugin (source).** Direct services, one command gate validating identity/ownership/
-  range/state immediately before each write, one plugin-owned recovery record. Twelve capabilities
-  published. Remaining hardware gaps are the open items below.
-- **S7 Controller management (source).** Backend is **VIIPER** (decision + evidence in
-  `third_party/controller/README.md`): native full Neptune frame incl. rear paddles and stick
-  touch, rides usbip-win2's signed driver (pinned 0.9.7.7 — 0.9.7.8 has an open every-attach BSOD
-  on this Windows build), idle cost measured 0.82% of the machine. Attach verified against the real
-  driver incl. the 1100/1116-byte `plugin_hardware` dual-layout patch. One `ControllerManager` owns
-  targets, HidHide owned-delta, UI capture, zero-output, the unified make-safe sequence, and the
-  truthful SDL fallback; `UiInputRouter` swaps navigation onto the managed stream only after the
-  first delivered sample, with held-control suppression and timeout.
-- **S8 Steam UI / RTSS / AutoTDP (source).** One persistent transport, one bootstrap, per-patch
-  independence with native Valve fallback; deterministic TypeScript asset build with drift/hash
-  gate; `RtssFrametimeReader` layout device-verified as an executable specification; one pure
-  AutoTDP controller with trace replay. The seven-fault "make the QAM reach the user" and
-  seven-fault glyph-delivery battles are recorded in git and `docs/steam-cef.md`; their standing
-  rules: every label through `localizeOr` (Steam's localizer returns the token for a miss), asset
-  hash is part of bridge identity, allowlist entry per patch id, send-side size caps on WSGM's own
-  expressions are forbidden.
-- **S8 pseudo-security sweep — complete, nine sites.** The test: name the attacker and what they
-  cannot already do through an open door beside the check. Removed: the glyph SVG sanitizer's
-  allowlist (a plugin already holds WMI/HID/EC). Kept as real boundaries: the `SteamUiBridge`
-  command allowlist (attacker: any other CEF injector) and the splash-theme extraction defence set
-  (attacker: a theme author with no other access). Kept as correctness, not security: diskpart
-  label sanitization, transport target allowlists, HidHide allowlist, UiCapture host allowlist.
-- **S9 Glyphs (source).** Physical glyphs are **CSS** (CSSLoader's mechanism), one WSGM-owned
-  stylesheet; WSGM owns method (selectors, injection), plugin owns artwork (data URIs). **SVG stays,
-  PNG rejected** — glyphs render at many sizes. Absence is the default: a plugin declares what its
-  device HAS. Binding sub-rows hide via the one build-independent hook
-  (`[id*="EControllerModeInput"]:has(img[src=…])`). OEM buttons map to Guide/QuickAccess in the
-  plugin's sample stream; WSGM claims neither hardware button by default.
-- **S10 Overlay (source).** Four destinations, bounded page stack, one Back decision, focus/scroll
-  memory; every action calls its owning service; eight Device sections as pages; AutoTDP, profile
-  selection, controller target, cycle recovery, and glyph preview/input-test are direct rows — the
-  pseudo-capability dispatch pattern is dead. Settings reaches stored configuration only.
-- **S11 Build/installer/shutdown (source).** One shutdown coordinator with one outer deadline; one
-  installer completion channel; usbip-win2 ships as an explicitly ticked, re-verified, non-fatal
-  setup task (never from the running shell — INV-020); controller pin asserted by
-  `eng/assert-controller-pin.ps1`.
-- **S13 Plugin settings (source).** Setting-vs-capability boundary is D22b. Text kind with
-  `PlainText` treatment, sections with bounded custom titles, device+plugin-keyed storage with
-  load-time revalidation, wire delivery via the closed message enum, the reusable curve editor
-  whose every gesture yields a router-valid curve, fan/RGB profile authoring with reference-based
-  per-app selection. The synthetic Device Lab plugin exercises the page without hardware.
-- **PR #19 review round 1 (Codex, commits `75494c6`…`e7386e2`): all 43 verified findings fixed**;
-  five more checked and not carried (recorded 2026-08-29; the not-carried five: asset hash was
-  already current, `UiSampleReceived` has its subscriber, glyph identity is supplied, HidHide
-  cycle-start half fixed, `PhysicalGlyphService` switch is presentation not policy). Three fixes
-  touch device-only paths and re-verify at release: persistent-lighting rollback, gyroscope
-  staleness bound, patch remove-after-failed-verify.
-- **PR #19 review round 2 (2026-08-30): complete.** A 37-agent workflow re-verified all 122 Codex
-  comments against HEAD (59 fixed, **58 still present** — 9 high, 4 invalid, 1 needs-hardware) and
-  freshly reviewed the full 520-file diff in 13 area buckets with an adversarial verifier per
-  bucket (**144 confirmed** — 5 high, 51 medium, 88 low — 6 refuted, 1 uncertain). Zero overlap
-  between the two sets. The complete verified list, including the refuted/invalid entries kept so
-  they are not re-found, is `_plan\pr19-review-round2.md`; fixing it is Q20.
-- **S12/S14/S15 Steam UI revival (source + live, 2026-08-30).** The gate taxonomy governs all of
-  it: supply an absent JS namespace (Perf, Audio), overlay one RPC answer (SteamOS Manager
-  `GetState` for TDP), override one store getter/flag (network availability, brightness), replace
-  a stub service's methods + invalidate its react-query (Bluetooth), mount Valve components by
-  localization token, watch client settings (`steamos_tdp_limit*`), feed a store's own ingestion
-  path — never the global `TS.IS_STEAMOS` (D16). Standing rules paid for as production bugs, all
-  recorded in `docs/steam-cef.md`: ownership markers on everything injected (the
-  self-incompatibility teardown trap struck three times), the second-gate rule, protobuf base64 at
-  namespace boundaries (`UpdateSettings`/`SetSetting`), argument order read from client source
-  (audio direction enum Input=0/Output=1, 3-ary `SetDeviceVolume`), `actionGeneration > 0`, every
-  refused request logged host-side, observable feeds write only on their own change.
-  Live on the device: Performance tab (Valve profile header, per-game toggle, reset, overlay-level
-  selector; WSGM's unified SteamOS-style frame-limit row — notchless cap, "60 FPS (60 Hz)" pairing
-  label, disable switch that turns the slider into a mode-notched refresh-rate control; VRR as
-  WSGM's row because Valve's is gated on the absent `SteamClient.System.DisplayManager`; Valve's
-  TDP toggle+slider over the RPC seam, verified to the EC at 28 W), Quick Settings (resolution,
-  refresh rate), Wi-Fi page with real network enumeration, Bluetooth page, audio devices+volume,
-  and brightness — where the founding assumption was device-disproved: Steam's `SetBrightness` is
-  a stub on Windows, so WSGM is the backend via `\\.\LCD` (`Interop/NativeBacklight.cs`, flat
-  Win32, no COM) with a 2 s external-change poll. Frame-limit strategy is a Settings choice
-  (`FrameLimitOnly` default / `NativeModes` / `FrameDoubling`).
+## PR #19 review disposition
 
-## Open items
+All 202 confirmed round-two findings (58 surviving Codex comments and 144 fresh findings) were
+fixed. The two hardware-uncertain findings were also resolved conservatively in source: virtual Deck
+digital triggers use the documented noise threshold, and Claw rumble frames pad to the advertised
+HID output length. Their real-device confirmation remains explicit below.
 
-### Hardware and platform gaps
+The fixes include the high-risk paths rather than only cleanup:
 
-- [ ] **S0.1 — dead-parent token/job proof.** Whether a designated parent that has exited still
-      supplies the medium token and job association (not merely the recorded parent pid). Needs an
-      elevated run with a parent at a different integrity level. The live anchor stays the normal
-      path until answered.
-- [ ] **S6 — Claw charge limit and RGB effects.** `ChargeLimitAddress = 0xD7` is declared and
-      unused; the byte's encoding must be read, never guessed (MSI commonly packs an enable bit
-      with the percentage). Lighting exposes brightness and zone colour but no effect/animation.
-      The old blocker is gone: the elevated `MSI_ACPI`/`Get_Data` read path was proven working on
-      2026-08-30 (0x50/0x51/0xD2 read via `Package_32` embedded instance — see the scratch script
-      pattern in git); run it for 0xD4/0xD7/0x98 with the device idle. Writes stay attended.
-- [ ] **S6 — integration-off external-manager observation.** Attended: another manager driving the
-      Claw with WSGM installed and integration off, and nothing of WSGM's moving. The decidable
-      half (master switch beats child preferences; make-safe ordering both directions) is pinned by
-      `DeviceIntegrationOffTests`.
-- [ ] **S8 — replace hand-rolled RTSS interop with `RTSSSharedMemoryNET`** (HandheldCompanion's
-      library), vendored as a pinned `third_party/` source build. Replaces `RtssFrametimeReader` and
-      `RtssProfileApi`; keeps `RtssDiscovery` (WSGM's own trust question) and the
-      `IFrametimeSource`/`IRtssAdapter` seams. Prove NativeAOT by publishing, not reading.
-- [ ] **S12 — retire the duplicated performance rows after soak.** Valve's TDP pair now mounts over
-      the RPC seam, but the hand-rolled TDP row is still registered and mounted beside it, and the
-      retired-but-present `valveFrameLimit`/`valveVrr` mount code and patch classes remain as
-      rollback. One release of soak, then delete the duplicates (tracked in Q16 phase 4 too).
-- [ ] **S12 — charge-limit fields on the Manager seam.** The gate overlays only the TDP fields;
-      `is_charge_limit_available` / `charge_limit_min/max/default` ride the same `GetState` once
-      the S6 encoding read lands.
-- [ ] **S12 — project the same performance services onto the overlay**, which stays the complete
-      surface (unified frame-limit/refresh semantics and strategy awareness reached the QAM first).
-- [ ] **S14 — night mode as a WSGM-owned control** backed by Windows Night Light. Valve's row
-      cannot be revived: its support hook is `TS.IN_GAMESCOPE` behind a non-configurable export
-      descriptor, so the only route is the global constant D16 forbids. Re-scope before building
-      (shape: like TDP/AutoTDP rows, not a revival).
-- [ ] **S15 — microphone volume backend.** The mic slider is honestly grey: WSGM observes only the
-      default output endpoint. Per-direction volume needs capture-endpoint support in
-      `native\VolumeControl` plus an input volume in the published audio state.
-- [ ] **S15 — WASAPI per-session enumeration and per-app volume** in `native\VolumeControl`,
-      exposed through `AudioManager`; serves the custom taskbar and Steam's mixer from one backend.
-      Until then `GetApps` correctly answers empty.
-- [ ] **S15 — speaker configuration.** Two unknowns need multichannel hardware first: whether
-      5.1/7.1 can be read/written at all (the Claw exposes one stereo endpoint), and whether HDMI
-      endpoint identity survives a display change. Then implement through
-      `IPolicyConfig::SetDeviceFormat` (already declared and used for `SetDefaultEndpoint`; never
-      write `PKEY_AudioEndpoint_PhysicalSpeakers`/`PKEY_AudioEngine_DeviceFormat` via
-      `IPropertyStore`), and replace the `CAudio_SetSpeakerConfiguration` /
-      `PlaySpeakerTestOnChannel` stubs so Steam's dropdown and per-channel test drive it. The point
-      is persistence: Windows loses the configuration across display changes; WSGM reapplies per
-      endpoint like display profiles.
+- startup failures return failure, orderly bridge disposal cannot abort desktop restoration, and a
+  failed game-mode commit restores Explorer;
+- UI capture is wired to presentation lifetime; controller suspend/resume creates one fresh cycle,
+  reader faults are observed, and make-safe cleanup covers fault and cancellation paths;
+- Choice settings round-trip correctly; plugin defaults/ranges and stored values are validated;
+- RTSS/per-game TDP, VRR, refresh and frame-limit fields survive policy writes and reloads;
+- Device Lab attended actions validate live identity and await cleanup on cancellation/window close;
+- plugin acquisition, recovery, rollback, haptics and lighting report uncertain/failing writes
+  honestly;
+- CEF patch ownership, generation replacement, request replay, cancellation and retraction are
+  deterministic and covered by focused transport/bridge/session tests;
+- installer shutdown, component selection, stale staging and package rollback cannot silently
+  produce a partial or falsely successful result.
 
-### Attended acceptance (release evidence; never unattended)
+The bulky review transcript was deleted after disposition; tests, code and git history are the
+durable evidence.
 
-- [ ] **S0.1** — affected-device shell matrix: splash cancellation before/after Explorer exit,
-      repeated transitions, crash/restore, taskbar/tray/UWP/touch, MO2 launching a game without
-      error 5, no Job tab on the restored Explorer; install over an older job-bound desktop, prove
-      refusal, then one sign-out and a clean cycle.
-- [ ] **S7** — targets, per-app selection, slots, duplicate input, suspend/resume, host fault,
-      external owner, on the reference unit.
-- [ ] **S8** — live Steam context churn, focus/navigation, RTSS external edits/restart, AutoTDP
-      games/menus/scenes/suspend/manual override, performance, cleanup. (Frametime read from a
-      rendering game still outstanding; AutoTDP loop writes power and stays attended.)
-- [x] **S9** — visual acceptance of the A2VM profile, OEM sides, M1-left/M2-right orientation at
-      supported scales. Accepted by the maintainer on the reference device, 2026-08-30.
-- [ ] **S10** — controller, touch, keyboard, scaling, accessibility, themes, cancellation,
-      disposal, responsiveness on the handheld.
-- [ ] **S11** — atomic one-plugin update, rollback by reinstall, uninstall, external-state
-      preservation, recovery-first bypass; then the focused suite, NativeAOT build, live Steam
-      matrix, attended Claw/controller/AutoTDP/glyph/transition tests, soak/performance.
-- [ ] **S12** — live matrix with the panel mounted: per-game profile switching against a real
-      game, each frame-limit strategy incl. an exclusive-fullscreen title across a mode change,
-      VRR toggling with a rendering game, recovery when Steam restarts under the shim.
-- [ ] **S13** — the page rendered from the Claw plugin's real manifest, gamepad+touch navigation,
-      a curve authored in Settings then applied from the overlay, behaviour after a plugin update
-      narrows a range a stored value no longer satisfies. (The Settings save-path for plugin
-      edits — applied to the freshly-read config, not the page's copy — re-verify here.)
-- [ ] **S14** — Wi-Fi enumerate/connect/forget/airplane, Bluetooth pair→forget incl. a controller,
-      audio device switching while a game runs, brightness across lock/resume, night mode (once
-      built), a resolution change with a game running, and recovery of every surface when Steam
-      restarts underneath the patches.
-- [ ] **S15** — device switching while a game runs, volume buttons, per-app volume against a real
-      mixer; once multichannel hardware exists: 5.1/7.1 selection, per-channel test, display change
-      with configuration restored.
+## Verification for this milestone
 
-## Immediate queue
+- [x] `./eng/verify.ps1 -Fix`: formatting and repository invariants passed; Steam UI asset reproduced
+      SHA-256 `5E75DE22676E1F36946916144314BC5BE692ED3121604BFF995939A0551D308E`;
+      Rust lint/build and 41 native tests passed; Release build completed with zero warnings/errors;
+      all 2,064 managed tests passed with coverage output.
+- [x] `./build.ps1`: Steam Input, pinned VIIPER, usbip-win2 and HidHide inputs validated; WSGM,
+      Launch, LogonService, Device Lab and the Claw package published; Inno Setup produced
+      `publish\WSGM-Setup-1.5.1.exe` (160,005,146 bytes).
+- [x] Installer copied to `Z:\WSGM-Setup-1.5.1.exe`; source and destination SHA-256 both
+      `F69835445305BD4D3E4D98840AF304E9452C4B91F582D7114DF3FAD72AF40361`.
+- [ ] Commit the intended tree (excluding the maintainer's unrelated Rust edit) and push `2.0`.
 
-Only this list drives the next implementation work:
+Measured against the pre-milestone `HEAD`, the intended tree has 51 fewer tracked/source files and
+10,399 fewer net text lines while retaining the generated Steam asset and moving tests rather than
+discarding them. The solution is seven projects, down from nine; the additional one-consumer
+LoadingIndicators project file is also gone.
 
-- [x] **Q01–Q07** — checkpoint stabilization, Explorer semantics, governance removal, one-plugin
-      invariant, SDK collapse, DeviceHost/Lab merge, Claw plugin simplification. All source-complete;
-      their attended gates live above.
-- [ ] **Q08 — controller management.** Source-complete on VIIPER end to end (see S7). Remains:
-      the attended S7 acceptance matrix, plus the two additional target encoders (X360, DS4) that
-      `ViiperControllerBackend.Supported` does not yet offer — advertised targets are gated on the
-      backend's real capability until they exist.
-- [ ] **Q09 — Steam/QAM/RTSS/AutoTDP.** Source-complete. Remains: the attended S8 matrix and the
-      `RTSSSharedMemoryNET` swap above.
-- [x] **Q10 — glyph delivery.** Source-complete, live-verified, and visually accepted on the
-      reference device 2026-08-30.
-- [ ] **Q11 — overlay, shutdown/installer, release validation.** Source-complete. Remains: S10/S11
-      attended validation.
-- [ ] **Q12 — per-application performance via Steam's own UI.** **Implemented 2026-08-30**, live on
-      the device: `SteamClient.System.Perf` supplied with protobuf-named state; Valve's profile
-      header/per-game toggle/reset/overlay-level mounted by token; the SteamOS Manager RPC seam
-      feeds Valve's own TDP toggle+slider (writes verified to the EC); WSGM's unified frame-limit
-      row replaces Valve's notch slider deliberately (SteamOS itself unified the two controls; the
-      free cap + snapping pairing + refresh-mode switch is the SteamOS behaviour); VRR is WSGM's
-      row because Valve's is gated on the absent `DisplayManager` namespace. Remains: the S12
-      attended matrix, the row-retirement soak, the charge-limit seam fields, and — as its own
-      future seam — supplying `SteamClient.System.DisplayManager`, which would restore Valve's VRR
-      row and retire the `_external` field twins at once.
-- [ ] **Q13 — plugin-declared settings page and profile authoring.** Source-complete through S13
-      (manifest, sections, storage, wire delivery, rendered page, curve editor, fan/RGB authoring,
-      per-app profile selection). Remains: the S13 attended validation, including the save-path
-      re-verify.
-- [ ] **Q14 — Quick Settings, Internet, Bluetooth.** **Implemented 2026-08-30** except night mode:
-      network gate + real enumeration driven by Steam's own scan calls (the silent killer was
-      `actionGeneration: 0` rejection — every gate request was dropped by WSGM's own bridge),
-      Bluetooth service over the radio backend, brightness with WSGM as the backend, resolution and
-      refresh in Quick Settings. Remains: night mode (WSGM-owned, above) and the S14 attended
-      matrix.
-- [x] **Q15 — Steam audio settings.** **Working live and accepted by the maintainer 2026-08-30**:
-      namespace supplied, devices and default switching, output volume slider and hardware-button
-      tracking — after the direction enum (Input=0/Output=1) and 3-ary `SetDeviceVolume` were read
-      out of the client. The one accepted gap is the microphone volume slider, tracked as its own
-      open item above; per-app volume and speaker configuration stay open as S15 platform gaps
-      (the latter blocked on multichannel hardware either way).
-- [ ] **Q16 — collapse the two CEF generations into one system.** Twelve generation-1 modules
-      (badge, library tabs, download sort, network indicator, artwork, launch config, downloads,
-      library folders/collections) still run one-shot `SteamCef` evals with three hand-rolled
-      residency sentinels and lifecycle smeared across `ShellSession`, beside the generation-2
-      transport/patch-manager/bridge that carries everything new. Inventory, verified-primitive
-      catalog, named debt (six webpack taps, five ownership-marker styles, the append chain, the
-      3160-line bootstrap, the else-if request router), and the four-phase migration —
-      bootstrap-internal first, library tabs last — in `_plan\cef-simplification.md`. **What
-      remains is all of it** — the plan document is the only artifact.
-- [ ] **Q17 — complete UI redesign of the WSGM overlay.** S10's structural completion stands —
-      navigation, page stack, focus memory, one service per action — but the presentation does not
-      match the maintainer's vision, and the **Device tab is the named mess**: it is a projection
-      of capability lists onto cards rather than a designed surface, and needs fundamental
-      restructuring, not another pass of polish. The first artifact is the design itself: capture
-      the envisioned structure with the maintainer in `_plan\overlay-redesign.md` — what each
-      destination presents, what the Device tab leads with versus what stays behind a page, how
-      plugin-published capabilities become something a person on a couch parses at a glance — and
-      only then rebuild against it. Rebuild on the existing owners (`OverlayNavigation`, the
-      one-service-per-action rule, `DeviceOverlayBridge` as projection): the redesign changes what
-      is drawn, never who owns the state. The S10 attended acceptance re-runs after this lands.
-      **What remains is all of it, including the design document — the vision is not yet written
-      down, and building ahead of it is how the current Device tab happened.**
-- [ ] **Q18 — Avalonia UI testing framework, so UI work verifies itself without the maintainer.**
-      The point is autonomy: an agent building UI must be able to see and exercise it — today every
-      layout, focus and rendering question ends in "check it on the device", which makes the
-      maintainer the test runner. Land this BEFORE Q17's rebuild phase, so the redesign is verified
-      as it is built. Three pieces, all on Avalonia's own headless platform
-      (`Avalonia.Headless.XUnit` — the full framework with no compositor, simulated input, and
-      Skia-backed frame capture; tests run under CoreCLR, so NativeAOT is not in the way):
-      - **Headless interaction tests** in the existing xUnit suite: construct Settings pages and
-        overlay surfaces through the seams that already exist (`SettingsViewModel`'s internal
-        `AppConfig` ctor, `OverlayController` previewOnly, the synthetic Device Lab plugin's
-        manifest), drive them with simulated keyboard and with canonical button edges fed straight
-        into `UiInputRouter`/`GamepadNavigation` — which makes the couch questions executable:
-        focus lands where it should, Back pops what it should, a slider drag changes the one value
-        it claims, focus memory restores. The curve editor and the plugin settings page are the
-        first targets, then every Q17 page as it is rebuilt.
-      - **A screenshot harness for development, not only pass/fail**: a safe local mode that
-        renders a named page/destination to PNG at handheld resolution and scale, both theme
-        variants, so an agent can look at what it built and iterate without a device round-trip.
-        This is tooling beside the tests, not a test itself.
-      - **Visual-regression baselines** where they earn their keep (theme tokens, shared controls,
-        the redesigned Device tab), with determinism handled deliberately — pinned fonts, fixed
-        scale, fixed size — because a flaky pixel diff is worse than none.
-      The test-harness rule binds fully: no `%LOCALAPPDATA%\WSGM`, no `--shell`/`--boot`, `Log`
-      stays uninitialized, everything through injected config and temp dirs. Attended device
-      acceptance stays what it is — this replaces the maintainer as the *first* checker, not as the
-      release gate. **What remains is all of it.**
-- [ ] **Q19 — spike: the rest of Chrome DevTools against Steam's CEF, to make CEF work easier.**
-      Everything today rides one CDP method — `Runtime.evaluate` with hand-written probe scripts —
-      while the same port serves the protocol's full surface and the DevTools frontend itself.
-      Evaluate what earns adoption into `tools/WsgmLibTest` and the dev workflow, in this order of
-      expected payoff:
-      - **`chrome-devtools-mcp` attached to Steam's port — try this first, it needs zero code.**
-        Google's official MCP server exposes CDP as agent tools (screenshot, evaluate, DOM
-        inspection, console, network) and can attach to a running browser via `--browser-url`;
-        pointed at `http://127.0.0.1:8080`, every capability below may arrive in the agent session
-        as ready-made tools instead of harness work. The spike's first questions: does its
-        Puppeteer layer accept Steam's Chromium 126, does it see `SharedJSContext` and the Big
-        Picture window as attachable pages, and can its input/navigation tools be kept away from
-        Steam (the probe rules bind — read-only inspection, no navigation, no clicking around a
-        live client). If it attaches cleanly, the harness keeps only what the MCP cannot do (the
-        bridge-host role, allowlist-aware publish/deliver).
-      - **Playwright over the same port** as the library-shaped alternative:
-        `chromium.connectOverCDP('http://127.0.0.1:8080')` hands back the pages with screenshots,
-        `evaluate`, locators and waiting built in — a `run-file.mjs` successor rather than an
-        agent-tool layer, and the natural base if Q19 tooling ever grows scripted assertions
-        (\"after publish, the row exists and its label reads X\"). Its `connectOverCDP` is
-        historically laxer about Chromium version skew than Puppeteer's pin, so if the MCP refuses
-        Steam's 126 this is the fallback to test next; a Playwright MCP server also exists if the
-        agent-tool shape wins but the Google one cannot attach. Same discipline: connect, look,
-        evaluate — never navigate or synthesize input against the live client.
-- [ ] **Q20 — fix the verified round-2 review findings.** 202 verified defects in
-      `_plan\pr19-review-round2.md`: 58 still-present Codex findings and 144 fresh confirmed ones,
-      zero overlap. The 13 high-severity items lead — among them: **UI capture is unwired**
-      (`ClaimUiAsync` has no production caller, so overlay presses still reach the game — D14's
-      mechanism), controller management **faults on every suspend/resume** (fresh target vs.
-      republished identities), `SteamUiBridgeHost.DisposeAsync` **throws on every orderly
-      shutdown** past the desktop-restore point, Choice plugin settings **erase the stored value
-      on save**, failed startup **exits 0** past the crash-loop breaker, Explorer **not restored
-      when the game-mode commit throws**, RTSS policy persistence **erases per-game TDP/VRR/switch
-      fields** (found twice independently), and the Device Lab attended-cleanup trio. Work
-      severity-first; the ownership-marker gaps in the injected gates (network wrapper stacking,
-      brightness originalValue, Bluetooth originals, Manager-gate dispose leak) fold naturally
-      into Q16 phase 1's gate factory, and the dead-code/duplication lows into Q16's phases — fix
-      them there rather than twice. The two banned-pattern probe files
-      (`probe-perf-classes.js`, `probe-perf-accessors.js`) are deleted immediately, not queued.
-      **The streamlining half is aggregated in the review doc's "streamlining haul" section**: a
-      delete list (zero-consumer systems, the S7 holdovers whose adopt-or-delete verdict is now
-      settled as delete, ~470 lines of test fakes in the production assembly, dead patches and
-      retired bootstrap rows) and a collapse list (two de-elevation handoffs, the duplicated
-      readiness-poll scaffold, three task observers, triplicated P/Invokes and pins). All of it
-      except the two-CDP-stack item is independent of Q16 and can go immediately.
-      - **`Page.captureScreenshot` on the MainWindow target** — the CEF twin of Q18's screenshot
-        harness: capture the QAM/Settings surface as a PNG so an agent sees the grey slider, the
-        missing row, the wrong order itself, instead of asking the maintainer. First concrete
-        experiment; if it works, wire it into the harness as `qam-harness screenshot`.
-      - **`DOM.*`/`CSS.*` domains** — inspect the rendered tree and matched styles directly rather
-        than reconstructing them through evaluated JS; would have shortened the glyph-CSS and
-        row-hiding battles considerably.
-      - **The DevTools frontend for humans** — `http://127.0.0.1:8080` in a browser gives the full
-        inspector against any target; document the workflow (which target is which, the
-        SharedJSContext vs MainWindow split) in the harness README so it stops being tribal
-        knowledge.
-      - **`Debugger` domain + source maps for the bootstrap** — breakpoints in the injected
-        TypeScript instead of `status()` archaeology; check whether the asset build can emit a
-        source map without breaking the hash/drift gate (dev-only emission if need be).
-      - **React DevTools backend injection** — component-tree inspection for the panel-wrap and
-        row-mount work; strictly a dev-machine tool, never shipped.
-      Constraints stand: the port stays loopback-only, the destructive-probe rules in
-      `docs/steam-cef.md` bind (inspection is read-only; never iterate the module registry
-      constructing exports), and nothing here ships in the product — this is developer/agent
-      tooling beside Q16, whose findings land in the harness README and `docs/steam-cef.md`.
-      **What remains is all of it.**
+## Product backlog - preserved, not simplification debt
 
-A checked architectural queue item has its code, focused tests, diagnostics, and documentation
-complete. Attended/live gates remain explicit and unchecked until they run on the reference device;
-they are release evidence, not a reason to leave finished source architecture open. Do not add
-hundreds of sub-gates; add a concrete bug or missing outcome to the owning item.
+These are capabilities that were already incomplete or explicitly future work. None was removed to
+make the architecture smaller.
 
-## Simplification completion criteria
+- [ ] Add real VIIPER Xbox 360 and DualShock 4 encoders; advertise each target only once its backend
+      can produce it.
+- [ ] Read and implement the Claw charge-limit encoding; add charge fields to the SteamOS Manager
+      seam. Read the RGB effect/animation protocol before adding those controls.
+- [ ] Project the shared performance services onto the redesigned overlay.
+- [ ] Add a WSGM-owned Windows Night Light backend. Valve's row depends on an unavailable,
+      non-configurable gamescope gate and is not a viable revival.
+- [ ] Add capture-endpoint microphone volume, WASAPI session/per-app volume and multichannel speaker
+      configuration/reapply. The Claw's stereo endpoint cannot establish the multichannel contract.
+- [ ] Supply `SteamClient.System.DisplayManager` only if live probing proves it can replace the
+      current VRR projection without losing behavior.
+- [ ] Redesign the overlay presentation, especially Device, without moving state ownership out of
+      its existing services.
+- [ ] Add Avalonia headless interaction tests, deterministic render capture and selective visual
+      baselines before that redesign.
+- [ ] Evaluate richer read-only CDP developer tooling (screenshots are already in `qam-harness`;
+      DOM/CSS/source-map tooling remains a development-only spike).
 
-The structural overhaul is complete when:
+## Attended/live acceptance still required
 
-- Every fixed feature still has a direct owner and implementation path.
-- Normal startup has exactly the 0/1/2+ plugin behavior above.
-- A community developer can understand the public SDK and package format quickly.
-- WSGM, DeviceHost, Device Lab, and the Claw plugin no longer carry multi-plugin/trust/evidence/
-  promotion machinery.
-- UI actions reach one service without parallel policy/projection stacks.
-- Every normal desktop handoff yields an initialized, medium-integrity, current-session Explorer
-  that is not associated with a job; scheduled-task Explorer launch is recovery-only and reported
-  as degraded.
-- The solution/build/installer contain only boundaries justified by AOT, process lifetime, public
-  SDK ownership, or packaging.
-- Safety remains concentrated around exact hardware writes, input recovery, CEF fail-open, and
-  cleanup — not spread across enterprise governance abstractions.
+These checks intentionally do not run unattended and are not source-completion blockers:
 
-The current source/build composition meets those structural criteria. Full 2.0 completion remains
-separate: the feature set must still pass its focused automated, live Steam, and attended
-reference-device validation and produce the release installer artifact.
+- [ ] **Shell/recovery:** boot cancellation on both sides of Explorer exit, repeated game/desktop
+      transitions, crash/restore, taskbar/tray/UWP/touch, MO2 launch, jobless restored Explorer and
+      upgrade from an older job-bound session. The narrower dead-parent token/job inheritance proof
+      also remains.
+- [ ] **Controller/device:** Deck, then X360/DS4 when implemented; per-app targets, slots, duplicate
+      input, suspend/resume, reader/host fault, external owner, UI capture, physical trigger noise,
+      padded rumble and integration-off coexistence on the reference Claw.
+- [ ] **Plugin/settings:** package update/rollback/uninstall, Claw lifecycle/recovery, real manifest
+      rendering, gamepad/touch navigation, curve authoring/application and stored-value revalidation
+      after a plugin update narrows a range.
+- [ ] **CEF/QAM:** complete Settings/QAM control pass, Steam restart/reconnect, per-game performance,
+      each frame-limit strategy, RTSS restart/external edits, AutoTDP games/menus/suspend/manual
+      override, network scan/indicator, Bluetooth, audio, brightness, resolution/refresh and
+      download-sort focus behavior.
+- [ ] **Badge migration prerequisite:** prove both focus/hero signals, SPA survival, leave-game
+      clearing and CSSLoader coexistence before replacing the verified resident mutation.
+- [ ] **Library-tab migration prerequisite:** prove boot sync, card insert/eject, filters,
+      native-tab hiding and badge sync, then keep the verified resident route for one release of
+      rollback soak before deletion.
+- [ ] **Overlay/UI:** controller, touch, keyboard, scaling, accessibility, both themes,
+      cancellation/disposal and responsiveness on the handheld.
+- [ ] **Display/audio/power:** device switching during a game, volume buttons, per-app mixer when
+      implemented, brightness across lock/resume, resolution changes during a game, screen-off mute
+      and keep-awake behavior.
+- [ ] **Installer:** clean install, in-place update, component deselection, atomic plugin swap,
+      rollback, uninstall, external-state preservation and recovery-first bypass.
+
+A checked implementation item means code, focused tests, diagnostics and documentation are complete.
+An attended item stays unchecked until it actually runs on the reference device; automated evidence
+must never be reported as device acceptance.

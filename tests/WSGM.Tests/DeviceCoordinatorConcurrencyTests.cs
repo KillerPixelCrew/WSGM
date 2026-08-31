@@ -1,6 +1,5 @@
 using System.Reflection;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Ipc;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Shell;
 
@@ -187,199 +186,15 @@ public sealed class DeviceCoordinatorConcurrencyTests
     }
 
     [Fact]
-    public async Task DeviceHostClientDisposal_RetainsFailuresButAlwaysClosesTheHostJobAndLifetime()
-    {
-        var cancelFailure = new InvalidOperationException("lifetime callback failed");
-        var unregisterFailure = new InvalidOperationException("wait unregistration failed");
-        var frameFailure = new IOException("frame disposal failed");
-        var hostFailure = new InvalidOperationException("host disposal reported failure");
-        List<string> order = [];
-
-        AggregateException failure = await Assert.ThrowsAsync<AggregateException>(() =>
-            DeviceHostClient.RunDisposeStepsAsync(
-                () =>
-                {
-                    order.Add("cancel-lifetime");
-                    throw cancelFailure;
-                },
-                () =>
-                {
-                    order.Add("unregister-wait");
-                    return ValueTask.FromException(unregisterFailure);
-                },
-                () => order.Add("cancel-pending"),
-                () =>
-                {
-                    order.Add("wait-reader");
-                    return ValueTask.CompletedTask;
-                },
-                () =>
-                {
-                    order.Add("dispose-frames");
-                    return ValueTask.FromException(frameFailure);
-                },
-                () => order.Add("dispose-state-event"),
-                () => order.Add("dispose-state-ring"),
-                () =>
-                {
-                    order.Add("dispose-host-job");
-                    throw hostFailure;
-                },
-                () => order.Add("dispose-lifetime")).AsTask());
-
-        Assert.Contains(cancelFailure, failure.InnerExceptions);
-        Assert.Contains(unregisterFailure, failure.InnerExceptions);
-        Assert.Contains(frameFailure, failure.InnerExceptions);
-        Assert.Contains(hostFailure, failure.InnerExceptions);
-        Assert.Equal(
-            [
-                "cancel-lifetime",
-                "unregister-wait",
-                "cancel-pending",
-                "wait-reader",
-                "dispose-frames",
-                "dispose-state-event",
-                "dispose-state-ring",
-                "dispose-host-job",
-                "dispose-lifetime",
-            ],
-            order);
-    }
-
-    [Theory]
-    [MemberData(nameof(PartialStartupResourceFailures))]
-    public void DeviceHostClientStartup_PartialResourceFailureDisposesEveryEarlierHandle(
-        int failingStage,
-        string[] expectedDisposals)
-    {
-        var acquisitionFailure = new InvalidOperationException("resource construction failed");
-        List<string> disposals = [];
-
-        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(() =>
-            DeviceHostClient.AcquireStartupResources<
-                TrackingDisposable,
-                TrackingDisposable,
-                TrackingDisposable>(
-                () => new TrackingDisposable(() => disposals.Add("pipe")),
-                () => failingStage == 2
-                    ? throw acquisitionFailure
-                    : new TrackingDisposable(() => disposals.Add("ring")),
-                () => failingStage == 3
-                    ? throw acquisitionFailure
-                    : new TrackingDisposable(() => disposals.Add("event"))));
-
-        Assert.Same(acquisitionFailure, failure);
-        Assert.Equal(expectedDisposals, disposals);
-    }
-
-    public static TheoryData<int, string[]> PartialStartupResourceFailures => new()
-    {
-        { 2, ["pipe"] },
-        { 3, ["ring", "pipe"] },
-    };
-
-    [Fact]
-    public async Task HostCompletionFault_StillClosesItsOwnerAndRemainsEligibleForRestart()
-    {
-        var monitorFailure = new InvalidOperationException("process wait failed");
-        List<string> order = [];
-
-        DeviceHostExit exit = await DeviceCoordinator.NormalizeHostCompletionAsync(
-            Task.FromException<DeviceHostExit>(monitorFailure));
-        IReadOnlyList<Exception> cleanupFailures =
-            await DeviceCoordinator.RunHostExitOwnerCleanupAsync(
-                () =>
-                {
-                    order.Add("detach");
-                    return ValueTask.CompletedTask;
-                },
-                () =>
-                {
-                    order.Add("dispose-host-job");
-                    return ValueTask.CompletedTask;
-                });
-
-        Assert.Equal(DeviceHostExitReason.ProcessFault, exit.Reason);
-        Assert.Contains(nameof(InvalidOperationException), exit.Detail, StringComparison.Ordinal);
-        Assert.NotNull(DeviceCoordinator.UnverifiedHostExitFailure(
-            intentionalStop: false,
-            exit));
-        Assert.Empty(cleanupFailures);
-        Assert.Equal(["detach", "dispose-host-job"], order);
-        Assert.True(DeviceCoordinator.ShouldRestartAfterHostExit(
-            intentionalStop: false,
-            coordinatorDisposed: false,
-            integrationEnabled: true,
-            exit,
-            cleanupVerified: true));
-    }
-
-    [Fact]
-    public async Task HostExit_DetachFailureCannotSkipJobDisposalOrPermitRestart()
-    {
-        var detachFailure = new InvalidOperationException("detach failed");
-        bool disposed = false;
-
-        IReadOnlyList<Exception> cleanupFailures =
-            await DeviceCoordinator.RunHostExitOwnerCleanupAsync(
-                () => throw detachFailure,
-                () =>
-                {
-                    disposed = true;
-                    return ValueTask.CompletedTask;
-                });
-
-        Assert.True(disposed);
-        Assert.Contains(detachFailure, cleanupFailures);
-        Assert.False(DeviceCoordinator.ShouldRestartAfterHostExit(
-            intentionalStop: false,
-            coordinatorDisposed: false,
-            integrationEnabled: true,
-            new DeviceHostExit(
-                71,
-                DeviceHostExitReason.ProcessFault,
-                "faulted",
-                TimeSpan.Zero),
-            cleanupVerified: false));
-    }
-
-    [Theory]
-    [MemberData(nameof(ExpectedTerminalReaderClosures))]
-    public async Task DeviceHostClientDisposal_TerminalPipeClosureIsNotASecondTeardownFailure(
-        Exception terminalClosure)
-    {
-        await DeviceHostClient.WaitForReaderDuringDisposeAsync(Task.FromException(terminalClosure));
-    }
-
-    public static TheoryData<Exception> ExpectedTerminalReaderClosures => new()
-    {
-        new EndOfStreamException("host completed stop"),
-        new IOException("pipe closed during stop"),
-        new ObjectDisposedException("pipe"),
-    };
-
-    [Fact]
-    public async Task DeviceHostClientDisposal_ProtocolFaultRemainsATeardownFailure()
-    {
-        var protocolFailure = new InvalidDataException("unexpected terminal frame");
-
-        InvalidDataException failure = await Assert.ThrowsAsync<InvalidDataException>(() =>
-            DeviceHostClient.WaitForReaderDuringDisposeAsync(
-                Task.FromException(protocolFailure)).AsTask());
-
-        Assert.Same(protocolFailure, failure);
-    }
-
-    [Fact]
     public async Task ClientTeardown_UnverifiedResponsesAreRetainedThroughDisposal()
     {
         bool disposed = false;
-        DeviceControllerHandoffResponse handoff = VerifiedHandoff() with
+        ControllerHandoff handoff = VerifiedHandoff() with
         {
             Step = ControllerHandoffStep.TopologyUnverified,
             Result = ControllerHandoffResult.ReleasedVerified,
         };
-        DeviceLifecycleNotification stopped = VerifiedStop() with
+        DevicePluginState stopped = VerifiedStop() with
         {
             Reason = new CapabilityReason(
                 CapabilityReasonCode.TransportFaulted,
@@ -417,12 +232,12 @@ public sealed class DeviceCoordinatorConcurrencyTests
             _ =>
             {
                 order.Add("controller");
-                return Task.FromException<DeviceControllerHandoffResponse>(controllerFailure);
+                return Task.FromException<ControllerHandoff>(controllerFailure);
             },
             _ =>
             {
                 order.Add("stop");
-                return Task.FromException<DeviceLifecycleNotification>(stopFailure);
+                return Task.FromException<DevicePluginState>(stopFailure);
             },
             () =>
             {
@@ -457,12 +272,12 @@ public sealed class DeviceCoordinatorConcurrencyTests
             token =>
             {
                 order.Add("controller");
-                return Task.FromCanceled<DeviceControllerHandoffResponse>(token);
+                return Task.FromCanceled<ControllerHandoff>(token);
             },
             token =>
             {
                 order.Add("stop");
-                return Task.FromCanceled<DeviceLifecycleNotification>(token);
+                return Task.FromCanceled<DevicePluginState>(token);
             },
             () =>
             {
@@ -504,14 +319,8 @@ public sealed class DeviceCoordinatorConcurrencyTests
     public void PendingTeardownFailure_IsRetainedForShutdownWhenNoClientRemains()
     {
         var tracker = new DeviceTeardownFailureTracker();
-        Exception hostExitFailure = Assert.IsType<InvalidOperationException>(
-            DeviceCoordinator.UnverifiedHostExitFailure(
-                intentionalStop: false,
-                new DeviceHostExit(
-                    71,
-                    DeviceHostExitReason.ProcessFault,
-                    "fault while shutdown waited for the transition",
-                    TimeSpan.FromSeconds(2))));
+        var hostExitFailure = new InvalidOperationException(
+            "fault while shutdown waited for the transition");
 
         tracker.Retain(hostExitFailure);
         IReadOnlyList<Exception> drained = tracker.Drain();
@@ -519,13 +328,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
         Assert.Single(drained);
         Assert.Same(hostExitFailure, drained[0]);
         Assert.Empty(tracker.Drain());
-        Assert.Null(DeviceCoordinator.UnverifiedHostExitFailure(
-            intentionalStop: true,
-            new DeviceHostExit(
-                0,
-                DeviceHostExitReason.Clean,
-                "verified stop completed",
-                TimeSpan.FromSeconds(1))));
+        Assert.False(tracker.HasFailures);
     }
 
     [Fact]
@@ -588,120 +391,6 @@ public sealed class DeviceCoordinatorConcurrencyTests
         Assert.Null(owner);
         Assert.Null(denied);
         Assert.Null(unavailable);
-    }
-
-    [Theory]
-    [InlineData(true)]
-    [InlineData(null)]
-    public async Task NormalAdmission_RunningOrUnverifiedDeviceHostDisposesOwnerAndRefuses(
-        bool? deviceHostRunning)
-    {
-        string name = $@"Local\WSGM.Tests.DeviceOwner.AdmissionRefusal.{Guid.NewGuid():N}";
-        var owner = new Mutex(initiallyOwned: false);
-        try
-        {
-            Mutex? admitted = await DeviceCoordinator.TryReserveOwnerForStartAsync(
-                name,
-                _ => Task.FromResult(deviceHostRunning),
-                create: _ => (owner, true));
-
-            Assert.Null(admitted);
-            Assert.Throws<ObjectDisposedException>(() => owner.WaitOne(TimeSpan.Zero));
-        }
-        finally
-        {
-            owner.Dispose();
-        }
-    }
-
-    [Fact]
-    public async Task NormalAdmission_VerifiedAbsentDeviceHostRetainsOwner()
-    {
-        string name = $@"Local\WSGM.Tests.DeviceOwner.AdmissionSuccess.{Guid.NewGuid():N}";
-        using var owner = new Mutex(initiallyOwned: false);
-
-        Mutex? admitted = await DeviceCoordinator.TryReserveOwnerForStartAsync(
-            name,
-            static _ => Task.FromResult<bool?>(false),
-            create: _ => (owner, true));
-
-        Assert.Same(owner, admitted);
-        Assert.False(owner.SafeWaitHandle.IsClosed);
-    }
-
-    [Fact]
-    public async Task NormalAdmission_UnexpectedSnapshotFailureDisposesOwnerBeforeRethrowing()
-    {
-        string name = $@"Local\WSGM.Tests.DeviceOwner.AdmissionFailure.{Guid.NewGuid():N}";
-        var owner = new Mutex(initiallyOwned: false);
-        try
-        {
-            InvalidOperationException failure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                DeviceCoordinator.TryReserveOwnerForStartAsync(
-                    name,
-                    static _ => Task.FromException<bool?>(
-                        new InvalidOperationException("simulated process snapshot failure")),
-                    create: _ => (owner, true)));
-
-            Assert.Equal("simulated process snapshot failure", failure.Message);
-            Assert.Throws<ObjectDisposedException>(() => owner.WaitOne(TimeSpan.Zero));
-        }
-        finally
-        {
-            owner.Dispose();
-        }
-    }
-
-    [Fact]
-    public async Task NormalAdmission_CancellationAfterReservationDisposesTheOwner()
-    {
-        string name = $@"Local\WSGM.Tests.DeviceOwner.AdmissionCancellation.{Guid.NewGuid():N}";
-        var owner = new Mutex(initiallyOwned: false);
-        using var cancellation = new CancellationTokenSource();
-        var snapshot = new TaskCompletionSource<bool?>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        try
-        {
-            Task<Mutex?> admission = DeviceCoordinator.TryReserveOwnerForStartAsync(
-                name,
-                _ => snapshot.Task,
-                cancellation.Token,
-                create: _ => (owner, true));
-            cancellation.Cancel();
-            snapshot.SetResult(false);
-
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => admission);
-            Assert.Throws<ObjectDisposedException>(() => owner.WaitOne(TimeSpan.Zero));
-        }
-        finally
-        {
-            owner.Dispose();
-        }
-    }
-
-    [Fact]
-    public async Task DeviceHostSnapshot_ExecutesOnTheAsynchronousWorkerBoundary()
-    {
-        int callerThread = 0;
-        int snapshotThread = 0;
-        var published = new TaskCompletionSource<Task<bool?>>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var caller = new Thread(() =>
-        {
-            callerThread = Environment.CurrentManagedThreadId;
-            published.TrySetResult(DeviceHostProcess.IsAnyRunningAsync(
-                inspect: () =>
-                {
-                    snapshotThread = Environment.CurrentManagedThreadId;
-                    return false;
-                }));
-        });
-
-        caller.Start();
-        Assert.True(caller.Join(TimeSpan.FromSeconds(10)));
-        Task<bool?> snapshot = await published.Task.WaitAsync(TimeSpan.FromSeconds(10));
-        Assert.False((await snapshot.WaitAsync(TimeSpan.FromSeconds(10))) ?? true);
-        Assert.NotEqual(callerThread, snapshotThread);
     }
 
     [Fact]
@@ -777,30 +466,6 @@ public sealed class DeviceCoordinatorConcurrencyTests
     }
 
     [Fact]
-    public void InstallerRollbackRetentionKeepsAnExistingUnownedMarkerAlive()
-    {
-        string name = $@"Local\WSGM.Tests.DeviceOwner.Rollback.{Guid.NewGuid():N}";
-        Mutex? installer = Assert.IsType<Mutex>(DeviceCoordinator.TryCreateOwnerMutex(name));
-        Mutex? retained = null;
-        try
-        {
-            retained = Assert.IsType<Mutex>(DeviceCoordinator.TryRetainOwnerMutex(name));
-            installer.Dispose();
-            installer = null;
-
-            Assert.Null(DeviceCoordinator.TryCreateOwnerMutex(name));
-        }
-        finally
-        {
-            retained?.Dispose();
-            installer?.Dispose();
-        }
-
-        using Mutex reacquired = Assert.IsType<Mutex>(
-            DeviceCoordinator.TryCreateOwnerMutex(name));
-    }
-
-    [Fact]
     public void ProductionOwnerMarker_IsTheExactMachineWideHardwareReservation()
     {
         Assert.Equal(@"Global\WSGM.DeviceOwner", DeviceCoordinator.ProductionOwnerName);
@@ -838,26 +503,16 @@ public sealed class DeviceCoordinatorConcurrencyTests
             DeviceCoordinator.TryCreateOwnerMutex(name));
     }
 
-    private static DeviceControllerHandoffResponse VerifiedHandoff() => new()
+    private static ControllerHandoff VerifiedHandoff() => new()
     {
         Step = ControllerHandoffStep.TopologyVerified,
         Result = ControllerHandoffResult.ReleasedVerified,
     };
 
-    private static DeviceLifecycleNotification VerifiedStop() => new()
+    private static DevicePluginState VerifiedStop() => new()
     {
         State = DeviceCycleState.Disabled,
         CycleGeneration = 1,
     };
 
-    private sealed class TrackingDisposable(Action dispose) : IDisposable
-    {
-        private Action? _dispose = dispose;
-
-        public void Dispose()
-        {
-            Action? current = Interlocked.Exchange(ref _dispose, null);
-            current?.Invoke();
-        }
-    }
 }

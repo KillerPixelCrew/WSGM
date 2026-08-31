@@ -27,9 +27,9 @@ public sealed class SteamUiBridgeWireTests
     private static SteamUiGenerations Generations() => new(0, 0, 0, 0, 2, 1);
 
     private const string CapturedEnvelope = """
-        {"version":1,"type":"request","patchId":"wsgm.native-qam.overlay-level",
-        "command":"setOverlayLevel","sequence":6,"actionGeneration":99,
-        "contextGeneration":2,"documentGeneration":1,"payload":{"level":0}}
+        {"version":1,"type":"request","patchId":"wsgm.native-qam.frame-limit",
+        "command":"setFrameLimit","sequence":6,"actionGeneration":99,
+        "contextGeneration":2,"documentGeneration":1,"payload":{"value":60}}
         """;
 
     [Fact]
@@ -42,13 +42,13 @@ public sealed class SteamUiBridgeWireTests
         Assert.NotNull(request);
         Assert.Equal(SteamUiBridgeHost.SchemaVersion, request.Version);
         Assert.Equal("request", request.Type);
-        Assert.Equal("wsgm.native-qam.overlay-level", request.PatchId);
-        Assert.Equal("setOverlayLevel", request.Command);
+        Assert.Equal("wsgm.native-qam.frame-limit", request.PatchId);
+        Assert.Equal("setFrameLimit", request.Command);
         Assert.Equal(6, request.Sequence);
         Assert.Equal(99, request.ActionGeneration);
         Assert.Equal(2, request.ContextGeneration);
         Assert.Equal(1, request.DocumentGeneration);
-        Assert.Equal(0, request.Payload.GetProperty("level").GetInt32());
+        Assert.Equal(60, request.Payload.GetProperty("value").GetInt32());
     }
 
     [Fact]
@@ -74,7 +74,6 @@ public sealed class SteamUiBridgeWireTests
             ("wsgm.native-qam.tdp", "setPrimaryLimit"),
             ("wsgm.native-qam.auto-tdp", "setAutoTdp"),
             ("wsgm.native-qam.frame-limit", "setFrameLimit"),
-            ("wsgm.native-qam.overlay-level", "setOverlayLevel"),
             ("wsgm.native-qam.controller-target", "setControllerTarget"),
         ];
 

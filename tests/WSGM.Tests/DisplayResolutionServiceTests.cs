@@ -144,4 +144,20 @@ public sealed class DisplayResolutionServiceTests
 
         Assert.Equal(afterFirst, applied.Count);
     }
+
+    [Fact]
+    public void FailedRestoreKeepsTheDisplayHeldForARetry()
+    {
+        int attempts = 0;
+        DisplayResolutionService service = new(
+            () => Accepted,
+            (_, _) => ++attempts != 2,
+            () => new DisplayResolution(1920, 1200));
+        Assert.True(service.Apply(new DisplayResolution(1280, 800)));
+
+        Assert.False(service.Restore());
+        Assert.True(service.HoldsDisplay);
+        Assert.True(service.Restore());
+        Assert.False(service.HoldsDisplay);
+    }
 }

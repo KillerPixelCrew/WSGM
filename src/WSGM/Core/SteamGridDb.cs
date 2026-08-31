@@ -53,7 +53,7 @@ public sealed class SteamGridDbException : Exception
 public sealed record SgdbGame(int Id, string Name);
 
 /// <summary>Read-only client for the SteamGridDB v2 REST API: title search and per-slot
-/// asset listing, plus raw image download. NativeAOT-clean (HttpClient + JsonDocument).
+/// asset listing, plus raw image download. Uses only <see cref="HttpClient"/> and <see cref="JsonDocument"/>.
 /// Auth is a bearer key the user sets in Settings (<see cref="ResolveKey"/>); there is no
 /// bundled key (SteamGridDB rejects the decky public key). Applying the chosen image
 /// is <see cref="SteamArtwork"/>'s job; this class only fetches.</summary>

@@ -171,7 +171,6 @@ internal sealed class RefreshRatePairingService
         lock (_gate)
         {
             original = _originalRate;
-            _originalRate = null;
         }
 
         if (original is not { } rate)
@@ -180,7 +179,22 @@ internal sealed class RefreshRatePairingService
         }
 
         Log.Info($"Frame limit strategy released the display; restoring {rate} Hz.");
-        return _applyRate(rate);
+        bool restored = _applyRate(rate);
+        if (restored)
+        {
+            lock (_gate)
+            {
+                if (_originalRate == rate)
+                {
+                    _originalRate = null;
+                }
+            }
+        }
+        else
+        {
+            Log.Warn($"Frame limit strategy could not restore {rate} Hz; the snapshot was retained.");
+        }
+        return restored;
     }
 
     private void CaptureOriginal()

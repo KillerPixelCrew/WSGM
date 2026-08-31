@@ -223,8 +223,8 @@ public static class Installer
 
     private static void CreateShortcut()
     {
-        // .lnk creation needs IShellLink (COM). Spawning Windows PowerShell for this
-        // one-shot task avoids in-process COM interop under NativeAOT.
+        // .lnk creation needs IShellLink (COM). Spawning Windows PowerShell keeps this
+        // one-shot setup operation out of the resident application's COM lifetime.
         // '' doubling: an apostrophe in the profile path (O'Brien) must not break
         // the single-quoted PS literals.
         var shortcut = ShortcutPath.Replace("'", "''");
@@ -260,7 +260,7 @@ public static class Installer
         key.SetValue("NoRepair", 1, RegistryValueKind.DWord);
         try
         {
-            // The NativeAOT payload is mostly native sibling DLLs — count them too.
+            // The self-contained payload includes managed and native sibling DLLs — count them too.
             long bytes = 0;
             foreach (var file in Directory.GetFiles(InstallDir))
             {

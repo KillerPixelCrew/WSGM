@@ -82,7 +82,7 @@ marker, and ASCII data such as:
 The `MSI_ACPI` instance must be discovered rather than hardcoded. The reference instance was
 `ACPI\PNP0C14\0_0`. Its schema and all 38 method signatures are readable without elevation, but
 instance access returns `WBEM_E_ACCESS_DENIED` at medium integrity. The installed Claw plugin
-therefore runs in the elevated DeviceHost. `MSI_Event` remains readable unelevated.
+therefore runs inside elevated WSGM. `MSI_Event` remains readable unelevated.
 
 The OEM/chipset-driver environment provides MSI WMI. WSGM does not copy `msiapcfg.dll`, rewrite
 `MofImagePath`, restart ACPI devices, or require MSI Center M to be running.
@@ -146,10 +146,16 @@ They do not recreate the plugin, reset fans/RGB, switch controller mode, or rebu
 5. Restore temporary fan tables/flags, scenario, and other temporary state from exact snapshots.
 6. Leave deliberate persistent RGB state intact.
 7. Close WMI/HID/event resources and report clean, unverified, or failed restoration.
-8. WSGM removes its target/HidHide state and closes DeviceHost.
+8. WSGM removes its target/HidHide state and unloads the plugin cycle.
 
 If a snapshot was unavailable or restoration cannot be verified, retain that exact item for next
 start. Never substitute a guessed factory value.
+
+The recovery record captures a resource immediately before its first mutation. Acquisition reads
+are observations for UI and admission, not restoration snapshots: another manager can legitimately
+change a value between acquisition and WSGM's command. Shutdown therefore restores the journal's
+pre-mutation value. Controller-source shutdown and Arc Sync restoration are also part of the stop
+result; either failing makes the handoff unverified or failed while independent cleanup continues.
 
 ### Suspend, resume, lock, and session change
 
@@ -380,6 +386,10 @@ Confirmed WMI events:
 M1/M2 remain ordinary logical OEM controls from the physical controller source. WSGM maps OEM
 controls to its fixed allowlist, including overlay, native QAM, and supported target buttons.
 
+OEM1 and OEM2 are latched into the controller stream with independent expiries. A later event for
+one button must not lengthen the other button's virtual press, which would synthesize a chord the
+user never held.
+
 ### Firmware keyboard side effect
 
 The right button also emits malformed keyboard bursts through `ACPI\MSNB1001`:
@@ -396,7 +406,7 @@ The suppressor:
 - Runs on the interactive desktop from the elevated plugin process.
 - Uses a dedicated bounded callback thread.
 - Keeps tagged `SendInput`, accepted-prefix accounting, and precise unmatched-down cleanup.
-- Never performs WMI/HID/IPC/logging or allocation-heavy work in the hook callback.
+- Never performs WMI, HID, logging, or allocation-heavy work in the hook callback.
 - Fails open on unknown or well-formed keyboard sequences.
 - Resets/unhooks on disable, lock, suspend, desktop/session change, handoff, and host failure.
 - Never strands Win, G, Tab, Ctrl, Alt, or Shift and never filters the full ACPI device.

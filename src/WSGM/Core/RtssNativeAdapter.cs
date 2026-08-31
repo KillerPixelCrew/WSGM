@@ -14,6 +14,7 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
     private const string OverlayLevelProperty = "EnableStat";
     private readonly RtssDiscovery _discovery;
     private RtssProfileApi? _api;
+    private RtssProbe? _lastProbe;
     private long _generation;
     private bool _disposed;
 
@@ -46,13 +47,14 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
             || probe.ExecutablePath is null)
         {
             ReleaseApi();
+            _lastProbe = probe;
             return probe;
         }
 
         try
         {
             EnsureApi(probe);
-            return probe with
+            RtssProbe ready = probe with
             {
                 Availability = RtssAvailability.Ready,
                 Capabilities = new RtssCapabilities(
@@ -63,15 +65,19 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
                     OverlayLevelReadback: true),
                 Diagnostic = "RTSS profile API is ready.",
             };
+            _lastProbe = ready;
+            return ready;
         }
         catch (Exception ex)
         {
             ReleaseApi();
-            return probe with
+            RtssProbe degraded = probe with
             {
                 Availability = RtssAvailability.Degraded,
                 Diagnostic = $"RTSS profile API load failed: {ex.Message}",
             };
+            _lastProbe = degraded;
+            return degraded;
         }
     }
 
@@ -169,7 +175,12 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         long generation,
         CancellationToken cancellationToken)
     {
-        RtssProbe probe = await ProbeAsync(cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        RtssProbe probe = _lastProbe is { Availability: RtssAvailability.Ready } cached
+            && cached.Generation == generation
+            ? cached
+            : await ProbeAsync(cancellationToken).ConfigureAwait(false);
         if (probe.Availability != RtssAvailability.Ready || probe.Generation != generation)
         {
             throw new InvalidOperationException(
@@ -203,6 +214,7 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         _api?.Dispose();
         _api = null;
         _generation = 0;
+        _lastProbe = null;
     }
 }
 

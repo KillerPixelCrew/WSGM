@@ -5,11 +5,21 @@
   if (!b) return JSON.stringify({ error: "bridge absent" });
   const out = { install: {} };
   for (const kind of [
-    "tdp", "autoTdp", "frameLimit", "overlayLevel", "controllerTarget",
-    "resolution", "valveVrr", "valveProfileHeader", "valveReset",
+    "tdp",
+    "autoTdp",
+    "frameLimit",
+    "overlayLevel",
+    "controllerTarget",
+    "resolution",
+    "valveVrr",
+    "valveProfileHeader",
+    "valveReset",
   ]) {
-    try { out.install[kind] = b.nativeComponents.install(kind); }
-    catch (e) { out.install[kind] = String(e); }
+    try {
+      out.install[kind] = b.nativeComponents.install(kind);
+    } catch (e) {
+      out.install[kind] = String(e);
+    }
   }
   out.status = b.nativeComponents.status();
   return JSON.stringify(out);

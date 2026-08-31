@@ -7,8 +7,7 @@
     <!--
         Every row on this page is declared by the installed device plugin, so nothing here is a
         fixed control: the shape comes from PluginSettingsPageLayout and the controls template by
-        visibility, each binding the one property its value kind uses. A DataTemplate selector would
-        need runtime type inspection, which NativeAOT does not give us.
+        visibility, each binding the one property its value kind uses.
     -->
     <Border Padding="16,10,16,10">
         <Panel>
@@ -25,9 +24,9 @@
             <ScrollViewer IsVisible="{Binding PluginSettingsAvailable}">
               <StackPanel>
                 <!--
-                    Authoring only. Settings mode starts no DeviceHost, so there is no live
-                    temperature or RPM to plot against; the curve is checked against the device's
-                    own descriptor when the overlay applies it, not here.
+                    Authoring only. Settings mode does not activate device hardware, so there is no
+                    live temperature or RPM to plot against; the curve is checked against the
+                    device's own descriptor when the overlay applies it, not here.
                 -->
                 <Border Classes="section-header">
                     <TextBlock Text="PROFILES" />
@@ -70,7 +69,7 @@
                         <ColorPicker x:Name="ProfileColor"
                                      HorizontalAlignment="Left"
                                      IsVisible="{Binding SelectedDeviceProfile.IsColorProfile}"
-                                     ColorChanged="OnProfileColorChanged" />
+                                     Color="{Binding SelectedDeviceProfile.PickerColor, Mode=TwoWay}" />
                     </StackPanel>
                 </Border>
 

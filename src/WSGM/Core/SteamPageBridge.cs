@@ -85,7 +85,7 @@ public static class SteamPageBridge
     public static async Task<long> GetCurrentAppIdAsync(CancellationToken cancellationToken = default)
     {
         var expression = "JSON.stringify(Object.assign({ok:true}," + CurrentAppIdJs + "))";
-        var result = await SteamCef.EvaluateOnVisibleWindowAsync(expression, Budget, cancellationToken)
+        var result = await SteamUiTransportSession.EvaluateOnVisibleWindowAsync(expression, Budget, cancellationToken)
             .ConfigureAwait(false);
         var fromPage = ParseAppId(result);
         if (fromPage > 0)
@@ -93,7 +93,7 @@ public static class SteamPageBridge
             Log.Info($"Steam current app {fromPage} ({ParseSignal(result)}).");
             return fromPage;
         }
-        var routeResult = await SteamCef.EvaluateAsync(
+        var routeResult = await SteamUiTransportSession.EvaluateAsync(
             "JSON.stringify({ok:true,id:" + RouteAppIdJs + "})", Budget, cancellationToken)
             .ConfigureAwait(false);
         var fromRoute = ParseAppId(routeResult);
@@ -153,8 +153,9 @@ public static class SteamPageBridge
 
     /// <summary>Disconnects the resident badge observer and removes its node from the
     /// visible Steam page. Best-effort shutdown for desktop mode and process exit.</summary>
-    public static Task<CefEvalResult> DisableBadgeAsync(CancellationToken cancellationToken = default)
-        => SteamCef.EvaluateOnVisibleWindowAsync(
+    internal static Task<CefEvalResult> DisableBadgeAsync(
+        CancellationToken cancellationToken = default)
+        => SteamUiTransportSession.EvaluateOnVisibleWindowAsync(
             "(()=>{try{window.__wsgm&&window.__wsgm.disableBadge&&window.__wsgm.disableBadge();return JSON.stringify({ok:true});}catch(e){return JSON.stringify({ok:false,err:String(e)});}})()",
             Budget, cancellationToken);
 
@@ -179,7 +180,7 @@ public static class SteamPageBridge
 
         // The badge lives in the VISIBLE library window (the DOM the user sees), not the
         // headless SharedJSContext where the stores are.
-        var result = await SteamCef.EvaluateOnVisibleWindowAsync(expression, Budget, cancellationToken)
+        var result = await SteamUiTransportSession.EvaluateOnVisibleWindowAsync(expression, Budget, cancellationToken)
             .ConfigureAwait(false);
         if (!result.Reachable)
         {

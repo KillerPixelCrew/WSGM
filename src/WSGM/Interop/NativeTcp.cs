@@ -14,8 +14,7 @@ namespace WSGM.Interop;
 /// binary layout with no text, no locale and no child process.
 ///
 /// The row layout is decoded from documented offsets by a pure span reader, so it
-/// is unit-testable from a synthetic buffer (the NativeStorage/NativeRadio
-/// approach) without a live socket.</summary>
+/// is unit-testable from a synthetic buffer without a live socket.</summary>
 internal static partial class NativeTcp
 {
     /// <summary>AF_INET.</summary>

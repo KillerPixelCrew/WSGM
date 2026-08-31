@@ -8,7 +8,7 @@ USB devices in userspace through usbip-win2's generic signed kernel driver. That
 is why WSGM ships no driver of its own and needs no kernel code per controller
 type.
 
-Unlike native\Radio and the Steam Input lease, the source is not vendored into
+Unlike the Steam Input lease, the source is not vendored into
 this repository: it is an external project pinned by revision in
 third_party\controller\viiper\README.md, with the patches WSGM needs alongside
 it. This script checks the pinned revision out, applies those patches, builds
@@ -16,8 +16,8 @@ the shared library, and stages it into src\WSGM\Native\Viiper, which WSGM.csproj
 copies beside the executable. The staging directory is generated and is not
 committed.
 
-The library exposes a flat C ABI over blittable types, which is exactly what
-NativeAOT needs — the same arrangement as every other native helper here.
+The library exposes a small C ABI over blittable types, keeping its native
+ownership and lifetime rules out of the managed device layer.
 
 .PARAMETER SourceRoot
 Directory holding the VIIPER checkout. Defaults to a sibling of the repository
@@ -109,7 +109,10 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "VIIPER Steam Deck device tests failed" }
     }
 
-    New-Item -ItemType Directory -Force -Path $staging | Out-Null
+    if (Test-Path -LiteralPath $staging) {
+        Remove-Item -LiteralPath $staging -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $staging | Out-Null
     $output = Join-Path $staging "libviiper.dll"
     Write-Host "Building libviiper"
     go build -buildmode=c-shared -o $output ./clib
@@ -121,11 +124,16 @@ try {
     if (Test-Path -LiteralPath $header) { Remove-Item -LiteralPath $header -Force }
     Copy-Item -LiteralPath (Join-Path $SourceRoot "libviiper.h") -Destination $header -Force
 
-    foreach ($notice in @("LICENSE.txt", "NOTICE.md")) {
-        $source = Join-Path $SourceRoot $notice
-        if (Test-Path -LiteralPath $source) {
-            Copy-Item -LiteralPath $source -Destination (Join-Path $staging $notice) -Force
+    foreach ($notice in @(
+            @{ Source = "LICENSE.txt"; Destination = "VIIPER-LICENSE.txt" },
+            @{ Source = "NOTICE.md"; Destination = "VIIPER-NOTICE.md" }
+        )) {
+        $source = Join-Path $SourceRoot $notice.Source
+        if (-not (Test-Path -LiteralPath $source)) {
+            throw "Pinned VIIPER source is missing $($notice.Source)"
         }
+        Copy-Item -LiteralPath $source `
+            -Destination (Join-Path $staging $notice.Destination) -Force
     }
 }
 finally {

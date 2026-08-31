@@ -13,7 +13,7 @@ public enum DeltaRejection
     /// <summary>An update with this sequence number or newer was already applied.</summary>
     OutOfOrder,
 
-    /// <summary>It describes a process/reconnect cycle that has been replaced.</summary>
+    /// <summary>It describes a plugin cycle that has been replaced.</summary>
     StaleGeneration,
 }
 
@@ -24,7 +24,7 @@ public enum DeltaRejection
 /// The high-rate state channel does not promise ordering, and a delayed older sample overwriting a
 /// newer one is not a cosmetic glitch: it can restore a "fresh" reading that the device has already
 /// moved past, and the UI would then command against it. Sequence numbers are per cycle generation,
-/// so a host restart resets them — which is why the tracker discards anything from a superseded cycle
+/// so a plugin-cycle restart resets them — which is why the tracker discards anything from a superseded cycle
 /// rather than comparing numbers across the boundary.
 /// </remarks>
 public sealed class CapabilityStateTracker
@@ -34,11 +34,11 @@ public sealed class CapabilityStateTracker
 
     private long _cycleGeneration;
 
-    /// <summary>Creates a tracker for one process/reconnect cycle generation.</summary>
+    /// <summary>Creates a tracker for one plugin-cycle generation.</summary>
     /// <param name="cycleGeneration">The cycle generation whose updates this tracker accepts.</param>
     public CapabilityStateTracker(long cycleGeneration) => _cycleGeneration = cycleGeneration;
 
-    /// <summary>The process/reconnect cycle generation currently being tracked.</summary>
+    /// <summary>The plugin-cycle generation currently being tracked.</summary>
     public long CycleGeneration => _cycleGeneration;
 
     /// <summary>
@@ -71,9 +71,9 @@ public sealed class CapabilityStateTracker
     /// </summary>
     /// <param name="cycleGeneration">The new cycle generation.</param>
     /// <remarks>
-    /// Nothing survives a host restart. The previous host's observations described hardware it no
-    /// longer owns, and its sequence numbering has restarted, so carrying anything across would
-    /// compare two unrelated counters.
+    /// Nothing survives a plugin-cycle restart. The previous cycle no longer owns the hardware and
+    /// its sequence numbering has restarted, so carrying state across would compare unrelated
+    /// counters.
     /// </remarks>
     public void ResetTo(long cycleGeneration)
     {

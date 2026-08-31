@@ -16,7 +16,7 @@ namespace WSGM.Core;
 /// SMTO_ABORTIFHUNG so a wedged app cannot stall the bar), the window class icon
 /// (GCLP_HICON/GCLP_HICONSM), WM_QUERYDRAGICON, and finally the first icon resource
 /// of the owning process's executable (ExtractIconExW — deliberately not
-/// SHGetFileInfo, which requires COM init and is off-limits under NativeAOT).
+/// SHGetFileInfo, so icon lookup does not depend on shell icon-cache or COM initialization).
 ///
 /// HICONs obtained from another window are foreign, still-owned USER handles:
 /// they are CopyIcon'd before rendering and only the copy is destroyed —

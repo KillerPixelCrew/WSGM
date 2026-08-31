@@ -1,7 +1,6 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj" />
-    <Project Path="src/WSGM.DeviceHost/WSGM.DeviceHost.csproj" />
     <Project Path="src/WSGM.DeviceLab/WSGM.DeviceLab.csproj" />
     <Project Path="src/WSGM.Launch/WSGM.Launch.csproj" />
     <Project Path="src/WSGM.LogonService/WSGM.LogonService.csproj" />
@@ -11,7 +10,6 @@
     <Project Path="plugins/WSGM.Device.Msi.Claw8A2Vm/WSGM.Device.Msi.Claw8A2Vm.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/WSGM.Device.Tests/WSGM.Device.Tests.csproj" />
     <Project Path="tests/WSGM.Tests/WSGM.Tests.csproj" />
   </Folder>
 </Solution>

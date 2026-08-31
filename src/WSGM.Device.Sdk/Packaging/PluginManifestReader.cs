@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
-using WSGM.Device.Sdk.Ipc;
+using WSGM.Device.Sdk.Serialization;
 
 namespace WSGM.Device.Sdk.Packaging;
 
@@ -32,8 +32,8 @@ public static class PluginManifestReader
     // Built once and reused. A JsonSerializerOptions instance becomes read-only on first use and is
     // bound to the context that consumes it, so constructing a fresh context per call against a
     // shared options instance races as soon as two reads overlap.
-    private static readonly DeviceWireJsonContext ReadContext =
-        new(new JsonSerializerOptions(DeviceWireJsonContext.Default.Options)
+    private static readonly DeviceJsonContext ReadContext =
+        new(new JsonSerializerOptions(DeviceJsonContext.Default.Options)
         {
             MaxDepth = ManifestLimits.MaxDepth,
         });
@@ -67,13 +67,9 @@ public static class PluginManifestReader
         }
         catch (JsonException ex)
         {
-            // An unmapped member surfaces here too, because the context disallows them. Both cases
-            // mean the same thing to a caller: this document is not a manifest we understand.
-            ManifestValidationCode code = ex.Message.Contains("could not be mapped", StringComparison.Ordinal)
-                ? ManifestValidationCode.UnknownMember
-                : ManifestValidationCode.MalformedDocument;
-
-            return Failure("", code, ex.Message);
+            // The serializer disallows unknown members. Keep one structural-document outcome rather
+            // than guessing a subcategory from localized exception text.
+            return Failure("", ManifestValidationCode.MalformedDocument, ex.Message);
         }
         catch (NotSupportedException ex)
         {

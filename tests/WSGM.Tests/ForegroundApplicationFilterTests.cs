@@ -7,7 +7,6 @@ public sealed class ForegroundApplicationFilterTests
     [Theory]
     [InlineData("forza.exe")]
     [InlineData("Cyberpunk2077.exe")]
-    [InlineData("steam.exe")]
     public void Classify_AnOrdinaryApplication_DrivesPerApplicationPolicy(string executable)
     {
         Assert.Equal(
@@ -18,6 +17,7 @@ public sealed class ForegroundApplicationFilterTests
     [Theory]
     [InlineData("wsgm.exe")]
     [InlineData("WSGM.exe")]
+    [InlineData("steam.exe")]
     [InlineData("explorer.exe")]
     [InlineData("taskmgr.exe")]
     [InlineData("StartMenuExperienceHost.exe")]

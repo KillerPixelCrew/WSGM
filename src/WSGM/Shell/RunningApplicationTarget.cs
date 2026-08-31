@@ -113,7 +113,7 @@ internal static class RunningApplicationTargetProjection
         ForegroundApplicationObservation? foreground = null)
     {
         RunningApplicationTargetSnapshot candidate = Project(observation, profile, observedAt);
-        candidate = ApplyForeground(candidate, foreground);
+        candidate = ApplyForeground(current, candidate, foreground);
         if (Equivalent(current, candidate))
         {
             return current with { ObservedAt = observedAt };
@@ -122,20 +122,41 @@ internal static class RunningApplicationTargetProjection
         return candidate with { Generation = current.Generation + 1 };
     }
 
-    /// <summary>Substitutes the foreground application where Steam supplied no identity.</summary>
+    /// <summary>
+    /// Supplies the executable profile Steam omitted without replacing Steam's canonical identity.
+    /// </summary>
     private static RunningApplicationTargetSnapshot ApplyForeground(
+        RunningApplicationTargetSnapshot current,
         RunningApplicationTargetSnapshot steam,
         ForegroundApplicationObservation? foreground)
     {
-        if (steam.State is not RunningApplicationTargetState.Global
+        if (steam.State is RunningApplicationTargetState.IdentityOnly
+            && current.State is RunningApplicationTargetState.Active
+            && current.SteamAppId == steam.SteamAppId
+            && string.Equals(current.ApplicationId, steam.ApplicationId, StringComparison.Ordinal)
+            && current.RtssProfileName is { Length: > 0 })
+        {
+            // Steam does not expose a launch executable for ordinary store applications. Once the
+            // foreground has supplied it, keep that pairing until Steam's AppID changes: an alt-tab
+            // changes focus, not the game whose per-application policy is active.
+            return steam with
+            {
+                State = RunningApplicationTargetState.Active,
+                ExecutablePath = current.ExecutablePath,
+                RtssProfileName = current.RtssProfileName,
+                Diagnostic = null,
+            };
+        }
+
+        if (steam.State is not (RunningApplicationTargetState.Global
+            or RunningApplicationTargetState.IdentityOnly)
             || foreground?.ExecutableName is not { Length: > 0 } executable)
         {
             return steam;
         }
 
-        // Global is the only state the foreground may fill. Active and IdentityOnly already have
-        // Steam's answer; Ambiguous must stay ambiguous; and Unavailable means the observation
-        // itself failed, where publishing an identity would claim knowledge WSGM does not have.
+        // Ambiguous must stay ambiguous, and Unavailable means the Steam observation itself failed,
+        // where publishing an identity would claim knowledge WSGM does not have.
         string profileName = executable.Trim();
         if (ForegroundApplicationFilter.Classify(profileName)
                 is not ForegroundApplicationKind.Application
@@ -145,11 +166,14 @@ internal static class RunningApplicationTargetProjection
             return steam;
         }
 
+        bool steamOwnsIdentity = steam.State is RunningApplicationTargetState.IdentityOnly;
         return steam with
         {
             State = RunningApplicationTargetState.Active,
-            ApplicationId = $"process:{profileName.ToLowerInvariant()}",
-            SteamAppId = null,
+            ApplicationId = steamOwnsIdentity
+                ? steam.ApplicationId
+                : $"process:{profileName.ToLowerInvariant()}",
+            SteamAppId = steamOwnsIdentity ? steam.SteamAppId : null,
             ExecutablePath = null,
             RtssProfileName = profileName,
             Diagnostic = null,
@@ -274,6 +298,9 @@ internal sealed class SteamRunningApplicationProbe : IRunningApplicationProbe
     internal SteamRunningApplicationProbe(ISteamUiTransport transport)
         => _transport = transport ?? throw new ArgumentNullException(nameof(transport));
 
+    /// <summary>Whether Steam models the AppID as a non-Steam shortcut.</summary>
+    internal static bool IsShortcutAppId(uint appId) => appId >= ShortcutAppIdFloor;
+
     public async ValueTask<IAsyncDisposable> SubscribeAsync(CancellationToken cancellationToken)
     {
         IAsyncDisposable transportLease = await _transport.SubscribeAsync(
@@ -292,6 +319,17 @@ internal sealed class SteamRunningApplicationProbe : IRunningApplicationProbe
             cancellationToken).ConfigureAwait(false);
         if (!result.Reachable || result.Value is null)
         {
+            // The CEF master switch disables only Steam-backed identity. Foreground observation is
+            // independent and must keep driving per-application policy for non-Steam games, so a
+            // deliberate disable projects as "Steam names no app" rather than as a transport
+            // failure that suppresses the foreground fallback.
+            if (string.Equals(
+                    result.Error,
+                    "Steam CEF integration disabled in settings.",
+                    StringComparison.Ordinal))
+            {
+                return new SteamRunningAppObservation(true, [], 0, null);
+            }
             return new SteamRunningAppObservation(
                 false,
                 [],
@@ -346,7 +384,7 @@ internal sealed class SteamRunningApplicationProbe : IRunningApplicationProbe
         uint steamAppId,
         CancellationToken cancellationToken)
     {
-        if (steamAppId < ShortcutAppIdFloor)
+        if (!IsShortcutAppId(steamAppId))
         {
             return new SteamRunningAppProfile(
                 null,
@@ -488,6 +526,7 @@ internal sealed class SteamRunningApplicationProbe : IRunningApplicationProbe
 internal sealed class RunningApplicationMonitor : IAsyncDisposable
 {
     private static readonly TimeSpan DefaultPollInterval = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan ProfileRetryInterval = TimeSpan.FromSeconds(10);
     private readonly IRunningApplicationProbe _probe;
     private readonly TimeSpan _pollInterval;
     private readonly TimeProvider _timeProvider;
@@ -498,19 +537,24 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
     private RunningApplicationTargetSnapshot _current;
     private SteamRunningAppProfile? _profile;
     private uint? _profileAppId;
+    private DateTimeOffset _nextProfileRetry;
     private SteamRunningAppObservation? _lastObservation;
     private ForegroundApplicationObservation _foreground = ForegroundApplicationObservation.None;
     private int _observerCount;
+    private long _steamEnableGeneration;
+    private volatile bool _steamEnabled;
     private bool _disposed;
 
     internal RunningApplicationMonitor(
         IRunningApplicationProbe probe,
+        bool steamEnabled,
         TimeSpan? pollInterval = null,
         TimeProvider? timeProvider = null)
     {
         _probe = probe ?? throw new ArgumentNullException(nameof(probe));
         _pollInterval = BoundInterval(pollInterval ?? DefaultPollInterval);
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _steamEnabled = steamEnabled;
         _current = RunningApplicationTargetSnapshot.Initial(_timeProvider.GetUtcNow());
         _loop = Task.Run(ObserveLoopAsync);
     }
@@ -583,6 +627,26 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
         return new ObservationLease(this);
     }
 
+    /// <summary>Starts or stops the Steam-backed identity source without stopping foreground policy.</summary>
+    /// <param name="enabled">Whether the CEF-backed source may subscribe and poll.</param>
+    internal void SetSteamEnabled(bool enabled)
+    {
+        if (_steamEnabled == enabled || _disposed)
+        {
+            return;
+        }
+
+        _steamEnabled = enabled;
+        Interlocked.Increment(ref _steamEnableGeneration);
+        if (!enabled)
+        {
+            // An intentional CEF disable means Steam contributes no identity; the foreground
+            // source remains authoritative for non-Steam and desktop applications.
+            Publish(new SteamRunningAppObservation(true, [], 0, null), null);
+        }
+        TrySignalObserver();
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_disposed)
@@ -615,6 +679,12 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
                 continue;
             }
 
+            if (!_steamEnabled)
+            {
+                await _observerSignal.WaitAsync(cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
             IAsyncDisposable subscription;
             try
             {
@@ -628,6 +698,7 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
             {
                 _profileAppId = null;
                 _profile = null;
+                _nextProfileRetry = default;
                 Publish(new SteamRunningAppObservation(false, [], 0, ex.Message), null);
                 await Task.Delay(_pollInterval, _timeProvider, cancellationToken)
                     .ConfigureAwait(false);
@@ -636,7 +707,8 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
 
             await using (subscription)
             {
-                while (Volatile.Read(ref _observerCount) > 0
+                while (_steamEnabled
+                    && Volatile.Read(ref _observerCount) > 0
                     && !cancellationToken.IsCancellationRequested)
                 {
                     await ObserveOnceAsync(cancellationToken).ConfigureAwait(false);
@@ -649,6 +721,12 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
 
     private async Task ObserveOnceAsync(CancellationToken cancellationToken)
     {
+        long enabledGeneration = Interlocked.Read(ref _steamEnableGeneration);
+        if (!_steamEnabled)
+        {
+            return;
+        }
+
         SteamRunningAppObservation observation;
         try
         {
@@ -663,20 +741,50 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
             observation = new SteamRunningAppObservation(false, [], 0, ex.Message);
         }
 
+        if (!_steamEnabled || enabledGeneration != Interlocked.Read(ref _steamEnableGeneration))
+        {
+            return;
+        }
+
         uint? singleAppId = observation.Reachable && observation.AppIds.Distinct().Take(2).ToArray()
             is [uint appId]
             ? appId
             : null;
-        if (singleAppId != _profileAppId)
+        DateTimeOffset now = _timeProvider.GetUtcNow();
+        if (ShouldResolveProfile(singleAppId, _profileAppId, _profile, now, _nextProfileRetry))
         {
             _profileAppId = singleAppId;
             _profile = singleAppId is { } value
                 ? await ResolveProfileAsync(value, cancellationToken).ConfigureAwait(false)
                 : null;
+            if (!_steamEnabled || enabledGeneration != Interlocked.Read(ref _steamEnableGeneration))
+            {
+                return;
+            }
+            _nextProfileRetry = singleAppId is not null
+                && string.IsNullOrWhiteSpace(_profile?.RtssProfileName)
+                ? now + ProfileRetryInterval
+                : default;
         }
 
-        Publish(observation, _profile);
+        if (_steamEnabled && enabledGeneration == Interlocked.Read(ref _steamEnableGeneration))
+        {
+            Publish(observation, _profile);
+        }
     }
+
+    /// <summary>Decides when an AppID needs a fresh executable lookup.</summary>
+    internal static bool ShouldResolveProfile(
+        uint? observedAppId,
+        uint? resolvedAppId,
+        SteamRunningAppProfile? profile,
+        DateTimeOffset now,
+        DateTimeOffset retryAt) =>
+        observedAppId != resolvedAppId
+        || (observedAppId is { } appId
+            && SteamRunningApplicationProbe.IsShortcutAppId(appId)
+            && string.IsNullOrWhiteSpace(profile?.RtssProfileName)
+            && now >= retryAt);
 
     private void Publish(
         SteamRunningAppObservation observation,

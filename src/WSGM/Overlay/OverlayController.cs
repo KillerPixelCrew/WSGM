@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Device.Sdk.Input;
@@ -18,6 +19,10 @@ namespace WSGM.Overlay;
 /// exclusive (opening one closes the other).</summary>
 public sealed class OverlayController : IDisposable
 {
+    private const string QuickAccessSurface = "quick-access";
+    private const string TaskbarSurface = "taskbar";
+    private const string SettingsSurface = "settings";
+    private readonly HashSet<string> _uiSurfaces = new(StringComparer.Ordinal);
     private AppConfig _config;
     private readonly SteamMonitor? _monitor;
     private readonly SessionModes _modes;
@@ -476,9 +481,6 @@ public sealed class OverlayController : IDisposable
     private readonly string _leaseOwner =
         $"overlay-controller#{System.Threading.Interlocked.Increment(ref _nextLeaseOwnerId)}";
 
-    /// <summary>The lease is scoped to WSGM's focus-taking surfaces. It blocks
-    /// Steam's controller access only while SDL needs direct input for the
-    /// overlay or taskbar, then lets Steam rediscover the controller on release.</summary>
     /// <summary>Feeds one canonical sample from the plugin into WSGM's own navigation.</summary>
     /// <param name="sample">The sample, already filtered for UI consumption by the manager.</param>
     /// <remarks>
@@ -496,6 +498,11 @@ public sealed class OverlayController : IDisposable
     /// </remarks>
     public void ManagedInputLost() => _uiInput.ManagedSourceLost();
 
+    /// <summary>Claims this controller's Steam Input lease for a focus-taking surface.</summary>
+    /// <remarks>
+    /// The lease blocks Steam's controller access only while SDL needs direct input for the overlay
+    /// or taskbar, then lets Steam rediscover the controller after the last surface closes.
+    /// </remarks>
     private void AcquireSteamInputLease()
     {
         _leaseReleased = false;
@@ -647,6 +654,38 @@ public sealed class OverlayController : IDisposable
     /// panel always outranks the splash.</summary>
     public event Action? OverlayShown;
 
+    /// <summary>Raised before a focus-taking WSGM surface starts consuming controller input.</summary>
+    internal event Action<string>? UiSurfaceOpened;
+
+    /// <summary>Raised after a focus-taking WSGM surface stops consuming controller input.</summary>
+    internal event Action<string>? UiSurfaceClosed;
+
+    private void ClaimUiSurface(string surfaceId)
+    {
+        if (_uiSurfaces.Add(surfaceId))
+        {
+            UiSurfaceOpened?.Invoke(surfaceId);
+            return;
+        }
+
+        Log.Change(
+            $"ui-surface.{surfaceId}",
+            $"Managed UI capture claim skipped because {surfaceId} already owns it.");
+    }
+
+    private void ReleaseUiSurface(string surfaceId)
+    {
+        if (_uiSurfaces.Remove(surfaceId))
+        {
+            UiSurfaceClosed?.Invoke(surfaceId);
+            return;
+        }
+
+        Log.Change(
+            $"ui-surface.{surfaceId}",
+            $"Managed UI capture release skipped because {surfaceId} has no claim.");
+    }
+
     /// <summary>Shows and activates the overlay unless it has already been disposed.</summary>
     public void ShowOverlay()
     {
@@ -724,6 +763,10 @@ public sealed class OverlayController : IDisposable
                 RefreshPowerTimeouts(_overlayViewModel);
                 RefreshWakeLockIndicator();
                 StartWakeLockRefresh();
+            }
+            if (!_uiSurfaces.Contains(QuickAccessSurface))
+            {
+                ClaimUiSurface(QuickAccessSurface);
             }
             _overlay.Activate();
             if (_touchSwipes is not null)
@@ -825,13 +868,26 @@ public sealed class OverlayController : IDisposable
             var settings = new SettingsWindow(gameModeSurface: true);
             _settingsHandoffWindow = settings;
             _handoffLease = true;
+            ClaimUiSurface(SettingsSurface);
+            settings.Closed += (_, _) => ReleaseUiSurface(SettingsSurface);
             CloseOverlay();
             // A shell session normally has no main window. Opening settings in this
             // process keeps quick access responsive and avoids starting a second shell.
             // gameModeSurface: the window takes over as the on-screen surface and owns
             // the handed-off Steam Input lease, else Steam's desktop profile grabs the
             // pad over Settings.
-            Avalonia.Threading.Dispatcher.UIThread.Post(settings.Show);
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                try
+                {
+                    settings.Show();
+                }
+                catch (Exception ex)
+                {
+                    ReleaseUiSurface(SettingsSurface);
+                    Log.Error("Settings handoff window could not open", ex);
+                }
+            });
         };
         // A modal system dialog (the custom launch action's file picker) is its own
         // window outside the bar's rectangle. Tap-outside dismissal is raw hit
@@ -863,6 +919,7 @@ public sealed class OverlayController : IDisposable
         _overlay.Dismissed += CloseOverlay;
         _overlay.Closed += (_, _) =>
         {
+            ReleaseUiSurface(QuickAccessSurface);
             _closePending = false;
             _pendingClose = null;
             // Give Steam its pad back the moment the panel is gone — unless the
@@ -950,10 +1007,19 @@ public sealed class OverlayController : IDisposable
         // beside it. Registered while the overlay owns navigation.
         KeyboardService.Handler = OpenKeyboard;
         _gamepad.Start();
-        _overlay.Show();
-        // Game-Bar-style: the game stops receiving input while the panel is up.
-        // Safe because the Steam Input lease keeps the pad readable despite focus.
-        _overlay.Activate();
+        ClaimUiSurface(QuickAccessSurface);
+        try
+        {
+            _overlay.Show();
+            // Game-Bar-style: the game stops receiving input while the panel is up.
+            // Safe because the Steam Input lease keeps the pad readable despite focus.
+            _overlay.Activate();
+        }
+        catch
+        {
+            ReleaseUiSurface(QuickAccessSurface);
+            throw;
+        }
         RefreshWakeLockIndicator();
         StartWakeLockRefresh();
         if (_touchSwipes is not null)
@@ -1117,6 +1183,10 @@ public sealed class OverlayController : IDisposable
                 Log.Info("Taskbar re-shown during deferred close — pending close cancelled.");
             }
             RefreshTaskbarEntries();
+            if (!_uiSurfaces.Contains(TaskbarSurface))
+            {
+                ClaimUiSurface(TaskbarSurface);
+            }
             _taskbar.Activate();
             if (_touchSwipes is not null)
             {
@@ -1160,8 +1230,17 @@ public sealed class OverlayController : IDisposable
         // The taskbar has no tab strip. Its navigation is paused whenever a
         // child panel covers it and during the 150 ms surface handover.
         _gamepad.Start();
-        _taskbar.Show();
-        _taskbar.Activate();
+        ClaimUiSurface(TaskbarSurface);
+        try
+        {
+            _taskbar.Show();
+            _taskbar.Activate();
+        }
+        catch
+        {
+            ReleaseUiSurface(TaskbarSurface);
+            throw;
+        }
         StartTaskbarRefresh();
         if (_touchSwipes is not null)
         {
@@ -1770,6 +1849,7 @@ public sealed class OverlayController : IDisposable
 
     private void OnTaskbarClosed()
     {
+        ReleaseUiSurface(TaskbarSurface);
         // The panel is a child of the bar in everything but parenthood: it
         // binds the SystemStatus disposed below and runs its own gamepad
         // navigation. Leaving it alive past its bar (quick access opened by

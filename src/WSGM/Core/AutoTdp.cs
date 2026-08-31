@@ -149,6 +149,7 @@ internal sealed class AutoTdpController
         _watts = limits.Clamp(watts);
         _lastGood = _watts;
         ResetWindows();
+        _settling = 0;
         _paused = false;
         _probing = false;
         if (_learnedFloor.TryGetValue(_contextKey, out int floor))
@@ -174,6 +175,7 @@ internal sealed class AutoTdpController
         _watts = watts;
         _lastGood = watts;
         ResetWindows();
+        _settling = 0;
     }
 
     /// <summary>Resumes automatic control after an explicit request.</summary>
@@ -184,6 +186,7 @@ internal sealed class AutoTdpController
         _watts = watts;
         _lastGood = watts;
         ResetWindows();
+        _settling = 0;
     }
 
     /// <summary>Evaluates one observation window.</summary>
@@ -209,6 +212,7 @@ internal sealed class AutoTdpController
             // No telemetry is not evidence of comfort. The streak counters are dropped so a gap
             // cannot be stitched onto the windows either side of it and read as a settled period.
             ResetWindows();
+            _settling = 0;
             return Hold("no-telemetry");
         }
 
@@ -218,6 +222,7 @@ internal sealed class AutoTdpController
             // boundary would judge the new context on the old one's evidence.
             _contextKey = sample.ContextKey;
             ResetWindows();
+            _settling = 0;
             _probing = false;
             _lastGood = _watts;
             return Hold("context-changed");
@@ -235,7 +240,7 @@ internal sealed class AutoTdpController
 
         if (_probing)
         {
-            return JudgeProbe(missed, limits);
+            return JudgeProbe(missed);
         }
 
         if (missed)
@@ -276,6 +281,7 @@ internal sealed class AutoTdpController
         _probing = false;
         _paused = false;
         ResetWindows();
+        _settling = 0;
         _watts = restoreTo;
         _lastGood = restoreTo;
         return new AutoTdpDecision(AutoTdpAction.Release, restoreTo, "stopped");
@@ -287,7 +293,7 @@ internal sealed class AutoTdpController
     internal int? LearnedFloor(string contextKey) =>
         _learnedFloor.TryGetValue(contextKey, out int watts) ? watts : null;
 
-    private AutoTdpDecision JudgeProbe(bool missed, AutoTdpLimits limits)
+    private AutoTdpDecision JudgeProbe(bool missed)
     {
         if (missed)
         {
@@ -297,8 +303,8 @@ internal sealed class AutoTdpController
             _probing = false;
             _learnedFloor[_contextKey] = _lastGood;
             _watts = _lastGood;
-            _settling = SettleWindows;
             ResetWindows();
+            _settling = SettleWindows;
             return new AutoTdpDecision(AutoTdpAction.Restore, _watts, "probe-rejected");
         }
 

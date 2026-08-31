@@ -71,29 +71,13 @@ public sealed class ModeSelectionTests
     }
 
     [Theory]
-    [InlineData(new[] { "--shell", "--installer-rollback-no-device" }, true)]
-    [InlineData(new[] { "--shell", "--INSTALLER-ROLLBACK-NO-DEVICE" }, true)]
-    [InlineData(new[] { "--shell" }, false)]
-    public void InstallerRollbackDeviceSuppressionDetectsOnlyItsExactFlag(
-        string[] args,
-        bool expected)
-    {
-        Assert.Equal(expected, Program.IsInstallerRollbackWithoutDeviceIntegration(args));
-    }
-
-    [Theory]
-    [InlineData(false, false, true)]
-    [InlineData(false, true, false)]
-    [InlineData(true, false, false)]
-    [InlineData(true, true, false)]
-    public void DeviceCoordinatorAdmissionHonorsOverlayAndInstallerRollbackSuppression(
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void DeviceCoordinatorAdmissionSkipsOnlyTheSimulatedOverlay(
         bool overlayTestOnly,
-        bool suppressDeviceIntegration,
         bool expected)
     {
-        Assert.Equal(expected, WSGM.Shell.ShellSession.ShouldStartDeviceCoordinator(
-            overlayTestOnly,
-            suppressDeviceIntegration));
+        Assert.Equal(expected, WSGM.Shell.ShellSession.ShouldStartDeviceCoordinator(overlayTestOnly));
     }
 
     [Fact]
@@ -107,7 +91,6 @@ public sealed class ModeSelectionTests
             WSGM.Shell.ShellSession.AdmitDeviceCoordinatorAsync(
                 new WSGM.Core.AppConfig(),
                 overlayTestOnly: false,
-                suppressDeviceIntegration: false,
                 CancellationToken.None,
                 (_, _) =>
                 {
@@ -121,20 +104,15 @@ public sealed class ModeSelectionTests
         Assert.Null(await admission);
     }
 
-    [Theory]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    public async Task SafeSessionModesBypassTheProductionCoordinatorFactory(
-        bool overlayTestOnly,
-        bool suppressDeviceIntegration)
+    [Fact]
+    public async Task SimulatedOverlayBypassesTheProductionCoordinatorFactory()
     {
         bool called = false;
 
         WSGM.Shell.DeviceCoordinator? coordinator =
             await WSGM.Shell.ShellSession.AdmitDeviceCoordinatorAsync(
                 new WSGM.Core.AppConfig(),
-                overlayTestOnly,
-                suppressDeviceIntegration,
+                overlayTestOnly: true,
                 CancellationToken.None,
                 (_, _) =>
                 {
@@ -144,16 +122,5 @@ public sealed class ModeSelectionTests
 
         Assert.False(called);
         Assert.Null(coordinator);
-    }
-
-    [Theory]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    public void InstallerRollbackRestartsDoNotCountAsCrashes(
-        bool installerRollbackWithoutDeviceIntegration,
-        bool expected)
-    {
-        Assert.Equal(expected, Program.ShouldApplyCrashLoopProtection(
-            installerRollbackWithoutDeviceIntegration));
     }
 }

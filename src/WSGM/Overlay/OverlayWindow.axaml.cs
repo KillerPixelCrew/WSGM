@@ -456,7 +456,7 @@ public partial class OverlayWindow : Window
                 recovery.Title,
                 recovery.Description,
                 recovery.TrailingText,
-                recovery.CanRetry,
+                true,
                 DeviceStatusFor(recovery.Status)));
             row.Click += (_, _) => InvokeDeviceCycleRetry();
             DeviceCapabilityList.Children.Add(row);
@@ -956,6 +956,14 @@ public partial class OverlayWindow : Window
 
     private void ConfigureTabs(bool showDevice)
     {
+        if (!showDevice)
+        {
+            // A coordinator can retract Device while the Glyphs page is still selected. No tab
+            // selection event is raised for that removal, so release the high-rate sample observer
+            // here before the page and its tiles disappear.
+            UpdateGlyphInputObservation(false);
+        }
+
         OverlayDestination previous = _navigation.Destination;
         bool visibilityChanged = _navigation.SetDeviceVisible(showDevice);
         if (!visibilityChanged && Tabs.Tabs is not null)

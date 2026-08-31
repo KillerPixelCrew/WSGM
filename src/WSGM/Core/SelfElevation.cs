@@ -43,7 +43,7 @@ public static class SelfElevation
 
         var elevatedStartupApps = config.StartupApps.Any(a => a.Enabled && a.Elevated);
         var elevatedSteam = Steam.RequiresElevatedShell;
-        // The sole administrator-installed DeviceHost/plugin inherits WSGM's token. Startup has
+        // The sole administrator-installed plugin inherits WSGM's token. Startup has
         // already enforced package-root cardinality; the package is not opened until after elevation.
         var wantsElevation = elevatedStartupApps || elevatedSteam || config.DeviceIntegration.Enabled;
         if (!wantsElevation ||

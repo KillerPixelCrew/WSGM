@@ -32,7 +32,6 @@ internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState sta
     public int Version => 1;
 
     /// <inheritdoc/>
-    /// <inheritdoc/>
     /// <remarks>
     /// The window the user is looking at, not SharedJSContext. A stylesheet only affects the
     /// document it is installed in, and SharedJSContext has essentially no DOM — measured at 218
@@ -110,7 +109,7 @@ internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState sta
                 false,
                 false,
                 null,
-                result.Error ?? "Steam SharedJSContext is unavailable.");
+                result.Error ?? "Steam MainWindow is unavailable.");
         }
 
         // Both selector classes are required, not just ok. They are build-coupled: the rules this

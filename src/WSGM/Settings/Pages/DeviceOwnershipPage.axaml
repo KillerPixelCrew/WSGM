@@ -13,7 +13,7 @@
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                         <StackPanel VerticalAlignment="Center" Spacing="1">
                             <TextBlock Text="Device Integration" Classes="setting-title" />
-                            <TextBlock Text="Let the resident WSGM shell use the one administrator-installed device plugin. Off starts no DeviceHost and touches no hardware." Classes="caption" TextWrapping="Wrap" />
+                            <TextBlock Text="Let the resident WSGM shell use the one administrator-installed device plugin. Off loads no plugin and touches no hardware." Classes="caption" TextWrapping="Wrap" />
                         </StackPanel>
                         <ToggleSwitch Grid.Column="1" IsChecked="{Binding DeviceIntegrationEnabled}" VerticalAlignment="Center" />
                     </Grid>

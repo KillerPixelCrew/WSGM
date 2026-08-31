@@ -227,8 +227,7 @@ public sealed unsafe class MessageWindow : IDisposable
     /// <remarks>
     /// This replaces guessing at a card reader's identity. The Playnite-era approach
     /// watched WMI for a <c>Win32_DiskDrive</c> whose model matched a hard-coded
-    /// string, which only ever worked for the reader it was written against — and
-    /// WMI is COM, which a NativeAOT WSGM cannot use at all. A device-interface
+    /// string, which only ever worked for the reader it was written against. A device-interface
     /// registration for <c>GUID_DEVINTERFACE_VOLUME</c> is reader-agnostic, bus
     /// agnostic and pure Win32.
     /// </remarks>

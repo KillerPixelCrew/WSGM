@@ -6,51 +6,12 @@ into the repository or copied into an application publish directory.
 
 ## Current release decision
 
-Controller management is **not approved yet**. `HidMaestroProductionBackend` implements that
-capability-specific failure and never loads HIDMaestro, launches a helper, installs a driver, or
-creates a virtual target, so Device Integration, SDL input, and the Steam Input lease stay usable.
+Controller management uses VIIPER directly in WSGM. The optional installer component carries
+`libviiper.dll`, usbip-win2's signed driver and HidHide; runtime code never installs or repairs any
+of them. If a prerequisite is absent, controller management alone is unavailable while SDL input,
+the Steam Input lease and the rest of Device Integration continue.
 
-### What the rear-control gate actually is, and how it closes
-
-**Source-reviewed 2026-08-29 against the pinned v1.7.0 tree, checked out at `_ref/HIDMaestro`.** The
-original gate said the `steam-deck-composite` profile "does not encode the four distinct rear
-controls or stick-touch fields". That is accurate but was too pessimistic about what it implies: the
-two halves have different answers, and the rear-control half is WSGM's to fix.
-
-The SDK's own canonical state is not the problem. `HMButton` already carries four rear controls —
-`LeftPaddle`/`RightPaddle` (upper) and `LeftPaddle2`/`RightPaddle2` (lower). What is short is the
-**profile**, which is plain JSON: its `extendedReport` button mask names 64 bit positions and leaves
-the two upper paddles as unnamed `_` slots, so `SubmitState` has nowhere to put them.
-
-The missing positions are known. `hhd`'s virtual Steam Deck (`_ref/hhd`,
-`src/hhd/controller/virtual/sd/const.py`) is the same implementation HIDMaestro's profile cites for
-its attribute values, and it maps all four. Converting its `BM((byte << 3) + bitFromMsb)` form into
-the profile's 64-bit little-endian numbering, counting from the mask's base at byte 8:
-
-| Control | `hhd` name | Byte, bit-from-MSB | Mask bit | In HIDMaestro v1.7.0 |
-| --- | --- | --- | --- | --- |
-| L5 (lower left) | `extra_l2` | 9, 0 | 15 | named `LeftPaddle` |
-| R5 (lower right) | `extra_r2` | 10, 7 | 16 | named `RightPaddle` |
-| L4 (upper left) | `extra_l1` | 13, 6 | **41** | unnamed `_` |
-| R4 (upper right) | `extra_r1` | 13, 5 | **42** | unnamed `_` |
-
-`hhd` treats `extra_l1`/`extra_r1` as the top pair, which its own noob-mode and
-`paddles_to_clicks == "top"` handling confirm. The bit arithmetic is cross-checked against three
-positions HIDMaestro and `hhd` already agree on: `share`/`Misc1` at 50, `rs`/`RightStick` at 26, and
-`ls`/`LeftStick` at 22.
-
-So the rear-control gate closes without any upstream change: WSGM ships its own profile naming all
-four, loaded through `LoadProfilesFromDirectory`. WSGM does not need to fork HIDMaestro, and must
-not — a profile is data, and shipping data is not shipping a driver.
-
-**Stick touch is a separate matter and does not close this way.** `HMGamepadState` has no capacitive
-stick-touch field and `HMButton` has no bit for it, so the SDK cannot express it at all; `hhd` does
-not emulate it either, so there is no sourced bit position to name. Whatever WSGM declares for the
-Steam Deck target must therefore say so truthfully rather than let `VirtualTargetProfile.Consume`
-silently drop a control a plugin published. This is not a blocker for the Claw, which has no
-capacitive sticks, but it is a real limit of the target and belongs in its declared capabilities.
-
-### The backend is VIIPER, not HIDMaestro
+### Why VIIPER replaced HIDMaestro
 
 **Decided 2026-08-29.** VIIPER (`_ref/VIIPER`, corando98's `viiper-controller` branch) creates
 virtual USB devices in userspace over USBIP, and it wins on both halves of the gate above.
@@ -68,8 +29,10 @@ virtual USB devices in userspace over USBIP, and it wins on both halves of the g
   still installs it only through the installer, as an explicit user-approved elevated step, because
   INV-020 forbids the runtime from installing a driver whatever its provenance.
 
-HIDMaestro stays reviewed and pinned as the alternative, and its analysis above stays accurate. It
-is not the chosen path.
+The rejected HIDMaestro 1.7.0 profile named only two of the four rear controls and its managed state
+had no capacitive stick-touch fields. Its generated driver package was locally signed and stamped
+from the build date. Those are the concrete reasons it is not retained as a second backend or source
+checkout; git history holds the full comparison.
 
 ### The one real cost, and where it comes from
 
@@ -143,15 +106,11 @@ branch, which is well ahead of that fork:
 
 PR #2 needed adapting: this branch has replaced the inline `ctx.Done()` waits with
 `device.BlockUntilDeadline`, so the merged shape becomes one combined case that blocks and returns
-no data. Building VIIPER needs a Go toolchain, which is **not installed on this machine**, so these
-two edits are reviewed by inspection and not yet compiled.
+no data. `eng/build-viiper.ps1 -Validate` compiles this composition and runs its device tests before
+every release build.
 
 ## Pinned primary sources
 
-- [HIDMaestro v1.7.0](https://github.com/hifihedgehog/HIDMaestro/releases/tag/v1.7.0), commit
-  `46054b862830fcec7bc98d72ccb7c4f0c0179fb1`. Reviewed as the alternative and not chosen, so it is
-  no longer a locked component: nothing in a WSGM build downloads, stages or installs it. The
-  analysis above stays because the comparison is what justifies the choice.
 - [usbip-win2 v.0.9.7.7](https://github.com/vadimgrn/usbip-win2/releases/tag/v.0.9.7.7), commit
   `7c219953101cc5d0ec9a0bcb3eb87259cf72bedd`. WSGM stays on 0.9.7.7 for the same reason HIDMaestro
   does, now checked directly rather than taken second-hand: usbip-win2 issues
@@ -177,14 +136,13 @@ private keys make byte-identical signed output unavailable from a clean public c
 
 ## Packaging
 
-There is no ControllerHost process. VIIPER's `libviiper` is a flat C ABI over blittable types, so
-the NativeAOT WSGM executable binds it directly and the library ships beside `WSGM.exe` — the same
-arrangement as the Rust helpers. The reserved `publish/ControllerHost` staging root is not used.
+VIIPER's `libviiper` is a flat C ABI over blittable types. WSGM binds it directly and ships the
+library beside `WSGM.exe`.
 
 `build.ps1` builds `libviiper.dll` from the pinned VIIPER revision and stages the verified
-usbip-win2 installer into `publish/App`. Both steps are best-effort and skip loudly: a release
-machine without a Go toolchain, a C compiler, or a network still produces a good build, and the
-result is simply a WSGM whose controller management reports itself unavailable.
+usbip-win2 and HidHide installers into `publish/App`. These are required release inputs: a runtime
+machine may omit the optional controller component, but a release artifact must contain the complete
+component it offers.
 
 Setup installs the driver from one place and one place only — an explicitly ticked task that runs
 `Install-UsbipDriver.ps1` while setup is on screen (INV-020). It re-verifies the pinned digest and
@@ -203,7 +161,7 @@ The production adapter performs exact compare-before-write and exact readback an
 global active or inverse flags.
 
 **WSGM is not the only thing that uses HidHide, and it assumed it was** (device-observed on the
-reference Claw, 2026-08-29). `HidHideOwnedDeltaManager` adds DeviceHost to HidHide's application
+reference Claw, 2026-08-29). `HidHideOwnedDeltaManager` adds WSGM to HidHide's application
 allowlist, but only as the first step of WSGM's *own* hiding transaction — that is, only once
 controller management is already activating. That ordering cannot survive a machine where something
 else hid the controller first.
@@ -213,8 +171,8 @@ On this unit HandheldCompanion had done exactly that. Its leftover configuration
 with an allowlist naming only HandheldCompanion and HidHide's own tools. The effect on WSGM was
 total and silent: SDL reported no gamepad at all, the plugin's HID enumeration could not see the
 DirectInput pad it had just switched the device into, controller acquisition failed with
-`PrerequisiteMissing`, and nothing anywhere said the word HidHide. Adding DeviceHost and WSGM to the
-allowlist made the pad visible again immediately.
+`PrerequisiteMissing`, and nothing anywhere said the word HidHide. Adding WSGM to the allowlist made
+the pad visible again immediately. The in-process runtime needs only WSGM's executable identity.
 
 The pad itself was never the problem, and this is worth recording so it is not re-diagnosed: in
 DirectInput mode it enumerates as `1902/0001:0005 in64 out32`, it streams while idle at roughly

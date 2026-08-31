@@ -37,6 +37,26 @@ tap-outside-overlay dismissal. Bottom/right retain WSGM's taskbar/quick-access a
 always send Steam's installed-client keyboard mappings Ctrl+1 (Steam menu) / Ctrl+2 (Quick Access
 Menu), including while a game is foreground — bringing Steam's menu over the game is their purpose.
 
+**Managed-controller capture and source changes**: each visible WSGM surface owns one named capture
+claim. The first claim neutralizes the virtual target; nested claims keep capture active, and the
+last close resumes game forwarding only after every control used by the UI is released. Lifecycle
+handoffs and source faults use one forwarding-blocked state which is cleared only by a successfully
+created or replaced target. There is deliberately no parallel enum of hypothetical zero reasons:
+capture, routing admission, and target state are the mechanisms that actually decide delivery.
+
+WSGM navigation switches to managed canonical input only after its first complete sample and keeps
+SDL live as the ready fallback. Controls held across that switch stay suppressed until released or
+for at most two seconds when the incoming source cannot observe them. Every completed source switch
+logs the old source, new source, suppression mask, and managed-health state. A VIIPER submission
+failure is also a target-lifetime event: `DeviceRemove` runs before WSGM forgets the handle, because
+the native device object and feedback callback outlive managed bookkeeping otherwise.
+
+**Curve editing**: a focused `CurveEditor` consumes directions before window navigation for both
+Steam's mirrored arrow keys and SDL input. Both paths deliberately use identical semantics—left and
+right select a point; up and down change its output—so whichever duplicate arrives first cannot
+change the result. Shift+left/right remains the keyboard path for moving an interior point's input.
+Refused edits log the requested operation and current selection instead of silently appearing dead.
+
 2. **Never intercept mouse or keyboard globally** — raw-input _observation_ only (TouchSwipeMonitor
    pattern). The low-level keyboard hook in `KeyRecorder` exists only during explicit shortcut
    recording.

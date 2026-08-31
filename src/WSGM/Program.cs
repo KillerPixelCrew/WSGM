@@ -34,9 +34,6 @@ internal enum DevicePluginMaintenanceMode
 /// <summary>Defines the safe command-line entry points and application bootstrap.</summary>
 public static class Program
 {
-    internal const string InstallerRollbackOwnerRetainedEventName =
-        @"Local\WSGM.InstallerRollback.DeviceOwnerRetained";
-
     /// <summary>Gets the mode selected from the current command line.</summary>
     public static RunMode Mode { get; private set; } = RunMode.Settings;
 
@@ -44,8 +41,6 @@ public static class Program
     /// (--boot): the session boots over a live, still-initializing explorer that
     /// the takeover flow waits out and then cleanly shuts down.</summary>
     public static bool ServiceBoot { get; private set; }
-
-    internal static bool InstallerRollbackWithoutDeviceIntegration { get; private set; }
 
     private static Mutex? _shellMutex;
 
@@ -282,8 +277,6 @@ public static class Program
 
         ServiceBoot = IsServiceBoot(args);
         Mode = DecideMode(args);
-        InstallerRollbackWithoutDeviceIntegration =
-            IsInstallerRollbackWithoutDeviceIntegration(args);
         if (ServiceBoot)
         {
             Log.Info($"Run mode: {Mode} (service boot, elevated={ElevationCheck.IsCurrentProcessElevated()}, " +
@@ -316,15 +309,10 @@ public static class Program
                 Log.Warn("Another WSGM shell instance is running; exiting.");
                 return 0;
             }
-            bool applyCrashLoopProtection = ShouldApplyCrashLoopProtection(
-                InstallerRollbackWithoutDeviceIntegration);
-            if (applyCrashLoopProtection)
-            {
-                // Record this start BEFORE deciding, so the breaker fires on the
-                // 3rd start within 2 minutes (this one included) as documented.
-                CrashLoopBreaker.RecordStart();
-            }
-            if (applyCrashLoopProtection && CrashLoopBreaker.IsLooping())
+            // Record this start BEFORE deciding, so the breaker fires on the
+            // 3rd start within 2 minutes (this one included) as documented.
+            CrashLoopBreaker.RecordStart();
+            if (CrashLoopBreaker.IsLooping())
             {
                 Log.Error("Crash loop detected (3+ shell starts within 2 minutes) — " +
                           "game-mode boot DISABLED (re-enable in WSGM settings).");
@@ -496,35 +484,6 @@ public static class Program
     internal static bool IsServiceBoot(string[] args)
         => args.Contains("--boot", StringComparer.OrdinalIgnoreCase);
 
-    internal static bool IsInstallerRollbackWithoutDeviceIntegration(string[] args)
-        => args.Contains("--installer-rollback-no-device", StringComparer.OrdinalIgnoreCase);
-
-    internal static bool ShouldApplyCrashLoopProtection(
-        bool installerRollbackWithoutDeviceIntegration)
-        => !installerRollbackWithoutDeviceIntegration;
-
-    internal static void ReportInstallerRollbackOwnerRetained()
-    {
-        try
-        {
-            if (EventWaitHandle.TryOpenExisting(
-                InstallerRollbackOwnerRetainedEventName,
-                out EventWaitHandle? ready))
-            {
-                using (ready)
-                {
-                    ready.Set();
-                }
-            }
-        }
-        catch (Exception ex) when (ex is IOException
-            or UnauthorizedAccessException
-            or WaitHandleCannotBeOpenedException)
-        {
-            Log.Warn($"Installer rollback owner-retention acknowledgement failed: {ex.Message}");
-        }
-    }
-
     private static async Task<int> RunDevicePluginMaintenanceAsync(
         DevicePluginMaintenanceMode mode,
         string[] args)
@@ -603,59 +562,37 @@ public static class Program
         string? sourceDirectory,
         string operation)
     {
-        // Atomically create the same machine-wide marker as production and Device Lab only after
-        // taking the package gate. Holding the unowned handle through the host recheck and every
-        // filesystem operation prevents a new coordinator from entering after a stale observation.
+        // Reserve the same machine marker as the running coordinator while replacing the package.
         return await RunDevicePluginMaintenanceWithOwnerReservationAsync(
             DeviceCoordinator.ProductionOwnerName,
             operation,
-            () => RunDevicePluginMaintenanceWithReservedOwnerAsync(
-                mode,
-                sourceDirectory,
-                operation)).ConfigureAwait(false);
-    }
-
-    private static async Task<int> RunDevicePluginMaintenanceWithReservedOwnerAsync(
-        DevicePluginMaintenanceMode mode,
-        string? sourceDirectory,
-        string operation)
-    {
-        bool? hostRunning = DeviceHostProcess.IsAnyRunning();
-        if (hostRunning is true)
-        {
-            Log.Error($"Device plugin maintenance: close every running DeviceHost before {operation}.");
-            return 1;
-        }
-        if (hostRunning is null)
-        {
-            Log.Error($"Device plugin maintenance: DeviceHost process state could not be verified; {operation} refused.");
-            return 1;
-        }
-
-        try
-        {
-            if (mode is DevicePluginMaintenanceMode.Remove)
+            async () =>
             {
-                DevicePackageStager.RemoveInstalledPackage(
-                    DeviceInstallationPaths.InstalledPackageRoot);
-                Log.Info("Device plugin maintenance: installed slot removed.");
-                return 0;
-            }
+                try
+                {
+                    if (mode is DevicePluginMaintenanceMode.Remove)
+                    {
+                        DevicePackageStager.RemoveInstalledPackage(
+                            DeviceInstallationPaths.InstalledPackageRoot);
+                        Log.Info("Device plugin maintenance: installed slot removed.");
+                        return 0;
+                    }
 
-            InstalledDevicePackage installed = await DevicePackageStager.StageAsync(
-                sourceDirectory!,
-                DeviceInstallationPaths.InstalledPackageRoot).ConfigureAwait(false);
-            Log.Info("Device plugin maintenance: installed "
-                + $"{installed.Manifest?.Id ?? Path.GetFileName(installed.PackagePath)} "
-                + $"into the protected slot at {installed.PackagePath}.");
-            return 0;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-            or InvalidDataException)
-        {
-            Log.Error($"Device plugin maintenance: {operation} failed", ex);
-            return 1;
-        }
+                    InstalledDevicePackage installed = await DevicePackageStager.StageAsync(
+                        sourceDirectory!,
+                        DeviceInstallationPaths.InstalledPackageRoot).ConfigureAwait(false);
+                    Log.Info("Device plugin maintenance: installed "
+                        + $"{installed.Manifest?.Id ?? Path.GetFileName(installed.PackagePath)} "
+                        + $"into the protected slot at {installed.PackagePath}.");
+                    return 0;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                    or InvalidDataException)
+                {
+                    Log.Error($"Device plugin maintenance: {operation} failed", ex);
+                    return 1;
+                }
+            }).ConfigureAwait(false);
     }
 
     /// <summary>Runs one maintenance operation while an exact handle-held owner reservation exists.
@@ -773,7 +710,6 @@ public static class Program
             "--setup",
             "--install-device-plugin",
             "--remove-device-plugin",
-            "--installer-rollback-no-device",
         ];
         return !args.Any(argument => bypass.Contains(argument, StringComparer.OrdinalIgnoreCase));
     }

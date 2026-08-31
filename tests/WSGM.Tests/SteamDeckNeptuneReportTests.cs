@@ -101,6 +101,17 @@ public sealed class SteamDeckNeptuneReportTests
     }
 
     [Fact]
+    public void TriggerRestNoiseDoesNotBecomeAPermanentDigitalPress()
+    {
+        byte[] frame = SteamDeckNeptuneReport.Create(
+            Sample(CanonicalButtons.None) with { LeftTrigger = 0.1f, RightTrigger = 0.2f });
+
+        Assert.Equal(0, frame[8] & 0x03);
+        Assert.True(BitConverter.ToUInt16(frame, 44) > 0);
+        Assert.True(BitConverter.ToUInt16(frame, 46) > 0);
+    }
+
+    [Fact]
     public void StickAxesScaleOntoTheSignedWireRange()
     {
         byte[] frame = SteamDeckNeptuneReport.Create(Sample(CanonicalButtons.None) with
@@ -178,14 +189,6 @@ public sealed class SteamDeckNeptuneReportTests
         // A frozen identity quaternion makes Steam ignore raw angular velocity and collapse
         // gyro-to-stick to centre, so WSGM sends raw motion and no orientation at all.
         Assert.Equal(new byte[8], frame[36..44]);
-    }
-
-    [Fact]
-    public void TheTargetDropsNothingTheCanonicalModelDefines()
-    {
-        CanonicalButtons everything = SteamDeckNeptuneReport.Supported;
-
-        Assert.Equal(everything, VirtualTargetProfile.SteamDeck.Consume(everything));
     }
 
     [Fact]

@@ -97,10 +97,10 @@ package files.
 
 ## 5. Install or replace the one slot
 
-Close the WSGM shell and DeviceHost. A package installed through this command becomes trusted
-hardware code and may later inherit WSGM's elevation, so inspect and validate the exact directory
-you intend to install. Expand the `.wsgmpkg` into a fresh directory, then ask the installed WSGM
-binary to replace the protected slot:
+Close the WSGM shell. A package installed through this command becomes trusted hardware code and may
+later inherit WSGM's elevation, so inspect and validate the exact directory you intend to install.
+Expand the `.wsgmpkg` into a fresh directory, then ask the installed WSGM binary to replace the
+protected slot:
 
 ```powershell
 $expanded = '<new-expanded-directory>'
@@ -114,17 +114,16 @@ if ($LASTEXITCODE -ne 0) { throw 'WSGM rejected the plugin installation; inspect
 
 The maintenance command requests elevation, copies into the fixed nondiscoverable `.staging`
 sibling, revalidates its bounded paths, manifest/API version, and x64 entry point, atomically
-reserves the machine-wide WSGM/Device Lab hardware owner, refuses any running DeviceHost process,
-and replaces `C:\Program Files\WSGM\DevicePlugins\installed`. It repairs an ambiguous old slot by
-replacing the whole slot and never leaves a release and developer plugin side by side. The source
-directory must not overlap the installed slot, `.staging`, `.previous`, `.installed.previous`, or an
-abandoned `.installed.staging-*` namespace in either direction and must not traverse a link/reparse
-point; these checks run before recovery reconciliation. Enable Device Integration in WSGM Settings
-only after the install succeeds. Runtime discovery/host creation and maintenance use the same
-machine-wide package-slot gate; the owner reservation is held from the host recheck through every
-filesystem operation, closing the startup race without loading plugin code in maintenance. To return
-to core-only WSGM, run the maintenance removal; it also requests elevation and applies the same gate
-and owner/DeviceHost refusal:
+reserves the machine-wide WSGM/Device Lab hardware owner, and replaces
+`C:\Program Files\WSGM\DevicePlugins\installed`. It repairs an ambiguous old slot by replacing the
+whole slot and never leaves a release and developer plugin side by side. The source directory must
+not overlap the installed slot, `.staging`, `.previous`, `.installed.previous`, or an abandoned
+`.installed.staging-*` namespace in either direction and must not traverse a link/reparse point;
+these checks run before recovery reconciliation. Enable Device Integration in WSGM Settings only
+after the install succeeds. Runtime discovery/loading and maintenance use the same machine-wide
+package-slot gate; the owner reservation is held through every filesystem operation, closing the
+startup race without loading plugin code in maintenance. To return to core-only WSGM, run the
+maintenance removal; it also requests elevation and applies the same gate and owner refusal:
 
 ```powershell
 & "$env:LOCALAPPDATA\WSGM\bin\WSGM.exe" --remove-device-plugin

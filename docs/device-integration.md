@@ -7,7 +7,8 @@ artwork, launch features, RTSS, and core recovery usable.
 ## One protected plugin slot
 
 Normal startup counts package roots before manifest validation, device matching, elevation, Explorer
-exit, Avalonia initialization, `ShellSession`, DeviceHost, HidHide, or virtual-controller creation.
+exit, Avalonia initialization, `ShellSession`, plugin loading, HidHide, or virtual-controller
+creation.
 
 - Zero packages starts core WSGM with Device Integration unavailable.
 - One package is validated and asked to detect the current machine. A malformed or nonmatching
@@ -44,35 +45,33 @@ directories before sorting or traversing them.
 
 `ShellSession` creates at most one `DeviceCoordinator` for the interactive session. The exact
 `Global\WSGM.DeviceOwner` marker prevents any session, setup, maintenance command, or attended
-Device Lab run from starting a second machine hardware cycle. The runtime then takes a global
-DeviceHost process snapshot and admits the coordinator only when that snapshot proves no earlier
-host remains alive; a running or unverified host releases the new marker and fails closed. The
-admitted runtime validates the sole package, launches one `WSGM.DeviceHost.exe`, and keeps that
-cycle across Steam restarts, games, and desktop/game transitions. Runtime discovery plus host
-creation and elevated install/removal share the exact crash-recovering
-`Global\WSGM.DevicePackageSlot` mutex. A dedicated owner thread keeps its release correct across
-asynchronous continuations. Maintenance atomically reserves the hardware marker and rechecks every
-DeviceHost only after acquiring that gate, then keeps both reservations through filesystem
-replacement. Setup follows the same gate/owner ordering and refuses publication if process
-enumeration cannot prove that every DeviceHost exited. Uninstall holds the same objects through
-package and DeviceHost deletion.
+Device Lab run from starting a second machine hardware cycle. The admitted coordinator validates the
+sole package and loads its public entry type into one package-local collectible assembly-load
+context inside WSGM. That one runtime stays alive across Steam restarts, games, and desktop/game
+transitions. Runtime discovery and elevated install/removal share the exact crash-recovering
+`Global\WSGM.DevicePackageSlot` mutex. Maintenance reserves the hardware marker before taking that
+gate and keeps both reservations through filesystem replacement, so package bytes cannot change
+under a loaded plugin. Uninstall holds the same objects through package deletion.
 
 When setup or uninstall refuses before file mutation, it restores the initially observed
 shell/settings mode and restarts the logon service through its installer-tagged start only when that
 service was initially present and running, so startup catch-up cannot launch a second boot process.
-If the DeviceHost process check was unverified, that one restored shell process does not create a
-DeviceCoordinator. The restored shell or settings process instead opens the installer's existing
-unowned global marker, acknowledges the second handle, and retains it for the rest of its process
-lifetime before setup releases its copy. This preserves the session without letting an orphaned host
-overlap another hardware owner.
+The restored shell or settings process opens the installer's existing unowned global marker,
+acknowledges the second handle, and retains it for the rest of its process lifetime before setup
+releases its copy. This preserves the session without allowing package maintenance and a new
+hardware cycle to overlap.
 
-DeviceHost loads only the package-local entry assembly and dependencies. One ACL-restricted named
-pipe carries exact-version lifecycle, capability, command, state, output, and diagnostic messages.
-The measured fixed shared-memory ring remains the single high-rate controller/motion path. The host
-is assigned to a kill-on-close job so forced WSGM exit cannot orphan plugin ownership.
+`DevicePluginRuntime` loads only the validated package entry assembly and package-local
+dependencies. Lifecycle calls and semantic publications are direct managed calls. A bounded one-slot
+sample pump in `ControllerManager` coalesces high-rate controller state while preserving the newest
+accepted sample.
 
 The installed plugin is explicit administrator-installed hardware code and inherits WSGM's required
-authority. The process boundary limits crash and dependency fallout; it is not a malware sandbox.
+authority. The collectible load context isolates package dependency resolution and permits a clean
+unload after verified cleanup, but it is not process-crash containment: a process-fatal managed or
+native plugin failure now terminates WSGM with the plugin. Existing WSGM/session recovery and the
+plugin's bounded next-start recovery record are the remaining recovery boundary. This is the
+explicit maintenance-cost tradeoff of the in-process design, not a claim of equivalent isolation.
 There are no runtime trust tiers, publisher grants, signer rotation/revocation, package ranking,
 quarantine catalog, or de-elevated plugin class.
 
@@ -82,26 +81,30 @@ Steam selectors, arbitrary shell/file operations, or a raw hardware broker.
 
 ## Lifecycle and recovery
 
-The runtime has one lifecycle: detect, start, suspend, resume, stop, and diagnostics. Suspend/lock
-quiesces the current plugin; resume re-detects the machine and advances one cycle generation before
-new state or commands are accepted.
+The runtime has one serialized lifecycle: detect, start, suspend, resume, stop, and diagnostics.
+Suspend/lock quiesces the current plugin; resume advances one cycle generation before new state or
+commands are accepted. Full release first closes command admission, cancels and quiesces in-flight
+commands, performs the controller handoff, stops the plugin, detaches direct publications, disposes
+the plugin, and unloads the collectible context only when cleanup was verified. A command canceled
+at its caller deadline retains its stable late-completion task so an eventual hardware outcome is
+still observed instead of being misattributed to a later command.
 
-If the authenticated coordinator pipe closes after plugin startup, DeviceHost invokes the same
-bounded plugin stop before unloading it. Forced parent death can still terminate the kill-on-close
-job first, so the plugin's small next-start recovery record remains the crash-recovery boundary.
-Startup cancellation follows the same ownership rule: caller cancellation gets a fresh bounded
-controller handoff and plugin stop before DeviceHost disposal, while process-lifetime cancellation
-preserves the client for the outer shutdown owner to stop under its application deadline.
+Startup cancellation after acquisition gets a fresh bounded controller handoff and plugin stop,
+while process-lifetime cancellation preserves the runtime for the outer shutdown owner to stop under
+its application deadline. Generation-bearing direct publications validate cycle and descriptor
+generations before reaching WSGM consumers; stale samples and state are refused rather than allowed
+to cross a resume or controller-reacquisition boundary.
 
 One process shutdown deadline covers normal exit, update, session logoff, and uninstall. The same
 deadline is passed through controller release and plugin restoration; WSGM does not stack a second
 set of phase budgets. WSGM-owned virtual-target and HidHide cleanup still runs after an unverified
 plugin response, and the compact result is logged as clean, unverified, timed-out, or failed.
 
-Unexpected host exit retries once or twice under one restart policy, then faults Device Integration
-for the run with a clear manual retry. The fail-open path restores usable input and removes only
-WSGM-owned state. It never starts, stops, kills, or reconfigures MSI Center, Handheld Companion, or
-another external manager.
+A background plugin service reports a runtime fault through the direct host adapter. That completion
+closes command admission and drives the same bounded make-safe, stop, detach, dispose, and restart
+policy. WSGM retries at most twice, then faults Device Integration for the run with a clear manual
+retry. The fail-open path restores usable input and removes only WSGM-owned state. It never starts,
+stops, kills, or reconfigures MSI Center, Handheld Companion, or another external manager.
 
 Recovery records only temporary plugin-owned state that was actually changed and could not be
 restored. Persistent desired RGB/profile state remains separate. An indeterminate hardware write is
@@ -109,8 +112,8 @@ reported to the plugin owner and is never blindly retried.
 
 ## Public SDK and glyph data
 
-`WSGM.Device.Sdk` is the one AOT-safe API shared by WSGM, DeviceHost, plugins, and Device Lab. It
-contains the exact API/wire version, one plugin lifecycle, practical semantic capability
+`WSGM.Device.Sdk` is the one public API shared by WSGM, plugins, and Device Lab. It contains the
+exact plugin API version, one plugin lifecycle, practical semantic capability
 descriptors/state/commands/results, canonical controller and motion samples, haptic output, OEM
 events, glyph data/control maps, and a publication sink.
 
@@ -174,7 +177,7 @@ when a surface opens are suppressed until released, and forwarding resumes only 
 in which every control the UI used is up, so the press that opened or closed a surface never arrives
 in the game as a fresh input.
 
-The make-safe handoff is stated in the shared `ControllerHandoffStep` wire vocabulary rather than a
+The make-safe handoff is stated in the shared `ControllerHandoffStep` vocabulary rather than a
 second WSGM-local one, so a pasted log settles how far the handoff got. WSGM's half collapses into
 two of those steps and keeps the two orderings that prevent a defect as explicit guards: the virtual
 target may not be removed until the physical release has concluded either way, and WSGM's HidHide
@@ -183,12 +186,11 @@ plugin is still holding, which is the duplicate-input state the single-target ru
 prevent. An unverified or failed plugin answer still runs WSGM's removal; the result records
 `ReleasedUnverified` rather than presenting a timeout as a clean release.
 
-Controller management remains excluded from the release: the reviewed HIDMaestro profile does not
-carry the four distinct rear controls or the stick-touch fields WSGM's controller contract requires,
-and exact signed driver reproduction is not established. `HidMaestroProductionBackend` implements
-that as a capability-specific failure and never loads HIDMaestro, launches a helper, installs a
-driver, or creates a target. `third_party/controller/README.md` holds the pinned sources and the
-gate.
+Controller management uses VIIPER directly. Its Steam Deck target carries all four rear controls and
+stick-touch fields through usbip-win2's pinned signed driver; WSGM's encoder supplies the complete
+Neptune frame. Xbox 360 and DualShock 4 remain advertised only when their VIIPER encoders are
+present. The shell never installs or repairs a driver at runtime. `third_party/controller/README.md`
+records the live-device evidence and exact pins.
 
 ## Authored profiles
 
@@ -217,7 +219,7 @@ shape the profile happened to have that day.
 
 **The pre-apply check is not redundant with storage normalization.** Normalization sees only a
 profile's internal shape. Profiles are authored with no plugin running — `--settings` starts no
-DeviceHost — so a curve is built against the last known bounds and the device can be updated,
+device runtime — so a curve is built against the last known bounds and the device can be updated,
 swapped, or downgraded before it is applied. The descriptor is therefore read at apply time and
 never cached: a plugin republishes its capabilities across a cycle.
 

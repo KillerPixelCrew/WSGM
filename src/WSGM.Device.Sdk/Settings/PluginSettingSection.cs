@@ -8,14 +8,13 @@ namespace WSGM.Device.Sdk.Settings;
 /// </summary>
 /// <remarks>
 /// The same ownership split as <see cref="DisplayKey"/>, one level up: a plugin selects a key WSGM
-/// localizes, or supplies untrusted plain text through <see cref="Custom"/>. Sections must not
-/// acquire a looser rule than the labels inside them, because a plugin that could name sections
-/// freely would be laying out the page.
+/// localizes, or supplies bounded plain text through <see cref="Custom"/>. Sections use the same
+/// text contract as the labels inside them.
 /// </remarks>
 [JsonConverter(typeof(JsonStringEnumConverter<SettingSectionKey>))]
 public enum SettingSectionKey
 {
-    /// <summary>Use <see cref="PluginSettingSection.CustomTitle"/> as untrusted plain text.</summary>
+    /// <summary>Use <see cref="PluginSettingSection.CustomTitle"/> as bounded plugin text.</summary>
     Custom,
 
     /// <summary>"General".</summary>
@@ -62,7 +61,7 @@ public sealed record PluginSettingSection
     public required SettingSectionKey Key { get; init; }
 
     /// <summary>
-    /// Untrusted plain-text title, used only when <see cref="Key"/> is
+    /// Bounded plugin-supplied title, used only when <see cref="Key"/> is
     /// <see cref="SettingSectionKey.Custom"/>. Not localized: WSGM cannot translate text it did not
     /// author.
     /// </summary>

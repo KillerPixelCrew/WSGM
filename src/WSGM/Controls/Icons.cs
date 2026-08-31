@@ -6,7 +6,7 @@ namespace WSGM.Controls;
 /// replacing the Unicode/emoji glyph TextBlocks of the old UI. Each geometry is authored
 /// on a 24x24 viewbox as stroke-style path data (render with a ~2 px stroke and no fill,
 /// e.g. via <c>Path</c> or <c>CardButton.IconGeometry</c>) and parsed exactly once from
-/// its path string — plain string parsing, fully NativeAOT-safe (same approach as
+/// its path string — plain string parsing with no external asset decoder (same approach as
 /// <see cref="WSGM.Overlay.GlyphIcon"/>).</summary>
 public static class Icons
 {

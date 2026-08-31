@@ -10,7 +10,7 @@ namespace WSGM.Controls;
 /// <summary>Converts a "#RRGGBB"/"#AARRGGBB" hex string into a solid brush for the
 /// inline color-swatch previews on the Appearance page. Unparsable text (including
 /// a half-typed value in the paired hex TextBox) yields a transparent brush, never
-/// an error. AOT-safe: no reflection, used via <c>x:Static</c>.</summary>
+/// an error. It is shared through <c>x:Static</c>.</summary>
 public sealed class HexBrushConverter : IValueConverter
 {
     /// <summary>Gets the shared stateless instance referenced from page XAML.</summary>

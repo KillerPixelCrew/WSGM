@@ -5,6 +5,17 @@ namespace WSGM.Tests;
 
 public sealed class ApplicationShutdownTests
 {
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(1, 1)]
+    [InlineData(2, 1)]
+    [InlineData(3, 1)]
+    public void ProcessExitCodeReportsIncompleteShutdown(int outcome, int expected)
+    {
+        Assert.Equal(expected, ApplicationShutdownCoordinator.ExitCodeFor(
+            (ApplicationShutdownOutcome)outcome));
+    }
+
     [Fact]
     public void BudgetsMatchFrozenShutdownAndUpdatePreStopDeadlines()
     {

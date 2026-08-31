@@ -64,7 +64,7 @@ public static class SteamArtwork
             "return JSON.stringify({ok:true});}" +
             "catch(e){return JSON.stringify({ok:false,err:String((e&&e.message)||e)});}})()";
 
-        var result = await SteamCef.EvaluateAsync(expression, Budget, cancellationToken)
+        var result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, cancellationToken)
             .ConfigureAwait(false);
         return Interpret(result, "Artwork applied.");
     }
@@ -86,7 +86,7 @@ public static class SteamArtwork
             "(async()=>{try{await SteamClient.Apps.ClearCustomArtworkForApp(" + app + "," + type + ");" +
             "return JSON.stringify({ok:true});}" +
             "catch(e){return JSON.stringify({ok:false,err:String((e&&e.message)||e)});}})()";
-        var result = await SteamCef.EvaluateAsync(expression, Budget, cancellationToken)
+        var result = await SteamUiTransportSession.EvaluateAsync(expression, Budget, cancellationToken)
             .ConfigureAwait(false);
         return Interpret(result, "Reset to official art.");
     }

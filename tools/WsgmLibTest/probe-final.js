@@ -4,6 +4,6 @@
   return JSON.stringify({
     bridge: true,
     asset: b.assetHash && b.assetHash.slice(0, 8),
-    perfOwned: !!(window.SteamClient?.System?.Perf?.__wsgmOwnedNamespace),
+    perfOwned: !!window.SteamClient?.System?.Perf?.__wsgmOwnedNamespace,
   });
 })();

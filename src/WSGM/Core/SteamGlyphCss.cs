@@ -330,11 +330,7 @@ internal static class SteamGlyphCss
     /// <param name="value">The data URI to emit.</param>
     /// <returns>The value, unchanged when it is safe to emit.</returns>
     /// <exception cref="ArgumentException">The value is not a bounded data URI.</exception>
-    /// <remarks>
-    /// Asset references are produced by the importer from hash-checked bytes, so this is a boundary
-    /// assertion rather than sanitisation: a value that is not a plain <c>data:</c> URI means the
-    /// import path changed, and emitting it would put attacker-influenced text into a stylesheet.
-    /// </remarks>
+    /// <remarks>The importer supplies bounded data URIs; any other value violates that contract.</remarks>
     internal static string Url(string value)
     {
         if (!value.StartsWith("data:", StringComparison.Ordinal)

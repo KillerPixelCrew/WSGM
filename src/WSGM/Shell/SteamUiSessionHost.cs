@@ -20,9 +20,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private const string BootstrapPatchId = "wsgm.native-qam.bootstrap";
     private const string TdpPatchId = "wsgm.native-qam.tdp";
     private const string FrameLimitPatchId = "wsgm.native-qam.frame-limit";
-    private const string OverlayLevelPatchId = "wsgm.native-qam.overlay-level";
     private const string VrrPatchId = "wsgm.native-qam.vrr";
-    private const string ValveTdpPatchId = "wsgm.native-qam.valve-tdp";
     private const string ValveOverlayLevelPatchId = "wsgm.native-qam.valve-overlay-level";
     private const string AutoTdpPatchId = "wsgm.native-qam.auto-tdp";
     private const string ControllerTargetPatchId = "wsgm.native-qam.controller-target";
@@ -32,8 +30,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private const string NetworkGatePatchId = "wsgm.steam-network.gate";
     private const string BluetoothPatchId = "wsgm.steam-bluetooth.service";
     private const string BrightnessPatchId = "wsgm.steam-display.brightness";
+    private const string DownloadSortPatchId = "wsgm.download-sort";
     private const string GlyphStylePatchId = SteamInputGlyphStylePatch.PatchId;
-    private readonly PersistentSteamUiTransport _transport;
+    private readonly ISteamUiTransport _transport;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly SemaphoreSlim _synchronizeSignal = new(0, 1);
     private readonly SemaphoreSlim _publicationSignal = new(0, 1);
@@ -41,6 +40,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly object _observationGate = new();
     private readonly Dictionary<long, CancellationTokenSource> _inflightRequests = [];
     private readonly HashSet<Task> _requestTasks = [];
+    private readonly IReadOnlyList<StatePublication> _statePublications;
+    private readonly IReadOnlyDictionary<SemanticCommandKey, SemanticCommandHandler> _requestHandlers;
     private readonly Func<CancellationToken, Task<bool>> _toggleQuickAccess;
     private readonly INativeQamTdpService _tdp;
 
@@ -50,6 +51,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// rule; the read is one ioctl on a handle opened and closed per poll.
     /// </summary>
     private readonly Timer _backlightPoll;
+    private readonly Timer _networkPoll;
+    private readonly Timer _networkPublishDebounce;
     private int _lastPolledBacklight = -1;
 
     /// <summary>
@@ -72,10 +75,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// </remarks>
     private readonly RadioManager? _radios;
 
-    /// <summary>How long a burst of scan results is allowed to settle before one push.</summary>
-    private static readonly TimeSpan NetworkPublishDelay = TimeSpan.FromMilliseconds(400);
-
-    private int _networkPublishPending;
     private readonly PerformanceServiceNativeQamAdapter _performance;
 
     /// <summary>
@@ -98,12 +97,14 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private int _publicationPending;
     private IDisposable? _performanceObservation;
     private volatile bool _enabled;
+    private volatile bool _networkIndicatorEnabled;
+    private volatile bool _downloadSortEnabled;
     private volatile bool _glyphsEnabled;
     private volatile bool _glyphDeliveryEnabled;
     private volatile bool _disposed;
 
     internal SteamUiSessionHost(
-        PersistentSteamUiTransport transport,
+        ISteamUiTransport transport,
         Func<CancellationToken, Task<bool>> toggleQuickAccess,
         DeviceCoordinator? deviceCoordinator,
         PerformanceService performance,
@@ -127,6 +128,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             ? new UnavailableNativeQamControllerTargetService()
             : new DeviceCoordinatorNativeQamControllerTargetService(deviceCoordinator);
         _audio = audio is null ? null : new AudioManagerNativeQamAudioService(audio);
+        _statePublications = CreateStatePublications();
+        _requestHandlers = CreateRequestHandlers();
         _bridge = new SteamUiBridgeHost(_transport);
         _patches = new SteamUiPatchManager(_transport);
         _patches.Register(new NativeQamBootstrapPatch(_bridge));
@@ -186,12 +189,19 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // and only its availability flag says otherwise. Registered unconditionally for that
         // reason — it depends on nothing WSGM has to supply.
         _patches.Register(new SteamBrightnessGatePatch());
+        _patches.Register(new SteamDownloadSortPatch());
         _patches.Register(new SteamInputGlyphStylePatch(_glyphDeliveryState));
         SetPatchStates(bootstrap: false, components: false);
         SetGlyphDeliveryPatchStates();
         _patches.SetGlobalEnabled(false);
         _bridge.RequestReceived += OnRequestReceived;
         _backlightPoll = new Timer(OnBacklightPoll, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+        _networkPoll = new Timer(OnNetworkPoll, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(10));
+        _networkPublishDebounce = new Timer(
+            OnNetworkPublishDebounce,
+            null,
+            Timeout.InfiniteTimeSpan,
+            Timeout.InfiniteTimeSpan);
         _transport.GenerationChanged += OnGenerationChanged;
         _tdp.StateChanged += OnSemanticStateChanged;
         _autoTdp.StateChanged += OnSemanticStateChanged;
@@ -223,10 +233,58 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             CancelAllInflightRequests();
             ReleasePerformanceObservation();
-            SetPatchStates(bootstrap: true, components: false);
+            SetPatchStates(bootstrap: _networkIndicatorEnabled, components: false);
         }
         QueueSynchronization();
     }
+
+    /// <summary>Feeds Steam's header and Internet page through the registered network gate.</summary>
+    /// <param name="enabled">Whether the game-mode Wi-Fi projection is active.</param>
+    internal void ApplyNetworkIndicator(bool enabled)
+    {
+        if (_disposed || _networkIndicatorEnabled == enabled)
+        {
+            return;
+        }
+
+        _networkIndicatorEnabled = enabled;
+        if (enabled)
+        {
+            _patches.SetGlobalEnabled(true);
+        }
+        else if (!_enabled && _radios is { } radios)
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                radios.Networks.CollectionChanged -= OnScannedNetworksChanged;
+                radios.StopScanning();
+            });
+        }
+        SetPatchStates(bootstrap: _enabled || enabled, components: _enabled);
+        QueueSynchronization();
+        QueueStatePublication();
+    }
+
+    /// <summary>Applies download-queue sorting through the shared patch lifecycle.</summary>
+    /// <param name="enabled">Whether the MainWindow wrapper should be installed.</param>
+    internal void ApplyDownloadSort(bool enabled)
+    {
+        if (_disposed || _downloadSortEnabled == enabled)
+        {
+            return;
+        }
+
+        _downloadSortEnabled = enabled;
+        if (enabled)
+        {
+            _patches.SetGlobalEnabled(true);
+        }
+        SetPatchStates(bootstrap: _enabled || _networkIndicatorEnabled, components: _enabled);
+        QueueSynchronization();
+    }
+
+    /// <summary>Returns the immutable patch-registry view used by diagnostics and isolated tests.</summary>
+    internal IReadOnlyList<SteamUiPatchSnapshot> GetPatchSnapshots() => _patches.GetSnapshots();
 
     /// <summary>
     /// Applies handheld glyph presentation: whether it is on, and what to draw.
@@ -264,9 +322,19 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
 
         _enabled = false;
+        _networkIndicatorEnabled = false;
+        _downloadSortEnabled = false;
         _glyphsEnabled = false;
         CancelAllInflightRequests();
         ReleasePerformanceObservation();
+        if (_radios is { } radios)
+        {
+            await RunUiAsync(() =>
+            {
+                radios.Networks.CollectionChanged -= OnScannedNetworksChanged;
+                radios.StopScanning();
+            }).ConfigureAwait(false);
+        }
         SetPatchStates(bootstrap: true, components: false);
         SetGlyphDeliveryPatchStates();
         await _patches.SynchronizeAsync(_shutdown.Token).ConfigureAwait(false);
@@ -280,11 +348,21 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     {
         if (snapshot.Role == SteamUiTargetRole.SharedJsContext)
         {
+            // A semantic operation is authorized against one execution-context/document pair.
+            // Letting it continue after either generation moved could apply a result for a page
+            // that can no longer receive its response, so replacement is cancellation just like
+            // an explicit bridge cancel.
+            CancelAllInflightRequests();
             ReleasePerformanceObservation();
         }
 
-        if ((_enabled || _glyphsEnabled || _glyphDeliveryEnabled)
-            && snapshot.Role == SteamUiTargetRole.SharedJsContext)
+        // The patch manager marks patches for every changed target role, so every role change must
+        // queue synchronization.
+        if (_enabled
+            || _networkIndicatorEnabled
+            || _downloadSortEnabled
+            || _glyphsEnabled
+            || _glyphDeliveryEnabled)
         {
             QueueSynchronization();
         }
@@ -312,16 +390,24 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 await _synchronizeSignal.WaitAsync(_shutdown.Token).ConfigureAwait(false);
                 Interlocked.Exchange(ref _signalPending, 0);
                 await _patches.SynchronizeAsync(_shutdown.Token).ConfigureAwait(false);
-                if (_enabled)
+                if (_enabled || _networkIndicatorEnabled)
                 {
-                    UpdatePerformanceObservation();
+                    if (_enabled)
+                    {
+                        UpdatePerformanceObservation();
+                    }
+                    else
+                    {
+                        ReleasePerformanceObservation();
+                    }
                     QueueStatePublication();
                 }
                 else
                 {
                     ReleasePerformanceObservation();
                     SetPatchStates(bootstrap: false, components: false);
-                    _patches.SetGlobalEnabled(_glyphsEnabled || _glyphDeliveryEnabled);
+                    _patches.SetGlobalEnabled(
+                        _downloadSortEnabled || _glyphsEnabled || _glyphDeliveryEnabled);
                     await _patches.SynchronizeAsync(_shutdown.Token).ConfigureAwait(false);
                 }
             }
@@ -336,6 +422,362 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
     }
 
+    private IReadOnlyList<StatePublication> CreateStatePublications()
+    {
+        List<StatePublication> publications =
+        [
+            new(TdpPatchId, () => _enabled, () => Ready(JsonSerializer.SerializeToElement(
+                _tdp.Current,
+                NativeQamSemanticJsonContext.Default.NativeQamTdpState))),
+            new(AutoTdpPatchId, () => _enabled, () => Ready(JsonSerializer.SerializeToElement(
+                _autoTdp.Current,
+                NativeQamSemanticJsonContext.Default.NativeQamAutoTdpState))),
+            new(FrameLimitPatchId, () => _enabled, () => Ready(JsonSerializer.SerializeToElement(
+                _performance.FrameLimit,
+                NativeQamSemanticJsonContext.Default.NativeQamFrameLimitState))),
+            new(VrrPatchId, () => _enabled, () => Ready(JsonSerializer.SerializeToElement(
+                _performance.Vrr,
+                NativeQamSemanticJsonContext.Default.NativeQamVrrState))),
+            // Valve's protobuf field names stay on their dedicated source-generated boundary.
+            new(PerfPatchId, () => _enabled, () => Ready(JsonSerializer.SerializeToElement(
+                _performance.PerfState,
+                NativeQamPerfJsonContext.Default.NativeQamPerfState))),
+            new(ControllerTargetPatchId, () => _enabled, () => Ready(
+                JsonSerializer.SerializeToElement(
+                    _controllerTarget.Current,
+                    NativeQamSemanticJsonContext.Default.NativeQamControllerTargetState))),
+            new(BrightnessPatchId, () => _enabled, ReadBrightnessPublication),
+        ];
+
+        if (_radios is { } radios)
+        {
+            publications.Add(new StatePublication(
+                BluetoothPatchId,
+                () => _enabled,
+                async () => JsonSerializer.SerializeToElement(
+                    await ReadBluetoothStateAsync(radios).ConfigureAwait(false),
+                    NativeQamSemanticJsonContext.Default.SteamBluetoothState)));
+            publications.Add(new StatePublication(
+                NetworkGatePatchId,
+                () => _enabled || _networkIndicatorEnabled,
+                async () => JsonSerializer.SerializeToElement(
+                    await ReadNetworkStateAsync(_networkIndicatorEnabled).ConfigureAwait(false),
+                    NativeQamSemanticJsonContext.Default.SteamNetworkState)));
+        }
+        if (_audio is { } audio)
+        {
+            // Publishing once after injection updates the store whose availability was cached when
+            // Steam started before the replacement namespace existed.
+            publications.Add(new StatePublication(
+                AudioPatchId,
+                () => _enabled,
+                () => Ready(SerializeAudioState(audio.Current))));
+        }
+        if (_resolution is { } resolution)
+        {
+            publications.Add(new StatePublication(
+                ResolutionPatchId,
+                () => _enabled,
+                () => Ready(JsonSerializer.SerializeToElement(
+                    resolution.Current,
+                    NativeQamSemanticJsonContext.Default.NativeQamResolutionState))));
+        }
+        return publications;
+    }
+
+    private static ValueTask<JsonElement?> Ready(JsonElement payload) =>
+        ValueTask.FromResult<JsonElement?>(payload);
+
+    private static ValueTask<JsonElement?> ReadBrightnessPublication() =>
+        NativeBacklight.TryReadBrightness(out int percent)
+            ? Ready(JsonSerializer.SerializeToElement(
+                new SteamBrightnessState(percent),
+                NativeQamSemanticJsonContext.Default.SteamBrightnessState))
+            : ValueTask.FromResult<JsonElement?>(null);
+
+    private IReadOnlyDictionary<SemanticCommandKey, SemanticCommandHandler> CreateRequestHandlers()
+    {
+        var handlers = new Dictionary<SemanticCommandKey, SemanticCommandHandler>
+        {
+            [new("wsgm.native-qam.shell", "toggleQuickAccess")] = HandleToggleQuickAccessAsync,
+            [new(TdpPatchId, "setPrimaryLimit")] = HandlePowerLimitAsync,
+            [new(FrameLimitPatchId, "setFrameLimit")] = HandleFrameLimitAsync,
+            [new(FrameLimitPatchId, "setRefreshRate")] = HandleRefreshRateAsync,
+            [new(BrightnessPatchId, "setBrightness")] = HandleBrightnessAsync,
+            [new(VrrPatchId, "setVariableRefreshRate")] = HandleVrrAsync,
+            [new(AutoTdpPatchId, "setAutoTdp")] = HandleAutoTdpAsync,
+            [new(ControllerTargetPatchId, "setControllerTarget")] = HandleControllerTargetAsync,
+            [new(PerfPatchId, "updateSettings")] = HandlePerformanceDeltaAsync,
+        };
+        if (_resolution is not null)
+        {
+            handlers[new(ResolutionPatchId, "setResolution")] = HandleResolutionAsync;
+        }
+        if (_audio is not null)
+        {
+            handlers[new(AudioPatchId, "getDevices")] = HandleAudioDevicesAsync;
+            handlers[new(AudioPatchId, "setDefaultDevice")] = HandleAudioDeviceAsync;
+            handlers[new(AudioPatchId, "setVolume")] = HandleAudioVolumeAsync;
+        }
+        if (_radios is not null)
+        {
+            handlers[new(NetworkGatePatchId, "startScan")] = HandleNetworkScanStartAsync;
+            handlers[new(NetworkGatePatchId, "stopScan")] = HandleNetworkScanStopAsync;
+            foreach (string command in new[]
+            {
+                "setDiscovering",
+                "pair",
+                "cancelPair",
+                "connect",
+                "disconnect",
+                "forget",
+                "setTrusted",
+                "setWakeAllowed",
+            })
+            {
+                handlers[new(BluetoothPatchId, command)] = HandleBluetoothAsync;
+            }
+        }
+        return handlers;
+    }
+
+    private async Task<SemanticCommandResult> HandleToggleQuickAccessAsync(
+        SteamUiBridgeRequest request,
+        CancellationToken cancellationToken)
+    {
+        bool succeeded = await _toggleQuickAccess(cancellationToken).ConfigureAwait(false);
+        return succeeded
+            ? SemanticCommandResult.Applied
+            : new(false, "Quick access is not currently available.");
+    }
+
+    private async Task<SemanticCommandResult> HandlePowerLimitAsync(
+        SteamUiBridgeRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!TryReadPowerLimitPayload(request.Payload, out int watts, out bool enabled))
+        {
+            return new(false, "The primary power-limit payload is invalid.");
+        }
+        if (enabled)
+        {
+            return From(await _tdp.SetPrimaryLimitAsync(watts, cancellationToken)
+                .ConfigureAwait(false));
+        }
+        if (_tdp.Current.MaximumWatts is not int ceiling)
+        {
+            const string error = "The device does not report a power-limit ceiling to release to.";
+            Log.Warn($"Native QAM power limit release refused: {error}");
+            return new(false, error);
+        }
+
+        Log.Info(
+            "Native QAM power limit released to the device ceiling "
+            + $"{ceiling} W: Steam's TDP toggle is off (slider holds {watts} W).");
+        return From(await _tdp.SetPrimaryLimitAsync(ceiling, cancellationToken)
+            .ConfigureAwait(false));
+    }
+
+    private async Task<SemanticCommandResult> HandleFrameLimitAsync(
+        SteamUiBridgeRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!TryReadPerformancePayload(
+            request.Payload,
+            out int value,
+            out PerformancePersistenceTarget persistence))
+        {
+            return new(false, "The frame-limit payload is invalid.");
+        }
+        return From(await _performance.SetAsync(
+            PerformanceControl.FrameLimit,
+            value,
+            persistence,
+            CorrelationId(request),
+            cancellationToken).ConfigureAwait(false));
+    }
+
+    private async Task<SemanticCommandResult> HandleRefreshRateAsync(
+        SteamUiBridgeRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!TryReadPerformancePayload(
+            request.Payload,
+            out int hz,
+            out PerformancePersistenceTarget _))
+        {
+            return new(false, "The refresh-rate payload is invalid.");
+        }
+        return From(await _performance.ApplyRefreshRateAsync(hz, cancellationToken)
+            .ConfigureAwait(false));
+    }
+
+    private Task<SemanticCommandResult> HandleBrightnessAsync(
+        SteamUiBridgeRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!TryReadIntegerProperty(request.Payload, "percent", out int percent)
+            || percent is < 0 or > 100)
+        {
+            return Task.FromResult(new SemanticCommandResult(
+                false,
+                "The brightness payload is invalid."));
+        }
+        return Task.FromResult(NativeBacklight.TrySetBrightness(percent)
+            ? SemanticCommandResult.Applied
+            : new SemanticCommandResult(false, "The panel backlight refused the write."));
+    }
+
+    private async Task<SemanticCommandResult> HandleVrrAsync(
+        SteamUiBridgeRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!TryReadEnabledPayload(request.Payload, out bool enabled))
+        {
+            return new(false, "The variable-refresh payload is invalid.");
+        }
+        return From(await _performance.ApplyVariableRefreshRateAsync(enabled, cancellationToken)
+            .ConfigureAwait(false));
+    }
+
+    private async Task<SemanticCommandResult> HandleAutoTdpAsync(
+        SteamUiBridgeRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!TryReadEnabledPayload(request.Payload, out bool enabled))
+        {
+            return new(false, "The AutoTDP payload is invalid.");
+        }
+        return From(await _autoTdp.SetEnabledAsync(enabled, cancellationToken)
+            .ConfigureAwait(false));
+    }
+
+    private async Task<SemanticCommandResult> HandleControllerTargetAsync(
+        SteamUiBridgeRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!TryReadTargetPayload(request.Payload, out string target))
+        {
+            return new(false, "The controller-target payload is invalid.");
+        }
+        return From(await _controllerTarget.SetTargetAsync(target, cancellationToken)
+            .ConfigureAwait(false));
+    }
+
+    private async Task<SemanticCommandResult> HandleResolutionAsync(
+        SteamUiBridgeRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (_resolution is null)
+        {
+            return SemanticCommandResult.Refused;
+        }
+        if (!TryReadTargetPayload(request.Payload, out string value))
+        {
+            return new(false, "The resolution payload is invalid.");
+        }
+        return From(await _resolution.ApplyAsync(value, cancellationToken).ConfigureAwait(false));
+    }
+
+    private async Task<SemanticCommandResult> HandlePerformanceDeltaAsync(
+        SteamUiBridgeRequest request,
+        CancellationToken cancellationToken)
+    {
+        (bool succeeded, string? error) = await ApplyPerfDeltaAsync(request, cancellationToken)
+            .ConfigureAwait(false);
+        return new(succeeded, error);
+    }
+
+    private Task<SemanticCommandResult> HandleAudioDevicesAsync(
+        SteamUiBridgeRequest request,
+        CancellationToken cancellationToken) =>
+        Task.FromResult(_audio is { } audio
+            ? new SemanticCommandResult(true, null, SerializeAudioState(audio.Current))
+            : SemanticCommandResult.Refused);
+
+    private async Task<SemanticCommandResult> HandleAudioDeviceAsync(
+        SteamUiBridgeRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (_audio is null)
+        {
+            return SemanticCommandResult.Refused;
+        }
+        if (!TryReadAudioDevicePayload(request.Payload, out string id, out bool input))
+        {
+            return new(false, "The audio device payload is invalid.");
+        }
+        return From(await _audio.SetDefaultDeviceAsync(id, input, cancellationToken)
+            .ConfigureAwait(false));
+    }
+
+    private async Task<SemanticCommandResult> HandleAudioVolumeAsync(
+        SteamUiBridgeRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (_audio is null)
+        {
+            return SemanticCommandResult.Refused;
+        }
+        if (!TryReadAudioVolumePayload(request.Payload, out int percent))
+        {
+            return new(false, "The audio volume payload is invalid.");
+        }
+        return From(await _audio.SetVolumeAsync(percent, cancellationToken).ConfigureAwait(false));
+    }
+
+    private async Task<SemanticCommandResult> HandleNetworkScanStartAsync(
+        SteamUiBridgeRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (_radios is null)
+        {
+            return SemanticCommandResult.Refused;
+        }
+        await RunUiAsync(() =>
+        {
+            _radios.Networks.CollectionChanged -= OnScannedNetworksChanged;
+            _radios.Networks.CollectionChanged += OnScannedNetworksChanged;
+            _radios.StartScanning();
+        }).ConfigureAwait(false);
+        QueueNetworkPublication();
+        return SemanticCommandResult.Applied;
+    }
+
+    private async Task<SemanticCommandResult> HandleNetworkScanStopAsync(
+        SteamUiBridgeRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (_radios is null)
+        {
+            return SemanticCommandResult.Refused;
+        }
+        await RunUiAsync(() =>
+        {
+            _radios.Networks.CollectionChanged -= OnScannedNetworksChanged;
+            _radios.StopScanning();
+        }).ConfigureAwait(false);
+        return SemanticCommandResult.Applied;
+    }
+
+    private async Task<SemanticCommandResult> HandleBluetoothAsync(
+        SteamUiBridgeRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (_radios is null)
+        {
+            return SemanticCommandResult.Refused;
+        }
+        (bool succeeded, string? error) = await ExecuteBluetoothAsync(
+            _radios,
+            request,
+            cancellationToken).ConfigureAwait(false);
+        return new(succeeded, error);
+    }
+
+    private static SemanticCommandResult From(NativeQamCommandResult result) =>
+        new(result.Succeeded, result.Error);
+
     private async Task PublishLoopAsync()
     {
         while (!_shutdown.IsCancellationRequested)
@@ -344,95 +786,27 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             {
                 await _publicationSignal.WaitAsync(_shutdown.Token).ConfigureAwait(false);
                 Interlocked.Exchange(ref _publicationPending, 0);
-                if (!_enabled || !_bridge.IsReady)
+                if ((!_enabled && !_networkIndicatorEnabled) || !_bridge.IsReady)
                 {
                     continue;
                 }
 
-                JsonElement tdp = JsonSerializer.SerializeToElement(
-                    _tdp.Current,
-                    NativeQamSemanticJsonContext.Default.NativeQamTdpState);
-                await _bridge.PublishStateAsync(TdpPatchId, tdp, _shutdown.Token)
-                    .ConfigureAwait(false);
-                JsonElement autoTdp = JsonSerializer.SerializeToElement(
-                    _autoTdp.Current,
-                    NativeQamSemanticJsonContext.Default.NativeQamAutoTdpState);
-                await _bridge.PublishStateAsync(AutoTdpPatchId, autoTdp, _shutdown.Token)
-                    .ConfigureAwait(false);
-                if (_radios is { } radios)
+                foreach (StatePublication publication in _statePublications)
                 {
-                    JsonElement bluetooth = JsonSerializer.SerializeToElement(
-                        await ReadBluetoothStateAsync(radios).ConfigureAwait(false),
-                        NativeQamSemanticJsonContext.Default.SteamBluetoothState);
-                    await _bridge.PublishStateAsync(BluetoothPatchId, bluetooth, _shutdown.Token)
-                        .ConfigureAwait(false);
+                    if (!publication.Enabled())
+                    {
+                        continue;
+                    }
+                    JsonElement? payload = await publication.Read().ConfigureAwait(false);
+                    if (payload is { } state)
+                    {
+                        await _bridge.PublishStateAsync(
+                                publication.PatchId,
+                                state,
+                                _shutdown.Token)
+                            .ConfigureAwait(false);
+                    }
                 }
-
-                JsonElement frameLimit = JsonSerializer.SerializeToElement(
-                    _performance.FrameLimit,
-                    NativeQamSemanticJsonContext.Default.NativeQamFrameLimitState);
-                await _bridge.PublishStateAsync(FrameLimitPatchId, frameLimit, _shutdown.Token)
-                    .ConfigureAwait(false);
-                JsonElement overlayLevel = JsonSerializer.SerializeToElement(
-                    _performance.OverlayLevel,
-                    NativeQamSemanticJsonContext.Default.NativeQamOverlayLevelState);
-                await _bridge.PublishStateAsync(OverlayLevelPatchId, overlayLevel, _shutdown.Token)
-                    .ConfigureAwait(false);
-                JsonElement vrr = JsonSerializer.SerializeToElement(
-                    _performance.Vrr,
-                    NativeQamSemanticJsonContext.Default.NativeQamVrrState);
-                await _bridge.PublishStateAsync(VrrPatchId, vrr, _shutdown.Token)
-                    .ConfigureAwait(false);
-                // The panel's real level, so the revealed slider has a number to sit on and follows
-                // changes made outside Steam. A panel with no readable backlight publishes nothing,
-                // and the slider stays at whatever the store holds — the honest outcome on a
-                // machine where the gate should not have applied anyway.
-                if (NativeBacklight.TryReadBrightness(out int backlightPercent))
-                {
-                    JsonElement brightness = JsonSerializer.SerializeToElement(
-                        new SteamBrightnessState(backlightPercent),
-                        NativeQamSemanticJsonContext.Default.SteamBrightnessState);
-                    await _bridge.PublishStateAsync(BrightnessPatchId, brightness, _shutdown.Token)
-                        .ConfigureAwait(false);
-                }
-                // Its own serializer context: these are Valve's protobuf field names, so the
-                // camelCase policy the semantic states use would rename every one of them and each
-                // renamed field is silently a control that does not render.
-                JsonElement perf = JsonSerializer.SerializeToElement(
-                    _performance.PerfState,
-                    NativeQamPerfJsonContext.Default.NativeQamPerfState);
-                await _bridge.PublishStateAsync(PerfPatchId, perf, _shutdown.Token)
-                    .ConfigureAwait(false);
-                // Audio was answered on request and never published, so the injected side's state
-                // handler never ran — and that handler is the only thing that tells the RUNNING
-                // audio store it is available. The store caches that flag in its constructor, which
-                // ran at client start before the namespace existed, so without this the Audio
-                // settings page stays empty no matter how cleanly the patch applies.
-                if (_audio is { } audioState)
-                {
-                    JsonElement audioElement = SerializeAudioState(audioState.Current);
-                    await _bridge.PublishStateAsync(AudioPatchId, audioElement, _shutdown.Token)
-                        .ConfigureAwait(false);
-                }
-
-                if (_resolution is { } resolution)
-                {
-                    JsonElement resolutionState = JsonSerializer.SerializeToElement(
-                        resolution.Current,
-                        NativeQamSemanticJsonContext.Default.NativeQamResolutionState);
-                    await _bridge.PublishStateAsync(
-                        ResolutionPatchId,
-                        resolutionState,
-                        _shutdown.Token).ConfigureAwait(false);
-                }
-
-                JsonElement controllerTarget = JsonSerializer.SerializeToElement(
-                    _controllerTarget.Current,
-                    NativeQamSemanticJsonContext.Default.NativeQamControllerTargetState);
-                await _bridge.PublishStateAsync(
-                    ControllerTargetPatchId,
-                    controllerTarget,
-                    _shutdown.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
             {
@@ -470,6 +844,24 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         QueueStatePublication();
     }
 
+    private void OnNetworkPoll(object? state)
+    {
+        if (!_disposed && _networkIndicatorEnabled)
+        {
+            QueueStatePublication();
+        }
+    }
+
+    private void OnScannedNetworksChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
+        QueueNetworkPublication();
+
+    private void QueueNetworkPublication() =>
+        _networkPublishDebounce.Change(
+            TimeSpan.FromMilliseconds(400),
+            Timeout.InfiniteTimeSpan);
+
+    private void OnNetworkPublishDebounce(object? state) => QueueStatePublication();
+
     private void QueueStatePublication()
     {
         if (_disposed)
@@ -485,18 +877,27 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     private void SetPatchStates(bool bootstrap, bool components)
     {
-        _patches.SetPatchEnabled(BootstrapPatchId, bootstrap);
-        _patches.SetPatchEnabled(TdpPatchId, components);
-        _patches.SetPatchEnabled(ValveTdpPatchId, components);
-        _patches.SetPatchEnabled(AutoTdpPatchId, components);
-        // Exactly the ids this constructor registers UNCONDITIONALLY, and no others:
-        // SetPatchEnabled throws for an id that is not registered, and a retirement that left one
-        // behind here took the whole shell session down at startup on 2026-08-30. The frame limit
-        // is WSGM's own row again — see the constructor for why it cannot be Valve's notch one.
-        _patches.SetPatchEnabled(FrameLimitPatchId, components);
-        _patches.SetPatchEnabled(VrrPatchId, components);
-        _patches.SetPatchEnabled(ValveOverlayLevelPatchId, components);
-        _patches.SetPatchEnabled(ControllerTargetPatchId, components);
+        // The registry is the source of truth. Hand-listing ids here drifted to 8 of 17 registered
+        // patches; disabling native QAM removed the bridge while the omitted patches kept cycling
+        // Applying -> Degraded against it. Glyphs and download sorting have independent switches;
+        // the network gate may also outlive native QAM to keep the configured header indicator.
+        foreach (SteamUiPatchSnapshot patch in _patches.GetSnapshots())
+        {
+            if (patch.Id == GlyphStylePatchId)
+            {
+                continue;
+            }
+
+            _patches.SetPatchEnabled(
+                patch.Id,
+                patch.Id == DownloadSortPatchId
+                    ? _downloadSortEnabled
+                    : patch.Id == BootstrapPatchId
+                        ? bootstrap
+                        : patch.Id == NetworkGatePatchId
+                            ? components || _networkIndicatorEnabled
+                            : components);
+        }
     }
 
     /// <summary>
@@ -608,305 +1009,22 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             }
         }
 
-        bool succeeded = false;
-        string? error = null;
-        JsonElement? responsePayload = null;
+        SemanticCommandResult outcome;
         try
         {
             if (!_enabled)
             {
-                error = "The requested semantic service is not active.";
+                outcome = SemanticCommandResult.Refused;
             }
-            else if (request.PatchId == "wsgm.native-qam.shell"
-                && request.Command == "toggleQuickAccess")
+            else if (!_requestHandlers.TryGetValue(
+                new SemanticCommandKey(request.PatchId, request.Command),
+                out SemanticCommandHandler? handler))
             {
-                succeeded = await _toggleQuickAccess(requestCancellation.Token).ConfigureAwait(false);
-                if (!succeeded)
-                {
-                    error = "Quick access is not currently available.";
-                }
-            }
-            else if (request.PatchId == TdpPatchId
-                && request.Command == "setPrimaryLimit")
-            {
-                // Not TryReadIntegerPayload: that one requires the payload to carry EXACTLY one
-                // property, and this command carries two. Valve's rows model the limit as a value
-                // and a switch, so the switch has to ride along — and reusing the single-property
-                // reader made the host refuse every forward as "invalid" while Steam happily
-                // showed the number the user had chosen and the EC stayed at its stock 30 W.
-                if (!TryReadPowerLimitPayload(request.Payload, out int watts, out bool limitOn))
-                {
-                    error = "The primary power-limit payload is invalid.";
-                }
-                else if (!limitOn)
-                {
-                    // Valve's rows model "off" as a toggle beside the slider, so a switched-off
-                    // limit still carries the watts the slider is sitting on. Applying them would
-                    // be the opposite of what the user asked for. The device's own ceiling is what
-                    // "no limit" means for a power-limit capability — it has no off — and the
-                    // slider keeps its number for when the toggle comes back on.
-                    if (_tdp.Current.MaximumWatts is not int ceiling)
-                    {
-                        error = "The device does not report a power-limit ceiling to release to.";
-                        Log.Warn($"Native QAM power limit release refused: {error}");
-                    }
-                    else
-                    {
-                        Log.Info(
-                            "Native QAM power limit released to the device ceiling "
-                            + $"{ceiling} W: Steam's TDP toggle is off (slider holds {watts} W).");
-                        NativeQamCommandResult released = await _tdp.SetPrimaryLimitAsync(
-                            ceiling,
-                            requestCancellation.Token).ConfigureAwait(false);
-                        succeeded = released.Succeeded;
-                        error = released.Error;
-                    }
-                }
-                else
-                {
-                    NativeQamCommandResult result = await _tdp.SetPrimaryLimitAsync(
-                        watts,
-                        requestCancellation.Token).ConfigureAwait(false);
-                    succeeded = result.Succeeded;
-                    error = result.Error;
-                }
-            }
-            else if (request.PatchId == FrameLimitPatchId
-                && request.Command == "setFrameLimit")
-            {
-                if (!TryReadPerformancePayload(
-                    request.Payload,
-                    out int value,
-                    out PerformancePersistenceTarget persistence))
-                {
-                    error = "The frame-limit payload is invalid.";
-                }
-                else
-                {
-                    NativeQamCommandResult result = await _performance.SetAsync(
-                        PerformanceControl.FrameLimit,
-                        value,
-                        persistence,
-                        CorrelationId(request),
-                        requestCancellation.Token).ConfigureAwait(false);
-                    succeeded = result.Succeeded;
-                    error = result.Error;
-                }
-            }
-            else if (request.PatchId == FrameLimitPatchId
-                && request.Command == "setRefreshRate")
-            {
-                // The same row, in its other mode. With the frame limit off there is no cap to pair
-                // a rate to, so the slider becomes the refresh rate itself — which is what SteamOS's
-                // unified row does the moment "Disable Frame Limit" is switched on.
-                if (!TryReadPerformancePayload(
-                    request.Payload,
-                    out int hz,
-                    out PerformancePersistenceTarget _))
-                {
-                    error = "The refresh-rate payload is invalid.";
-                }
-                else
-                {
-                    NativeQamCommandResult result = await _performance
-                        .ApplyRefreshRateAsync(hz, requestCancellation.Token)
-                        .ConfigureAwait(false);
-                    succeeded = result.Succeeded;
-                    error = result.Error;
-                }
-            }
-            else if (request.PatchId == OverlayLevelPatchId
-                && request.Command == "setOverlayLevel")
-            {
-                if (!TryReadPerformancePayload(
-                    request.Payload,
-                    out int value,
-                    out PerformancePersistenceTarget persistence))
-                {
-                    error = "The overlay-level payload is invalid.";
-                }
-                else
-                {
-                    NativeQamCommandResult result = await _performance.SetAsync(
-                        PerformanceControl.OverlayLevel,
-                        value,
-                        persistence,
-                        CorrelationId(request),
-                        requestCancellation.Token).ConfigureAwait(false);
-                    succeeded = result.Succeeded;
-                    error = result.Error;
-                }
-            }
-            else if (request.PatchId == BrightnessPatchId
-                && request.Command == "setBrightness")
-            {
-                if (!TryReadIntegerPayload(request.Payload, "percent", out int brightnessPercent)
-                    || brightnessPercent is < 0 or > 100)
-                {
-                    error = "The brightness payload is invalid.";
-                }
-                else
-                {
-                    succeeded = NativeBacklight.TrySetBrightness(brightnessPercent);
-                    if (!succeeded)
-                    {
-                        error = "The panel backlight refused the write.";
-                    }
-                }
-            }
-            else if (request.PatchId == VrrPatchId
-                && request.Command == "setVariableRefreshRate")
-            {
-                if (!TryReadEnabledPayload(request.Payload, out bool vrrWanted))
-                {
-                    error = "The variable-refresh payload is invalid.";
-                }
-                else
-                {
-                    NativeQamCommandResult result = await _performance
-                        .ApplyVariableRefreshRateAsync(vrrWanted, requestCancellation.Token)
-                        .ConfigureAwait(false);
-                    succeeded = result.Succeeded;
-                    error = result.Error;
-                }
-            }
-            else if (request.PatchId == AutoTdpPatchId && request.Command == "setAutoTdp")
-            {
-                if (!TryReadEnabledPayload(request.Payload, out bool wanted))
-                {
-                    error = "The AutoTDP payload is invalid.";
-                }
-                else
-                {
-                    NativeQamCommandResult result = await _autoTdp.SetEnabledAsync(
-                        wanted,
-                        requestCancellation.Token).ConfigureAwait(false);
-                    succeeded = result.Succeeded;
-                    error = result.Error;
-                }
-            }
-            else if (request.PatchId == ControllerTargetPatchId
-                && request.Command == "setControllerTarget")
-            {
-                if (!TryReadTargetPayload(request.Payload, out string target))
-                {
-                    error = "The controller-target payload is invalid.";
-                }
-                else
-                {
-                    NativeQamCommandResult result = await _controllerTarget.SetTargetAsync(
-                        target,
-                        requestCancellation.Token).ConfigureAwait(false);
-                    succeeded = result.Succeeded;
-                    error = result.Error;
-                }
-            }
-            else if (request.PatchId == ResolutionPatchId
-                && request.Command == "setResolution"
-                && _resolution is { } resolutionService)
-            {
-                if (!TryReadTargetPayload(request.Payload, out string value))
-                {
-                    error = "The resolution payload is invalid.";
-                }
-                else
-                {
-                    NativeQamCommandResult result = await resolutionService.ApplyAsync(
-                        value,
-                        requestCancellation.Token).ConfigureAwait(false);
-                    succeeded = result.Succeeded;
-                    error = result.Error;
-                }
-            }
-            else if (request.PatchId == PerfPatchId && request.Command == "updateSettings")
-            {
-                (succeeded, error) = await ApplyPerfDeltaAsync(
-                    request,
-                    requestCancellation.Token).ConfigureAwait(false);
-            }
-            else if (request.PatchId == AudioPatchId && _audio is { } audio)
-            {
-                switch (request.Command)
-                {
-                    case "getDevices":
-                        // The only request that answers with data rather than an outcome. Steam
-                        // re-reads it after every device add or removal, so it stays a projection of
-                        // state already held rather than an enumeration.
-                        responsePayload = SerializeAudioState(audio.Current);
-                        succeeded = true;
-                        break;
-                    case "setDefaultDevice":
-                        if (!TryReadAudioDevicePayload(request.Payload, out string id, out bool input))
-                        {
-                            error = "The audio device payload is invalid.";
-                            break;
-                        }
-
-                        NativeQamCommandResult device = await audio.SetDefaultDeviceAsync(
-                            id,
-                            input,
-                            requestCancellation.Token).ConfigureAwait(false);
-                        succeeded = device.Succeeded;
-                        error = device.Error;
-                        break;
-                    case "setVolume":
-                        if (!TryReadAudioVolumePayload(request.Payload, out int percent))
-                        {
-                            error = "The audio volume payload is invalid.";
-                            break;
-                        }
-
-                        NativeQamCommandResult volume = await audio.SetVolumeAsync(
-                            percent,
-                            requestCancellation.Token).ConfigureAwait(false);
-                        succeeded = volume.Succeeded;
-                        error = volume.Error;
-                        break;
-                    default:
-                        error = "The requested semantic service is not active.";
-                        break;
-                }
-            }
-            else if (request.PatchId == NetworkGatePatchId && _radios is { } radios)
-            {
-                // Not a control. Steam is reporting that its own network UI opened or closed, and
-                // WSGM scans for exactly that long: scanning on WSGM's own schedule would either
-                // burn power with no list on screen, or leave the list stale while one is.
-                switch (request.Command)
-                {
-                    case "startScan":
-                        await RunUiAsync(() =>
-                        {
-                            radios.Networks.CollectionChanged -= OnScannedNetworksChanged;
-                            radios.Networks.CollectionChanged += OnScannedNetworksChanged;
-                            radios.StartScanning();
-                        }).ConfigureAwait(false);
-                        QueueNetworkPublish();
-                        succeeded = true;
-                        break;
-                    case "stopScan":
-                        await RunUiAsync(() =>
-                        {
-                            radios.Networks.CollectionChanged -= OnScannedNetworksChanged;
-                            radios.StopScanning();
-                        }).ConfigureAwait(false);
-                        succeeded = true;
-                        break;
-                    default:
-                        error = "The requested semantic service is not active.";
-                        break;
-                }
-            }
-            else if (request.PatchId == BluetoothPatchId && _radios is { } bluetooth)
-            {
-                (succeeded, error) = await ExecuteBluetoothAsync(
-                    bluetooth,
-                    request,
-                    requestCancellation.Token).ConfigureAwait(false);
+                outcome = SemanticCommandResult.Refused;
             }
             else
             {
-                error = "The requested semantic service is not active.";
+                outcome = await handler(request, requestCancellation.Token).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (requestCancellation.IsCancellationRequested)
@@ -916,8 +1034,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            error = ex.Message;
+            outcome = new SemanticCommandResult(false, ex.Message);
         }
+
+        bool succeeded = outcome.Succeeded;
+        string? error = outcome.Error;
+        JsonElement? responsePayload = outcome.Payload;
 
         // Every refusal, named. The reason was built here and handed straight back to the injected
         // side, which has nowhere to put it — so a control the user operated that quietly did
@@ -1060,7 +1182,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         return true;
     }
 
-    private static bool TryReadIntegerPayload(
+    /// <summary>Reads one required integer without imposing an unrelated object-arity rule.</summary>
+    private static bool TryReadIntegerProperty(
         JsonElement payload,
         string propertyName,
         out int value)
@@ -1074,13 +1197,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             return false;
         }
 
-        int propertyCount = 0;
-        foreach (JsonProperty ignored in payload.EnumerateObject())
-        {
-            propertyCount++;
-        }
-
-        return propertyCount == 1;
+        return true;
     }
 
     /// <summary>Reads the one boolean an AutoTDP request may carry.</summary>
@@ -1115,41 +1232,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
         enabled = property.GetBoolean();
         return true;
-    }
-
-    /// <remarks>
-    /// Scan results arrive in bursts — a sweep adds rows one at a time — so publication is
-    /// collapsed onto a single pending push rather than sent per row. Steam's list is rebuilt on
-    /// each push, so a burst of ten additions and one push produce the same result as ten pushes.
-    /// </remarks>
-    private void OnScannedNetworksChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
-        QueueNetworkPublish();
-
-    private void QueueNetworkPublish()
-    {
-        if (Interlocked.Exchange(ref _networkPublishPending, 1) == 1)
-        {
-            return;
-        }
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                // One settle window per burst. Long enough that a sweep lands in a single push,
-                // short enough that the list appears while the user is still looking at it.
-                await Task.Delay(NetworkPublishDelay, _shutdown.Token).ConfigureAwait(false);
-                Interlocked.Exchange(ref _networkPublishPending, 0);
-                await PublishNetworksAsync(_shutdown.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Steam network list publish failed: {ex.Message}");
-            }
-        });
     }
 
     /// <summary>
@@ -1310,39 +1392,65 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         return true;
     }
 
-    private async Task PublishNetworksAsync(CancellationToken cancellationToken)
+    private async Task<SteamNetworkState> ReadNetworkStateAsync(bool indicatorEnabled)
     {
-        if (_radios is not { } radios)
+        List<SteamNetworkAccessPointState> networks = [];
+        if (_radios is { } radios)
         {
-            return;
-        }
-
-        List<SteamNetworkIndicator.SteamNetworkAccessPoint> networks = [];
-        await RunUiAsync(() =>
-        {
-            foreach (WifiNetworkEntry entry in radios.Networks)
+            await RunUiAsync(() =>
             {
-                if (string.IsNullOrWhiteSpace(entry.Ssid))
+                foreach (WifiNetworkEntry entry in radios.Networks.Take(24))
                 {
-                    continue;
+                    if (!string.IsNullOrWhiteSpace(entry.Ssid))
+                    {
+                        networks.Add(new SteamNetworkAccessPointState(
+                            entry.Ssid,
+                            MapNetworkStrength(entry.Signal),
+                            entry.Secured,
+                            entry.Connected));
+                    }
                 }
-
-                networks.Add(new SteamNetworkIndicator.SteamNetworkAccessPoint(
-                    entry.Ssid,
-                    entry.Signal,
-                    entry.Security is not WifiSecurity.Open,
-                    entry.Connected));
-            }
-        }).ConfigureAwait(false);
-
-        if (networks.Count == 0)
-        {
-            return;
+            }).ConfigureAwait(false);
         }
 
-        _ = await SteamNetworkIndicator.PushNetworksAsync(networks, cancellationToken)
-            .ConfigureAwait(false);
+        WindowsRadio.WifiStatus connected = indicatorEnabled
+            ? WindowsRadio.GetWifiStatus()
+            : default;
+        if (indicatorEnabled
+            && connected.State == 0
+            && !string.IsNullOrWhiteSpace(connected.Ssid))
+        {
+            int existing = networks.FindIndex(network =>
+                string.Equals(network.Ssid, connected.Ssid, StringComparison.Ordinal));
+            var joined = new SteamNetworkAccessPointState(
+                connected.Ssid,
+                MapNetworkStrength(connected.Signal),
+                existing >= 0 ? networks[existing].Secured : true,
+                true);
+            if (existing >= 0)
+            {
+                networks[existing] = joined;
+            }
+            else
+            {
+                networks.Insert(0, joined);
+                if (networks.Count > 24)
+                {
+                    networks.RemoveAt(networks.Count - 1);
+                }
+            }
+        }
+
+        return new SteamNetworkState(networks);
     }
+
+    internal static int MapNetworkStrength(int signalPercent) => signalPercent switch
+    {
+        >= 75 => 4,
+        >= 50 => 3,
+        >= 25 => 2,
+        _ => 1,
+    };
 
     /// <summary>
     /// Runs a radio-manager call on the UI thread.
@@ -1606,6 +1714,29 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         return true;
     }
 
+    private sealed record StatePublication(
+        string PatchId,
+        Func<bool> Enabled,
+        Func<ValueTask<JsonElement?>> Read);
+
+    private readonly record struct SemanticCommandKey(string PatchId, string Command);
+
+    private delegate Task<SemanticCommandResult> SemanticCommandHandler(
+        SteamUiBridgeRequest request,
+        CancellationToken cancellationToken);
+
+    private readonly record struct SemanticCommandResult(
+        bool Succeeded,
+        string? Error,
+        JsonElement? Payload = null)
+    {
+        internal static SemanticCommandResult Applied { get; } = new(true, null);
+
+        internal static SemanticCommandResult Refused { get; } = new(
+            false,
+            "The requested semantic service is not active.");
+    }
+
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
@@ -1616,7 +1747,13 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
         await DisableAsync().ConfigureAwait(false);
         _disposed = true;
+        if (_radios is { } radios)
+        {
+            radios.Networks.CollectionChanged -= OnScannedNetworksChanged;
+        }
         _backlightPoll.Dispose();
+        _networkPoll.Dispose();
+        _networkPublishDebounce.Dispose();
         _transport.GenerationChanged -= OnGenerationChanged;
         _bridge.RequestReceived -= OnRequestReceived;
         _tdp.StateChanged -= OnSemanticStateChanged;
@@ -1630,10 +1767,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
         // A session that ends while Steam's network page is open would otherwise leave the radio
         // sweeping and this host subscribed to a collection it no longer publishes.
-        if (_radios is { } radios)
+        if (_radios is { } activeRadios)
         {
-            radios.Networks.CollectionChanged -= OnScannedNetworksChanged;
-            await RunUiAsync(radios.StopScanning).ConfigureAwait(false);
+            await RunUiAsync(activeRadios.StopScanning).ConfigureAwait(false);
         }
 
         _enabled = false;

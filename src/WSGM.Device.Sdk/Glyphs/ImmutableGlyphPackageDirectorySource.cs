@@ -36,9 +36,28 @@ public sealed class ImmutableGlyphPackageDirectorySource : IGlyphPackageSource
     public IReadOnlyList<string> EnumerateProfileIds()
     {
         string directory = Path.Combine(_root, "glyphs", "profiles");
-        if (!Directory.Exists(directory) || IsLink(directory))
+        FileAttributes attributes;
+        try
+        {
+            attributes = File.GetAttributes(directory);
+        }
+        catch (Exception exception) when (exception is DirectoryNotFoundException
+            or FileNotFoundException)
         {
             return [];
+        }
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException
+            or NotSupportedException)
+        {
+            throw new InvalidDataException("The glyph profile directory could not be inspected.", exception);
+        }
+
+        if ((attributes & FileAttributes.Directory) == 0
+            || (attributes & FileAttributes.ReparsePoint) != 0
+            || IsLink(directory))
+        {
+            throw new InvalidDataException("The glyph profile path is not a plain directory.");
         }
 
         try
@@ -64,7 +83,7 @@ public sealed class ImmutableGlyphPackageDirectorySource : IGlyphPackageSource
             or UnauthorizedAccessException
             or NotSupportedException)
         {
-            return [];
+            throw new InvalidDataException("The glyph profile directory could not be enumerated.", exception);
         }
     }
 

@@ -7,7 +7,7 @@ namespace WSGM.Tests;
 public sealed class DevicePlatformPolicyTests
 {
     [Fact]
-    public void OldConfigurationDefaultsToNoDeviceHost()
+    public void OldConfigurationDefaultsToDeviceIntegrationDisabled()
     {
         AppConfig config = ConfigStore.Normalize(new AppConfig { DeviceIntegration = null! });
 

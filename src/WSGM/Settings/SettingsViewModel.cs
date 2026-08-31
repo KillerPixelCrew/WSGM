@@ -71,7 +71,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     /// <summary>Loads the current configuration and discovers locally installed startup suggestions.</summary>
     public SettingsViewModel()
-        : this(ConfigStore.Load()) { }
+        : this(ConfigStore.Load(), ReadInstalledPluginId(), filterToInstalledPlugin: true) { }
 
     /// <summary>Builds the view model over an ALREADY LOADED configuration instead of
     /// reading <c>%LOCALAPPDATA%\WSGM\config.json</c>. Tests must use this overload: the
@@ -81,6 +81,18 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// <param name="config">The configuration this view model edits. It is taken over,
     /// not copied — the save path re-loads and merges before persisting anyway.</param>
     internal SettingsViewModel(AppConfig config)
+        : this(config, installedPluginId: null, filterToInstalledPlugin: false) { }
+
+    /// <summary>Builds a testable settings model while selecting the named installed plugin.</summary>
+    /// <param name="config">The configuration this view model edits.</param>
+    /// <param name="installedPluginId">Installed package ID, or null when the slot is empty or invalid.</param>
+    internal SettingsViewModel(AppConfig config, string? installedPluginId)
+        : this(config, installedPluginId, filterToInstalledPlugin: true) { }
+
+    private SettingsViewModel(
+        AppConfig config,
+        string? installedPluginId,
+        bool filterToInstalledPlugin)
     {
         SaveCommand = new RelayCommand(() =>
         {
@@ -97,9 +109,6 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
                 StatusText = $"Save failed: {ex.Message}";
             }
         });
-        // The copy set is the NativeAOT executable plus every native sibling DLL, so
-        // it runs OFF the UI thread (seconds on handheld storage, longer behind an AV
-        // scan); the button stays disabled until it finishes.
         UninstallCommand = new RelayCommand(Uninstall);
         OpenLogLocationCommand = new RelayCommand(OpenLogLocation);
         RemoveAppCommand = new RelayCommand<StartupAppRow>(row =>
@@ -127,7 +136,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         // Normalize so an injected bare AppConfig gets the same non-null nested
         // sections (and clamped splash numbers) the load path guarantees.
         _config = ConfigStore.Normalize(config);
-        LoadPluginSettings(_config);
+        LoadPluginSettings(_config, installedPluginId, filterToInstalledPlugin);
 
         SteamAutoRelaunch = _config.SteamAutoRelaunch;
         SteamLaunchUnelevated = _config.SteamLaunchUnelevated;
@@ -269,11 +278,27 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         get => _selectedDeviceProfile;
         set
         {
+            if (ReferenceEquals(_selectedDeviceProfile, value))
+            {
+                return;
+            }
+
+            if (_selectedDeviceProfile is not null)
+            {
+                _selectedDeviceProfile.PropertyChanged -= OnSelectedDeviceProfileChanged;
+            }
             _selectedDeviceProfile = value;
+            if (_selectedDeviceProfile is not null)
+            {
+                _selectedDeviceProfile.PropertyChanged += OnSelectedDeviceProfileChanged;
+            }
             Raise(nameof(SelectedDeviceProfile));
             Raise(nameof(HasSelectedDeviceProfile));
         }
     }
+
+    private void OnSelectedDeviceProfileChanged(object? sender, PropertyChangedEventArgs e) =>
+        _deviceProfilesEdited = true;
 
     /// <summary>Whether a profile is selected and the editor has something to draw.</summary>
     public bool HasSelectedDeviceProfile => _selectedDeviceProfile is not null;
@@ -334,7 +359,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             : DeviceProfiles[Math.Min(index, DeviceProfiles.Count - 1)];
     }
 
-    /// <summary>Records that a profile's curve or name changed.</summary>
+    /// <summary>Records that a profile changed.</summary>
     internal void NoteDeviceProfileEdited() => _deviceProfilesEdited = true;
 
     private string _pluginSettingsDevice = string.Empty;
@@ -401,24 +426,40 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Builds the plugin settings page from the declaration cached the last time a plugin ran.
+    /// Builds the plugin settings page from the most recently published declaration.
     /// </summary>
     /// <param name="config">The configuration to read the cache and the stored values from.</param>
+    /// <param name="installedPluginId">Installed package ID, when discovery found one package.</param>
+    /// <param name="filterToInstalledPlugin">Whether declarations from other package IDs are excluded.</param>
     /// <remarks>
-    /// Settings runs with no DeviceHost, so the cached declaration is the only description of the
-    /// plugin's settings available here. Stored values are still reconciled against it, because a
-    /// cache written by an older plugin build can describe bounds the stored values no longer fit.
+    /// Settings does not activate device hardware, so the cached declaration is the only description
+    /// of the plugin's settings available here. Stored values are still reconciled against it,
+    /// because an older declaration can describe bounds the stored values no longer fit.
     /// <para>
     /// Exactly one scope is drawn — the one matching the installed plugin — and the reason is
     /// reported when none does, since a blank page cannot distinguish "no plugin" from "the page
     /// failed".
     /// </para>
     /// </remarks>
-    internal void LoadPluginSettings(AppConfig config)
+    private void LoadPluginSettings(
+        AppConfig config,
+        string? installedPluginId,
+        bool filterToInstalledPlugin)
     {
         ArgumentNullException.ThrowIfNull(config);
-        PluginSettingsScope? scope = config.DeviceIntegration.PluginSettings
-            .FirstOrDefault(candidate => candidate.Declaration is not null);
+        IEnumerable<PluginSettingsScope> candidates = config.DeviceIntegration.PluginSettings
+            .Where(candidate => candidate.Declaration is not null);
+        if (filterToInstalledPlugin)
+        {
+            candidates = installedPluginId is null
+                ? []
+                : candidates.Where(candidate => string.Equals(
+                    candidate.PluginId,
+                    installedPluginId,
+                    StringComparison.Ordinal));
+        }
+
+        PluginSettingsScope? scope = candidates.LastOrDefault();
         if (scope?.Declaration is not { } declaration)
         {
             PluginSettingSections.Clear();
@@ -453,6 +494,24 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         {
             PluginSettingsEmptyReason =
                 "The installed device plugin declares no settings.";
+        }
+    }
+
+    private static string? ReadInstalledPluginId()
+    {
+        try
+        {
+            InstalledDevicePackage? package = DevicePackagePolicy
+                .Discover(DevicePackageDiscoveryOptions.Production())
+                .InstalledPackage;
+            return package is { Valid: true, Manifest: { } manifest }
+                ? manifest.Id
+                : null;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Plugin settings unavailable: installed package could not be inspected ({ex.Message}).");
+            return null;
         }
     }
 
@@ -554,7 +613,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     }
 
     /// <remarks>
-    /// A custom title is the plugin's own untrusted plain text, already bounded and validated by
+    /// A custom title is plugin-supplied plain text, already bounded and validated by
     /// <see cref="PluginSettingSection"/>; it is rendered as text and never as markup. A keyed title
     /// is WSGM's, which is the entire reason the key exists.
     /// </remarks>
@@ -1525,13 +1584,14 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.StaggerDelayMs = StaggerDelayMs;
         config.BootSplashEnabled = BootSplashEnabled;
         config.GameModeBootEnabled = GameModeBootEnabled;
+        DisplayManagementMode persistedDisplayManagement = config.DisplayManagement;
         var displayManagement = (DisplayManagementMode)Math.Clamp(DisplayManagementModeIndex, 0, 3);
         config.DisplayManagement = displayManagement;
         // In Automatic mode the running shell owns these snapshots. A Settings
         // window may have been open while a transition persisted newer values;
         // never overwrite those with the window's stale rows. The rows seed the
         // first switch into Automatic and remain UI-owned in Fixed mode.
-        if (ShouldWriteDisplayProfiles(_config.DisplayManagement, displayManagement))
+        if (ShouldWriteDisplayProfiles(persistedDisplayManagement, displayManagement))
         {
             config.DisplayProfiles = DisplayProfiles.Select(profile => new MonitorDisplayProfile
             {
@@ -1906,7 +1966,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     public AppConfig SnapshotForTest()
     {
         ApplyTo(_config);
-        // A real copy (source-gen JSON round-trip, AOT-safe): the test
+        // A real copy through the production JSON contract: the test
         // OverlayController must not see later Save()/Install() mutations of the
         // live _config outside its ApplyConfig wholesale-replace contract.
         var json = JsonSerializer.Serialize(_config, ConfigJsonContext.Default.AppConfig);

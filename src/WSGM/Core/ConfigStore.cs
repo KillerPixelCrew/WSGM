@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Settings;
 
 namespace WSGM.Core;
 
@@ -37,10 +38,7 @@ public static class ConfigStore
             {
                 var json = File.ReadAllText(ConfigPath);
                 var config = DeserializeConfig(json);
-                if (config is not null)
-                {
-                    return Normalize(config);
-                }
+                return Normalize(config);
             }
         }
         catch (Exception ex)
@@ -66,8 +64,7 @@ public static class ConfigStore
             return new AppConfig();
         }
         var json = File.ReadAllText(ConfigPath);
-        var config = DeserializeConfig(json)
-            ?? throw new InvalidDataException("Configuration JSON contained no object.");
+        var config = DeserializeConfig(json);
         return Normalize(config);
     }
 
@@ -78,11 +75,12 @@ public static class ConfigStore
     /// Internal because the repair pass is the part worth testing: a value it fails to repair makes
     /// the retry throw, and <see cref="Load"/> then sets the entire file aside.
     /// </remarks>
-    internal static AppConfig? DeserializeConfig(string json)
+    internal static AppConfig DeserializeConfig(string json)
     {
         try
         {
-            return JsonSerializer.Deserialize(json, ConfigJsonContext.Default.AppConfig);
+            return JsonSerializer.Deserialize(json, ConfigJsonContext.Default.AppConfig)
+                ?? throw new JsonException("Configuration JSON contained null instead of an object.");
         }
         catch (JsonException)
         {
@@ -117,6 +115,13 @@ public static class ConfigStore
                     RepairEnum(wrapper, "Kind", LaunchConfigurationKind.Wrapper);
                 }
             }
+            if (root["Performance"] is JsonObject performance)
+            {
+                RepairEnum(
+                    performance,
+                    "FrameLimitStrategy",
+                    FrameLimitStrategy.FrameLimitOnly);
+            }
             // Every enum in this file is written by name (UseStringEnumConverter), so an unknown
             // name throws here before Normalize can apply its Enum.IsDefined fallbacks. Repairing
             // only the older fields meant one mistyped or unrecognised device value — from a hand
@@ -142,8 +147,48 @@ public static class ConfigStore
                         RepairDeviceProfileJson(profile);
                     }
                 }
+                if (device["PluginSettings"] is JsonArray settings)
+                {
+                    foreach (var scope in settings.OfType<JsonObject>())
+                    {
+                        RepairPluginSettingsDeclarationJson(scope["Declaration"] as JsonObject);
+                    }
+                }
             }
-            return JsonSerializer.Deserialize(root.ToJsonString(), ConfigJsonContext.Default.AppConfig);
+            return JsonSerializer.Deserialize(root.ToJsonString(), ConfigJsonContext.Default.AppConfig)
+                ?? throw new JsonException("Configuration JSON contained null instead of an object.");
+        }
+    }
+
+    /// <summary>
+    /// Repairs enum names in one cached plugin settings manifest so a declaration written by a
+    /// newer plugin can be discarded independently instead of quarantining the entire config.
+    /// </summary>
+    /// <param name="declaration">The cached declaration, or null when the scope has none.</param>
+    private static void RepairPluginSettingsDeclarationJson(JsonObject? declaration)
+    {
+        if (declaration is null)
+        {
+            return;
+        }
+
+        foreach (var section in (declaration["Sections"] as JsonArray ?? []).OfType<JsonObject>())
+        {
+            RepairEnum(section, "Key", SettingSectionKey.General);
+        }
+
+        foreach (var setting in (declaration["Settings"] as JsonArray ?? []).OfType<JsonObject>())
+        {
+            RepairEnum(setting, "ValueKind", CapabilityValueKind.None);
+            RepairEnum(setting, "Unit", CapabilityUnit.None);
+            if (setting["Display"] is JsonObject display)
+            {
+                RepairEnum(display, "Key", DisplayKey.Custom);
+            }
+            if (setting["Default"] is JsonObject defaultValue)
+            {
+                RepairEnum(defaultValue, "Kind", CapabilityValueKind.None);
+            }
         }
     }
 
@@ -413,10 +458,8 @@ public static class ConfigStore
             scope.DeviceDefinitionId = scope.DeviceDefinitionId.Trim();
             scope.PluginId = scope.PluginId.Trim();
 
-            // A cached declaration is only ever used to draw a page when no plugin is running, so a
-            // malformed one must be dropped rather than rendered: it would produce controls whose
-            // bounds nothing has validated, and the user would be editing settings that cannot be
-            // sent anywhere.
+            // Settings renders the cached declaration without activating plugin code. Drop malformed
+            // declarations so every rendered control has the bounds required by the SDK contract.
             if (scope.Declaration is { } declaration && !declaration.TryValidate(out string? reason))
             {
                 Log.Warn(
@@ -508,9 +551,9 @@ public static class ConfigStore
             }
         }
 
-        HashSet<string> scopeKeys = new(StringComparer.Ordinal);
+        HashSet<(string DeviceDefinitionId, string PluginId)> scopeKeys = [];
         device.PluginSettings.RemoveAll(
-            scope => !scopeKeys.Add($"{scope.DeviceDefinitionId} {scope.PluginId}"));
+            scope => !scopeKeys.Add((scope.DeviceDefinitionId, scope.PluginId)));
 
         device.Profiles ??= [];
         device.Profiles.RemoveAll(static profile => profile is null
@@ -561,6 +604,7 @@ public static class ConfigStore
         foreach (PerformanceApplicationConfig application in performance.Applications)
         {
             application.ApplicationId = application.ApplicationId.Trim();
+            application.RtssProfileName ??= string.Empty;
             application.RtssProfileName = application.RtssProfileName.Trim();
             if (application.RtssProfileName.Length > 128
                 || !string.Equals(
@@ -615,13 +659,8 @@ public static class ConfigStore
         }
     }
 
-    // Bounds for every numeric splash field, mirrored 1:1 from the Appearance
-    // editor's NumericUpDown Minimum/Maximum values (Settings\Pages\AppearancePage.axaml).
-    // The editor can never produce anything outside them — but a shared .wsgmsplash
-    // theme and a hand-edited config.json can, and the splash renderer only
-    // lower-bounds its inputs, so "SpinnerSize": 2147483647 would explode layout
-    // before the boot cover is usable. Clamping here covers BOTH untrusted paths:
-    // config load (via Normalize) and theme import (SplashTheme.Import).
+    // Mirrored from the Appearance editor. Normalization is shared by config load and theme import,
+    // so the renderer sees the same bounded values regardless of their source.
     private const int MinFontSize = 1;
     private const int MaxTitleFontSize = 400;
     private const int MaxCaptionFontSize = 200;
@@ -634,41 +673,18 @@ public static class ConfigStore
     private const int MinAbsoluteCoordinate = 0;
     private const int MaxAbsoluteCoordinate = 16384;
 
-    // Length caps for the splash STRINGS, for the same reason the numbers above are
-    // clamped — except the damage here is layout cost, not a bad value. The title
-    // and the caption are each rendered as ONE unwrapped TextBlock line
-    // (Shell\BootSplashWindow sets no TextWrapping) and are bound straight into the
-    // Appearance text boxes on import. A shared .wsgmsplash may spend nearly its
-    // whole 1 MiB splash.json allowance on one of those strings — a trivially small
-    // archive once compressed — and Avalonia would then lay out hundreds of
-    // thousands of glyphs in a single run: first in Settings when the theme is
-    // imported, then in the boot splash on every following sign-in.
-    //
-    // 200 characters cannot plausibly cut a real splash line: a title is a few
-    // words ("Please wait", "Starting Steam Big Picture…"), and even at the default
-    // 26 px title size only ~130 characters fit across a 1080p panel before the
-    // single line runs off screen, so anything approaching the cap is already
-    // unreadable by design.
+    // Splash title and caption are single unwrapped lines. This cap bounds both Settings and boot
+    // layout work while remaining longer than the panel can display usefully.
     private const int MaxSplashTextLength = 200;
 
-    // Color strings are shown verbatim in the Appearance hex boxes and parsed by
-    // Shell\SplashStyle.ParseColor (splash) or Avalonia's Color.TryParse (accent).
-    // The longest value that can ever parse is "#AARRGGBB" (9 characters) or
-    // Avalonia's longest known-color name, "LightGoldenrodYellow" (20); 32 keeps
-    // every real value with room to spare.
-    //
-    // The accent color has exactly the same shape as the splash ones — hand-editable
-    // in config.json, bound to a TextBox, and re-parsed over its WHOLE length on every
-    // keystroke (Settings\Pages\AppearancePage re-parses it on each PropertyChanged to
-    // repaint the swatches and the picker) — so it is bounded here too. Without the
-    // cap a 1 MiB value survived Normalize and made every keystroke in that box parse
-    // a megabyte.
+    // Covers hexadecimal and named Avalonia colours with room to spare, while bounding the text
+    // parsed on each live Appearance-page edit.
     private const int MaxColorLength = 32;
 
     /// <summary>Repairs explicit JSON nulls inside a splash section (see
     /// <see cref="Normalize"/>), bounds the display strings, and clamps every
     /// numeric field into the range the Appearance editor enforces. Shared with
-    /// splash-theme import, which deserializes the same contract from untrusted
+    /// splash-theme import, which deserializes the same external contract from
     /// archives.</summary>
     internal static SplashConfig NormalizeSplash(SplashConfig splash)
     {
@@ -993,18 +1009,8 @@ public static class ConfigStore
             }
             _disposed = true;
 
-            // Pop to this scope's own level rather than decrementing blindly. Scopes
-            // are meant to nest strictly (`using` blocks), but disposing them OUT OF
-            // ORDER used to drive the counter negative — the outermost scope assigned
-            // 0 while a nested one was still live, and that nested Dispose then made
-            // it -1, after which the next Acquire on this thread took the slow kernel
-            // path even though the lock was free, and a later nested scope could pop
-            // an unrelated real acquisition. The guard covers both directions:
-            //   • depth still at or above this level → this scope is the deepest one
-            //     that is still counted, so its level - 1 is the correct new depth;
-            //   • depth already BELOW it → an outer scope was disposed first and has
-            //     reset the counter (possibly for a fresh acquisition since), so this
-            //     late Dispose must not touch it at all.
+            // Each scope owns one recorded depth. A late out-of-order Dispose must not pop a newer
+            // acquisition, so it changes depth only while its own level is still counted.
             if (_depth >= _level)
             {
                 _depth = _level - 1;
@@ -1030,12 +1036,8 @@ public static class ConfigStore
             }
             catch (Exception ex)
             {
-                // Never let lock cleanup break a save/load path — but never let it skip
-                // the handle either: a swallowed ReleaseMutex failure used to leave the
-                // Mutex undisposed AND the named object owned, after which every other
-                // WSGM process ran the degraded lock-less path for the rest of the
-                // session. Closing the handle abandons the mutex instead, which the
-                // next waiter gets (as AbandonedMutexException) immediately.
+                // Cleanup failure does not replace the save/load outcome. The handle is still
+                // disposed below so the next waiter observes abandonment instead of a stuck owner.
                 Log.Warn($"Config mutex release failed: {ex.Message}");
             }
             finally

@@ -139,6 +139,7 @@ internal sealed class PerformanceService : IAsyncDisposable
     private readonly CancellationTokenSource _disposeCts = new();
     private readonly RtssLauncher _launcher;
     private readonly Task _pollTask;
+    private readonly Dictionary<long, string> _commandProfiles = [];
     private PerformancePolicy _policy;
     private PerformanceState _state;
     private int _observerCount;
@@ -478,9 +479,12 @@ internal sealed class PerformanceService : IAsyncDisposable
                 "RTSS integration is disabled."));
         }
 
+        using CancellationTokenSource admission = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            _disposeCts.Token);
         try
         {
-            await _adapterGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            await _adapterGate.WaitAsync(admission.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -491,7 +495,9 @@ internal sealed class PerformanceService : IAsyncDisposable
                 control,
                 value,
                 PerformanceCommandPhase.Rejected,
-                "Command was cancelled before it reached RTSS."));
+                _disposeCts.IsCancellationRequested
+                    ? "RTSS is stopping."
+                    : "Command was cancelled before it reached RTSS."));
         }
 
         try
@@ -500,6 +506,18 @@ internal sealed class PerformanceService : IAsyncDisposable
             // RTSS integration off while this command is queued, and that path takes no adapter
             // gate of its own — with a disabled policy there are no desired values to apply — so
             // without this the queued command still wrote its value into a switched-off feature.
+            if (_disposed)
+            {
+                return UpdateCommand(new(
+                    sequence,
+                    origin,
+                    correlationId,
+                    control,
+                    value,
+                    PerformanceCommandPhase.Rejected,
+                    "RTSS is stopping."));
+            }
+
             lock (_stateGate)
             {
                 enabled = _policy.Enabled;
@@ -541,14 +559,26 @@ internal sealed class PerformanceService : IAsyncDisposable
     internal async Task RefreshAsync(CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        await _adapterGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using CancellationTokenSource admission = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            _disposeCts.Token);
+        RtssProbe? launchProbe;
+        await _adapterGate.WaitAsync(admission.Token).ConfigureAwait(false);
         try
         {
-            await RefreshInsideGateAsync(cancellationToken).ConfigureAwait(false);
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            launchProbe = await RefreshInsideGateAsync(admission.Token).ConfigureAwait(false);
         }
         finally
         {
             _adapterGate.Release();
+        }
+
+        // Starting RTSS can wait up to ten seconds for its tray process. Keep that settle outside
+        // the adapter gate so UI commands can still observe and report the unavailable state.
+        if (launchProbe is not null)
+        {
+            await _launcher.TryStartAsync(launchProbe, Enabled, admission.Token).ConfigureAwait(false);
         }
     }
 
@@ -589,9 +619,6 @@ internal sealed class PerformanceService : IAsyncDisposable
         finally
         {
             _adapterGate.Release();
-            _adapterGate.Dispose();
-            _observerSignal.Dispose();
-            _disposeCts.Dispose();
         }
     }
 
@@ -647,6 +674,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             PerformancePersistenceTarget persistence;
             RtssApplicationTarget? target;
             string profile;
+            bool readbackIsActiveState;
             PerformancePolicy? previousPolicy = null;
             PerformancePolicy? changedPolicy = null;
             PerformanceCommandState? targetRejection = null;
@@ -688,11 +716,15 @@ internal sealed class PerformanceService : IAsyncDisposable
                 {
                     _state = WithResolvedDesired(_state);
                 }
+                // An explicitly global edit updates RTSS's global profile even while a game is
+                // active. Automatic edits still write the active application's whole snapshot so
+                // RTSS cannot let an old per-app file override a WSGM global fallback.
                 profile = updateDesired
-                    ? persistence == PerformancePersistenceTarget.Global
-                        ? string.Empty
-                        : target?.RtssProfileName ?? string.Empty
+                    && requestedPersistence is PerformancePersistenceTarget.Global
+                    ? string.Empty
                     : ProfileForResolvedValue(target);
+                readbackIsActiveState = target is null || profile.Length > 0;
+                _commandProfiles[sequence] = profile;
             }
 
             if (targetRejection is not null)
@@ -760,7 +792,10 @@ internal sealed class PerformanceService : IAsyncDisposable
 
             if (!probe.Capabilities.HasVerifiedReadback(control))
             {
-                MarkAppliedUnverified(control, value);
+                if (readbackIsActiveState)
+                {
+                    MarkAppliedUnverified(control, value);
+                }
                 return UpdateCommand(new(
                     sequence,
                     origin,
@@ -775,7 +810,10 @@ internal sealed class PerformanceService : IAsyncDisposable
                 profile,
                 probe.Generation,
                 boundedCancellation).ConfigureAwait(false);
-            UpdateReadback(after, readback, detectExternalChange: false);
+            if (readbackIsActiveState)
+            {
+                UpdateReadback(after, readback, detectExternalChange: false);
+            }
             if (readback.Values.ValueFor(control) != value)
             {
                 return UpdateCommand(new(
@@ -892,7 +930,7 @@ internal sealed class PerformanceService : IAsyncDisposable
         }
     }
 
-    private async Task RefreshInsideGateAsync(CancellationToken cancellationToken)
+    private async Task<RtssProbe?> RefreshInsideGateAsync(CancellationToken cancellationToken)
     {
         RtssProbe probe = await _adapter.ProbeAsync(cancellationToken).ConfigureAwait(false);
         if (probe.Availability != RtssAvailability.Ready || probe.Capabilities is null)
@@ -917,12 +955,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             LogProbeChange(previousProbe, probe);
             RaiseStateChanged(unavailable);
 
-            // The one unavailable state WSGM can fix by itself. Discovery has already accepted the
-            // installation and found no process, which on a service boot is simply start order:
-            // RTSS's own tray entry has not run yet. Awaited rather than fired and forgotten so the
-            // next poll does not call it missing while it is still starting.
-            await _launcher.TryStartAsync(probe, Enabled, cancellationToken).ConfigureAwait(false);
-            return;
+            return probe;
         }
 
         RtssApplicationTarget? target = Current.Target;
@@ -931,6 +964,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             probe.Generation,
             cancellationToken).ConfigureAwait(false);
         UpdateReadback(probe, readback, detectExternalChange: true);
+        return null;
     }
 
     private void UpdateReadback(RtssProbe probe, RtssReadback readback, bool detectExternalChange)
@@ -1029,10 +1063,8 @@ internal sealed class PerformanceService : IAsyncDisposable
     /// <param name="previous">The probe this replaces.</param>
     /// <param name="probe">The new probe.</param>
     /// <remarks>
-    /// On change only, because the probe runs on every poll and this would otherwise be the loudest
-    /// line in the file. It has to be logged at all: a user reading an RTSS problem off the overlay
-    /// previously found nothing whatsoever about it in the log, which made the subsystem WSGM is
-    /// most often asked about the one that could not be diagnosed from a pasted log.
+    /// The probe runs on every poll, so only transitions are logged. Each transition includes the
+    /// availability and diagnostic needed for remote RTSS diagnosis.
     /// </remarks>
     private static void LogProbeChange(RtssProbe previous, RtssProbe probe)
     {
@@ -1080,13 +1112,20 @@ internal sealed class PerformanceService : IAsyncDisposable
     private PerformanceCommandState UpdateCommand(PerformanceCommandState command)
     {
         PerformanceState next;
+        string? appliedProfile;
         lock (_stateGate)
         {
             command = UpdateCommandLocked(command);
             next = _state;
+            _commandProfiles.TryGetValue(command.Sequence, out appliedProfile);
+            if (command.Phase is not (PerformanceCommandPhase.Queued
+                or PerformanceCommandPhase.Applying))
+            {
+                _commandProfiles.Remove(command.Sequence);
+            }
         }
 
-        LogCommandOutcome(command, next);
+        LogCommandOutcome(command, next, appliedProfile);
         RaiseStateChanged(next);
         return command;
     }
@@ -1094,20 +1133,15 @@ internal sealed class PerformanceService : IAsyncDisposable
     /// <summary>Records what one RTSS write actually did.</summary>
     /// <param name="command">The command that reached a terminal phase.</param>
     /// <param name="state">The state it left behind, for the profile it was written to.</param>
+    /// <param name="appliedProfile">RTSS profile the command targeted.</param>
     /// <remarks>
-    /// Every terminal outcome, not only the exception path. Before this, a write that succeeded, a
-    /// write RTSS accepted without proven readback, a readback that came back holding a different
-    /// value because another profile writer won, and a timeout were ALL silent — and the one
-    /// question a pasted log could not answer was the obvious one: did the frame cap reach RTSS at
-    /// all? Only an exception ever printed anything.
-    /// <para>
-    /// Through <see cref="Log.Change"/> keyed per control, because a policy re-apply can repeat the
-    /// same write: a transition prints, a repeat is counted. The profile is named because the global
-    /// profile and a per-application one are different files and picking the wrong one looks
-    /// exactly like a write that did nothing.
-    /// </para>
+    /// Every terminal outcome is recorded through <see cref="Log.Change"/> keyed per control. The
+    /// profile is included because global and per-application writes target different RTSS files.
     /// </remarks>
-    private static void LogCommandOutcome(PerformanceCommandState command, PerformanceState state)
+    private static void LogCommandOutcome(
+        PerformanceCommandState command,
+        PerformanceState state,
+        string? appliedProfile)
     {
         if (command.Phase
             is PerformanceCommandPhase.Idle
@@ -1117,9 +1151,11 @@ internal sealed class PerformanceService : IAsyncDisposable
             return;
         }
 
-        string profile = string.IsNullOrWhiteSpace(state.Target?.RtssProfileName)
-            ? "the global profile"
-            : state.Target!.RtssProfileName;
+        string profile = appliedProfile is not null
+            ? string.IsNullOrWhiteSpace(appliedProfile) ? "the global profile" : appliedProfile
+            : string.IsNullOrWhiteSpace(state.Target?.RtssProfileName)
+                ? "the global profile"
+                : state.Target!.RtssProfileName;
         string detail = string.IsNullOrWhiteSpace(command.Diagnostic)
             ? string.Empty
             : $" — {command.Diagnostic}";
@@ -1161,16 +1197,12 @@ internal sealed class PerformanceService : IAsyncDisposable
 
     private string ProfileForResolvedValue(RtssApplicationTarget? target)
     {
-        PerformanceApplicationPolicy? application = PerformancePolicyResolver.Find(
-            _policy,
-            target?.ApplicationId);
         // RTSS application profiles are whole snapshots, while WSGM precedence is
-        // per property. Once an application has any override, write every resolved
-        // property into that one profile so a global fallback cannot be stranded in
-        // the separate global profile behind an older application snapshot.
-        return application is null
-            ? string.Empty
-            : target?.RtssProfileName ?? string.Empty;
+        // per property. Whenever an application is running, write every effective value into its
+        // RTSS profile even when the value came from WSGM's global layer. Otherwise a disabled or
+        // previously-used application profile remains the stronger RTSS layer and silently keeps
+        // stale values over the global profile.
+        return target?.RtssProfileName ?? string.Empty;
     }
 
     private void ReleaseObservation()
@@ -1235,25 +1267,33 @@ internal sealed class PerformanceService : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(policy.Global);
         List<PerformanceApplicationPolicy> applications = [];
+        HashSet<string> identities = new(StringComparer.Ordinal);
         foreach (PerformanceApplicationPolicy application in policy.Applications ?? [])
         {
-            if (application is null
-                || string.IsNullOrWhiteSpace(application.ApplicationId)
-                || application.ApplicationId.Length > 1024
-                || !ValidProfileName(application.RtssProfileName)
-                || application.Values is null
-                || applications.Any(existing => string.Equals(
-                    existing.ApplicationId,
-                    application.ApplicationId,
-                    StringComparison.Ordinal)))
+            if (application is null || application.Values is null)
             {
+                Log.Warn("RTSS policy entry dropped: the application or its values were null.");
+                continue;
+            }
+
+            string applicationId = application.ApplicationId?.Trim() ?? string.Empty;
+            if (applicationId.Length == 0)
+            {
+                Log.Warn("RTSS policy entry dropped: the application identity was empty.");
+                continue;
+            }
+            if (!identities.Add(applicationId))
+            {
+                Log.Warn($"RTSS policy entry dropped: duplicate application identity '{SanitizeToken(applicationId, "unknown")}'.");
                 continue;
             }
 
             applications.Add(application with
             {
-                ApplicationId = application.ApplicationId.Trim(),
-                RtssProfileName = application.RtssProfileName.Trim(),
+                ApplicationId = applicationId,
+                RtssProfileName = ValidProfileName(application.RtssProfileName)
+                    ? application.RtssProfileName.Trim()
+                    : string.Empty,
             });
         }
 

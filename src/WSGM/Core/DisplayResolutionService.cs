@@ -122,7 +122,6 @@ internal sealed class DisplayResolutionService
         lock (_gate)
         {
             original = _original;
-            _original = null;
         }
 
         if (original is not { } resolution)
@@ -131,7 +130,22 @@ internal sealed class DisplayResolutionService
         }
 
         Log.Info($"Display resolution released; restoring {resolution}.");
-        return _apply(resolution.Width, resolution.Height);
+        bool restored = _apply(resolution.Width, resolution.Height);
+        if (restored)
+        {
+            lock (_gate)
+            {
+                if (_original == resolution)
+                {
+                    _original = null;
+                }
+            }
+        }
+        else
+        {
+            Log.Warn($"Display resolution could not restore {resolution}; the snapshot was retained.");
+        }
+        return restored;
     }
 
     private void CaptureOriginal()

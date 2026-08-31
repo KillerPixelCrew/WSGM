@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
+using WSGM.Controls;
 using WSGM.Core;
 
 namespace WSGM.Input;
@@ -11,7 +12,7 @@ namespace WSGM.Input;
 /// focus in the matching visual direction, A activates (synthesized Enter), B invokes a back
 /// action. Arrow keys mirror the D-pad so windows that hold real keyboard focus
 /// (Settings) are also navigable by Steam Input's desktop-layout key emission.
-/// Deterministic and AOT-safe.</summary>
+/// Deterministic so both controller-input paths apply the same action.</summary>
 public sealed class GamepadNavigation : IDisposable
 {
     // A single physical D-pad press reaches this class twice when Steam Input is
@@ -212,6 +213,13 @@ public sealed class GamepadNavigation : IDisposable
                 forward);
             return;
         }
+        if (target is CurveEditor curve
+            && DirectionForButtons(buttons) is { } curveDirection)
+        {
+            _suppressKeyboardUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
+            curve.ApplyDirection(curveDirection);
+            return;
+        }
 
         var direction = DirectionForButtons(buttons);
         if (direction is not null)
@@ -353,7 +361,7 @@ public sealed class GamepadNavigation : IDisposable
         // A closed ComboBox must let Up/Down leave the row; A opens it, after
         // which those directions select an item. Likewise, a horizontal Slider
         // keeps Left/Right while Up/Down continues through the visual layout.
-        var controlConsumesDirection = focused is TextBox
+        var controlConsumesDirection = focused is TextBox or CurveEditor
             || (focused is Slider && e.Key is Key.Left or Key.Right)
             || (focused is ComboBox { IsDropDownOpen: true }
                 && e.Key is Key.Up or Key.Down);

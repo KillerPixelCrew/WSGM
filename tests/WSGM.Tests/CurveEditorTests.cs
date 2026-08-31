@@ -1,3 +1,4 @@
+using Avalonia.Input;
 using WSGM.Controls;
 using WSGM.Device.Sdk.Capabilities;
 
@@ -107,5 +108,35 @@ public sealed class CurveEditorTests
         editor.AddPointAtWidestGap();
 
         Assert.Empty(editor.Points);
+    }
+
+    [Fact]
+    public void GamepadDirectionsSelectPointsAndEditTheirOutput()
+    {
+        CurveEditor editor = Editor((0, 0), (50, 50), (100, 100));
+        editor.SelectedIndex = 0;
+        IReadOnlyList<CurvePoint>? changed = null;
+        editor.CurveChanged += curve => changed = curve;
+
+        editor.ApplyDirection(NavigationDirection.Right);
+        editor.ApplyDirection(NavigationDirection.Up);
+
+        Assert.Equal(1, editor.SelectedIndex);
+        Assert.NotNull(changed);
+        Assert.Equal(new CurvePoint(50, 51), editor.Points[1]);
+    }
+
+    [Fact]
+    public void DirectionAtTheDeviceBoundDoesNotPublishAFalseEdit()
+    {
+        CurveEditor editor = Editor((0, 0), (100, 100));
+        editor.SelectedIndex = 1;
+        bool changed = false;
+        editor.CurveChanged += _ => changed = true;
+
+        editor.ApplyDirection(NavigationDirection.Up);
+
+        Assert.False(changed);
+        Assert.Equal(new CurvePoint(100, 100), editor.Points[1]);
     }
 }

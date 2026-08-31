@@ -8,8 +8,8 @@ namespace WSGM.Interop;
 /// </summary>
 /// <remarks>
 /// VIIPER runs its USBIP server in-process behind this ABI, so a virtual controller needs no helper
-/// process — the same shape as WSGM's other native helpers. Every signature here is blittable, which
-/// is what lets the NativeAOT executable call it directly.
+/// process. Every signature here is blittable, keeping the native ownership boundary small and
+/// explicit.
 /// <para>
 /// The kernel side is <c>usbip-win2</c>'s generic signed driver, installed once by the installer.
 /// Nothing in this file installs, repairs, or elevates anything; a missing library or driver simply

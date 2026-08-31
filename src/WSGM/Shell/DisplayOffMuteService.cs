@@ -271,7 +271,7 @@ public sealed class DisplayOffMuteService : IDisposable
             Log.Info("Mute on display off: already muted, leaving it alone.");
             return;
         }
-        if (Toggle())
+        if (SetMuted(true))
         {
             _mutedByUs = true;
             _inputRecoveryLogged = false;
@@ -306,7 +306,7 @@ public sealed class DisplayOffMuteService : IDisposable
             SyncRecoveryTimer();
             return;
         }
-        if (!Toggle())
+        if (!SetMuted(false))
         {
             _restorePending = true;
             SyncRecoveryTimer();
@@ -383,7 +383,7 @@ public sealed class DisplayOffMuteService : IDisposable
         muted = false;
         try
         {
-            var hr = NativeVolumeControl.GetVolume(out _, out var value);
+            var hr = CoreAudio.GetVolume(out _, out var value);
             if (hr < 0)
             {
                 Log.Warn($"Mute on display off: reading the volume failed (0x{hr:X8}).");
@@ -394,29 +394,26 @@ public sealed class DisplayOffMuteService : IDisposable
         }
         catch (Exception ex)
         {
-            Log.Warn($"Mute on display off: volume helper unavailable ({ex.Message}).");
+            Log.Warn($"Mute on display off: volume state unavailable ({ex.Message}).");
             return false;
         }
     }
 
-    // The native helper exposes a mute TOGGLE (the APPCOMMAND the volume keys send),
-    // not an absolute set; every caller here checks the current state first.
-    private static bool Toggle()
+    private static bool SetMuted(bool muted)
     {
         try
         {
-            const int appCommandVolumeMute = 8;
-            var hr = NativeVolumeControl.ApplyCommand(appCommandVolumeMute, out _, out _);
+            var hr = CoreAudio.SetMuted(muted);
             if (hr < 0)
             {
-                Log.Warn($"Mute on display off: toggling mute failed (0x{hr:X8}).");
+                Log.Warn($"Mute on display off: setting muted={muted} failed (0x{hr:X8}).");
                 return false;
             }
             return true;
         }
         catch (Exception ex)
         {
-            Log.Warn($"Mute on display off: volume helper unavailable ({ex.Message}).");
+            Log.Warn($"Mute on display off: volume state unavailable ({ex.Message}).");
             return false;
         }
     }

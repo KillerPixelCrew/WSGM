@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
@@ -11,15 +10,14 @@ using WSGM.Interop;
 
 namespace WSGM.Shell;
 
-/// <summary>Wi-Fi and Bluetooth state and control for the game-mode UI, over the
-/// native radio helper.
+/// <summary>Wi-Fi and Bluetooth state and control for the game-mode UI.
 ///
 /// Windows' own radio flyouts are unreachable in game mode — there is no
 /// Explorer shell to host them, and `ms-settings:` cannot activate without one —
 /// so this is the only way a user on a handheld can join a network or pair a
 /// controller without leaving game mode.
 ///
-/// Every helper call blocks (WinRT round trips, WLAN handles), so nothing here
+/// Windows calls block (WinRT round trips, WLAN handles), so nothing here
 /// runs on the UI thread: a background refresh publishes results back through
 /// the dispatcher. Rows are reconciled in place, because rebuilding the
 /// collections would drop the control under the gamepad cursor.</summary>
@@ -36,20 +34,19 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     /// Always on the UI thread.</summary>
     public event Action<string>? PairingFinished;
 
-    // Radio kinds as the helper numbers them.
+    // Radio-kind values shared with the managed Windows boundary.
     private const int KindWifi = 0;
     private const int KindBluetooth = 1;
 
     private DispatcherTimer? _timer;
     private int _refreshing;
     private bool _scanning;
-    private bool _helperMissingLogged;
     private bool _accessLogged;
 
     /// <summary>Describes a pairing question for the UI to render.</summary>
     /// <param name="Token">Identifies the request when answering.</param>
     /// <param name="Kind">0 confirm-only, 1 display-pin, 2 provide-pin,
-    /// 3 confirm-pin-match, 4 a ceremony the helper does not model. Four is
+    /// 3 confirm-pin-match, 4 a ceremony WSGM does not model. Four is
     /// deliberately presented as confirm-only rather than declined: an accept is
     /// what Windows most often wants, and the log line records the raw kind so a
     /// device that really needs another ceremony is still diagnosable.</param>
@@ -337,18 +334,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         {
             try
             {
-                if (NativeRadio.RequestWifiScan() != NativeRadio.Ok)
-                {
-                    Log.Warn($"Wi-Fi scan request failed: {NativeRadio.LastError()}");
-                }
-            }
-            catch (DllNotFoundException ex)
-            {
-                WarnHelperMissing(ex.Message);
-            }
-            catch (EntryPointNotFoundException ex)
-            {
-                WarnHelperMissing(ex.Message);
+                WindowsRadio.RequestWifiScan();
             }
             catch (Exception ex)
             {
@@ -362,46 +348,35 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
 
     private void StopAndRestartBluetoothWatch()
     {
-        if (!_watchHandle.IsAllocated)
+        if (!_feedsStarted)
         {
             return;
         }
-        var context = GCHandle.ToIntPtr(_watchHandle);
-        var callback = BluetoothCallback;
         QueueFeedWork(() =>
         {
-            NativeRadio.StopBluetoothWatch();
-            if (NativeRadio.StartBluetoothWatch(callback, context) != NativeRadio.Ok)
+            try
             {
-                var error = NativeRadio.LastError();
-                Dispatcher.UIThread.Post(() =>
-                {
-                    Log.Warn($"Bluetooth watch could not restart: {error}");
-                    BluetoothScanning = false;
-                });
+                WindowsRadio.StopBluetoothWatch();
+                WindowsRadio.StartBluetoothWatch(OnBluetoothChanged);
+            }
+            catch
+            {
+                Dispatcher.UIThread.Post(() => BluetoothScanning = false);
+                throw;
             }
         });
     }
 
-    /// <summary>The watcher entry points, as plain pointers so the background
-    /// feed work can capture them without an unsafe closure.</summary>
-    private static unsafe nint BluetoothCallback =>
-        (nint)(delegate* unmanaged[Stdcall]<nint, int, nint, nint, int, int, int, nint, void>)
-            &OnBluetoothChanged;
-
-    private static unsafe nint WifiCallback =>
-        (nint)(delegate* unmanaged[Stdcall]<nint, int, void>)&OnWifiEvent;
-
-    /// <summary>Serializes the native feed operations onto background threads.
+    /// <summary>Serializes the Windows feed operations onto background threads.
     ///
-    /// Two reasons, both load-bearing. They BLOCK: every one of them crosses to
-    /// the helper's single MTA worker, and starting a watcher while a radio
-    /// enumeration is still running there froze the panel on open. And they
+    /// Two reasons, both load-bearing. They BLOCK: a watcher can enumerate
+    /// devices for seconds, and starting another while that work was still
+    /// running froze the panel on open. And they
     /// must not interleave — a stop racing a start would leave the watcher in
     /// whichever state finished last. UI-thread callers only, so the field
     /// needs no lock.
     ///
-    /// STATIC on purpose: the native watchers are process-wide singletons, but
+    /// STATIC on purpose: the watchers are process-wide singletons, but
     /// managers are not — closing and reopening the taskbar builds a new one
     /// while the old is still tearing down. With a queue each, the old
     /// manager's stop could land after the new manager's start and silently
@@ -416,14 +391,6 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
                 try
                 {
                     work();
-                }
-                catch (DllNotFoundException ex)
-                {
-                    WarnHelperMissing(ex.Message);
-                }
-                catch (EntryPointNotFoundException ex)
-                {
-                    WarnHelperMissing(ex.Message);
                 }
                 catch (Exception ex)
                 {
@@ -452,7 +419,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     }
 
     /// <summary>Refreshes state off the UI thread, at most one at a time. A slow
-    /// helper call must not queue up behind itself every tick.</summary>
+    /// Windows call must not queue up behind itself every tick.</summary>
     private void QueueRefresh()
     {
         if (Interlocked.CompareExchange(ref _refreshing, 1, 0) != 0)
@@ -466,14 +433,6 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
                 var snapshot = ReadSnapshot(_scanning);
                 Dispatcher.UIThread.Post(() => Apply(snapshot));
             }
-            catch (DllNotFoundException ex)
-            {
-                WarnHelperMissing(ex.Message);
-            }
-            catch (EntryPointNotFoundException ex)
-            {
-                WarnHelperMissing(ex.Message);
-            }
             catch (Exception ex)
             {
                 Log.Warn($"Radio refresh failed: {ex.Message}");
@@ -485,16 +444,6 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         });
     }
 
-    private void WarnHelperMissing(string message)
-    {
-        if (_helperMissingLogged)
-        {
-            return;
-        }
-        _helperMissingLogged = true;
-        Log.Warn($"Radio helper unavailable, radio controls stay neutral: {message}");
-    }
-
     private sealed record Snapshot(
         RadioPower WifiPower,
         RadioPower BluetoothPower,
@@ -503,8 +452,8 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         int WifiSignal,
         string WifiSsid,
         bool IncludedNetworks,
-        IReadOnlyList<NativeRadio.WifiNetwork> Networks,
-        IReadOnlyList<NativeRadio.BluetoothAudioContainer>? AudioContainers,
+        IReadOnlyList<WindowsRadio.WifiNetwork> Networks,
+        IReadOnlyList<CoreAudio.BluetoothAudioContainer>? AudioContainers,
         string? Failure);
 
     private static Snapshot ReadSnapshot(bool includeNetworks)
@@ -516,10 +465,17 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         // and the only way the tile can distinguish "on" from "connected"
         // without the panel's watcher running.
         var bluetoothConnected = 0;
-        if (bluetoothPower == RadioPower.On
-            && NativeRadio.ConnectedBluetoothCount(out var connectedCount) == NativeRadio.Ok)
+        if (bluetoothPower == RadioPower.On)
         {
-            bluetoothConnected = (int)connectedCount;
+            try
+            {
+                bluetoothConnected = WindowsRadio.ConnectedBluetoothCount();
+            }
+            catch (Exception ex)
+            {
+                Log.Change("radio-bluetooth-connected-query",
+                    $"Bluetooth connected-device query unavailable: {ex.Message}");
+            }
         }
 
         // State, signal and SSID together, every tick: reading the signal only
@@ -528,15 +484,20 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         var wifiState = 3;
         var wifiSignal = 0;
         var wifiSsid = "";
-        if (NativeRadio.WifiStatus(out var rawState, out var signal, out var ssid)
-            == NativeRadio.Ok)
+        try
         {
-            wifiState = rawState;
-            wifiSignal = signal;
-            wifiSsid = ssid;
+            var status = WindowsRadio.GetWifiStatus();
+            wifiState = status.State;
+            wifiSignal = status.Signal;
+            wifiSsid = status.Ssid;
+        }
+        catch (Exception ex)
+        {
+            Log.Change("radio-wifi-status-query",
+                $"Wi-Fi status query unavailable: {ex.Message}");
         }
 
-        IReadOnlyList<NativeRadio.WifiNetwork> networks = [];
+        IReadOnlyList<WindowsRadio.WifiNetwork> networks = [];
         string? failure = null;
         // Only a SUCCESSFUL listing counts as carrying a network list. Marking
         // a failed one as included made Apply reconcile against an empty
@@ -546,47 +507,30 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
 
         if (includeNetworks && wifiPower == RadioPower.On)
         {
-            if (NativeRadio.ListWifiNetworks(out var items, out var count) == NativeRadio.Ok)
+            try
             {
-                try
-                {
-                    networks = ReadArray(
-                        items, count, NativeRadio.WifiRecordSize, NativeRadio.ReadWifiNetwork);
-                }
-                finally
-                {
-                    // The helper owns the allocation on every path out of the
-                    // decode, and this runs every two seconds: a throw that
-                    // skipped the free would leak on each tick.
-                    NativeRadio.FreeWifiNetworks(items, count);
-                }
+                networks = WindowsRadio.ListWifiNetworks();
                 listed = true;
             }
-            else
+            catch (Exception ex)
             {
-                failure = NativeRadio.LastError();
+                failure = ex.Message;
             }
         }
 
         // Only while the panel is open: the audio-endpoint set decides which
         // Bluetooth rows get a Connect action, and only the panel shows rows.
         // Local PnP enumeration, no radio traffic.
-        IReadOnlyList<NativeRadio.BluetoothAudioContainer>? audio = null;
-        if (includeNetworks
-            && NativeRadio.ListBluetoothAudio(out var audioItems, out var audioCount)
-                == NativeRadio.Ok)
+        IReadOnlyList<CoreAudio.BluetoothAudioContainer>? audio = null;
+        if (includeNetworks)
         {
             try
             {
-                audio = ReadArray(
-                    audioItems,
-                    audioCount,
-                    NativeRadio.BluetoothAudioRecordSize,
-                    NativeRadio.ReadBluetoothAudio);
+                audio = CoreAudio.ListBluetoothAudioContainers();
             }
-            finally
+            catch (Exception ex)
             {
-                NativeRadio.FreeBluetoothAudio(audioItems, audioCount);
+                Log.Warn($"Bluetooth audio endpoint query failed: {ex.Message}");
             }
         }
 
@@ -603,9 +547,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             failure);
     }
 
-    // Watch callbacks must be static under NativeAOT, so the manager travels
-    // through the context cookie rather than a closure.
-    private GCHandle _watchHandle;
+    private bool _feedsStarted;
 
     /// <summary>Ids reported during the current discovery sweep. Anything absent
     /// when the sweep completes is no longer there.</summary>
@@ -637,84 +579,63 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     /// either wastes work or shows a network seconds late.</summary>
     private void StartFeeds()
     {
-        if (_watchHandle.IsAllocated)
+        if (_feedsStarted)
         {
             return;
         }
-        // Allocated here, on the UI thread, so a stop queued straight after an
-        // open still sees live feeds and tears them down in order.
-        _watchHandle = GCHandle.Alloc(this);
-        var context = GCHandle.ToIntPtr(_watchHandle);
-        var bluetooth = BluetoothCallback;
-        var wifi = WifiCallback;
-        QueueFeedWork(() =>
-        {
-            if (NativeRadio.StartBluetoothWatch(bluetooth, context) != NativeRadio.Ok)
-            {
-                Log.Warn($"Bluetooth watch could not start: {NativeRadio.LastError()}");
-            }
-            if (NativeRadio.StartWifiWatch(wifi, context) != NativeRadio.Ok)
-            {
-                Log.Warn($"Wi-Fi watch could not start: {NativeRadio.LastError()}");
-            }
-        });
+        _feedsStarted = true;
+        QueueFeedWork(StartBluetoothFeed);
+        QueueFeedWork(StartWifiFeed);
     }
+
+    private void StartBluetoothFeed()
+    {
+        try
+        {
+            WindowsRadio.StartBluetoothWatch(OnBluetoothChanged);
+        }
+        catch
+        {
+            Dispatcher.UIThread.Post(() => BluetoothScanning = false);
+            throw;
+        }
+    }
+
+    private void StartWifiFeed() => WindowsRadio.StartWifiWatch(OnWifiEvent);
 
     private void StopFeeds()
     {
-        if (!_watchHandle.IsAllocated)
+        if (!_feedsStarted)
         {
             return;
         }
-        // Cleared before the work is queued: to every UI-thread caller the
-        // feeds are already gone, while the teardown itself runs in order
-        // behind whatever start is still in flight.
-        var handle = _watchHandle;
-        _watchHandle = default;
+        _feedsStarted = false;
         QueueFeedWork(() =>
         {
-            NativeRadio.StopBluetoothWatch();
-            NativeRadio.StopWifiWatch();
-            // Freed only after both feeds are stopped, or a late callback would
-            // resolve a dead handle.
-            if (handle.IsAllocated)
-            {
-                handle.Free();
-            }
+            WindowsRadio.StopBluetoothWatch();
+            WindowsRadio.StopWifiWatch();
         });
     }
 
-    [UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvStdcall)])]
-    private static void OnBluetoothChanged(
-        nint context, int change, nint id, nint name, int paired, int canPair, int connected,
-        nint container)
+    private void OnBluetoothChanged(WindowsRadio.BluetoothChange change)
     {
-        // Arrives on a WinRT worker. Copy the strings before returning.
-        var deviceId = Marshal.PtrToStringUni(id) ?? "";
-        var deviceName = Marshal.PtrToStringUni(name) ?? "";
-        var containerId = Marshal.PtrToStringUni(container) ?? "";
-        var manager = FromContext(context);
-        if (manager is null)
-        {
-            return;
-        }
+        var device = change.Device;
         Dispatcher.UIThread.Post(() =>
-            manager.ApplyDeviceChange(
-                change, deviceId, deviceName, paired != 0, canPair != 0, connected != 0,
-                containerId));
+            ApplyDeviceChange(
+                change.Kind,
+                device.Id,
+                device.Name,
+                device.Paired,
+                device.CanPair,
+                device.Connected,
+                device.Container));
     }
 
-    [UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvStdcall)])]
-    private static void OnWifiEvent(nint context, int code)
+    private void OnWifiEvent(int code)
     {
-        var manager = FromContext(context);
-        if (manager is null)
-        {
-            return;
-        }
         // A scan-list refresh means new networks are visible right now; a
         // connection change means the "connected" marker moved.
-        Dispatcher.UIThread.Post(manager.QueueRefresh);
+        Dispatcher.UIThread.Post(QueueRefresh);
         if (code == 1)
         {
             Log.Info("Wi-Fi: connection state changed.");
@@ -805,44 +726,18 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         BluetoothStateText = DescribeBluetooth(BluetoothPower, BluetoothDevices.Count);
     }
 
-    private static RadioPower ReadPower(int kind) =>
-        NativeRadio.GetRadioPower(kind, out var state) == NativeRadio.Ok
-            ? (RadioPower)state
-            : RadioPower.Unknown;
-
-    /// <summary>Copies a helper-owned array into managed memory. The caller frees
-    /// the native allocation immediately afterwards, so nothing may keep a
-    /// pointer into it.</summary>
-    /// <param name="items">The first record, or zero.</param>
-    /// <param name="count">How many records follow.</param>
-    /// <param name="stride">The size of one record.</param>
-    /// <param name="read">Decodes one record.</param>
-    private static List<T> ReadArray<T>(nint items, uint count, int stride, Func<nint, T> read)
+    private static RadioPower ReadPower(int kind)
     {
-        if (items == 0)
+        try
         {
-            return [];
+            return (RadioPower)WindowsRadio.GetPower(kind);
         }
-        // The helper is ours, but a corrupt count must not walk arbitrary memory
-        // if a mismatched DLL is ever shipped beside WSGM — and the record
-        // offset below is int arithmetic, which a large count overflows long
-        // before the allocation itself fails.
-        if (count > MaxHelperRecords)
+        catch (Exception ex)
         {
-            Log.Warn($"Radio helper reported {count} records, refusing to decode the array.");
-            return [];
+            Log.Change($"radio-power-{kind}", $"Radio power query failed for kind {kind}: {ex.Message}");
+            return RadioPower.Unknown;
         }
-        var result = new List<T>((int)count);
-        for (var i = 0; i < count; i++)
-        {
-            result.Add(read(items + (i * stride)));
-        }
-        return result;
     }
-
-    /// <summary>The most records a helper array may claim before it is treated
-    /// as corrupt. Far above any real network or device count.</summary>
-    private const int MaxHelperRecords = 4096;
 
     private void Apply(Snapshot snapshot)
     {
@@ -937,7 +832,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     /// <summary>Merges a fresh network list into the bound collection without
     /// replacing surviving rows — a wholesale rebuild would move focus out from
     /// under the gamepad cursor mid-scan.</summary>
-    private void ReconcileNetworks(IReadOnlyList<NativeRadio.WifiNetwork> fresh)
+    private void ReconcileNetworks(IReadOnlyList<WindowsRadio.WifiNetwork> fresh)
     {
         var connected = "";
         for (var i = 0; i < fresh.Count; i++)
@@ -1021,19 +916,15 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         var kind = bluetooth ? KindBluetooth : KindWifi;
         var label = bluetooth ? "Bluetooth" : "Wi-Fi";
         // One power change at a time per radio. Two Task.Run delegates can
-        // reach the helper's MTA queue in either order, so a quick Off-then-On
+        // reach Windows in either order, so a quick Off-then-On
         // could settle with the radio OFF while the switch shows on — and the
         // two completions would overwrite each other's status besides.
         var gate = bluetooth ? _bluetoothPowerGate : _wifiPowerGate;
         await gate.WaitAsync();
         try
         {
-            var result = await Task.Run(() =>
-            {
-                var status = NativeRadio.SetRadioPower(kind, on ? 1 : 0, out var access);
-                return (status, access, error: NativeRadio.LastError());
-            });
-            ApplyRadioResult(label, on, result);
+            var access = await Task.Run(() => WindowsRadio.SetPower(kind, on));
+            ApplyRadioResult(label, on, (int)access);
         }
         catch (Exception ex)
         {
@@ -1052,40 +943,27 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
 
     /// <summary>Turns a failed radio command into recoverable feature state.
     ///
-    /// Every enumeration path already degrades to "controls stay neutral" when
-    /// the helper is missing or mismatched, but a command's callers are async
+    /// Every enumeration path already degrades to "controls stay neutral", but a command's callers are async
     /// void UI handlers: an escaping exception reaches the process-wide
     /// unhandled hook and tears the game-mode session down over a button press.
     /// </summary>
     /// <param name="operation">What the user asked for, phrased for a status line.</param>
-    /// <param name="ex">The failure the native call raised.</param>
+    /// <param name="ex">The failure the Windows call raised.</param>
     private void ReportCommandFailure(string operation, Exception ex)
     {
-        if (ex is DllNotFoundException or EntryPointNotFoundException)
-        {
-            WarnHelperMissing(ex.Message);
-            StatusText = $"Could not {operation}: the radio helper is unavailable.";
-            return;
-        }
         Log.Warn($"Radio command failed ({operation}): {ex.Message}");
         StatusText = $"Could not {operation}.";
     }
 
-    private void ApplyRadioResult(
-        string label, bool on, (int status, int access, string error) result)
+    private void ApplyRadioResult(string label, bool on, int access)
     {
-        if (result.status != NativeRadio.Ok)
-        {
-            Log.Warn($"Radio set {label}={on} failed: {result.error}");
-            StatusText = $"Could not turn {label} {(on ? "on" : "off")}.";
-        }
-        else if (result.access != 0)
+        if (access != 0)
         {
             // Access is refused by a privacy setting, not by anything we can fix.
             if (!_accessLogged)
             {
                 _accessLogged = true;
-                Log.Warn($"Radio control denied (access code {result.access}).");
+                Log.Warn($"Radio control denied (access code {access}).");
             }
             StatusText = "Windows is not allowing apps to control the radios "
                 + "(Settings > Privacy & security > Radios).";
@@ -1104,7 +982,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     /// reason in <see cref="StatusText"/>.</returns>
     public async Task<bool> ConnectAsync(string ssid, string? password)
     {
-        // One attempt at a time. The helper now waits out the real verdict, so
+        // One attempt at a time. The backend waits out the real verdict, so
         // a second Connect would run a concurrent attempt whose scoped watcher
         // sees the same process-wide WLAN events: the two would consume each
         // other's outcomes, report the wrong result, and roll back a profile
@@ -1118,13 +996,9 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         try
         {
             StatusText = $"Connecting to {ssid}...";
-            var result = await Task.Run(() =>
-            {
-                var status = NativeRadio.ConnectWifi(ssid, password, out var reason);
-                return (status, reason, error: NativeRadio.LastError());
-            });
+            var reason = await Task.Run(() => WindowsRadio.ConnectWifi(ssid, password));
 
-            if (result.status == NativeRadio.Ok)
+            if (reason == 0)
             {
                 Log.Info($"Wi-Fi connect: {ssid} connected.");
                 StatusText = "";
@@ -1132,18 +1006,17 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
                 return true;
             }
 
-            var verdict = result.reason != 0
-                ? await Task.Run(() => NativeRadio.GetReasonVerdict(result.reason))
-                : 4;
-            StatusText = DescribeConnectFailure(verdict, result.reason, result.error);
+            var verdict = WindowsRadio.GetReasonVerdict(reason);
+            StatusText = DescribeConnectFailure(verdict, reason, "");
             Log.Warn(
-                $"Wi-Fi connect: {ssid} failed (verdict {verdict}, reason {result.reason}): {result.error}");
+                $"Wi-Fi connect: {ssid} failed (verdict {verdict}, reason {reason}).");
             QueueRefresh();
             return false;
         }
         catch (Exception ex)
         {
-            ReportCommandFailure($"connect to {ssid}", ex);
+            Log.Warn($"Wi-Fi connect: {ssid} threw: {ex.Message}");
+            StatusText = DescribeConnectFailure(4, 0, ex.Message);
             return false;
         }
         finally
@@ -1165,11 +1038,11 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         {
             1 => "That password was not accepted. Check it and try again.",
             2 => reasonCode != 0
-                ? NativeRadio.ReasonText(reasonCode)
+                ? WindowsRadio.ReasonText(reasonCode)
                 : "That password is not valid for this network.",
             3 => "Could not reach that network. It may be out of range.",
             _ => reasonCode != 0
-                ? NativeRadio.ReasonText(reasonCode)
+                ? WindowsRadio.ReasonText(reasonCode)
                 : (fallback.Length > 0 ? fallback : "Could not connect."),
         };
 
@@ -1178,23 +1051,9 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     {
         try
         {
-            var result = await Task.Run(() =>
-            {
-                var status = NativeRadio.DisconnectWifi();
-                return (status, error: NativeRadio.LastError());
-            });
-            if (result.status == NativeRadio.Ok)
-            {
-                Log.Info("Wi-Fi disconnect: requested.");
-                StatusText = "";
-            }
-            else
-            {
-                // The row stays connected on the next refresh, so silence here
-                // reads as the button having done nothing at all.
-                Log.Warn($"Wi-Fi disconnect failed: {result.error}");
-                StatusText = "Could not disconnect from this network.";
-            }
+            await Task.Run(WindowsRadio.DisconnectWifi);
+            Log.Info("Wi-Fi disconnect: requested.");
+            StatusText = "";
         }
         catch (Exception ex)
         {
@@ -1209,23 +1068,9 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     {
         try
         {
-            var result = await Task.Run(() =>
-            {
-                var status = NativeRadio.ForgetWifi(ssid);
-                return (status, error: NativeRadio.LastError());
-            });
-            if (result.status == NativeRadio.Ok)
-            {
-                Log.Info($"Wi-Fi forget: {ssid}.");
-                StatusText = "";
-            }
-            else
-            {
-                // Reported, not assumed: a profile that survived a Forget keeps
-                // auto-joining, and silence here looks exactly like success.
-                Log.Warn($"Wi-Fi forget: {ssid} failed: {result.error}");
-                StatusText = $"Could not forget {ssid}.";
-            }
+            await Task.Run(() => WindowsRadio.ForgetWifi(ssid));
+            Log.Info($"Wi-Fi forget: {ssid}.");
+            StatusText = "";
         }
         catch (Exception ex)
         {
@@ -1238,7 +1083,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     /// soft action, distinct from removing the pairing. Only meaningful for
     /// rows with <see cref="BluetoothDeviceEntry.AudioConnectable"/>: other
     /// device classes reconnect on their own initiative and Windows offers no
-    /// host-side connect for them.</summary>
+    /// general reconnect operation for them.</summary>
     /// <param name="entry">The device to connect or disconnect.</param>
     /// <param name="connect">True to connect, false to disconnect.</param>
     public async Task SetAudioConnectionAsync(BluetoothDeviceEntry entry, bool connect)
@@ -1252,31 +1097,20 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         var container = entry.ContainerId;
         try
         {
-            var result = await Task.Run(() =>
-            {
-                var status = NativeRadio.SetBluetoothAudio(container, connect ? 1 : 0);
-                return (status, error: NativeRadio.LastError());
-            });
-            if (result.status == NativeRadio.Ok)
-            {
-                Log.Info($"Bluetooth audio {(connect ? "connect" : "disconnect")}: {entry.Name}.");
-                // Optimistic on the AUDIO state specifically — that is what this
-                // one-shot moved. The next snapshot confirms it from the endpoints.
-                entry.AudioActive = connect;
-                StatusText = "";
-            }
-            else
-            {
-                Log.Warn($"Bluetooth audio {(connect ? "connect" : "disconnect")} failed for "
-                    + $"{entry.Name}: {result.error}");
-                StatusText = connect
-                    ? $"Could not connect {entry.Name}. Make sure it is switched on and in range."
-                    : $"Could not disconnect {entry.Name}.";
-            }
+            await Task.Run(() => CoreAudio.SetBluetoothAudioConnection(container, connect));
+            Log.Info($"Bluetooth audio {(connect ? "connect" : "disconnect")}: {entry.Name}.");
+            // Optimistic on the AUDIO state specifically — that is what this
+            // one-shot moved. The next snapshot confirms it from the endpoints.
+            entry.AudioActive = connect;
+            StatusText = "";
         }
         catch (Exception ex)
         {
-            ReportCommandFailure($"{(connect ? "connect" : "disconnect")} {entry.Name}", ex);
+            Log.Warn($"Bluetooth audio {(connect ? "connect" : "disconnect")} failed for "
+                + $"{entry.Name}: {ex.Message}");
+            StatusText = connect
+                ? $"Could not connect {entry.Name}. Make sure it is switched on and in range."
+                : $"Could not disconnect {entry.Name}.";
         }
         finally
         {
@@ -1296,8 +1130,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         bool removed;
         try
         {
-            removed = await Task.Run(() =>
-                NativeRadio.UnpairBluetooth(id, out var ok) == NativeRadio.Ok && ok != 0);
+            removed = await Task.Run(() => WindowsRadio.UnpairBluetooth(id));
         }
         catch (Exception ex)
         {
@@ -1321,27 +1154,23 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         StatusText = removed ? "" : $"Could not remove {entry.Name}.";
     }
 
-    // Pairing callbacks are static because NativeAOT requires it, so the manager
-    // instance travels through the context cookie rather than a closure.
-    private GCHandle _pairingHandle;
+    private bool _pairingInProgress;
     private BluetoothDeviceEntry? _pairingEntry;
 
     /// <summary>Starts pairing a device. Questions arrive on
     /// <see cref="PairingRequested"/> and must be answered with
     /// <see cref="RespondToPairing"/>.</summary>
     /// <param name="entry">The device to pair.</param>
-    public unsafe void BeginPairing(BluetoothDeviceEntry entry)
+    public void BeginPairing(BluetoothDeviceEntry entry)
     {
-        if (_pairingHandle.IsAllocated)
+        if (_pairingInProgress)
         {
             StatusText = "Another pairing is already in progress.";
             return;
         }
+        _pairingInProgress = true;
         entry.Busy = true;
         _pairingEntry = entry;
-        // The handle keeps this manager reachable while native code holds the
-        // cookie; it is freed in OnPairingDone, which always runs.
-        _pairingHandle = GCHandle.Alloc(this);
         StatusText = $"Pairing with {entry.Name}...";
         // Discovery keeps running through the whole ceremony ON PURPOSE, the
         // way the Windows applet does it: PairAsync needs the association
@@ -1350,32 +1179,14 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
         // every attempt fail instantly (device-observed 2026-08-09).
         Log.Info($"Bluetooth pairing: started for {entry.Name}.");
 
-        var id = entry.Id;
-        var context = GCHandle.ToIntPtr(_pairingHandle);
-        int status;
         try
         {
-            status = NativeRadio.PairBluetooth(
-                id,
-                (nint)(delegate* unmanaged[Stdcall]<nint, uint, int, nint, nint, void>)&OnPairingRequested,
-                (nint)(delegate* unmanaged[Stdcall]<nint, int, nint, void>)&OnPairingDone,
-                context);
+            WindowsRadio.PairBluetooth(entry.Id, OnPairingRequested, OnPairingDone);
         }
         catch (Exception ex)
         {
-            // The handle and the row's busy flag are this method's to undo: a
-            // leaked pairing handle makes every later Pair answer "Another
-            // pairing is already in progress." for the life of the session.
             FinishPairing();
             ReportCommandFailure($"pair with {entry.Name}", ex);
-            return;
-        }
-        if (status != NativeRadio.Ok)
-        {
-            var error = NativeRadio.LastError();
-            Log.Warn($"Bluetooth pairing: could not start for {entry.Name}: {error}");
-            StatusText = $"Could not start pairing with {entry.Name}.";
-            FinishPairing();
         }
     }
 
@@ -1387,29 +1198,13 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     {
         Log.Info($"Bluetooth pairing: answering token {token} with "
             + $"{(accept ? "accept" : "decline")}{(pin is { Length: > 0 } ? " and a PIN" : "")}.");
-        // Off the UI thread: the helper's reply blocks on the shared MTA
-        // worker, which a radio enumeration is explicitly allowed to hold for
-        // seconds — so answering a ceremony froze the panel at exactly the
-        // moment the user pressed Pair. Nothing here needs the result, and a
-        // second reply for the same token is a no-op.
+        // A pairing deferral completed on Avalonia's STA thread can wedge the
+        // Device Association service; always answer from the MTA thread pool.
         _ = Task.Run(() =>
         {
             try
             {
-                var status = NativeRadio.RespondToPairing(token, accept ? 1 : 0, pin);
-                if (status != NativeRadio.Ok)
-                {
-                    Log.Warn(
-                        $"Bluetooth pairing: reply to token {token} failed: {NativeRadio.LastError()}");
-                }
-            }
-            catch (DllNotFoundException ex)
-            {
-                WarnHelperMissing(ex.Message);
-            }
-            catch (EntryPointNotFoundException ex)
-            {
-                WarnHelperMissing(ex.Message);
+                WindowsRadio.RespondToPairing(token, accept, pin);
             }
             catch (Exception ex)
             {
@@ -1428,65 +1223,36 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             _pairingEntry.Busy = false;
             _pairingEntry = null;
         }
-        if (_pairingHandle.IsAllocated)
-        {
-            _pairingHandle.Free();
-        }
+        _pairingInProgress = false;
     }
 
-    private static RadioManager? FromContext(nint context) =>
-        context != 0 && GCHandle.FromIntPtr(context).Target is RadioManager manager
-            ? manager
-            : null;
-
-    [UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvStdcall)])]
-    private static void OnPairingRequested(
-        nint context, uint token, int kind, nint pin, nint deviceName)
+    private void OnPairingRequested(WindowsRadio.PairingRequest request)
     {
-        // Runs on a helper thread. Copy the strings before returning: they are
-        // only valid for the duration of this call.
-        var pinText = Marshal.PtrToStringUni(pin) ?? "";
-        var name = Marshal.PtrToStringUni(deviceName) ?? "";
-        // Logged on arrival, before anything can go wrong with it: this callback
-        // crossing from the helper is the step that cannot be observed any other
-        // way, and its absence is the difference between "Windows never asked"
-        // and "we never showed the question".
-        Log.Info($"Bluetooth pairing: question received (token {token}, kind {kind}, "
-            + $"pin '{pinText}') for {name}.");
-        var manager = FromContext(context);
-        if (manager is null)
-        {
-            Log.Warn("Bluetooth pairing: question arrived with no manager attached; ignoring.");
-            return;
-        }
+        Log.Info($"Bluetooth pairing: question received (token {request.Token}, "
+            + $"kind {request.Kind}, pin '{request.Pin}') for {request.DeviceName}.");
         Dispatcher.UIThread.Post(() =>
         {
-            var handled = manager.PairingRequested is not null;
-            Log.Info($"Bluetooth pairing: prompting the user (token {token}, "
+            var handled = PairingRequested is not null;
+            Log.Info($"Bluetooth pairing: prompting the user (token {request.Token}, "
                 + $"handler attached: {handled}).");
-            manager.PairingRequested?.Invoke(new PairingPrompt(token, kind, pinText, name));
+            PairingRequested?.Invoke(new PairingPrompt(
+                request.Token, request.Kind, request.Pin, request.DeviceName));
             if (!handled)
             {
-                // Nobody can answer, so decline rather than leave the ceremony
-                // waiting until it times out.
-                Log.Warn($"Bluetooth pairing: no UI attached, declining token {token}.");
-                manager.RespondToPairing(token, accept: false, null);
+                Log.Warn($"Bluetooth pairing: no UI attached, declining token {request.Token}.");
+                RespondToPairing(request.Token, accept: false, null);
             }
         });
     }
 
-    [UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvStdcall)])]
-    private static void OnPairingDone(nint context, int outcome, nint message)
+    private void OnPairingDone(WindowsRadio.PairingResult? result, Exception? failure)
     {
-        var text = Marshal.PtrToStringUni(message) ?? "";
-        var manager = FromContext(context);
-        if (manager is null)
-        {
-            return;
-        }
+        var outcome = result?.Outcome ?? -1;
+        var text = failure?.Message
+            ?? (result is { } completed ? $"Windows status {completed.RawStatus}" : string.Empty);
         Dispatcher.UIThread.Post(() =>
         {
-            var entry = manager._pairingEntry;
+            var entry = _pairingEntry;
             var name = entry?.Name ?? "device";
             // Same reasoning as unpair: apply the outcome we already know rather
             // than leaving the row stale until the next inquiry finishes.
@@ -1494,14 +1260,14 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             {
                 entry.Paired = true;
             }
-            manager.FinishPairing();
+            FinishPairing();
             var summary = DescribePairOutcome(outcome, name, text);
             // The raw status rides along: the grouped outcome deliberately
             // lumps rare statuses, and remote diagnosis needs the exact one.
             Log.Info($"Bluetooth pairing: finished for {name} (outcome {outcome}"
                 + $"{(text.Length > 0 ? $", {text}" : "")}). {summary}");
-            manager.StatusText = outcome is 0 or 1 ? "" : summary;
-            manager.PairingFinished?.Invoke(summary);
+            StatusText = outcome is 0 or 1 ? "" : summary;
+            PairingFinished?.Invoke(summary);
         });
     }
 

@@ -7,7 +7,7 @@ namespace WSGM.Shell;
 /// The one make-safe sequence WSGM runs when it stops driving the physical controller.
 /// </summary>
 /// <remarks>
-/// Stated in the wire vocabulary (<see cref="ControllerHandoffStep"/>) deliberately. The plugin
+/// Stated in the shared plugin vocabulary (<see cref="ControllerHandoffStep"/>) deliberately. The plugin
 /// reports its half of the handoff in those steps, so a second WSGM-local vocabulary would need
 /// translating at every boundary and could disagree with the plugin about how far the handoff got —
 /// which is exactly the state a remote log has to be able to settle.
@@ -28,7 +28,7 @@ internal sealed class ControllerMakeSafeSequence
     private bool _hidHideRemoved;
     private bool _unverified;
 
-    /// <summary>How far the handoff has got, in the shared wire vocabulary.</summary>
+    /// <summary>How far the handoff has progressed in the shared plugin vocabulary.</summary>
     internal ControllerHandoffStep Step { get; private set; } = ControllerHandoffStep.NotStarted;
 
     /// <summary>How the handoff turned out, once it is complete.</summary>

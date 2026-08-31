@@ -5,8 +5,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Ipc;
 using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Device.Sdk.Plugin;
 using WSGM.Interop;
 using WSGM.Overlay;
 
@@ -22,7 +22,6 @@ public sealed class ShellSession : IAsyncDisposable
     private AppConfig _config;
     private readonly bool _overlayTestOnly;
     private readonly bool _serviceBoot;
-    private readonly bool _suppressDeviceIntegration;
     private bool _tookOverFromExplorer;
     private SteamMonitor? _monitor;
     private SessionModes? _modes;
@@ -33,7 +32,6 @@ public sealed class ShellSession : IAsyncDisposable
     private VolumeButtonService? _volumeButtons;
     private CardAcfWatcher? _cardAcfWatcher;
     private CardVolumeMonitor? _cardVolumes;
-    private NetworkIndicatorService? _networkIndicator;
     private KeepAwakeService? _keepAwake;
     private BootSplash? _splash;
     // Non-null from the moment the service-boot splash becomes interactive until
@@ -61,10 +59,9 @@ public sealed class ShellSession : IAsyncDisposable
     // Live Wi-Fi-indicator gate: the applied state, so a reload can tell an
     // on->off transition from a repeat of the same value.
     private bool _wifiIndicatorEnabled;
-    // Same for the injected download-queue sort buttons, with its own readiness
-    // wait (replaced rather than cancelled, for the same reason as the tab sync).
+    // Same for the injected download-queue sort buttons. The session host owns
+    // their target generation and retries through the common patch registry.
     private bool _downloadSortEnabled;
-    private CancellationTokenSource _downloadSortCancellation = new();
     // Field-rooted for the session lifetime: it owns a native power-setting
     // registration and the "did WSGM mute this?" flag.
     private DisplayOffMuteService? _displayMute;
@@ -122,6 +119,8 @@ public sealed class ShellSession : IAsyncDisposable
     private readonly object _devicePowerGate = new();
     private Task _devicePowerWork = Task.CompletedTask;
     private bool _deviceSuspended;
+    private bool? _pendingDeviceSuspended;
+    private long _devicePowerRequestGeneration;
     private bool _disposed;
 
     /// <summary>Creates the shell session without performing any Windows state changes.</summary>
@@ -129,28 +128,22 @@ public sealed class ShellSession : IAsyncDisposable
     /// <param name="overlayTestOnly">Whether to omit normal shell startup for the manual overlay test.</param>
     /// <param name="serviceBoot">Whether the logon service launched this process over a
     /// live, still-initializing explorer (--boot) — enables the takeover flow.</param>
-    /// <param name="suppressDeviceIntegration">Whether an installer rollback that could not verify
-    /// old DeviceHost exit must restore shell mode without admitting a new hardware cycle.</param>
     public ShellSession(
         AppConfig config,
         bool overlayTestOnly = false,
-        bool serviceBoot = false,
-        bool suppressDeviceIntegration = false)
+        bool serviceBoot = false)
     {
         _config = config;
         _cefMasterEnabled = config.Cef.Enabled;
         _wifiIndicatorEnabled = config.Cef.Enabled && config.Cef.WifiIndicator;
         _downloadSortEnabled = config.Cef.Enabled && config.Cef.DownloadQueueSort;
-        SteamCef.SetMasterEnabled(config.Cef.Enabled);
+        SteamUiTransportSession.SetEnabled(config.Cef.Enabled);
         SteamInputShim.SetEnabled(config.SteamInputManagementEnabled);
         _overlayTestOnly = overlayTestOnly;
         _serviceBoot = serviceBoot;
-        _suppressDeviceIntegration = suppressDeviceIntegration;
     }
 
-    internal static bool ShouldStartDeviceCoordinator(
-        bool overlayTestOnly,
-        bool suppressDeviceIntegration) => !overlayTestOnly && !suppressDeviceIntegration;
+    internal static bool ShouldStartDeviceCoordinator(bool overlayTestOnly) => !overlayTestOnly;
 
     /// <summary>Starts device admission off-thread, then creates shell and overlay services on the UI thread.</summary>
     /// <returns>The complete asynchronous session-start operation.</returns>
@@ -163,12 +156,11 @@ public sealed class ShellSession : IAsyncDisposable
     internal static Task<DeviceCoordinator?> AdmitDeviceCoordinatorAsync(
         AppConfig config,
         bool overlayTestOnly,
-        bool suppressDeviceIntegration,
         CancellationToken cancellationToken,
         Func<AppConfig, CancellationToken, Task<DeviceCoordinator?>>? startAsync = null)
     {
         ArgumentNullException.ThrowIfNull(config);
-        if (!ShouldStartDeviceCoordinator(overlayTestOnly, suppressDeviceIntegration))
+        if (!ShouldStartDeviceCoordinator(overlayTestOnly))
         {
             return Task.FromResult<DeviceCoordinator?>(null);
         }
@@ -187,7 +179,6 @@ public sealed class ShellSession : IAsyncDisposable
             coordinator = await AdmitDeviceCoordinatorAsync(
                 _config,
                 _overlayTestOnly,
-                _suppressDeviceIntegration,
                 _shutdownCancellation.Token).ConfigureAwait(false);
             if (_shutdownRequested)
             {
@@ -221,7 +212,7 @@ public sealed class ShellSession : IAsyncDisposable
     private void StartOnUiThread()
     {
         // The resident shell is the sole device-cycle authority. Overlay test deliberately never
-        // creates this object, opens its IPC, discovers packages, or starts DeviceHost.
+        // creates this object, discovers packages, or loads plugin code.
         if (!_overlayTestOnly)
         {
             _messageWindow = MessageWindow.Create();
@@ -244,10 +235,6 @@ public sealed class ShellSession : IAsyncDisposable
                 bridge.AuthoredProfileSource = BuildAuthoredProfileRow;
                 bridge.AuthoredProfileCycle = CycleAuthoredProfileAsync;
                 _deviceOverlay = bridge;
-            }
-            else if (_suppressDeviceIntegration)
-            {
-                Log.Warn("Device cycle: suppressed for an installer rollback with unverified prior host state.");
             }
         }
         else
@@ -273,8 +260,10 @@ public sealed class ShellSession : IAsyncDisposable
         if (!_overlayTestOnly)
         {
             _steamUiTransport = new PersistentSteamUiTransport();
+            SteamUiTransportSession.Attach(_steamUiTransport);
             _runningApplications = new RunningApplicationMonitor(
-                new SteamRunningApplicationProbe(_steamUiTransport));
+                new SteamRunningApplicationProbe(_steamUiTransport),
+                _config.Cef.Enabled);
 
             // The second identity source. It feeds the same monitor rather than driving policy on
             // its own, so per-application settings also work on the desktop and for titles Steam
@@ -296,7 +285,8 @@ public sealed class ShellSession : IAsyncDisposable
                             CapabilityCommandOrigin.AutomaticControl,
                             token),
                     TargetFrametimeMs);
-                _autoTdp.Apply(_config.DeviceIntegration.AutoTdpEnabled);
+                _autoTdp.Apply(
+                    ShouldRunAutoTdp(_config.DeviceIntegration));
                 // The coordinator surfaces AutoTDP on the Device page but never owns its lifetime;
                 // it only reads the state to render a row.
                 deviceCoordinator.AttachAutoTdpStatus(() => _autoTdp!.Status);
@@ -392,6 +382,13 @@ public sealed class ShellSession : IAsyncDisposable
             audio: _audio,
             radios: _radios);
 
+        if (_deviceCoordinator is { } controllerCapture && _overlay is { } captureSurface)
+        {
+            captureSurface.UiSurfaceOpened += surfaceId =>
+                _ = ObserveUiCaptureClaimAsync(controllerCapture, surfaceId);
+            captureSurface.UiSurfaceClosed += controllerCapture.ReleaseUi;
+        }
+
         // WSGM's own navigation runs on the managed canonical stream when one is delivering, and on
         // SDL otherwise. Subscribed here rather than inside the overlay because this is where both
         // objects exist: the coordinator owns the stream and the controller owns the surfaces.
@@ -399,7 +396,7 @@ public sealed class ShellSession : IAsyncDisposable
         // router falls back to SDL, which never stopped running.
         if (_deviceCoordinator is { } canonicalSource && _overlay is { } overlay)
         {
-            // Posted, never called inline. This event is raised from DeviceHostClient's registered
+            // Posted, never called inline. This event is raised from the plugin runtime's registered
             // ThreadPool wait and runs straight into GamepadNavigation, which reads window
             // visibility and mutates Avalonia focus and controls — UI-thread-owned state that a
             // worker thread must not touch. The rate is bounded by design: the manager raises this
@@ -470,10 +467,13 @@ public sealed class ShellSession : IAsyncDisposable
 
                 return true;
             }, cancellationToken),
-            ToggleOnScreenKeyboardAsync = static _ => Task.FromResult(false),
-            CyclePerformanceProfileAsync = static _ => Task.FromResult(false),
+            ToggleOnScreenKeyboardAsync = cancellationToken =>
+                RunUiActionAsync(TouchKeyboard.Toggle, cancellationToken),
+            CyclePerformanceProfileAsync = CyclePerformanceProfileAsync,
             CyclePerformanceOverlayLevelAsync = CyclePerformanceOverlayLevelAsync,
-            SetRearButtonAsync = static (_, _) => Task.FromResult(false),
+            SetRearButtonAsync = (button, cancellationToken) =>
+                _deviceCoordinator?.PulseRearButtonAsync(button, cancellationToken)
+                ?? Task.FromResult(false),
         });
         if (!_overlayTestOnly)
         {
@@ -500,6 +500,8 @@ public sealed class ShellSession : IAsyncDisposable
             _steamUi.SetVariableRefreshRateApply(
                 _deviceCoordinator is null ? null : ApplyVariableRefreshRateAsync);
             _steamUi.Apply(_config.Cef.Enabled && _config.Cef.NativeQuickAccess);
+            _steamUi.ApplyNetworkIndicator(_inGameMode && _wifiIndicatorEnabled);
+            _steamUi.ApplyDownloadSort(_inGameMode && _downloadSortEnabled);
             ApplyGlyphConfig(_config);
             if (_deviceCoordinator is not null)
             {
@@ -520,13 +522,10 @@ public sealed class ShellSession : IAsyncDisposable
             // Tabs and the badge are game-mode surfaces; the ACF watcher only exists
             // to keep them fresh, so it stands down with them.
             ApplyCardServices(gameModeActive: false);
-            _networkIndicator?.Dispose();
-            _networkIndicator = null;
-            _downloadSortCancellation.Cancel();
+            _steamUi?.ApplyNetworkIndicator(false);
+            _steamUi?.ApplyDownloadSort(false);
             _ = SteamPageBridge.DisableBadgeAsync();
             _ = SteamLibraryTabs.DisableAsync();
-            _ = SteamNetworkIndicator.DisableAsync();
-            _ = SteamDownloadSort.DisableAsync();
             _volumeButtons?.SetGameModeActive(false);
             _overlay?.AttachTrayHost(null);
             _trayHost?.Dispose();
@@ -542,15 +541,11 @@ public sealed class ShellSession : IAsyncDisposable
             }
             _volumeButtons?.SetGameModeActive(true);
             ApplyCardServices(gameModeActive: true);
-            if (!_overlayTestOnly && _wifiIndicatorEnabled)
-            {
-                _networkIndicator ??= NetworkIndicatorService.StartNew();
-                _networkIndicator.Poke();
-            }
+            _steamUi?.ApplyNetworkIndicator(_wifiIndicatorEnabled);
+            _steamUi?.ApplyDownloadSort(_downloadSortEnabled);
             // Returning from desktop mode disabled tabs/badge and cancelled the boot
             // sync; re-inject without requiring an overlay open.
             KickTabBootSync();
-            KickDownloadSort();
         };
         // A fresh Steam start while WSGM keeps running (client update, crash restart)
         // wipes the injected tabs and the resident badge with the old CEF session —
@@ -560,10 +555,6 @@ public sealed class ShellSession : IAsyncDisposable
             if (_inGameMode)
             {
                 KickTabBootSync();
-                KickDownloadSort();
-                // The fresh CEF session also wiped the resident network-indicator
-                // script — push again as soon as the poll loop next ticks.
-                _networkIndicator?.Poke();
                 // A restarted client rebuilds its folder list from libraryfolders.vdf,
                 // which can bring back a library for a card that is no longer in the
                 // reader — and no volume notification will fire to say so.
@@ -1064,71 +1055,26 @@ public sealed class ShellSession : IAsyncDisposable
         {
             return;
         }
-        _tabBootSyncCancellation.Cancel();
-        _tabBootSyncCancellation.Dispose();
-        _tabBootSyncCancellation = new CancellationTokenSource();
-        _ = new LibraryTabManager().SyncOnBootAsync(_tabBootSyncCancellation.Token);
+        CancellationTokenSource previous = _tabBootSyncCancellation;
+        var current = new CancellationTokenSource();
+        _tabBootSyncCancellation = current;
+        previous.Cancel();
+        _ = RunTabBootSyncAsync(current);
     }
 
-    /// <summary>(Re)installs the injected download-queue sort buttons once Steam's UI
-    /// is up. The readiness poll is what retries — the injection itself is attempted
-    /// exactly once per Steam session, so a genuine script failure logs a single
-    /// warning instead of refilling the capped log every few seconds.</summary>
-    private void KickDownloadSort()
+    private async Task RunTabBootSyncAsync(CancellationTokenSource owner)
     {
-        if (_shutdownRequested)
+        try
         {
-            return;
+            await new LibraryTabManager().SyncOnBootAsync(owner.Token).ConfigureAwait(false);
         }
-        _downloadSortCancellation.Cancel();
-        _downloadSortCancellation.Dispose();
-        _downloadSortCancellation = new CancellationTokenSource();
-        if (_overlayTestOnly || !_downloadSortEnabled)
+        finally
         {
-            return;
+            if (!ReferenceEquals(_tabBootSyncCancellation, owner))
+            {
+                owner.Dispose();
+            }
         }
-        var token = _downloadSortCancellation.Token;
-        _ = Task.Run(async () =>
-        {
-            var waitingForBigPicture = false;
-            try
-            {
-                for (var attempt = 0; attempt < 30 && !token.IsCancellationRequested; attempt++)
-                {
-                    await Task.Delay(attempt == 0 ? 3000 : 5000, token).ConfigureAwait(false);
-                    if (!SteamUiReadiness.IsReady)
-                    {
-                        if (!waitingForBigPicture)
-                        {
-                            waitingForBigPicture = true;
-                            Log.Info("Download queue sort (boot): waiting for the Big Picture window.");
-                        }
-                        continue;
-                    }
-                    if (waitingForBigPicture)
-                    {
-                        waitingForBigPicture = false;
-                        Log.Info("Download queue sort (boot): Big Picture is ready; probing CEF.");
-                    }
-                    var probe = await SteamCef.EvaluateAsync(
-                        "JSON.stringify(!!window.webpackChunksteamui)",
-                        TimeSpan.FromSeconds(4), token).ConfigureAwait(false);
-                    if (probe.Reachable && probe.Value == "true")
-                    {
-                        await SteamDownloadSort.EnableAsync(token).ConfigureAwait(false);
-                        return;
-                    }
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                // Desktop trip, a master-switch flip, or shutdown — nothing to report.
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Download queue sort injection failed: {ex.Message}");
-            }
-        });
     }
 
     /// <summary>Starts or retracts the injected download-queue sort buttons to match a
@@ -1142,19 +1088,8 @@ public sealed class ShellSession : IAsyncDisposable
             return;
         }
         _downloadSortEnabled = enabled;
-        if (!enabled)
-        {
-            _downloadSortCancellation.Cancel();
-            // When the master switch is going down too, its own retraction removes
-            // the buttons — calling it here as well would race that.
-            if (_cefMasterEnabled)
-            {
-                _ = SteamDownloadSort.DisableAsync();
-            }
-            Log.Info("Download queue sorting turned off.");
-            return;
-        }
-        KickDownloadSort();
+        _steamUi?.ApplyDownloadSort(_inGameMode && enabled);
+        Log.Info($"Download queue sorting {(enabled ? "enabled" : "disabled")}.");
     }
 
     /// <summary>Applies a Steam Input Management change that arrived through a
@@ -1178,11 +1113,11 @@ public sealed class ShellSession : IAsyncDisposable
     /// <summary>Mirrors the master CEF switch, retracting anything WSGM already
     /// injected on the way down. Ordering is load-bearing: the switch fails every
     /// evaluation closed, including WSGM's own retractions, so flipping it first
-    /// would strand the injected tabs, badges and Wi-Fi AP in Steam until the client
+    /// would strand the registered patches, tabs and badge in Steam until the client
     /// restarted — with the desktop-trip cleanup dead for the same reason. Both
     /// directions run through <c>_cefMasterGate</c> and re-read the field (the
     /// wanted state) once they own it, so a flip landing inside a retraction's
-    /// three round-trips cannot leave the choke point closed while the field —
+    /// removal sequence cannot leave the choke point closed while the field —
     /// and the equality guard that would have repaired it — say enabled.</summary>
     /// <param name="enabled">The reloaded <c>Cef.Enabled</c> value.</param>
     private void ApplyCefMasterSwitch(bool enabled)
@@ -1192,6 +1127,7 @@ public sealed class ShellSession : IAsyncDisposable
             return;
         }
         _cefMasterEnabled = enabled;
+        _runningApplications?.SetSteamEnabled(enabled);
         if (enabled)
         {
             _ = Task.Run(async () =>
@@ -1205,7 +1141,7 @@ public sealed class ShellSession : IAsyncDisposable
                         // apply's retraction owns the choke point now.
                         return;
                     }
-                    SteamCef.SetMasterEnabled(true);
+                    SteamUiTransportSession.SetEnabled(true);
                 }
                 finally
                 {
@@ -1217,7 +1153,7 @@ public sealed class ShellSession : IAsyncDisposable
                 {
                     ApplyCardServices(_inGameMode);
                     KickTabBootSync();
-                    KickDownloadSort();
+                    _steamUi?.ApplyDownloadSort(_inGameMode && _downloadSortEnabled);
                 });
             });
             return;
@@ -1230,7 +1166,6 @@ public sealed class ShellSession : IAsyncDisposable
         // stranding them until Steam restarts (the desktop trip cancels for the
         // same reason).
         _tabBootSyncCancellation.Cancel();
-        _downloadSortCancellation.Cancel();
         _ = Task.Run(async () =>
         {
             await _cefMasterGate.WaitAsync().ConfigureAwait(false);
@@ -1252,8 +1187,6 @@ public sealed class ShellSession : IAsyncDisposable
                 {
                     await SteamPageBridge.DisableBadgeAsync().ConfigureAwait(false);
                     await SteamLibraryTabs.DisableAsync().ConfigureAwait(false);
-                    await SteamNetworkIndicator.DisableAsync().ConfigureAwait(false);
-                    await SteamDownloadSort.DisableAsync().ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -1268,7 +1201,7 @@ public sealed class ShellSession : IAsyncDisposable
                 // would ever repair an overwrite here.
                 if (!_cefMasterEnabled)
                 {
-                    SteamCef.SetMasterEnabled(false);
+                    SteamUiTransportSession.SetEnabled(false);
                     Log.Info("Steam CEF integration disabled — injected UI retracted.");
                 }
                 else
@@ -1325,33 +1258,40 @@ public sealed class ShellSession : IAsyncDisposable
     {
         if (_deviceCoordinator is not { } coordinator)
         {
+            Log.Info(
+                $"Device cycle {(suspend ? "suspend" : "resume")} skipped ({reason}): no "
+                + "device coordinator is active.");
             return;
         }
 
         lock (_devicePowerGate)
         {
-            if (_deviceSuspended == suspend)
+            bool effective = _pendingDeviceSuspended ?? _deviceSuspended;
+            if (effective == suspend)
             {
                 Log.Info(
                     $"Device cycle {(suspend ? "suspend" : "resume")} skipped ({reason}): the "
-                    + $"cycle is already {(suspend ? "suspended" : "running")}.");
+                    + $"cycle is already {(suspend ? "suspended or suspending" : "running or resuming")}.");
                 return;
             }
 
-            _deviceSuspended = suspend;
+            _pendingDeviceSuspended = suspend;
+            long requestGeneration = ++_devicePowerRequestGeneration;
             _devicePowerWork = ApplyDevicePowerTransitionAsync(
                 _devicePowerWork,
                 coordinator,
                 suspend,
-                reason);
+                reason,
+                requestGeneration);
         }
     }
 
-    private static async Task ApplyDevicePowerTransitionAsync(
+    private async Task ApplyDevicePowerTransitionAsync(
         Task previous,
         DeviceCoordinator coordinator,
         bool suspend,
-        string reason)
+        string reason,
+        long requestGeneration)
     {
         // Never faults: the continuation below reports its own failures and returns normally, so
         // awaiting the previous transition cannot throw here.
@@ -1367,10 +1307,25 @@ public sealed class ShellSession : IAsyncDisposable
                 await coordinator.ResumeAsync().ConfigureAwait(false);
             }
 
+            lock (_devicePowerGate)
+            {
+                _deviceSuspended = suspend;
+                if (_devicePowerRequestGeneration == requestGeneration)
+                {
+                    _pendingDeviceSuspended = null;
+                }
+            }
             Log.Info($"Device cycle {(suspend ? "suspended" : "resumed")}: {reason}.");
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
+            lock (_devicePowerGate)
+            {
+                if (_devicePowerRequestGeneration == requestGeneration)
+                {
+                    _pendingDeviceSuspended = null;
+                }
+            }
             Log.Error($"Device cycle {(suspend ? "suspend" : "resume")} failed ({reason})", ex);
         }
     }
@@ -1620,7 +1575,15 @@ public sealed class ShellSession : IAsyncDisposable
     /// <param name="enabled">Whether the indicator should be feeding Steam.</param>
     private void ApplyNetworkIndicator(bool enabled)
     {
-        if (_overlayTestOnly || enabled == _wifiIndicatorEnabled)
+        if (_overlayTestOnly)
+        {
+            _wifiIndicatorEnabled = enabled;
+            Log.Change(
+                "steam.network-indicator",
+                "Big Picture Wi-Fi indicator not applied: mode=overlay-test.");
+            return;
+        }
+        if (enabled == _wifiIndicatorEnabled)
         {
             _wifiIndicatorEnabled = enabled;
             return;
@@ -1628,22 +1591,20 @@ public sealed class ShellSession : IAsyncDisposable
         _wifiIndicatorEnabled = enabled;
         if (!enabled)
         {
-            _networkIndicator?.Dispose();
-            _networkIndicator = null;
-            // When the master switch is going down too, its own retraction removes
-            // the synthetic access point — calling it here as well would race that.
-            if (_cefMasterEnabled)
-            {
-                _ = SteamNetworkIndicator.DisableAsync();
-            }
+            _steamUi?.ApplyNetworkIndicator(false);
             Log.Info("Big Picture Wi-Fi indicator turned off.");
             return;
         }
         if (_inGameMode)
         {
-            _networkIndicator ??= NetworkIndicatorService.StartNew();
-            _networkIndicator.Poke();
+            _steamUi?.ApplyNetworkIndicator(true);
             Log.Info("Big Picture Wi-Fi indicator turned on.");
+        }
+        else
+        {
+            Log.Change(
+                "steam.network-indicator",
+                "Big Picture Wi-Fi indicator deferred: requested=true, mode=desktop.");
         }
     }
 
@@ -1752,42 +1713,25 @@ public sealed class ShellSession : IAsyncDisposable
     private async Task<bool> CyclePerformanceOverlayLevelAsync(
         CancellationToken cancellationToken)
     {
-        if (_shutdownRequested)
+        if (_shutdownRequested || _performanceOverlay is null)
         {
             return false;
         }
-        PerformanceService? performance = _performance;
-        if (performance is null || !performance.Enabled)
+        return await _performanceOverlay.CycleOverlayLevelAsync("oem-action", cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<bool> CyclePerformanceProfileAsync(CancellationToken cancellationToken)
+    {
+        IDeviceOverlaySource? device = _deviceOverlay;
+        if (device?.Snapshot().Profile?.CanCycle is not true)
         {
+            Log.Info("OEM performance-profile cycle skipped: no selectable hardware profile is active.");
             return false;
         }
 
-        PerformanceState state = performance.Current;
-        RtssCapabilities? capabilities = state.Probe.Capabilities;
-        if (state.Probe.Availability != RtssAvailability.Ready
-            || capabilities is null
-            || !capabilities.Supports(PerformanceControl.OverlayLevel))
-        {
-            return false;
-        }
-
-        int current = state.Observed.OverlayLevel ?? state.Desired.OverlayLevel ?? int.MinValue;
-        int[] levels = [.. capabilities.OverlayLevels.Order()];
-        if (levels.Length == 0)
-        {
-            return false;
-        }
-
-        int next = levels.FirstOrDefault(value => value > current, levels[0]);
-        PerformanceCommandState result = await performance.SetAsync(
-            PerformanceControl.OverlayLevel,
-            next,
-            PerformancePersistenceTarget.Automatic,
-            "oem-action",
-            Guid.NewGuid().ToString("N"),
-            cancellationToken).ConfigureAwait(false);
-        return result.Phase is PerformanceCommandPhase.SucceededVerified
-            or PerformanceCommandPhase.AppliedUnverified;
+        await device.CycleHardwareProfileAsync(cancellationToken).ConfigureAwait(false);
+        return true;
     }
 
     private void OnSessionEnding()
@@ -1867,16 +1811,15 @@ public sealed class ShellSession : IAsyncDisposable
             _overlay = null;
         }
         _tabBootSyncCancellation.Cancel();
-        _downloadSortCancellation.Cancel();
 
         // Device cleanup is the safety-critical part of the outer application budget.
         // Run it before waiting on shell transitions or doing Explorer/CEF/RTSS teardown.
-        // If the outer owner reaches its deadline, process exit still closes DeviceHost's job
-        // while the shell anchor remains available for owner-loss desktop recovery.
+        // If the outer owner reaches its deadline, process exit still unloads the in-process
+        // runtime while the shell anchor remains available for owner-loss desktop recovery.
         Exception? deviceCleanupFailure = null;
         // Before the coordinator, deliberately. AutoTDP restores the limit it took over from
         // through that coordinator's capability path, so disposing it afterwards issued the restore
-        // into an already-disconnected host and left the handheld on the last automatically
+        // into an already-disconnected runtime and left the handheld on the last automatically
         // selected wattage on every exit, update, uninstall and session end.
         if (_autoTdp is not null)
         {
@@ -1899,15 +1842,15 @@ public sealed class ShellSession : IAsyncDisposable
 
         if (_deviceCoordinator is not null)
         {
-            DeviceStopReason deviceReason = reason switch
+            PluginStopReason deviceReason = reason switch
             {
                 ApplicationShutdownReason.Update =>
-                    DeviceStopReason.Updating,
+                    PluginStopReason.Updating,
                 ApplicationShutdownReason.SessionEnd =>
-                    DeviceStopReason.SessionEnding,
+                    PluginStopReason.SessionEnding,
                 ApplicationShutdownReason.Uninstall =>
-                    DeviceStopReason.Uninstalling,
-                _ => DeviceStopReason.WsgmExiting,
+                    PluginStopReason.Uninstalling,
+                _ => PluginStopReason.WsgmExiting,
             };
             _deviceCoordinator.PhysicalGlyphProfilesChanged -= OnPhysicalGlyphProfilesChanged;
             try
@@ -2012,6 +1955,7 @@ public sealed class ShellSession : IAsyncDisposable
                 }
                 if (_steamUiTransport is not null)
                 {
+                    SteamUiTransportSession.Detach(_steamUiTransport);
                     await _steamUiTransport.DisposeAsync().ConfigureAwait(false);
                     _steamUiTransport = null;
                 }
@@ -2053,7 +1997,6 @@ public sealed class ShellSession : IAsyncDisposable
                     _radios = null;
                 }
                 _tabBootSyncCancellation.Dispose();
-                _downloadSortCancellation.Dispose();
                 _shutdownCancellation.Dispose();
 
                 if (!desktopVerified)
@@ -2172,8 +2115,6 @@ public sealed class ShellSession : IAsyncDisposable
         _cardVolumes = null;
         _cardAcfWatcher?.Dispose();
         _cardAcfWatcher = null;
-        _networkIndicator?.Dispose();
-        _networkIndicator = null;
         _startupWatcher?.Dispose();
         _startupWatcher = null;
         if (_keepAwake is not null)
@@ -2260,9 +2201,13 @@ public sealed class ShellSession : IAsyncDisposable
 
         // AutoTDP is applied before the coordinator: turning Device Integration off must stop
         // AutoTDP and restore the previous power limit while the capability is still writable.
-        _autoTdp?.Apply(config.DeviceIntegration.Enabled && config.DeviceIntegration.AutoTdpEnabled);
+        _autoTdp?.Apply(ShouldRunAutoTdp(config.DeviceIntegration));
         _ = ObserveDeviceConfigAsync(coordinator, config);
     }
+
+    /// <summary>Applies the Device Integration master switch to AutoTDP at every entry point.</summary>
+    internal static bool ShouldRunAutoTdp(DeviceIntegrationConfig config) =>
+        config.Enabled && config.AutoTdpEnabled;
 
     private static bool GlyphsEnabled(AppConfig config) =>
         config.Cef.Enabled
@@ -2297,8 +2242,7 @@ public sealed class ShellSession : IAsyncDisposable
     /// </remarks>
     private DeviceOverlayAuthoredProfile? BuildAuthoredProfileRow()
     {
-        PluginSettingsScope? scope = _config.DeviceIntegration.PluginSettings
-            .FirstOrDefault(candidate => candidate.Profiles.Count > 0);
+        PluginSettingsScope? scope = ActivePluginScope(candidate => candidate.Profiles.Count > 0);
         if (scope is null)
         {
             return null;
@@ -2314,7 +2258,7 @@ public sealed class ShellSession : IAsyncDisposable
     }
 
     /// <summary>The capability the authored fan profiles target.</summary>
-    private const string FanCurveCapabilityId = "thermal.fan-curve";
+    private const string FanCurveCapabilityId = "fan.curve";
 
     /// <summary>Advances the authored fan profile and applies the new choice.</summary>
     /// <param name="cancellationToken">Cancels the change.</param>
@@ -2331,8 +2275,7 @@ public sealed class ShellSession : IAsyncDisposable
     /// </remarks>
     private async Task CycleAuthoredProfileAsync(CancellationToken cancellationToken)
     {
-        PluginSettingsScope? current = _config.DeviceIntegration.PluginSettings
-            .FirstOrDefault(candidate => candidate.Profiles.Count > 0);
+        PluginSettingsScope? current = ActivePluginScope(candidate => candidate.Profiles.Count > 0);
         if (current is null)
         {
             Log.Info("Fan profile cycle ignored: no profiles are authored for this device.");
@@ -2398,8 +2341,8 @@ public sealed class ShellSession : IAsyncDisposable
             return;
         }
 
-        PluginSettingsScope? scope = _config.DeviceIntegration.PluginSettings
-            .FirstOrDefault(candidate => candidate.ProfileSelections.Count > 0);
+        PluginSettingsScope? scope = ActivePluginScope(
+            candidate => candidate.ProfileSelections.Count > 0);
         if (scope is null)
         {
             return;
@@ -2542,6 +2485,11 @@ public sealed class ShellSession : IAsyncDisposable
         List<PerformanceApplicationPolicy> applications = [];
         foreach (PerformanceApplicationConfig application in config.Performance.Applications)
         {
+            if (!application.UsePerGameProfile)
+            {
+                continue;
+            }
+
             applications.Add(new PerformanceApplicationPolicy(
                 application.ApplicationId,
                 application.RtssProfileName,
@@ -2561,24 +2509,84 @@ public sealed class ShellSession : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        ConfigStore.Mutate(config =>
-        {
-            config.Performance.Enabled = policy.Enabled;
-            config.Performance.FrameLimit = policy.Global.FrameLimit;
-            config.Performance.OverlayLevel = policy.Global.OverlayLevel;
-            config.Performance.Applications.Clear();
-            foreach (PerformanceApplicationPolicy application in policy.Applications)
-            {
-                config.Performance.Applications.Add(new PerformanceApplicationConfig
-                {
-                    ApplicationId = application.ApplicationId,
-                    RtssProfileName = application.RtssProfileName,
-                    FrameLimit = application.Values.FrameLimit,
-                    OverlayLevel = application.Values.OverlayLevel,
-                });
-            }
-        });
+        ConfigStore.Mutate(config => MergePerformancePolicy(config.Performance, policy));
         return Task.CompletedTask;
+    }
+
+    private static async Task ObserveUiCaptureClaimAsync(
+        DeviceCoordinator coordinator,
+        string surfaceId)
+    {
+        try
+        {
+            await coordinator.ClaimUiAsync(surfaceId).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error($"Managed controller capture failed for {surfaceId}", ex);
+        }
+    }
+
+    private PluginSettingsScope? ActivePluginScope(Func<PluginSettingsScope, bool> predicate)
+    {
+        string? device = _deviceCoordinator?.ActiveDeviceDefinitionId;
+        string? plugin = _deviceCoordinator?.InstalledPackage?.Manifest?.Id;
+        if (device is null || plugin is null)
+        {
+            return null;
+        }
+
+        return _config.DeviceIntegration.PluginSettings.LastOrDefault(candidate =>
+            string.Equals(candidate.DeviceDefinitionId, device, StringComparison.Ordinal)
+            && string.Equals(candidate.PluginId, plugin, StringComparison.Ordinal)
+            && predicate(candidate));
+    }
+
+    internal static void MergePerformancePolicy(
+        PerformanceConfig destination,
+        PerformancePolicy policy)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        ArgumentNullException.ThrowIfNull(policy);
+        Dictionary<string, PerformanceApplicationConfig> existing = destination.Applications
+            .GroupBy(application => application.ApplicationId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+
+        destination.Enabled = policy.Enabled;
+        destination.FrameLimit = policy.Global.FrameLimit;
+        destination.OverlayLevel = policy.Global.OverlayLevel;
+        List<PerformanceApplicationConfig> disabled = existing.Values
+            .Where(application => !policy.Applications.Any(active => string.Equals(
+                active.ApplicationId,
+                application.ApplicationId,
+                StringComparison.Ordinal)))
+            .Select(application => new PerformanceApplicationConfig
+            {
+                ApplicationId = application.ApplicationId,
+                RtssProfileName = application.RtssProfileName,
+                UsePerGameProfile = false,
+                FrameLimit = application.FrameLimit,
+                OverlayLevel = application.OverlayLevel,
+                TdpWatts = application.TdpWatts,
+                VariableRefreshRate = application.VariableRefreshRate,
+            })
+            .ToList();
+        destination.Applications.Clear();
+        foreach (PerformanceApplicationPolicy application in policy.Applications)
+        {
+            existing.TryGetValue(application.ApplicationId, out PerformanceApplicationConfig? prior);
+            destination.Applications.Add(new PerformanceApplicationConfig
+            {
+                ApplicationId = application.ApplicationId,
+                RtssProfileName = application.RtssProfileName,
+                FrameLimit = application.Values.FrameLimit,
+                OverlayLevel = application.Values.OverlayLevel,
+                UsePerGameProfile = true,
+                TdpWatts = prior?.TdpWatts,
+                VariableRefreshRate = prior?.VariableRefreshRate,
+            });
+        }
+        destination.Applications.AddRange(disabled);
     }
 
     private static Task PersistSimulatedPerformancePolicyAsync(
@@ -2606,11 +2614,8 @@ public sealed class ShellSession : IAsyncDisposable
     private async Task LaunchAppsAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        // Snapshot the token up front: KickTabBootSync (UI thread) disposes and
-        // replaces the source, and reading .Token off the replaced instance later
-        // throws ObjectDisposedException — which would abort the rest of this
-        // sequence, including the Wi-Fi-indicator start below.
-        var tabSyncToken = _tabBootSyncCancellation.Token;
+        // KickTabBootSync replaces the source but lets its worker dispose it after cancellation;
+        // callers must still pass their own operation token through the rest of this sequence.
         var haveApps = _config.StartupApps.Exists(a => a.Enabled && !string.IsNullOrWhiteSpace(a.Path));
         if (haveApps && _config.StartupDelayMs > 0)
         {
@@ -2674,17 +2679,8 @@ public sealed class ShellSession : IAsyncDisposable
         cancellationToken.ThrowIfCancellationRequested();
         // Inject the WSGM library tabs once Steam's UI has loaded, so they appear at
         // boot without the user opening the overlay. Fire-and-forget; self-limiting.
-        _ = new LibraryTabManager().SyncOnBootAsync(tabSyncToken);
+        _ = RunTabBootSyncAsync(_tabBootSyncCancellation);
 
-        // The initial boot enters game mode without a GameModeEntered event — start
-        // the Wi-Fi indicator feed here; its own retries wait out Steam's UI.
-        if (!_overlayTestOnly && _wifiIndicatorEnabled)
-        {
-            _networkIndicator ??= NetworkIndicatorService.StartNew();
-        }
-        // Same reason: inject the download-queue sort buttons at boot so they are
-        // already there the first time the user opens the Downloads page.
-        KickDownloadSort();
     }
 
     private static async Task TrimAfterBootSettlesAsync(CancellationToken cancellationToken)

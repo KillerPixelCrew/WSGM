@@ -209,7 +209,18 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
         {
             throw new KeyNotFoundException($"Steam UI patch '{patchId}' is not registered.");
         }
+
+        if (entry.Enabled == enabled)
+        {
+            return;
+        }
+
         entry.Enabled = enabled;
+        entry.Snapshot = entry.Snapshot with
+        {
+            Enabled = enabled,
+            LastChangedUtc = DateTimeOffset.UtcNow,
+        };
     }
 
     /// <summary>Probes, applies, verifies, or retracts every patch independently.</summary>

@@ -17,7 +17,6 @@ internal enum PhysicalGlyphFallbackReason
     None,
     DeviceIntegrationDisabled,
     NativeSteamSelected,
-    ProfileMissing,
     ExactDeviceMismatch,
     SourceNotHandheld,
     ControlAbsent,
@@ -101,9 +100,8 @@ internal sealed class PhysicalGlyphCatalog : IDisposable
         {
             string? activeDeviceId = _activeDeviceId;
 
-            // Every glyph surface funnels through here, and each refusal below used to return a
-            // null profile with no trace: an empty Steam Input page, letters instead of buttons in
-            // the overlay, and nothing anywhere saying which of five conditions was responsible.
+            // Every glyph surface funnels through here, so log the decisive inputs once whenever
+            // the selection changes and make every fallback remotely diagnosable.
             Log.Change(
                 "glyph.selection",
                 $"Glyph selection: integration={deviceIntegrationEnabled}, mode={selectionMode}, "

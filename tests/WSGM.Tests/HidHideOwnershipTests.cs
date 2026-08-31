@@ -14,7 +14,7 @@ public sealed class HidHideOwnershipTests
 
         HidHideActivationResult result = await manager.StartAsync(
             controllerManagementEnabled: false,
-            "DeviceHost.exe",
+            "WSGM.exe",
             [Physical("HID\\OWN")],
             1,
             CancellationToken.None);
@@ -36,14 +36,14 @@ public sealed class HidHideOwnershipTests
 
         HidHideActivationResult activation = await manager.StartAsync(
             controllerManagementEnabled: true,
-            "DeviceHost.exe",
+            "WSGM.exe",
             [Physical("HID\\OWN")],
             9,
             CancellationToken.None);
         Assert.True(activation.Activated);
 
         adapter.ExternalReplace(
-            applications: ["external-new.exe", "HC.exe", "external.exe", "DeviceHost.exe"],
+            applications: ["external-new.exe", "HC.exe", "external.exe", "WSGM.exe"],
             devices: ["HID\\PRE-B", "HID\\NEW", "HID\\PRE-A", "HID\\OWN"]);
 
         HidHideCleanupResult cleanup = await manager.CleanupAsync(
@@ -61,14 +61,14 @@ public sealed class HidHideOwnershipTests
     public async Task PreexistingEquivalentEntriesAreNeverClaimedOrRemoved()
     {
         DeterministicFakeHidHideAdapter adapter = new(
-            applications: ["devicehost.EXE"],
+            applications: ["wsgm.EXE"],
             devices: ["hid\\own"]);
         InMemoryHidHideOwnershipStore store = new();
         HidHideOwnedDeltaManager manager = new(adapter, store);
 
         HidHideActivationResult activation = await manager.StartAsync(
             controllerManagementEnabled: true,
-            "DeviceHost.exe",
+            "WSGM.exe",
             [Physical("HID\\OWN")],
             4,
             CancellationToken.None);
@@ -78,7 +78,7 @@ public sealed class HidHideOwnershipTests
 
         Assert.True(activation.Activated);
         Assert.True(cleanup.Verified);
-        Assert.Equal(["devicehost.EXE"], final.Applications);
+        Assert.Equal(["wsgm.EXE"], final.Applications);
         Assert.Equal(["hid\\own"], final.Devices);
         Assert.Equal(0, adapter.MutationCount);
     }
@@ -91,12 +91,12 @@ public sealed class HidHideOwnershipTests
         HidHideOwnedDeltaManager manager = new(adapter, store);
         await manager.StartAsync(
             controllerManagementEnabled: true,
-            "DeviceHost.exe",
+            "WSGM.exe",
             [Physical("HID\\OWN")],
             7,
             CancellationToken.None);
         adapter.ExternalReplace(
-            applications: ["DeviceHost.exe", "DeviceHost.exe"],
+            applications: ["WSGM.exe", "WSGM.exe"],
             devices: ["HID\\OWN"]);
 
         HidHideCleanupResult cleanup = await manager.CleanupAsync(
@@ -104,10 +104,10 @@ public sealed class HidHideOwnershipTests
         HidHideExactSnapshot final = await adapter.ReadAsync(CancellationToken.None);
 
         Assert.False(cleanup.Verified);
-        Assert.Equal(["DeviceHost.exe", "DeviceHost.exe"], final.Applications);
+        Assert.Equal(["WSGM.exe", "WSGM.exe"], final.Applications);
         Assert.Empty(final.Devices);
         Assert.NotNull(store.Ledger);
-        Assert.Contains("Application:DeviceHost.exe", cleanup.Detail);
+        Assert.Contains("Application:WSGM.exe", cleanup.Detail);
     }
 
     [Fact]
@@ -122,7 +122,7 @@ public sealed class HidHideOwnershipTests
 
         HidHideActivationResult activation = await manager.StartAsync(
             controllerManagementEnabled: true,
-            "DeviceHost.exe",
+            "WSGM.exe",
             [Physical("HID\\OWN")],
             2,
             CancellationToken.None);
@@ -143,7 +143,7 @@ public sealed class HidHideOwnershipTests
 
         HidHideActivationResult activation = await manager.StartAsync(
             controllerManagementEnabled: true,
-            "DeviceHost.exe",
+            "WSGM.exe",
             [Physical("HID\\OWN")],
             2,
             CancellationToken.None);
@@ -162,7 +162,7 @@ public sealed class HidHideOwnershipTests
         HidHideOwnedDeltaManager manager = new(adapter, store);
         HidHideActivationResult activation = await manager.StartAsync(
             controllerManagementEnabled: true,
-            "DeviceHost.exe",
+            "WSGM.exe",
             [Physical("HID\\OWN")],
             14,
             CancellationToken.None);
@@ -174,7 +174,7 @@ public sealed class HidHideOwnershipTests
         HidHideExactSnapshot current = await adapter.ReadAsync(CancellationToken.None);
 
         Assert.False(recovery.Verified);
-        Assert.Contains("DeviceHost.exe", current.Applications);
+        Assert.Contains("WSGM.exe", current.Applications);
         Assert.Contains("HID\\OWN", current.Devices);
         Assert.NotNull(store.Ledger);
     }
@@ -196,7 +196,7 @@ public sealed class HidHideOwnershipTests
         HidHideOwnedDeltaManager crashed = new(adapter, store);
         Assert.True((await crashed.StartAsync(
             controllerManagementEnabled: true,
-            "DeviceHost.exe",
+            "WSGM.exe",
             [Physical("HID\\OWN")],
             1,
             CancellationToken.None)).Activated);
@@ -206,7 +206,7 @@ public sealed class HidHideOwnershipTests
         HidHideOwnedDeltaManager restarted = new(adapter, store);
         HidHideActivationResult result = await restarted.StartAsync(
             controllerManagementEnabled: true,
-            "DeviceHost.exe",
+            "WSGM.exe",
             [Physical("HID\\OWN")],
             2,
             CancellationToken.None);
@@ -232,11 +232,11 @@ public sealed class HidHideOwnershipTests
 
         string detail = await manager.EnsureReadableAsync(
             controllerManagementEnabled: true,
-            "DeviceHost.exe",
+            "WSGM.exe",
             CancellationToken.None);
 
         HidHideExactSnapshot snapshot = await adapter.ReadAsync(CancellationToken.None);
-        Assert.Contains("DeviceHost.exe", snapshot.Applications);
+        Assert.Contains("WSGM.exe", snapshot.Applications);
         Assert.Contains("allowlist", detail, StringComparison.Ordinal);
 
         // It grants WSGM sight; it must never hide anything or disturb another owner's entries.
@@ -251,7 +251,7 @@ public sealed class HidHideOwnershipTests
         DeterministicFakeHidHideAdapter adapter = new();
         HidHideOwnedDeltaManager manager = new(adapter, new InMemoryHidHideOwnershipStore());
 
-        await manager.EnsureReadableAsync(true, "DeviceHost.exe", CancellationToken.None);
+        await manager.EnsureReadableAsync(true, "WSGM.exe", CancellationToken.None);
 
         Assert.Equal(0, adapter.MutationCount);
     }
@@ -262,7 +262,7 @@ public sealed class HidHideOwnershipTests
         DeterministicFakeHidHideAdapter adapter = new(devices: ["HID\\PRE"]);
         HidHideOwnedDeltaManager manager = new(adapter, new InMemoryHidHideOwnershipStore());
 
-        await manager.EnsureReadableAsync(false, "DeviceHost.exe", CancellationToken.None);
+        await manager.EnsureReadableAsync(false, "WSGM.exe", CancellationToken.None);
 
         Assert.Equal(0, adapter.ReadCount);
         Assert.Equal(0, adapter.MutationCount);
@@ -273,4 +273,185 @@ public sealed class HidHideOwnershipTests
         InstancePath = path,
         RequiresHiding = true,
     };
+}
+
+internal sealed class DeterministicFakeHidHideAdapter : IHidHideAdapter
+{
+    private readonly object _gate = new();
+    private List<string> _applications;
+    private List<string> _devices;
+    private long _revision;
+
+    internal DeterministicFakeHidHideAdapter(
+        IEnumerable<string>? applications = null,
+        IEnumerable<string>? devices = null,
+        bool active = true)
+    {
+        _applications = applications?.ToList() ?? [];
+        _devices = devices?.ToList() ?? [];
+        Active = active;
+        Health = active ? HidHideHealthState.Ready : HidHideHealthState.Inactive;
+    }
+
+    internal HidHideHealthState Health { get; set; }
+
+    internal bool Active { get; set; }
+
+    internal Exception? NextReadFailure { get; set; }
+
+    internal Exception? NextMutationFailure { get; set; }
+
+    internal int? FailMutationAttempt { get; set; }
+
+    internal Action<DeterministicFakeHidHideAdapter>? BeforeNextMutation { get; set; }
+
+    internal int ReadCount { get; private set; }
+
+    internal int MutationCount { get; private set; }
+
+    internal int MutationAttemptCount { get; private set; }
+
+    public Task<HidHideExactSnapshot> ReadAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_gate)
+        {
+            ReadCount++;
+            if (NextReadFailure is { } failure)
+            {
+                NextReadFailure = null;
+                throw failure;
+            }
+
+            return Task.FromResult(SnapshotUnderGate());
+        }
+    }
+
+    public Task<HidHideMutationResult> TryMutateAsync(
+        HidHideExactSnapshot expected,
+        HidHideEntryMutation mutation,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(expected);
+        ArgumentNullException.ThrowIfNull(mutation);
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_gate)
+        {
+            MutationAttemptCount++;
+            BeforeNextMutation?.Invoke(this);
+            BeforeNextMutation = null;
+            if (FailMutationAttempt == MutationAttemptCount)
+            {
+                FailMutationAttempt = null;
+                throw new IOException("Injected HidHide mutation failure.");
+            }
+
+            if (NextMutationFailure is { } failure)
+            {
+                NextMutationFailure = null;
+                throw failure;
+            }
+
+            HidHideExactSnapshot current = SnapshotUnderGate();
+            if (!current.ExactStateEquals(expected))
+            {
+                return Task.FromResult(new HidHideMutationResult(
+                    false,
+                    current,
+                    "HidHide changed before the conditional mutation."));
+            }
+
+            List<string> entries = mutation.EntryKind is HidHideEntryKind.Application
+                ? _applications
+                : _devices;
+            if (mutation.Mutation is HidHideMutationKind.Add)
+            {
+                entries.Add(mutation.Value);
+            }
+            else
+            {
+                int index = entries.FindIndex(value =>
+                    string.Equals(value, mutation.Value, StringComparison.Ordinal));
+                if (index < 0)
+                {
+                    return Task.FromResult(new HidHideMutationResult(
+                        false,
+                        current,
+                        "The exact entry is absent."));
+                }
+
+                entries.RemoveAt(index);
+            }
+
+            MutationCount++;
+            _revision++;
+            return Task.FromResult(new HidHideMutationResult(
+                true,
+                SnapshotUnderGate(),
+                "Applied."));
+        }
+    }
+
+    internal void ExternalReplace(
+        IEnumerable<string>? applications = null,
+        IEnumerable<string>? devices = null,
+        bool? active = null)
+    {
+        lock (_gate)
+        {
+            if (applications is not null)
+            {
+                _applications = applications.ToList();
+            }
+
+            if (devices is not null)
+            {
+                _devices = devices.ToList();
+            }
+
+            if (active is { } activeValue)
+            {
+                Active = activeValue;
+                Health = activeValue ? HidHideHealthState.Ready : HidHideHealthState.Inactive;
+            }
+
+            _revision++;
+        }
+    }
+
+    private HidHideExactSnapshot SnapshotUnderGate() => new(
+        _revision,
+        Health,
+        Active,
+        _applications,
+        _devices,
+        Health.ToString());
+}
+
+internal sealed class InMemoryHidHideOwnershipStore : IHidHideOwnershipStore
+{
+    internal HidHideOwnershipLedger? Ledger { get; private set; }
+
+    internal int SaveCount { get; private set; }
+
+    public Task<HidHideOwnershipLedger?> LoadAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(Ledger);
+    }
+
+    public Task SaveAsync(HidHideOwnershipLedger ledger, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        Ledger = ledger;
+        SaveCount++;
+        return Task.CompletedTask;
+    }
+
+    public Task DeleteAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        Ledger = null;
+        return Task.CompletedTask;
+    }
 }

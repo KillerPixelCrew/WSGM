@@ -8,11 +8,10 @@ public enum ManifestValidationCode
     /// <summary>The document exceeded <see cref="ManifestLimits.MaxDocumentBytes"/>.</summary>
     DocumentTooLarge,
 
-    /// <summary>The document was not well-formed JSON, or nested deeper than allowed.</summary>
+    /// <summary>
+    /// The document was not well-formed JSON, used an unknown member, or nested too deeply.
+    /// </summary>
     MalformedDocument,
-
-    /// <summary>The document contained a member this schema version does not define.</summary>
-    UnknownMember,
 
     /// <summary>A required field was absent or empty.</summary>
     MissingField,

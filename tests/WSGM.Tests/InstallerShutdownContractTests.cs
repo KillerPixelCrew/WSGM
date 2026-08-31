@@ -93,7 +93,7 @@ public sealed class InstallerShutdownContractTests
     }
 
     [Fact]
-    public void DevicePackagePublication_HoldsExactGlobalReservationsAcrossStopAndSwap()
+    public void DevicePackagePublication_HoldsPackageAndOwnerReservationsAcrossStopAndSwap()
     {
         string source = File.ReadAllText(
             Path.Combine(RepositoryRoot, "installer", "WSGM.iss"));
@@ -104,14 +104,6 @@ public sealed class InstallerShutdownContractTests
         string reserveOwner = Slice(
             source,
             "function ReserveDeviceOwner(): Boolean;",
-            "function ProcessEntryImage(const Entry: TProcessEntry32): String;");
-        string existingOwner = Slice(
-            reserveOwner,
-            "if CreationError = ErrorAlreadyExists then",
-            "// WSGM elects ownership by object creation.");
-        string verifyHosts = Slice(
-            source,
-            "function VerifyNoDeviceHostProcesses(): Boolean;",
             "function InspectDeviceDirectory(const Path, Description: String;");
         string prepare = Slice(
             source,
@@ -134,30 +126,16 @@ public sealed class InstallerShutdownContractTests
         Assert.True(reserveOwner.Contains(
             "CreationError = ErrorAlreadyExists",
             StringComparison.Ordinal));
-        Assert.False(existingOwner.Contains(
-            "ReleaseDeviceOwnerReservation();",
-            StringComparison.Ordinal));
-        Assert.False(existingOwner.Contains(
+        Assert.True(reserveOwner.Contains(
             "CloseHandleK(DeviceOwnerHandle)",
             StringComparison.Ordinal));
         Assert.True(reserveOwner.Contains(
-            "DeviceOwnerReservedForMutation := True;",
+            "DeviceOwnerHandle := 0;",
             StringComparison.Ordinal));
-        Assert.True(verifyHosts.Contains(
-            "CreateToolhelp32SnapshotK(Th32csSnapProcess, 0)",
-            StringComparison.Ordinal));
-        Assert.True(verifyHosts.Contains(
-            "CompareText(ProcessEntryImage(Entry), 'WSGM.DeviceHost.exe') = 0",
-            StringComparison.Ordinal));
-        Assert.True(verifyHosts.Contains(
-            "EnumerationError <> ErrorNoMoreFiles",
-            StringComparison.Ordinal));
-
         AssertOrdered(prepare, "AcquireDevicePackageSlotGate()", "StopLogonService();");
         AssertOrdered(prepare, "StopLogonService();", "StopRunningInstances()");
         AssertOrdered(prepare, "StopRunningInstances()", "ReserveDeviceOwner()");
-        AssertOrdered(prepare, "ReserveDeviceOwner()", "VerifyNoDeviceHostProcesses()");
-        AssertOrdered(prepare, "VerifyNoDeviceHostProcesses()", "CleanupStaleDevicePluginStaging()");
+        AssertOrdered(prepare, "ReserveDeviceOwner()", "CleanupStaleDevicePluginStaging()");
         AssertOrdered(
             postInstall,
             "ReplaceDevicePluginSlot();",
@@ -259,6 +237,49 @@ public sealed class InstallerShutdownContractTests
             publication,
             "RenameFile(Staging, Installed)",
             "Previous, 'Device Plugin recovery root', PreviousExists");
+        AssertOrdered(
+            publication,
+            "if not RenameFile(Previous, Installed) then",
+            "restored the previous active slot");
+        Assert.True(publication.Contains(
+            "The previous package remains in the recovery directory.",
+            StringComparison.Ordinal));
+        Assert.True(installDelete.Contains(
+            "Type: files; Name: \"{app}\\libviiper.dll\"",
+            StringComparison.Ordinal));
+        Assert.True(installDelete.Contains(
+            "Type: files; Name: \"{app}\\VIIPER-NOTICE.md\"",
+            StringComparison.Ordinal));
+        Assert.True(installDelete.Contains(
+            "Type: files; Name: \"{app}\\VIIPER-LICENSE.txt\"",
+            StringComparison.Ordinal));
+        Assert.True(installDelete.Contains(
+            "Type: files; Name: \"{app}\\USBip-0.9.7.7-x64.exe\"",
+            StringComparison.Ordinal));
+        Assert.True(source.Contains(
+            "Source: \"{#AppPublishDir}\\*.dll\"; DestDir: \"{app}\"; "
+                + "Excludes: \"libviiper.dll\"; Flags: ignoreversion",
+            StringComparison.Ordinal));
+        Assert.True(source.Contains(
+            "Source: \"{#AppPublishDir}\\libviiper.dll\"; DestDir: \"{app}\"; "
+                + "Flags: ignoreversion; Components: controller",
+            StringComparison.Ordinal));
+        Assert.True(source.Contains(
+            "Source: \"{#AppPublishDir}\\VIIPER-LICENSE.txt\"; DestDir: \"{app}\"; "
+                + "Flags: ignoreversion; Components: controller",
+            StringComparison.Ordinal));
+        Assert.True(source.Contains(
+            "Source: \"{#AppPublishDir}\\VIIPER-NOTICE.md\"; DestDir: \"{app}\"; "
+                + "Flags: ignoreversion; Components: controller",
+            StringComparison.Ordinal));
+        Assert.True(source.Contains(
+            "Source: \"{#AppPublishDir}\\USBip-0.9.7.7-x64.exe\"; DestDir: \"{app}\"; "
+                + "Flags: ignoreversion; Components: controller",
+            StringComparison.Ordinal));
+        Assert.True(source.Contains(
+            "Source: \"{#AppPublishDir}\\HidHide_1.5.230_x64.exe\"; DestDir: \"{app}\"; "
+                + "Flags: ignoreversion; Components: controller",
+            StringComparison.Ordinal));
     }
 
     [Fact]
@@ -270,11 +291,7 @@ public sealed class InstallerShutdownContractTests
             source,
             "function InitializeUninstall(): Boolean;",
             "procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);");
-        string ownerRefusal = Slice(
-            initialize,
-            "if not ReserveDeviceOwner() then",
-            "if not VerifyNoDeviceHostProcesses() then");
-        string hostRefusal = From(initialize, "if not VerifyNoDeviceHostProcesses() then");
+        string ownerRefusal = From(initialize, "if not ReserveDeviceOwner() then");
         string deinitialize = From(source, "procedure DeinitializeUninstall();");
         string uninstallDelete = Slice(source, "[UninstallDelete]", "[InstallDelete]");
 
@@ -286,36 +303,11 @@ public sealed class InstallerShutdownContractTests
             initialize,
             "StopRunningInstancesForUninstall()",
             "ReserveDeviceOwner()");
-        AssertOrdered(initialize, "ReserveDeviceOwner()", "VerifyNoDeviceHostProcesses()");
-        AssertOrdered(
-            initialize,
-            "VerifyNoDeviceHostProcesses()",
-            "UninstallDeviceHostStateVerified := True;");
-        AssertOrdered(initialize, "VerifyNoDeviceHostProcesses()", "Result := True;");
+        AssertOrdered(initialize, "ReserveDeviceOwner()", "Result := True;");
         AssertOrdered(
             ownerRefusal,
-            "ReleaseDevicePackageGateReservation();",
+            "ReleaseDevicePublicationReservations();",
             "RestoreStoppedUninstallRuntime();");
-        AssertOrdered(
-            ownerRefusal,
-            "RestoreStoppedUninstallRuntime();",
-            "if RollbackOwnerRetentionAcknowledged then");
-        AssertOrdered(
-            ownerRefusal,
-            "if RollbackOwnerRetentionAcknowledged then",
-            "ReleaseDeviceOwnerReservation();");
-        AssertOrdered(
-            hostRefusal,
-            "ReleaseDevicePackageGateReservation();",
-            "RestoreStoppedUninstallRuntime();");
-        AssertOrdered(
-            hostRefusal,
-            "RestoreStoppedUninstallRuntime();",
-            "if RollbackOwnerRetentionAcknowledged then");
-        AssertOrdered(
-            hostRefusal,
-            "if RollbackOwnerRetentionAcknowledged then",
-            "ReleaseDeviceOwnerReservation();");
         Assert.True(source.Contains(
             "if CurUninstallStep = usUninstall then",
             StringComparison.Ordinal));
@@ -403,10 +395,6 @@ public sealed class InstallerShutdownContractTests
     {
         string source = File.ReadAllText(
             Path.Combine(RepositoryRoot, "installer", "WSGM.iss"));
-        string appSource = File.ReadAllText(
-            Path.Combine(RepositoryRoot, "src", "WSGM", "App.axaml.cs"));
-        string programSource = File.ReadAllText(
-            Path.Combine(RepositoryRoot, "src", "WSGM", "Program.cs"));
         string serviceHostSource = File.ReadAllText(
             Path.Combine(RepositoryRoot, "src", "WSGM.LogonService", "ServiceHost.cs"));
         string serviceInstallerSource = File.ReadAllText(
@@ -415,10 +403,6 @@ public sealed class InstallerShutdownContractTests
             source,
             "procedure RestoreStoppedServiceAndRuntime(const Operation: String;",
             "function PrepareToInstall(var NeedsRestart: Boolean): String;");
-        string acknowledgementSecurity = Slice(
-            source,
-            "function ApplyMediumMandatoryLabelToEvent(const EventHandle: THandle;",
-            "procedure RestoreStoppedServiceAndRuntime(const Operation: String;");
         string prepare = Slice(
             source,
             "function PrepareToInstall(var NeedsRestart: Boolean): String;",
@@ -426,11 +410,8 @@ public sealed class InstallerShutdownContractTests
         string ownerRefusal = Slice(
             prepare,
             "if not ReserveDeviceOwner() then",
-            "if not VerifyNoDeviceHostProcesses() then");
-        string hostRefusal = Slice(
-            prepare,
-            "if not VerifyNoDeviceHostProcesses() then",
             "if not CleanupStaleDevicePluginStaging() then");
+        string stagingRefusal = From(prepare, "if not CleanupStaleDevicePluginStaging() then");
         string deinitialize = Slice(
             source,
             "procedure DeinitializeSetup();",
@@ -451,31 +432,15 @@ public sealed class InstallerShutdownContractTests
         Assert.True(prepare.Contains(
             "else if StopRunningInstances() then",
             StringComparison.Ordinal));
-        Assert.Equal(3, CountOccurrences(prepare, "RestoreStoppedSetupRuntime();"));
+        Assert.Equal(2, CountOccurrences(prepare, "RestoreStoppedSetupRuntime();"));
         AssertOrdered(
             ownerRefusal,
-            "ReleaseDevicePackageGateReservation();",
+            "ReleaseDevicePublicationReservations();",
             "RestoreStoppedSetupRuntime();");
         AssertOrdered(
-            ownerRefusal,
-            "RestoreStoppedSetupRuntime();",
-            "if RollbackOwnerRetentionAcknowledged then");
-        AssertOrdered(
-            ownerRefusal,
-            "if RollbackOwnerRetentionAcknowledged then",
-            "ReleaseDeviceOwnerReservation();");
-        AssertOrdered(
-            hostRefusal,
-            "ReleaseDevicePackageGateReservation();",
+            stagingRefusal,
+            "ReleaseDevicePublicationReservations();",
             "RestoreStoppedSetupRuntime();");
-        AssertOrdered(
-            hostRefusal,
-            "RestoreStoppedSetupRuntime();",
-            "if RollbackOwnerRetentionAcknowledged then");
-        AssertOrdered(
-            hostRefusal,
-            "if RollbackOwnerRetentionAcknowledged then",
-            "ReleaseDeviceOwnerReservation();");
         Assert.True(restore.Contains(
             "ServicePath := ExpandConstant('{autopf}\\WSGM\\WSGM.LogonService.exe');",
             StringComparison.Ordinal));
@@ -506,73 +471,10 @@ public sealed class InstallerShutdownContractTests
             "Arguments := '--settings'",
             StringComparison.Ordinal));
         Assert.True(restore.Contains(
-            "Arguments := Arguments + ' --installer-rollback-no-device'",
-            StringComparison.Ordinal));
-        Assert.True(acknowledgementSecurity.Contains(
-            "'S:(ML;;NW;;;ME)'",
-            StringComparison.Ordinal));
-        Assert.True(acknowledgementSecurity.Contains(
-            "SetKernelObjectSecurityK(",
-            StringComparison.Ordinal));
-        Assert.False(acknowledgementSecurity.Contains(
-            "D:(",
-            StringComparison.Ordinal));
-        AssertOrdered(
-            acknowledgementSecurity,
-            "CreateEventW(",
-            "ApplyMediumMandatoryLabelToEvent(Result, Operation)");
-        AssertOrdered(
-            acknowledgementSecurity,
-            "CreationError := GetLastErrorK();",
-            "if CreationError = ErrorAlreadyExists then");
-        AssertOrdered(
-            acknowledgementSecurity,
-            "if CreationError = ErrorAlreadyExists then",
-            "ApplyMediumMandatoryLabelToEvent(Result, Operation)");
-        AssertOrdered(
-            acknowledgementSecurity,
-            "ApplyMediumMandatoryLabelToEvent(Result, Operation)",
-            "ResetEventK(Result)");
-        AssertOrdered(
-            restore,
-            "CreateRollbackOwnerAcknowledgementEvent(Operation)",
-            "Exec(RuntimePath, Arguments, '', SW_SHOWNORMAL, ewNoWait, R)");
-        AssertOrdered(
-            restore,
-            "Exec(RuntimePath, Arguments, '', SW_SHOWNORMAL, ewNoWait, R)",
-            "WaitForSingleObjectK(ReadyEvent, 5000)");
-        Assert.True(acknowledgementSecurity.Contains(
-            "Local\\WSGM.InstallerRollback.DeviceOwnerRetained",
-            StringComparison.Ordinal));
-        Assert.True(appSource.Contains(
-            "suppressDeviceIntegration: Program.InstallerRollbackWithoutDeviceIntegration",
-            StringComparison.Ordinal));
-        Assert.True(appSource.Contains(
-            "DeviceCoordinator.TryRetainOwnerMutex(",
-            StringComparison.Ordinal));
-        Assert.True(appSource.Contains(
-            "Program.ReportInstallerRollbackOwnerRetained();",
-            StringComparison.Ordinal));
-        Assert.True(programSource.Contains(
-            "bool applyCrashLoopProtection = ShouldApplyCrashLoopProtection(",
-            StringComparison.Ordinal));
-        Assert.True(programSource.Contains(
-            "\"--installer-rollback-no-device\",",
-            StringComparison.Ordinal));
-        Assert.True(programSource.Contains(
-            "@\"Local\\WSGM.InstallerRollback.DeviceOwnerRetained\"",
-            StringComparison.Ordinal));
-        AssertOrdered(
-            appSource,
-            "DeviceCoordinator.TryRetainOwnerMutex(",
-            "Program.ReportInstallerRollbackOwnerRetained();");
-        Assert.True(restore.Contains(
             "if not RuntimeWasRunning then Exit;",
             StringComparison.Ordinal));
-        AssertOrdered(
-            prepare,
-            "VerifyNoDeviceHostProcesses()",
-            "SetupDeviceHostStateVerified := True;");
+        Assert.False(source.Contains("installer-rollback-no-device", StringComparison.Ordinal));
+        Assert.False(source.Contains("InstallerRollback.DeviceOwnerRetained", StringComparison.Ordinal));
         // Gated on the post-install having completed, not on installation having started. The
         // [Run] restart entries execute only after a successful setup, so a failure during [Files]
         // or a RaiseException out of ReplaceDevicePluginSlot must still restore the shell,

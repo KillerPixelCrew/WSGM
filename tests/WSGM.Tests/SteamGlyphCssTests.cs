@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
-using WSGM.Device.Sdk.Ipc;
+using WSGM.Device.Sdk.Serialization;
 
 namespace WSGM.Tests;
 
@@ -49,6 +49,19 @@ public sealed class SteamGlyphCssTests
         Assert.Contains("img[src=\"/steaminputglyphs/shared_color_button_a.svg\"]", css, StringComparison.Ordinal);
         Assert.Contains("img[src=\"/steaminputglyphs/ps_button_x.svg\"]", css, StringComparison.Ordinal);
         Assert.Contains("content: url(\"data:image/svg+xml;base64,", css, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AnAliasedLogicalControlIsPresentWhenItsPhysicalArtworkExists()
+    {
+        SteamInputGlyphPresentation? presentation = SteamInputGlyphPresentation.Create(
+            ImportProfile(aliasEastToSouth: true));
+
+        Assert.NotNull(presentation);
+        Assert.DoesNotContain(GlyphControlId.FaceEast, presentation.AbsentControls);
+        Assert.Contains(
+            presentation.StableResources,
+            mapping => mapping.Control is GlyphControlId.FaceEast);
     }
 
     [Fact]
@@ -142,7 +155,9 @@ public sealed class SteamGlyphCssTests
         return presentation;
     }
 
-    private static ImportedGlyphProfile ImportProfile(bool guide = false)
+    private static ImportedGlyphProfile ImportProfile(
+        bool guide = false,
+        bool aliasEastToSouth = false)
     {
         byte[] controlSvg = Encoding.UTF8.GetBytes(
             "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\">"
@@ -209,20 +224,30 @@ public sealed class SteamGlyphCssTests
                 : [controlAsset, controllerAsset],
             ControllerImages = new GlyphControllerImages { FullSha256 = controllerHash },
             Controls = controls,
+            Aliases = aliasEastToSouth
+                ?
+                [
+                    new GlyphControlAlias
+                    {
+                        LogicalControl = GlyphControlId.FaceEast,
+                        PhysicalControl = GlyphControlId.FaceSouth,
+                    },
+                ]
+                : [],
         };
         Dictionary<string, byte[]> files = new(StringComparer.Ordinal)
         {
             [GlyphPackageLayout.ProfileManifest(manifest.ProfileId)] =
                 JsonSerializer.SerializeToUtf8Bytes(
                     manifest,
-                    DeviceWireJsonContext.Default.GlyphProfileManifest),
+                    DeviceJsonContext.Default.GlyphProfileManifest),
             [manifest.NoticePath] = Encoding.UTF8.GetBytes("Example glyph notice\n"),
             [GlyphPackageLayout.Asset(controlHash, GlyphAssetFormat.Svg)] = controlSvg,
             [GlyphPackageLayout.Asset(guideHash, GlyphAssetFormat.Svg)] = guideSvg,
             [GlyphPackageLayout.Asset(controllerHash, GlyphAssetFormat.Svg)] = controllerSvg,
         };
         GlyphPackageImportResult result = GlyphPackageImporter.Import(
-            new MemoryPackageSource(manifest.ProfileId, files));
+            new GlyphTestPackageSource(manifest.ProfileId, files));
         Assert.True(result.IsValid, string.Join("; ", result.Errors));
         return Assert.Single(result.Profiles);
     }
@@ -243,23 +268,4 @@ public sealed class SteamGlyphCssTests
     private static string Hash(byte[] bytes) =>
         Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
 
-    private sealed class MemoryPackageSource(
-        string profileId,
-        IReadOnlyDictionary<string, byte[]> files) : IGlyphPackageSource
-    {
-        public IReadOnlyList<string> EnumerateProfileIds() => [profileId];
-
-        public bool TryRead(string relativePath, int maximumBytes, out byte[] bytes)
-        {
-            if (files.TryGetValue(relativePath, out byte[]? asset)
-                && asset.Length <= maximumBytes)
-            {
-                bytes = asset.ToArray();
-                return true;
-            }
-
-            bytes = [];
-            return false;
-        }
-    }
 }

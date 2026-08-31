@@ -234,6 +234,16 @@ internal static class SessionLauncher
                 }
                 sessionActive = IsSessionActive(sessionId);
                 explorerRunning = IsExplorerInSession(sessionId);
+                if (!sessionActive)
+                {
+                    ServiceLog.Info(
+                        $"Session {sessionId}: explorer fallback skipped because the session ended during anchor grace.");
+                }
+                else if (explorerRunning)
+                {
+                    ServiceLog.Info(
+                        $"Session {sessionId}: explorer appeared during anchor grace; SYSTEM fallback skipped.");
+                }
             }
             if (sessionActive && dirtyExit && !explorerRunning)
             {

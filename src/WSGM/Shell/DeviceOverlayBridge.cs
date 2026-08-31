@@ -168,15 +168,13 @@ internal sealed record DeviceOverlayAuthoredProfile(
 /// </remarks>
 /// <param name="Status">How serious the current cycle state is.</param>
 /// <param name="Title">Row title.</param>
-/// <param name="Description">The cycle state, and when an automatic retry is due.</param>
+/// <param name="Description">The failed cycle state.</param>
 /// <param name="TrailingText">Short state label.</param>
-/// <param name="CanRetry">Whether a manual retry is available right now.</param>
 internal sealed record DeviceOverlayRecovery(
     DeviceOverlayStatus Status,
     string Title,
     string Description,
-    string TrailingText,
-    bool CanRetry);
+    string TrailingText);
 
 /// <summary>Complete bounded Device-surface snapshot produced from coordinator-owned state.</summary>
 internal sealed record DeviceOverlaySnapshot(
@@ -275,11 +273,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 {
     private readonly DeviceCoordinator _coordinator;
     private readonly PhysicalGlyphService _glyphs;
-    private readonly object _retryGate = new();
     private readonly object _sampleGate = new();
     private int _sampleObservers;
-    private Timer? _retryTimer;
-    private DateTimeOffset? _scheduledRetryAt;
     private bool _disposed;
 
     internal DeviceOverlayBridge(DeviceCoordinator coordinator)
@@ -334,9 +329,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         DeviceOverlayAutoTdp autoTdp = AutoTdpView(
             _coordinator.AutoTdpEnabled,
             _coordinator.AutoTdpStatus);
-        DateTimeOffset? retryAt = _coordinator.ManualRetryAvailableAt;
-        ScheduleRetryRefresh(retryAt);
-        DeviceOverlayRecovery? recovery = RecoveryView(state, retryAt, DateTimeOffset.UtcNow);
+        DeviceOverlayRecovery? recovery = RecoveryView(state);
         DeviceOverlayController? controller = ControllerView(
             _coordinator.ControllerManagementEnabled,
             _coordinator.ControllerStatus);
@@ -706,32 +699,23 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 
     /// <summary>Projects the device cycle's recoverable state into the Diagnostics page's own row.</summary>
     /// <param name="state">The current cycle state.</param>
-    /// <param name="retryAvailableAt">When a manual retry becomes available, when one is pending.</param>
-    /// <param name="now">The current time.</param>
     /// <returns>The row, or null when the cycle is healthy and there is nothing to recover.</returns>
     /// <remarks>
     /// Absent when healthy. A recovery control that is always present but almost always inert trains
     /// a user to ignore it, which is the opposite of what it is for.
     /// </remarks>
-    internal static DeviceOverlayRecovery? RecoveryView(
-        DeviceCycleState state,
-        DateTimeOffset? retryAvailableAt,
-        DateTimeOffset now)
+    internal static DeviceOverlayRecovery? RecoveryView(DeviceCycleState state)
     {
-        if (retryAvailableAt is null)
+        if (state is not DeviceCycleState.Faulted)
         {
             return null;
         }
 
-        bool available = now >= retryAvailableAt.Value;
         return new DeviceOverlayRecovery(
-            available ? DeviceOverlayStatus.Warning : DeviceOverlayStatus.Progress,
+            DeviceOverlayStatus.Warning,
             "Retry device integration",
-            available
-                ? $"{LifecycleLabel(state)} · starts one manual recovery attempt"
-                : $"{LifecycleLabel(state)} · retry available at {retryAvailableAt.Value.ToLocalTime():t}",
-            available ? "READY" : "WAIT",
-            available);
+            $"{LifecycleLabel(state)} · starts one manual recovery attempt",
+            "READY");
     }
 
     private static string TargetLabel(ManagedControllerTarget target) => target switch
@@ -950,12 +934,6 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         }
 
         _disposed = true;
-        lock (_retryGate)
-        {
-            _retryTimer?.Dispose();
-            _retryTimer = null;
-            _scheduledRetryAt = null;
-        }
         _coordinator.StateChanged -= OnStateChanged;
         _coordinator.CapabilityViewsChanged -= OnCapabilityViewsChanged;
         _coordinator.ConfigurationChanged -= OnConfigurationChanged;
@@ -982,43 +960,6 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     private void OnConfigurationChanged() => Changed?.Invoke();
 
     private void OnAutoTdpStatusChanged() => Changed?.Invoke();
-
-    private void ScheduleRetryRefresh(DateTimeOffset? retryAt)
-    {
-        lock (_retryGate)
-        {
-            if (_disposed || _scheduledRetryAt == retryAt)
-            {
-                return;
-            }
-
-            _retryTimer?.Dispose();
-            _retryTimer = null;
-            _scheduledRetryAt = retryAt;
-            if (retryAt is null || retryAt <= DateTimeOffset.UtcNow)
-            {
-                return;
-            }
-
-            TimeSpan due = retryAt.Value - DateTimeOffset.UtcNow;
-            _retryTimer = new Timer(_ =>
-            {
-                bool notify;
-                lock (_retryGate)
-                {
-                    _retryTimer?.Dispose();
-                    _retryTimer = null;
-                    _scheduledRetryAt = null;
-                    notify = !_disposed;
-                }
-
-                if (notify)
-                {
-                    Changed?.Invoke();
-                }
-            }, null, due, Timeout.InfiniteTimeSpan);
-        }
-    }
 
     private static DeviceOverlayCapability ToOverlayCapability(DeviceCapabilityView view)
     {
@@ -1331,7 +1272,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
         return new DeviceOverlaySnapshot(
             Visible: true,
             Status: "Simulated handheld",
-            Detail: "Preview data only · no package, host, IPC, hook, or device handle",
+            Detail: "Preview data only · no plugin activation, hook, or device handle",
             GlyphSelection: new DeviceOverlayGlyphSelection(
                 DeviceOverlayStatus.Available,
                 "Physical glyphs",
@@ -1365,10 +1306,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     "Preview only; no virtual controller is created.")),
             // The recovery row is deliberately shown in the preview even though nothing is faulted,
             // because laying it out is exactly what --overlay-test is for. Pressing it does nothing.
-            Recovery: DeviceOverlayBridge.RecoveryView(
-                DeviceCycleState.Faulted,
-                DateTimeOffset.UtcNow.AddMinutes(-1),
-                DateTimeOffset.UtcNow),
+            Recovery: DeviceOverlayBridge.RecoveryView(DeviceCycleState.Faulted),
             Profile: DeviceOverlayBridge.ProfileView(PreviewProfiles, _hardwareProfile),
             Capabilities:
             [

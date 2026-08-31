@@ -16,9 +16,10 @@
 //   node qam-harness.mjs install                inject the bridge and install every namespace
 //   node qam-harness.mjs publish <file.json>    publish {patchId: state} to the bridge
 //   node qam-harness.mjs remove                 remove the namespaces and dispose the bridge
+//   node qam-harness.mjs screenshot [file.png]  capture the visible Big Picture window
 //
 // It never runs WSGM and never touches configuration. It talks to Steam's debug port only.
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -77,12 +78,50 @@ const configuration = {
   allowed: readAllowlist(),
 };
 
-const target = async () => {
+const targets = async () => {
   const response = await fetch("http://127.0.0.1:8080/json/list");
-  const targets = await response.json();
-  const shared = targets.find((entry) => entry.title === "SharedJSContext");
+  if (!response.ok) throw new Error(`Steam target discovery failed: HTTP ${response.status}`);
+  return response.json();
+};
+
+const validatedSocket = (target, role) => {
+  if (!target) throw new Error(`${role} is not open; is Steam running?`);
+  const socket = new URL(target.webSocketDebuggerUrl);
+  if (
+    !["ws:", "wss:"].includes(socket.protocol) ||
+    !["127.0.0.1", "localhost"].includes(socket.hostname) ||
+    socket.port !== "8080"
+  ) {
+    throw new Error(`${role} reported a non-loopback DevTools socket`);
+  }
+  return socket.href;
+};
+
+const sharedTarget = async () => {
+  const shared = (await targets()).find(
+    (entry) =>
+      entry.type === "page" &&
+      entry.title === "SharedJSContext" &&
+      entry.url.startsWith("https://steamloopback.host/"),
+  );
   if (!shared) throw new Error("SharedJSContext is not open; is Steam running?");
-  return shared.webSocketDebuggerUrl;
+  return validatedSocket(shared, "SharedJSContext");
+};
+
+const mainWindowTarget = async () => {
+  const matches = (await targets()).filter(
+    (entry) =>
+      entry.type === "page" &&
+      entry.url.startsWith("about:blank?") &&
+      entry.url.includes("createflags") &&
+      entry.url.includes("minwidth") &&
+      !entry.url.includes("browserviewpopup") &&
+      !entry.url.includes("openerid"),
+  );
+  if (matches.length !== 1) {
+    throw new Error(`expected one MainWindow target, found ${matches.length}`);
+  }
+  return validatedSocket(matches[0], "MainWindow");
 };
 
 class Session {
@@ -142,21 +181,25 @@ const respond = async (session, envelope) => {
     `  request  ${envelope.patchId} ${envelope.command}`,
     JSON.stringify(envelope.payload ?? null),
   );
-  await session.evaluate(
-    `window[${JSON.stringify(configuration.namespace)}].deliver(${JSON.stringify(
-      JSON.stringify({
-        version: configuration.version,
-        type: "response",
-        sequence: envelope.sequence,
-        ok: true,
-        payload: null,
-      }),
-    )})`,
+  const response = {
+    version: configuration.version,
+    type: "response",
+    patchId: envelope.patchId,
+    command: envelope.command,
+    sequence: envelope.sequence,
+    contextGeneration: configuration.contextGeneration,
+    documentGeneration: configuration.documentGeneration,
+    ok: true,
+    payload: null,
+  };
+  const accepted = await session.evaluate(
+    `window[${JSON.stringify(configuration.namespace)}].deliver(${JSON.stringify(response)})`,
   );
+  if (accepted !== true) throw new Error("bridge rejected the harness response envelope");
 };
 
 const connect = async () => {
-  const socket = new WebSocket(await target());
+  const socket = new WebSocket(await sharedTarget());
   await new Promise((resolve, reject) => {
     socket.onopen = resolve;
     socket.onerror = reject;
@@ -165,7 +208,9 @@ const connect = async () => {
   session = new Session(socket, (params) => {
     if (params.name !== configuration.binding) return;
     try {
-      respond(session, JSON.parse(params.payload));
+      void respond(session, JSON.parse(params.payload)).catch((error) => {
+        console.log("  bridge response failed:", String(error));
+      });
     } catch (error) {
       console.log("  binding payload was not readable:", String(error));
     }
@@ -197,14 +242,15 @@ const status = async (session) => {
       `const out={bridge:!!b,version:b&&b.version,` +
       `audioNamespace:!!(s&&s.Audio),audioOwned:!!(s&&s.Audio&&s.Audio.__wsgmOwnedNamespace===true),` +
       `perfNamespace:!!(s&&s.Perf),perfOwned:!!(s&&s.Perf&&s.Perf.__wsgmOwnedNamespace===true)};` +
-      `if(b){for(const g of ['audio','network','bluetooth','brightness','perf']){` +
+      `if(b){for(const g of ['audio','network','bluetooth','brightness','perf','steamOsManager']){` +
       `try{out[g]=b[g]?b[g].status():'absent';}catch(e){out[g]='ERR '+e;}}` +
       // nativeComponents.status takes a KIND. Calling it bare reports registered:false for every
       // component, which reads as "nothing registered" and is purely an artefact of the call.
-      `try{out.components={};for(const k of ['tdp','autoTdp','frameLimit','overlayLevel',` +
-      `'controllerTarget','resolution','valveVrr','valveProfileHeader','valveReset']){` +
+      `try{out.components={};for(const k of ['autoTdp','frameLimit','controllerTarget',` +
+      `'resolution','vrr','valveProfileHeader','valveReset','valveRefreshRate',` +
+      `'valveOverlayLevel','valveTdp']){` +
       `const s=b.nativeComponents.status(k);out.components[k]=s.registered;}` +
-      `const any=b.nativeComponents.status('tdp');out.lastAppend=any.lastAppend;` +
+      `const any=b.nativeComponents.status('frameLimit');out.lastAppend=any.lastAppend;` +
       `out.renderOutcomes=any.renderOutcomes;out.rootWrapped=any.performanceRootWrapped;}` +
       `catch(e){out.components='ERR '+e;}}` +
       `return JSON.stringify(out,null,1);})()`,
@@ -234,7 +280,7 @@ const publish = async (session, file) => {
 
 const remove = async (session) => {
   const bridge = `window[${JSON.stringify(configuration.namespace)}]`;
-  for (const gate of ["perf", "brightness", "bluetooth", "network", "audio"]) {
+  for (const gate of ["steamOsManager", "perf", "brightness", "bluetooth", "network", "audio"]) {
     const outcome = await session.evaluate(
       `(()=>{const b=${bridge};if(!b||!b.${gate})return 'absent';` +
         `try{return JSON.stringify(b.${gate}.remove());}catch(e){return String(e);}})()`,
@@ -246,7 +292,34 @@ const remove = async (session) => {
   );
 };
 
+const screenshot = async (file) => {
+  const socket = new WebSocket(await mainWindowTarget());
+  await new Promise((resolve, reject) => {
+    socket.onopen = resolve;
+    socket.onerror = reject;
+  });
+  const session = new Session(socket, () => {});
+  try {
+    await session.send("Page.enable");
+    const result = await session.send("Page.captureScreenshot", {
+      format: "png",
+      fromSurface: true,
+    });
+    if (typeof result.data !== "string" || result.data.length === 0) {
+      throw new Error("Steam returned no screenshot data");
+    }
+    writeFileSync(file, Buffer.from(result.data, "base64"));
+    console.log(`wrote ${file}`);
+  } finally {
+    socket.close();
+  }
+};
+
 const [command, argument] = process.argv.slice(2);
+if (command === "screenshot") {
+  await screenshot(argument || "qam.png");
+  process.exit(0);
+}
 const { session, socket } = await connect();
 try {
   if (command === "install") await install(session);

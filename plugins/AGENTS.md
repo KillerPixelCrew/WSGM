@@ -4,9 +4,9 @@ Device plugin packages. Each directory here is a separate deployable artifact wi
 manifest, hardware implementation, static glyph data, and required third-party notices — that is why
 plugins live at the repository top level rather than under `src\`.
 
-**No production project may add a `ProjectReference` to a plugin.** A plugin is loaded at runtime
-by `WSGM.DeviceHost` from its package directory. The sole compile-time exception is the consolidated
-`tests\WSGM.Device.Tests` owner, which references a plugin only for fake-hardware regression tests.
+**No production project may add a `ProjectReference` to a plugin.** WSGM loads the sole installed
+plugin at runtime from its package directory. The sole compile-time exception is the consolidated
+`tests\WSGM.Tests` owner, which references a plugin only for fake-hardware regression tests.
 The dependency-direction test in `tests\WSGM.Tests` fails the build if any other reference appears.
 
 ## What a plugin owns
@@ -19,7 +19,7 @@ journal; its own controller artwork and glyph control map; and its declared depe
 
 ## What a plugin never does
 
-- Call HIDMaestro, own WSGM's Steam Input lease, or touch HidHide.
+- Call VIIPER, own WSGM's Steam Input lease, or touch HidHide.
 - Supply XAML, HTML, CSS, JavaScript, URLs, Steam selectors, patch logic, or arbitrary commands.
   Artwork and the control map are **data**: WSGM checks their integrity and ships the author's own
   bytes. It does not re-emit them, and the boundary is about who owns the Steam surface, not about

@@ -11,16 +11,6 @@ namespace WSGM.Core;
 /// </summary>
 public sealed class NativeQamFrameLimitPatch : NativeQamComponentPatch
 {
-    private static readonly string[] RequiredCounts =
-    [
-        "performanceActions",
-        "performanceRoot",
-        "nativeFields",
-        "nativeLayout",
-        "localization",
-        "react",
-    ];
-
     /// <inheritdoc />
     public override string Id => "wsgm.native-qam.frame-limit";
 
@@ -34,59 +24,6 @@ public sealed class NativeQamFrameLimitPatch : NativeQamComponentPatch
     protected override string StructuralFingerprint =>
         "native-qam-frame-limit-v1:performance-actions+performance-root+valve-slider";
 
-    /// <inheritdoc />
-    protected override IReadOnlyList<string> RequiredUniqueCounts => RequiredCounts;
-
-    /// <inheritdoc />
-    protected override string ProbeExpression => PerformanceProbeExpression(
-        "wsgm_native_frame_limit_probe_");
-}
-
-/// <summary>
-/// Mounts Valve's own variable-refresh-rate control instead of building one.
-/// </summary>
-/// <remarks>
-/// The first reactivated component rather than a hand-built row, and the reason it goes first is
-/// that it is purely additive: WSGM never built a VRR row, so nothing has to be retired for this to
-/// appear and nothing regresses if its kill switch is thrown.
-/// <para>
-/// It needs no props. The component reads its state from <c>SystemPerfStore</c> and writes through
-/// <c>SteamClient.System.Perf.UpdateSettings</c>, both of which WSGM now supplies, so mounting it is
-/// the whole integration. It draws nothing when the state omits <c>is_vrr_supported</c>, which is
-/// how a device without VRR hides it — the gate is the state, not a check in the patch.
-/// </para>
-/// </remarks>
-public sealed class NativeQamValveVrrPatch : NativeQamComponentPatch
-{
-    private static readonly string[] RequiredCounts =
-    [
-        "performanceActions",
-        "performanceRoot",
-        "nativeFields",
-        "nativeLayout",
-        "localization",
-        "react",
-    ];
-
-    /// <inheritdoc />
-    public override string Id => "wsgm.native-qam.valve-vrr";
-
-    /// <inheritdoc />
-    public override int Version => 1;
-
-    /// <inheritdoc />
-    protected override string ComponentKind => "valveVrr";
-
-    /// <inheritdoc />
-    protected override string StructuralFingerprint =>
-        "native-qam-valve-vrr-v1:performance-actions+performance-root+valve-vrr-component";
-
-    /// <inheritdoc />
-    protected override IReadOnlyList<string> RequiredUniqueCounts => RequiredCounts;
-
-    /// <inheritdoc />
-    protected override string ProbeExpression => PerformanceProbeExpression(
-        "wsgm_native_valve_vrr_probe_");
 }
 
 /// <summary>
@@ -99,16 +36,6 @@ public sealed class NativeQamValveVrrPatch : NativeQamComponentPatch
 /// </remarks>
 public sealed class NativeQamValveProfileHeaderPatch : NativeQamComponentPatch
 {
-    private static readonly string[] RequiredCounts =
-    [
-        "performanceActions",
-        "performanceRoot",
-        "nativeFields",
-        "nativeLayout",
-        "localization",
-        "react",
-    ];
-
     /// <inheritdoc />
     public override string Id => "wsgm.native-qam.valve-profile-header";
 
@@ -122,12 +49,6 @@ public sealed class NativeQamValveProfileHeaderPatch : NativeQamComponentPatch
     protected override string StructuralFingerprint =>
         "native-qam-valve-profile-header-v1:performance-actions+performance-root+valve-header";
 
-    /// <inheritdoc />
-    protected override IReadOnlyList<string> RequiredUniqueCounts => RequiredCounts;
-
-    /// <inheritdoc />
-    protected override string ProbeExpression => PerformanceProbeExpression(
-        "wsgm_native_valve_header_probe_");
 }
 
 /// <summary>
@@ -139,16 +60,6 @@ public sealed class NativeQamValveProfileHeaderPatch : NativeQamComponentPatch
 /// </remarks>
 public sealed class NativeQamValveResetPatch : NativeQamComponentPatch
 {
-    private static readonly string[] RequiredCounts =
-    [
-        "performanceActions",
-        "performanceRoot",
-        "nativeFields",
-        "nativeLayout",
-        "localization",
-        "react",
-    ];
-
     /// <inheritdoc />
     public override string Id => "wsgm.native-qam.valve-reset";
 
@@ -162,54 +73,6 @@ public sealed class NativeQamValveResetPatch : NativeQamComponentPatch
     protected override string StructuralFingerprint =>
         "native-qam-valve-reset-v1:performance-actions+performance-root+valve-reset";
 
-    /// <inheritdoc />
-    protected override IReadOnlyList<string> RequiredUniqueCounts => RequiredCounts;
-
-    /// <inheritdoc />
-    protected override string ProbeExpression => PerformanceProbeExpression(
-        "wsgm_native_valve_reset_probe_");
-}
-
-/// <summary>
-/// Mounts Valve's own frame-limit slider, retiring the hand-rolled imitation.
-/// </summary>
-/// <remarks>
-/// The retirement Q12 always intended: the component reads <c>fps_limit_options</c> and
-/// <c>per_app.fps_limit</c> from <c>SystemPerfStore</c> and writes through
-/// <c>SteamClient.System.Perf.UpdateSettings</c>, both of which WSGM supplies, so it arrives with
-/// Valve's own labels, explainer and localization rather than a lookalike.
-/// </remarks>
-public sealed class NativeQamValveFrameLimitPatch : NativeQamComponentPatch
-{
-    private static readonly string[] RequiredCounts =
-    [
-        "performanceActions",
-        "performanceRoot",
-        "nativeFields",
-        "nativeLayout",
-        "localization",
-        "react",
-    ];
-
-    /// <inheritdoc />
-    public override string Id => "wsgm.native-qam.valve-frame-limit";
-
-    /// <inheritdoc />
-    public override int Version => 1;
-
-    /// <inheritdoc />
-    protected override string ComponentKind => "valveFrameLimit";
-
-    /// <inheritdoc />
-    protected override string StructuralFingerprint =>
-        "native-qam-valve-frame-limit-v1:performance-actions+performance-root+valve-slider";
-
-    /// <inheritdoc />
-    protected override IReadOnlyList<string> RequiredUniqueCounts => RequiredCounts;
-
-    /// <inheritdoc />
-    protected override string ProbeExpression => PerformanceProbeExpression(
-        "wsgm_native_valve_frame_limit_probe_");
 }
 
 /// <summary>
@@ -217,16 +80,6 @@ public sealed class NativeQamValveFrameLimitPatch : NativeQamComponentPatch
 /// </summary>
 public sealed class NativeQamValveOverlayLevelPatch : NativeQamComponentPatch
 {
-    private static readonly string[] RequiredCounts =
-    [
-        "performanceActions",
-        "performanceRoot",
-        "nativeFields",
-        "nativeLayout",
-        "localization",
-        "react",
-    ];
-
     /// <inheritdoc />
     public override string Id => "wsgm.native-qam.valve-overlay-level";
 
@@ -240,12 +93,6 @@ public sealed class NativeQamValveOverlayLevelPatch : NativeQamComponentPatch
     protected override string StructuralFingerprint =>
         "native-qam-valve-overlay-level-v1:performance-actions+performance-root+valve-selector";
 
-    /// <inheritdoc />
-    protected override IReadOnlyList<string> RequiredUniqueCounts => RequiredCounts;
-
-    /// <inheritdoc />
-    protected override string ProbeExpression => PerformanceProbeExpression(
-        "wsgm_native_valve_overlay_probe_");
 }
 
 /// <summary>
@@ -260,16 +107,6 @@ public sealed class NativeQamValveOverlayLevelPatch : NativeQamComponentPatch
 /// </remarks>
 public sealed class NativeQamValveRefreshRatePatch : NativeQamComponentPatch
 {
-    private static readonly string[] RequiredCounts =
-    [
-        "performanceActions",
-        "performanceRoot",
-        "nativeFields",
-        "nativeLayout",
-        "localization",
-        "react",
-    ];
-
     /// <inheritdoc />
     public override string Id => "wsgm.native-qam.valve-refresh-rate";
 
@@ -283,12 +120,6 @@ public sealed class NativeQamValveRefreshRatePatch : NativeQamComponentPatch
     protected override string StructuralFingerprint =>
         "native-qam-valve-refresh-rate-v1:performance-actions+performance-root+valve-refresh";
 
-    /// <inheritdoc />
-    protected override IReadOnlyList<string> RequiredUniqueCounts => RequiredCounts;
-
-    /// <inheritdoc />
-    protected override string ProbeExpression => PerformanceProbeExpression(
-        "wsgm_native_valve_refresh_probe_");
 }
 
 /// <summary>
@@ -302,16 +133,6 @@ public sealed class NativeQamValveRefreshRatePatch : NativeQamComponentPatch
 /// </remarks>
 public sealed class NativeQamResolutionPatch : NativeQamComponentPatch
 {
-    private static readonly string[] RequiredCounts =
-    [
-        "performanceActions",
-        "performanceRoot",
-        "nativeFields",
-        "nativeLayout",
-        "localization",
-        "react",
-    ];
-
     /// <inheritdoc />
     public override string Id => "wsgm.native-qam.resolution";
 
@@ -325,12 +146,6 @@ public sealed class NativeQamResolutionPatch : NativeQamComponentPatch
     protected override string StructuralFingerprint =>
         "native-qam-resolution-v1:performance-actions+performance-root+valve-dropdown";
 
-    /// <inheritdoc />
-    protected override IReadOnlyList<string> RequiredUniqueCounts => RequiredCounts;
-
-    /// <inheritdoc />
-    protected override string ProbeExpression => PerformanceProbeExpression(
-        "wsgm_native_resolution_probe_");
 }
 
 /// <summary>
@@ -349,16 +164,6 @@ public sealed class NativeQamResolutionPatch : NativeQamComponentPatch
 /// </remarks>
 public sealed class NativeQamValveTdpPatch : NativeQamComponentPatch
 {
-    private static readonly string[] RequiredCounts =
-    [
-        "performanceActions",
-        "performanceRoot",
-        "nativeFields",
-        "nativeLayout",
-        "localization",
-        "react",
-    ];
-
     /// <inheritdoc />
     public override string Id => "wsgm.native-qam.valve-tdp";
 
@@ -372,12 +177,6 @@ public sealed class NativeQamValveTdpPatch : NativeQamComponentPatch
     protected override string StructuralFingerprint =>
         "native-qam-valve-tdp-v1:performance-actions+performance-root+valve-tdp-pair";
 
-    /// <inheritdoc />
-    protected override IReadOnlyList<string> RequiredUniqueCounts => RequiredCounts;
-
-    /// <inheritdoc />
-    protected override string ProbeExpression => PerformanceProbeExpression(
-        "wsgm_native_valve_tdp_probe_");
 }
 
 /// <summary>
@@ -393,16 +192,6 @@ public sealed class NativeQamValveTdpPatch : NativeQamComponentPatch
 /// </remarks>
 public sealed class NativeQamVrrPatch : NativeQamComponentPatch
 {
-    private static readonly string[] RequiredCounts =
-    [
-        "performanceActions",
-        "performanceRoot",
-        "nativeFields",
-        "nativeLayout",
-        "localization",
-        "react",
-    ];
-
     /// <inheritdoc />
     public override string Id => "wsgm.native-qam.vrr";
 
@@ -416,103 +205,6 @@ public sealed class NativeQamVrrPatch : NativeQamComponentPatch
     protected override string StructuralFingerprint =>
         "native-qam-vrr-v1:performance-actions+performance-root+valve-toggle";
 
-    /// <inheritdoc />
-    protected override IReadOnlyList<string> RequiredUniqueCounts => RequiredCounts;
-
-    /// <inheritdoc />
-    protected override string ProbeExpression => PerformanceProbeExpression(
-        "wsgm_native_vrr_probe_");
-}
-
-/// <summary>
-/// Restores Valve's native performance-overlay presentation with exact RTSS adapter levels.
-/// </summary>
-public sealed class NativeQamOverlayLevelPatch : NativeQamComponentPatch
-{
-    private static readonly string[] RequiredCounts =
-    [
-        "performanceActions",
-        "performanceRoot",
-        "nativeFields",
-        "nativeLayout",
-        "localization",
-        "react",
-    ];
-
-    /// <inheritdoc />
-    public override string Id => "wsgm.native-qam.overlay-level";
-
-    /// <inheritdoc />
-    public override int Version => 1;
-
-    /// <inheritdoc />
-    protected override string ComponentKind => "overlayLevel";
-
-    /// <inheritdoc />
-    protected override string StructuralFingerprint =>
-        "native-qam-overlay-level-v1:performance-actions+performance-root+valve-dropdown";
-
-    /// <inheritdoc />
-    protected override IReadOnlyList<string> RequiredUniqueCounts => RequiredCounts;
-
-    /// <inheritdoc />
-    protected override string ProbeExpression => PerformanceProbeExpression(
-        "wsgm_native_overlay_level_probe_");
-}
-
-/// <summary>
-/// Restores Valve's native TDP presentation with WSGM's typed primary-power-limit state and action.
-/// </summary>
-public sealed class NativeQamTdpPatch : NativeQamComponentPatch
-{
-    private static readonly string[] RequiredCounts =
-    [
-        "tdpAvailability",
-        "tdpPresentation",
-        "performanceRoot",
-        "nativeFields",
-        "nativeLayout",
-        "localization",
-        "react",
-    ];
-
-    /// <inheritdoc />
-    public override string Id => "wsgm.native-qam.tdp";
-
-    /// <inheritdoc />
-    public override int Version => 1;
-
-    /// <inheritdoc />
-    protected override string ComponentKind => "tdp";
-
-    /// <inheritdoc />
-    protected override string StructuralFingerprint =>
-        "native-qam-tdp-v1:availability+presentation+performance-root+valve-fields";
-
-    /// <inheritdoc />
-    protected override IReadOnlyList<string> RequiredUniqueCounts => RequiredCounts;
-
-    /// <inheritdoc />
-    protected override string ProbeExpression => """
-        (()=>{try{
-          let req;
-          window.webpackChunksteamui.push([["wsgm_native_tdp_probe_"+Date.now()],{},r=>req=r]);
-          if(!req||!req.m)return JSON.stringify({error:'webpack unavailable'});
-          const count=(tokens)=>Object.values(req.m).reduce((total,factory)=>{
-            const source=String(factory);
-            return total+(tokens.every(token=>source.includes(token))?1:0);
-          },0);
-          return JSON.stringify({
-            tdpAvailability:count(['is_tdp_limit_available','steamos_tdp_limit_enabled','tdp_limit_min','tdp_limit_max']),
-            tdpPresentation:count(['#QuickAccess_Tab_Perf_TDPLimitEnabled','steamos_tdp_limit','showBookendLabels']),
-            performanceRoot:count(['#QuickAccess_Tab_Perf_Common_Settings','#QuickAccess_Tab_Perf_BatteryTimeRemaining','TS.ON_FRAME']),
-            nativeFields:count(['DialogSlider_Container','DropDownField','SliderField']),
-            nativeLayout:count(['PanelSectionTitle','PanelSectionRow','spinner']),
-            localization:count(['Attempting to localize token','Unable to find localization token','LocalizeString']),
-            react:count(['react.transitional.element','useState','cloneElement','createElement'])
-          });
-        }catch(error){return JSON.stringify({error:String(error)}); } })()
-        """;
 }
 
 /// <summary>
@@ -521,16 +213,6 @@ public sealed class NativeQamTdpPatch : NativeQamComponentPatch
 /// </summary>
 public sealed class NativeQamControllerTargetPatch : NativeQamComponentPatch
 {
-    private static readonly string[] RequiredCounts =
-    [
-        "controllerPresentation",
-        "performanceRoot",
-        "nativeFields",
-        "nativeLayout",
-        "localization",
-        "react",
-    ];
-
     /// <inheritdoc />
     public override string Id => "wsgm.native-qam.controller-target";
 
@@ -545,28 +227,15 @@ public sealed class NativeQamControllerTargetPatch : NativeQamComponentPatch
         "native-qam-controller-target-v1:controller-presentation+performance-root+valve-dropdown";
 
     /// <inheritdoc />
-    protected override IReadOnlyList<string> RequiredUniqueCounts => RequiredCounts;
+    protected override string PrimaryCountName => "controllerPresentation";
 
     /// <inheritdoc />
-    protected override string ProbeExpression => """
-        (()=>{try{
-          let req;
-          window.webpackChunksteamui.push([["wsgm_native_controller_target_probe_"+Date.now()],{},r=>req=r]);
-          if(!req||!req.m)return JSON.stringify({error:'webpack unavailable'});
-          const count=(tokens)=>Object.values(req.m).reduce((total,factory)=>{
-            const source=String(factory);
-            return total+(tokens.every(token=>source.includes(token))?1:0);
-          },0);
-          return JSON.stringify({
-            controllerPresentation:count(['#QuickAccess_Tab_Settings_Section_Controller_Title','#QuickAccess_ReorderControllers_Button','#QuickAccess_Tab_Perf_Title']),
-            performanceRoot:count(['#QuickAccess_Tab_Perf_Common_Settings','#QuickAccess_Tab_Perf_BatteryTimeRemaining','TS.ON_FRAME']),
-            nativeFields:count(['DialogSlider_Container','DropDownField','SliderField']),
-            nativeLayout:count(['PanelSectionTitle','PanelSectionRow','spinner']),
-            localization:count(['Attempting to localize token','Unable to find localization token','LocalizeString']),
-            react:count(['react.transitional.element','useState','cloneElement','createElement'])
-          });
-        }catch(error){return JSON.stringify({error:String(error)}); } })()
-        """;
+    protected override IReadOnlyList<string> PrimaryTokens { get; } =
+    [
+        "#QuickAccess_Tab_Settings_Section_Controller_Title",
+        "#QuickAccess_ReorderControllers_Button",
+        "#QuickAccess_Tab_Perf_Title",
+    ];
 }
 
 /// <summary>
@@ -581,16 +250,6 @@ public sealed class NativeQamControllerTargetPatch : NativeQamComponentPatch
 /// </remarks>
 public sealed class NativeQamAutoTdpPatch : NativeQamComponentPatch
 {
-    private static readonly string[] RequiredCounts =
-    [
-        "tdpPresentation",
-        "performanceRoot",
-        "nativeFields",
-        "nativeLayout",
-        "localization",
-        "react",
-    ];
-
     /// <inheritdoc />
     public override string Id => "wsgm.native-qam.auto-tdp";
 
@@ -605,28 +264,15 @@ public sealed class NativeQamAutoTdpPatch : NativeQamComponentPatch
         "native-qam-auto-tdp-v1:presentation+performance-root+valve-toggle";
 
     /// <inheritdoc />
-    protected override IReadOnlyList<string> RequiredUniqueCounts => RequiredCounts;
+    protected override string PrimaryCountName => "tdpPresentation";
 
     /// <inheritdoc />
-    protected override string ProbeExpression => """
-        (()=>{try{
-          let req;
-          window.webpackChunksteamui.push([["wsgm_native_auto_tdp_probe_"+Date.now()],{},r=>req=r]);
-          if(!req||!req.m)return JSON.stringify({error:'webpack unavailable'});
-          const count=(tokens)=>Object.values(req.m).reduce((total,factory)=>{
-            const source=String(factory);
-            return total+(tokens.every(token=>source.includes(token))?1:0);
-          },0);
-          return JSON.stringify({
-            tdpPresentation:count(['#QuickAccess_Tab_Perf_TDPLimitEnabled','steamos_tdp_limit','showBookendLabels']),
-            performanceRoot:count(['#QuickAccess_Tab_Perf_Common_Settings','#QuickAccess_Tab_Perf_BatteryTimeRemaining','TS.ON_FRAME']),
-            nativeFields:count(['DialogSlider_Container','DropDownField','SliderField']),
-            nativeLayout:count(['PanelSectionTitle','PanelSectionRow','spinner']),
-            localization:count(['Attempting to localize token','Unable to find localization token','LocalizeString']),
-            react:count(['react.transitional.element','useState','cloneElement','createElement'])
-          });
-        }catch(error){return JSON.stringify({error:String(error)}); } })()
-        """;
+    protected override IReadOnlyList<string> PrimaryTokens { get; } =
+    [
+        "#QuickAccess_Tab_Perf_TDPLimitEnabled",
+        "steamos_tdp_limit",
+        "showBookendLabels",
+    ];
 }
 
 /// <summary>
@@ -635,6 +281,21 @@ public sealed class NativeQamAutoTdpPatch : NativeQamComponentPatch
 public abstract class NativeQamComponentPatch : ISteamUiPatch
 {
     private const string BridgeNamespace = "__wsgmSteamUi_v1_28d7c54a";
+    private static readonly string[] CommonRequiredCounts =
+    [
+        "performanceRoot",
+        "nativeFields",
+        "nativeLayout",
+        "localization",
+        "react",
+    ];
+    private static readonly string[] PerformanceActionTokens =
+    [
+        "SetFPSLimitEnabled",
+        "SetFPSLimit",
+        "SetPerfOverlayLevel",
+        "SteamClient.System.Perf",
+    ];
 
     /// <inheritdoc />
     public abstract string Id { get; }
@@ -657,24 +318,46 @@ public abstract class NativeQamComponentPatch : ISteamUiPatch
     /// <summary>Stable structural fingerprint describing the exact positive match.</summary>
     protected abstract string StructuralFingerprint { get; }
 
+    /// <summary>The component-specific probe result property.</summary>
+    protected virtual string PrimaryCountName => "performanceActions";
+
+    /// <summary>Tokens that uniquely identify the component-specific Steam factory.</summary>
+    protected virtual IReadOnlyList<string> PrimaryTokens => PerformanceActionTokens;
+
+    /// <summary>
+    /// Stable webpack chunk label retained for live diagnostics and existing probe tooling.
+    /// </summary>
+    private string ProbeChunkPrefix => ComponentKind switch
+    {
+        "frameLimit" => "wsgm_native_frame_limit_probe_",
+        "valveProfileHeader" => "wsgm_native_valve_header_probe_",
+        "valveReset" => "wsgm_native_valve_reset_probe_",
+        "valveOverlayLevel" => "wsgm_native_valve_overlay_probe_",
+        "valveRefreshRate" => "wsgm_native_valve_refresh_probe_",
+        "resolution" => "wsgm_native_resolution_probe_",
+        "valveTdp" => "wsgm_native_valve_tdp_probe_",
+        "vrr" => "wsgm_native_vrr_probe_",
+        "controllerTarget" => "wsgm_native_controller_target_probe_",
+        "autoTdp" => "wsgm_native_auto_tdp_probe_",
+        _ => throw new InvalidOperationException($"Unknown native QAM component '{ComponentKind}'."),
+    };
+
     /// <summary>Probe properties that must each report exactly one factory.</summary>
-    protected abstract IReadOnlyList<string> RequiredUniqueCounts { get; }
+    protected IReadOnlyList<string> RequiredUniqueCounts =>
+        [PrimaryCountName, .. CommonRequiredCounts];
 
-    /// <summary>Read-only structural probe for this patch.</summary>
-    protected abstract string ProbeExpression { get; }
-
-    /// <summary>Shared live-verified probe for native QAM performance controls.</summary>
-    protected static string PerformanceProbeExpression(string chunkPrefix) => $$"""
+    /// <summary>Read-only structural probe shared by every native-QAM component.</summary>
+    protected string ProbeExpression => $$"""
         (()=>{try{
           let req;
-          window.webpackChunksteamui.push([[{{SteamCef.JsString(chunkPrefix)}}+Date.now()],{},r=>req=r]);
+          window.webpackChunksteamui.push([[{{SteamCef.JsString(ProbeChunkPrefix)}}+Date.now()],{},r=>req=r]);
           if(!req||!req.m)return JSON.stringify({error:'webpack unavailable'});
           const count=(tokens)=>Object.values(req.m).reduce((total,factory)=>{
             const source=String(factory);
             return total+(tokens.every(token=>source.includes(token))?1:0);
           },0);
           return JSON.stringify({
-            performanceActions:count(['SetFPSLimitEnabled','SetFPSLimit','SetPerfOverlayLevel','SteamClient.System.Perf']),
+            {{PrimaryCountName}}:count({{JsonSerializer.Serialize(PrimaryTokens)}}),
             performanceRoot:count(['#QuickAccess_Tab_Perf_Common_Settings','#QuickAccess_Tab_Perf_BatteryTimeRemaining','TS.ON_FRAME']),
             nativeFields:count(['DialogSlider_Container','DropDownField','SliderField']),
             nativeLayout:count(['PanelSectionTitle','PanelSectionRow','spinner']),

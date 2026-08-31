@@ -6,7 +6,7 @@ using System.Text.Json;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
-using WSGM.Device.Sdk.Ipc;
+using WSGM.Device.Sdk.Serialization;
 using WSGM.Shell;
 
 namespace WSGM.Tests;
@@ -136,7 +136,7 @@ public sealed class PhysicalGlyphServiceTests
             DeviceGlyphSelection.Automatic,
             new PhysicalGlyphSelectionResult(
                 null,
-                PhysicalGlyphFallbackReason.ProfileMissing,
+                PhysicalGlyphFallbackReason.ExactDeviceMismatch,
                 false));
 
         Assert.Equal(DeviceOverlayStatus.Warning, row.Status);
@@ -279,7 +279,7 @@ public sealed class PhysicalGlyphServiceTests
             [GlyphPackageLayout.ProfileManifest(manifest.ProfileId)] =
                 JsonSerializer.SerializeToUtf8Bytes(
                     manifest,
-                    DeviceWireJsonContext.Default.GlyphProfileManifest),
+                    DeviceJsonContext.Default.GlyphProfileManifest),
             [manifest.NoticePath] = Encoding.UTF8.GetBytes("Example glyph notice\n"),
         };
         if (includeArtwork)
@@ -288,7 +288,7 @@ public sealed class PhysicalGlyphServiceTests
         }
 
         GlyphPackageImportResult result = GlyphPackageImporter.Import(
-            new MemoryPackageSource(manifest.ProfileId, files));
+            new GlyphTestPackageSource(manifest.ProfileId, files));
         Assert.True(result.IsValid, string.Join("; ", result.Errors));
         return Assert.Single(result.Profiles);
     }
@@ -345,22 +345,4 @@ public sealed class PhysicalGlyphServiceTests
         return ~crc;
     }
 
-    private sealed class MemoryPackageSource(
-        string profileId,
-        IReadOnlyDictionary<string, byte[]> files) : IGlyphPackageSource
-    {
-        public IReadOnlyList<string> EnumerateProfileIds() => [profileId];
-
-        public bool TryRead(string relativePath, int maximumBytes, out byte[] result)
-        {
-            if (files.TryGetValue(relativePath, out byte[]? bytes)
-                && bytes.Length <= maximumBytes)
-            {
-                result = bytes.ToArray();
-                return true;
-            }
-            result = [];
-            return false;
-        }
-    }
 }

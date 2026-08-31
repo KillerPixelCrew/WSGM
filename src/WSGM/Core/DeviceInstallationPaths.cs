@@ -21,8 +21,6 @@ internal static class DeviceInstallationPaths
         }
     }
 
-    internal static string DeviceHostRoot => Path.Combine(ProtectedRoot, "DeviceHost");
-
     internal static string InstalledPackageRoot =>
         Path.Combine(ProtectedRoot, "DevicePlugins", "installed");
 }
