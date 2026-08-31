@@ -125,14 +125,14 @@ durable evidence.
 ## Verification for this milestone
 
 - [x] `./eng/verify.ps1 -Fix`: formatting and repository invariants passed; Steam UI asset reproduced
-      SHA-256 `5E75DE22676E1F36946916144314BC5BE692ED3121604BFF995939A0551D308E`;
+      SHA-256 `32CE9F983B97461B077CE240EA3FAE8A01FD3D09BB13A347BF251F3C9C23D9C5`;
       Rust lint/build and 41 native tests passed; Release build completed with zero warnings/errors;
       all 2,064 managed tests passed with coverage output.
 - [x] `./build.ps1`: Steam Input, pinned VIIPER, usbip-win2 and HidHide inputs validated; WSGM,
       Launch, LogonService, Device Lab and the Claw package published; Inno Setup produced
-      `publish\WSGM-Setup-1.5.1.exe` (160,005,146 bytes).
+      `publish\WSGM-Setup-1.5.1.exe` (160,006,841 bytes).
 - [x] Installer copied to `Z:\WSGM-Setup-1.5.1.exe`; source and destination SHA-256 both
-      `F69835445305BD4D3E4D98840AF304E9452C4B91F582D7114DF3FAD72AF40361`.
+      `F179E3F1B4757ED632AED0AC5D1993F219FDB77F5DB623E2FBBF385779761458`.
 - [x] Intended tree committed as `7ddda25` and pushed on `2.0`; the maintainer's unrelated Rust edit
       remained unstaged and untouched.
 
