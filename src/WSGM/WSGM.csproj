@@ -106,6 +106,16 @@
          submodule so this branch keeps a known-good revision while the library moves. -->
     <ProjectReference
         Include="..\..\external\windows-device-control\src\WindowsDeviceControl\WindowsDeviceControl.csproj" />
+    <!-- The CDP transport, patch lifecycle, bridge and module contract. WSGM keeps the surfaces:
+         the gates, the QAM rows and the components are its product, not the toolkit's. -->
+    <ProjectReference
+        Include="..\..\external\steam-ui-toolkit\src\SteamUiToolkit\SteamUiToolkit.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Every Steam UI type used to live in WSGM.Core, and the patches and session host reference
+         them constantly. A global using keeps that one move from touching thirty files for no
+         behavioural reason. -->
+    <Using Include="SteamUiToolkit" />
   </ItemGroup>
   <ItemGroup>
     <!-- 1-9: how hard the GC works to keep the heap small; 9 = maximum. -->

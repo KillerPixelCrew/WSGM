@@ -25,19 +25,37 @@ const repositoryRoot = resolve(scriptDirectory, "..");
 const assetDirectory = join(repositoryRoot, "src", "WSGM", "Core", "SteamUiAssets");
 const sourceDirectory = join(assetDirectory, "Source");
 
-// The two fragments with a fixed position, and the reason each has one:
+// The prelude comes from the toolkit submodule, WSGM's own fragments from here. One script either
+// way: the whole thing is evaluated in a single CDP call, so it is compiled as one unit rather
+// than shipped as separate assets.
+const toolkitSourceDirectory = join(
+  repositoryRoot,
+  "external",
+  "steam-ui-toolkit",
+  "src",
+  "SteamUiToolkit",
+  "SteamUiAssets",
+  "Source",
+);
+
+// The toolkit's fragments, in the only order that matters:
 //
 //   types.ts    declarations only. It sits above the bundle marker and is stripped from the
 //               emitted asset entirely, so it exists to type the script and ship nothing.
 //   bridge.ts   opens the IIFE and carries the orchestration — the reuse check, the request and
-//               subscribe machinery, and the publication of the window property at the end.
+//               subscribe machinery, the gate registry, and the publication of the window property.
 //
 // EVERYTHING ELSE IS DISCOVERED, and its order does not matter. Gates are `function create…()`
 // declarations, which hoist, so bridge.ts can call them before they appear textually; the shared
 // helpers are consts referenced only from inside those functions, which run long after the whole
 // bundle has been evaluated. That is why adding a gate is a new file and nothing else — this
-// script no longer holds a list of what exists.
-const preludePaths = [join(sourceDirectory, "types.ts"), join(sourceDirectory, "bridge.ts")];
+// script holds no list of what exists.
+const preludePaths = [
+  join(toolkitSourceDirectory, "types.ts"),
+  join(toolkitSourceDirectory, "bridge.ts"),
+  join(toolkitSourceDirectory, "ownership.ts"),
+  join(toolkitSourceDirectory, "rpc.ts"),
+];
 
 // components.ts is emitted last by convention rather than by necessity. Nothing depends on it
 // being there — it is the UI layer, and reading the asset top-down as helpers, then gates, then

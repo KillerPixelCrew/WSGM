@@ -72,7 +72,9 @@ public static class SteamCdp
 {
     /// <summary>Writes the CEF remote-debugging flag so Steam opens its localhost
     /// devtools port on next start. Idempotent and best-effort.</summary>
-    public static bool EnsureRemoteDebuggingEnabled() => SteamCef.EnsureRemoteDebuggingEnabled();
+    /// <remarks>Finding Steam is WSGM's job, not the toolkit's, so the directory is passed in.</remarks>
+    public static bool EnsureRemoteDebuggingEnabled() =>
+        SteamCef.EnsureRemoteDebuggingEnabled(Steam.InstallDirectory);
 
     /// <summary>Blocking wrapper for worker-thread callers (never call on the UI thread).</summary>
     /// <param name="libraryPath">The library folder, e.g. <c>E:\SteamLibrary</c>.</param>

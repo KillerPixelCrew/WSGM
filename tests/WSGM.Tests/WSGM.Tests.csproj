@@ -26,6 +26,7 @@
     <ProjectReference Include="../../external/WSGM.Device.Sdk/src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj" />
     <ProjectReference Include="../../src/WSGM.Launch/WSGM.Launch.csproj" />
     <ProjectReference Include="../../src/WSGM/WSGM.csproj" />
+    <ProjectReference Include="../../external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiToolkit.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- The service's pure decision core is linked as source (its BootManifest

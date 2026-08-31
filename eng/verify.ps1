@@ -43,10 +43,11 @@ try {
     npm run steam-assets:check
     if ($LASTEXITCODE -ne 0) { throw "Steam UI asset is not current with its TypeScript source" }
 
-    # Runs the shipped asset's ownership claims against the scenarios that cost device sessions:
+    # The toolkit's own check, run against WSGM's composed asset: the ownership claims, exercised
+    # on the bytes this build injects. It covers the scenarios that cost device sessions —
     # reclaiming a previous bridge's work rather than tearing it down, and restoring exactly what
-    # was displaced. Nothing else in this gate can observe that — the C# tests never execute the
-    # injected JavaScript, and the drift check only proves it is current, not that it is correct.
+    # was displaced. Nothing else in this gate can observe that: the C# tests never execute the
+    # injected JavaScript, and the drift check proves only that the asset is current, not correct.
     npm run steam-assets:claims
     if ($LASTEXITCODE -ne 0) { throw "Steam UI ownership claim check failed" }
 

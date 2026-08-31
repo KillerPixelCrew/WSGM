@@ -7,3 +7,6 @@
 [submodule "external/WSGM.Device.Sdk"]
 	path = external/WSGM.Device.Sdk
 	url = https://github.com/KillerPixelCrew/WSGM.Device.Sdk
+[submodule "external/steam-ui-toolkit"]
+	path = external/steam-ui-toolkit
+	url = https://github.com/KillerPixelCrew/steam-ui-toolkit

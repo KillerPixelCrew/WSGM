@@ -11,8 +11,8 @@ using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
 // The handler methods below read as this host's own vocabulary, and the module contract is the
 // same shape under a name that belongs to the contract rather than to this file.
-using SemanticCommandResult = WSGM.Core.SteamUiCommandResult;
-using StatePublication = WSGM.Core.SteamUiStatePublication;
+using SemanticCommandResult = SteamUiToolkit.SteamUiCommandResult;
+using StatePublication = SteamUiToolkit.SteamUiStatePublication;
 
 namespace WSGM.Shell;
 
