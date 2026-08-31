@@ -247,7 +247,12 @@ internal sealed class SteamDownloadSortPatch : ISteamUiPatch
 
     public int Version => 1;
 
-    public SteamUiTargetRole TargetRole => SteamUiTargetRole.MainWindow;
+    // The queue is rendered into the Big Picture document, but it is rendered BY SharedJSContext:
+    // the jsx-runtime module this patch wraps, the module registry it comes from and the React
+    // reconciler that re-renders the queue all live there, and the Big Picture window carries the
+    // DOM and no webpack global at all. Addressing the window instead leaves the probe's runtime
+    // check permanently false, so the sorter reports Incompatible and never installs.
+    public SteamUiTargetRole TargetRole => SteamUiTargetRole.SharedJsContext;
 
     public string ResourceKey => "steam.downloads.jsx-runtime";
 
@@ -271,7 +276,7 @@ internal sealed class SteamDownloadSortPatch : ISteamUiPatch
                 false,
                 false,
                 null,
-                result.Error ?? "MainWindow is unavailable.");
+                result.Error ?? "SharedJSContext is unavailable.");
         }
 
         try
@@ -326,7 +331,7 @@ internal sealed class SteamDownloadSortPatch : ISteamUiPatch
         string fallback,
         CancellationToken cancellationToken) => SteamUiPatchEvaluation.EvaluateOutcomeAsync(
             context,
-            SteamUiTargetRole.MainWindow,
+            SteamUiTargetRole.SharedJsContext,
             expression,
             fallback,
             cancellationToken);
