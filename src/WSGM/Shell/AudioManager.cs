@@ -5,8 +5,8 @@ using System.ComponentModel;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
+using WindowsDeviceControl;
 using WSGM.Core;
-using WSGM.Interop;
 
 namespace WSGM.Shell;
 
@@ -264,8 +264,8 @@ public sealed class AudioManager : INotifyPropertyChanged, IDisposable
                 []);
         }
 
-        var outputResult = CoreAudio.ListEndpoints(CoreAudio.Render, out var outputs);
-        var inputResult = CoreAudio.ListEndpoints(CoreAudio.Capture, out var inputs);
+        var outputResult = CoreAudio.ListEndpoints(CoreAudio.AudioDirection.Render, out var outputs);
+        var inputResult = CoreAudio.ListEndpoints(CoreAudio.AudioDirection.Capture, out var inputs);
         return new Snapshot(
             volumeResult,
             volume,

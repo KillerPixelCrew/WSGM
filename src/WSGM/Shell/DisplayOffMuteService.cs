@@ -1,5 +1,6 @@
 using System;
 using Avalonia.Threading;
+using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Interop;
 

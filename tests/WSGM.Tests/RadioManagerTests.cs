@@ -1,28 +1,33 @@
-using WSGM.Interop;
+using WindowsDeviceControl;
 using WSGM.Shell;
+using PairingOutcome = WindowsDeviceControl.WindowsRadio.PairingOutcome;
+using WifiConnectionState = WindowsDeviceControl.WindowsRadio.WifiConnectionState;
+using WifiFailureKind = WindowsDeviceControl.WindowsRadio.WifiFailureKind;
 
 namespace WSGM.Tests;
 
 public class RadioManagerTests
 {
     [Theory]
-    [InlineData(RadioPower.Off, 0, "Off")]
-    [InlineData(RadioPower.Disabled, 0, "Blocked by Windows")]
-    [InlineData(RadioPower.Absent, 0, "No Wi-Fi adapter")]
-    [InlineData(RadioPower.Unknown, 0, "State unavailable")]
-    [InlineData(RadioPower.On, 0, "Connected")]
-    [InlineData(RadioPower.On, 1, "Connecting...")]
-    [InlineData(RadioPower.On, 2, "Not connected")]
+    [InlineData(RadioPower.Off, WifiConnectionState.Connected, "Off")]
+    [InlineData(RadioPower.Disabled, WifiConnectionState.Connected, "Blocked by Windows")]
+    [InlineData(RadioPower.Absent, WifiConnectionState.Connected, "No Wi-Fi adapter")]
+    [InlineData(RadioPower.Unknown, WifiConnectionState.Connected, "State unavailable")]
+    [InlineData(RadioPower.On, WifiConnectionState.Connected, "Connected")]
+    [InlineData(RadioPower.On, WifiConnectionState.Connecting, "Connecting...")]
+    [InlineData(RadioPower.On, WifiConnectionState.Disconnected, "Not connected")]
     public void WifiWordingCoversEveryRadioAndInterfaceState(
-        RadioPower power, int interfaceState, string expected)
-        => Assert.Equal(expected, RadioManager.DescribeWifi(power, interfaceState));
+        RadioPower power, WifiConnectionState state, string expected)
+        => Assert.Equal(expected, RadioManager.DescribeWifi(power, state));
 
     [Fact]
     public void APoweredOffWifiRadioNeverClaimsAConnection()
     {
         // The interface can still report "connected" for a moment after the radio
         // goes down; the radio state has to win or the tile lies.
-        Assert.Equal("Off", RadioManager.DescribeWifi(RadioPower.Off, 0));
+        Assert.Equal(
+            "Off",
+            RadioManager.DescribeWifi(RadioPower.Off, WifiConnectionState.Connected));
     }
 
     [Theory]
@@ -49,8 +54,9 @@ public class RadioManagerTests
     [Fact]
     public void OnlyARejectedKeyAsksTheUserToRetypeThePassword()
     {
-        // Verdict 1 is the wrong-password case.
-        Assert.Contains("password", RadioManager.DescribeConnectFailure(1, 0, ""));
+        Assert.Contains(
+            "password",
+            RadioManager.DescribeConnectFailure(WifiFailureKind.KeyRejected, 0, ""));
     }
 
     [Fact]
@@ -58,7 +64,7 @@ public class RadioManagerTests
     {
         // Re-prompting here would make the user retype a password that was never
         // even tried, which is worse than saying the network was not reachable.
-        var message = RadioManager.DescribeConnectFailure(3, 0, "");
+        var message = RadioManager.DescribeConnectFailure(WifiFailureKind.Unreachable, 0, "");
         Assert.DoesNotContain("password", message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("range", message);
     }
@@ -66,9 +72,12 @@ public class RadioManagerTests
     [Fact]
     public void AnUnknownFailureFallsBackToWindowsMessage()
     {
-        Assert.Equal("boom", RadioManager.DescribeConnectFailure(4, 0, "boom"));
+        Assert.Equal(
+            "boom",
+            RadioManager.DescribeConnectFailure(WifiFailureKind.Unknown, 0, "boom"));
         // ...and still says something when there is no message at all.
-        Assert.False(string.IsNullOrWhiteSpace(RadioManager.DescribeConnectFailure(4, 0, "")));
+        Assert.False(string.IsNullOrWhiteSpace(
+            RadioManager.DescribeConnectFailure(WifiFailureKind.Unknown, 0, "")));
     }
 
     [Fact]
@@ -84,21 +93,24 @@ public class RadioManagerTests
     }
 
     [Theory]
-    [InlineData(0, "Pad is paired.")]
-    [InlineData(1, "Pad was already paired.")]
-    [InlineData(2, "Pairing with Pad was cancelled.")]
-    public void PairOutcomeWordingNamesTheDevice(int outcome, string expected)
+    [InlineData(PairingOutcome.Paired, "Pad is paired.")]
+    [InlineData(PairingOutcome.AlreadyPaired, "Pad was already paired.")]
+    [InlineData(PairingOutcome.Cancelled, "Pairing with Pad was cancelled.")]
+    public void PairOutcomeWordingNamesTheDevice(PairingOutcome outcome, string expected)
         => Assert.Equal(expected, RadioManager.DescribePairOutcome(outcome, "Pad", ""));
 
     [Fact]
     public void AFailedPairingSuggestsPairingMode()
-        => Assert.Contains("pairing mode", RadioManager.DescribePairOutcome(3, "Pad", ""));
+        => Assert.Contains(
+            "pairing mode",
+            RadioManager.DescribePairOutcome(PairingOutcome.Failed, "Pad", ""));
 
     [Fact]
     public void AStartupErrorUsesTheWindowsMessageWhenThereIsOne()
     {
-        Assert.Equal("no such device", RadioManager.DescribePairOutcome(-1, "Pad", "no such device"));
-        Assert.Contains("Pad", RadioManager.DescribePairOutcome(-1, "Pad", ""));
+        // A null outcome is the attempt that threw before Windows produced one.
+        Assert.Equal("no such device", RadioManager.DescribePairOutcome(null, "Pad", "no such device"));
+        Assert.Contains("Pad", RadioManager.DescribePairOutcome(null, "Pad", ""));
     }
 
     [Fact]
@@ -112,13 +124,13 @@ public class RadioManagerTests
         => Assert.Equal(WindowsRadio.Power.Absent, WindowsRadio.AggregatePower([]));
 
     [Theory]
-    [InlineData(294932u, 1)] // MSMSEC_PSK_MISMATCH_SUSPECTED
-    [InlineData(262148u, 2)] // MSMSEC_PROFILE_PSK_LENGTH
-    [InlineData(196614u, 3)] // any MSM association failure
-    [InlineData(1u, 4)]
+    [InlineData(294932u, WifiFailureKind.KeyRejected)] // MSMSEC_PSK_MISMATCH_SUSPECTED
+    [InlineData(262148u, WifiFailureKind.SecurityMismatch)] // MSMSEC_PROFILE_PSK_LENGTH
+    [InlineData(196614u, WifiFailureKind.Unreachable)] // any MSM association failure
+    [InlineData(1u, WifiFailureKind.Unknown)]
     public void WlanReasonFamiliesKeepPasswordAndReachabilityFailuresDistinct(
         uint reason,
-        int expected)
+        WifiFailureKind expected)
         => Assert.Equal(expected, WindowsRadio.GetReasonVerdict(reason));
 
     [Fact]

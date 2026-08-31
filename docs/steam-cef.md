@@ -281,17 +281,17 @@ was read-only; final cleanup confirmed the selector and all four tier namespaces
     live-verified):** Big Picture's header Wi-Fi icon is empty on Windows because Steam's backend
     sends device reports with an empty `wireless.aps` list, so `SystemNetworkStore`
     (SharedJSContext) never sees a connected access point. WSGM injects a synthetic AP (real SSID +
-    signal from `Interop\WindowsRadio.GetWifiStatus`) through the store's own `SetDeviceInfo`
-    ingestion (plain protobuf-toObject shape; estate 5=Connected, estrength 0-4 = filled arcs).
-    Residency: do NOT wrap `OnNetworkDevicesChanged` — the backend holds the bound callback
-    registered at init and a property wrap never fires (verified); instead the synthetic AP instance
-    gets a no-op `MarkAsNotPresent`, which pins it across the backend's periodic reports. Removal =
-    delete the map entry + `SteamClient.System.Network.ForceRefresh()`; disabled on desktop
-    transitions like tabs/badge. **CSSLoader-Desktop coexistence (device- + source-verified):**
-    Steam's CEF allows concurrent CDP clients, and CSSLoader only appends/removes `<style>` in
-    `document.head`. Namespace everything under `window.__wsgm`, give injected nodes a unique
-    `wsgm-badge` class (never `css-loader-style`, which CSSLoader bulk-removes), never touch
-    `document.head`, and never disable the debug flag or port.
+    signal from `WindowsRadio.GetWifiStatus`) through the store's own `SetDeviceInfo` ingestion
+    (plain protobuf-toObject shape; estate 5=Connected, estrength 0-4 = filled arcs). Residency: do
+    NOT wrap `OnNetworkDevicesChanged` — the backend holds the bound callback registered at init and
+    a property wrap never fires (verified); instead the synthetic AP instance gets a no-op
+    `MarkAsNotPresent`, which pins it across the backend's periodic reports. Removal = delete the
+    map entry + `SteamClient.System.Network.ForceRefresh()`; disabled on desktop transitions like
+    tabs/badge. **CSSLoader-Desktop coexistence (device- + source-verified):** Steam's CEF allows
+    concurrent CDP clients, and CSSLoader only appends/removes `<style>` in `document.head`.
+    Namespace everything under `window.__wsgm`, give injected nodes a unique `wsgm-badge` class
+    (never `css-loader-style`, which CSSLoader bulk-removes), never touch `document.head`, and never
+    disable the debug flag or port.
 
 11. **Writing a game's launch configuration (`Core\SteamLaunchConfig.cs`, live-probed 2026-08-12).**
     The Tools tab's per-game launch fixes configure the RUNNING Steam client over SharedJSContext

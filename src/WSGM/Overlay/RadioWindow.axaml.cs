@@ -5,6 +5,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
+using WindowsDeviceControl;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Shell;
@@ -415,22 +416,25 @@ public partial class RadioWindow : Window
         _promptToken = prompt.Token;
         switch (prompt.Kind)
         {
-            case 2: // provide-pin: the device shows a code, the user types it here
+            case WindowsRadio.PairingKind.ProvidePin:
+                // The device shows a code, the user types it here.
                 ShowPrompt(
                     PromptMode.PairingPin,
                     $"Pair with {prompt.DeviceName}",
                     "Enter the PIN shown on the device.");
                 break;
-            case 1: // display-pin: we show it, the user types it on the device
-            case 3: // confirm-pin-match: both sides show it, the user confirms
+            case WindowsRadio.PairingKind.DisplayPin:
+            case WindowsRadio.PairingKind.ConfirmPinMatch:
+                // Display-pin: we show it, the user types it on the device.
+                // Confirm-pin-match: both sides show it, the user confirms.
                 ShowPrompt(
                     PromptMode.PairingConfirm,
                     $"Pair with {prompt.DeviceName}",
-                    prompt.Kind == 1
+                    prompt.Kind == WindowsRadio.PairingKind.DisplayPin
                         ? $"Enter this PIN on the device: {prompt.Pin}"
                         : $"Does the device show {prompt.Pin}?");
                 break;
-            default: // confirm-only
+            default: // Confirm-only, and an unrecognized ceremony.
                 ShowPrompt(
                     PromptMode.PairingConfirm,
                     $"Pair with {prompt.DeviceName}",

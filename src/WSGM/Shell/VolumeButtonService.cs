@@ -1,4 +1,5 @@
 using System;
+using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Interop;
 
@@ -57,8 +58,7 @@ internal sealed class VolumeButtonService : IDisposable
             return;
         }
 
-        var command = VolumeAppCommands.FromShellHookLParam(data);
-        if (command == 0)
+        if (VolumeAppCommands.FromShellHookLParam(data) is not { } command)
         {
             return;
         }
@@ -68,7 +68,7 @@ internal sealed class VolumeButtonService : IDisposable
             var result = CoreAudio.ApplyCommand(command, out var percentage, out var muted);
             if (result >= 0)
             {
-                Log.Info($"Volume button {VolumeAppCommands.Describe(command)} applied to the default audio endpoint " +
+                Log.Info($"Volume button {command} applied to the default audio endpoint " +
                          $"({percentage}%, muted={muted != 0}).");
                 VolumeFeedback.Play();
                 if (VolumeOsdVisibility.CanShow())
@@ -82,14 +82,12 @@ internal sealed class VolumeButtonService : IDisposable
             }
             else
             {
-                Log.Warn($"Volume button {VolumeAppCommands.Describe(command)} failed (HRESULT 0x{result:X8}).");
+                Log.Warn($"Volume button {command} failed (HRESULT 0x{result:X8}).");
             }
         }
         catch (Exception ex)
         {
-            Log.Error(
-                $"Volume button {VolumeAppCommands.Describe(command)} failed unexpectedly.",
-                ex);
+            Log.Error($"Volume button {command} failed unexpectedly.", ex);
         }
     }
 

@@ -20,15 +20,29 @@ function Relative-Path([string]$Path) {
     return $pathFull.Substring($rootFull.Length + 1).Replace("\", "/")
 }
 
+# A submodule's guidance belongs to its own repository: its CLAUDE.md is tracked there, so this
+# repository's index never sees it and every check below would report it missing.
+$submodules = @(& git -C $root ls-files -s |
+    Where-Object { $_.StartsWith("160000 ", [StringComparison]::Ordinal) } |
+    ForEach-Object { ($_ -split "`t", 2)[1] })
+if ($LASTEXITCODE -ne 0) {
+    throw "Agent-guidance validation could not list submodules."
+}
+
 $agentFiles = Get-ChildItem -LiteralPath $root -Filter "AGENTS.md" -File -Recurse |
     Where-Object { $_.FullName -notmatch "[\\/](\.claude|bin|obj|node_modules|publish|TestResults)[\\/]" }
 
 foreach ($agents in $agentFiles) {
+    $agentsRelative = Relative-Path $agents.FullName
+    if ($submodules | Where-Object { $agentsRelative.StartsWith("$_/", [StringComparison]::OrdinalIgnoreCase) }) {
+        continue
+    }
+
     $directory = $agents.DirectoryName
     $claudePath = Join-Path $directory "CLAUDE.md"
     $relative = Relative-Path $claudePath
     if (-not (Test-Path -LiteralPath $claudePath)) {
-        $failures.Add("Missing $relative beside $(Relative-Path $agents.FullName).")
+        $failures.Add("Missing $relative beside $agentsRelative.")
         continue
     }
 

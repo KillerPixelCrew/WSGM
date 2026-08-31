@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using WSGM.Interop;
+using WindowsDeviceControl;
 using WSGM.Shell;
 
 namespace WSGM.Tests;
@@ -26,7 +26,9 @@ public sealed class AudioManagerTests
     [Fact]
     public void InvalidEndpointFlowsFailWithoutCallingCom()
     {
-        var result = CoreAudio.ListEndpoints(-1, out var endpoints);
+        // The enum keeps a caller from passing this by accident, but a cast still can,
+        // and the value reaches a COM call that would fault on it.
+        var result = CoreAudio.ListEndpoints((CoreAudio.AudioDirection)(-1), out var endpoints);
 
         Assert.Equal(unchecked((int)0x80070057), result);
         Assert.Empty(endpoints);

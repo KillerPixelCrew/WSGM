@@ -1,3 +1,6 @@
 [submodule "native/SteamInput"]
 	path = native/SteamInput
 	url = https://github.com/KillerPixelCrew/steam-input-lease
+[submodule "external/windows-device-control"]
+	path = external/windows-device-control
+	url = https://github.com/KillerPixelCrew/windows-device-control

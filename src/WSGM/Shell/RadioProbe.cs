@@ -2,8 +2,8 @@ using System;
 using System.Linq;
 using System.Threading;
 using Avalonia.Threading;
+using WindowsDeviceControl;
 using WSGM.Core;
-using WSGM.Interop;
 
 namespace WSGM.Shell;
 
@@ -33,8 +33,8 @@ public static class RadioProbe
         Log.Info($"Radio probe: elevated={ElevationCheck.IsCurrentProcessElevated()}, "
             + $"explorer={ExplorerControl.IsRunningInSession()}");
 
-        ProbeRadio("Wi-Fi", 0);
-        ProbeRadio("Bluetooth", 1);
+        ProbeRadio("Wi-Fi", WindowsRadio.RadioKind.WiFi);
+        ProbeRadio("Bluetooth", WindowsRadio.RadioKind.Bluetooth);
         ProbeAccess();
         ProbeConsent("location");
         ProbeConsent("radios");
@@ -45,7 +45,7 @@ public static class RadioProbe
         return 0;
     }
 
-    private static void ProbeRadio(string label, int kind)
+    private static void ProbeRadio(string label, WindowsRadio.RadioKind kind)
     {
         try
         {
@@ -178,7 +178,10 @@ public static class RadioProbe
         {
             answered = true;
             Log.Info($"Radio probe: question reached the UI layer (kind {prompt.Kind}).");
-            manager.RespondToPairing(prompt.Token, accept: true, prompt.Kind == 2 ? "0000" : null);
+            manager.RespondToPairing(
+                prompt.Token,
+                accept: true,
+                prompt.Kind == WindowsRadio.PairingKind.ProvidePin ? "0000" : null);
         };
         manager.PairingFinished += summary =>
         {

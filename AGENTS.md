@@ -28,16 +28,17 @@ WSGM.exe (CoreCLR)
   ├─ controller management (VIIPER + HidHide)
   ├─ RTSS performance control + AutoTDP
   ├─ one persistent Steam CEF transport and patch/session host
-  ├─ managed Wi-Fi, Bluetooth, audio and touch-keyboard integration
+  ├─ Wi-Fi, Bluetooth, audio and touch-keyboard integration
   └─ overlay, settings and shell/session coordination
 
 Separate artifacts that still have a real boundary:
-  WSGM.Device.Sdk       public plugin/package contract
-  WSGM.DeviceLab        independent diagnostic/authoring GUI + CLI
-  WSGM.LogonService     SYSTEM logon/watchdog process
-  WSGM.Launch           per-game medium-integrity wrapper
-  native/SteamInput     native Steam Input lease and proxy
-  VIIPER                native virtual-controller backend
+  WSGM.Device.Sdk                    public plugin/package contract
+  WSGM.DeviceLab                     independent diagnostic/authoring GUI + CLI
+  WSGM.LogonService                  SYSTEM logon/watchdog process
+  WSGM.Launch                        per-game medium-integrity wrapper
+  native/SteamInput                  native Steam Input lease and proxy (submodule)
+  external/windows-device-control    radio/Wi-Fi/audio/brightness library (submodule)
+  VIIPER                             native virtual-controller backend
 ```
 
 The main application is not NativeAOT. Managed COM/WinRT, reflection needed for the one package-local
@@ -72,7 +73,7 @@ outcome without re-verifying it is not. Read the relevant topic before editing:
 | `docs\sd-cards.md` | card identity, formatting, libraries and manager |
 | `docs\overlay-and-input.md` | overlay, SDL/gamepad ownership, touch and raw input |
 | `docs\power-and-display.md` | display/HDR, screen-off mute, keep-awake |
-| `docs\radios.md` | managed Wi-Fi, Bluetooth, audio and touch keyboard |
+| `docs\radios.md` | Wi-Fi, Bluetooth, audio and touch keyboard — and the library that owns them |
 | `docs\ui.md` | themes, controls, Settings and splash presentation |
 | `docs\device-integration.md` | one-plugin slot and in-process runtime lifecycle |
 | `docs\device-plugin-authoring.md` | plugin implementation, testing, packaging and installation |
@@ -141,18 +142,30 @@ Being on the Claw does not authorize shell takeover, writes, or plugin activatio
 
 ## Native and packaged dependencies
 
-**`native\SteamInput` is a SUBMODULE**, not a directory in this repository — it is
-`KillerPixelCrew/steam-input-lease` (MIT), extracted 2026-08-31 because it is useful on its own and
-people asked for it. **Clone this repository with `--recursive`**, or run
-`git submodule update --init` after cloning; without it that directory is empty and the build fails
-in a way that looks like a missing Rust toolchain.
+**Two directories are SUBMODULES, not directories in this repository.** Both are
+`KillerPixelCrew` repositories under MIT, extracted 2026-08-31 because they are useful on their own
+and people asked for them:
+
+| Path | Repository | Empty checkout looks like |
+| --- | --- | --- |
+| `native\SteamInput` | `steam-input-lease` | a missing Rust toolchain |
+| `external\windows-device-control` | `windows-device-control` | an unresolvable csproj path |
+
+**Clone this repository with `--recursive`**, or run `git submodule update --init` after cloning.
+Never edit files under either path as if they were WSGM's: change them in their own repository, then
+move the pin here in a commit that says why.
+
+`external\windows-device-control` is an ordinary project reference and holds every Windows call
+behind Wi-Fi, Bluetooth, pairing, Core Audio endpoints, panel brightness and the volume cue. WSGM
+owns policy and wording on top of it; see `docs\radios.md` for that split. Its public surface is
+documented for IntelliSense and its build fails on an undocumented member, so a change there costs
+a documentation pass — that is deliberate.
 
 WSGM is no longer its only consumer, so **the ABI is a public compatibility promise, not an
 internal handshake.** Do not change the C ABI, `include\steam_input_lease.h`, or
 `bindings\SteamInterop.Net` from this repository — change them in the library's own repository,
-bump `sil_abi_version()`, then move this submodule's pin in a commit that says why. WSGM and Launch
-link the same managed source from the submodule; do not create a second binding mirror, and never
-edit files under `native\SteamInput` as if they were WSGM's.
+bump `sil_abi_version()`, then move this submodule's pin. WSGM and Launch link the same managed
+source from the submodule; do not create a second binding mirror.
 
 `eng\build-steam-input-lease.ps1` builds and stages the two shipped DLLs and licenses.
 `steam-input-lease.exe` is diagnostic only and is not installed. The generated staging directory is

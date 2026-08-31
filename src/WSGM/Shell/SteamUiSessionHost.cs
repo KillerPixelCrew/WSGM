@@ -6,9 +6,9 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
+using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
-using WSGM.Interop;
 
 namespace WSGM.Shell;
 
@@ -489,7 +489,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         ValueTask.FromResult<JsonElement?>(payload);
 
     private static ValueTask<JsonElement?> ReadBrightnessPublication() =>
-        NativeBacklight.TryReadBrightness(out int percent)
+        Backlight.TryReadBrightness(out int percent)
             ? Ready(JsonSerializer.SerializeToElement(
                 new SteamBrightnessState(percent),
                 NativeQamSemanticJsonContext.Default.SteamBrightnessState))
@@ -623,7 +623,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 false,
                 "The brightness payload is invalid."));
         }
-        return Task.FromResult(NativeBacklight.TrySetBrightness(percent)
+        return Task.FromResult(Backlight.TrySetBrightness(percent)
             ? SemanticCommandResult.Applied
             : new SemanticCommandResult(false, "The panel backlight refused the write."));
     }
@@ -834,7 +834,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             return;
         }
 
-        if (!NativeBacklight.TryReadBrightness(out int percent)
+        if (!Backlight.TryReadBrightness(out int percent)
             || percent == Interlocked.Exchange(ref _lastPolledBacklight, percent))
         {
             return;

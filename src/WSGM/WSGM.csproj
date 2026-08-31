@@ -100,6 +100,11 @@
     <!-- Plugins are loaded dynamically; the shared SDK preserves type identity
          without making the installed package a production project reference. -->
     <ProjectReference Include="..\WSGM.Device.Sdk\WSGM.Device.Sdk.csproj" />
+    <!-- Wi-Fi, Bluetooth, audio endpoint and panel brightness control. Extracted to its own
+         repository because nothing in it is specific to WSGM or to gaming; it is pinned as a
+         submodule so this branch keeps a known-good revision while the library moves. -->
+    <ProjectReference
+        Include="..\..\external\windows-device-control\src\WindowsDeviceControl\WindowsDeviceControl.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- 1-9: how hard the GC works to keep the heap small; 9 = maximum. -->
