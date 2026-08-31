@@ -1,0 +1,3 @@
+[submodule "native/SteamInput"]
+	path = native/SteamInput
+	url = https://github.com/KillerPixelCrew/steam-input-lease

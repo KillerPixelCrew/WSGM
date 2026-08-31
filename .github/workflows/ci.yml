@@ -20,6 +20,12 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # native/SteamInput is a submodule (KillerPixelCrew/steam-input-lease). Without this the
+          # directory checks out empty, eng\build-steam-input-lease.ps1 has no workspace to build,
+          # and the gate/FFI DLLs never reach the publish - a failure that looks like a Rust
+          # toolchain problem rather than a missing checkout.
+          submodules: recursive
 
       - name: Set up .NET SDK
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0

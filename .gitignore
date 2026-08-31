@@ -14,20 +14,15 @@
 .cursor/
 .aider*
 
-# Steam Input Lease build output, staged from native/SteamInput by
+# Steam Input Lease build output, staged from the native/SteamInput submodule by
 # eng/build-steam-input-lease.ps1 on every build. Generated, never committed —
-# the library source in native/SteamInput is the tracked copy.
+# the library source lives in KillerPixelCrew/steam-input-lease.
 /src/WSGM/Native/SteamInputLease/
 /src/WSGM/Native/Viiper/
-
-# The vendored Rust library's own build output.
-/native/SteamInput/target/
-/native/Standby/target/
 
 # Vendored upstream source builds in place; only its sources are tracked.
 /third_party/**/bin/
 /third_party/**/obj/
-/native/SteamInput/artifacts/
 
 # User-specific files
 *.rsuser

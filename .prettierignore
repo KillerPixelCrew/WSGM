@@ -24,8 +24,9 @@ src/WSGM/Native/SteamInputLease/
 # concatenates and type-checks them, then runs the pinned Prettier over the emitted single asset.
 src/WSGM/Core/SteamUiAssets/Source/**/*.ts
 
-# The vendored Rust library keeps its own formatting and its own gates
-# (clippy, rustdoc); reformatting their docs here would only create churn.
+# The steam-input-lease submodule owns its own formatting and its own gates
+# (clippy, rustdoc). It is a separate repository; formatting it from here would
+# both create churn and dirty a submodule this repo only pins.
 native/SteamInput/
 
 # Vendored upstream source. Reformatting it would destroy the diff against

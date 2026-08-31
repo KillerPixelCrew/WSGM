@@ -141,10 +141,18 @@ Being on the Claw does not authorize shell takeover, writes, or plugin activatio
 
 ## Native and packaged dependencies
 
-`native\SteamInput` is an in-repository Rust workspace and WSGM is its only consumer. Its C ABI,
-header, canonical managed binding in `bindings\SteamInterop.Net`, WSGM and `WSGM.Launch` may change
-together; bump `sil_abi_version()` when the ABI changes. WSGM and Launch link the same managed source.
-Do not create a second binding mirror.
+**`native\SteamInput` is a SUBMODULE**, not a directory in this repository — it is
+`KillerPixelCrew/steam-input-lease` (MIT), extracted 2026-08-31 because it is useful on its own and
+people asked for it. **Clone this repository with `--recursive`**, or run
+`git submodule update --init` after cloning; without it that directory is empty and the build fails
+in a way that looks like a missing Rust toolchain.
+
+WSGM is no longer its only consumer, so **the ABI is a public compatibility promise, not an
+internal handshake.** Do not change the C ABI, `include\steam_input_lease.h`, or
+`bindings\SteamInterop.Net` from this repository — change them in the library's own repository,
+bump `sil_abi_version()`, then move this submodule's pin in a commit that says why. WSGM and Launch
+link the same managed source from the submodule; do not create a second binding mirror, and never
+edit files under `native\SteamInput` as if they were WSGM's.
 
 `eng\build-steam-input-lease.ps1` builds and stages the two shipped DLLs and licenses.
 `steam-input-lease.exe` is diagnostic only and is not installed. The generated staging directory is
