@@ -153,15 +153,15 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
             outcome = new SteamUiCommandResult(false, ex.Message);
         }
 
-        // Log.Change keyed per patch and command, because a gate can repeat a refused write on its
-        // own schedule: the first prints, the repeats are counted.
+        // Keyed per patch and command, because a gate can repeat a refused write on its own
+        // schedule: the first prints, the repeats are counted.
         if (!outcome.Succeeded)
         {
-            Log.Change(
+            SteamUiLog.Change(
                 $"steam.ui.request.{request.PatchId}.{request.Command}",
                 $"Steam UI request {request.PatchId}/{request.Command} did nothing: "
                     + (outcome.Error ?? "no reason reported"),
-                "warn ");
+                warning: true);
         }
 
         try
@@ -184,7 +184,7 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            Log.Warn($"Steam UI bridge response failed: {ex.Message}");
+            SteamUiLog.Warn($"Steam UI bridge response failed: {ex.Message}");
         }
         finally
         {
@@ -230,7 +230,7 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
             }
             catch (Exception ex)
             {
-                Log.Warn($"Steam UI semantic state publication failed: {ex.Message}");
+                SteamUiLog.Warn($"Steam UI semantic state publication failed: {ex.Message}");
             }
         }
     }
@@ -274,7 +274,7 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            Log.Warn($"Steam UI semantic request failed unexpectedly: {ex.Message}");
+            SteamUiLog.Warn($"Steam UI semantic request failed unexpectedly: {ex.Message}");
         }
         finally
         {
@@ -315,7 +315,7 @@ public sealed class SteamUiModuleRuntime : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            Log.Warn($"Steam UI semantic request cleanup failed: {ex.Message}");
+            SteamUiLog.Warn($"Steam UI semantic request cleanup failed: {ex.Message}");
         }
 
         _publicationSignal.Dispose();

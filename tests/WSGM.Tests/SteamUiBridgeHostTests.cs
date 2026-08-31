@@ -5,11 +5,17 @@ namespace WSGM.Tests;
 
 public sealed class SteamUiBridgeHostTests
 {
+    // The bridge substitutes the configuration into whatever it is given and evaluates it; these
+    // tests exercise the envelope handling around that, not the script, so the smallest asset that
+    // still carries the placeholder is the honest fixture.
+    private static readonly SteamUiInjectedAsset TestAsset =
+        new("(()=>{return __WSGM_CONFIGURATION_JSON__;})()", "TESTASSETHASH");
+
     [Fact]
     public async Task CurrentRequestIsDeliveredOnceAndReplayIsRejected()
     {
         await using var transport = new BridgeTransport();
-        await using var host = new SteamUiBridgeHost(transport);
+        await using var host = new SteamUiBridgeHost(transport, TestAsset);
         var received = new List<SteamUiBridgeRequest>();
         host.RequestReceived += (_, request) => received.Add(request);
         Assert.True(await host.BootstrapAsync());
@@ -29,7 +35,7 @@ public sealed class SteamUiBridgeHostTests
     public async Task MalformedAndNonBindingNotificationsNeverReachTheRouter()
     {
         await using var transport = new BridgeTransport();
-        await using var host = new SteamUiBridgeHost(transport);
+        await using var host = new SteamUiBridgeHost(transport, TestAsset);
         var received = 0;
         host.RequestReceived += (_, _) => received++;
         Assert.True(await host.BootstrapAsync());
@@ -47,7 +53,7 @@ public sealed class SteamUiBridgeHostTests
     public async Task GenerationReplacementSuppressesTrafficUntilTheBridgeIsBootstrappedAgain()
     {
         await using var transport = new BridgeTransport();
-        await using var host = new SteamUiBridgeHost(transport);
+        await using var host = new SteamUiBridgeHost(transport, TestAsset);
         var received = 0;
         host.RequestReceived += (_, _) => received++;
         Assert.True(await host.BootstrapAsync());
@@ -91,7 +97,7 @@ public sealed class SteamUiBridgeHostTests
     public async Task StateAndResponsesRequireAReadyBridgeAndAnAllowlistedStateIdentity()
     {
         await using var transport = new BridgeTransport();
-        await using var host = new SteamUiBridgeHost(transport);
+        await using var host = new SteamUiBridgeHost(transport, TestAsset);
         SteamUiBridgeRequest request = Request(
             transport.Generations,
             sequence: 1,
@@ -124,7 +130,7 @@ public sealed class SteamUiBridgeHostTests
     public async Task DisposalRetractsTheBindingAndDetachesNotifications()
     {
         await using var transport = new BridgeTransport();
-        var host = new SteamUiBridgeHost(transport);
+        var host = new SteamUiBridgeHost(transport, TestAsset);
         var received = 0;
         host.RequestReceived += (_, _) => received++;
         Assert.True(await host.BootstrapAsync());

@@ -317,7 +317,7 @@ internal sealed class SteamUiCdpConnection : IAsyncDisposable
             {
                 if (Interlocked.Increment(ref _orphanResponses) <= 3)
                 {
-                    Log.Warn($"Steam UI CDP ignored orphan response id {id}.");
+                    SteamUiLog.Warn($"Steam UI CDP ignored orphan response id {id}.");
                 }
                 return;
             }

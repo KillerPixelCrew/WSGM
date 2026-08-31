@@ -225,6 +225,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
     private const string BindingName = SteamUiBridgeIdentity.BindingName;
     private static readonly TimeSpan OperationTimeout = TimeSpan.FromSeconds(5);
     private readonly ISteamUiTransport _transport;
+    private readonly SteamUiInjectedAsset _asset;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private SteamUiBridgeAuthorizer _authorizer = new(default);
     private SteamUiGenerations _generations;
@@ -233,8 +234,11 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
 
     /// <summary>Creates a bridge over the process-owned persistent transport.</summary>
     /// <param name="transport">The single Steam UI transport owner.</param>
-    public SteamUiBridgeHost(ISteamUiTransport transport)
+    /// <param name="asset">The script this host injects, and its hash. Supplied by the host
+    /// because the bridge has no business knowing what its consumer injects.</param>
+    public SteamUiBridgeHost(ISteamUiTransport transport, SteamUiInjectedAsset asset)
     {
+        _asset = asset;
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         _transport.NotificationReceived += OnNotificationReceived;
         _transport.GenerationChanged += OnGenerationChanged;
@@ -264,9 +268,8 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
                 cancellationToken).ConfigureAwait(false);
 
             snapshot = FindSharedSnapshot();
-            var source = SteamUiAssetCatalog.LoadNativeQamBootstrap();
             var configuration = BuildConfiguration(snapshot.Generations);
-            var expression = source.Replace(
+            var expression = _asset.Source.Replace(
                 "__WSGM_CONFIGURATION_JSON__", configuration, StringComparison.Ordinal);
             var result = await _transport.EvaluateAsync(
                 SteamUiTargetRole.SharedJsContext,
@@ -293,7 +296,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _ready = false;
-            Log.Warn($"Steam UI bridge bootstrap failed: {ex.Message}");
+            SteamUiLog.Warn($"Steam UI bridge bootstrap failed: {ex.Message}");
             return false;
         }
         finally
@@ -384,7 +387,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            Log.Warn($"Steam UI bridge removal was incomplete: {ex.Message}");
+            SteamUiLog.Warn($"Steam UI bridge removal was incomplete: {ex.Message}");
         }
     }
 
@@ -427,19 +430,19 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
                 // decoding fault empties: "rejected /: schema version mismatch" describes a request
                 // that never decoded just as well as one that was genuinely refused, and telling
                 // them apart took a live tap on the Runtime binding.
-                Log.Change(
+                SteamUiLog.Change(
                     "steam.ui.bridge.rejected",
                     $"Steam UI bridge rejected {request.PatchId}/{request.Command}: "
                         + $"{authorization.Reason} (payload: "
                         + payload[..Math.Min(payload.Length, 200)] + ")",
-                    "warn ");
+                    warning: true);
                 return;
             }
             RequestReceived?.Invoke(this, request);
         }
         catch (JsonException ex)
         {
-            Log.Warn($"Steam UI bridge rejected malformed payload: {ex.Message}");
+            SteamUiLog.Warn($"Steam UI bridge rejected malformed payload: {ex.Message}");
         }
     }
 
@@ -469,7 +472,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         throw new InvalidOperationException("SharedJSContext channel is not registered.");
     }
 
-    private static string BuildConfiguration(SteamUiGenerations generations)
+    private string BuildConfiguration(SteamUiGenerations generations)
     {
         var buffer = new ArrayBufferWriter<byte>();
         using (var writer = new Utf8JsonWriter(buffer))
@@ -486,7 +489,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
             // field that was missing from output the new code would have produced. Pinning the
             // asset's own hash makes a changed script replace the bridge on the next
             // synchronization, which is what "the bootstrap was updated" has to mean.
-            writer.WriteString("assetHash", SteamUiAssetCatalog.NativeQamBootstrapSha256);
+            writer.WriteString("assetHash", _asset.Sha256);
             writer.WriteNumber("contextGeneration", generations.ExecutionContext);
             writer.WriteNumber("documentGeneration", generations.Document);
             writer.WriteNumber("maximumPending", 32);
@@ -576,7 +579,7 @@ public sealed class SteamUiBridgeHost : IAsyncDisposable
         {
             // Steam may still be reachable while its document is already tearing down. Bridge
             // cleanup is best effort; it must not abort the enclosing desktop-restore sequence.
-            Log.Warn("Steam UI bridge removal exceeded the shutdown budget.");
+            SteamUiLog.Warn("Steam UI bridge removal exceeded the shutdown budget.");
         }
         finally
         {

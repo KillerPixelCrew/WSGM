@@ -46,10 +46,10 @@ internal sealed class SteamUiEndpointDiscovery : ISteamUiEndpointDiscovery
         // Returning null abandons Steam UI injection, so preserve the decisive discovery reason.
         if (!IsSteamPortOwner(out string ownership))
         {
-            Log.Change(
+            SteamUiLog.Change(
                 "steam.ui.discovery",
                 $"Steam UI discovery for {role} refused: {ownership}.",
-                "warn ");
+                warning: true);
             return null;
         }
 

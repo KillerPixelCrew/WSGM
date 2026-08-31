@@ -127,7 +127,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             ? new UnavailableNativeQamControllerTargetService()
             : new DeviceCoordinatorNativeQamControllerTargetService(deviceCoordinator);
         _audio = audio is null ? null : new AudioManagerNativeQamAudioService(audio);
-        _bridge = new SteamUiBridgeHost(_transport);
+        // WSGM's own asset, named here rather than reached for from inside the bridge.
+        _bridge = new SteamUiBridgeHost(
+            _transport,
+            new SteamUiInjectedAsset(
+                SteamUiAssetCatalog.LoadNativeQamBootstrap(),
+                SteamUiAssetCatalog.NativeQamBootstrapSha256));
         _patches = new SteamUiPatchManager(_transport);
         _modules = new SteamUiModuleSet(CreateModules());
         _modules.RegisterPatches(_patches);

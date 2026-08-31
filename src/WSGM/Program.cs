@@ -117,6 +117,10 @@ public static class Program
         }
 
         Log.Init();
+        // The Steam UI machinery writes through its own sink so it carries no dependency on this
+        // application's logger. Installed here, right after Log.Init, because remote diagnosis of
+        // the CEF surface is a pasted wsgm.log and a missed install would silently empty it.
+        WsgmSteamUiLog.Install();
 
         // Current builds never manage device posture or automatic touch-keyboard
         // policy. Restore an older build's saved values once, if present.

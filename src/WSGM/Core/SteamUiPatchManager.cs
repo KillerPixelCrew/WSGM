@@ -329,7 +329,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
             // do what it claims, and leaving it there keeps Valve's own UI replaced by something
             // unproven while later synchronization probes and reapplies over it. Removal restores
             // the native surface; if that cannot be verified either, the patch says so.
-            Log.Warn(
+            SteamUiLog.Warn(
                 $"Steam UI patch {patch.Id} applied but did not verify; removing it: "
                 + $"{verified.Diagnostic ?? "no detail"}");
             SteamUiPatchOperationResult removed;
@@ -431,7 +431,7 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
     /// </para>
     /// <para>
     /// Keyed per patch so each one's transitions are tracked independently, and via
-    /// <see cref="Log.Change"/> because synchronization re-runs on every Steam UI generation and a
+    /// <see cref="SteamUiLog.Change"/> because synchronization re-runs on every Steam UI generation and a
     /// steady Verified state would otherwise be the next thing to flood the log.
     /// </para>
     /// </remarks>
@@ -455,13 +455,11 @@ public sealed class SteamUiPatchManager : IAsyncDisposable
         string detail = string.IsNullOrWhiteSpace(entry.Snapshot.LastFailure)
             ? string.Empty
             : $" — {entry.Snapshot.LastFailure}";
-        Log.Change(
+        SteamUiLog.Change(
             "steam.ui.patch." + entry.Patch.Id,
             $"Steam UI patch {entry.Patch.Id} v{entry.Patch.Version}: {state}{detail}",
-            state is SteamUiPatchState.Applied or SteamUiPatchState.Verified
-                or SteamUiPatchState.Applying or SteamUiPatchState.Disabled
-                ? "info "
-                : "warn ");
+            warning: state is not (SteamUiPatchState.Applied or SteamUiPatchState.Verified
+                or SteamUiPatchState.Applying or SteamUiPatchState.Disabled));
     }
 
     private static string? Bound(string? value, int maximumLength) =>

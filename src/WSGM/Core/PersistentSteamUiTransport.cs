@@ -355,7 +355,7 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
                         || channel.Subscribers == 0
                         || channel.OwnershipGeneration != ownershipGeneration)
                     {
-                        Log.Info(
+                        SteamUiLog.Info(
                             $"Steam UI {channel.Role} connection completed after its owner left; "
                             + "discarding it.");
                         throw new OperationCanceledException(
@@ -388,7 +388,7 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
                         || channel.Subscribers == 0
                         || channel.OwnershipGeneration != ownershipGeneration)
                     {
-                        Log.Info(
+                        SteamUiLog.Info(
                             $"Steam UI {channel.Role} connection completed after its owner left; "
                             + "discarding it.");
                         throw new OperationCanceledException(
@@ -608,7 +608,7 @@ public sealed class PersistentSteamUiTransport : ISteamUiTransport
         }
         catch (Exception ex)
         {
-            Log.Warn($"Closing disabled Steam UI {role} channel failed: {ex.Message}");
+            SteamUiLog.Warn($"Closing disabled Steam UI {role} channel failed: {ex.Message}");
         }
     }
 
