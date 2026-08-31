@@ -36,7 +36,7 @@ WSGM.exe (self-contained CoreCLR)
   |- controller management (VIIPER + HidHide)
   |- RTSS performance control + AutoTDP
   |- one persistent Steam CEF transport + patch/session host
-  |- managed Wi-Fi, Bluetooth, Core Audio and touch-keyboard integration
+  |- Wi-Fi, Bluetooth, Core Audio and touch-keyboard integration
   `- shell/session, overlay and Settings
 
 Real separate boundaries
@@ -44,12 +44,14 @@ Real separate boundaries
   WSGM.DeviceLab        independent diagnostic/authoring GUI + CLI
   WSGM.LogonService     SYSTEM logon/watchdog process
   WSGM.Launch           per-game medium-integrity wrapper
-  native/SteamInput     Steam Input lease/proxy ABI
-  VIIPER                native virtual-controller backend
+  native/SteamInput                  Steam Input lease/proxy ABI (submodule)
+  external/windows-device-control    radio/Wi-Fi/audio/brightness library (submodule)
+  VIIPER                             native virtual-controller backend
 ```
 
-The solution contains seven projects: five product/tool projects, the built-in Claw plugin and one
-test project. A process, project, helper, mirror, protocol or abstraction is not retained for future
+The solution contains seven projects in this repository: five product/tool projects, the built-in
+Claw plugin and one test project, plus the referenced library project from the device-control
+submodule. A process, project, helper, mirror, protocol or abstraction is not retained for future
 flexibility; it needs a current consumer or an OS, lifetime, packaging or public-contract boundary.
 
 ## Simplification milestone - complete in source
@@ -121,6 +123,31 @@ The fixes include the high-risk paths rather than only cleanup:
 
 The bulky review transcript was deleted after disposition; tests, code and git history are the
 durable evidence.
+
+## Repository extraction - in progress
+
+The 2.0 branch is large because it carries work that is not WSGM's. Anything with no dependence on
+WSGM, Steam or gaming moves to its own `KillerPixelCrew` repository under MIT and comes back as a
+pinned submodule, so it can be versioned, consumed and reported against on its own.
+
+- [x] **`steam-input-lease`** (`native\SteamInput`, public). Extracted with history; people had
+      already asked for it separately. Its C ABI is now a public compatibility promise: change it in
+      that repository, bump `sil_abi_version()`, then move the pin here.
+- [x] **`windows-device-control`** (`external\windows-device-control`, public). Wi-Fi, Bluetooth and
+      pairing, Core Audio endpoints and volume, panel brightness and the volume cue — 3,100 lines
+      that were never WSGM-specific. Extracted with history, given enums in place of every magic
+      integer on its surface, documented so the build fails on an undocumented member, and wired
+      back in as a project reference. WSGM keeps policy and wording; see `docs\radios.md` for that
+      split. Verified: solution builds with zero warnings, 2,064 tests pass, and a clean
+      `--recursive` clone builds from scratch.
+- [ ] **`WSGM.Device.Sdk`.** The reason the extraction started: pinning an SDK version through a
+      submodule instead of moving in lockstep with the application. Deliberately waits for one
+      confirming milestone, because the SDK is a published contract and a rushed split would strand
+      plugin authors on a version that is about to change.
+- [ ] **`claw-plugin`.** After the SDK, since it consumes it.
+- [ ] **`steam-ui-toolkit`.** Generalize the CEF work so others can add and remove QAM and Settings
+      surfaces. It consumes `windows-device-control` for the backends behind those surfaces, which
+      is why that library moved first. Waits on the CEF simplification pass.
 
 ## Verification for this milestone
 
