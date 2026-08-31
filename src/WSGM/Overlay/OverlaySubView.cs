@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input;
-using Avalonia.Input.Platform;
 using Avalonia.Media;
 using Avalonia.Threading;
 using WSGM.Controls;
@@ -220,14 +219,10 @@ public abstract class OverlaySubView : UserControl
 
     private protected void EditText(string title, string current, int maxLen, Action<string> onAccept)
     {
-        // Prefer the separate keyboard window beside the sidebar (game mode); fall back
-        // to an inline keyboard screen if none is available.
-        //
-        // Accept ordering matters on both paths: the rows show values straight off the
-        // model, so the mutation has to land BEFORE anything re-renders or the user sees
-        // the old text. The keyboard path pushes no navigation level (the window is a
-        // peer, not a screen), so it must re-render the current level itself instead of
-        // relying on a pop to do it.
+        // Accept ordering matters: the rows show values straight off the model, so the mutation
+        // has to land BEFORE anything re-renders or the user sees the old text. The keyboard
+        // window pushes no navigation level (it is a peer, not a screen), so this re-renders the
+        // current level itself instead of relying on a pop to do it.
         if (KeyboardService.Request(title, current, maxLen, v =>
         {
             onAccept(v ?? "");
@@ -236,34 +231,13 @@ public abstract class OverlaySubView : UserControl
         {
             return;
         }
-        Navigate(() =>
-        {
-            var stack = NewStack(title);
-            var box = new TextBox { Text = current, MaxLength = maxLen, Margin = new Avalonia.Thickness(0, 0, 0, 6) };
-            stack.Children.Add(box);
-            var keyboard = new OnScreenKeyboard { Target = box };
-            keyboard.PasteRequested += async (_, _) =>
-            {
-                try
-                {
-                    var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
-                    var text = clipboard is null ? null : await clipboard.TryGetTextAsync();
-                    if (!string.IsNullOrEmpty(text))
-                    {
-                        keyboard.InsertExternalText(text);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Log.Warn($"{LogScope}: keyboard paste failed: {ex.Message}");
-                }
-            };
-            keyboard.Accepted += (_, _) => { onAccept(box.Text ?? ""); Back(); };
-            stack.Children.Add(keyboard);
-            stack.Children.Add(PrimaryRow("Accept", "Save this text", Icons.Play,
-                () => { onAccept(box.Text ?? ""); Back(); }));
-            stack.Children.Add(Row("Cancel", "Discard", Icons.ExitFullscreen, () => Back()));
-            SetContent(stack);
-        });
+
+        // No keyboard surface means there is no way to type at all, so say so. The alternative —
+        // a screen carrying a bare TextBox — is unusable here by design: GamepadNavigation skips
+        // TextBoxes so the Windows touch keyboard cannot pop, which means focus never lands on it
+        // and nothing types. See "Text entry in the panel is a press-to-edit ROW" in
+        // docs\overlay-and-input.md.
+        Log.Warn($"{LogScope}: cannot edit '{title}' — no keyboard surface is available.");
+        Toast("Text entry needs the overlay keyboard, which is not available.");
     }
 }

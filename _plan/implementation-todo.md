@@ -272,11 +272,19 @@ check and the overlay's live matrix below has not run:
   refused: it moves focus, activation, Steam Input lease handover and the pairing-prompt lifetime.
   The duplication it targeted is gone anyway — the dock, the touch filter and the chrome are shared
   now, leaving three windows that differ only in content.
-- **The inline on-screen-keyboard fallback** in `OverlaySubView.EditText`. Static reading says it is
-  unreachable (`KeyboardService.Handler` is registered for exactly the overlay's lifetime), but a
-  defensive path is the wrong thing to delete on reasoning alone.
-- **Merging the four `Palette.axaml` includes.** A style-resolution failure surfaces at runtime, not
-  at build.
+- **Merging the four `Palette.axaml` includes**, and moving the three panels' identical window
+  attributes into a shared style. Both were tested rather than assumed: with the include removed the
+  solution still builds clean — and so does a deliberately bogus `{StaticResource HcNotARealKey}`.
+  **The XAML compiler does not validate `StaticResource` at all**, so a green build is not evidence
+  for either change and the failure would appear only on the device. Anything that moves resource
+  resolution or window-creation properties needs `--overlay-test` in front of a person.
+
+The inline on-screen-keyboard fallback in `OverlaySubView.EditText` WAS removed, on the strength of
+the repository's own decision rather than a reachability argument: `docs\overlay-and-input.md`
+already says that when `KeyboardService.Request` returns false there is no way to type at all and it
+should be logged, and the fallback built exactly the bare `TextBox` that same section forbids —
+`GamepadNavigation` skips TextBoxes so the touch keyboard cannot pop, so focus never lands and
+nothing types. It is now a logged refusal plus an on-screen notice.
 
 Wave 3: visibility and documentation.
 
