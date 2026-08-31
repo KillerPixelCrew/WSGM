@@ -273,11 +273,19 @@ check and the overlay's live matrix below has not run:
   The duplication it targeted is gone anyway — the dock, the touch filter and the chrome are shared
   now, leaving three windows that differ only in content.
 - **Merging the four `Palette.axaml` includes**, and moving the three panels' identical window
-  attributes into a shared style. Both were tested rather than assumed: with the include removed the
-  solution still builds clean — and so does a deliberately bogus `{StaticResource HcNotARealKey}`.
-  **The XAML compiler does not validate `StaticResource` at all**, so a green build is not evidence
-  for either change and the failure would appear only on the device. Anything that moves resource
-  resolution or window-creation properties needs `--overlay-test` in front of a person.
+  attributes into a shared style. Two independent reasons, neither of them reluctance:
+
+  The includes are not redundancy, they are self-containment. Each `Styles` file resolving its own
+  tokens makes it independent of what else is merged into `Application.Resources` and in what order
+  — and `App.axaml` shows that order is thought about, merging LoadingIndicators before Palette
+  "so the Hc* tokens stay authoritative on any key collision". (Checked: LoadingIndicators keys are
+  `Arc`, `Ring` and friends, so there is no live collision — the ordering is defensive, and so is
+  the pattern these includes follow.) Removing them trades ~24 lines for a dependency on that order.
+
+  And it cannot be checked here anyway. With the include removed the solution builds clean — but so
+  does a deliberately bogus `{StaticResource HcNotARealKey}`. **The XAML compiler validates
+  `StaticResource` not at all**, so a green build is not evidence, and the failure would appear
+  only on the device. The same applies to window-creation properties applied through a style.
 
 The inline on-screen-keyboard fallback in `OverlaySubView.EditText` WAS removed, on the strength of
 the repository's own decision rather than a reachability argument: `docs\overlay-and-input.md`
