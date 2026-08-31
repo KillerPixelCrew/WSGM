@@ -165,9 +165,14 @@ pinned submodule, so it can be versioned, consumed and reported against on its o
       never copied them and package validation treats glyphs as optional, so it passed every gate
       and would have rendered Valve's default glyphs forever. Both the pack script and the lock
       file now assert the count.
-- [ ] **`steam-ui-toolkit`.** Generalize the CEF work so others can add and remove QAM and Settings
-      surfaces. It consumes `windows-device-control` for the backends behind those surfaces, which
-      is why that library moved first. Waits on the CEF simplification pass.
+- [ ] **`steam-ui-toolkit`.** A framework to add, hide and reorganize elements in Steam's CEF, plus
+      the reconstructed SteamOS surfaces, plus a pipe for other developers to plug their own backend
+      behind them. The largest extraction and the only one needing architectural change first: a
+      module is currently five scattered edits, so there is nothing a framework could host.
+      **Planned in `_plan\steam-ui-toolkit.md`** — the three stable APIs (data constructs, RPC,
+      reveal), the element framework, the surface mechanisms, the already-built features worth
+      shipping, and a six-step order where steps 1-5 improve WSGM whether or not the extraction ever
+      happens. Not started.
 
 ## Verification for this milestone
 
