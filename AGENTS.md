@@ -142,8 +142,9 @@ Being on the Claw does not authorize shell takeover, writes, or plugin activatio
 ## Native and packaged dependencies
 
 **`native\SteamInput` is a SUBMODULE**, not a directory in this repository — it is
-`KillerPixelCrew/steam-input-lease` (MIT), extracted 2026-08-31 because it is useful on its own and
-people asked for it. **Clone this repository with `--recursive`**, or run
+`KillerPixelCrew/steam-input-lease` (MIT with an OEM-preinstallation restriction — see its
+`LICENSE-MIT`, not plain MIT), extracted 2026-08-31 because it is useful on its own and people
+asked for it. **Clone this repository with `--recursive`**, or run
 `git submodule update --init` after cloning; without it that directory is empty and the build fails
 in a way that looks like a missing Rust toolchain.
 
