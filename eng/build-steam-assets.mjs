@@ -15,7 +15,7 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,24 +24,49 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..");
 const assetDirectory = join(repositoryRoot, "src", "WSGM", "Core", "SteamUiAssets");
 const sourceDirectory = join(assetDirectory, "Source");
+
+// The two fragments with a fixed position, and the reason each has one:
+//
+//   types.ts    declarations only. It sits above the bundle marker and is stripped from the
+//               emitted asset entirely, so it exists to type the script and ship nothing.
+//   bridge.ts   opens the IIFE and carries the orchestration — the reuse check, the request and
+//               subscribe machinery, and the publication of the window property at the end.
+//
+// EVERYTHING ELSE IS DISCOVERED, and its order does not matter. Gates are `function create…()`
+// declarations, which hoist, so bridge.ts can call them before they appear textually; the shared
+// helpers are consts referenced only from inside those functions, which run long after the whole
+// bundle has been evaluated. That is why adding a gate is a new file and nothing else — this
+// script no longer holds a list of what exists.
+const preludePaths = [join(sourceDirectory, "types.ts"), join(sourceDirectory, "bridge.ts")];
+
+// components.ts is emitted last by convention rather than by necessity. Nothing depends on it
+// being there — it is the UI layer, and reading the asset top-down as helpers, then gates, then
+// the components they render is worth keeping.
+const componentsPath = join(sourceDirectory, "components.ts");
+
+// Order comes from the directory a fragment lives in, not from a list here: shared helpers beside
+// the bridge, then gates, then components. Within each group, sorted, so the emitted asset is
+// byte-stable no matter what order the filesystem reports.
+async function discoverIn(root) {
+  const entries = await readdir(root, { withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".ts"))
+    .map((entry) => join(root, entry.name))
+    .filter((path) => !preludePaths.includes(path) && path !== componentsPath)
+    .sort();
+}
+
 const sourcePaths = [
-  join(sourceDirectory, "types.ts"),
-  join(sourceDirectory, "bridge.ts"),
-  // Ownership claims, before every gate that makes one. Inside the bridge IIFE, so the claim
-  // helpers are shared rather than re-derived per gate — which is how the same teardown trap was
-  // paid for three separate times.
-  join(sourceDirectory, "ownership.ts"),
-  // Answering an RPC: the reply shape Steam reads back, and the query invalidation without which
-  // a replaced stub keeps rendering the refusal it cached.
-  join(sourceDirectory, "rpc.ts"),
-  join(sourceDirectory, "gates", "performance.ts"),
-  join(sourceDirectory, "gates", "steam-os-manager.ts"),
-  join(sourceDirectory, "gates", "brightness.ts"),
-  join(sourceDirectory, "gates", "bluetooth.ts"),
-  join(sourceDirectory, "gates", "network.ts"),
-  join(sourceDirectory, "gates", "audio.ts"),
-  join(sourceDirectory, "components.ts"),
+  ...preludePaths,
+  ...(await discoverIn(sourceDirectory)),
+  ...(await discoverIn(join(sourceDirectory, "gates"))),
+  componentsPath,
 ];
+
+// The builder closes the IIFE that bridge.ts opens. It used to be the last line of components.ts,
+// which made that one fragment silently position-critical: moving it, or adding a fragment after
+// it, emitted an asset that could not parse.
+const bundleEpilogue = "})();\n";
 const outputPath = join(assetDirectory, "NativeQamBootstrap.js");
 const catalogPath = join(repositoryRoot, "src", "WSGM", "Core", "SteamUiAssetCatalog.cs");
 
@@ -74,7 +99,9 @@ try {
   await mkdir(inputDirectory);
   await mkdir(outputDirectory);
   const combinedSourcePath = join(inputDirectory, "NativeQamBootstrap.ts");
-  const source = (await Promise.all(sourcePaths.map((path) => readFile(path, "utf8")))).join("");
+  const source =
+    (await Promise.all(sourcePaths.map((path) => readFile(path, "utf8")))).join("") +
+    bundleEpilogue;
   await writeFile(combinedSourcePath, source, "utf8");
   const temporaryProject = join(temporaryRoot, "tsconfig.json");
   await writeFile(

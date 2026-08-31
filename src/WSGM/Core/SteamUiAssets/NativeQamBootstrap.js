@@ -492,6 +492,819 @@
       // Intentionally ignored; see above.
     }
   };
+  // Audio is supplied as the namespace Steam's own store looks for, rather than drawn as a row.
+  // The store's availability flag is literally `null != SteamClient.System.Audio`, so defining this
+  // object is the entire gate — there is nothing to patch and nothing to hide.
+  function createAudioNamespace() {
+    const patchId = "wsgm.native-qam.audio";
+    let installed = false;
+    let lastError = "";
+    let unsubscribe = null;
+    // Every registration Steam makes at construction. Held here so a state push can reach them and
+    // so removal drops them all rather than leaving callbacks pointed at a torn-down bridge.
+    const callbacks = {
+      serviceConnection: null,
+      deviceAdded: null,
+      deviceRemoved: null,
+      deviceVolumeChanged: null,
+      volumeButtonPressed: null,
+      appAdded: null,
+      appRemoved: null,
+      appVolumeChanged: null,
+    };
+    const register = (slot) => (callback) => {
+      callbacks[slot] = typeof callback === "function" ? callback : null;
+      // Steam expects an unregister handle from every RegisterFor* call and stores it.
+      return { unregister: () => (callbacks[slot] = null) };
+    };
+    let known = [];
+    let originalStoreState = null;
+    // Steam's audio identities are NUMBERS: the live store keeps m_activeOutputDeviceId as a
+    // uint32 with 0xFFFFFFFF for none (read off the running client, 2026-08-30). WSGM's endpoint
+    // ids are Windows GUID strings, so devices listed by name but nothing could ever match as
+    // active — which reads as "no default device" and disables the volume slider. Each GUID gets a
+    // stable small number for Steam's side of the wire, translated back on every command.
+    const NO_DEVICE = 4294967295;
+    // The key m_mapVolumes is keyed by, and the second argument of both SetDeviceVolume and
+    // OnAudioDeviceVolumeChanged. INPUT IS ZERO — read out of the client's own enum (module 74362:
+    // Input=0, Output=1) on 2026-08-30, after assuming the opposite: with the values swapped the
+    // output slider's writes were filtered out as "input" and the speaker volume was stored under
+    // the input key, which put it on the microphone slider. Named because it has now been confused
+    // with the volume itself AND mirrored, and neither mistake may recur silently.
+    const AudioDirection = Object.freeze({ Input: 0, Output: 1 });
+    // Below one step of a hardware volume button, so a genuine press always counts and float
+    // round-tripping through a whole-number percent never does.
+    const VolumeEpsilon = 0.004;
+    const deviceNumbers = new Map();
+    const deviceGuids = new Map();
+    let nextDeviceNumber = 1;
+    const numberFor = (guid) => {
+      if (typeof guid !== "string" || !guid) return NO_DEVICE;
+      let value = deviceNumbers.get(guid);
+      if (value === undefined) {
+        value = nextDeviceNumber++;
+        deviceNumbers.set(guid, value);
+        deviceGuids.set(value, guid);
+      }
+      return value;
+    };
+    const guidFor = (value) => deviceGuids.get(Number(value)) ?? null;
+    // The store's device constructor ingests flOutputVolume/flInputVolume (0..1) into the map the
+    // sliders bind — omit them and every slider renders a grey bar over undefined. WSGM's volume is
+    // system-wide, so every device carries the same value; Windows' default endpoint is the one the
+    // user actually hears, and a per-device number WSGM cannot move would be an invented control.
+    const toDevice = (entry, flVolume) => ({
+      id: numberFor(entry.id),
+      sName: entry.name,
+      bHasOutput: entry.hasOutput === true,
+      bHasInput: entry.hasInput === true,
+      // WSGM reports ONE volume: the default OUTPUT endpoint's. Copying it into the input field
+      // made Steam's microphone slider show the speaker volume and made the two move together,
+      // because both were the same number written twice. A capture endpoint's own volume needs a
+      // backend WSGM does not have yet, and until it does the honest answer is no value rather
+      // than the wrong one.
+      flOutputVolume: entry.hasOutput === true ? flVolume : undefined,
+      flInputVolume: undefined,
+      // Speaker configuration and HDMI CEC reach a service WSGM does not supply. Reported empty and
+      // false rather than invented, so those controls simply do not appear.
+      currentConfig: {},
+      availableConfigs: [],
+      eConnectorType: 0,
+      eBus: 0,
+      bSupportsHdmiCec: false,
+      bHdmiCecEnabled: false,
+      bHdmiCecActive: false,
+    });
+    // The store that is already running. Defining the namespace is not enough on a live client:
+    // `m_bAvailable` is computed once in the constructor, which ran at client start when
+    // SteamClient.System.Audio did not exist, so the audio section would stay hidden forever.
+    // Live-verified 2026-08-30: the flag is writable and RegisterOrUpdateDevice is the store's own
+    // ingestion path, the same verified path the network gate now owns for the network store.
+    const liveStore = () => {
+      try {
+        const req = getWebpackRuntime("audio-store");
+        const store = req?.("1409")?.F5;
+        return store && "m_bAvailable" in store ? store : null;
+      } catch {
+        return null;
+      }
+    };
+    // The one volume WSGM tracks, as the 0..1 float Steam's sliders use.
+    const flVolumeOf = (state) =>
+      Math.min(1, Math.max(0, (Number(state?.volumePercent) || 0) / 100));
+    // Volume-changed dispatches fire ONLY when the volume moved. Steam shows its volume OSD on
+    // every dispatch, and firing one per publish made the OSD pop up over and over while nothing
+    // had changed. Null means no volume has been reported yet, so the first publish never counts
+    // as a change either — construction already carries it.
+    let lastFlVolume = null;
+    const onState = (state) => {
+      if (!installed || !state || !Array.isArray(state.devices)) return;
+      const flVolume = flVolumeOf(state);
+      const volumeChanged =
+        lastFlVolume !== null && Math.abs(flVolume - lastFlVolume) > VolumeEpsilon;
+      lastFlVolume = flVolume;
+      // Numeric, because these ids flow to the store and its callbacks, and Steam's side of the
+      // wire is numeric everywhere.
+      const seen = state.devices.map((device) => numberFor(device.id));
+      const removed = known.filter((id) => !seen.includes(id));
+      // Removals first: a device that has gone must leave the store before a re-read of the device
+      // list can describe the set as complete, or the picker keeps an endpoint that is not there.
+      for (const id of removed) {
+        if (callbacks.deviceRemoved) callbacks.deviceRemoved(id);
+      }
+      for (const device of state.devices) {
+        if (callbacks.deviceAdded) callbacks.deviceAdded(toDevice(device, flVolume));
+        // (deviceId, DIRECTION, volume) — in that order. Read off the store's own methods
+        // 2026-08-30: OnAudioDeviceVolumeChanged(e,t,r) forwards to OnVolumeUpdated(t,r), which is
+        // m_mapVolumes.set(t, r). The direction is the KEY and the volume is the VALUE, and WSGM
+        // was passing them the other way round — every entry it wrote was keyed by a float volume
+        // with 1 or 0 as its value, so getDeviceVolume(direction) found nothing and the slider had
+        // no number to sit on.
+        //
+        // Still gated on an actual change, unlike the direct path below, which also has to seed:
+        // a store that registered these callbacks was constructed after the namespace existed and
+        // therefore already read the volumes at construction.
+        if (volumeChanged && device.hasOutput === true && callbacks.deviceVolumeChanged) {
+          const id = numberFor(device.id);
+          callbacks.deviceVolumeChanged(id, AudioDirection.Output, flVolume);
+        }
+      }
+      known = seen;
+      // The registrations above only reach a store constructed after the namespace existed. The
+      // running one has to be fed through its own path, and told it is available at all.
+      const store = liveStore();
+      if (!store) return;
+      try {
+        originalStoreState ??= {
+          available: store.m_bAvailable === true,
+          output: Number(store.m_activeOutputDeviceId) || NO_DEVICE,
+          input: Number(store.m_activeInputDeviceId) || NO_DEVICE,
+        };
+        store.m_bAvailable = true;
+        for (const id of removed) {
+          store.m_mapAudioDevices?.delete(id);
+        }
+        for (const device of state.devices) {
+          store.RegisterOrUpdateDevice(toDevice(device, flVolume));
+          // Update() copies the name, the directions and the CEC flags and nothing else — read
+          // live 2026-08-30 — so registration never fills m_mapVolumes and this is its only path.
+          //
+          // But writing on every publish is wrong in both directions at once. It dispatches a
+          // volume change once a second, which is Steam's OSD popping up forever; and while the
+          // user is dragging, the store is already holding the value they chose, so pushing WSGM's
+          // not-yet-observed one snaps the handle back under their thumb.
+          //
+          // So: seed a direction that has no value at all, and otherwise write only when WSGM's
+          // OWN reading moved — something outside Steam changed the volume — and the store has not
+          // already caught up. Both are suppressed, because neither is the user acting inside
+          // Steam: a hardware button already shows WSGM's own overlay.
+          const deviceId = numberFor(device.id);
+          const entry = store.m_mapAudioDevices?.get(deviceId);
+          // The OUTPUT direction only, and only on a device that has one. This is the single volume
+          // WSGM observes; writing it to the input direction as well is what put the speaker volume
+          // on the microphone slider and made the two move as one.
+          for (const direction of device.hasOutput === true ? [AudioDirection.Output] : []) {
+            const held = entry?.getDeviceVolume?.(direction);
+            const seeding = typeof held !== "number";
+            if (!seeding && !(volumeChanged && Math.abs(held - flVolume) > VolumeEpsilon)) {
+              continue;
+            }
+            store.SuppressVolumeOverlay?.();
+            try {
+              store.OnAudioDeviceVolumeChanged?.(deviceId, direction, flVolume);
+            } finally {
+              // Balanced whatever the dispatch does: the pair is a refcount, and leaking one would
+              // suppress the user's own volume overlay for the rest of the session.
+              store.UnSuppressVolumeOverlay?.();
+            }
+          }
+        }
+        // The running store learns the defaults from nothing else: a store constructed before the
+        // namespace existed has 0xFFFFFFFF in both, which the settings page renders as "no default
+        // device" and a disabled volume slider.
+        store.m_activeOutputDeviceId = numberFor(state.activeOutputDeviceId ?? "");
+        store.m_activeInputDeviceId = numberFor(state.activeInputDeviceId ?? "");
+      } catch {
+        // A store whose shape moved is a compatibility loss, not a fault: the namespace stays and
+        // a client rebuilt around a different store simply shows no audio section.
+      }
+    };
+    const install = () => {
+      if (installed) return { ok: true, alreadyInstalled: true };
+      const system = window.SteamClient?.System;
+      if (!system) {
+        lastError = "SteamClient.System unavailable";
+        return { ok: false, error: lastError };
+      }
+      const buildApi = () => ({
+        GetDevices: () =>
+          request(patchId, "getDevices", null, 0).then((state) => ({
+            activeOutputDeviceId: numberFor(state?.activeOutputDeviceId ?? ""),
+            activeInputDeviceId: numberFor(state?.activeInputDeviceId ?? ""),
+            overrideOutputDeviceId: NO_DEVICE,
+            overrideInputDeviceId: NO_DEVICE,
+            vecDevices: Array.isArray(state?.devices)
+              ? state.devices.map((device) => toDevice(device, flVolumeOf(state)))
+              : [],
+          })),
+        // Empty until a session mixer exists. Steam then lists no per-application entries, which is
+        // the honest outcome rather than inventing volumes it cannot move.
+        GetApps: () => Promise.resolve({ rgApps: [] }),
+        SetDefaultDeviceOverride: (id, direction) => {
+          // Steam hands back the number this side minted; the host only knows the GUID.
+          const guid = guidFor(id);
+          if (!guid) return Promise.resolve();
+          return request(patchId, "setDefaultDevice", {
+            id: guid,
+            input: direction === AudioDirection.Input,
+          });
+        },
+        // (deviceId, DIRECTION, volume) — three arguments. Read off the store's own device class
+        // 2026-08-30: setDeviceVolume(e,t) calls SetDeviceVolume(this.m_id, e, t). WSGM declared
+        // two parameters and so read the DIRECTION as the volume: dragging the slider sent
+        // Math.round(1 * 100) or Math.round(0 * 100), which is why every drag set 100% or 0% and
+        // the log showed "Taskbar volume set to 100%" the moment the slider was touched.
+        //
+        // Only the output direction is forwarded. WSGM's backend moves the default endpoint's
+        // volume, which is the output one; forwarding the microphone's slider to it would have the
+        // two controls fight over the same number.
+        SetDeviceVolume: (id, direction, volume) => {
+          if (direction !== AudioDirection.Output) return Promise.resolve();
+          return request(patchId, "setVolume", {
+            percent: Math.round(Math.min(1, Math.max(0, Number(volume) || 0)) * 100),
+          });
+        },
+        SetAppVolume: () => Promise.resolve(),
+        ClearDefaultDeviceOverride: () => Promise.resolve(),
+        RegisterForServiceConnectionStateChanges: register("serviceConnection"),
+        RegisterForDeviceAdded: register("deviceAdded"),
+        RegisterForDeviceRemoved: register("deviceRemoved"),
+        RegisterForDeviceVolumeChanged: register("deviceVolumeChanged"),
+        RegisterForVolumeButtonPressed: register("volumeButtonPressed"),
+        RegisterForAppAdded: register("appAdded"),
+        RegisterForAppRemoved: register("appRemoved"),
+        RegisterForAppVolumeChanged: register("appVolumeChanged"),
+      });
+      // Refusing a real backend and reclaiming our own orphan are both the primitive's job now; the
+      // reasoning for each lives with it.
+      const supplied = supplyNamespace(system, "Audio", ownedMarker, buildApi);
+      if (!supplied.ok) {
+        lastError = supplied.error;
+        return { ok: false, error: lastError };
+      }
+      installed = true;
+      lastError = "";
+      unsubscribe = subscribe(patchId, onState);
+      return { ok: true, installed: true };
+    };
+    const remove = () => {
+      if (!installed) return { ok: true, absent: true };
+      installed = false;
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = null;
+      }
+      for (const slot of Object.keys(callbacks)) callbacks[slot] = null;
+      const store = liveStore();
+      if (store) {
+        try {
+          for (const id of known) store.m_mapAudioDevices?.delete(id);
+          store.m_bAvailable = originalStoreState?.available ?? false;
+          store.m_activeOutputDeviceId = originalStoreState?.output ?? NO_DEVICE;
+          store.m_activeInputDeviceId = originalStoreState?.input ?? NO_DEVICE;
+        } catch (error) {
+          lastError = "audio store cleanup failed: " + String(error);
+        }
+      }
+      known = [];
+      originalStoreState = null;
+      const withdrawn = withdrawNamespace(window.SteamClient?.System, "Audio", ownedMarker);
+      if (!withdrawn.ok) {
+        lastError = withdrawn.error ?? "audio namespace withdrawal failed";
+        return { ok: false, error: lastError };
+      }
+      return { ok: true, removed: true };
+    };
+    const status = () => ({
+      ok: true,
+      installed,
+      namespacePresent: !!window.SteamClient?.System?.Audio,
+      registrations: Object.keys(callbacks).filter((slot) => callbacks[slot] !== null),
+      knownDevices: known.length,
+      lastError,
+    });
+    return { install, remove, status };
+  }
+  // Bluetooth is a WebUI transport service whose backend does not exist on Windows. The service,
+  // its message shapes and every operation are present — GetState round-trips and answers
+  // is_service_available:false with empty adapters and devices — so WSGM replaces the stub's
+  // methods rather than implementing the service. `*Handler` exports are message descriptors,
+  // not registration hooks, so implementing it is not on offer.
+  //
+  // The second gate matters here as much as the first: availability is read through react-query
+  // with staleTime Infinity, so replacing the methods changes nothing until that cache is
+  // invalidated. Live-verified 2026-08-30 that RF's methods are writable and configurable and that
+  // the query client's invalidateQueries is reachable.
+  function createBluetoothService() {
+    const patchId = "wsgm.steam-bluetooth.service";
+    const queryKey = ["BluetoothManagerService", "State"];
+    const methodMarker = "__wsgmOwnedBluetoothService";
+    const originalMethodField = "__wsgmOriginalBluetoothServiceMethod";
+    const originals = new Map();
+    let installed = false;
+    let lastError = "";
+    let unsubscribe = null;
+    // Steam's own device and adapter shapes, which are not ours to describe: the store reads them
+    // and WSGM only carries them through from the state it was given.
+    let latest = { is_service_available: false, adapters: [], devices: [] };
+    const modules = () => getWebpackRuntime("bluetooth-service");
+    const reply = transportReply;
+    const invalidate = (req) => invalidateQuery(req, queryKey);
+    // WSGM sends its own field names and the mapping into Steam's lives here, so the client's
+    // schema stays in the half that has to change when the client is rebuilt.
+    const onState = (state) => {
+      if (!installed || !state) return;
+      const devices = Array.isArray(state.devices) ? state.devices : [];
+      latest = {
+        is_service_available: state.available === true,
+        // One synthetic adapter, because the panel needs something to hang the radio toggle on and
+        // Windows exposes no adapter identity WSGM could pass through truthfully.
+        adapters:
+          state.available === true
+            ? [
+                {
+                  id: 1,
+                  mac: "",
+                  name: "Bluetooth",
+                  is_enabled: state.enabled === true,
+                  is_discovering: state.discovering === true,
+                },
+              ]
+            : [],
+        devices: devices.map((device) => ({
+          id: device.id,
+          mac: device.mac ?? "",
+          name: device.name ?? device.id,
+          etype: device.eType ?? 0,
+          is_paired: device.isPaired === true,
+          is_connected: device.isConnected === true,
+          // Steam sorts by signal and shows a battery when one is reported. WSGM knows neither, and
+          // a fabricated strength would order the list by a number that means nothing.
+          strength_raw: 0,
+          battery_percent: null,
+          should_hide_hint: false,
+        })),
+      };
+      invalidate(modules());
+    };
+    const install = () => {
+      if (installed) return { ok: true, alreadyInstalled: true };
+      const req = modules();
+      const RF = req?.("60517")?.RF;
+      if (!RF || typeof RF.GetState !== "function") {
+        lastError = "BluetoothManagerService stub unavailable";
+        return { ok: false, error: lastError };
+      }
+      const forward = (command) => (payload) =>
+        request(patchId, command, payload ?? null).then(
+          () => reply({ success: true }),
+          () => reply({ success: false }),
+        );
+      const replace = (name, replacement) => {
+        const current = RF[name];
+        const original = current?.[methodMarker] === true ? current[originalMethodField] : current;
+        originals.set(name, original);
+        Object.defineProperty(replacement, methodMarker, {
+          value: true,
+          configurable: true,
+          enumerable: false,
+        });
+        Object.defineProperty(replacement, originalMethodField, {
+          value: original,
+          configurable: true,
+          enumerable: false,
+        });
+        RF[name] = replacement;
+      };
+      const restore = () => {
+        for (const [name, original] of originals) {
+          if (RF[name]?.[methodMarker] === true) RF[name] = original;
+        }
+      };
+      try {
+        replace("GetState", () => Promise.resolve(reply(latest)));
+        replace("GetDeviceDetails", (payload) => {
+          const id = payload?.id;
+          const device = latest.devices.find((entry) => entry.id === id) ?? null;
+          return Promise.resolve(reply({ device }));
+        });
+        replace("GetAdapterDetails", () =>
+          Promise.resolve(reply({ adapter: latest.adapters[0] ?? null })),
+        );
+        replace("SetDiscovering", forward("setDiscovering"));
+        replace("Pair", forward("pair"));
+        replace("CancelPair", forward("cancelPair"));
+        replace("Connect", forward("connect"));
+        replace("Disconnect", forward("disconnect"));
+        replace("Forget", forward("forget"));
+        replace("SetTrusted", forward("setTrusted"));
+        replace("SetWakeAllowed", forward("setWakeAllowed"));
+      } catch (error) {
+        lastError = String(error);
+        restore();
+        originals.clear();
+        return { ok: false, error: lastError };
+      }
+      installed = true;
+      lastError = "";
+      unsubscribe = subscribe(patchId, onState);
+      invalidate(req);
+      return { ok: true, installed: true, replaced: originals.size };
+    };
+    const remove = () => {
+      if (!installed) return { ok: true, absent: true };
+      installed = false;
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = null;
+      }
+      const req = modules();
+      const RF = req?.("60517")?.RF;
+      if (RF) {
+        for (const [name, original] of originals) {
+          if (RF[name]?.[methodMarker] === true) RF[name] = original;
+        }
+      }
+      originals.clear();
+      latest = { is_service_available: false, adapters: [], devices: [] };
+      invalidate(req);
+      return { ok: true, removed: true };
+    };
+    const status = () => ({
+      ok: true,
+      installed,
+      replaced: originals.size,
+      available: latest.is_service_available,
+      devices: latest.devices.length,
+      lastError,
+    });
+    return { install, remove, status };
+  }
+  // Not availability-only, despite the founding comment that said Steam's own backend works on
+  // Windows. It does not — device-disproved 2026-08-30: SetBrightness is a native stub and
+  // RegisterForBrightnessChanges never fires, so the store's observable sits at its constructed 1
+  // and the revealed slider moves nothing. WSGM is the backend: the gate forwards the slider's
+  // writes over the bridge and feeds the store's observable from the published state, both through
+  // the same \\.\LCD interface the host owns.
+  function createBrightnessGate() {
+    const patchId = "wsgm.steam-display.brightness";
+    const field = "is_display_brightness_available";
+    // A string key on the settings message, because the probe reads it from a separate CDP
+    // evaluation where nothing from this scope is reachable. Without it this gate ran the
+    // self-incompatibility teardown loop the audio namespace already paid for: the probe required
+    // the flag to be hidden, a successful apply made it visible, and the patch manager tore down
+    // its own work every poll — the row flickered in and out on a ~25-second cycle on the device.
+    const availability = {
+      marker: "__wsgmBrightnessRevealed",
+      original: "__wsgmOriginalBrightnessAvailability",
+    };
+    const setter = {
+      marker: "__wsgmOwnedSetBrightness",
+      original: "__wsgmOriginalSetBrightness",
+    };
+    let installed = false;
+    let lastError = "";
+    let unsubscribe = null;
+    let lastPercent = null;
+    const displayStore = () => {
+      try {
+        const req = getWebpackRuntime("brightness-store");
+        return req?.("59547")?.mG?.Get?.() ?? null;
+      } catch {
+        return null;
+      }
+    };
+    const settings = () => displayStore()?.m_msgSettings ?? null;
+    const onState = (state) => {
+      if (!installed || !state) return;
+      const percent = Number(state.percent);
+      if (!Number.isInteger(percent) || percent < 0 || percent > 100) return;
+      // Same rule as the volume: write only when WSGM's OWN reading moved, so a publish that
+      // merely restates the level never fights a drag the store is already ahead on.
+      if (percent === lastPercent) return;
+      lastPercent = percent;
+      try {
+        const observable = displayStore()?.m_flDisplayBrightness;
+        if (
+          observable?.Set &&
+          Math.abs((observable.m_currentValue ?? -1) - percent / 100) > 0.004
+        ) {
+          observable.Set(percent / 100);
+        }
+      } catch (error) {
+        lastError = "brightness state apply failed: " + String(error);
+      }
+    };
+    // The slider's writes, taken over at the one method it calls. Same replace-not-stack rule as
+    // the Manager's GetState: the overlay carries the stub it replaced, so a bridge replaced in
+    // place unwinds to the client's own method instead of wrapping a dead closure.
+    const overrideSetter = () => {
+      const display = window.SteamClient?.System?.Display;
+      if (!display || typeof display.SetBrightness !== "function") {
+        lastError = "SteamClient.System.Display.SetBrightness unavailable";
+        return false;
+      }
+      const claim = claimMember(display, "SetBrightness", setter, () => (flBrightness) => {
+        const percent = Math.round(Math.min(1, Math.max(0, Number(flBrightness) || 0)) * 100);
+        // Remembered as ours so the echo of this very write coming back as state does not Set the
+        // observable again underneath the drag.
+        lastPercent = percent;
+        return request(patchId, "setBrightness", { percent }).catch(() => {});
+      });
+      if (!claim.ok) {
+        lastError = claim.error;
+        return false;
+      }
+      return true;
+    };
+    const restoreSetter = () => {
+      const released = releaseMember(
+        window.SteamClient?.System?.Display ?? null,
+        "SetBrightness",
+        setter,
+      );
+      if (!released.ok) {
+        lastError = released.error ?? "brightness setter release failed";
+      }
+    };
+    const install = () => {
+      if (installed) return { ok: true, alreadyInstalled: true };
+      const message = settings();
+      if (!message || !(field in message)) {
+        lastError = "display settings message unavailable";
+        return { ok: false, error: lastError };
+      }
+      // A client already reporting brightness available needs nothing from WSGM, and overwriting
+      // the flag would mean restoring a value that was never ours to change. Available AND MARKED
+      // is different: that is this gate's own earlier reveal, surviving a bridge replaced in
+      // place, and refusing it is the teardown trap. Both cases are the claim primitive's job now.
+      //
+      // `false` is the absent value: a client that hides the row has the flag false, so a reclaim
+      // whose stored original went missing hands back a hidden row rather than `undefined`, which
+      // Steam's `?? true` hook would have read as available forever.
+      const claim = claimValue(message, field, availability, true, false);
+      if (!claim.ok) {
+        lastError = claim.error;
+        return { ok: false, error: lastError };
+      }
+      if (!overrideSetter()) {
+        // Revealing a slider whose writes go into the stub is the broken state this gate shipped
+        // with; the reveal is undone rather than left half-working.
+        releaseValue(message, field, availability);
+        return { ok: false, error: lastError };
+      }
+      installed = true;
+      lastError = "";
+      unsubscribe = subscribe(patchId, onState);
+      return { ok: true, installed: true, available: message[field] === true };
+    };
+    const remove = () => {
+      if (!installed) return { ok: true, absent: true };
+      const message = settings();
+      installed = false;
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = null;
+      }
+      restoreSetter();
+      if (!message) return { ok: true, removed: true, storeGone: true };
+      const released = releaseValue(message, field, availability);
+      if (!released.ok) {
+        lastError = released.error ?? "brightness release failed";
+        return { ok: false, error: lastError };
+      }
+      return { ok: true, removed: true };
+    };
+    const status = () => {
+      const message = settings();
+      return {
+        ok: true,
+        installed,
+        available: message ? message[field] === true : false,
+        setterOwned: memberClaimed(window.SteamClient?.System?.Display, "SetBrightness", setter),
+        lastPercent,
+        observable: displayStore()?.m_flDisplayBrightness?.m_currentValue ?? null,
+        lastError,
+      };
+    };
+    return { install, remove, status };
+  }
+  // Wi-Fi is hidden by one getter, not by an absent backend. Steam's Windows client genuinely
+  // tracks the wireless device — hasWirelessDevice and isWifiEnabled are true here without any
+  // help — and only `get networkManagementAvailable(){return TS.IS_STEAMOS}` keeps the UI away.
+  //
+  // Overriding that one property is narrow and reversible and affects one surface. Setting the
+  // constant it reads would produce the same row while changing unrelated client behaviour
+  // everywhere, which is the spoof D16 forbids. Live-verified 2026-08-30: the descriptor is
+  // configurable, the override flips the value, and restoring the saved descriptor puts it back.
+  function createNetworkGate() {
+    const property = "networkManagementAvailable";
+    const patchId = "wsgm.steam-network.gate";
+    const availability = {
+      marker: "__wsgmOwnedGetter",
+      original: "__wsgmOriginalGetterDescriptor",
+    };
+    const scan = {
+      marker: "__wsgmOwnedNetworkScan",
+      original: "__wsgmOriginalNetworkScan",
+    };
+    let target = null;
+    let lastError = "";
+    let scanWrapped = false;
+    let originalStart = null;
+    let originalStop = null;
+    let unsubscribe = null;
+    let syntheticKeys = [];
+    const store = () => {
+      try {
+        const req = getWebpackRuntime("network-store");
+        return req?.("77347")?.OQ?.Get() ?? null;
+      } catch {
+        return null;
+      }
+    };
+    const removeNetworkState = (refresh) => {
+      const instance = store();
+      if (instance) {
+        const keys = new Set(syntheticKeys);
+        // Compatibility cleanup for the retired standalone indicator, which used this exact
+        // bounded id range but could not hand its closure-owned key list to the new gate.
+        const deviceId = instance.m_WirelessDevice?.id;
+        if (deviceId !== undefined) {
+          for (let index = 0; index < 24; index += 1) keys.add(`${deviceId}:${990001 + index}`);
+        }
+        for (const key of keys) instance.m_mapNetworkAccessPoints?.delete(key);
+        instance.m_bIsConnectedToANetwork = instance.IsAnyDeviceConnected();
+        instance.m_bIsConnectingToANetwork = instance.IsAnyDeviceConnecting();
+      }
+      syntheticKeys = [];
+      if (refresh) {
+        try {
+          window.SteamClient?.System?.Network?.ForceRefresh?.();
+        } catch {}
+      }
+    };
+    // One resident owner now reveals AND feeds the network surface. The previous standalone
+    // indicator installed a second script against this same store, with its own version sentinel
+    // and retry timer; bridge state gives the generation-aware gate the same verified connected AP
+    // for the header. Scan lifetime remains an observation of Steam's page, not an invented
+    // connection protocol: its argument order has not been read from the client.
+    const onState = (state) => {
+      const instance = store();
+      const networks = Array.isArray(state?.networks) ? state.networks.slice(0, 24) : [];
+      if (!instance || !instance.m_WirelessDevice) {
+        lastError = "network store has no wireless device";
+        return;
+      }
+      if (networks.length === 0) {
+        removeNetworkState(true);
+        lastError = "";
+        return;
+      }
+      try {
+        const device = JSON.parse(JSON.stringify(instance.m_WirelessDevice));
+        if (!device.wireless) device.wireless = { aps: [], esecurity_supported: 0 };
+        const accessPoints = networks.map((network, index) => ({
+          id: 990001 + index,
+          esecurity: network.secured ? 16 : 0,
+          estrength: Math.max(1, Math.min(4, Number(network.strength) || 1)),
+          ssid: String(network.ssid || ""),
+          is_active: network.connected === true,
+          is_autoconnect: network.connected === true,
+          is_hidden: false,
+        }));
+        const keys = accessPoints.map((accessPoint) => `${device.id}:${accessPoint.id}`);
+        for (const key of syntheticKeys) {
+          if (!keys.includes(key)) instance.m_mapNetworkAccessPoints.delete(key);
+        }
+        for (const key of keys) instance.m_mapNetworkAccessPoints.delete(key);
+        device.estate = networks.some((network) => network.connected === true) ? 5 : device.estate;
+        device.wireless.aps = accessPoints;
+        accessPoints.forEach((accessPoint) => {
+          instance.SetDeviceInfo(device, accessPoint.id);
+          const entry = instance.m_mapNetworkAccessPoints.get(`${device.id}:${accessPoint.id}`);
+          if (entry) entry.MarkAsNotPresent = () => {};
+        });
+        instance.m_bIsConnectedToANetwork = instance.IsAnyDeviceConnected();
+        instance.m_bIsConnectingToANetwork = instance.IsAnyDeviceConnecting();
+        syntheticKeys = keys;
+        lastError = "";
+      } catch (error) {
+        lastError = String(error);
+      }
+    };
+    const install = () => {
+      if (target) return { ok: true, alreadyInstalled: true };
+      const instance = store();
+      if (!instance) {
+        lastError = "network store unavailable";
+        return { ok: false, error: lastError };
+      }
+      // The getter lives on the prototype, so that is what is replaced and restored. Defining it
+      // on the instance would shadow rather than replace, and removal would leave the shadow.
+      //
+      // Marked as ours for the same reason the namespaces are: the compatibility probe checks that
+      // the getter currently reads false, and a successful override makes it read true. Left
+      // unmarked, the patch reads its own success as "the client already reports this available,
+      // stand aside", declares itself incompatible, and tears down — taking the network list with
+      // it. The claim primitive is what keeps that from being re-derived here.
+      const proto = Object.getPrototypeOf(instance);
+      const claim = claimAccessor(proto, property, availability, () => true);
+      if (!claim.ok) {
+        lastError = claim.error;
+        return { ok: false, error: lastError };
+      }
+      target = proto;
+      lastError = "";
+      wrapScanning();
+      unsubscribe = subscribe(patchId, onState);
+      return { ok: true, installed: true, available: instance[property] === true };
+    };
+    // Steam's own UI calls these when its network page opens and closes, so they are exactly the
+    // signal for when a scan is worth running. WSGM's radio manager is otherwise driven by WSGM's
+    // own panel, and a list refreshed only then would be stale on Steam's page — which is worse
+    // than an empty one, because the user picks a network that is gone and the join fails silently.
+    //
+    // Both originals are always called through: this observes the lifetime, it does not take it
+    // over, so a client that grows a working backend keeps behaving exactly as before.
+    const wrapScanning = () => {
+      const net = window.SteamClient?.System?.Network;
+      if (!net || scanWrapped) return;
+      const wrap = (name, command) => {
+        // Checked before claiming, not inside the factory: a client without this method is one this
+        // gate leaves alone entirely, and claiming would mark and reassign something that is not a
+        // method at all.
+        const current = net[name];
+        const existing = claimed(current, scan) ? current[scan.original] : current;
+        if (typeof existing !== "function") return null;
+        let inner = null;
+        const claim = claimMember(net, name, scan, (original) => {
+          inner = original;
+          return function (...args) {
+            // A scan request that cannot reach WSGM must not stop Steam's own call. Promise
+            // rejection is handled explicitly; a try/catch only sees synchronous construction.
+            void request(patchId, command, null).catch(() => {});
+            return inner.apply(this, args);
+          };
+        });
+        return claim.ok ? inner : null;
+      };
+      originalStart = wrap("StartScanningForNetworks", "startScan");
+      originalStop = wrap("StopScanningForNetworks", "stopScan");
+      scanWrapped = !!(originalStart || originalStop);
+    };
+    const unwrapScanning = () => {
+      const net = window.SteamClient?.System?.Network;
+      if (!net || !scanWrapped) return;
+      releaseMember(net, "StartScanningForNetworks", scan);
+      releaseMember(net, "StopScanningForNetworks", scan);
+      originalStart = null;
+      originalStop = null;
+      scanWrapped = false;
+    };
+    const remove = () => {
+      unwrapScanning();
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = null;
+      }
+      removeNetworkState(true);
+      if (!target) return { ok: true, absent: true };
+      const released = releaseAccessor(target, property, availability);
+      if (!released.ok) {
+        lastError = released.error ?? "network availability release failed";
+        return { ok: false, error: lastError };
+      }
+      target = null;
+      return { ok: true, removed: true };
+    };
+    const status = () => {
+      const instance = store();
+      return {
+        ok: true,
+        installed: !!target,
+        available: instance ? instance[property] === true : false,
+        // Reported because the row can be on while the list is empty: Steam's Windows backend
+        // never populates wireless.aps, so an access point count of zero here means WSGM has not
+        // supplied one, not that the machine cannot see any networks.
+        accessPoints: Array.isArray(instance?.accessPoints) ? instance.accessPoints.length : -1,
+        hasWirelessDevice: instance?.hasWirelessDevice === true,
+        scanWrapped,
+        lastError,
+      };
+    };
+    return { install, remove, status };
+  }
   // The performance surface is the largest absent backend: SystemPerfStore's constructor
   // optional-chains through a SteamClient.System.Perf that does not exist on Windows, so its state
   // stays empty and every control renders null. Availability for each control is read out of that
@@ -870,819 +1683,6 @@
       lastSentWatts,
       lastSentEnabled,
       storedSettings: readSettings(),
-      lastError,
-    });
-    return { install, remove, status };
-  }
-  // Not availability-only, despite the founding comment that said Steam's own backend works on
-  // Windows. It does not — device-disproved 2026-08-30: SetBrightness is a native stub and
-  // RegisterForBrightnessChanges never fires, so the store's observable sits at its constructed 1
-  // and the revealed slider moves nothing. WSGM is the backend: the gate forwards the slider's
-  // writes over the bridge and feeds the store's observable from the published state, both through
-  // the same \\.\LCD interface the host owns.
-  function createBrightnessGate() {
-    const patchId = "wsgm.steam-display.brightness";
-    const field = "is_display_brightness_available";
-    // A string key on the settings message, because the probe reads it from a separate CDP
-    // evaluation where nothing from this scope is reachable. Without it this gate ran the
-    // self-incompatibility teardown loop the audio namespace already paid for: the probe required
-    // the flag to be hidden, a successful apply made it visible, and the patch manager tore down
-    // its own work every poll — the row flickered in and out on a ~25-second cycle on the device.
-    const availability = {
-      marker: "__wsgmBrightnessRevealed",
-      original: "__wsgmOriginalBrightnessAvailability",
-    };
-    const setter = {
-      marker: "__wsgmOwnedSetBrightness",
-      original: "__wsgmOriginalSetBrightness",
-    };
-    let installed = false;
-    let lastError = "";
-    let unsubscribe = null;
-    let lastPercent = null;
-    const displayStore = () => {
-      try {
-        const req = getWebpackRuntime("brightness-store");
-        return req?.("59547")?.mG?.Get?.() ?? null;
-      } catch {
-        return null;
-      }
-    };
-    const settings = () => displayStore()?.m_msgSettings ?? null;
-    const onState = (state) => {
-      if (!installed || !state) return;
-      const percent = Number(state.percent);
-      if (!Number.isInteger(percent) || percent < 0 || percent > 100) return;
-      // Same rule as the volume: write only when WSGM's OWN reading moved, so a publish that
-      // merely restates the level never fights a drag the store is already ahead on.
-      if (percent === lastPercent) return;
-      lastPercent = percent;
-      try {
-        const observable = displayStore()?.m_flDisplayBrightness;
-        if (
-          observable?.Set &&
-          Math.abs((observable.m_currentValue ?? -1) - percent / 100) > 0.004
-        ) {
-          observable.Set(percent / 100);
-        }
-      } catch (error) {
-        lastError = "brightness state apply failed: " + String(error);
-      }
-    };
-    // The slider's writes, taken over at the one method it calls. Same replace-not-stack rule as
-    // the Manager's GetState: the overlay carries the stub it replaced, so a bridge replaced in
-    // place unwinds to the client's own method instead of wrapping a dead closure.
-    const overrideSetter = () => {
-      const display = window.SteamClient?.System?.Display;
-      if (!display || typeof display.SetBrightness !== "function") {
-        lastError = "SteamClient.System.Display.SetBrightness unavailable";
-        return false;
-      }
-      const claim = claimMember(display, "SetBrightness", setter, () => (flBrightness) => {
-        const percent = Math.round(Math.min(1, Math.max(0, Number(flBrightness) || 0)) * 100);
-        // Remembered as ours so the echo of this very write coming back as state does not Set the
-        // observable again underneath the drag.
-        lastPercent = percent;
-        return request(patchId, "setBrightness", { percent }).catch(() => {});
-      });
-      if (!claim.ok) {
-        lastError = claim.error;
-        return false;
-      }
-      return true;
-    };
-    const restoreSetter = () => {
-      const released = releaseMember(
-        window.SteamClient?.System?.Display ?? null,
-        "SetBrightness",
-        setter,
-      );
-      if (!released.ok) {
-        lastError = released.error ?? "brightness setter release failed";
-      }
-    };
-    const install = () => {
-      if (installed) return { ok: true, alreadyInstalled: true };
-      const message = settings();
-      if (!message || !(field in message)) {
-        lastError = "display settings message unavailable";
-        return { ok: false, error: lastError };
-      }
-      // A client already reporting brightness available needs nothing from WSGM, and overwriting
-      // the flag would mean restoring a value that was never ours to change. Available AND MARKED
-      // is different: that is this gate's own earlier reveal, surviving a bridge replaced in
-      // place, and refusing it is the teardown trap. Both cases are the claim primitive's job now.
-      //
-      // `false` is the absent value: a client that hides the row has the flag false, so a reclaim
-      // whose stored original went missing hands back a hidden row rather than `undefined`, which
-      // Steam's `?? true` hook would have read as available forever.
-      const claim = claimValue(message, field, availability, true, false);
-      if (!claim.ok) {
-        lastError = claim.error;
-        return { ok: false, error: lastError };
-      }
-      if (!overrideSetter()) {
-        // Revealing a slider whose writes go into the stub is the broken state this gate shipped
-        // with; the reveal is undone rather than left half-working.
-        releaseValue(message, field, availability);
-        return { ok: false, error: lastError };
-      }
-      installed = true;
-      lastError = "";
-      unsubscribe = subscribe(patchId, onState);
-      return { ok: true, installed: true, available: message[field] === true };
-    };
-    const remove = () => {
-      if (!installed) return { ok: true, absent: true };
-      const message = settings();
-      installed = false;
-      if (unsubscribe) {
-        unsubscribe();
-        unsubscribe = null;
-      }
-      restoreSetter();
-      if (!message) return { ok: true, removed: true, storeGone: true };
-      const released = releaseValue(message, field, availability);
-      if (!released.ok) {
-        lastError = released.error ?? "brightness release failed";
-        return { ok: false, error: lastError };
-      }
-      return { ok: true, removed: true };
-    };
-    const status = () => {
-      const message = settings();
-      return {
-        ok: true,
-        installed,
-        available: message ? message[field] === true : false,
-        setterOwned: memberClaimed(window.SteamClient?.System?.Display, "SetBrightness", setter),
-        lastPercent,
-        observable: displayStore()?.m_flDisplayBrightness?.m_currentValue ?? null,
-        lastError,
-      };
-    };
-    return { install, remove, status };
-  }
-  // Bluetooth is a WebUI transport service whose backend does not exist on Windows. The service,
-  // its message shapes and every operation are present — GetState round-trips and answers
-  // is_service_available:false with empty adapters and devices — so WSGM replaces the stub's
-  // methods rather than implementing the service. `*Handler` exports are message descriptors,
-  // not registration hooks, so implementing it is not on offer.
-  //
-  // The second gate matters here as much as the first: availability is read through react-query
-  // with staleTime Infinity, so replacing the methods changes nothing until that cache is
-  // invalidated. Live-verified 2026-08-30 that RF's methods are writable and configurable and that
-  // the query client's invalidateQueries is reachable.
-  function createBluetoothService() {
-    const patchId = "wsgm.steam-bluetooth.service";
-    const queryKey = ["BluetoothManagerService", "State"];
-    const methodMarker = "__wsgmOwnedBluetoothService";
-    const originalMethodField = "__wsgmOriginalBluetoothServiceMethod";
-    const originals = new Map();
-    let installed = false;
-    let lastError = "";
-    let unsubscribe = null;
-    // Steam's own device and adapter shapes, which are not ours to describe: the store reads them
-    // and WSGM only carries them through from the state it was given.
-    let latest = { is_service_available: false, adapters: [], devices: [] };
-    const modules = () => getWebpackRuntime("bluetooth-service");
-    const reply = transportReply;
-    const invalidate = (req) => invalidateQuery(req, queryKey);
-    // WSGM sends its own field names and the mapping into Steam's lives here, so the client's
-    // schema stays in the half that has to change when the client is rebuilt.
-    const onState = (state) => {
-      if (!installed || !state) return;
-      const devices = Array.isArray(state.devices) ? state.devices : [];
-      latest = {
-        is_service_available: state.available === true,
-        // One synthetic adapter, because the panel needs something to hang the radio toggle on and
-        // Windows exposes no adapter identity WSGM could pass through truthfully.
-        adapters:
-          state.available === true
-            ? [
-                {
-                  id: 1,
-                  mac: "",
-                  name: "Bluetooth",
-                  is_enabled: state.enabled === true,
-                  is_discovering: state.discovering === true,
-                },
-              ]
-            : [],
-        devices: devices.map((device) => ({
-          id: device.id,
-          mac: device.mac ?? "",
-          name: device.name ?? device.id,
-          etype: device.eType ?? 0,
-          is_paired: device.isPaired === true,
-          is_connected: device.isConnected === true,
-          // Steam sorts by signal and shows a battery when one is reported. WSGM knows neither, and
-          // a fabricated strength would order the list by a number that means nothing.
-          strength_raw: 0,
-          battery_percent: null,
-          should_hide_hint: false,
-        })),
-      };
-      invalidate(modules());
-    };
-    const install = () => {
-      if (installed) return { ok: true, alreadyInstalled: true };
-      const req = modules();
-      const RF = req?.("60517")?.RF;
-      if (!RF || typeof RF.GetState !== "function") {
-        lastError = "BluetoothManagerService stub unavailable";
-        return { ok: false, error: lastError };
-      }
-      const forward = (command) => (payload) =>
-        request(patchId, command, payload ?? null).then(
-          () => reply({ success: true }),
-          () => reply({ success: false }),
-        );
-      const replace = (name, replacement) => {
-        const current = RF[name];
-        const original = current?.[methodMarker] === true ? current[originalMethodField] : current;
-        originals.set(name, original);
-        Object.defineProperty(replacement, methodMarker, {
-          value: true,
-          configurable: true,
-          enumerable: false,
-        });
-        Object.defineProperty(replacement, originalMethodField, {
-          value: original,
-          configurable: true,
-          enumerable: false,
-        });
-        RF[name] = replacement;
-      };
-      const restore = () => {
-        for (const [name, original] of originals) {
-          if (RF[name]?.[methodMarker] === true) RF[name] = original;
-        }
-      };
-      try {
-        replace("GetState", () => Promise.resolve(reply(latest)));
-        replace("GetDeviceDetails", (payload) => {
-          const id = payload?.id;
-          const device = latest.devices.find((entry) => entry.id === id) ?? null;
-          return Promise.resolve(reply({ device }));
-        });
-        replace("GetAdapterDetails", () =>
-          Promise.resolve(reply({ adapter: latest.adapters[0] ?? null })),
-        );
-        replace("SetDiscovering", forward("setDiscovering"));
-        replace("Pair", forward("pair"));
-        replace("CancelPair", forward("cancelPair"));
-        replace("Connect", forward("connect"));
-        replace("Disconnect", forward("disconnect"));
-        replace("Forget", forward("forget"));
-        replace("SetTrusted", forward("setTrusted"));
-        replace("SetWakeAllowed", forward("setWakeAllowed"));
-      } catch (error) {
-        lastError = String(error);
-        restore();
-        originals.clear();
-        return { ok: false, error: lastError };
-      }
-      installed = true;
-      lastError = "";
-      unsubscribe = subscribe(patchId, onState);
-      invalidate(req);
-      return { ok: true, installed: true, replaced: originals.size };
-    };
-    const remove = () => {
-      if (!installed) return { ok: true, absent: true };
-      installed = false;
-      if (unsubscribe) {
-        unsubscribe();
-        unsubscribe = null;
-      }
-      const req = modules();
-      const RF = req?.("60517")?.RF;
-      if (RF) {
-        for (const [name, original] of originals) {
-          if (RF[name]?.[methodMarker] === true) RF[name] = original;
-        }
-      }
-      originals.clear();
-      latest = { is_service_available: false, adapters: [], devices: [] };
-      invalidate(req);
-      return { ok: true, removed: true };
-    };
-    const status = () => ({
-      ok: true,
-      installed,
-      replaced: originals.size,
-      available: latest.is_service_available,
-      devices: latest.devices.length,
-      lastError,
-    });
-    return { install, remove, status };
-  }
-  // Wi-Fi is hidden by one getter, not by an absent backend. Steam's Windows client genuinely
-  // tracks the wireless device — hasWirelessDevice and isWifiEnabled are true here without any
-  // help — and only `get networkManagementAvailable(){return TS.IS_STEAMOS}` keeps the UI away.
-  //
-  // Overriding that one property is narrow and reversible and affects one surface. Setting the
-  // constant it reads would produce the same row while changing unrelated client behaviour
-  // everywhere, which is the spoof D16 forbids. Live-verified 2026-08-30: the descriptor is
-  // configurable, the override flips the value, and restoring the saved descriptor puts it back.
-  function createNetworkGate() {
-    const property = "networkManagementAvailable";
-    const patchId = "wsgm.steam-network.gate";
-    const availability = {
-      marker: "__wsgmOwnedGetter",
-      original: "__wsgmOriginalGetterDescriptor",
-    };
-    const scan = {
-      marker: "__wsgmOwnedNetworkScan",
-      original: "__wsgmOriginalNetworkScan",
-    };
-    let target = null;
-    let lastError = "";
-    let scanWrapped = false;
-    let originalStart = null;
-    let originalStop = null;
-    let unsubscribe = null;
-    let syntheticKeys = [];
-    const store = () => {
-      try {
-        const req = getWebpackRuntime("network-store");
-        return req?.("77347")?.OQ?.Get() ?? null;
-      } catch {
-        return null;
-      }
-    };
-    const removeNetworkState = (refresh) => {
-      const instance = store();
-      if (instance) {
-        const keys = new Set(syntheticKeys);
-        // Compatibility cleanup for the retired standalone indicator, which used this exact
-        // bounded id range but could not hand its closure-owned key list to the new gate.
-        const deviceId = instance.m_WirelessDevice?.id;
-        if (deviceId !== undefined) {
-          for (let index = 0; index < 24; index += 1) keys.add(`${deviceId}:${990001 + index}`);
-        }
-        for (const key of keys) instance.m_mapNetworkAccessPoints?.delete(key);
-        instance.m_bIsConnectedToANetwork = instance.IsAnyDeviceConnected();
-        instance.m_bIsConnectingToANetwork = instance.IsAnyDeviceConnecting();
-      }
-      syntheticKeys = [];
-      if (refresh) {
-        try {
-          window.SteamClient?.System?.Network?.ForceRefresh?.();
-        } catch {}
-      }
-    };
-    // One resident owner now reveals AND feeds the network surface. The previous standalone
-    // indicator installed a second script against this same store, with its own version sentinel
-    // and retry timer; bridge state gives the generation-aware gate the same verified connected AP
-    // for the header. Scan lifetime remains an observation of Steam's page, not an invented
-    // connection protocol: its argument order has not been read from the client.
-    const onState = (state) => {
-      const instance = store();
-      const networks = Array.isArray(state?.networks) ? state.networks.slice(0, 24) : [];
-      if (!instance || !instance.m_WirelessDevice) {
-        lastError = "network store has no wireless device";
-        return;
-      }
-      if (networks.length === 0) {
-        removeNetworkState(true);
-        lastError = "";
-        return;
-      }
-      try {
-        const device = JSON.parse(JSON.stringify(instance.m_WirelessDevice));
-        if (!device.wireless) device.wireless = { aps: [], esecurity_supported: 0 };
-        const accessPoints = networks.map((network, index) => ({
-          id: 990001 + index,
-          esecurity: network.secured ? 16 : 0,
-          estrength: Math.max(1, Math.min(4, Number(network.strength) || 1)),
-          ssid: String(network.ssid || ""),
-          is_active: network.connected === true,
-          is_autoconnect: network.connected === true,
-          is_hidden: false,
-        }));
-        const keys = accessPoints.map((accessPoint) => `${device.id}:${accessPoint.id}`);
-        for (const key of syntheticKeys) {
-          if (!keys.includes(key)) instance.m_mapNetworkAccessPoints.delete(key);
-        }
-        for (const key of keys) instance.m_mapNetworkAccessPoints.delete(key);
-        device.estate = networks.some((network) => network.connected === true) ? 5 : device.estate;
-        device.wireless.aps = accessPoints;
-        accessPoints.forEach((accessPoint) => {
-          instance.SetDeviceInfo(device, accessPoint.id);
-          const entry = instance.m_mapNetworkAccessPoints.get(`${device.id}:${accessPoint.id}`);
-          if (entry) entry.MarkAsNotPresent = () => {};
-        });
-        instance.m_bIsConnectedToANetwork = instance.IsAnyDeviceConnected();
-        instance.m_bIsConnectingToANetwork = instance.IsAnyDeviceConnecting();
-        syntheticKeys = keys;
-        lastError = "";
-      } catch (error) {
-        lastError = String(error);
-      }
-    };
-    const install = () => {
-      if (target) return { ok: true, alreadyInstalled: true };
-      const instance = store();
-      if (!instance) {
-        lastError = "network store unavailable";
-        return { ok: false, error: lastError };
-      }
-      // The getter lives on the prototype, so that is what is replaced and restored. Defining it
-      // on the instance would shadow rather than replace, and removal would leave the shadow.
-      //
-      // Marked as ours for the same reason the namespaces are: the compatibility probe checks that
-      // the getter currently reads false, and a successful override makes it read true. Left
-      // unmarked, the patch reads its own success as "the client already reports this available,
-      // stand aside", declares itself incompatible, and tears down — taking the network list with
-      // it. The claim primitive is what keeps that from being re-derived here.
-      const proto = Object.getPrototypeOf(instance);
-      const claim = claimAccessor(proto, property, availability, () => true);
-      if (!claim.ok) {
-        lastError = claim.error;
-        return { ok: false, error: lastError };
-      }
-      target = proto;
-      lastError = "";
-      wrapScanning();
-      unsubscribe = subscribe(patchId, onState);
-      return { ok: true, installed: true, available: instance[property] === true };
-    };
-    // Steam's own UI calls these when its network page opens and closes, so they are exactly the
-    // signal for when a scan is worth running. WSGM's radio manager is otherwise driven by WSGM's
-    // own panel, and a list refreshed only then would be stale on Steam's page — which is worse
-    // than an empty one, because the user picks a network that is gone and the join fails silently.
-    //
-    // Both originals are always called through: this observes the lifetime, it does not take it
-    // over, so a client that grows a working backend keeps behaving exactly as before.
-    const wrapScanning = () => {
-      const net = window.SteamClient?.System?.Network;
-      if (!net || scanWrapped) return;
-      const wrap = (name, command) => {
-        // Checked before claiming, not inside the factory: a client without this method is one this
-        // gate leaves alone entirely, and claiming would mark and reassign something that is not a
-        // method at all.
-        const current = net[name];
-        const existing = claimed(current, scan) ? current[scan.original] : current;
-        if (typeof existing !== "function") return null;
-        let inner = null;
-        const claim = claimMember(net, name, scan, (original) => {
-          inner = original;
-          return function (...args) {
-            // A scan request that cannot reach WSGM must not stop Steam's own call. Promise
-            // rejection is handled explicitly; a try/catch only sees synchronous construction.
-            void request(patchId, command, null).catch(() => {});
-            return inner.apply(this, args);
-          };
-        });
-        return claim.ok ? inner : null;
-      };
-      originalStart = wrap("StartScanningForNetworks", "startScan");
-      originalStop = wrap("StopScanningForNetworks", "stopScan");
-      scanWrapped = !!(originalStart || originalStop);
-    };
-    const unwrapScanning = () => {
-      const net = window.SteamClient?.System?.Network;
-      if (!net || !scanWrapped) return;
-      releaseMember(net, "StartScanningForNetworks", scan);
-      releaseMember(net, "StopScanningForNetworks", scan);
-      originalStart = null;
-      originalStop = null;
-      scanWrapped = false;
-    };
-    const remove = () => {
-      unwrapScanning();
-      if (unsubscribe) {
-        unsubscribe();
-        unsubscribe = null;
-      }
-      removeNetworkState(true);
-      if (!target) return { ok: true, absent: true };
-      const released = releaseAccessor(target, property, availability);
-      if (!released.ok) {
-        lastError = released.error ?? "network availability release failed";
-        return { ok: false, error: lastError };
-      }
-      target = null;
-      return { ok: true, removed: true };
-    };
-    const status = () => {
-      const instance = store();
-      return {
-        ok: true,
-        installed: !!target,
-        available: instance ? instance[property] === true : false,
-        // Reported because the row can be on while the list is empty: Steam's Windows backend
-        // never populates wireless.aps, so an access point count of zero here means WSGM has not
-        // supplied one, not that the machine cannot see any networks.
-        accessPoints: Array.isArray(instance?.accessPoints) ? instance.accessPoints.length : -1,
-        hasWirelessDevice: instance?.hasWirelessDevice === true,
-        scanWrapped,
-        lastError,
-      };
-    };
-    return { install, remove, status };
-  }
-  // Audio is supplied as the namespace Steam's own store looks for, rather than drawn as a row.
-  // The store's availability flag is literally `null != SteamClient.System.Audio`, so defining this
-  // object is the entire gate — there is nothing to patch and nothing to hide.
-  function createAudioNamespace() {
-    const patchId = "wsgm.native-qam.audio";
-    let installed = false;
-    let lastError = "";
-    let unsubscribe = null;
-    // Every registration Steam makes at construction. Held here so a state push can reach them and
-    // so removal drops them all rather than leaving callbacks pointed at a torn-down bridge.
-    const callbacks = {
-      serviceConnection: null,
-      deviceAdded: null,
-      deviceRemoved: null,
-      deviceVolumeChanged: null,
-      volumeButtonPressed: null,
-      appAdded: null,
-      appRemoved: null,
-      appVolumeChanged: null,
-    };
-    const register = (slot) => (callback) => {
-      callbacks[slot] = typeof callback === "function" ? callback : null;
-      // Steam expects an unregister handle from every RegisterFor* call and stores it.
-      return { unregister: () => (callbacks[slot] = null) };
-    };
-    let known = [];
-    let originalStoreState = null;
-    // Steam's audio identities are NUMBERS: the live store keeps m_activeOutputDeviceId as a
-    // uint32 with 0xFFFFFFFF for none (read off the running client, 2026-08-30). WSGM's endpoint
-    // ids are Windows GUID strings, so devices listed by name but nothing could ever match as
-    // active — which reads as "no default device" and disables the volume slider. Each GUID gets a
-    // stable small number for Steam's side of the wire, translated back on every command.
-    const NO_DEVICE = 4294967295;
-    // The key m_mapVolumes is keyed by, and the second argument of both SetDeviceVolume and
-    // OnAudioDeviceVolumeChanged. INPUT IS ZERO — read out of the client's own enum (module 74362:
-    // Input=0, Output=1) on 2026-08-30, after assuming the opposite: with the values swapped the
-    // output slider's writes were filtered out as "input" and the speaker volume was stored under
-    // the input key, which put it on the microphone slider. Named because it has now been confused
-    // with the volume itself AND mirrored, and neither mistake may recur silently.
-    const AudioDirection = Object.freeze({ Input: 0, Output: 1 });
-    // Below one step of a hardware volume button, so a genuine press always counts and float
-    // round-tripping through a whole-number percent never does.
-    const VolumeEpsilon = 0.004;
-    const deviceNumbers = new Map();
-    const deviceGuids = new Map();
-    let nextDeviceNumber = 1;
-    const numberFor = (guid) => {
-      if (typeof guid !== "string" || !guid) return NO_DEVICE;
-      let value = deviceNumbers.get(guid);
-      if (value === undefined) {
-        value = nextDeviceNumber++;
-        deviceNumbers.set(guid, value);
-        deviceGuids.set(value, guid);
-      }
-      return value;
-    };
-    const guidFor = (value) => deviceGuids.get(Number(value)) ?? null;
-    // The store's device constructor ingests flOutputVolume/flInputVolume (0..1) into the map the
-    // sliders bind — omit them and every slider renders a grey bar over undefined. WSGM's volume is
-    // system-wide, so every device carries the same value; Windows' default endpoint is the one the
-    // user actually hears, and a per-device number WSGM cannot move would be an invented control.
-    const toDevice = (entry, flVolume) => ({
-      id: numberFor(entry.id),
-      sName: entry.name,
-      bHasOutput: entry.hasOutput === true,
-      bHasInput: entry.hasInput === true,
-      // WSGM reports ONE volume: the default OUTPUT endpoint's. Copying it into the input field
-      // made Steam's microphone slider show the speaker volume and made the two move together,
-      // because both were the same number written twice. A capture endpoint's own volume needs a
-      // backend WSGM does not have yet, and until it does the honest answer is no value rather
-      // than the wrong one.
-      flOutputVolume: entry.hasOutput === true ? flVolume : undefined,
-      flInputVolume: undefined,
-      // Speaker configuration and HDMI CEC reach a service WSGM does not supply. Reported empty and
-      // false rather than invented, so those controls simply do not appear.
-      currentConfig: {},
-      availableConfigs: [],
-      eConnectorType: 0,
-      eBus: 0,
-      bSupportsHdmiCec: false,
-      bHdmiCecEnabled: false,
-      bHdmiCecActive: false,
-    });
-    // The store that is already running. Defining the namespace is not enough on a live client:
-    // `m_bAvailable` is computed once in the constructor, which ran at client start when
-    // SteamClient.System.Audio did not exist, so the audio section would stay hidden forever.
-    // Live-verified 2026-08-30: the flag is writable and RegisterOrUpdateDevice is the store's own
-    // ingestion path, the same verified path the network gate now owns for the network store.
-    const liveStore = () => {
-      try {
-        const req = getWebpackRuntime("audio-store");
-        const store = req?.("1409")?.F5;
-        return store && "m_bAvailable" in store ? store : null;
-      } catch {
-        return null;
-      }
-    };
-    // The one volume WSGM tracks, as the 0..1 float Steam's sliders use.
-    const flVolumeOf = (state) =>
-      Math.min(1, Math.max(0, (Number(state?.volumePercent) || 0) / 100));
-    // Volume-changed dispatches fire ONLY when the volume moved. Steam shows its volume OSD on
-    // every dispatch, and firing one per publish made the OSD pop up over and over while nothing
-    // had changed. Null means no volume has been reported yet, so the first publish never counts
-    // as a change either — construction already carries it.
-    let lastFlVolume = null;
-    const onState = (state) => {
-      if (!installed || !state || !Array.isArray(state.devices)) return;
-      const flVolume = flVolumeOf(state);
-      const volumeChanged =
-        lastFlVolume !== null && Math.abs(flVolume - lastFlVolume) > VolumeEpsilon;
-      lastFlVolume = flVolume;
-      // Numeric, because these ids flow to the store and its callbacks, and Steam's side of the
-      // wire is numeric everywhere.
-      const seen = state.devices.map((device) => numberFor(device.id));
-      const removed = known.filter((id) => !seen.includes(id));
-      // Removals first: a device that has gone must leave the store before a re-read of the device
-      // list can describe the set as complete, or the picker keeps an endpoint that is not there.
-      for (const id of removed) {
-        if (callbacks.deviceRemoved) callbacks.deviceRemoved(id);
-      }
-      for (const device of state.devices) {
-        if (callbacks.deviceAdded) callbacks.deviceAdded(toDevice(device, flVolume));
-        // (deviceId, DIRECTION, volume) — in that order. Read off the store's own methods
-        // 2026-08-30: OnAudioDeviceVolumeChanged(e,t,r) forwards to OnVolumeUpdated(t,r), which is
-        // m_mapVolumes.set(t, r). The direction is the KEY and the volume is the VALUE, and WSGM
-        // was passing them the other way round — every entry it wrote was keyed by a float volume
-        // with 1 or 0 as its value, so getDeviceVolume(direction) found nothing and the slider had
-        // no number to sit on.
-        //
-        // Still gated on an actual change, unlike the direct path below, which also has to seed:
-        // a store that registered these callbacks was constructed after the namespace existed and
-        // therefore already read the volumes at construction.
-        if (volumeChanged && device.hasOutput === true && callbacks.deviceVolumeChanged) {
-          const id = numberFor(device.id);
-          callbacks.deviceVolumeChanged(id, AudioDirection.Output, flVolume);
-        }
-      }
-      known = seen;
-      // The registrations above only reach a store constructed after the namespace existed. The
-      // running one has to be fed through its own path, and told it is available at all.
-      const store = liveStore();
-      if (!store) return;
-      try {
-        originalStoreState ??= {
-          available: store.m_bAvailable === true,
-          output: Number(store.m_activeOutputDeviceId) || NO_DEVICE,
-          input: Number(store.m_activeInputDeviceId) || NO_DEVICE,
-        };
-        store.m_bAvailable = true;
-        for (const id of removed) {
-          store.m_mapAudioDevices?.delete(id);
-        }
-        for (const device of state.devices) {
-          store.RegisterOrUpdateDevice(toDevice(device, flVolume));
-          // Update() copies the name, the directions and the CEC flags and nothing else — read
-          // live 2026-08-30 — so registration never fills m_mapVolumes and this is its only path.
-          //
-          // But writing on every publish is wrong in both directions at once. It dispatches a
-          // volume change once a second, which is Steam's OSD popping up forever; and while the
-          // user is dragging, the store is already holding the value they chose, so pushing WSGM's
-          // not-yet-observed one snaps the handle back under their thumb.
-          //
-          // So: seed a direction that has no value at all, and otherwise write only when WSGM's
-          // OWN reading moved — something outside Steam changed the volume — and the store has not
-          // already caught up. Both are suppressed, because neither is the user acting inside
-          // Steam: a hardware button already shows WSGM's own overlay.
-          const deviceId = numberFor(device.id);
-          const entry = store.m_mapAudioDevices?.get(deviceId);
-          // The OUTPUT direction only, and only on a device that has one. This is the single volume
-          // WSGM observes; writing it to the input direction as well is what put the speaker volume
-          // on the microphone slider and made the two move as one.
-          for (const direction of device.hasOutput === true ? [AudioDirection.Output] : []) {
-            const held = entry?.getDeviceVolume?.(direction);
-            const seeding = typeof held !== "number";
-            if (!seeding && !(volumeChanged && Math.abs(held - flVolume) > VolumeEpsilon)) {
-              continue;
-            }
-            store.SuppressVolumeOverlay?.();
-            try {
-              store.OnAudioDeviceVolumeChanged?.(deviceId, direction, flVolume);
-            } finally {
-              // Balanced whatever the dispatch does: the pair is a refcount, and leaking one would
-              // suppress the user's own volume overlay for the rest of the session.
-              store.UnSuppressVolumeOverlay?.();
-            }
-          }
-        }
-        // The running store learns the defaults from nothing else: a store constructed before the
-        // namespace existed has 0xFFFFFFFF in both, which the settings page renders as "no default
-        // device" and a disabled volume slider.
-        store.m_activeOutputDeviceId = numberFor(state.activeOutputDeviceId ?? "");
-        store.m_activeInputDeviceId = numberFor(state.activeInputDeviceId ?? "");
-      } catch {
-        // A store whose shape moved is a compatibility loss, not a fault: the namespace stays and
-        // a client rebuilt around a different store simply shows no audio section.
-      }
-    };
-    const install = () => {
-      if (installed) return { ok: true, alreadyInstalled: true };
-      const system = window.SteamClient?.System;
-      if (!system) {
-        lastError = "SteamClient.System unavailable";
-        return { ok: false, error: lastError };
-      }
-      const buildApi = () => ({
-        GetDevices: () =>
-          request(patchId, "getDevices", null, 0).then((state) => ({
-            activeOutputDeviceId: numberFor(state?.activeOutputDeviceId ?? ""),
-            activeInputDeviceId: numberFor(state?.activeInputDeviceId ?? ""),
-            overrideOutputDeviceId: NO_DEVICE,
-            overrideInputDeviceId: NO_DEVICE,
-            vecDevices: Array.isArray(state?.devices)
-              ? state.devices.map((device) => toDevice(device, flVolumeOf(state)))
-              : [],
-          })),
-        // Empty until a session mixer exists. Steam then lists no per-application entries, which is
-        // the honest outcome rather than inventing volumes it cannot move.
-        GetApps: () => Promise.resolve({ rgApps: [] }),
-        SetDefaultDeviceOverride: (id, direction) => {
-          // Steam hands back the number this side minted; the host only knows the GUID.
-          const guid = guidFor(id);
-          if (!guid) return Promise.resolve();
-          return request(patchId, "setDefaultDevice", {
-            id: guid,
-            input: direction === AudioDirection.Input,
-          });
-        },
-        // (deviceId, DIRECTION, volume) — three arguments. Read off the store's own device class
-        // 2026-08-30: setDeviceVolume(e,t) calls SetDeviceVolume(this.m_id, e, t). WSGM declared
-        // two parameters and so read the DIRECTION as the volume: dragging the slider sent
-        // Math.round(1 * 100) or Math.round(0 * 100), which is why every drag set 100% or 0% and
-        // the log showed "Taskbar volume set to 100%" the moment the slider was touched.
-        //
-        // Only the output direction is forwarded. WSGM's backend moves the default endpoint's
-        // volume, which is the output one; forwarding the microphone's slider to it would have the
-        // two controls fight over the same number.
-        SetDeviceVolume: (id, direction, volume) => {
-          if (direction !== AudioDirection.Output) return Promise.resolve();
-          return request(patchId, "setVolume", {
-            percent: Math.round(Math.min(1, Math.max(0, Number(volume) || 0)) * 100),
-          });
-        },
-        SetAppVolume: () => Promise.resolve(),
-        ClearDefaultDeviceOverride: () => Promise.resolve(),
-        RegisterForServiceConnectionStateChanges: register("serviceConnection"),
-        RegisterForDeviceAdded: register("deviceAdded"),
-        RegisterForDeviceRemoved: register("deviceRemoved"),
-        RegisterForDeviceVolumeChanged: register("deviceVolumeChanged"),
-        RegisterForVolumeButtonPressed: register("volumeButtonPressed"),
-        RegisterForAppAdded: register("appAdded"),
-        RegisterForAppRemoved: register("appRemoved"),
-        RegisterForAppVolumeChanged: register("appVolumeChanged"),
-      });
-      // Refusing a real backend and reclaiming our own orphan are both the primitive's job now; the
-      // reasoning for each lives with it.
-      const supplied = supplyNamespace(system, "Audio", ownedMarker, buildApi);
-      if (!supplied.ok) {
-        lastError = supplied.error;
-        return { ok: false, error: lastError };
-      }
-      installed = true;
-      lastError = "";
-      unsubscribe = subscribe(patchId, onState);
-      return { ok: true, installed: true };
-    };
-    const remove = () => {
-      if (!installed) return { ok: true, absent: true };
-      installed = false;
-      if (unsubscribe) {
-        unsubscribe();
-        unsubscribe = null;
-      }
-      for (const slot of Object.keys(callbacks)) callbacks[slot] = null;
-      const store = liveStore();
-      if (store) {
-        try {
-          for (const id of known) store.m_mapAudioDevices?.delete(id);
-          store.m_bAvailable = originalStoreState?.available ?? false;
-          store.m_activeOutputDeviceId = originalStoreState?.output ?? NO_DEVICE;
-          store.m_activeInputDeviceId = originalStoreState?.input ?? NO_DEVICE;
-        } catch (error) {
-          lastError = "audio store cleanup failed: " + String(error);
-        }
-      }
-      known = [];
-      originalStoreState = null;
-      const withdrawn = withdrawNamespace(window.SteamClient?.System, "Audio", ownedMarker);
-      if (!withdrawn.ok) {
-        lastError = withdrawn.error ?? "audio namespace withdrawal failed";
-        return { ok: false, error: lastError };
-      }
-      return { ok: true, removed: true };
-    };
-    const status = () => ({
-      ok: true,
-      installed,
-      namespacePresent: !!window.SteamClient?.System?.Audio,
-      registrations: Object.keys(callbacks).filter((slot) => callbacks[slot] !== null),
-      knownDevices: known.length,
       lastError,
     });
     return { install, remove, status };

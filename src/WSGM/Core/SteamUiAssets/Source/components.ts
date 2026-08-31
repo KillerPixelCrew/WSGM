@@ -1270,4 +1270,3 @@
     };
     return { install, remove, status, dispose: disposeHostResources };
   }
-})();
