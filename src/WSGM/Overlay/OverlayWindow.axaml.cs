@@ -1691,6 +1691,7 @@ public partial class OverlayWindow : Window
             }
         }
         PinnedEmptyHint.IsVisible = PinnedGrid.Children.Count == 0;
+        UpdatePinnedIndicators();
         Log.Change("overlay.pins", $"Quick access pins: {PinnedGrid.Children.Count} of {_pins.Count} rendered.");
         if (restoreFocus is not null)
         {
@@ -1704,6 +1705,28 @@ public partial class OverlayWindow : Window
             FocusFirstControl(PanelQuickAccess);
         }
     }
+
+    /// <summary>Updates the pin marker on every row in its original destination.</summary>
+    /// <remarks>
+    /// Device and performance rows are rebuilt from snapshots, so this deliberately walks the
+    /// current logical tree instead of retaining references to those short-lived controls. Quick
+    /// access mirrors use a prefixed tag and remain unmarked: the icon is the immediate feedback at
+    /// the source row, where the user pressed X or held the card.
+    /// </remarks>
+    private void UpdatePinnedIndicators()
+    {
+        var pinned = _pins.ToHashSet(StringComparer.Ordinal);
+        foreach (CardButton button in this.GetLogicalDescendants().OfType<CardButton>())
+        {
+            button.IsPinned = IsOriginalPinnedRow(button.Tag, pinned);
+        }
+    }
+
+    /// <summary>Determines whether a tagged card is an original row in the active pin set.</summary>
+    internal static bool IsOriginalPinnedRow(object? tag, IReadOnlySet<string> pinned)
+        => tag is string id
+            && !id.StartsWith(PinTagPrefix, StringComparison.Ordinal)
+            && pinned.Contains(id);
 
     private CardButton CreatePinMirror(string id, CardButton source)
     {

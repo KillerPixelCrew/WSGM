@@ -19,16 +19,17 @@ always-alive destination roots — Quick access / Session (`Home`) / Steam / opt
 switch, and the warning `InfoBar` staying panel-level above the tabs. `DefaultFocusTarget` resolves
 to the ACTIVE destination's first row. **Quick access is the home root and the Back target of every
 other root**: `AppConfig.QuickAccessPins` holds row ids (each pinnable `CardButton` carries its id
-in `Tag`; X / touch-hold / right-click toggles one through `PinToggleRequested`), and the root
-renders live MIRRORS of the XAML rows that follow their title/description/badge/visibility and press
-through to the source's Click handlers — so a row that rewrites its own title ("Really?", "Applied
-to …") keeps working when pinned — plus Device rows (capability keys and the direct-row focus keys)
-re-rendered from the current snapshot on every Device render. Along the sheet's bottom sits the
-**Open apps** chip strip (`AppSwitcherViewModel`, reconciled IN PLACE every second — a wholesale
-rebuild would destroy the focused chip under the gamepad cursor; Y cycles to the next window, X on a
-tray pill opens its context menu). The peer keyboard window hangs over the sheet's lower edge (the
-exposed game strip is too short for it); D-pad Down off the sheet's last row crosses into it and Up
-off the keyboard's top row crosses back.
+in `Tag`; X / touch-hold / right-click toggles one through `PinToggleRequested`), the original row
+immediately shows or clears its pin marker, and the root renders live MIRRORS of the XAML rows that
+follow their title/description/badge/visibility and press through to the source's Click handlers —
+so a row that rewrites its own title ("Really?", "Applied to …") keeps working when pinned — plus
+Device rows (capability keys and the direct-row focus keys) re-rendered from the current snapshot on
+every Device render. Along the sheet's bottom sits the **Open apps** chip strip
+(`AppSwitcherViewModel`, reconciled IN PLACE every second — a wholesale rebuild would destroy the
+focused chip under the gamepad cursor; Y cycles to the next window, X on a tray pill opens its
+context menu). The peer keyboard window hangs over the sheet's lower edge (the exposed game strip is
+too short for it); D-pad Down off the sheet's last row crosses into it and Up off the keyboard's top
+row crosses back.
 
 Destinations host in-place nested pages: six self-drawing sub-views over `OverlaySubView`
 (`LibraryTabsView`, `CardManagerView`, `ArtworkView`, `LaunchWrapperView`, `WakeLockHoldersView`,

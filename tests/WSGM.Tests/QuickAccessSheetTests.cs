@@ -57,6 +57,18 @@ public sealed class QuickAccessSheetTests
     }
 
     [Theory]
+    [InlineData("steam.artwork", true)]
+    [InlineData("steam.card-manager", false)]
+    [InlineData("pin:steam.artwork", false)]
+    [InlineData(null, false)]
+    public void PinMarkerAppearsOnlyOnThePinnedRowsOriginalLocation(string? tag, bool expected)
+    {
+        IReadOnlySet<string> pins = new HashSet<string>(["steam.artwork"], StringComparer.Ordinal);
+
+        Assert.Equal(expected, OverlayWindow.IsOriginalPinnedRow(tag, pins));
+    }
+
+    [Theory]
     [InlineData(ScreenEdge.Bottom, 100, 100, 125, 35, 65)]
     [InlineData(ScreenEdge.Right, 100, 100, 35, 125, 65)]
     [InlineData(ScreenEdge.Left, 100, 100, 165, 35, 65)]

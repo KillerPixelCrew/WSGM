@@ -79,6 +79,17 @@
                                              VerticalAlignment="Center"
                                              Fill="{TemplateBinding StatusBrush}"
                                              IsVisible="{TemplateBinding StatusBrush, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                    <Path Name="PART_Pin"
+                                          Width="16"
+                                          Height="16"
+                                          Data="{x:Static c:Icons.Pin}"
+                                          Stretch="Uniform"
+                                          Stroke="{TemplateBinding Foreground}"
+                                          StrokeThickness="1.8"
+                                          StrokeLineCap="Round"
+                                          StrokeJoin="Round"
+                                          VerticalAlignment="Center"
+                                          IsVisible="{TemplateBinding IsPinned}" />
                                     <!-- The device's own glyph when one resolved, otherwise the
                                          letter. Both bind the same trailing slot, and exactly one
                                          is visible, so a Claw shows its printed button and a

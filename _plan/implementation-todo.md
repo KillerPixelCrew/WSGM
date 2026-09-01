@@ -441,7 +441,9 @@ make the architecture smaller.
       status pills moved into the sheet; the edge map is SteamOS's (left/right Steam, top/bottom
       WSGM); `AppConfig.QuickAccessPins` holds the pins. State ownership is unchanged — the Device
       root still renders `IDeviceOverlaySource` snapshots and pinned Device rows are re-rendered
-      from them. **Attended acceptance on the reference Claw is still outstanding** (sheet geometry
+      from them. Pin toggles update the active sheet immediately and mark the row in its original
+      destination; no close/reopen cycle is part of the interaction. **Attended acceptance on the
+      reference Claw is still outstanding** (sheet geometry
       and slide-in at every UI scale, tap-outside on the exposed strip, pinning by X / touch-hold,
       Open apps chips, status panels hanging from the header, keyboard window over the sheet's
       lower edge, OEM taskbar button now opening the sheet on Open apps). The Device root's own

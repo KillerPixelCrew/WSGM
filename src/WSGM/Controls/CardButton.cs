@@ -76,6 +76,12 @@ public class CardButton : Button
         AvaloniaProperty.Register<CardButton, IBrush?>(nameof(StatusBrush));
 
     /// <summary>
+    /// Defines the <see cref="IsPinned"/> property.
+    /// </summary>
+    public static readonly StyledProperty<bool> IsPinnedProperty =
+        AvaloniaProperty.Register<CardButton, bool>(nameof(IsPinned));
+
+    /// <summary>
     /// Gets or sets the vector icon rendered at the left edge of the card,
     /// stroked with the button's foreground brush. The icon slot collapses
     /// when this is null.
@@ -172,5 +178,18 @@ public class CardButton : Button
     {
         get => GetValue(StatusBrushProperty);
         set => SetValue(StatusBrushProperty, value);
+    }
+
+    /// <summary>
+    /// Gets or sets whether this card's original location shows the Quick access pin marker.
+    /// </summary>
+    /// <remarks>
+    /// The marker is presentation state only. The overlay owns the persisted pin list and updates
+    /// this value immediately when the user toggles a row.
+    /// </remarks>
+    public bool IsPinned
+    {
+        get => GetValue(IsPinnedProperty);
+        set => SetValue(IsPinnedProperty, value);
     }
 }
