@@ -421,9 +421,12 @@ directly so the taskbar slider lags the OSD by one poll.
       `ViiperControllerBackend.SafeNative(Func<int>, string)` under `RemoveDeviceUnderGate` — the
       overload forwarded through `() => _ = action()`, whose int-valued body binds back to the
       `Func<int>` overload rather than `Action`, so `DeviceRemove` and `Shutdown` never ran. The
-      backend now has one `Func<int>` overload, with regression tests that it runs its call exactly
+      backend now has one `Action` overload, with regression tests that it runs its call exactly
       once and swallows only native binding failures. Patch 0005 is kept as ordering hygiene and its
       README entry now says what it does and does not fix.
+- [x] Complete attended acceptance for live controller-target replacement (2026-09-01). The
+      maintainer confirmed the corrected build switches controller type without the prior WSGM
+      stack-overflow crash.
 
 ## Verification for this milestone
 
