@@ -100,10 +100,15 @@ systems. Preserve their observable behavior and diagnostic coverage while simpli
   on every push.
 - Iteration on the reference device uses `eng\dev-deploy.ps1`; an installer is for milestone
   hand-off. Never run dev deploy without the machine and attendance checks below.
-- A milestone hand-off runs `build.ps1`, then copies the newest `publish\WSGM-Setup-*.exe` to `Z:\`.
+- A milestone hand-off runs `build.ps1`, then copies the exact installer named by the checked-in
+  project version to `Z:\` and verifies the copied hash.
 
-Version numbers are maintainer-owned. Never change `<Version>` in `WSGM.csproj` unless the user asks
-to tag a specific release; that instruction authorizes setting the matching version before tagging.
+Version numbers are maintainer-owned. `src\WSGM\WSGM.csproj` `<Version>` is the single source of
+truth for application metadata, the companion executables published by `build.ps1`, Inno Setup's
+`AppVersion`, and `publish\WSGM-Setup-<version>.exe`. The 2.0 line currently uses `2.0.0`, producing
+`WSGM-Setup-2.0.0.exe`. Change it only when the maintainer explicitly asks to advance the product or
+installer version, or to prepare a named release. A version change does not authorize a Git tag or
+GitHub release; tagging and publishing still require their own explicit instruction.
 
 ## Commands and live-system boundary
 
@@ -155,9 +160,11 @@ Being on the Claw does not authorize shell takeover, writes, or plugin activatio
 
 ## Native and packaged dependencies
 
-**The first-party dependencies below are submodules, not vendored directories.** They are separate
-`KillerPixelCrew` repositories because they are useful on their own and can be developed directly
-from this recursive checkout:
+**The first-party dependencies below are submodules, not vendored directories.** `WSGM.slnx` and
+the PowerShell build/staging scripts consume those checked-out projects directly at their pinned
+Git links. Do not reintroduce release downloads, extracted source caches, copied project mirrors, or
+separate version/digest lock files for them. They are separate `KillerPixelCrew` repositories
+because they are useful on their own and can be developed directly from this recursive checkout:
 
 | Path | Repository | Empty checkout looks like |
 | --- | --- | --- |
@@ -290,14 +297,27 @@ At a major milestone:
 
 1. Run `./eng/verify.ps1 -Fix`.
 2. Run `./build.ps1`.
-3. Confirm the installer exists, then copy the newest matching installer to `Z:\`:
+3. Resolve the checked-in version, require that exact installer, copy it to `Z:\`, and compare the
+   source and destination hashes:
 
 ```powershell
-$setup = Get-ChildItem -LiteralPath .\publish -Filter 'WSGM-Setup-*.exe' |
-    Sort-Object LastWriteTimeUtc -Descending |
-    Select-Object -First 1
-if ($null -eq $setup) { throw 'WSGM installer was not produced.' }
-Copy-Item -LiteralPath $setup.FullName -Destination 'Z:\' -Force
+$project = Get-Content -LiteralPath .\src\WSGM\WSGM.csproj -Raw
+if ($project -notmatch '<Version>([^<]+)</Version>') {
+    throw 'WSGM.csproj has no Version.'
+}
+$version = $Matches[1]
+$setupPath = ".\publish\WSGM-Setup-$version.exe"
+if (-not (Test-Path -LiteralPath $setupPath -PathType Leaf)) {
+    throw "Expected installer was not produced: $setupPath"
+}
+$setup = Get-Item -LiteralPath $setupPath
+$destination = Join-Path 'Z:\' $setup.Name
+$sourceHash = (Get-FileHash -LiteralPath $setup.FullName -Algorithm SHA256).Hash
+Copy-Item -LiteralPath $setup.FullName -Destination $destination -Force
+$destinationHash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash
+if ($sourceHash -ne $destinationHash) {
+    throw "Copied installer hash mismatch: $destination"
+}
 ```
 
 Report automated/build evidence separately from live or attended acceptance that has not run.
