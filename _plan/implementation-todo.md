@@ -46,16 +46,16 @@ Real separate boundaries
   external/WSGM.Device.Sdk           public plugin and package contract (submodule, MIT)
   external/windows-device-control    radio/Wi-Fi/audio/brightness library (submodule)
   external/steam-ui-toolkit          CDP transport, patch lifecycle, bridge, modules (submodule)
-  third_party/devicelab              diagnostic/authoring GUI + CLI (pinned release)
-  third_party/claw-plugin            built-in MSI Claw device package (pinned release)
+  external/WSGM.DeviceLab            diagnostic/authoring GUI + CLI (submodule)
+  external/WSGM.Device.Msi.Claw8A2Vm built-in MSI Claw device package (submodule)
   VIIPER                             native virtual-controller backend
 ```
 
-The solution contains four projects from this repository — WSGM, Launch, LogonService and one test
-project — plus the two submodule library projects it references. Device Lab and the built-in device
-package are no longer built here at all. A process, project, helper, mirror, protocol or abstraction is not
-retained for future flexibility; it needs a current consumer or an OS, lifetime, packaging or
-public-contract boundary.
+The solution contains WSGM, Launch, LogonService and their tests plus the production and test
+projects in the pinned library, SDK, Device Lab, and built-in-package submodules. The application
+still loads the installed package dynamically. A process, project, helper, mirror, protocol or
+abstraction is not retained for future flexibility; it needs a current consumer or an OS, lifetime,
+packaging or public-contract boundary.
 
 ## Simplification milestone - complete in source
 
@@ -77,9 +77,10 @@ public-contract boundary.
       tests are merged into `WSGM.Tests`; the obsolete DeviceHost project is removed.
 - [x] **Make one CEF system.** `PersistentSteamUiTransport` is the only CDP connection owner.
       One-shot calls lease that transport; the second `SteamCef` socket/evaluation stack is gone.
-      Download sorting is a managed MainWindow patch, network availability/scanning/indicator state
-      is one gate, lifecycle is centralized, host routing/publication are tables, and the QAM source
-      is split into ordered TypeScript fragments that still produce the same single hashed asset.
+      Download sorting is a managed SharedJSContext patch over Steam's JSX runtime, network
+      availability/scanning/indicator state is one gate, lifecycle is centralized, host
+      routing/publication are tables, and the QAM source is split into ordered TypeScript fragments
+      that still produce the same single hashed asset.
       The card badge and library tabs retain their proven resident mutations while using the unified
       transport; replacing those mutations requires the attended matrices below.
 - [x] **Remove dead and parallel policy paths.** Legacy controller source/output types, unused
@@ -149,19 +150,14 @@ pinned submodule, so it can be versioned, consumed and reported against on its o
       plugin, so the application's copyleft there would have made every plugin GPL-3, including any
       vendor or OEM one. Clean to do: single author, no dependencies. 35 tests moved with it, plus
       guards for the zero-dependency rule and the documentation gate.
-- [x] **`WSGM.DeviceLab`** (pinned release, public). 16k lines and 95 tests left this repository.
-      It is **not** a submodule: it carries its own SDK submodule, and building it inside this
-      solution would put two `WSGM.Device.Sdk` projects in one build from two pins that can drift.
-      The installer's optional `devicelab` component now ships the release pinned by digest in
-      `third_party\devicelab\devicelab.lock.json`, acquired and verified by
-      `eng\acquire-devicelab.ps1`. Users see no change; this repository stops compiling the tool.
-- [x] **`WSGM.Device.Msi.Claw8A2Vm`** (pinned release, public, MIT). The reference implementation
+- [x] **`WSGM.DeviceLab`** (submodule, public). Its source and tests remain in their independent MIT
+      repository, while the main solution builds the commit pinned at `external\WSGM.DeviceLab` and
+      the installer publishes the tool from that same source.
+- [x] **`WSGM.Device.Msi.Claw8A2Vm`** (submodule, public, MIT). The reference implementation
       the SDK documentation points at — a reference nobody may copy is not a reference, which is
-      why it is permissive rather than GPL-3. Pinned rather than a submodule for the same reason as
-      Device Lab. Its own repository builds, validates and packs the `.wsgmpkg` with a pinned
-      Device Lab, dogfooding the whole SDK → Lab → package pipeline; WSGM re-validates the expanded
-      tree before staging, because a package is only as trustworthy as the last validator that saw
-      the exact bytes shipped.
+      why it is permissive rather than GPL-3. Its repository builds, validates and packs the
+      `.wsgmpkg` with its Device Lab submodule; WSGM invokes that packer and re-validates the expanded
+      tree with its own pinned Device Lab build before staging.
       **Caught in the move:** the first packed release silently lost all 24 glyph files. MSBuild
       never copied them and package validation treats glyphs as optional, so it passed every gate
       and would have rendered Valve's default glyphs forever. Both the pack script and the lock

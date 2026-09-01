@@ -92,7 +92,6 @@ Write-Host "== Publishing device tools and package ==" -ForegroundColor Cyan
     -OutputRoot "$root\publish" `
     -Configuration Release `
     -RuntimeIdentifier win-x64 `
-    -Version $version `
     -NoRestore
 & "$root\eng\assert-component-staging.ps1" -OutputRoot "$root\publish"
 

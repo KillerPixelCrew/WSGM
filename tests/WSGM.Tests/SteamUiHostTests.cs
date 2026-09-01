@@ -374,7 +374,7 @@ public sealed class SteamUiSessionHostTests
     }
 
     [Fact]
-    public async Task MainWindowGenerationQueuesDownloadPatchResynchronization()
+    public async Task SharedContextGenerationQueuesDownloadPatchResynchronization()
     {
         await using var transport = new SessionHostTransport();
         await using var performance = new PerformanceService(
@@ -392,9 +392,16 @@ public sealed class SteamUiSessionHostTests
             snapshot.Id == "wsgm.download-sort"
             && snapshot.State == SteamUiPatchState.Verified));
 
-        transport.AdvanceGeneration(SteamUiTargetRole.MainWindow);
+        transport.AdvanceGeneration(SteamUiTargetRole.SharedJsContext);
 
-        await transport.SecondDownloadInstall.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Task completed = await Task.WhenAny(
+            transport.SecondDownloadInstall.Task,
+            Task.Delay(TimeSpan.FromSeconds(2)));
+        Assert.True(
+            ReferenceEquals(completed, transport.SecondDownloadInstall.Task),
+            $"Download install count was {transport.DownloadInstallations}; states: "
+                + string.Join(", ", host.GetPatchSnapshots().Select(snapshot =>
+                    $"{snapshot.Id}={snapshot.State}/{snapshot.Generations}")));
         await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
             snapshot.Id == "wsgm.download-sort"
             && snapshot.State == SteamUiPatchState.Verified));
@@ -513,6 +520,8 @@ public sealed class SteamUiSessionHostTests
             TaskCreationOptions.RunContinuationsAsynchronously);
 
         internal string? BridgeConfiguration => Volatile.Read(ref _bridgeConfiguration);
+
+        internal int DownloadInstallations => Volatile.Read(ref _downloadInstallations);
 
         public ValueTask<IAsyncDisposable> SubscribeAsync(
             SteamUiTargetRole role,
@@ -795,7 +804,7 @@ public sealed class NativeQamComponentPatchTests
     }
 
     [Fact]
-    public async Task DownloadSortUsesMainWindowPatchLifecycle()
+    public async Task DownloadSortUsesSharedContextPatchLifecycle()
     {
         await using var transport = new NativeQamComponentTransport();
         await using var manager = new SteamUiPatchManager(transport);

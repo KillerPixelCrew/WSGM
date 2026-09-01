@@ -21,11 +21,9 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Two submodules, and both break the build in a way that does not name the cause when
-          # they check out empty: native/SteamInput (KillerPixelCrew/steam-input-lease) leaves
-          # eng\build-steam-input-lease.ps1 with no workspace, so the gate/FFI DLLs never reach the
-          # publish and it reads as a Rust toolchain problem; external/windows-device-control is a
-          # project reference, so it fails as an unresolvable csproj path instead.
+          # Every first-party library, SDK, tool, and device package is commit-pinned as a
+          # submodule. Recursive checkout also resolves the SDK pins inside Device Lab and the
+          # built-in package.
           submodules: recursive
 
       - name: Set up .NET SDK

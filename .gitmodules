@@ -10,3 +10,9 @@
 [submodule "external/steam-ui-toolkit"]
 	path = external/steam-ui-toolkit
 	url = https://github.com/KillerPixelCrew/steam-ui-toolkit
+[submodule "external/WSGM.DeviceLab"]
+	path = external/WSGM.DeviceLab
+	url = https://github.com/KillerPixelCrew/WSGM.DeviceLab
+[submodule "external/WSGM.Device.Msi.Claw8A2Vm"]
+	path = external/WSGM.Device.Msi.Claw8A2Vm
+	url = https://github.com/KillerPixelCrew/WSGM.Device.Msi.Claw8A2Vm

@@ -4,12 +4,10 @@ WSGM loads one administrator-installed device plugin through the public `WSGM.De
 A plugin owns exact device detection, hardware transports, semantic capabilities, input and output,
 diagnostics, and restoration. It supplies no UI code and cannot use WSGM internals.
 
-Both tools an author needs live outside this repository: `KillerPixelCrew/WSGM.Device.Sdk` is the
-contract, pinned here as the `external\WSGM.Device.Sdk` submodule; `KillerPixelCrew/WSGM.DeviceLab`
-is the tool, pinned here as a release digest in `third_party\devicelab\devicelab.lock.json`. Both
-are MIT, so a plugin carries whatever licence its author chooses. Inside this checkout, run
-`eng\acquire-devicelab.ps1` once and invoke `third_party\devicelab\staging\wsgm-device.exe`; the
-`wsgm-device` below is that executable, or an installed Device Lab.
+Both tools an author needs are MIT submodules: `external\WSGM.Device.Sdk` is the contract and
+`external\WSGM.DeviceLab` is the tool. Their Git links pin exact source commits while still allowing
+changes to be committed directly in either repository. Build Device Lab from its project in this
+checkout; `wsgm-device` below means that build or an installed Device Lab.
 
 ## 1. Create and implement
 

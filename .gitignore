@@ -29,8 +29,8 @@
 /third_party/**/bin/
 /third_party/**/obj/
 
-# Acquired by eng\acquire-devicelab.ps1 and eng\acquire-claw-plugin.ps1 from the digests pinned in
-# their lock files. No third-party or first-party binary payload is ever checked in.
+# Generated caches left by revisions that used the retired release-acquisition workflow. Current
+# builds use the source submodules and never read these directories.
 /third_party/devicelab/staging/
 /third_party/claw-plugin/staging/
 

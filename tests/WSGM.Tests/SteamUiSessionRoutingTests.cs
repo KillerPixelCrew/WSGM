@@ -63,6 +63,7 @@ public sealed class SteamUiSessionRoutingTests
         var firstCancelled = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var calls = 0;
+        TimeSpan routeDeadline = TimeSpan.FromSeconds(2);
         await using var host = new SteamUiSessionHost(
             transport,
             async cancellationToken =>
@@ -91,7 +92,7 @@ public sealed class SteamUiSessionRoutingTests
             sequence: 1,
             actionGeneration: 1,
             payload: null);
-        await firstStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await firstStarted.Task.WaitAsync(routeDeadline);
         transport.EmitRequest(
             "wsgm.native-qam.shell",
             "toggleQuickAccess",
@@ -99,7 +100,7 @@ public sealed class SteamUiSessionRoutingTests
             actionGeneration: 1,
             payload: null,
             type: "cancel");
-        await firstCancelled.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await firstCancelled.Task.WaitAsync(routeDeadline);
 
         transport.EmitRequest(
             "wsgm.native-qam.shell",

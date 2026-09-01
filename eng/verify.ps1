@@ -47,6 +47,32 @@ try {
 
     & "$PSScriptRoot\check-agent-guidance.ps1"
 
+    # Parse every retained PowerShell entry point in this repository and its recursive submodules.
+    # This is syntax-only: deployment, shell, installer, and hardware scripts must never be invoked
+    # by the unattended verification gate merely to prove that they still parse.
+    $powerShellFiles = @(
+        git ls-files --recurse-submodules -- "*.ps1" "*.psm1" |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
+    )
+    if ($LASTEXITCODE -ne 0 -or $powerShellFiles.Count -eq 0) {
+        throw "Enumerating tracked PowerShell scripts failed"
+    }
+    foreach ($powerShellFile in $powerShellFiles) {
+        $tokens = $null
+        $parseErrors = $null
+        [void][Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $root $powerShellFile),
+            [ref]$tokens,
+            [ref]$parseErrors)
+        if ($parseErrors.Count -gt 0) {
+            $details = $parseErrors | ForEach-Object {
+                "$powerShellFile`:$($_.Extent.StartLineNumber): $($_.Message)"
+            }
+            throw "PowerShell syntax validation failed:`n$($details -join [Environment]::NewLine)"
+        }
+    }
+    Write-Host "Parsed $($powerShellFiles.Count) tracked PowerShell scripts."
+
     # Cheap source scan, before anything is built: a test or probe that can resolve the real
     # %LOCALAPPDATA%\WSGM directory is a defect regardless of whether it compiles.
     & "$PSScriptRoot\check-no-live-data-paths.ps1"
@@ -94,9 +120,17 @@ try {
     dotnet build WSGM.slnx --configuration Release --no-restore --warnaserror -m:1
     if ($LASTEXITCODE -ne 0) { throw "dotnet build failed" }
 
-    dotnet test WSGM.slnx --configuration Release --no-build --settings coverlet.runsettings `
-        --collect:"XPlat Code Coverage" --results-directory TestResults --logger "console;verbosity=normal" -m:1
+    dotnet test WSGM.slnx --configuration Release --no-build `
+        --logger "console;verbosity=normal" -m:1
     if ($LASTEXITCODE -ne 0) { throw "dotnet test failed" }
+
+    # Only WSGM.Tests carries the coverage collector. The submodule suites run above without a
+    # collector request, avoiding false "collector not found" diagnostics while still keeping the
+    # application's existing coverage artifact.
+    dotnet test tests\WSGM.Tests\WSGM.Tests.csproj --configuration Release --no-build `
+        --settings coverlet.runsettings --collect:"XPlat Code Coverage" `
+        --results-directory TestResults --logger "console;verbosity=normal" -m:1
+    if ($LASTEXITCODE -ne 0) { throw "WSGM coverage test run failed" }
 }
 finally {
     Pop-Location

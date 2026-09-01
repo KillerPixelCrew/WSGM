@@ -200,7 +200,7 @@ was read-only; final cleanup confirmed the selector and all four tier namespaces
    Manual Steam starts with the same proxy produced it. `SteamUiReadiness` therefore gates automatic
    card reconciliation, tab and card-manifest sync, and download-state polling on the process-owned
    `SDL_app` Big Picture window. The registered Wi-Fi and download-sort patches instead wait on
-   their allowlisted CEF target and generation; they do not own another readiness loop. Card-volume
+   their allowlisted SharedJSContext generation; they do not own another readiness loop. Card-volume
    notification and scanning still start immediately so an already-present card and removals are not
    missed, but live Add/Remove is deferred and retried until the window exists. Desktop download
    polling and manual/overlay-driven operations remain immediate because they are not acting on a
@@ -400,9 +400,9 @@ Steam restarts. The master switch fails every evaluation closed — including WS
 — so `ShellSession` awaits removal before closing the choke point. Wi-Fi is no longer a standalone
 resident: the registered network gate owns its availability override, scan observation, store feed,
 verification and cleanup as one generation-aware resource. Download sorting likewise uses the
-MainWindow patch lifecycle rather than a private readiness loop and sentinel. The remaining legacy
-residents — tabs and the page badge — retain explicit removal until their individual attended
-migrations land.
+SharedJSContext patch lifecycle around Steam's JSX runtime rather than a private readiness loop and
+sentinel. The remaining legacy residents — tabs and the page badge — retain explicit removal until
+their individual attended migrations land.
 
 ## Persistent Steam UI host and native Quick Access
 

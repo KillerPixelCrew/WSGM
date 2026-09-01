@@ -1,12 +1,14 @@
-<#[
+<#
 .SYNOPSIS
-    Publishes Device Lab and the built-in device plugin into release staging.
+    Builds Device Lab and the built-in device plugin from their pinned submodules.
 
 .DESCRIPTION
-    Device Lab receives a separate self-contained output with GUI and CLI modes. Plugin packages
-    remain managed libraries loaded by WSGM. The one package is assembled
-    from its compiled output plus only the manifest and license notices named below; source captures and build diagnostics never
-    enter the package.
+    Device Lab is published self-contained for the optional tools component. The plugin submodule
+    assembles, validates, and packs its framework-dependent package with that exact Device Lab
+    build; WSGM then expands and validates the exact package tree handed to the installer.
+
+    All inputs are source repositories pinned by Git links. This script performs no downloads and
+    no hardware access.
 #>
 [CmdletBinding()]
 param(
@@ -17,8 +19,6 @@ param(
 
     [string]$RuntimeIdentifier = "win-x64",
 
-    [string]$Version = "1.0.0",
-
     [string]$BuiltInPackageId = "wsgm.device.msi.claw-8-a2vm",
 
     [switch]$NoRestore
@@ -28,44 +28,52 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $outputFull = [IO.Path]::GetFullPath($OutputRoot)
-$repositoryFull = [IO.Path]::GetFullPath($root).TrimEnd([IO.Path]::DirectorySeparatorChar) `
-    + [IO.Path]::DirectorySeparatorChar
+$repositoryFull = [IO.Path]::GetFullPath($root).TrimEnd(
+    [IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
 if (-not ($outputFull + [IO.Path]::DirectorySeparatorChar).StartsWith(
-    $repositoryFull,
-    [StringComparison]::OrdinalIgnoreCase)) {
+        $repositoryFull,
+        [StringComparison]::OrdinalIgnoreCase)) {
     throw "Device component staging must stay inside the repository workspace."
+}
+
+$deviceLabRoot = Join-Path $root "external\WSGM.DeviceLab"
+$deviceLabProject = Join-Path $deviceLabRoot "src\WSGM.DeviceLab\WSGM.DeviceLab.csproj"
+$pluginRoot = Join-Path $root "external\WSGM.Device.Msi.Claw8A2Vm"
+$pluginPack = Join-Path $pluginRoot "eng\pack.ps1"
+$pluginSource = Join-Path $pluginRoot "src\WSGM.Device.Msi.Claw8A2Vm"
+$manifestFile = Join-Path $pluginSource "plugin.wsgm.json"
+
+foreach ($requiredSource in @($deviceLabProject, $pluginPack, $manifestFile)) {
+    if (-not (Test-Path -LiteralPath $requiredSource -PathType Leaf)) {
+        throw "A required submodule source is missing: $requiredSource. Run git submodule update --init --recursive."
+    }
 }
 
 $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) (
     "WSGM-DeviceComponents-{0}-{1}" -f $PID, [Guid]::NewGuid().ToString("N"))
+$temporaryMarker = Join-Path $temporaryRoot ".wsgm-device-component-stage"
+$temporaryMarkerValue = "WSGM device component stage v1"
 New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
-$acquisitionMetadata = @(
-    ".pinned-version",
-    ".pinned-payload.json",
-    ".wsgm-acquisition-owner.json"
-)
+Set-Content -LiteralPath $temporaryMarker -Value $temporaryMarkerValue -NoNewline
 
 function Invoke-ComponentPublish(
     [string]$Project,
-    [string]$Destination,
-    [string]$ComponentVersion,
-    [switch]$PlatformX64,
-    [switch]$FrameworkDependent
+    [string]$Destination
 ) {
     $arguments = @(
         "publish",
-        (Join-Path $root $Project),
+        $Project,
         "--configuration", $Configuration,
         "--runtime", $RuntimeIdentifier,
-        "--self-contained", $(if ($FrameworkDependent) { "false" } else { "true" }),
+        "--self-contained", "true",
         "--output", $Destination,
-        "/p:Version=$ComponentVersion",
         "/p:PublishSingleFile=false",
         "/p:TreatWarningsAsErrors=true",
         "-m:1"
     )
-    if ($NoRestore) { $arguments += "--no-restore" }
-    if ($PlatformX64) { $arguments += "/p:PlatformTarget=x64" }
+    if ($NoRestore) {
+        $arguments += "--no-restore"
+    }
 
     & dotnet @arguments
     if ($LASTEXITCODE -ne 0) {
@@ -76,7 +84,7 @@ function Invoke-ComponentPublish(
 function Assert-RegularSourceFile([string]$Path) {
     $item = Get-Item -LiteralPath $Path
     if ($item.LinkType -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-        throw "Package metadata may not be copied through a link or reparse point: $Path"
+        throw "Component metadata may not be copied through a link or reparse point: $Path"
     }
 }
 
@@ -109,9 +117,8 @@ function Copy-DotNetRuntimeNotices(
 
     $runtimePack = $null
     foreach ($packageFolder in $assets.packageFolders.psobject.Properties.Name) {
-        $candidate = Join-Path `
-            (Join-Path $packageFolder ($runtimePackName.ToLowerInvariant())) `
-            $bounds[0]
+        $candidate = Join-Path (
+            Join-Path $packageFolder $runtimePackName.ToLowerInvariant()) $bounds[0]
         if (Test-Path -LiteralPath $candidate -PathType Container) {
             $runtimePack = $candidate
             break
@@ -130,97 +137,111 @@ function Copy-DotNetRuntimeNotices(
             throw "Required .NET runtime notice is missing: $source"
         }
         Assert-RegularSourceFile $source
-        Copy-Item -LiteralPath $source `
-            -Destination (Join-Path $Destination $notice.Destination) -Force
+        Copy-Item -LiteralPath $source -Destination (Join-Path $Destination $notice.Destination) -Force
     }
 }
 
 try {
-    # Device Lab is built in its own repository and pinned here by digest, not compiled from this
-    # tree. It references the plugin SDK as its own submodule, so building it inside this solution
-    # would put two WSGM.Device.Sdk projects in one build, from two pins that can drift apart.
-    # The acquired tree is already self-contained and already carries its own licence notices.
     $deviceLabDestination = Join-Path $temporaryRoot "Tools\DeviceLab"
-    $deviceLabStaging = & (Join-Path $PSScriptRoot "acquire-devicelab.ps1")
-    New-Item -ItemType Directory -Path $deviceLabDestination -Force | Out-Null
-    Copy-Item -Path (Join-Path $deviceLabStaging "*") `
-        -Destination $deviceLabDestination -Recurse -Force
-    # Acquisition ownership and cache-validation metadata belong to the local cache, not to the
-    # released component payload.
-    foreach ($metadataName in $acquisitionMetadata) {
-        $metadataPath = Join-Path $deviceLabDestination $metadataName
-        if (Test-Path -LiteralPath $metadataPath) {
-            Remove-Item -LiteralPath $metadataPath -Force
+    Invoke-ComponentPublish -Project $deviceLabProject -Destination $deviceLabDestination
+    Copy-DotNetRuntimeNotices -AssetsPath (
+        Join-Path $deviceLabRoot "src\WSGM.DeviceLab\obj\project.assets.json") -Destination $deviceLabDestination
+
+    $deviceLabLicense = Join-Path $deviceLabRoot "LICENSE"
+    Assert-RegularSourceFile $deviceLabLicense
+    Copy-Item -LiteralPath $deviceLabLicense -Destination (
+        Join-Path $deviceLabDestination "LICENSE.txt") -Force
+
+    $validator = Join-Path $deviceLabDestination "wsgm-device.exe"
+    foreach ($requiredToolFile in @(
+        $validator,
+        (Join-Path $deviceLabDestination "THIRD_PARTY_NOTICES.md"),
+        (Join-Path $deviceLabDestination "DotNetRuntime-LICENSE.txt"),
+        (Join-Path $deviceLabDestination "DotNetRuntime-THIRD-PARTY-NOTICES.txt")
+    )) {
+        if (-not (Test-Path -LiteralPath $requiredToolFile -PathType Leaf)) {
+            throw "Device Lab publish is missing required content: $requiredToolFile"
         }
     }
 
-    # The built-in device package is built, validated and packed in its own repository and pinned
-    # here by digest. It references the plugin SDK as its own submodule, so building it inside this
-    # solution would put two WSGM.Device.Sdk projects in one build, from two pins free to drift.
-    # The acquired tree already carries its manifest, glyph artwork, licence and notices.
-    $pluginStaging = & (Join-Path $PSScriptRoot "acquire-claw-plugin.ps1")
-    $lockedPlugin = Get-Content -LiteralPath `
-        (Join-Path $root "third_party\claw-plugin\claw-plugin.lock.json") -Raw | ConvertFrom-Json
-
-    $manifestFile = Join-Path $pluginStaging "plugin.wsgm.json"
     $manifest = Get-Content -LiteralPath $manifestFile -Raw | ConvertFrom-Json -Depth 32
     $packageId = [string]$manifest.id
+    $packageVersion = [string]$manifest.version
     $entryAssembly = [string]$manifest.entryAssembly
     if ($packageId -cne $BuiltInPackageId) {
-        throw "The pinned package declares id '$packageId', not the expected '$BuiltInPackageId'."
+        throw "The built-in package declares id '$packageId', not the expected '$BuiltInPackageId'."
     }
-    $safeSegment = '^[A-Za-z0-9._-]+$'
-    if ($packageId -notmatch $safeSegment -or
-        [string]$manifest.version -notmatch '^[0-9]+(?:\.[0-9]+){1,3}$') {
+    if ($packageId -notmatch '^[A-Za-z0-9._-]+$' -or
+        $packageVersion -notmatch '^[0-9]+(?:\.[0-9]+){1,3}$') {
         throw "$manifestFile has an unsafe package id or version."
     }
     if ([IO.Path]::IsPathRooted($entryAssembly) -or
         [IO.Path]::GetFileName($entryAssembly) -cne $entryAssembly -or
-        [IO.Path]::GetExtension($entryAssembly) -cne '.dll') {
+        [IO.Path]::GetExtension($entryAssembly) -cne ".dll") {
         throw "$manifestFile must name a package-root entry assembly."
+    }
+
+    $packageBuildRoot = Join-Path $temporaryRoot "Packed"
+    $packArguments = @{
+        OutputRoot = $packageBuildRoot
+        Configuration = $Configuration
+        RuntimeIdentifier = $RuntimeIdentifier
+        DeviceLabExecutable = $validator
+    }
+    if ($NoRestore) {
+        $packArguments.NoRestore = $true
+    }
+    & $pluginPack @packArguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "Building the commit-pinned device package failed."
+    }
+
+    $archive = Join-Path $packageBuildRoot "$packageId-$packageVersion.wsgmpkg"
+    if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) {
+        throw "The plugin packer did not produce the expected archive: $archive"
+    }
+
+    $archiveEntries = @(& tar -tf $archive)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Reading the built-in package archive failed."
+    }
+    foreach ($archiveEntry in $archiveEntries) {
+        $normalized = ([string]$archiveEntry).Replace('\', '/').TrimEnd('/')
+        if ($normalized.Length -eq 0) {
+            continue
+        }
+        $segments = @($normalized.Split('/', [StringSplitOptions]::RemoveEmptyEntries))
+        if ([IO.Path]::IsPathRooted($normalized) -or
+            $normalized -match '^[A-Za-z]:' -or
+            $segments -contains '..') {
+            throw "The built-in package archive contains an unsafe path: $archiveEntry"
+        }
     }
 
     $packageDestination = Join-Path $temporaryRoot "Packages\$packageId"
     New-Item -ItemType Directory -Path $packageDestination -Force | Out-Null
-    Copy-Item -Path (Join-Path $pluginStaging "*") `
-        -Destination $packageDestination -Recurse -Force
-    # Acquisition ownership and cache-validation metadata belong to the local cache, not to the
-    # released package.
-    foreach ($metadataName in $acquisitionMetadata) {
-        $metadataPath = Join-Path $packageDestination $metadataName
-        if (Test-Path -LiteralPath $metadataPath) {
-            Remove-Item -LiteralPath $metadataPath -Force
-        }
+    & tar -xf $archive -C $packageDestination
+    if ($LASTEXITCODE -ne 0) {
+        throw "Extracting the built-in package failed."
     }
 
     foreach ($required in @("PROVENANCE.md", "THIRD_PARTY_NOTICES.md", "LICENSE.txt", $entryAssembly)) {
         if (-not (Test-Path -LiteralPath (Join-Path $packageDestination $required) -PathType Leaf)) {
-            throw "The pinned package is missing required content: $required"
+            throw "The built-in package is missing required content: $required"
         }
     }
 
-    # Package validation treats glyph artwork as optional, so a package that lost it still passes
-    # every other gate and simply ships without physical glyphs. The lock file records that this
-    # package is known to carry them, which turns a silent feature loss into a build failure.
-    $expectedGlyphFiles = [int]$lockedPlugin.component.glyphFiles
-    if ($expectedGlyphFiles -gt 0) {
-        $stagedGlyphs = @(Get-ChildItem -LiteralPath (Join-Path $packageDestination "glyphs") `
-            -File -Recurse -ErrorAction SilentlyContinue)
-        if ($stagedGlyphs.Count -ne $expectedGlyphFiles) {
-            throw ("The pinned package carries $($stagedGlyphs.Count) glyph file(s); " +
-                "claw-plugin.lock.json expects $expectedGlyphFiles.")
-        }
-        Write-Host "  glyph assets staged: $($stagedGlyphs.Count) file(s)"
+    $sourceGlyphs = @(Get-ChildItem -LiteralPath (Join-Path $pluginSource "glyphs") -File -Recurse)
+    $stagedGlyphs = @(Get-ChildItem -LiteralPath (Join-Path $packageDestination "glyphs") -File -Recurse)
+    if ($sourceGlyphs.Count -eq 0 -or $stagedGlyphs.Count -ne $sourceGlyphs.Count) {
+        throw "The built-in package staged $($stagedGlyphs.Count) of $($sourceGlyphs.Count) source glyph files."
     }
+    Write-Host "  glyph assets staged: $($stagedGlyphs.Count) file(s)"
 
-    # Re-run the product's own bounded offline validator against the exact bytes that will be
-    # handed to the installer. The plugin's own repository validated what it packed; this validates
-    # what ships, which is the only claim this build can make. It never loads plugin code or probes
-    # hardware.
-    $validator = Join-Path $deviceLabDestination "wsgm-device.exe"
     $validationOutput = @(& $validator validate $packageDestination 2>&1)
     if ($LASTEXITCODE -ne 0) {
-        throw "Offline package validation failed for $packageId`: $($validationOutput -join [Environment]::NewLine)"
+        throw ("Offline package validation failed for {0}: {1}" -f
+            $packageId, ($validationOutput -join [Environment]::NewLine))
     }
 
     foreach ($component in @("Tools", "Packages")) {
@@ -228,14 +249,30 @@ try {
         if (Test-Path -LiteralPath $destination) {
             throw "Refusing to overwrite existing component staging: $destination"
         }
-        $parent = Split-Path -Parent $destination
-        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+        New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
         Move-Item -LiteralPath (Join-Path $temporaryRoot $component) -Destination $destination
     }
 }
 finally {
     if (Test-Path -LiteralPath $temporaryRoot) {
-        Remove-Item -LiteralPath $temporaryRoot -Recurse -Force -ErrorAction SilentlyContinue
+        $resolvedTemporaryRoot = [IO.Path]::GetFullPath($temporaryRoot)
+        $systemTemporaryRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd(
+            [IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+        $markerIsValid = (Test-Path -LiteralPath $temporaryMarker -PathType Leaf) -and
+            (Get-Content -LiteralPath $temporaryMarker -Raw).Trim() -cne "" -and
+            (Get-Content -LiteralPath $temporaryMarker -Raw).Trim() -ceq $temporaryMarkerValue
+        if ($resolvedTemporaryRoot.StartsWith(
+                $systemTemporaryRoot,
+                [StringComparison]::OrdinalIgnoreCase) -and
+            (Split-Path -Leaf $resolvedTemporaryRoot).StartsWith(
+                "WSGM-DeviceComponents-$PID-",
+                [StringComparison]::Ordinal) -and
+            $markerIsValid) {
+            Remove-Item -LiteralPath $resolvedTemporaryRoot -Recurse -Force
+        }
+        else {
+            Write-Warning "Refusing to remove an unrecognized component staging directory: $resolvedTemporaryRoot"
+        }
     }
 }
 

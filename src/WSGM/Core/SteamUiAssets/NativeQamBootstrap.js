@@ -262,6 +262,50 @@
     });
   };
   const claimed = (host, keys) => !!host && host[keys.marker] === true;
+  const captureProperty = (host, property) => ({
+    kind: "wsgm-property-snapshot-v1",
+    hadOwn: Object.hasOwn(host, property),
+    descriptor: Object.getOwnPropertyDescriptor(host, property),
+    value: host[property],
+  });
+  const isPropertySnapshot = (value) =>
+    !!value &&
+    typeof value === "object" &&
+    value.kind === "wsgm-property-snapshot-v1" &&
+    typeof value.hadOwn === "boolean";
+  const restoreProperty = (host, property, snapshot) => {
+    if (snapshot.hadOwn && snapshot.descriptor) {
+      Object.defineProperty(host, property, snapshot.descriptor);
+    } else {
+      delete host[property];
+    }
+  };
+  const legacyValueSnapshot = (host, property, value, absentMeansMissing) => {
+    const current = Object.getOwnPropertyDescriptor(host, property);
+    const hadOwn = !(absentMeansMissing && value === undefined) && !!current;
+    return {
+      kind: "wsgm-property-snapshot-v1",
+      hadOwn,
+      descriptor: hadOwn && current && "value" in current ? { ...current, value } : undefined,
+      value,
+    };
+  };
+  const installDataValue = (host, property, value) => {
+    const descriptor = Object.getOwnPropertyDescriptor(host, property);
+    if (descriptor) {
+      if (!("value" in descriptor)) {
+        throw new TypeError("claim target is not a data property");
+      }
+      Object.defineProperty(host, property, { ...descriptor, value });
+    } else {
+      Object.defineProperty(host, property, {
+        value,
+        configurable: true,
+        enumerable: true,
+        writable: true,
+      });
+    }
+  };
   // Claims a plain data field — a flag or value the client set, that a gate replaces.
   //
   // `absent` is what the field reads as when nothing has claimed it. It is required rather than
@@ -277,17 +321,30 @@
     if (!reclaimed && host[field] === next) {
       return { ok: false, error: "already set by the client" };
     }
+    const fieldBefore = captureProperty(host, field);
+    const markerBefore = Object.getOwnPropertyDescriptor(host, keys.marker);
+    const originalBefore = Object.getOwnPropertyDescriptor(host, keys.original);
     try {
+      const stored = Object.hasOwn(host, keys.original) ? host[keys.original] : absent;
       const original = reclaimed
-        ? Object.hasOwn(host, keys.original)
-          ? host[keys.original]
-          : absent
-        : host[field];
-      host[field] = next;
+        ? isPropertySnapshot(stored)
+          ? stored
+          : legacyValueSnapshot(host, field, stored, false)
+        : fieldBefore;
+      installDataValue(host, field, next);
       defineHidden(host, keys.marker, true);
       defineHidden(host, keys.original, original);
       return { ok: true, reclaimed };
     } catch (error) {
+      try {
+        restoreProperty(host, field, fieldBefore);
+        if (markerBefore) Object.defineProperty(host, keys.marker, markerBefore);
+        else delete host[keys.marker];
+        if (originalBefore) Object.defineProperty(host, keys.original, originalBefore);
+        else delete host[keys.original];
+      } catch {
+        // The primary error remains the useful diagnosis; a hostile Proxy can also refuse rollback.
+      }
       return { ok: false, error: String(error) };
     }
   };
@@ -296,7 +353,11 @@
   const releaseValue = (host, field, keys) => {
     if (!host || !claimed(host, keys)) return { ok: true };
     try {
-      host[field] = host[keys.original];
+      const stored = host[keys.original];
+      const original = isPropertySnapshot(stored)
+        ? stored
+        : legacyValueSnapshot(host, field, stored, false);
+      restoreProperty(host, field, original);
       delete host[keys.marker];
       delete host[keys.original];
       return { ok: true };
@@ -314,8 +375,13 @@
     const current = host[member];
     const reclaimed = claimed(current, keys);
     try {
-      const original = reclaimed ? current[keys.original] : current;
-      const next = replacement(original);
+      const stored = reclaimed ? current[keys.original] : undefined;
+      const original = reclaimed
+        ? isPropertySnapshot(stored)
+          ? stored
+          : legacyValueSnapshot(host, member, stored, true)
+        : captureProperty(host, member);
+      const next = replacement(original.value);
       // Functions as well as objects: every member claim so far replaces a METHOD, and `typeof` a
       // function is "function", not "object". Excluding it left the replacement unmarked, so the
       // release found nothing of ours and handed nothing back — the overlay outlived its own
@@ -325,7 +391,7 @@
       }
       defineHidden(next, keys.marker, true);
       defineHidden(next, keys.original, original);
-      host[member] = next;
+      installDataValue(host, member, next);
       return { ok: true, reclaimed };
     } catch (error) {
       return { ok: false, error: String(error) };
@@ -338,12 +404,11 @@
     const current = host[member];
     if (!claimed(current, keys)) return { ok: true };
     try {
-      const original = current[keys.original];
-      if (original === undefined) {
-        delete host[member];
-      } else {
-        host[member] = original;
-      }
+      const stored = current[keys.original];
+      const original = isPropertySnapshot(stored)
+        ? stored
+        : legacyValueSnapshot(host, member, stored, true);
+      restoreProperty(host, member, original);
       return { ok: true };
     } catch (error) {
       return { ok: false, error: String(error) };

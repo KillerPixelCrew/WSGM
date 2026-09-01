@@ -33,10 +33,13 @@ WSGM.exe (CoreCLR)
 
 Separate artifacts that still have a real boundary:
   external/WSGM.Device.Sdk           public plugin/package contract (submodule)
+  external/WSGM.DeviceLab             diagnostic and authoring tool (submodule)
+  external/WSGM.Device.Msi.Claw8A2Vm built-in device package source (submodule)
   WSGM.LogonService                  SYSTEM logon/watchdog process
   WSGM.Launch                        per-game medium-integrity wrapper
   native/SteamInput                  native Steam Input lease and proxy (submodule)
   external/windows-device-control    radio/Wi-Fi/audio/brightness library (submodule)
+  external/steam-ui-toolkit          Steam CEF transport and patch toolkit (submodule)
   VIIPER                             native virtual-controller backend
 ```
 
@@ -116,11 +119,10 @@ src\WSGM\bin\...\WSGM.exe --overlay-test
 node tools\WsgmLibTest\run-file.mjs <file.js>
 node tools\WsgmLibTest\qam-harness.mjs
 
-# Device Lab is a pinned release, not a project here. Stage it, then run it from staging.
-./eng/acquire-devicelab.ps1
-third_party\devicelab\staging\wsgm-device.exe doctor|inventory|candidates
-third_party\devicelab\staging\wsgm-device.exe inspect|compare|correlate <file>
-third_party\devicelab\staging\wsgm-device.exe validate <plugin>|pack <plugin>
+# Device Lab is built directly from its pinned submodule.
+dotnet run --project external\WSGM.DeviceLab\src\WSGM.DeviceLab\WSGM.DeviceLab.csproj -- doctor|inventory|candidates
+dotnet run --project external\WSGM.DeviceLab\src\WSGM.DeviceLab\WSGM.DeviceLab.csproj -- inspect|compare|correlate <file>
+dotnet run --project external\WSGM.DeviceLab\src\WSGM.DeviceLab\WSGM.DeviceLab.csproj -- validate <plugin>|pack <plugin>
 ```
 
 The configured Steam CEF MCP attaches to the live client's existing CDP endpoint. Target by role:
@@ -132,8 +134,8 @@ literal-module probe rule below: never sweep the registry, invoke unknown export
 modules while exploring.
 
 `--settings` and `--overlay-test` are safe local UI modes. Read-only Device Lab observation and
-offline validation commands are safe. Changing Device Lab itself means working in its own
-repository; editing a staged copy changes nothing that ships.
+offline validation commands are safe. Change Device Lab inside `external\WSGM.DeviceLab`, commit
+and push there, then commit the moved submodule pin in WSGM.
 
 `--shell` may run only through `eng\dev-deploy.ps1`, only after
 `Get-CimInstance Win32_BaseBoard` reports product `MS-1T52`, only when the maintainer explicitly
@@ -153,9 +155,9 @@ Being on the Claw does not authorize shell takeover, writes, or plugin activatio
 
 ## Native and packaged dependencies
 
-**Two directories are SUBMODULES, not directories in this repository.** Both are
-`KillerPixelCrew` repositories under MIT, extracted 2026-08-31 because they are useful on their own
-and people asked for them:
+**The first-party dependencies below are submodules, not vendored directories.** They are separate
+`KillerPixelCrew` repositories because they are useful on their own and can be developed directly
+from this recursive checkout:
 
 | Path | Repository | Empty checkout looks like |
 | --- | --- | --- |
@@ -163,10 +165,12 @@ and people asked for them:
 | `external\windows-device-control` | `windows-device-control` | an unresolvable csproj path |
 | `external\WSGM.Device.Sdk` | `WSGM.Device.Sdk` | an unresolvable csproj path |
 | `external\steam-ui-toolkit` | `steam-ui-toolkit` | a csproj path AND a Steam asset that will not compile |
+| `external\WSGM.DeviceLab` | `WSGM.DeviceLab` | an unresolvable tool project path |
+| `external\WSGM.Device.Msi.Claw8A2Vm` | `WSGM.Device.Msi.Claw8A2Vm` | a missing built-in package project |
 
-**Clone this repository with `--recursive`**, or run `git submodule update --init` after cloning.
-Never edit files under either path as if they were WSGM's: change them in their own repository, then
-move the pin here in a commit that says why.
+**Clone this repository with `--recursive`**, or run `git submodule update --init --recursive` after
+cloning. A dependency change is committed and pushed from inside that submodule first; then commit
+the updated Git link here. The Git link is the dependency lock.
 
 `external\windows-device-control` is an ordinary project reference and holds every Windows call
 behind Wi-Fi, Bluetooth, pairing, Core Audio endpoints, panel brightness and the volume cue. WSGM
@@ -209,26 +213,12 @@ VIIPER and its controller drivers are pinned under `third_party\controller`. Bui
 and validate the pinned source; the installer scopes VIIPER, usbip-win2 and HidHide to the controller
 component. Do not silently substitute a newer driver: the pin records a device-specific regression.
 
-**Neither Device Lab nor the built-in device package is built here.** Both are separate MIT
-repositories shipped as releases pinned by digest, because each carries its own SDK submodule and
-building either inside this solution would put two `WSGM.Device.Sdk` projects in one build from two
-pins free to drift apart:
-
-| Component | Repository | Lock file | Acquired by |
-| --- | --- | --- | --- |
-| Device Lab | `WSGM.DeviceLab` | `third_party\devicelab\devicelab.lock.json` | `eng\acquire-devicelab.ps1` |
-| Built-in package | `WSGM.Device.Msi.Claw8A2Vm` | `third_party\claw-plugin\claw-plugin.lock.json` | `eng\acquire-claw-plugin.ps1` |
-
-No binary is checked in; both staging directories are generated and gitignored. To ship a new one:
-tag a release there, then move the asset URL, digest, size and version here in one commit.
-
-**Never re-push an existing tag.** It re-runs that repository's release workflow and replaces the
-asset with a fresh build, which is never byte-identical, breaking every pin. Cut a new version.
-
-The package lock also records `glyphFiles`. Package validation treats glyph artwork as optional, so
-a package that silently lost it passes every gate and renders Valve's default glyphs forever; the
-count turns that into a build failure. Change it only when the package deliberately ships a
-different number.
+Device Lab and the built-in Claw package are MIT submodules and ordinary projects in `WSGM.slnx`.
+That is a build/test relationship only: `WSGM.csproj` still references just the SDK and discovers the
+installed package dynamically. `eng\stage-device-components.ps1` publishes Device Lab and invokes
+the package repository's own packer from those pinned sources; no release download or digest lock is
+involved. The package's staged glyph count is compared with its source tree so losing artwork cannot
+silently pass validation. No generated binary is checked in.
 
 The retired `native\Radio`, `native\VolumeControl`, DeviceHost, IPC transport and managed binding
 mirror must stay retired. Upgrade cleanup may still name old artifacts solely to remove them.
