@@ -10,7 +10,7 @@
 ; Version comes from the csproj <Version> via build.ps1 (/DAppVersion=...); the
 ; fallback below only applies when ISCC is invoked directly.
 #ifndef AppVersion
-  #define AppVersion "0.2.0"
+  #define AppVersion "2.0.0"
 #endif
 #define AppPublisher "NightHammer1000"
 #define AppURL "https://github.com/NightHammer1000/WSGM"

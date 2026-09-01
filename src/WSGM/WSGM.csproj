@@ -10,7 +10,7 @@
     <ApplicationIcon>Assets\wsgm.ico</ApplicationIcon>
     <AssemblyName>WSGM</AssemblyName>
     <RootNamespace>WSGM</RootNamespace>
-    <Version>1.5.1</Version>
+    <Version>2.0.0</Version>
 
     <!-- Self-contained JIT publish. The resident process loads the sole installed
          device plugin directly and uses managed Windows APIs where possible. -->
