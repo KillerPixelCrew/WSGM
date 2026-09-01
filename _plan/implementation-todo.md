@@ -488,6 +488,14 @@ make the architecture smaller.
 
 These checks intentionally do not run unattended and are not source-completion blockers:
 
+- [ ] **Steam cold-start transport gate (regression found 2026-09-01):** on the Claw, ten
+      game-mode cold starts of Steam (service boot, and desktop-to-game with Steam closed), each
+      showing `Steam UI transport closed: game mode without a Big Picture window` BEFORE
+      `Big Picture window detected` and `Steam UI transport open: Big Picture window is up.` AFTER
+      it, no `Steam UI patch … Applying` line between them, and the QAM rows, library tabs, Wi-Fi
+      indicator and download sort all present afterwards. Also one Steam client restart in game
+      mode (gate closes on exit, reopens on the new window) and one CEF master switch off/on while
+      Big Picture is up. Evidence and mechanism: `docs\boot-and-shell.md`, `docs\steam-cef.md` §8.
 - [x] **Shell/recovery:** boot cancellation on both sides of Explorer exit, repeated game/desktop
       transitions, crash/restore, taskbar/tray/UWP/touch, MO2 launch, jobless restored Explorer and
       upgrade from an older job-bound session. The narrower dead-parent token/job inheritance proof

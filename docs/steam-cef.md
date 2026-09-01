@@ -199,12 +199,23 @@ was read-only; final cleanup confirmed the selector and all four tier namespaces
    `D:\SteamLibrary` before a Big Picture window existed; that boot never produced the window.
    Manual Steam starts with the same proxy produced it. `SteamUiReadiness` therefore gates automatic
    card reconciliation, tab and card-manifest sync, and download-state polling on the process-owned
-   `SDL_app` Big Picture window. The registered Wi-Fi and download-sort patches instead wait on
-   their allowlisted SharedJSContext generation; they do not own another readiness loop. Card-volume
-   notification and scanning still start immediately so an already-present card and removals are not
-   missed, but live Add/Remove is deferred and retried until the window exists. Desktop download
-   polling and manual/overlay-driven operations remain immediate because they are not acting on a
-   half-built game-mode session. `SteamCollections` remains only as the read/filter bridge and
+   `SDL_app` Big Picture window — and, since 2026-09-01, **the transport itself is closed** whenever
+   game mode has no Big Picture window: `ShellSession` runs a one-second gate loop that keeps
+   `SteamUiTransportSession.SetEnabled` equal to `SteamUiReadiness.TransportShouldBeOpen(cefMaster,
+   inGameMode, bigPictureVisible)`, re-checked on every mode change and Steam lifecycle edge and
+   always under the master-switch gate. That flag is the one choke point the patch host, the
+   running-application probe and every static evaluator share, so nothing WSGM does can reach a
+   cold-starting Steam's port before its window exists. **A SharedJSContext generation is NOT a
+   readiness signal** (device-observed 2026-09-01): the 2.0 patch host applied on the first
+   `GenerationChanged`, and on a desktop-to-game transition that cold-started Steam (PID 6500,
+   19:14:22.028) it had the download-sort patch and the running-application probe on CEF at +2.9 s
+   and the native-QAM bootstrap plus eighteen more patches Applied/Verified by +4 s; no `SDL_app`
+   window ever appeared and Steam had to be ended from Task Manager. The one cold boot in the same
+   log that succeeded (2026-08-31 15:53) had connected 80 ms AFTER `Big Picture window detected` —
+   the race, won. Card-volume notification and scanning still start immediately so an
+   already-present card and removals are not missed, but live Add/Remove is deferred and retried
+   until the window exists. Desktop download polling and manual/overlay-driven operations remain
+   immediate because they are not acting on a half-built game-mode session. `SteamCollections` remains only as the read/filter bridge and
    one-time cleanup for collection IDs created by pre-injection builds. New tabs never create
    collections. CEF unreachability must save the desired configuration but fail open with a
    retryable warning; it must not replace the last successfully injected definitions.

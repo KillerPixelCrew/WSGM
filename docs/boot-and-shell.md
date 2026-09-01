@@ -198,6 +198,26 @@ only the live Steam change. Device re-verification of that boundary is still req
 per-process trace (`%LOCALAPPDATA%\WSGM\steam-input-gate-<pid>.log`) as the control for future
 reports; do not resume proxy-timing changes unless a failing trace differs.
 
+**The 2.0 patch host reproduced the same hang from the other side (device-observed 2026-09-01).**
+The persistent transport reconnects to Steam's port on a 1/4/16/30 s backoff and
+`SteamUiSessionHost` synchronizes every registered patch on the first `GenerationChanged`, so that
+path never went through `SteamUiReadiness`; `7ddda25` then folded the last explicit boot gate (the
+download sort) into it. On a desktop-to-game transition that cold-started Steam (PID 6500,
+19:14:22.028) the log shows `wsgm.download-sort v1: Applied` and a running-application probe at
+19:14:24.979, then the native-QAM bootstrap and eighteen patches Applied/Verified by 19:14:26 — and
+no Big Picture window, ever; `steam://exit` did nothing and Task Manager was needed. The only
+successful cold boot in that log (2026-08-31 15:53) connected 80 ms AFTER `Big Picture window
+detected`. The fix sits at the choke point rather than per consumer: `ShellSession` owns a
+one-second loop that keeps the transport's enabled flag equal to
+`SteamUiReadiness.TransportShouldBeOpen(cefMaster, inGameMode, bigPictureVisible)`, re-checked on
+every mode change and Steam lifecycle edge and always under the master-switch gate, so no
+discovery, connection or evaluation can reach a cold-starting Steam. Desktop mode stays open on the
+master switch alone. What a healthy game-mode cold start looks like in `wsgm.log`:
+`Steam UI transport closed: game mode without a Big Picture window …`, then
+`Big Picture window detected`, then `Steam UI transport open: Big Picture window is up.`, and only
+after that the first `Steam UI patch … Applying`. A patch line before the window line is the
+regression. Attended re-verification of this gate on the Claw is still outstanding.
+
 7. **Big Picture's UI (steamwebhelper/CEF) suspends rendering while fully occluded** — a BP intro
    video that initializes under an opaque fullscreen cover stays black even after the cover leaves
    (same behavior BP shows under a game). The boot splash therefore begins its fade **immediately**

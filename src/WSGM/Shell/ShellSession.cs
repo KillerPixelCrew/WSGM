@@ -56,6 +56,14 @@ public sealed class ShellSession : IAsyncDisposable
     // round-trips long, and overlapping applies must not interleave their
     // retract-then-close ordering.
     private readonly System.Threading.SemaphoreSlim _cefMasterGate = new(1, 1);
+    // The transport's enabled flag is the one choke point every automatic CEF touch
+    // passes: the patch host, the running-application probe and the static
+    // evaluators. Its open/closed state is decided only by the readiness loop
+    // (see SteamUiReadiness.TransportShouldBeOpen) and always under _cefMasterGate,
+    // so a mode change or Steam lifecycle edge merely signals a re-check instead of
+    // flipping the transport underneath a retract-then-close in flight.
+    private readonly System.Threading.SemaphoreSlim _transportGateSignal = new(0);
+    private Task? _transportGateWork;
     // Live Wi-Fi-indicator gate: the applied state, so a reload can tell an
     // on->off transition from a repeat of the same value.
     private bool _wifiIndicatorEnabled;
@@ -129,10 +137,87 @@ public sealed class ShellSession : IAsyncDisposable
         _cefMasterEnabled = config.Cef.Enabled;
         _wifiIndicatorEnabled = config.Cef.Enabled && config.Cef.WifiIndicator;
         _downloadSortEnabled = config.Cef.Enabled && config.Cef.DownloadQueueSort;
-        SteamUiTransportSession.SetEnabled(config.Cef.Enabled);
+        // The real shell opens the transport only through the readiness gate, once it is
+        // running and knows whether Steam is cold-starting under it. Overlay-test never
+        // attaches a transport and keeps the plain master flag so its static callers
+        // report the configured state.
+        SteamUiTransportSession.SetEnabled(overlayTestOnly && config.Cef.Enabled);
         SteamInputShim.SetEnabled(config.SteamInputManagementEnabled);
         _overlayTestOnly = overlayTestOnly;
         _serviceBoot = serviceBoot;
+    }
+
+    /// <summary>Opens or closes the Steam UI transport from the master switch, the shell mode and
+    /// the Big Picture window. Callers that can race the master switch hold <c>_cefMasterGate</c>.</summary>
+    /// <remarks>Only game mode asks Windows anything: a desktop session opens on the master switch
+    /// alone, so the poll costs nothing there.</remarks>
+    private void ApplySteamUiTransportGate()
+    {
+        bool master = _cefMasterEnabled;
+        bool inGameMode = _inGameMode;
+        bool bigPictureReady = master && inGameMode && SteamUiReadiness.IsReady;
+        bool open = SteamUiReadiness.TransportShouldBeOpen(master, inGameMode, bigPictureReady);
+        SteamUiTransportSession.SetEnabled(open);
+        string state;
+        if (open)
+        {
+            state = inGameMode
+                ? "Steam UI transport open: Big Picture window is up."
+                : "Steam UI transport open: desktop mode.";
+        }
+        else if (master)
+        {
+            state = "Steam UI transport closed: game mode without a Big Picture window — "
+                + "holding every automatic CEF touch until Steam's UI exists.";
+        }
+        else
+        {
+            state = "Steam UI transport closed: Steam CEF integration is off.";
+        }
+        Log.Change("steam-ui-transport-gate", state);
+    }
+
+    /// <summary>Asks the gate loop to re-read the shell state now rather than at its next tick.</summary>
+    private void RequestSteamUiTransportGateCheck()
+    {
+        if (_transportGateWork is null || _shutdownRequested)
+        {
+            return;
+        }
+        _transportGateSignal.Release();
+    }
+
+    /// <summary>Owns the transport gate for the session: re-decides it on every signal and at
+    /// <see cref="SteamUiReadiness.TransportGatePollInterval"/>, always under the master-switch
+    /// gate so it can never interleave with a retraction.</summary>
+    private async Task RunSteamUiTransportGateAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await _cefMasterGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    ApplySteamUiTransportGate();
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"Steam UI transport gate check failed: {ex.Message}");
+                }
+                finally
+                {
+                    _cefMasterGate.Release();
+                }
+                await _transportGateSignal
+                    .WaitAsync(SteamUiReadiness.TransportGatePollInterval, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Session shutdown; the owner disposes the transport itself.
+        }
     }
 
     /// <summary>Starts device admission off-thread, then creates shell and overlay services on the UI thread.</summary>
@@ -247,7 +332,13 @@ public sealed class ShellSession : IAsyncDisposable
         if (!_overlayTestOnly)
         {
             _steamUiTransport = new PersistentSteamUiTransport();
+            // Decide the gate BEFORE attaching: Attach copies the session flag into the
+            // transport, and an open transport with a subscriber starts discovering
+            // Steam's port at once.
+            ApplySteamUiTransportGate();
             SteamUiTransportSession.Attach(_steamUiTransport);
+            _transportGateWork = Task.Run(() =>
+                RunSteamUiTransportGateAsync(_shutdownCancellation.Token));
             _runningApplications = new RunningApplicationMonitor(
                 new SteamRunningApplicationProbe(_steamUiTransport),
                 _config.Cef.Enabled);
@@ -449,6 +540,7 @@ public sealed class ShellSession : IAsyncDisposable
         _modes.DesktopModeStarting += () =>
         {
             _inGameMode = false;
+            RequestSteamUiTransportGateCheck();
             _tabBootSyncCancellation.Cancel();
             // Tabs and the badge are game-mode surfaces; the ACF watcher only exists
             // to keep them fresh, so it stands down with them.
@@ -465,6 +557,7 @@ public sealed class ShellSession : IAsyncDisposable
         _modes.GameModeEntered += () =>
         {
             _inGameMode = true;
+            RequestSteamUiTransportGateCheck();
             EnterGameModeSurfaces();
             _steamUi?.ApplyNetworkIndicator(_wifiIndicatorEnabled);
             _steamUi?.ApplyDownloadSort(_downloadSortEnabled);
@@ -477,6 +570,7 @@ public sealed class ShellSession : IAsyncDisposable
         // re-inject once the new UI is up.
         _monitor.SteamStarted += () =>
         {
+            RequestSteamUiTransportGateCheck();
             if (_inGameMode)
             {
                 KickTabBootSync();
@@ -486,6 +580,10 @@ public sealed class ShellSession : IAsyncDisposable
                 _cardVolumes?.Kick("Steam restarted");
             }
         };
+        // Steam leaving in game mode closes the transport gate at once, so a restart's
+        // fresh, still-headless CEF session cannot be connected before its own Big
+        // Picture window exists.
+        _monitor.SteamExited += RequestSteamUiTransportGateCheck;
 
         if (_overlayTestOnly)
         {
@@ -546,6 +644,7 @@ public sealed class ShellSession : IAsyncDisposable
             // mode, so clear the flag here: the game-mode-only CEF injections must
             // not start next to a live explorer (and nothing would retract them).
             _inGameMode = false;
+            RequestSteamUiTransportGateCheck();
             _monitor.Paused = true;
             WatchStartupAppsAndConfig();
             return;
@@ -920,6 +1019,7 @@ public sealed class ShellSession : IAsyncDisposable
     {
         _splash?.Dismiss("takeover refused");
         _inGameMode = false;
+        RequestSteamUiTransportGateCheck();
         if (_monitor is not null)
         {
             _monitor.Paused = true;
@@ -1051,7 +1151,10 @@ public sealed class ShellSession : IAsyncDisposable
                         // apply's retraction owns the choke point now.
                         return;
                     }
-                    SteamUiTransportSession.SetEnabled(true);
+                    // Through the readiness gate, not straight to open: a master switch
+                    // turned on while Steam is cold-starting in game mode still waits
+                    // for its window.
+                    ApplySteamUiTransportGate();
                 }
                 finally
                 {
@@ -1111,7 +1214,7 @@ public sealed class ShellSession : IAsyncDisposable
                 // would ever repair an overwrite here.
                 if (!_cefMasterEnabled)
                 {
-                    SteamUiTransportSession.SetEnabled(false);
+                    ApplySteamUiTransportGate();
                     Log.Info("Steam CEF integration disabled — injected UI retracted.");
                 }
                 else
@@ -1735,6 +1838,13 @@ public sealed class ShellSession : IAsyncDisposable
             {
                 await _bootWork.ConfigureAwait(false);
                 _bootWork = null;
+            }
+            if (_transportGateWork is not null)
+            {
+                // Ends on the cancelled session token; awaited so it can never re-decide the
+                // transport after the disposal below has begun.
+                await _transportGateWork.ConfigureAwait(false);
+                _transportGateWork = null;
             }
 
             bool trayRetired = false;
