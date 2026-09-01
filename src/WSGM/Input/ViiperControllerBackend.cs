@@ -551,8 +551,6 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 {
                     Log.Info($"Virtual controller removed: {kind} as VIIPER device {BusId}:{deviceId}.");
                 }
-
-                return status;
             },
             $"remove VIIPER device {BusId}:{deviceId}");
         return removed;
@@ -567,7 +565,15 @@ internal sealed class ViiperControllerBackend : IHidBackend
         }
     }
 
-    private static void SafeNative(Action action, string operation)
+    /// <summary>Runs one native call; a status the caller needs is captured inside the action.</summary>
+    /// <remarks>
+    /// Deliberately the only overload. A former <c>Func&lt;int&gt;</c> twin forwarded here through
+    /// <c>() => _ = action()</c>, and that lambda's int-valued body binds to <c>Func&lt;int&gt;</c>
+    /// — itself — rather than <c>Action</c>, so every removal and shutdown recursed until the
+    /// thread's stack was gone (device-observed 2026-09-01: Windows reported that it could not
+    /// create a new stack guard page). One delegate shape leaves nothing to resolve.
+    /// </remarks>
+    internal static void SafeNative(Action action, string operation)
     {
         try
         {
@@ -579,7 +585,4 @@ internal sealed class ViiperControllerBackend : IHidBackend
             Log.Warn($"Controller backend could not {operation}: {ex.Message}");
         }
     }
-
-    private static void SafeNative(Func<int> action, string operation) =>
-        SafeNative(() => _ = action(), operation);
 }

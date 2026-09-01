@@ -415,6 +415,15 @@ directly so the taskbar slider lags the OSD by one poll.
       rebuilt the native library, completed Release with zero warnings/errors, and passed all 1,873
       managed tests. One preceding run hit the unrelated canceled-command timing test; that test
       passed alone in 171 ms and in the clean full rerun.
+- [x] Correct that diagnosis (2026-09-01). Patch 0005 did not change the outcome: every QAM target
+      change still died with the guard-page message. A procdump first-chance `STATUS_STACK_OVERFLOW`
+      dump of the live shell showed thread `0x6d0` with 1,598 frames of
+      `ViiperControllerBackend.SafeNative(Func<int>, string)` under `RemoveDeviceUnderGate` — the
+      overload forwarded through `() => _ = action()`, whose int-valued body binds back to the
+      `Func<int>` overload rather than `Action`, so `DeviceRemove` and `Shutdown` never ran. The
+      backend now has one `Func<int>` overload, with regression tests that it runs its call exactly
+      once and swallows only native binding failures. Patch 0005 is kept as ordering hygiene and its
+      README entry now says what it does and does not fix.
 
 ## Verification for this milestone
 

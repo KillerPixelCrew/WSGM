@@ -53,6 +53,30 @@ public sealed class ControllerDependencyAdapterTests
     }
 
     [Fact]
+    public void SafeNativeRunsTheCallExactlyOnce()
+    {
+        // Regression: a self-forwarding overload once made this call recurse until the stack was
+        // exhausted, which killed every live target replacement and shutdown.
+        int calls = 0;
+
+        ViiperControllerBackend.SafeNative(() => ++calls, "count");
+
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
+    public void SafeNativeSwallowsOnlyNativeBindingFailures()
+    {
+        ViiperControllerBackend.SafeNative(
+            () => throw new System.Runtime.InteropServices.SEHException(),
+            "fail natively");
+
+        Assert.Throws<InvalidOperationException>(() => ViiperControllerBackend.SafeNative(
+            () => throw new InvalidOperationException("managed"),
+            "fail in managed code"));
+    }
+
+    [Fact]
     public async Task HidHideAdapterPreservesExactOrderAndVerifiesReadback()
     {
         FakeHidHideControl control = new(

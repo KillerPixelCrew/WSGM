@@ -48,13 +48,20 @@ so an immediate replacement can collide with the stale attachment. The patch ret
 returned by either attach route and issues `IOCTL_PLUGOUT_HARDWARE` before server-side removal, with
 the command route as fallback.
 
-`0005-quiesce-feedback-before-client-detach.patch` closes the remaining live-removal race found on
-the reference Claw. Patch 0004 performed the blocking driver plugout while holding VIIPER's global
-C-API mutex and while its reverse feedback callback was still registered. usbip-win2 may deliver a
-last output packet as it cancels the endpoints, so WSGM could re-enter from VIIPER's Go thread while
-the caller synchronously waited for removal; Windows then reported that it could not create a new
-stack guard page. Removal now deletes the registration, drains callbacks that already crossed the
-registration boundary, and releases the global mutex before asking the driver to plug the port out.
+`0005-quiesce-feedback-before-client-detach.patch` tightens the removal ordering that patch 0004
+introduced. Patch 0004 performed the blocking driver plugout while holding VIIPER's global C-API
+mutex and while its reverse feedback callback was still registered; usbip-win2 may deliver a last
+output packet as it cancels the endpoints, so a callback could in principle re-enter WSGM from
+VIIPER's Go thread while the caller synchronously waited for removal. Removal now deletes the
+registration, drains callbacks that already crossed the registration boundary, and releases the
+global mutex before asking the driver to plug the port out.
+
+That patch was written against the wrong diagnosis, and the record matters more than the patch. The
+"cannot create a new stack guard page" crash on every live target change was **not** native
+re-entry: a procdump first-chance `STATUS_STACK_OVERFLOW` dump (2026-09-01) showed 1,598 frames of
+`ViiperControllerBackend.SafeNative` calling itself — a managed overload-resolution bug in WSGM
+(see the remark on that method). Patch 0005 stays because holding the C-API mutex across a driver
+request was wrong on its own terms, but it never fixed, and could not have fixed, that crash.
 
 PR #2 needed adapting rather than applying verbatim: this branch replaced the inline `ctx.Done()`
 waits with `device.BlockUntilDeadline`, so the two endpoint cases collapse into one that blocks and
