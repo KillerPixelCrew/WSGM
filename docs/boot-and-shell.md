@@ -206,13 +206,13 @@ download sort) into it. On a desktop-to-game transition that cold-started Steam 
 19:14:22.028) the log shows `wsgm.download-sort v1: Applied` and a running-application probe at
 19:14:24.979, then the native-QAM bootstrap and eighteen patches Applied/Verified by 19:14:26 — and
 no Big Picture window, ever; `steam://exit` did nothing and Task Manager was needed. The only
-successful cold boot in that log (2026-08-31 15:53) connected 80 ms AFTER `Big Picture window
-detected`. The fix sits at the choke point rather than per consumer: `ShellSession` owns a
-one-second loop that keeps the transport's enabled flag equal to
+successful cold boot in that log (2026-08-31 15:53) connected 80 ms AFTER
+`Big Picture window detected`. The fix sits at the choke point rather than per consumer:
+`ShellSession` owns a one-second loop that keeps the transport's enabled flag equal to
 `SteamUiReadiness.TransportShouldBeOpen(cefMaster, inGameMode, bigPictureVisible)`, re-checked on
-every mode change and Steam lifecycle edge and always under the master-switch gate, so no
-discovery, connection or evaluation can reach a cold-starting Steam. Desktop mode stays open on the
-master switch alone. What a healthy game-mode cold start looks like in `wsgm.log`:
+every mode change and Steam lifecycle edge and always under the master-switch gate, so no discovery,
+connection or evaluation can reach a cold-starting Steam. Desktop mode stays open on the master
+switch alone. What a healthy game-mode cold start looks like in `wsgm.log`:
 `Steam UI transport closed: game mode without a Big Picture window …`, then
 `Big Picture window detected`, then `Steam UI transport open: Big Picture window is up.`, and only
 after that the first `Steam UI patch … Applying`. A patch line before the window line is the
