@@ -71,6 +71,17 @@ public sealed class SessionModes
     /// (tray host) here.</summary>
     public event Action? GameModeEntered;
 
+    /// <summary>Awaited (bounded) immediately before a transition asks Steam for Big Picture, so
+    /// the owner can retract injected Steam UI state and close its transport first: the request
+    /// rebuilds Steam's whole front-end, and that rebuild must see stock client state (see
+    /// <c>ShellSession.PrepareSteamUiForBigPictureAsync</c>). Null in preview coordinators.</summary>
+    internal Func<System.Threading.Tasks.Task>? PrepareSteamUiForBigPictureAsync { get; set; }
+
+    /// <summary>Invoked when a transition worker that may have requested Big Picture has settled,
+    /// on every outcome path, so the owner can lift the hold above. Idempotent by contract; also
+    /// invoked by transitions that never fired the request.</summary>
+    internal Action? SteamUiBigPictureRequestSettled { get; set; }
+
     /// <summary>Surfaces a shell-transition warning through the overlay's existing warning path.</summary>
     internal void ReportWarning(string warning) => SteamStartFailed?.Invoke(warning);
 
@@ -222,7 +233,8 @@ public sealed class SessionModes
                     {
                         // Desktop mode closed Big Picture before the launch attempt. A safe rollback
                         // must restore the complete game-mode transaction, not only its taskbar.
-                        rollbackSteamWarning = RequestBigPictureWhilePaused();
+                        rollbackSteamWarning =
+                            await RequestBigPictureWhilePausedAsync().ConfigureAwait(false);
                     }
                     catch (Exception ex)
                     {
@@ -275,6 +287,8 @@ public sealed class SessionModes
             }
             finally
             {
+                // The failed-restore rollback above may have requested Big Picture.
+                SteamUiBigPictureRequestSettled?.Invoke();
                 EndTransition();
             }
         });
@@ -342,7 +356,7 @@ public sealed class SessionModes
                     // Fire exactly once before Explorer's linger/retry work. Steam can
                     // construct Big Picture during that wait; activating it again after
                     // the transition would interrupt its intro and steal focus again.
-                    steamWarning = RequestBigPictureWhilePaused();
+                    steamWarning = await RequestBigPictureWhilePausedAsync().ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -457,6 +471,7 @@ public sealed class SessionModes
             }
             finally
             {
+                SteamUiBigPictureRequestSettled?.Invoke();
                 EndTransition();
             }
         });
@@ -610,8 +625,35 @@ public sealed class SessionModes
     /// <summary>Requests or focuses Big Picture without changing monitor state.
     /// The serialized game-mode transition uses this while the monitor remains
     /// paused, so it must not take the unrelated Home-button cooldown.</summary>
-    private string? RequestBigPictureWhilePaused()
+    /// <summary>How long the Steam UI retraction may delay the Big Picture request. Bounded so a
+    /// broken CEF session can never block the mode switch itself.</summary>
+    private static readonly TimeSpan SteamUiPrepareTimeout = TimeSpan.FromSeconds(5);
+
+    private async System.Threading.Tasks.Task<string?> RequestBigPictureWhilePausedAsync()
     {
+        if (PrepareSteamUiForBigPictureAsync is { } prepare)
+        {
+            try
+            {
+                System.Threading.Tasks.Task work = prepare();
+                System.Threading.Tasks.Task first = await System.Threading.Tasks.Task
+                    .WhenAny(work, System.Threading.Tasks.Task.Delay(SteamUiPrepareTimeout))
+                    .ConfigureAwait(false);
+                if (first == work)
+                {
+                    await work.ConfigureAwait(false);
+                }
+                else
+                {
+                    Log.Warn("Steam UI retraction did not finish before the Big Picture request; "
+                        + "continuing with the transition.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Steam UI retraction before the Big Picture request failed: {ex.Message}");
+            }
+        }
         if (_monitor?.IsAlive == true)
         {
             FocusSteam();

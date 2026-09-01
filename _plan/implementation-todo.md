@@ -516,6 +516,19 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
 - [x] Attended 2026-09-01: radio, audio and eject panels open and stay open under touch on the
       Claw (maintainer-confirmed; z-order capture shows the panel above the sheet through the
       synthesized click). TDP row applied once and held in the log.
+- [x] **Desktop-to-game transition hung Steam with no Big Picture window** (evening, same day):
+      the transport gate closed two seconds AFTER `steam://open/bigpicture`, stranding the
+      `SteamClient.System.*` namespaces desktop mode had injected — Steam's gamepad UI bootstrap
+      found them, took the Deck path, and stalled (live CDP diagnosis: desired window recorded
+      native-side, `uiMode` 7, zero popups, `GetDevices()` pending). Transitions now retract the
+      injected UI and close the transport BEFORE requesting Big Picture
+      (`PrepareSteamUiForBigPictureAsync`, bounded 5 s; `TransportShouldBeOpen` gained the
+      pending flag) and re-apply once the window is up. Mechanism and log shape:
+      `docs\boot-and-shell.md`.
+- [ ] Attended: desktop-to-game and game-to-desktop transitions several times, plus a game-mode
+      cold start — log shows `transport closed: Big Picture was requested` before
+      `Started protocol: steam://open/bigpicture`, the window appears every time, and QAM rows,
+      tabs, Wi-Fi indicator and download sort return after each entry.
 - [ ] Attended: open the QAM after a Steam restart (no error boundary, brightness row present and
       moving the panel) and confirm the Wi-Fi and Bluetooth panels are populated.
 

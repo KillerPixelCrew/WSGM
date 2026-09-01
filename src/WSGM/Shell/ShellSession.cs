@@ -52,6 +52,10 @@ public sealed class ShellSession : IAsyncDisposable
     // retraction task reads it to decide whether closing the choke point is still
     // wanted, while the UI thread writes it.
     private volatile bool _cefMasterEnabled;
+    // True from just before a transition asks Steam for Big Picture until that transition
+    // settles (PrepareSteamUiForBigPictureAsync / ReleaseSteamUiBigPictureHold). The request
+    // rebuilds Steam's front-end, so the transport hold must begin before it fires.
+    private volatile bool _gameModeCefTransitionPending;
     // One gate for the whole master-switch workflow: a retraction is three CEF
     // round-trips long, and overlapping applies must not interleave their
     // retract-then-close ordering.
@@ -155,20 +159,25 @@ public sealed class ShellSession : IAsyncDisposable
     {
         bool master = _cefMasterEnabled;
         bool inGameMode = _inGameMode;
-        bool bigPictureReady = master && inGameMode && SteamUiReadiness.IsReady;
-        bool open = SteamUiReadiness.TransportShouldBeOpen(master, inGameMode, bigPictureReady);
+        bool transitionPending = _gameModeCefTransitionPending;
+        bool bigPictureReady = master && (inGameMode || transitionPending) && SteamUiReadiness.IsReady;
+        bool open = SteamUiReadiness.TransportShouldBeOpen(
+            master, inGameMode, transitionPending, bigPictureReady);
         SteamUiTransportSession.SetEnabled(open);
         string state;
         if (open)
         {
-            state = inGameMode
+            state = inGameMode || transitionPending
                 ? "Steam UI transport open: Big Picture window is up."
                 : "Steam UI transport open: desktop mode.";
         }
         else if (master)
         {
-            state = "Steam UI transport closed: game mode without a Big Picture window — "
-                + "holding every automatic CEF touch until Steam's UI exists.";
+            state = inGameMode
+                ? "Steam UI transport closed: game mode without a Big Picture window — "
+                    + "holding every automatic CEF touch until Steam's UI exists."
+                : "Steam UI transport closed: Big Picture was requested — "
+                    + "holding every automatic CEF touch until Steam's UI exists.";
         }
         else
         {
@@ -185,6 +194,76 @@ public sealed class ShellSession : IAsyncDisposable
             return;
         }
         _transportGateSignal.Release();
+    }
+
+    /// <summary>Retracts every injected Steam UI surface and closes the transport before a
+    /// transition asks Steam for Big Picture.</summary>
+    /// <remarks>
+    /// Steam rebuilds its whole front-end for that request, and the gamepad UI bootstraps against
+    /// whatever <c>SteamClient.System.*</c> then says exists. Namespaces WSGM supplied from
+    /// desktop mode were found there and went unanswered the moment the game-mode gate closed the
+    /// transport two seconds later: the desired Big Picture window stayed recorded native-side
+    /// while no window was ever created (device-diagnosed over CDP, 2026-09-01). Stock Windows
+    /// client state is the one bootstrap Valve ships on this platform, so that is what the rebuild
+    /// must see; everything re-applies through the normal gate once the window exists.
+    /// </remarks>
+    private async Task PrepareSteamUiForBigPictureAsync()
+    {
+        if (_steamUiTransport is null)
+        {
+            return;
+        }
+        _gameModeCefTransitionPending = true;
+        await _cefMasterGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_cefMasterEnabled)
+            {
+                if (_steamUi is not null)
+                {
+                    try
+                    {
+                        await _steamUi.DisableAsync().ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warn("Retracting the native Steam UI patch for the Big Picture "
+                            + $"request failed: {ex.Message}");
+                    }
+                }
+                try
+                {
+                    await SteamPageBridge.DisableBadgeAsync().ConfigureAwait(false);
+                    await SteamLibraryTabs.DisableAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("Retracting legacy injected Steam UI for the Big Picture "
+                        + $"request failed: {ex.Message}");
+                }
+            }
+            ApplySteamUiTransportGate();
+        }
+        finally
+        {
+            _cefMasterGate.Release();
+        }
+    }
+
+    /// <summary>Ends the Big Picture request hold and re-applies the configured Steam UI state
+    /// for whichever mode the transition settled in. UI thread; safe when no hold is pending.</summary>
+    private void ReleaseSteamUiBigPictureHold()
+    {
+        if (!_gameModeCefTransitionPending)
+        {
+            return;
+        }
+        _gameModeCefTransitionPending = false;
+        RequestSteamUiTransportGateCheck();
+        _steamUi?.Apply(_config.Cef.Enabled && _config.Cef.NativeQuickAccess);
+        _steamUi?.ApplyNetworkIndicator(_inGameMode && _wifiIndicatorEnabled);
+        _steamUi?.ApplyDownloadSort(_inGameMode && _downloadSortEnabled);
+        KickTabBootSync();
     }
 
     /// <summary>Owns the transport gate for the session: re-decides it on every signal and at
@@ -554,9 +633,13 @@ public sealed class ShellSession : IAsyncDisposable
             _trayHost?.Dispose();
             _trayHost = null;
         };
+        _modes.PrepareSteamUiForBigPictureAsync = PrepareSteamUiForBigPictureAsync;
+        _modes.SteamUiBigPictureRequestSettled = () =>
+            Avalonia.Threading.Dispatcher.UIThread.Post(ReleaseSteamUiBigPictureHold);
         _modes.GameModeEntered += () =>
         {
             _inGameMode = true;
+            ReleaseSteamUiBigPictureHold();
             RequestSteamUiTransportGateCheck();
             EnterGameModeSurfaces();
             _steamUi?.ApplyNetworkIndicator(_wifiIndicatorEnabled);

@@ -33,14 +33,18 @@ internal static class SteamUiReadiness
     /// <summary>Decides whether the Steam UI transport may carry any traffic at all.</summary>
     /// <param name="cefMasterEnabled">Whether Steam CEF integration is switched on.</param>
     /// <param name="inGameMode">Whether WSGM owns game mode, where it also owns Steam's start.</param>
+    /// <param name="gameModeTransitionPending">Whether a transition is about to ask (or has just
+    /// asked) Steam for Big Picture and has not settled yet. The request rebuilds Steam's whole
+    /// front-end, so the hold must begin BEFORE it fires — waiting for the mode flag flips the
+    /// gate seconds after Steam already started bootstrapping against injected state.</param>
     /// <param name="bigPictureReady">Whether <see cref="IsReady"/> held when the caller sampled it.</param>
     /// <returns>True to open the transport; false to hold every automatic CEF touch.</returns>
     /// <remarks>Desktop mode opens on the master switch alone: Steam there is the user's own
     /// windowed client, not a session WSGM is constructing, and the startup hang has only ever been
-    /// observed against a game-mode cold start.</remarks>
+    /// observed while Steam constructs a Big Picture session.</remarks>
     internal static bool TransportShouldBeOpen(
-        bool cefMasterEnabled, bool inGameMode, bool bigPictureReady)
-        => cefMasterEnabled && (!inGameMode || bigPictureReady);
+        bool cefMasterEnabled, bool inGameMode, bool gameModeTransitionPending, bool bigPictureReady)
+        => cefMasterEnabled && ((!inGameMode && !gameModeTransitionPending) || bigPictureReady);
 
     /// <summary>Runs one bounded automatic CEF operation after Big Picture and its target are ready.</summary>
     /// <param name="operation">Stable diagnostic name.</param>
