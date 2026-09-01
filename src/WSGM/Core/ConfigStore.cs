@@ -83,10 +83,6 @@ public static class ConfigStore
                 ?? throw new JsonException("Configuration root was not an object.");
             RepairEnum(root, "GlyphStyle", Defaults.GlyphStyle);
             RepairEnum(root, "DisplayManagement", Defaults.DisplayManagement);
-            if (root["Gestures"] is JsonObject gestures)
-            {
-                RepairEnum(gestures, "BottomEdgeAction", Defaults.Gestures.BottomEdgeAction);
-            }
             if (root["Splash"] is JsonObject splash)
             {
                 RepairEnum(splash, "SpinnerStyle", Defaults.Splash.SpinnerStyle);
@@ -314,6 +310,9 @@ public static class ConfigStore
         config.Hotkey ??= new HotkeyConfig();
         config.GamepadChord ??= new GamepadChordConfig();
         config.Gestures ??= new GestureConfig();
+        config.QuickAccessPins ??= [];
+        config.QuickAccessPins = config.QuickAccessPins
+            .Where(static id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal).ToList();
         config.SavedDisplayScaleEntries ??= [];
         config.DisplayProfiles ??= [];
         config.PreviousConsoleLockSchemeValues ??= [];

@@ -45,7 +45,7 @@ public partial class RadioWindow : Window
     private readonly double _uiScale;
 
     /// <summary>Creates the panel.</summary>
-    /// <param name="radios">The manager backing both tabs. Not owned: the taskbar's
+    /// <param name="radios">The manager backing both tabs. Not owned: the sheet's
     /// status object outlives this window.</param>
     /// <param name="bluetooth">True to open on the Bluetooth tab.</param>
     /// <param name="uiScale">The desktop-DPI scale factor for WSGM UI (e.g. 1.5
@@ -103,20 +103,20 @@ public partial class RadioWindow : Window
             _radios.PairingRequested -= OnPairingRequested;
             _radios.PropertyChanged -= OnRadiosPropertyChanged;
         };
-        TaskbarPanel.WirePanelBehaviour(this, ListScroller);
+        StatusPanel.WirePanelBehaviour(this, ListScroller);
     }
 
-    /// <summary>Places the panel just above the taskbar, at the right-hand end
+    /// <summary>Places the panel just below the sheet header, at the right-hand end
     /// where its tiles are.
     ///
     /// Without this the window opens wherever Windows decides, which is the
     /// top-left corner — nowhere near the button that opened it. The bar's own
     /// height is measured rather than assumed, because it is content-sized and
     /// DPI-scaled.</summary>
-    /// <param name="taskbarTop">The bar's top edge in physical screen pixels, or
+    /// <param name="anchorBottom">The bar's top edge in physical screen pixels, or
     /// 0 when it is not on screen.</param>
-    internal void DockAboveTaskbar(int taskbarTop = 0) => TaskbarPanel.DockAboveTaskbar(
-        this, RootScale, _uiScale, BaseWidth, BaseHeight, taskbarTop, "Radio");
+    internal void DockBelowHeader(int anchorBottom) => StatusPanel.DockBelowHeader(
+        this, RootScale, _uiScale, BaseWidth, BaseHeight, anchorBottom, "Radio");
 
     /// <summary>Scrolls a newly focused row (or its action button) into the
     /// viewport. A no-op when it is already fully visible.</summary>

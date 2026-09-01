@@ -7,21 +7,21 @@ using WSGM.Core;
 
 namespace WSGM.Overlay;
 
-/// <summary>One application tile on the game-mode taskbar. Mutable presentation
-/// state is INPC so the 1 s refresh can update tiles IN PLACE — replacing the
-/// collection wholesale would destroy the focused button under the gamepad cursor
-/// on every tick.</summary>
-public sealed class TaskbarEntry : INotifyPropertyChanged
+/// <summary>One application chip on the quick access sheet's Open apps strip.
+/// Mutable presentation state is INPC so the 1 s refresh can update chips IN PLACE —
+/// replacing the collection wholesale would destroy the focused button under the
+/// gamepad cursor on every tick.</summary>
+public sealed class AppSwitcherEntry : INotifyPropertyChanged
 {
     /// <summary>Raised when a mutable presentation property changes.</summary>
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    /// <summary>Creates a taskbar tile for an enumerated window.</summary>
+    /// <summary>Creates a switcher chip for an enumerated window.</summary>
     /// <param name="hwnd">The native window handle to activate.</param>
     /// <param name="title">The window title (tooltip text).</param>
     /// <param name="isSteam">Whether the window belongs to Steam (activated via protocol).</param>
     /// <param name="icon">The rasterized application icon, or null for the fallback glyph.</param>
-    public TaskbarEntry(nint hwnd, string title, bool isSteam, Bitmap? icon)
+    public AppSwitcherEntry(nint hwnd, string title, bool isSteam, Bitmap? icon)
     {
         Hwnd = hwnd;
         _title = title;
@@ -58,7 +58,7 @@ public sealed class TaskbarEntry : INotifyPropertyChanged
     public bool HasNoIcon => Icon is null;
 
     private string _title;
-    /// <summary>Gets or sets the window title shown as the tile's tooltip.</summary>
+    /// <summary>Gets or sets the window title shown on the chip.</summary>
     public string Title
     {
         get => _title;
@@ -88,8 +88,8 @@ public sealed class TaskbarEntry : INotifyPropertyChanged
     }
 
     private bool _isActive;
-    /// <summary>Gets or sets whether this window was foreground when the bar opened
-    /// (or last refreshed) — the highlighted tile.</summary>
+    /// <summary>Gets or sets whether this window was foreground when the sheet opened
+    /// (or last refreshed) — the highlighted chip.</summary>
     public bool IsActive
     {
         get => _isActive;
@@ -137,18 +137,18 @@ public sealed class TrayIconEntry : INotifyPropertyChanged
     }
 }
 
-/// <summary>State for the game-mode taskbar window.</summary>
-public sealed class TaskbarViewModel : INotifyPropertyChanged
+/// <summary>State for the quick access sheet's Open apps strip and tray area.</summary>
+public sealed class AppSwitcherViewModel : INotifyPropertyChanged
 {
-    /// <summary>Raised after a taskbar property changes.</summary>
+    /// <summary>Raised after a switcher property changes.</summary>
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    /// <summary>Application tiles in first-seen order (stable across refreshes; new
+    /// <summary>Application chips in first-seen order (stable across refreshes; new
     /// windows append, closed windows drop out).</summary>
-    public ObservableCollection<TaskbarEntry> Entries { get; } = [];
+    public ObservableCollection<AppSwitcherEntry> Entries { get; } = [];
 
     private bool _hasEntries;
-    /// <summary>Gets or sets whether any application tile exists (drives the
+    /// <summary>Gets or sets whether any application chip exists (drives the
     /// empty-state hint).</summary>
     public bool HasEntries
     {
@@ -163,17 +163,17 @@ public sealed class TaskbarViewModel : INotifyPropertyChanged
         }
     }
 
-    /// <summary>Reconciles the tile collection against a fresh enumeration without
-    /// disturbing surviving tiles: updates title/minimized/active in place, removes
-    /// tiles whose window is gone, appends tiles for new windows. Pure with respect
+    /// <summary>Reconciles the chip collection against a fresh enumeration without
+    /// disturbing surviving chips: updates title/minimized/active in place, removes
+    /// chips whose window is gone, appends chips for new windows. Pure with respect
     /// to its inputs — the executable specification lives in the unit tests.</summary>
     /// <param name="fresh">The current switchable windows, enumeration order.</param>
     /// <param name="activeHwnd">The window considered foreground for highlighting.</param>
-    /// <param name="create">Creates a tile for a newly appearing window.</param>
+    /// <param name="create">Creates a chip for a newly appearing window.</param>
     public void Reconcile(
         IReadOnlyList<WindowFinder.AppWindow> fresh,
         nint activeHwnd,
-        Func<WindowFinder.AppWindow, TaskbarEntry> create)
+        Func<WindowFinder.AppWindow, AppSwitcherEntry> create)
     {
         var byHwnd = new Dictionary<nint, WindowFinder.AppWindow>(fresh.Count);
         foreach (var window in fresh)
@@ -232,7 +232,7 @@ public sealed class TaskbarViewModel : INotifyPropertyChanged
     }
 
     /// <summary>Reconciles the tray tiles against the host's live records — same
-    /// in-place discipline as the app tiles (identity = record reference), so a
+    /// in-place discipline as the app chips (identity = record reference), so a
     /// focused tray button survives unrelated changes.</summary>
     /// <param name="icons">The host's registered icons (hidden ones are filtered here).</param>
     public void ReconcileTray(IReadOnlyList<TrayIconTable.TrayIcon> icons)

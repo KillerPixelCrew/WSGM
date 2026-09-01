@@ -344,7 +344,8 @@ public enum OemAction
     /// <summary>Open the overlay directly on the Device page.</summary>
     ShowWsgmDevicePage,
 
-    /// <summary>Open or close the WSGM taskbar.</summary>
+    /// <summary>Open the quick access sheet on its Open apps strip, or close it when it is up —
+    /// what the taskbar button did before the strip moved into the sheet.</summary>
     ToggleWsgmTaskbar,
 
     /// <summary>Switch between Desktop and Game Mode.</summary>

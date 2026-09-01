@@ -11,10 +11,11 @@ using WSGM.Interop;
 namespace WSGM.Overlay;
 
 /// <summary>
-/// The window mechanics the three panels that dock above the game-mode taskbar share: radio, audio
-/// and safe eject. Each owns its own content and commands; only the geometry is common.
+/// The window mechanics the three status panels that hang from the quick access sheet's header
+/// share: radio, audio and safe eject. Each owns its own content and commands; only the geometry is
+/// common.
 /// </summary>
-internal static class TaskbarPanel
+internal static class StatusPanel
 {
     /// <summary>Wires the behaviour every docked panel shares: Escape closes it, a focused row is
     /// scrolled into view, and Windows' touch-synthesized mouse messages are swallowed.</summary>
@@ -51,32 +52,32 @@ internal static class TaskbarPanel
         }
     }
 
-    /// <summary>Renders the panel at the user's desktop DPI, clamps it to the space above the bar,
-    /// and parks it against the bar's right end. Game mode forces every display to 100% scaling,
-    /// which would otherwise shrink a DIP-sized panel — and any on-screen keyboard inside it — to
-    /// millimetres on a dense handheld display.</summary>
+    /// <summary>Renders the panel at the user's desktop DPI, clamps it to the space below the
+    /// sheet header, and parks it under the header's right end where the status pills are. Game
+    /// mode forces every display to 100% scaling, which would otherwise shrink a DIP-sized panel —
+    /// and any on-screen keyboard inside it — to millimetres on a dense handheld display.</summary>
     /// <param name="window">The panel window being positioned.</param>
     /// <param name="root">The panel's layout-transform root, which carries the touch scale.</param>
     /// <param name="uiScale">The configured overlay UI scale.</param>
     /// <param name="baseWidth">The panel's design width in DIPs.</param>
     /// <param name="baseHeight">The panel's design height in DIPs.</param>
-    /// <param name="taskbarTop">The taskbar's physical top edge, or 0 when it is not showing.</param>
+    /// <param name="anchorBottom">The sheet header's physical bottom edge, or 0 to hang from the
+    /// top of the display.</param>
     /// <param name="name">Panel name for the scale log line.</param>
     /// <remarks>
-    /// Positioned from the bar's ACTUAL top edge rather than derived from the working area: the bar
-    /// is a topmost window, not a registered appbar, so the working area does not account for it and
-    /// deriving the position from screen height minus bar height double-counted, leaving a visible
-    /// gap. The scale factor comes from the window, never <c>screen.Scaling</c> — the screens cache
-    /// still reports the pre-game-mode factor at exactly the moment this runs, and using it parked
-    /// the panel far from the bar (device-reported).
+    /// Positioned from the header's ACTUAL bottom edge rather than derived from the working area:
+    /// the sheet is a topmost window, not a registered appbar, so the working area does not account
+    /// for it. The scale factor comes from the window, never <c>screen.Scaling</c> — the screens
+    /// cache still reports the pre-game-mode factor at exactly the moment this runs, and using it
+    /// parked the panel far from its anchor (device-reported).
     /// </remarks>
-    internal static void DockAboveTaskbar(
+    internal static void DockBelowHeader(
         Window window,
         LayoutTransformControl root,
         double uiScale,
         double baseWidth,
         double baseHeight,
-        int taskbarTop,
+        int anchorBottom,
         string name)
     {
         ArgumentNullException.ThrowIfNull(window);
@@ -98,23 +99,23 @@ internal static class TaskbarPanel
         }
 
         PixelRect area = screen.Bounds;
-        int bottom = taskbarTop > 0 ? taskbarTop : area.Y + area.Height;
+        int top = Math.Max(anchorBottom, area.Y);
 
-        // Clamp against the space above the bar, in DIPs. The panel's own scroll viewer absorbs a
-        // shortened panel, and the sizes must be final before the position is computed from them.
+        // Clamp against the space below the header, in DIPs. The panel's own scroll viewer absorbs
+        // a shortened panel, and the sizes must be final before the position is computed from them.
         window.Width = Math.Min(baseWidth * factor, (area.Width / scale) - 12);
-        window.Height = Math.Min(baseHeight * factor, ((bottom - area.Y) / scale) - 8);
+        window.Height = Math.Min(baseHeight * factor, ((area.Y + area.Height - top) / scale) - 8);
         window.UpdateLayout();
 
         int width = (int)Math.Round(window.Width * scale);
         int height = (int)Math.Round(window.Height * scale);
-        // Small and deliberate: the panel should look attached to the bar, not floating above it.
+        // Small and deliberate: the panel should look attached to the header, not floating below it.
         int gap = (int)Math.Round(2 * scale);
         int margin = (int)Math.Round(6 * scale);
-        // Right-aligned, mirroring where the tiles are and where Windows puts its own quick
-        // settings; never allowed to run off the top of a short display.
+        // Right-aligned, under the pills that open it and where Windows puts its own quick
+        // settings; never allowed to run off the bottom of a short display.
         int x = area.X + area.Width - width - margin;
-        int y = Math.Max(area.Y, bottom - height - gap);
+        int y = Math.Min(top + gap, Math.Max(area.Y, area.Y + area.Height - height));
         window.Position = new PixelPoint(x, y);
     }
 }

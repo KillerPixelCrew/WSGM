@@ -137,10 +137,9 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         _hotkey = _config.Hotkey;
         _chord = _config.GamepadChord;
         GestureBottom = _config.Gestures.BottomEdge;
-        GestureRight = _config.Gestures.RightEdge;
+        GestureTop = _config.Gestures.TopEdge;
         GestureLeftSteamMenu = _config.Gestures.LeftEdgeSteamMenu;
-        GestureTopSteamQuickAccess = _config.Gestures.TopEdgeSteamQuickAccess;
-        BottomEdgeActionIndex = (int)_config.Gestures.BottomEdgeAction;
+        GestureRightSteamQuickAccess = _config.Gestures.RightEdgeSteamQuickAccess;
         GlyphStyleIndex = (int)_config.GlyphStyle;
         AccentColorHex = _config.AccentColor;
         LoadSplash(_config.Splash);
@@ -1092,30 +1091,22 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     // --- Gestures / glyphs ---
     private bool _gestureBottom;
-    private bool _gestureRight;
+    private bool _gestureTop;
     private bool _gestureLeftSteamMenu;
-    private bool _gestureTopSteamQuickAccess;
+    private bool _gestureRightSteamQuickAccess;
     private int _glyphStyleIndex;
 
-    /// <summary>Gets or sets whether a bottom-edge swipe opens the overlay.</summary>
+    /// <summary>Gets or sets whether a bottom-edge swipe opens quick access on its Open apps strip (game mode).</summary>
     public bool GestureBottom { get => _gestureBottom; set { _gestureBottom = value; Raise(nameof(GestureBottom)); } }
 
-    /// <summary>Gets or sets whether a right-edge swipe opens the overlay.</summary>
-    public bool GestureRight { get => _gestureRight; set { _gestureRight = value; Raise(nameof(GestureRight)); } }
+    /// <summary>Gets or sets whether a top-edge swipe opens quick access.</summary>
+    public bool GestureTop { get => _gestureTop; set { _gestureTop = value; Raise(nameof(GestureTop)); } }
 
     /// <summary>Gets or sets whether a left-edge swipe opens Steam's Big Picture menu.</summary>
     public bool GestureLeftSteamMenu { get => _gestureLeftSteamMenu; set { _gestureLeftSteamMenu = value; Raise(nameof(GestureLeftSteamMenu)); } }
 
-    /// <summary>Gets or sets whether a top-edge swipe opens Steam's Big Picture quick-access menu.</summary>
-    public bool GestureTopSteamQuickAccess { get => _gestureTopSteamQuickAccess; set { _gestureTopSteamQuickAccess = value; Raise(nameof(GestureTopSteamQuickAccess)); } }
-
-    private int _bottomEdgeActionIndex;
-    /// <summary>Gets or sets the selected bottom-edge swipe action index
-    /// (matches the <see cref="EdgeAction"/> enum order).</summary>
-    public int BottomEdgeActionIndex { get => _bottomEdgeActionIndex; set { _bottomEdgeActionIndex = value; Raise(nameof(BottomEdgeActionIndex)); } }
-
-    /// <summary>Gets the bottom-edge action names presented by the settings selector.</summary>
-    public List<string> BottomEdgeActions { get; } = ["Quick access", "Taskbar"];
+    /// <summary>Gets or sets whether a right-edge swipe opens Steam's Big Picture quick-access menu.</summary>
+    public bool GestureRightSteamQuickAccess { get => _gestureRightSteamQuickAccess; set { _gestureRightSteamQuickAccess = value; Raise(nameof(GestureRightSteamQuickAccess)); } }
 
     /// <summary>Gets or sets the selected controller-glyph family index.</summary>
     public int GlyphStyleIndex { get => _glyphStyleIndex; set { _glyphStyleIndex = value; Raise(nameof(GlyphStyleIndex)); Raise(nameof(GlyphStyle)); } }
@@ -1309,10 +1300,9 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.Hotkey = _hotkey;
         config.GamepadChord = _chord;
         config.Gestures.BottomEdge = GestureBottom;
-        config.Gestures.RightEdge = GestureRight;
+        config.Gestures.TopEdge = GestureTop;
         config.Gestures.LeftEdgeSteamMenu = GestureLeftSteamMenu;
-        config.Gestures.TopEdgeSteamQuickAccess = GestureTopSteamQuickAccess;
-        config.Gestures.BottomEdgeAction = (EdgeAction)Math.Clamp(BottomEdgeActionIndex, 0, 1);
+        config.Gestures.RightEdgeSteamQuickAccess = GestureRightSteamQuickAccess;
         config.GlyphStyle = GlyphStyle;
         config.AccentColor = AccentColorHex;
         config.Splash = splash;

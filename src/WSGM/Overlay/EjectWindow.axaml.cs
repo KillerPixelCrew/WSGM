@@ -4,7 +4,7 @@ using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
-/// <summary>The taskbar's Safe Eject panel: the removable devices, each with an
+/// <summary>The sheet's Safe Eject panel: the removable devices, each with an
 /// Eject action revealed on selection.
 ///
 /// A real window rather than a taskbar flyout for the same reasons as the radio
@@ -20,7 +20,7 @@ public partial class EjectWindow : Window
 
     /// <summary>Creates the panel.</summary>
     /// <param name="drives">The manager backing the list. Not owned: the
-    /// taskbar's status object outlives this window.</param>
+    /// sheet's status object outlives this window.</param>
     /// <param name="uiScale">The desktop-DPI scale factor for WSGM UI.</param>
     public EjectWindow(RemovableDriveManager drives, double uiScale = 1.0)
     {
@@ -29,16 +29,16 @@ public partial class EjectWindow : Window
         InitializeComponent();
         DataContext = drives;
         Opened += (_, _) => _drives.Refresh();
-        TaskbarPanel.WirePanelBehaviour(this, ListScroller);
+        StatusPanel.WirePanelBehaviour(this, ListScroller);
     }
 
     /// <summary>Places the panel just above the right-hand status section of the
     /// taskbar and scales it back to the user's normal desktop DPI (same
     /// mechanism as the audio panel).</summary>
-    /// <param name="taskbarTop">The bar's top edge in physical screen pixels, or
+    /// <param name="anchorBottom">The bar's top edge in physical screen pixels, or
     /// 0 when it is not on screen.</param>
-    internal void DockAboveTaskbar(int taskbarTop = 0) => TaskbarPanel.DockAboveTaskbar(
-        this, RootScale, _uiScale, BaseWidth, BaseHeight, taskbarTop, "Eject");
+    internal void DockBelowHeader(int anchorBottom) => StatusPanel.DockBelowHeader(
+        this, RootScale, _uiScale, BaseWidth, BaseHeight, anchorBottom, "Eject");
 
     /// <summary>Selecting a row reveals its Eject action. It never ejects on its
     /// own: a stray tap must not pull a mounted game library.</summary>

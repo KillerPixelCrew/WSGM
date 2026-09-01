@@ -17,7 +17,7 @@ internal sealed record DeviceOemActionServices
 
     internal required Func<CancellationToken, Task<bool>> ToggleDevicePageAsync { get; init; }
 
-    internal required Func<CancellationToken, Task<bool>> ToggleTaskbarAsync { get; init; }
+    internal required Func<CancellationToken, Task<bool>> ToggleOpenAppsAsync { get; init; }
 
     internal required Func<CancellationToken, Task<bool>> ToggleDesktopGameModeAsync { get; init; }
 
@@ -244,7 +244,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
                     await actions.ToggleSteamQuickAccessAsync(bounded.Token).ConfigureAwait(false),
                 OemAction.ShowWsgmDevicePage => await actions.ToggleDevicePageAsync(bounded.Token)
                     .ConfigureAwait(false),
-                OemAction.ToggleWsgmTaskbar => await actions.ToggleTaskbarAsync(bounded.Token)
+                OemAction.ToggleWsgmTaskbar => await actions.ToggleOpenAppsAsync(bounded.Token)
                     .ConfigureAwait(false),
                 OemAction.ToggleDesktopGameMode =>
                     await actions.ToggleDesktopGameModeAsync(bounded.Token).ConfigureAwait(false),

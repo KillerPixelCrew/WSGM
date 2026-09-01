@@ -10,6 +10,7 @@ using Avalonia.Input;
 // Avalonia 12 moved SetTextAsync off IClipboard onto ClipboardExtensions.
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
+using Avalonia.LogicalTree;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -22,9 +23,18 @@ using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
-/// <summary>The fullscreen, controller-friendly overlay window.</summary>
+/// <summary>The quick access sheet: the controller-friendly, top-docked surface that
+/// carries the pinned home root, the Session / Steam / Device / Tools / Power roots with
+/// their nested pages, the header status pills and the Open apps strip. It covers
+/// <see cref="SheetHeightFraction"/> of the display and leaves the game visible below.</summary>
 public partial class OverlayWindow : Window
 {
+    /// <summary>Share of the display height the sheet covers. The rest stays the
+    /// game's — a tap there is outside the window rectangle and dismisses the sheet
+    /// through the raw-input hit test, which is why the sheet is deliberately NOT
+    /// fullscreen.</summary>
+    internal const double SheetHeightFraction = 0.8125;
+
     /// <summary>Raised when a nested page is torn down so auxiliary peer windows close too.</summary>
     public event Action? SubViewClosed;
     private bool _confirmRestart;
@@ -61,6 +71,29 @@ public partial class OverlayWindow : Window
 
     /// <summary>Raised when the overlay is dismissed without another action.</summary>
     public event Action? Dismissed;
+
+    /// <summary>Raised when the user picks an Open apps chip (or cycles with Y).</summary>
+    public event Action<AppSwitcherEntry>? WindowPicked;
+
+    /// <summary>Raised when the user activates a tray icon. Arguments: the entry,
+    /// whether this is a context-menu (right-click / X) activation, and the screen
+    /// pixel position the app should anchor any menu to.</summary>
+    public event Action<TrayIconEntry, bool, PixelPoint>? TrayIconActivated;
+
+    /// <summary>Raised when a radio pill is tapped. The flag selects the tab to
+    /// open on: true for Bluetooth, false for Wi-Fi.</summary>
+    public event Action<bool>? RadioPanelRequested;
+
+    /// <summary>Raised when the audio pill is pressed.</summary>
+    public event Action? AudioPanelRequested;
+
+    /// <summary>Raised when the eject pill (or the Tools row) is pressed.</summary>
+    public event Action? EjectPanelRequested;
+
+    /// <summary>Raised with a row's id when the user pins or unpins it (X on the
+    /// focused row, a touch hold, or a right click). The controller owns the
+    /// persisted list and hands the new one back through <see cref="SetPins"/>.</summary>
+    public event Action<string>? PinToggleRequested;
 
     /// <summary>Raised with <c>true</c> while a modal system dialog owns the screen,
     /// and <c>false</c> once it closes.</summary>
@@ -102,6 +135,7 @@ public partial class OverlayWindow : Window
 
     private Shell.SdFormatManager? _format;
     private FormatTargetEntry? _pendingTarget;
+    private readonly AppSwitcherViewModel _switcher;
 
     /// <summary>The launch fix waiting on the user to pick a game, and the button
     /// whose title reports the outcome.</summary>
@@ -155,7 +189,7 @@ public partial class OverlayWindow : Window
                     InitializeLaunchFixLabels(viewModel);
                 }
             }),
-        new(OverlayPage.SystemWakeLocks, WakeLockHost, PanelSystem, OverlayDestination.System),
+        new(OverlayPage.PowerWakeLocks, WakeLockHost, PanelPower, OverlayDestination.Power),
         new(OverlayPage.DeviceColor, DeviceColorHost, PanelDevice, OverlayDestination.Device,
             RefreshDevicePanel),
     ];
@@ -373,6 +407,7 @@ public partial class OverlayWindow : Window
             DeviceCapabilityList.Children.Count == 0 ? "warn " : "info ");
 
         restoreFocus?.Focus(NavigationMethod.Directional);
+        RenderPins();
     }
 
     /// <summary>
@@ -1087,10 +1122,24 @@ public partial class OverlayWindow : Window
 
     private static TabStripItem CreateDestinationTab(OverlayDestination destination) => destination switch
     {
-        OverlayDestination.Home => new TabStripItem("Home", Icons.Play, (int)destination),
-        OverlayDestination.Steam => new TabStripItem("Steam", Icons.SteamLike, (int)destination),
-        OverlayDestination.Device => new TabStripItem("Device", Icons.Gear, (int)destination),
-        OverlayDestination.System => new TabStripItem("System", Icons.Power, (int)destination),
+        OverlayDestination.QuickAccess => new TabStripItem(DestinationLabel(destination), Icons.Panel, (int)destination),
+        OverlayDestination.Home => new TabStripItem(DestinationLabel(destination), Icons.Play, (int)destination),
+        OverlayDestination.Steam => new TabStripItem(DestinationLabel(destination), Icons.SteamLike, (int)destination),
+        OverlayDestination.Device => new TabStripItem(DestinationLabel(destination), Icons.Gear, (int)destination),
+        OverlayDestination.System => new TabStripItem(DestinationLabel(destination), Icons.Wrench, (int)destination),
+        OverlayDestination.Power => new TabStripItem(DestinationLabel(destination), Icons.Power, (int)destination),
+        _ => throw new ArgumentOutOfRangeException(nameof(destination)),
+    };
+
+    /// <summary>The user-facing name of a destination — the strip label and the header eyebrow.</summary>
+    internal static string DestinationLabel(OverlayDestination destination) => destination switch
+    {
+        OverlayDestination.QuickAccess => "Quick access",
+        OverlayDestination.Home => "Session",
+        OverlayDestination.Steam => "Steam",
+        OverlayDestination.Device => "Device",
+        OverlayDestination.System => "Tools",
+        OverlayDestination.Power => "Power",
         _ => throw new ArgumentOutOfRangeException(nameof(destination)),
     };
 
@@ -1157,14 +1206,7 @@ public partial class OverlayWindow : Window
                     }
                 }
             }
-            var panel = _navigation.Destination switch
-            {
-                OverlayDestination.Steam => (Control)PanelSteam,
-                OverlayDestination.Device => PanelDevice,
-                OverlayDestination.System => PanelSystem,
-                _ => PanelHome,
-            };
-            foreach (var visual in panel.GetVisualDescendants())
+            foreach (var visual in DestinationPanel().GetVisualDescendants())
             {
                 if (visual is Button { Focusable: true, IsEffectivelyEnabled: true } button
                     && button.IsEffectivelyVisible)
@@ -1172,25 +1214,58 @@ public partial class OverlayWindow : Window
                     return button;
                 }
             }
-            return HomeAppButton;
+            // An empty Quick access root has no row: land on the first tab button so LB/RB
+            // and the D-pad still lead somewhere visible.
+            return FirstFocusable(Tabs) ?? HomeAppButton;
         }
     }
 
     // The destination the user last selected, restored on the next open. Static because
     // the overlay window is recreated per open; deliberately not persisted to config.
-    private static OverlayDestination _lastDestination = OverlayDestination.Home;
+    private static OverlayDestination _lastDestination = OverlayDestination.QuickAccess;
 
     private readonly double _uiScale;
 
-    /// <summary>Creates the overlay window bound to the supplied state.</summary>
-    /// <param name="viewModel">The state that drives labels, warnings, and the window picker.</param>
+    /// <summary>The factor RootScale currently applies (1.0 = no transform). The
+    /// sheet's inner layout happens in pre-transform units, so every budget derived
+    /// from the window's width has to divide by this first.</summary>
+    private double _contentScale = 1.0;
+
+    /// <summary>Creates the sheet bound to the supplied state.</summary>
+    /// <param name="viewModel">The state that drives labels, warnings and the rows.</param>
+    /// <param name="switcher">The Open apps chips and tray icons (reconciled in place by the controller).</param>
+    /// <param name="status">The live clock/battery/radio/audio status the header pills bind.</param>
     /// <param name="uiScale">The desktop-DPI scale factor for WSGM UI (e.g. 1.5
     /// for a 150% desktop; see DisplayScale.GetUiScalePercent).</param>
-    public OverlayWindow(OverlayViewModel viewModel, double uiScale = 1.0)
+    public OverlayWindow(OverlayViewModel viewModel, AppSwitcherViewModel switcher, SystemStatus status, double uiScale = 1.0)
     {
         _uiScale = uiScale;
+        _switcher = switcher;
         InitializeComponent();
         DataContext = viewModel;
+        // Two subtrees bind different objects than the window (compiled bindings:
+        // x:DataType on the TrayScroller / AppsStrip and StatusZone subtrees).
+        TrayScroller.DataContext = switcher;
+        AppsStrip.DataContext = switcher;
+        StatusZone.DataContext = status;
+        IndexPinnableRows();
+
+        // Controller navigation moves focus with InputElement.Focus(Directional),
+        // which does NOT raise RequestBringIntoView on its own — a chip scrolled
+        // out of its strip would take focus invisibly. Ask for it explicitly:
+        // Control.BringIntoView() raises RequestBringIntoViewEvent, which the
+        // ScrollViewer's presenter handles by scrolling. Arrow keys are safe to
+        // leave to the ScrollViewer's own handler because GamepadNavigation marks
+        // them handled from a TUNNEL handler on the window.
+        TileScroller.AddHandler(GotFocusEvent, OnStripGotFocus, RoutingStrategies.Bubble);
+        TrayScroller.AddHandler(GotFocusEvent, OnStripGotFocus, RoutingStrategies.Bubble);
+        // Budget the tray against the XAML's declared width right away, so the
+        // strip is bounded even on the path where DockToTopEdge bails out (no
+        // primary screen); the dock recomputes it against the real display width.
+        TrayScroller.MaxWidth = ComputeTrayMaxWidth(Width, _contentScale);
+        // Touch and mouse routes to pinning: a hold on a row, or a right click.
+        AddHandler(InputElement.HoldingEvent, OnHolding, RoutingStrategies.Bubble);
+        AddHandler(PointerReleasedEvent, OnPointerReleasedForPin, RoutingStrategies.Bubble);
 
         ConfigureTabs(showDevice: false);
         Tabs.SelectionChanged += OnTabSelectionChanged;
@@ -1234,7 +1309,7 @@ public partial class OverlayWindow : Window
 
     private void OnOpened(object? sender, EventArgs e)
     {
-        DockToRightEdge();
+        DockToTopEdge();
         SelectDestination(_lastDestination);
         RestoreDestinationState(focus: true);
         MaybeAutoSyncTabs();
@@ -1290,6 +1365,7 @@ public partial class OverlayWindow : Window
         Closed -= OnClosed;
         StopSlide();
         ResetConfirms();
+        ReleasePinMirrors();
         _deviceLifetime.Dispose();
     }
 
@@ -1350,7 +1426,7 @@ public partial class OverlayWindow : Window
                 RestoreRootFocus(_navigation.Pop());
                 return true;
             case OverlayBackAction.ReturnHome:
-                SelectDestination(OverlayDestination.Home);
+                SelectDestination(OverlayDestination.QuickAccess);
                 return true;
             case OverlayBackAction.ClosePopup:
                 return true;
@@ -1385,7 +1461,7 @@ public partial class OverlayWindow : Window
     {
         if (!_navigation.IsVisible(destination))
         {
-            destination = OverlayDestination.Home;
+            destination = OverlayDestination.QuickAccess;
         }
 
         int index = DestinationIndex(destination);
@@ -1404,11 +1480,14 @@ public partial class OverlayWindow : Window
 
     private void ShowDestination(OverlayDestination destination, bool restoreFocus)
     {
+        TabEyebrow.Text = DestinationLabel(destination).ToUpperInvariant();
+        PanelQuickAccess.IsVisible = destination == OverlayDestination.QuickAccess;
         PanelHome.IsVisible = destination == OverlayDestination.Home;
         PanelSteam.IsVisible = destination == OverlayDestination.Steam;
         PanelDevice.IsVisible = destination == OverlayDestination.Device
             && _deviceBridge?.Snapshot().Visible is true;
         PanelSystem.IsVisible = destination == OverlayDestination.System;
+        PanelPower.IsVisible = destination == OverlayDestination.Power;
 
         // The Device rows are built once per render into a panel that survives destination changes,
         // and until this call arriving here they were rebuilt only on attach and on a device-state
@@ -1439,10 +1518,12 @@ public partial class OverlayWindow : Window
 
     private Control DestinationPanel() => _navigation.Destination switch
     {
+        OverlayDestination.Home => PanelHome,
         OverlayDestination.Steam => PanelSteam,
         OverlayDestination.Device => PanelDevice,
         OverlayDestination.System => PanelSystem,
-        _ => PanelHome,
+        OverlayDestination.Power => PanelPower,
+        _ => PanelQuickAccess,
     };
 
     private void RememberDestinationState(OverlayDestination destination)
@@ -1526,7 +1607,7 @@ public partial class OverlayWindow : Window
         UpdateGlyphInputObservation(false);
     }
 
-    private static void FocusFirstControl(Control panel)
+    private static InputElement? FirstFocusable(Control panel)
     {
         foreach (var visual in panel.GetVisualDescendants())
         {
@@ -1536,15 +1617,403 @@ public partial class OverlayWindow : Window
                 && element is not TextBox
                 && element.IsEffectivelyVisible)
             {
-                element.Focus(NavigationMethod.Directional);
-                return;
+                return element;
+            }
+        }
+        return null;
+    }
+
+    private static void FocusFirstControl(Control panel)
+        => FirstFocusable(panel)?.Focus(NavigationMethod.Directional);
+
+    // ---- Quick access pins ----
+
+    /// <summary>Every pinnable XAML row, by its stable id (the CardButton's Tag).
+    /// Device rows are not here: they are rebuilt from the snapshot on every render.</summary>
+    private readonly Dictionary<string, CardButton> _pinnable = new(StringComparer.Ordinal);
+
+    /// <summary>Live mirrors on the Quick access root: each clone follows its source row's
+    /// title, description, badge and visibility through the source's property changes, and
+    /// presses through to the source's Click handlers.</summary>
+    private readonly List<(CardButton Source, EventHandler<AvaloniaPropertyChangedEventArgs> Handler)> _pinMirrors = [];
+
+    private IReadOnlyList<string> _pins = [];
+
+    /// <summary>The Tag prefix that marks a Quick access clone; X on one unpins.</summary>
+    private const string PinTagPrefix = "pin:";
+
+    private void IndexPinnableRows()
+    {
+        foreach (var button in this.GetLogicalDescendants().OfType<CardButton>())
+        {
+            if (button.Tag is string id && id.Length > 0 && !id.StartsWith(PinTagPrefix, StringComparison.Ordinal))
+            {
+                _pinnable[id] = button;
             }
         }
     }
 
-    /// <summary>Fits the panel to the primary display and slides it in from the right.
-    /// The window never covers the whole display, so the active game remains visible.</summary>
-    private void DockToRightEdge()
+    /// <summary>Rebuilds the Quick access root from the persisted pin list. Ids this
+    /// build cannot resolve are skipped (kept in the config for the build or device that
+    /// can).</summary>
+    /// <param name="ids">The pinned row ids in display order.</param>
+    internal void SetPins(IReadOnlyList<string> ids)
+    {
+        _pins = ids;
+        RenderPins();
+    }
+
+    private void RenderPins()
+    {
+        if (_closed)
+        {
+            return;
+        }
+
+        string? focusedKey = CurrentSemanticFocusKey();
+        Control? restoreFocus = null;
+        ReleasePinMirrors();
+        PinnedGrid.Children.Clear();
+        foreach (var id in _pins)
+        {
+            Control? row = _pinnable.TryGetValue(id, out var source)
+                ? CreatePinMirror(id, source)
+                : CreatePinnedDeviceRow(id);
+            if (row is null)
+            {
+                continue;
+            }
+            row.Margin = new Thickness(0, 0, 10, 10);
+            PinnedGrid.Children.Add(row);
+            if (string.Equals(row.Tag as string, focusedKey, StringComparison.Ordinal))
+            {
+                restoreFocus = row;
+            }
+        }
+        PinnedEmptyHint.IsVisible = PinnedGrid.Children.Count == 0;
+        Log.Change("overlay.pins", $"Quick access pins: {PinnedGrid.Children.Count} of {_pins.Count} rendered.");
+        if (restoreFocus is not null)
+        {
+            restoreFocus.Focus(NavigationMethod.Directional);
+        }
+        else if (PanelQuickAccess.IsVisible && !AnySubView && focusedKey is not null
+            && focusedKey.StartsWith(PinTagPrefix, StringComparison.Ordinal))
+        {
+            // The focused pin was just unpinned: land on whatever is left rather than on a
+            // detached control.
+            FocusFirstControl(PanelQuickAccess);
+        }
+    }
+
+    private CardButton CreatePinMirror(string id, CardButton source)
+    {
+        var clone = new CardButton { Tag = PinTagPrefix + id };
+        foreach (var cls in source.Classes)
+        {
+            if (cls is "primary" or "danger")
+            {
+                clone.Classes.Add(cls);
+            }
+        }
+        MirrorPinnedRow(clone, source);
+        EventHandler<AvaloniaPropertyChangedEventArgs> handler = (_, _) => MirrorPinnedRow(clone, source);
+        source.PropertyChanged += handler;
+        // Press-through: the source's Click handlers run with the source as sender, so a
+        // row that rewrites its own title ("Really?", "Applied to …") does so on the source
+        // and the mirror follows.
+        clone.Click += (_, _) => source.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        _pinMirrors.Add((source, handler));
+        return clone;
+    }
+
+    private void ReleasePinMirrors()
+    {
+        foreach (var (source, handler) in _pinMirrors)
+        {
+            source.PropertyChanged -= handler;
+        }
+        _pinMirrors.Clear();
+    }
+
+    private static void MirrorPinnedRow(CardButton clone, CardButton source)
+    {
+        clone.Title = source.Title;
+        clone.Description = source.Description;
+        clone.IconGeometry = source.IconGeometry;
+        clone.TrailingText = source.TrailingText;
+        clone.TrailingGlyph = source.TrailingGlyph;
+        clone.StatusBrush = source.StatusBrush;
+        // The source's OWN IsVisible (bound to a feature flag), not its effective one —
+        // the source panel is hidden whenever the Quick access root shows.
+        clone.IsVisible = source.IsVisible;
+        clone.IsEnabled = source.IsEnabled;
+    }
+
+    /// <summary>A pinned Device row, rebuilt from the current snapshot: a plugin
+    /// capability by its key, or one of WSGM's direct rows by its focus key. Null when
+    /// the device is not showing it right now.</summary>
+    private Control? CreatePinnedDeviceRow(string id)
+    {
+        DeviceOverlaySnapshot? snapshot = _deviceBridge?.Snapshot();
+        if (snapshot is not { Visible: true })
+        {
+            return null;
+        }
+
+        DescriptorStatusRow? row = null;
+        foreach (DeviceOverlayCapability capability in snapshot.Capabilities)
+        {
+            if (string.Equals(DeviceRowKey(capability), id, StringComparison.Ordinal))
+            {
+                row = CreateDeviceCapabilityRow(capability, id);
+                break;
+            }
+        }
+        if (row is null && DirectDeviceRow(snapshot, id) is { } direct)
+        {
+            row = new DescriptorStatusRow();
+            row.Apply(direct.Row with { Id = id });
+            Action invoke = direct.Invoke;
+            row.Click += (_, _) => invoke();
+        }
+        if (row is null && snapshot.GlyphSelection is { } glyphSelection
+            && string.Equals(glyphSelection.Id, id, StringComparison.Ordinal))
+        {
+            row = CreateGlyphSelectionRow(glyphSelection);
+        }
+        if (row is not null)
+        {
+            row.Tag = PinTagPrefix + id;
+        }
+        return row;
+    }
+
+    private static string DeviceRowKey(DeviceOverlayCapability capability)
+        => capability.InstanceId is { Length: > 0 }
+            ? $"{capability.CapabilityId}#{capability.InstanceId}"
+            : capability.CapabilityId;
+
+    /// <summary>WSGM's own Device rows by their focus key — the same table the section
+    /// renderer draws from, so a pinned direct row invokes exactly what the page does.</summary>
+    private (DescriptorRow Row, Action Invoke)? DirectDeviceRow(DeviceOverlaySnapshot snapshot, string id)
+        => id switch
+        {
+            "device.auto-tdp" when snapshot.AutoTdp is { } row => (row, InvokeAutoTdpToggle),
+            "device.hardware-profile" when snapshot.Profile is { } row => (row, InvokeHardwareProfileCycle),
+            "device.authored-profile" when snapshot.AuthoredProfile is { } row => (row, InvokeAuthoredProfileCycle),
+            "device.controller-target" when snapshot.Controller is { } row => (row, InvokeControllerTargetCycle),
+            "device.retry" when snapshot.Recovery is { } row => (row, InvokeDeviceCycleRetry),
+            _ => null,
+        };
+
+    /// <summary>Whether a row id can be pinned: a XAML row, or a Device row the snapshot
+    /// currently shows.</summary>
+    private bool IsPinnable(string id)
+        => _pinnable.ContainsKey(id)
+            || (_deviceBridge?.Snapshot() is { Visible: true } snapshot
+                && (snapshot.Capabilities.Any(c => string.Equals(DeviceRowKey(c), id, StringComparison.Ordinal))
+                    || DirectDeviceRow(snapshot, id) is not null
+                    || string.Equals(snapshot.GlyphSelection?.Id, id, StringComparison.Ordinal)));
+
+    /// <summary>Resolves the row id a row or its Quick access mirror stands for.</summary>
+    private bool TryGetPinId(Control? control, out string id)
+    {
+        if (control is CardButton { Tag: string tag })
+        {
+            id = tag.StartsWith(PinTagPrefix, StringComparison.Ordinal) ? tag[PinTagPrefix.Length..] : tag;
+            return IsPinnable(id);
+        }
+        id = "";
+        return false;
+    }
+
+    /// <summary>Gamepad secondary action (X): the context menu of a focused tray
+    /// icon, otherwise pin/unpin the focused row. Logged either way — this is
+    /// remote-diagnosis territory.</summary>
+    internal void RequestSecondaryAction(InputElement? focused)
+    {
+        if (focused is Control { DataContext: TrayIconEntry entry } control)
+        {
+            Log.Info($"Gamepad X: tray context menu for '{entry.Tip}'.");
+            TrayIconActivated?.Invoke(entry, true, AnchorBelow(control));
+            return;
+        }
+        if (TryGetPinId(focused as Control, out var id))
+        {
+            Log.Info($"Gamepad X: toggling pin '{id}'.");
+            PinToggleRequested?.Invoke(id);
+            return;
+        }
+        Log.Info($"Gamepad X: focused element is not pinnable ({focused?.GetType().Name ?? "none"}, tag {(focused as Control)?.Tag ?? "-"}).");
+    }
+
+    private void OnHolding(object? sender, HoldingRoutedEventArgs e)
+    {
+        if (e.HoldingState != HoldingState.Started)
+        {
+            return;
+        }
+        var row = (e.Source as Visual)?.FindAncestorOfType<CardButton>(includeSelf: true);
+        if (TryGetPinId(row, out var id))
+        {
+            e.Handled = true;
+            Log.Info($"Touch hold: toggling pin '{id}'.");
+            PinToggleRequested?.Invoke(id);
+        }
+    }
+
+    private void OnPointerReleasedForPin(object? sender, PointerReleasedEventArgs e)
+    {
+        if (e.InitialPressMouseButton != MouseButton.Right)
+        {
+            return;
+        }
+        var row = (e.Source as Visual)?.FindAncestorOfType<CardButton>(includeSelf: true);
+        if (TryGetPinId(row, out var id))
+        {
+            e.Handled = true;
+            PinToggleRequested?.Invoke(id);
+        }
+    }
+
+    // ---- Open apps strip and header pills ----
+
+    /// <summary>Lands controller focus on the first Open apps chip — the bottom-swipe
+    /// entry point, which exists to reach the running programs in one gesture.</summary>
+    internal void FocusOpenApps() => FirstFocusable(AppTiles)?.Focus(NavigationMethod.Directional);
+
+    /// <summary>Y: switch to the window after the foreground one in strip order,
+    /// wrapping — an Alt+Tab step from the sheet. Nothing to do with fewer than two
+    /// windows.</summary>
+    internal void CycleNextApp()
+    {
+        var entries = _switcher.Entries;
+        if (entries.Count < 2)
+        {
+            Log.Info("Next app: fewer than two windows open.");
+            return;
+        }
+        var active = -1;
+        for (var i = 0; i < entries.Count; i++)
+        {
+            if (entries[i].IsActive)
+            {
+                active = i;
+                break;
+            }
+        }
+        WindowPicked?.Invoke(entries[(active + 1) % entries.Count]);
+    }
+
+    private void OnPickWindow(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is AppSwitcherEntry entry)
+        {
+            WindowPicked?.Invoke(entry);
+        }
+    }
+
+    /// <summary>Tap / A-button / left click → the icon's primary activation.</summary>
+    private void OnTrayClick(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is TrayIconEntry entry && sender is Control control)
+        {
+            TrayIconActivated?.Invoke(entry, false, AnchorBelow(control));
+        }
+    }
+
+    /// <summary>Right mouse button → the icon's context menu (many tray apps only
+    /// respond to this). Button.Click never fires for the right button, so this
+    /// rides PointerReleased.</summary>
+    private void OnTrayPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (e.InitialPressMouseButton == MouseButton.Right
+            && (sender as Control)?.DataContext is TrayIconEntry entry
+            && sender is Control control)
+        {
+            e.Handled = true;
+            TrayIconActivated?.Invoke(entry, true, AnchorBelow(control));
+        }
+    }
+
+    /// <summary>Screen position just below the pill's centre — where the app
+    /// should anchor a popup menu (v4 coordinate protocol).</summary>
+    private static PixelPoint AnchorBelow(Control control)
+    {
+        var point = control.PointToScreen(new Point(control.Bounds.Width / 2, control.Bounds.Height));
+        return new PixelPoint(point.X, point.Y);
+    }
+
+    private void OnRadioTileClicked(object? sender, RoutedEventArgs e)
+    {
+        // A flyout cannot hold a network list, and GamepadNavigation has no popup
+        // awareness, so a list inside one would not be reachable with a controller
+        // at all. The panel is a real window for both reasons.
+        RadioPanelRequested?.Invoke((sender as Control)?.Tag as string == "bluetooth");
+    }
+
+    private void OnAudioTileClicked(object? sender, RoutedEventArgs e)
+        => AudioPanelRequested?.Invoke();
+
+    private void OnEjectTileClicked(object? sender, RoutedEventArgs e)
+        => EjectPanelRequested?.Invoke();
+
+    /// <summary>Scrolls a newly focused chip into its strip's viewport (app chips
+    /// and tray icons share this handler). Bubbles from the buttons; the scroll
+    /// viewers themselves are not focusable, and the call is a no-op when the chip
+    /// is already fully visible.</summary>
+    private void OnStripGotFocus(object? sender, FocusChangedEventArgs e)
+    {
+        if (e.Source is Control control && control is not ScrollViewer)
+        {
+            control.BringIntoView();
+        }
+    }
+
+    /// <summary>The header's bottom edge in physical screen pixels, for the radio,
+    /// audio and eject panels to hang from.</summary>
+    internal int HeaderBottomScreenY
+        => Position.Y + (int)Math.Ceiling(Header.Bounds.Height * _contentScale * DesktopScaling);
+
+    // ---- Geometry ----
+
+    /// <summary>Share of the header's inner width the tray strip may claim before it
+    /// starts scrolling. The tray is the only header content whose length WSGM does
+    /// not control (the Shell_TrayWnd host takes whatever apps register), so it is
+    /// the part that gets a budget; the wordmark and the status pills after it are
+    /// fixed-size and always keep their space.</summary>
+    private const double TrayWidthFraction = 0.30;
+
+    /// <summary>Floor for the tray budget: one tray pill plus its spacing, so a
+    /// single icon is never clipped even on an absurdly narrow display.</summary>
+    private const double TrayMinWidth = 40;
+
+    /// <summary>Horizontal padding the header adds inside the window (16 left + 16
+    /// right — keep in sync with Padding="16,0" in the XAML).</summary>
+    private const double HeaderHorizontalPadding = 32;
+
+    /// <summary>The widest the tray strip may become before it scrolls, so that
+    /// the fixed status pills always fit. Pure: the width budget is unit-tested
+    /// against this method rather than against a live window.</summary>
+    /// <param name="windowWidth">The sheet window's logical (DIP) width.</param>
+    /// <param name="contentScale">The factor RootScale applies to the content
+    /// (see <see cref="DockToTopEdge"/>); 1.0 when untransformed.</param>
+    /// <returns>A MaxWidth in the header's pre-transform layout units.</returns>
+    internal static double ComputeTrayMaxWidth(double windowWidth, double contentScale)
+    {
+        if (!double.IsFinite(windowWidth) || !double.IsFinite(contentScale) || contentScale <= 0)
+        {
+            return TrayMinWidth;
+        }
+        var inner = windowWidth / contentScale - HeaderHorizontalPadding;
+        return Math.Max(TrayMinWidth, inner * TrayWidthFraction);
+    }
+
+    /// <summary>Spans the sheet across the primary display's top edge, sized to
+    /// <see cref="SheetHeightFraction"/> of its height, and slides it down from
+    /// above the screen. The window never covers the whole display: the strip left
+    /// below is the game's, and the tap-outside dismissal.</summary>
+    private void DockToTopEdge()
     {
         var screen = Screens?.Primary;
         if (screen is null)
@@ -1560,7 +2029,7 @@ public partial class OverlayWindow : Window
         // desktop DPI after returning to game mode).
         var scaling = DesktopScaling;
         // Render at the desktop's DPI: game mode forces displays to 100%, which
-        // otherwise shrinks this DIP-sized panel to millimeters on dense
+        // otherwise shrinks this DIP-sized sheet to millimeters on dense
         // handheld screens (device-reported). The content lays out in
         // desktop-DIP space (the factor divides the available size), the window
         // takes the scaled-up physical footprint.
@@ -1568,17 +2037,16 @@ public partial class OverlayWindow : Window
         if (Math.Abs(factor - 1.0) >= 0.01)
         {
             Core.Log.Info($"Quick access UI scale {factor:0.##}x (desktop DPI over current {scaling:0.##}).");
+            _contentScale = factor;
             RootScale.LayoutTransform = new Avalonia.Media.ScaleTransform(factor, factor);
         }
-        // Keep the panel compact on high-DPI handheld displays. A 360-DIP panel
-        // remains comfortably touchable without taking half the game view.
-        var panelWidth = Math.Min(360d, Math.Max(320d, bounds.Width / scaling / factor * 0.30)) * factor;
-        Width = panelWidth;
-        Height = bounds.Height / scaling;
+        Width = bounds.Width / scaling;
+        Height = Math.Round(bounds.Height / scaling * SheetHeightFraction);
+        TrayScroller.MaxWidth = ComputeTrayMaxWidth(Width, _contentScale);
 
-        var panelWidthPx = (int)Math.Ceiling(panelWidth * scaling);
-        _slideEnd = new PixelPoint(bounds.X + bounds.Width - panelWidthPx, bounds.Y);
-        _slideStart = new PixelPoint(bounds.X + bounds.Width, bounds.Y);
+        var heightPx = (int)Math.Ceiling(Height * scaling);
+        _slideEnd = new PixelPoint(bounds.X, bounds.Y);
+        _slideStart = new PixelPoint(bounds.X, bounds.Y - heightPx);
         Position = _slideStart;
 
         StopSlide();
@@ -1595,8 +2063,8 @@ public partial class OverlayWindow : Window
         // Cubic ease-out keeps the movement quick without a sharp stop.
         var eased = 1 - Math.Pow(1 - progress, 3);
         Position = new PixelPoint(
-            (int)Math.Round(_slideStart.X + (_slideEnd.X - _slideStart.X) * eased),
-            _slideEnd.Y);
+            _slideEnd.X,
+            (int)Math.Round(_slideStart.Y + (_slideEnd.Y - _slideStart.Y) * eased));
 
         if (progress >= 1)
         {
@@ -2030,9 +2498,9 @@ public partial class OverlayWindow : Window
         EnterWakeLockSubView();
     }
 
-    private void EnterWakeLockSubView() => EnterSubView(OverlayPage.SystemWakeLocks);
+    private void EnterWakeLockSubView() => EnterSubView(OverlayPage.PowerWakeLocks);
 
-    private void LeaveWakeLockSubView() => LeaveSubView(OverlayPage.SystemWakeLocks);
+    private void LeaveWakeLockSubView() => LeaveSubView(OverlayPage.PowerWakeLocks);
 
     private void LeaveDeviceColorSubView() => LeaveSubView(OverlayPage.DeviceColor);
 

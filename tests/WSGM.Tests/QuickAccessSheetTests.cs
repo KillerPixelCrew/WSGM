@@ -4,35 +4,56 @@ using WSGM.Settings;
 
 namespace WSGM.Tests;
 
-/// <summary>Pure taskbar logic: edge-swipe routing and the in-place tile
-/// reconciliation that keeps the focused button alive across refreshes.</summary>
-public sealed class TaskbarTests
+/// <summary>Pure quick access sheet logic: edge-swipe routing, the header tray budget
+/// and the in-place Open apps reconciliation that keeps the focused chip alive across
+/// refreshes.</summary>
+public sealed class QuickAccessSheetTests
 {
+    // The SteamOS map: left/right are Steam's, top/bottom are WSGM's. The bottom
+    // edge is explorer's in desktop mode and stays ignored there.
     [Theory]
-    [InlineData(ScreenEdge.Bottom, EdgeAction.Taskbar, false, OverlayController.SwipeAction.Taskbar)]
-    [InlineData(ScreenEdge.Bottom, EdgeAction.Taskbar, true, OverlayController.SwipeAction.None)] // desktop: explorer owns the edge
-    [InlineData(ScreenEdge.Bottom, EdgeAction.QuickAccess, false, OverlayController.SwipeAction.QuickAccess)]
-    [InlineData(ScreenEdge.Bottom, EdgeAction.QuickAccess, true, OverlayController.SwipeAction.QuickAccess)]
-    [InlineData(ScreenEdge.Right, EdgeAction.Taskbar, false, OverlayController.SwipeAction.QuickAccess)] // right edge is always quick access
-    [InlineData(ScreenEdge.Right, EdgeAction.Taskbar, true, OverlayController.SwipeAction.QuickAccess)]
-    [InlineData(ScreenEdge.Left, EdgeAction.Taskbar, false, OverlayController.SwipeAction.SteamMenu)]
-    [InlineData(ScreenEdge.Left, EdgeAction.Taskbar, true, OverlayController.SwipeAction.SteamMenu)]
-    [InlineData(ScreenEdge.Top, EdgeAction.Taskbar, false, OverlayController.SwipeAction.SteamQuickAccess)]
-    [InlineData(ScreenEdge.Top, EdgeAction.Taskbar, true, OverlayController.SwipeAction.SteamQuickAccess)]
-    public void EdgeSwipeRoutesToItsConfiguredSurface(
-        ScreenEdge edge, EdgeAction bottomAction, bool explorerRunning, OverlayController.SwipeAction expected)
-        => Assert.Equal(expected, OverlayController.DecideSwipe(edge, bottomAction, explorerRunning));
+    [InlineData(ScreenEdge.Top, false, OverlayController.SwipeAction.QuickAccess)]
+    [InlineData(ScreenEdge.Top, true, OverlayController.SwipeAction.QuickAccess)]
+    [InlineData(ScreenEdge.Bottom, false, OverlayController.SwipeAction.QuickAccessApps)]
+    [InlineData(ScreenEdge.Bottom, true, OverlayController.SwipeAction.None)] // desktop: explorer owns the edge
+    [InlineData(ScreenEdge.Left, false, OverlayController.SwipeAction.SteamMenu)]
+    [InlineData(ScreenEdge.Left, true, OverlayController.SwipeAction.SteamMenu)]
+    [InlineData(ScreenEdge.Right, false, OverlayController.SwipeAction.SteamQuickAccess)]
+    [InlineData(ScreenEdge.Right, true, OverlayController.SwipeAction.SteamQuickAccess)]
+    public void EdgeSwipeRoutesToTheSteamOsLayout(
+        ScreenEdge edge, bool explorerRunning, OverlayController.SwipeAction expected)
+        => Assert.Equal(expected, OverlayController.DecideSwipe(edge, explorerRunning));
 
     [Fact]
-    public void NewConfigurationsEnableEveryEdgeAndDefaultTheBottomToTheTaskbar()
+    public void NewConfigurationsEnableEveryEdge()
     {
         var gestures = new GestureConfig();
 
         Assert.True(gestures.BottomEdge);
-        Assert.True(gestures.RightEdge);
+        Assert.True(gestures.TopEdge);
         Assert.True(gestures.LeftEdgeSteamMenu);
-        Assert.True(gestures.TopEdgeSteamQuickAccess);
-        Assert.Equal(EdgeAction.Taskbar, gestures.BottomEdgeAction);
+        Assert.True(gestures.RightEdgeSteamQuickAccess);
+    }
+
+    [Fact]
+    public void NormalizeDropsBlankAndDuplicatePins()
+    {
+        var config = new AppConfig { QuickAccessPins = ["system.keep-awake", "", " ", "system.keep-awake", "home.steam"] };
+
+        ConfigStore.Normalize(config);
+
+        Assert.Equal(["system.keep-awake", "home.steam"], config.QuickAccessPins);
+    }
+
+    [Fact]
+    public void NormalizeRepairsANullPinList()
+    {
+        var config = new AppConfig { QuickAccessPins = null! };
+
+        ConfigStore.Normalize(config);
+
+        Assert.NotNull(config.QuickAccessPins);
+        Assert.Empty(config.QuickAccessPins);
     }
 
     [Theory]
@@ -77,17 +98,33 @@ public sealed class TaskbarTests
     [Theory]
     [InlineData(false, true)]
     [InlineData(true, false)]
-    public void SettingsSnapshotPersistsLeftAndTopSteamGestureSwitchesIndependently(
-        bool left, bool top)
+    public void SettingsSnapshotPersistsLeftAndRightSteamGestureSwitchesIndependently(
+        bool left, bool right)
     {
         var viewModel = new SettingsViewModel(new AppConfig());
         viewModel.GestureLeftSteamMenu = left;
-        viewModel.GestureTopSteamQuickAccess = top;
+        viewModel.GestureRightSteamQuickAccess = right;
 
         var snapshot = viewModel.SnapshotForPreview();
 
         Assert.Equal(left, snapshot.Gestures.LeftEdgeSteamMenu);
-        Assert.Equal(top, snapshot.Gestures.TopEdgeSteamQuickAccess);
+        Assert.Equal(right, snapshot.Gestures.RightEdgeSteamQuickAccess);
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void SettingsSnapshotPersistsTopAndBottomSheetGestureSwitchesIndependently(
+        bool top, bool bottom)
+    {
+        var viewModel = new SettingsViewModel(new AppConfig());
+        viewModel.GestureTop = top;
+        viewModel.GestureBottom = bottom;
+
+        var snapshot = viewModel.SnapshotForPreview();
+
+        Assert.Equal(top, snapshot.Gestures.TopEdge);
+        Assert.Equal(bottom, snapshot.Gestures.BottomEdge);
     }
 
     [Theory]
@@ -137,50 +174,58 @@ public sealed class TaskbarTests
             [],
             @"\\.\DISPLAY2"));
 
-    // ---- Tray width budget: the right zone must never grow past the bar ----
+    // ---- Tray width budget: the header's pill zone must never grow past the sheet ----
 
     [Theory]
-    [InlineData(1280.0, 1.0, 379.2)] // 1280 px bar, no touch transform
-    [InlineData(1920.0, 1.0, 571.2)]
-    [InlineData(1280.0, 1.5, 251.2)] // RootScale 1.5x shrinks the inner layout width
-    [InlineData(0.0, 1.0, 40.0)] // degenerate inputs never fall below one tray tile
+    [InlineData(1280.0, 1.0, 374.4)] // 1280 px sheet, no touch transform
+    [InlineData(1920.0, 1.0, 566.4)]
+    [InlineData(1280.0, 1.5, 246.4)] // RootScale 1.5x shrinks the inner layout width
+    [InlineData(0.0, 1.0, 40.0)] // degenerate inputs never fall below one tray pill
     [InlineData(1280.0, 0.0, 40.0)]
     [InlineData(double.NaN, 1.0, 40.0)]
-    public void TheTrayStripIsCappedAtAFractionOfTheBarsInnerWidth(double width, double scale, double expected)
-        => Assert.Equal(expected, TaskbarWindow.ComputeTrayMaxWidth(width, scale), 3);
+    public void TheTrayStripIsCappedAtAFractionOfTheHeadersInnerWidth(double width, double scale, double expected)
+        => Assert.Equal(expected, OverlayWindow.ComputeTrayMaxWidth(width, scale), 3);
 
     [Fact]
-    public void TheCappedTrayLeavesTheFixedStatusClusterAndAUsableTileStrip()
+    public void TheCappedTrayLeavesTheFixedStatusPillsAndTheWordmark()
     {
-        // Fixed right-zone cost at 1280 px logical, added up from the XAML:
-        // Audio 36 + Wi-Fi 36 + Bluetooth 36 + battery ~57 + clock ~67 + 4x4
-        // spacing = ~248, plus the 9 px separator and the two 4 px gaps around it
-        // = ~265. The home
-        // button and the bar's 2x8 padding take ~92 more.
-        const double bar = 1280;
-        const double statusCluster = 265;
-        const double homeAndPadding = 92;
+        // Fixed header cost at 1280 px logical, added up from the XAML: eject 34 +
+        // audio 34 + Wi-Fi 34 + Bluetooth 34 + battery ~70 + clock ~64 + close 34 +
+        // 7x4 spacing + the 9 px separator = ~341; the wordmark and eyebrow ~160;
+        // the header's 2x16 padding 32.
+        const double sheet = 1280;
+        const double pills = 341;
+        const double wordmark = 160;
+        const double padding = 32;
 
-        var tray = TaskbarWindow.ComputeTrayMaxWidth(bar, 1.0);
-        var tiles = bar - tray - statusCluster - homeAndPadding;
+        var tray = OverlayWindow.ComputeTrayMaxWidth(sheet, 1.0);
+        var slack = sheet - padding - wordmark - pills - tray;
 
-        // Before the cap an unbounded tray (17+ icons ≈ 646 px) pushed the status
-        // cluster off the right edge. Capped, the cluster always fits and the tile
-        // strip still shows a useful number of 48 px tiles.
-        Assert.True(tiles > 0, $"status cluster does not fit (tile band {tiles:0.#} px)");
-        Assert.True(tiles > 48 * 8, $"tile strip squeezed to {tiles:0.#} px");
+        Assert.True(slack > 0, $"status pills do not fit (slack {slack:0.#} px)");
+    }
+
+    [Fact]
+    public void EveryDestinationHasAUserFacingLabel()
+    {
+        foreach (OverlayDestination destination in Enum.GetValues<OverlayDestination>())
+        {
+            Assert.False(string.IsNullOrWhiteSpace(OverlayWindow.DestinationLabel(destination)));
+        }
+        Assert.Equal("Quick access", OverlayWindow.DestinationLabel(OverlayDestination.QuickAccess));
+        Assert.Equal("Session", OverlayWindow.DestinationLabel(OverlayDestination.Home));
+        Assert.Equal("Tools", OverlayWindow.DestinationLabel(OverlayDestination.System));
     }
 
     private static WindowFinder.AppWindow Window(nint hwnd, string title, bool minimized = false)
         => new(hwnd, title, (uint)hwnd) { IsMinimized = minimized };
 
-    private static TaskbarEntry Create(WindowFinder.AppWindow window)
+    private static AppSwitcherEntry Create(WindowFinder.AppWindow window)
         => new(window.Hwnd, window.Title, isSteam: false, icon: null);
 
     [Fact]
-    public void ReconcileKeepsSurvivingTileInstancesAndUpdatesTheirStateInPlace()
+    public void ReconcileKeepsSurvivingChipInstancesAndUpdatesTheirStateInPlace()
     {
-        var vm = new TaskbarViewModel();
+        var vm = new AppSwitcherViewModel();
         vm.Reconcile([Window(1, "Game"), Window(2, "Tool")], activeHwnd: 1, Create);
         var game = vm.Entries[0];
         var tool = vm.Entries[1];
@@ -200,7 +245,7 @@ public sealed class TaskbarTests
     [Fact]
     public void ReconcileRemovesClosedWindowsAndAppendsNewOnesInEnumerationOrder()
     {
-        var vm = new TaskbarViewModel();
+        var vm = new AppSwitcherViewModel();
         vm.Reconcile([Window(1, "A"), Window(2, "B")], activeHwnd: 0, Create);
 
         vm.Reconcile([Window(3, "C"), Window(2, "B"), Window(4, "D")], activeHwnd: 0, Create);
@@ -213,9 +258,9 @@ public sealed class TaskbarTests
     }
 
     [Fact]
-    public void ReconcileWithNoWindowsEmptiesTheBarAndFlagsTheEmptyState()
+    public void ReconcileWithNoWindowsEmptiesTheStripAndFlagsTheEmptyState()
     {
-        var vm = new TaskbarViewModel();
+        var vm = new AppSwitcherViewModel();
         vm.Reconcile([Window(1, "A")], activeHwnd: 1, Create);
 
         vm.Reconcile([], activeHwnd: 0, Create);
@@ -225,9 +270,9 @@ public sealed class TaskbarTests
     }
 
     [Fact]
-    public void TaskbarEntryRaisesChangeNotificationsOnlyWhenValuesActuallyChange()
+    public void SwitcherEntryRaisesChangeNotificationsOnlyWhenValuesActuallyChange()
     {
-        var entry = new TaskbarEntry(1, "Title", isSteam: false, icon: null);
+        var entry = new AppSwitcherEntry(1, "Title", isSteam: false, icon: null);
         var changed = new List<string>();
         entry.PropertyChanged += (_, e) => changed.Add(e.PropertyName ?? "");
 
@@ -238,6 +283,6 @@ public sealed class TaskbarTests
         entry.Title = "New";
         entry.IsMinimized = true;
         entry.IsActive = true;
-        Assert.Equal([nameof(TaskbarEntry.Title), nameof(TaskbarEntry.IsMinimized), nameof(TaskbarEntry.IsActive)], changed);
+        Assert.Equal([nameof(AppSwitcherEntry.Title), nameof(AppSwitcherEntry.IsMinimized), nameof(AppSwitcherEntry.IsActive)], changed);
     }
 }

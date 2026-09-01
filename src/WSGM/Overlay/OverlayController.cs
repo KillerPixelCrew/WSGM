@@ -11,16 +11,15 @@ using WSGM.Shell;
 namespace WSGM.Overlay;
 
 /// <summary>Owns the overlay activation surfaces (hotkey, raw-input touch swipes) and the
-/// two focus-taking WSGM surfaces themselves: the quick-access overlay
-/// (ShowOverlay) and the game-mode taskbar (ShowTaskbar). One controller owns both
-/// because they share every piece of invariant-critical state — the Steam Input
-/// lease, the touch-swipe disarm/re-arm cycle, tap-outside dismissal, the gamepad
-/// service, and the focus-restore discipline — and the two surfaces are mutually
-/// exclusive (opening one closes the other).</summary>
+/// focus-taking WSGM surface itself: the quick access sheet (ShowOverlay), which
+/// also carries what the bottom taskbar used to — the Open apps strip, the tray
+/// icons and the status pills with their radio/audio/eject panels. One controller
+/// owns all of it because it shares every piece of invariant-critical state: the
+/// Steam Input lease, the touch-swipe disarm/re-arm cycle, tap-outside dismissal,
+/// the gamepad service, and the focus-restore discipline.</summary>
 public sealed class OverlayController : IDisposable
 {
     private const string QuickAccessSurface = "quick-access";
-    private const string TaskbarSurface = "taskbar";
     private const string SettingsSurface = "settings";
     private readonly HashSet<string> _uiSurfaces = new(StringComparer.Ordinal);
     private AppConfig _config;
@@ -31,7 +30,7 @@ public sealed class OverlayController : IDisposable
     private readonly PerformanceOverlayBridge? _performance;
 
     /// <summary>
-    /// The session's audio manager, shared with the taskbar's status cluster rather than owned.
+    /// The session's audio manager, shared with the sheet's status pills rather than owned.
     /// </summary>
     /// <remarks>
     /// Null in overlay-test, where no session owns one and the cluster creates its own.
@@ -39,7 +38,7 @@ public sealed class OverlayController : IDisposable
     private readonly AudioManager? _sessionAudio;
 
     /// <summary>
-    /// The session's radio manager, shared with the taskbar's status cluster rather than owned.
+    /// The session's radio manager, shared with the sheet's status pills rather than owned.
     /// </summary>
     /// <remarks>
     /// Null in overlay-test, where no session owns one and the cluster creates its own.
@@ -71,12 +70,10 @@ public sealed class OverlayController : IDisposable
     private OverlayWindow? _overlay;
     private OverlayViewModel? _overlayViewModel;
     private GamepadNavigation? _navigation;
-    private TaskbarWindow? _taskbar;
-    private TaskbarViewModel? _taskbarViewModel;
-    private GamepadNavigation? _taskbarNavigation;
+    private AppSwitcherViewModel? _switcherViewModel;
     private SystemStatus? _systemStatus;
     private WindowIconCache? _iconCache;
-    private Avalonia.Threading.DispatcherTimer? _taskbarRefresh;
+    private Avalonia.Threading.DispatcherTimer? _switcherRefresh;
     private TrayHost? _trayHost;
     private string _pendingWarning = "";
     private bool _reopenOverlayForWarning;
@@ -90,7 +87,7 @@ public sealed class OverlayController : IDisposable
     /// <param name="keepAwake">The optional session keep-awake service behind the Power
     /// tab's toggle; null (the Settings preview overlay) hides the row.</param>
     /// <param name="previewOnly">True for a surface that only demonstrates layout and
-    /// input — Settings' "Test panel"/"Test taskbar" and <c>--overlay-test</c>. It hides
+    /// input — Settings' "Test sheet" and <c>--overlay-test</c>. It hides
     /// the desktop/game-mode row and refuses the transition even if it is reached, because
     /// those processes have no ShellSession, tray host or crash-loop/watchdog recovery:
     /// one press would exit Explorer and strand the user with no shell.</param>
@@ -158,10 +155,9 @@ public sealed class OverlayController : IDisposable
         }
         _touchSwipes.Configure(gestures);
 
-        // Both surfaces disarm the edges: with the full-width bar docked on the
-        // bottom edge, a re-arm would read touches inside the bar as bottom-edge
-        // swipes (every other site pairs the disarm with both surfaces).
-        if (_overlay is not null || _taskbar is not null)
+        // The open sheet disarms the edges: docked on the top edge, a re-arm would
+        // read touches inside its header as top-edge swipes.
+        if (_overlay is not null)
         {
             HideTouchEdges();
         }
@@ -177,11 +173,11 @@ public sealed class OverlayController : IDisposable
         /// <summary>The swipe is ignored.</summary>
         None,
 
-        /// <summary>The quick-access panel opens.</summary>
+        /// <summary>The quick access sheet opens.</summary>
         QuickAccess,
 
-        /// <summary>The game-mode taskbar opens.</summary>
-        Taskbar,
+        /// <summary>The quick access sheet opens with focus on its Open apps strip.</summary>
+        QuickAccessApps,
 
         /// <summary>Steam Big Picture's left-side Steam menu opens.</summary>
         SteamMenu,
@@ -192,10 +188,10 @@ public sealed class OverlayController : IDisposable
 
     private void OnSwipeTriggered(ScreenEdge edge)
     {
-        switch (DecideSwipe(edge, _config.Gestures.BottomEdgeAction, ExplorerControl.IsRunningInSession()))
+        switch (DecideSwipe(edge, ExplorerControl.IsRunningInSession()))
         {
-            case SwipeAction.Taskbar:
-                ShowTaskbar();
+            case SwipeAction.QuickAccessApps:
+                ShowOverlayOnOpenApps();
                 break;
             case SwipeAction.QuickAccess:
                 ShowOverlay();
@@ -212,30 +208,29 @@ public sealed class OverlayController : IDisposable
         }
     }
 
-    /// <summary>The pure edge-routing decision: left/top open Steam's own menus,
-    /// right always opens WSGM quick access, and a bottom edge assigned to the
-    /// taskbar opens it in game mode but is IGNORED in desktop mode — explorer's
+    /// <summary>The pure edge-routing decision — the SteamOS map: left/right open
+    /// Steam's own menus, top opens WSGM's sheet, and bottom opens the sheet on its
+    /// Open apps strip in game mode but is IGNORED in desktop mode — explorer's
     /// real taskbar owns that edge there, and falling back to the panel read as a
     /// regression (device-reported).</summary>
     /// <param name="edge">The swiped screen edge.</param>
-    /// <param name="bottomEdgeAction">The configured bottom-edge action.</param>
     /// <param name="explorerRunning">Whether the session currently has a desktop.</param>
     /// <returns>What the swipe opens, if anything.</returns>
-    public static SwipeAction DecideSwipe(ScreenEdge edge, EdgeAction bottomEdgeAction, bool explorerRunning)
+    public static SwipeAction DecideSwipe(ScreenEdge edge, bool explorerRunning)
     {
         if (edge == ScreenEdge.Left)
         {
             return SwipeAction.SteamMenu;
         }
-        if (edge == ScreenEdge.Top)
+        if (edge == ScreenEdge.Right)
         {
             return SwipeAction.SteamQuickAccess;
         }
-        if (edge == ScreenEdge.Right || bottomEdgeAction == EdgeAction.QuickAccess)
+        if (edge == ScreenEdge.Top)
         {
             return SwipeAction.QuickAccess;
         }
-        return explorerRunning ? SwipeAction.None : SwipeAction.Taskbar;
+        return explorerRunning ? SwipeAction.None : SwipeAction.QuickAccessApps;
     }
 
     /// <summary>Sets a non-fatal warning to show the next time the overlay opens.</summary>
@@ -331,8 +326,9 @@ public sealed class OverlayController : IDisposable
             // disabled and answer with an unreachable-Steam warning.
             ApplyCefVisibility(_overlayViewModel, config);
             _overlay?.RefreshLaunchFixLabels();
+            _overlay?.SetPins(config.QuickAccessPins);
         }
-        if (_overlay is not null || _taskbar is not null)
+        if (_overlay is not null)
         {
             AcquireSteamInputLease();
         }
@@ -500,8 +496,8 @@ public sealed class OverlayController : IDisposable
 
     /// <summary>Claims this controller's Steam Input lease for a focus-taking surface.</summary>
     /// <remarks>
-    /// The lease blocks Steam's controller access only while SDL needs direct input for the overlay
-    /// or taskbar, then lets Steam rediscover the controller after the last surface closes.
+    /// The lease blocks Steam's controller access only while SDL needs direct input for the sheet,
+    /// then lets Steam rediscover the controller after the last surface closes.
     /// </remarks>
     private void AcquireSteamInputLease()
     {
@@ -575,14 +571,14 @@ public sealed class OverlayController : IDisposable
         });
     }
 
-    /// <summary>Picking a taskbar tile dismisses the bar and brings the app forward
-    /// (Steam via the UIPI-proof protocol). The switched-to window must stay
-    /// foreground, so the bar's focus restore is suppressed (invariant 6).</summary>
-    private void PickTaskbarWindow(TaskbarEntry entry)
+    /// <summary>Picking an Open apps chip dismisses the sheet and brings the app
+    /// forward (Steam via the UIPI-proof protocol). The switched-to window must stay
+    /// foreground, so the sheet's focus restore is suppressed (invariant 6).</summary>
+    private void PickWindow(AppSwitcherEntry entry)
     {
-        Log.Info($"Taskbar: focusing '{entry.Title}'.");
-        _taskbarSuppressFocusRestore = true;
-        CloseTaskbar();
+        Log.Info($"Open apps: focusing '{entry.Title}'.");
+        _suppressFocusRestore = true;
+        CloseOverlay();
         if (entry.IsSteam)
         {
             _modes.FocusSteam();
@@ -697,23 +693,9 @@ public sealed class OverlayController : IDisposable
         // A trim mid-open would just soft-fault everything straight back.
         _pendingTrim?.Dispose();
         _pendingTrim = null;
-        // Surface switch: the bar yields and the panel inherits its restore
-        // target — GetForegroundWindow() would report the still-open bar, not the
-        // game the user actually came from.
-        nint inheritedRestore = 0;
-        if (_taskbar is not null)
-        {
-            inheritedRestore = _taskbarRestoreFocusTo;
-            _taskbarSuppressFocusRestore = true;
-            if (_taskbarNavigation is not null)
-            {
-                _taskbarNavigation.IsEnabled = false;
-            }
-            CloseTaskbar();
-        }
         if (_overlay is null)
         {
-            _restoreFocusTo = inheritedRestore != 0 ? inheritedRestore : Interop.NativeMethods.GetForegroundWindow();
+            _restoreFocusTo = Interop.NativeMethods.GetForegroundWindow();
             _suppressFocusRestore = false;
         }
         AcquireSteamInputLease();
@@ -730,7 +712,7 @@ public sealed class OverlayController : IDisposable
             }
             if (_navigation is not null)
             {
-                _navigation.IsEnabled = true;
+                _navigation.IsEnabled = _radioPanel is null && _audioPanel is null && _ejectPanel is null;
             }
             if (_closePending)
             {
@@ -764,6 +746,7 @@ public sealed class OverlayController : IDisposable
                 RefreshWakeLockIndicator();
                 StartWakeLockRefresh();
             }
+            RefreshSwitcherEntries();
             if (!_uiSurfaces.Contains(QuickAccessSurface))
             {
                 ClaimUiSurface(QuickAccessSurface);
@@ -792,9 +775,29 @@ public sealed class OverlayController : IDisposable
         RefreshPowerTimeouts(vm);
 
         _overlayViewModel = vm;
-        _overlay = new OverlayWindow(vm, UiScale());
+        // The Open apps strip, tray and status pills live only while the sheet is
+        // open; the Closed handler below disposes them with the window.
+        // 48 px rasters downscale crisply into the chips' 18-DIP icons on high-DPI panels.
+        _iconCache ??= new WindowIconCache(48);
+        var switcher = new AppSwitcherViewModel();
+        _switcherViewModel = switcher;
+        RefreshSwitcherEntries();
+        OnTrayIconsChanged();
+        // Shares the session's audio and radio managers when there are any, so the sheet's
+        // pills and Steam's own surfaces are the same state rather than two views that can disagree.
+        _systemStatus = new SystemStatus(_sessionAudio, _sessionRadios);
+        _systemStatus.Start();
+        _overlay = new OverlayWindow(vm, switcher, _systemStatus, UiScale());
         _overlay.AttachDeviceBridge(_device);
         _overlay.AttachPerformanceSource(_performance);
+        _overlay.SetPins(_config.QuickAccessPins);
+        _overlay.PinToggleRequested += OnPinToggleRequested;
+        _overlay.WindowPicked += PickWindow;
+        _overlay.TrayIconActivated += OnTrayIconActivated;
+        _overlay.RadioPanelRequested += ShowRadioPanel;
+        _overlay.AudioPanelRequested += ShowAudioPanel;
+        _overlay.EjectPanelRequested += ShowEjectPanel;
+        Log.Info($"Quick access shown ({switcher.Entries.Count} windows).");
         _overlay.HomeAppRequested += () => { _suppressFocusRestore = true; CloseOverlay(); _modes.StartOrFocusSteam(); };
         _overlay.DesktopRequested += () =>
         {
@@ -922,8 +925,22 @@ public sealed class OverlayController : IDisposable
             ReleaseUiSurface(QuickAccessSurface);
             _closePending = false;
             _pendingClose = null;
-            // Give Steam its pad back the moment the panel is gone — unless the
-            // taskbar took over the surface and still needs the lease. A Settings
+            // The status panels are children of the sheet in everything but
+            // parenthood: they bind the SystemStatus disposed below and run their
+            // own gamepad navigation. Closed directly, not deferred: the sheet is
+            // already going.
+            CloseStatusPanelsNow();
+            _pendingTopmostRestore?.Dispose();
+            _pendingTopmostRestore = null;
+            StopSwitcherRefresh();
+            _switcherViewModel = null;
+            _systemStatus?.Dispose();
+            _systemStatus = null;
+            // Free the rasterized icons with the sheet; the next open re-resolves.
+            _iconCache?.Clear();
+            // Same for the cached Steam pid set: the next session starts fresh.
+            _steamPidsAtUtc = default;
+            // Give Steam its pad back the moment the sheet is gone. A Settings
             // handoff ends only this overlay's named claim after Settings has
             // registered its own, which keeps the shared native lease continuous.
             if (_handoffLease)
@@ -943,7 +960,7 @@ public sealed class OverlayController : IDisposable
                 // focus-based lease release resume.
                 settings?.CompleteSteamInputLeaseHandoff();
             }
-            else if (_taskbar is null)
+            else
             {
                 ReleaseSteamInputLease();
             }
@@ -954,8 +971,8 @@ public sealed class OverlayController : IDisposable
             StopWakeLockRefresh();
             KeyboardService.Handler = null;
             _keyboardWindow?.Close();
-            // Keep polling if the controller chord or the open taskbar still needs it.
-            if (!(_config.GamepadChord.Enabled && _config.GamepadChord.Buttons != 0) && _taskbar is null)
+            // Keep polling if the controller chord still needs it.
+            if (!(_config.GamepadChord.Enabled && _config.GamepadChord.Buttons != 0))
             {
                 _gamepad.Stop();
             }
@@ -969,21 +986,18 @@ public sealed class OverlayController : IDisposable
                 WindowFinder.BringToForeground(_restoreFocusTo);
             }
             _restoreFocusTo = 0;
-            if (_touchSwipes is not null && _taskbar is null)
+            if (_touchSwipes is not null)
             {
-                // TappedAt consumers are gone with the panel; stop the per-tap
+                // TappedAt consumers are gone with the sheet; stop the per-tap
                 // dispatches until the next ShowOverlay.
                 _touchSwipes.WatchTaps = false;
             }
-            if (_taskbar is null)
-            {
-                ShowTouchEdges();
-            }
+            ShowTouchEdges();
             if (reopenForWarning)
             {
                 Avalonia.Threading.Dispatcher.UIThread.Post(ShowOverlay);
             }
-            else if (_taskbar is null)
+            else
             {
                 // The shell goes invisible again — give the freed UI memory back
                 // once the close (and any focus restore) has settled.
@@ -1000,11 +1014,13 @@ public sealed class OverlayController : IDisposable
         _navigation = new GamepadNavigation(_uiInput, _overlay, OnOverlayBack,
             isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
             preferredFocus: () => overlay.DefaultFocusTarget,
+            secondary: focused => _overlay?.RequestSecondaryAction(focused),
             tabPrevious: () => _overlay?.SelectPreviousTab(),
             tabNext: () => _overlay?.SelectNextTab(),
-            onEdge: OnOverlayEdge);
-        // The slim sidebar can't hold a keyboard; text entry pops the keyboard window
-        // beside it. Registered while the overlay owns navigation.
+            onEdge: OnOverlayEdge,
+            tertiary: _ => _overlay?.CycleNextApp());
+        // Text entry pops the keyboard window over the sheet's lower edge.
+        // Registered while the overlay owns navigation.
         KeyboardService.Handler = OpenKeyboard;
         _gamepad.Start();
         ClaimUiSurface(QuickAccessSurface);
@@ -1022,10 +1038,69 @@ public sealed class OverlayController : IDisposable
         }
         RefreshWakeLockIndicator();
         StartWakeLockRefresh();
+        StartSwitcherRefresh();
         if (_touchSwipes is not null)
         {
             _touchSwipes.WatchTaps = true;
         }
+    }
+
+    /// <summary>The bottom-swipe entry: the sheet, with controller focus landing on
+    /// the Open apps strip rather than the selected root's first row — one gesture to
+    /// the running programs, which is what the bottom edge used to open.</summary>
+    public void ShowOverlayOnOpenApps()
+    {
+        ShowOverlay();
+        // Background priority: after the window's own Opened focus (DefaultFocusTarget)
+        // AND the first layout pass, which is what realizes the chip buttons.
+        Avalonia.Threading.Dispatcher.UIThread.Post(
+            () => _overlay?.FocusOpenApps(), Avalonia.Threading.DispatcherPriority.Background);
+    }
+
+    /// <summary>Opens the sheet on its Open apps strip, or closes it when it is up — the
+    /// OEM button action that used to toggle the taskbar.</summary>
+    public void ToggleOpenApps()
+    {
+        if (_overlay is null)
+        {
+            ShowOverlayOnOpenApps();
+        }
+        else
+        {
+            CloseOverlay();
+        }
+    }
+
+    /// <summary>Pins or unpins a row on the Quick access root: the in-memory config keeps
+    /// the sheet consistent immediately; the file write happens off-thread and the
+    /// config watcher's reload then hands back the same list. A preview surface
+    /// (Settings' Test sheet) never writes.</summary>
+    private void OnPinToggleRequested(string id)
+    {
+        var pins = new List<string>(_config.QuickAccessPins);
+        if (!pins.Remove(id))
+        {
+            pins.Add(id);
+        }
+        _config.QuickAccessPins = pins;
+        _overlay?.SetPins(pins);
+        Log.Info($"Quick access pins: {string.Join(", ", pins)}.");
+        if (_previewOnly)
+        {
+            return;
+        }
+        var snapshot = pins.ToArray();
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                ConfigStore.Mutate(config => config.QuickAccessPins = [.. snapshot]);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Could not save quick access pins: {ex.Message}");
+            }
+        });
     }
 
     /// <summary>Opens or closes the primary overlay exactly once.</summary>
@@ -1055,19 +1130,9 @@ public sealed class OverlayController : IDisposable
     /// surface must stay open for further presses.</summary>
     private void OnTappedAt(int x, int y)
     {
-        if (_overlay is not null)
-        {
-            if (!HitsWindow(_overlay, x, y)
-                && (_keyboardWindow is null || !HitsWindow(_keyboardWindow, x, y)))
-            {
-                Log.Info("Touch outside quick access — dismissing.");
-                CloseOverlay();
-            }
-            return;
-        }
-        // The radio panel sits ABOVE the bar, outside its rectangle. A tap in
-        // it must not read as tap-outside; a tap anywhere else closes the
-        // panel first and keeps the bar — one dismissal per tap, so a stray
+        // The status panels float over the sheet, outside its own hit test. A tap
+        // in one must not read as tap-outside; a tap anywhere else closes the
+        // panel first and keeps the sheet — one dismissal per tap, so a stray
         // touch can't tear down both surfaces at once.
         if (_radioPanel is not null)
         {
@@ -1096,10 +1161,12 @@ public sealed class OverlayController : IDisposable
             }
             return;
         }
-        if (_taskbar is not null && !HitsWindow(_taskbar, x, y))
+        if (_overlay is not null
+            && !HitsWindow(_overlay, x, y)
+            && (_keyboardWindow is null || !HitsWindow(_keyboardWindow, x, y)))
         {
-            Log.Info("Touch outside taskbar — dismissing.");
-            CloseTaskbar();
+            Log.Info("Touch outside quick access — dismissing.");
+            CloseOverlay();
         }
     }
 
@@ -1121,146 +1188,6 @@ public sealed class OverlayController : IDisposable
         return x >= pos.X && x < pos.X + w && y >= pos.Y && y < pos.Y + h;
     }
 
-    /// <summary>Window focused when the taskbar opened, and whether an action
-    /// redirected focus (same discipline as the overlay's pair — invariant 6).</summary>
-    private nint _taskbarRestoreFocusTo;
-    private bool _taskbarSuppressFocusRestore;
-    private bool _taskbarClosePending;
-    private IDisposable? _pendingTaskbarClose;
-
-    /// <summary>Shows and activates the game-mode taskbar (bottom-swipe surface):
-    /// a thin centered strip of the switchable windows. Mutually exclusive with the
-    /// quick-access overlay; whichever opens closes the other and inherits its
-    /// focus-restore target.</summary>
-    public void ShowTaskbar()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-        OverlayShown?.Invoke();
-        _pendingTrim?.Dispose();
-        _pendingTrim = null;
-        nint inheritedRestore = 0;
-        if (_overlay is not null)
-        {
-            if (_keyboardWindow is not null)
-            {
-                _keyboardNavigation?.Dispose();
-                _keyboardNavigation = null;
-                _keyboardWindow.Close();
-                _keyboardWindow = null;
-                _overlay.KeyboardOwnsFocus = false;
-            }
-            inheritedRestore = _restoreFocusTo;
-            _suppressFocusRestore = true;
-            if (_navigation is not null)
-            {
-                _navigation.IsEnabled = false;
-            }
-            CloseOverlay();
-        }
-        AcquireSteamInputLease();
-        HideTouchEdges();
-        if (_taskbar is not null)
-        {
-            if (_taskbarNavigation is not null)
-            {
-                _taskbarNavigation.IsEnabled =
-                    _radioPanel is null && _audioPanel is null && _ejectPanel is null;
-            }
-            if (_taskbarClosePending)
-            {
-                // Re-summoned inside the deferred close — keep the window alive
-                // (same race as the overlay's re-show).
-                _pendingTaskbarClose?.Dispose();
-                _pendingTaskbarClose = null;
-                _taskbarClosePending = false;
-                // The tile pick (or handover) that suppressed the restore was
-                // abandoned with the close — the bar lives on and owes its opener a
-                // focus restore again (invariant 6).
-                _taskbarSuppressFocusRestore = false;
-                Log.Info("Taskbar re-shown during deferred close — pending close cancelled.");
-            }
-            RefreshTaskbarEntries();
-            if (!_uiSurfaces.Contains(TaskbarSurface))
-            {
-                ClaimUiSurface(TaskbarSurface);
-            }
-            _taskbar.Activate();
-            if (_touchSwipes is not null)
-            {
-                _touchSwipes.WatchTaps = true;
-            }
-            return;
-        }
-
-        _taskbarRestoreFocusTo = inheritedRestore != 0 ? inheritedRestore : Interop.NativeMethods.GetForegroundWindow();
-        _taskbarSuppressFocusRestore = false;
-
-        // 48 px rasters downscale crisply into the 32-DIP tiles on high-DPI panels.
-        _iconCache ??= new WindowIconCache(48);
-        var vm = new TaskbarViewModel();
-        _taskbarViewModel = vm;
-        RefreshTaskbarEntries();
-        Log.Info($"Taskbar shown ({vm.Entries.Count} windows).");
-
-        OnTrayIconsChanged();
-        // The bar's status cluster (clock/battery/Wi-Fi) lives only while the bar
-        // is open; OnTaskbarClosed disposes it with the window.
-        // Shares the session's audio manager when there is one, so the taskbar's audio tile and
-        // Steam's audio namespace are the same state rather than two views that can disagree.
-        _systemStatus = new SystemStatus(_sessionAudio, _sessionRadios);
-        _systemStatus.Start();
-        _taskbar = new TaskbarWindow(vm, _systemStatus, UiScale());
-        // The home button rides the existing surface handover: ShowOverlay closes
-        // the bar, inherits its restore target, and keeps the shared lease.
-        _taskbar.HomeRequested += ShowOverlay;
-        _taskbar.WindowPicked += PickTaskbarWindow;
-        _taskbar.TrayIconActivated += OnTrayIconActivated;
-        _taskbar.Dismissed += CloseTaskbar;
-        _taskbar.RadioPanelRequested += ShowRadioPanel;
-        _taskbar.AudioPanelRequested += ShowAudioPanel;
-        _taskbar.EjectPanelRequested += ShowEjectPanel;
-        _taskbar.Closed += (_, _) => OnTaskbarClosed();
-        _taskbarNavigation = new GamepadNavigation(_uiInput, _taskbar, CloseTaskbar,
-            isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
-            preferredFocus: () => _taskbar?.DefaultFocusTarget,
-            secondary: focused => _taskbar?.RequestTrayContextMenu(focused));
-        // The taskbar has no tab strip. Its navigation is paused whenever a
-        // child panel covers it and during the 150 ms surface handover.
-        _gamepad.Start();
-        ClaimUiSurface(TaskbarSurface);
-        try
-        {
-            _taskbar.Show();
-            _taskbar.Activate();
-        }
-        catch
-        {
-            ReleaseUiSurface(TaskbarSurface);
-            throw;
-        }
-        StartTaskbarRefresh();
-        if (_touchSwipes is not null)
-        {
-            _touchSwipes.WatchTaps = true;
-        }
-    }
-
-    /// <summary>Opens or closes the WSGM taskbar exactly once.</summary>
-    public void ToggleTaskbar()
-    {
-        if (_taskbar is null)
-        {
-            ShowTaskbar();
-        }
-        else
-        {
-            CloseTaskbar();
-        }
-    }
-
     private RadioWindow? _radioPanel;
     private GamepadNavigation? _radioNavigation;
     private bool _radioClosePending;
@@ -1269,9 +1196,9 @@ public sealed class OverlayController : IDisposable
     private KeyboardWindow? _keyboardWindow;
     private GamepadNavigation? _keyboardNavigation;
 
-    /// <summary>Opens the keyboard window beside the sidebar for one text field
-    /// (<see cref="KeyboardService"/>). Gamepad focus moves to it; crossing back to the
-    /// sidebar (D-pad right off its right edge) or accepting/cancelling returns focus.
+    /// <summary>Opens the keyboard window over the sheet's lower edge for one text
+    /// field (<see cref="KeyboardService"/>). Gamepad focus moves to it; crossing back
+    /// to the sheet (D-pad up off its top edge) or accepting/cancelling returns focus.
     /// Runs on the UI thread. Returns true (the request is handled).</summary>
     private bool OpenKeyboard(string prompt, string initial, int maxLength, Action<string> onAccept)
     {
@@ -1290,8 +1217,8 @@ public sealed class OverlayController : IDisposable
         // LayoutTransform, which only changes Bounds on the NEXT layout pass — so the
         // positioning below must force that pass, and re-run when SizeToContent grows
         // the window afterwards, or the keyboard is placed for its unscaled size.
-        window.Opened += (_, _) => PositionKeyboardBesideOverlay(window, overlay);
-        window.SizeChanged += (_, _) => PositionKeyboardBesideOverlay(window, overlay);
+        window.Opened += (_, _) => PositionKeyboardOverSheet(window, overlay);
+        window.SizeChanged += (_, _) => PositionKeyboardOverSheet(window, overlay);
         window.Show();
 
         _keyboardNavigation = new GamepadNavigation(_uiInput, window, () => window.Close(),
@@ -1321,49 +1248,46 @@ public sealed class OverlayController : IDisposable
         return true;
     }
 
-    private static void PositionKeyboardBesideOverlay(KeyboardWindow window, OverlayWindow overlay)
+    private static void PositionKeyboardOverSheet(KeyboardWindow window, OverlayWindow overlay)
     {
-        // Left of the sidebar (which is docked to the right edge), vertically centred.
+        // Horizontally centred, hung from the bottom of the screen so it overlaps the
+        // sheet's lower rows (the exposed game strip is far too short to hold it).
         // Settle any pending layout first: the UI-scale LayoutTransform applied on open
         // invalidates measure, and Bounds only reflects it after a layout pass.
         window.UpdateLayout();
         var scaling = window.DesktopScaling;
         var widthPx = (int)Math.Ceiling(Math.Max(window.Bounds.Width, 300) * scaling);
         var heightPx = (int)Math.Ceiling(Math.Max(window.Bounds.Height, 200) * scaling);
-        var overlayHeightPx = (int)Math.Ceiling(overlay.Bounds.Height * scaling);
-        var y = overlay.Position.Y + Math.Max(0, (overlayHeightPx - heightPx) / 2);
-        var x = overlay.Position.X - widthPx - 8;
+        var overlayWidthPx = (int)Math.Ceiling(overlay.Bounds.Width * scaling);
+        var x = overlay.Position.X + Math.Max(0, (overlayWidthPx - widthPx) / 2);
         var screen = overlay.Screens.ScreenFromWindow(overlay);
+        var y = overlay.Position.Y;
         if (screen is not null)
         {
-            // Right-align against the sidebar when clamping: if the keyboard is wider
-            // than the free space, losing pixels on the LEFT keeps the edge the gamepad
-            // crosses (keyboard right ↔ sidebar left) usable. Math.Clamp would throw
-            // when the window exceeds the work area, so clamp by hand.
+            // Math.Clamp would throw when the window exceeds the work area, so clamp
+            // by hand; losing pixels at the TOP keeps the bottom rows reachable.
             var minX = screen.WorkingArea.X;
-            var maxX = Math.Max(minX, overlay.Position.X - widthPx - 8);
+            var maxX = Math.Max(minX, screen.WorkingArea.Right - widthPx);
             x = Math.Min(Math.Max(x, minX), maxX);
-            var minY = screen.WorkingArea.Y;
-            var maxY = Math.Max(minY, screen.WorkingArea.Bottom - heightPx);
-            y = Math.Min(Math.Max(y, minY), maxY);
+            y = Math.Max(screen.WorkingArea.Y, screen.WorkingArea.Bottom - heightPx - (int)Math.Round(8 * scaling));
         }
         window.Position = new Avalonia.PixelPoint(x, y);
     }
 
-    // The sidebar rows are a single column, so any Left press is at the left edge: if
-    // the keyboard window is open beside it, hand focus over.
+    // The keyboard hangs below the sheet's rows, so a Down press at the sheet's
+    // bottom edge hands focus over when the keyboard window is open.
     private void OnOverlayEdge(Avalonia.Input.NavigationDirection direction)
     {
-        if (direction == Avalonia.Input.NavigationDirection.Left && _keyboardWindow is not null)
+        if (direction == Avalonia.Input.NavigationDirection.Down && _keyboardWindow is not null)
         {
             CrossToKeyboard();
         }
     }
 
-    // Crossing off the keyboard's right edge returns to the sidebar.
+    // Crossing off the keyboard's top edge returns to the sheet.
     private void OnKeyboardEdge(Avalonia.Input.NavigationDirection direction)
     {
-        if (direction == Avalonia.Input.NavigationDirection.Right)
+        if (direction == Avalonia.Input.NavigationDirection.Up)
         {
             CrossToSidebar();
         }
@@ -1422,7 +1346,7 @@ public sealed class OverlayController : IDisposable
     }
 
     /// <summary>Closes the radio panel through the same deferred path as the
-    /// other two surfaces: the 150 ms grace lets the window's WndProc hook eat
+    /// sheet: the 150 ms grace lets the window's WndProc hook eat
     /// the touch-promotion ghost click (invariant 3). Closing immediately from
     /// the raw-touch callback destroys the window before the synthesized click
     /// arrives, and it then lands on whatever is underneath.</summary>
@@ -1441,7 +1365,7 @@ public sealed class OverlayController : IDisposable
         });
     }
 
-    /// <summary>Opens the Wi-Fi/Bluetooth panel above the taskbar.</summary>
+    /// <summary>Opens the Wi-Fi/Bluetooth panel under the sheet's status pills.</summary>
     /// <param name="bluetooth">True to open on the Bluetooth tab.</param>
     private void ShowRadioPanel(bool bluetooth)
     {
@@ -1464,9 +1388,9 @@ public sealed class OverlayController : IDisposable
             // The tile carries which radio was tapped, so an open panel follows
             // it rather than leaving the user on the tab it opened with.
             _radioPanel.SelectTab(bluetooth);
-            if (_taskbarNavigation is not null)
+            if (_navigation is not null)
             {
-                _taskbarNavigation.IsEnabled = false;
+                _navigation.IsEnabled = false;
             }
             if (_radioNavigation is not null)
             {
@@ -1482,12 +1406,12 @@ public sealed class OverlayController : IDisposable
         Log.Info($"Radio panel opened ({(bluetooth ? "Bluetooth" : "Wi-Fi")}).");
         var panel = new RadioWindow(_systemStatus.Radios, bluetooth, UiScale());
         _radioPanel = panel;
-        if (_taskbarNavigation is not null)
+        if (_navigation is not null)
         {
-            _taskbarNavigation.IsEnabled = false;
+            _navigation.IsEnabled = false;
         }
         // Its own navigation instance: the panel holds focus while it is open,
-        // and B must close the panel rather than the bar behind it.
+        // and B must close the panel rather than the sheet behind it.
         _radioNavigation = new GamepadNavigation(_uiInput, panel, () => panel.Close(),
             isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
             tabPrevious: panel.SelectPreviousTab,
@@ -1501,19 +1425,18 @@ public sealed class OverlayController : IDisposable
             _pendingRadioClose?.Dispose();
             _pendingRadioClose = null;
             Log.Info("Radio panel closed.");
-            // Hand focus back to the bar, which is still open underneath.
-            if (_taskbarNavigation is not null)
+            // Hand focus back to the sheet, which is still open underneath.
+            if (_navigation is not null)
             {
-                _taskbarNavigation.IsEnabled = _audioPanel is null && _ejectPanel is null;
+                _navigation.IsEnabled = _audioPanel is null && _ejectPanel is null;
             }
-            _taskbar?.Activate();
+            _overlay?.Activate();
         };
         panel.Show();
-        // The bar's real top edge, not a height to subtract: it is a topmost
-        // window rather than a registered appbar, so the screen's working area
-        // does not account for it and computing the position from screen height
-        // minus bar height left a visible gap.
-        panel.DockAboveTaskbar(_taskbar?.Position.Y ?? 0);
+        // The header's real bottom edge, not a height to add: the sheet is a
+        // topmost window rather than a registered appbar, so the screen's working
+        // area does not account for it.
+        panel.DockBelowHeader(_overlay?.HeaderBottomScreenY ?? 0);
         panel.Activate();
     }
 
@@ -1538,7 +1461,7 @@ public sealed class OverlayController : IDisposable
         });
     }
 
-    /// <summary>Opens the master-volume and default-device panel above the taskbar.</summary>
+    /// <summary>Opens the master-volume and default-device panel under the sheet's status pills.</summary>
     private void ShowAudioPanel()
     {
         if (_radioPanel is not null)
@@ -1557,9 +1480,9 @@ public sealed class OverlayController : IDisposable
                 _pendingAudioClose = null;
                 _audioClosePending = false;
             }
-            if (_taskbarNavigation is not null)
+            if (_navigation is not null)
             {
-                _taskbarNavigation.IsEnabled = false;
+                _navigation.IsEnabled = false;
             }
             if (_audioNavigation is not null)
             {
@@ -1576,9 +1499,9 @@ public sealed class OverlayController : IDisposable
         Log.Info("Audio panel opened.");
         var panel = new AudioWindow(_systemStatus.Audio, UiScale());
         _audioPanel = panel;
-        if (_taskbarNavigation is not null)
+        if (_navigation is not null)
         {
-            _taskbarNavigation.IsEnabled = false;
+            _navigation.IsEnabled = false;
         }
         _audioNavigation = new GamepadNavigation(_uiInput, panel, () => panel.Close(),
             isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo,
@@ -1592,14 +1515,14 @@ public sealed class OverlayController : IDisposable
             _pendingAudioClose?.Dispose();
             _pendingAudioClose = null;
             Log.Info("Audio panel closed.");
-            if (_taskbarNavigation is not null)
+            if (_navigation is not null)
             {
-                _taskbarNavigation.IsEnabled = _radioPanel is null && _ejectPanel is null;
+                _navigation.IsEnabled = _radioPanel is null && _ejectPanel is null;
             }
-            _taskbar?.Activate();
+            _overlay?.Activate();
         };
         panel.Show();
-        panel.DockAboveTaskbar(_taskbar?.Position.Y ?? 0);
+        panel.DockBelowHeader(_overlay?.HeaderBottomScreenY ?? 0);
         panel.Activate();
     }
 
@@ -1625,7 +1548,7 @@ public sealed class OverlayController : IDisposable
         });
     }
 
-    /// <summary>Opens the Safe Eject panel above the taskbar.</summary>
+    /// <summary>Opens the Safe Eject panel under the sheet's status pills.</summary>
     private void ShowEjectPanel()
     {
         if (_radioPanel is not null)
@@ -1644,9 +1567,9 @@ public sealed class OverlayController : IDisposable
                 _pendingEjectClose = null;
                 _ejectClosePending = false;
             }
-            if (_taskbarNavigation is not null)
+            if (_navigation is not null)
             {
-                _taskbarNavigation.IsEnabled = false;
+                _navigation.IsEnabled = false;
             }
             if (_ejectNavigation is not null)
             {
@@ -1663,9 +1586,9 @@ public sealed class OverlayController : IDisposable
         Log.Info("Eject panel opened.");
         var panel = new EjectWindow(_systemStatus.Drives, UiScale());
         _ejectPanel = panel;
-        if (_taskbarNavigation is not null)
+        if (_navigation is not null)
         {
-            _taskbarNavigation.IsEnabled = false;
+            _navigation.IsEnabled = false;
         }
         _ejectNavigation = new GamepadNavigation(_uiInput, panel, () => panel.Close(),
             isNintendoLayout: () => _config.GlyphStyle == GlyphStyle.Nintendo);
@@ -1678,15 +1601,36 @@ public sealed class OverlayController : IDisposable
             _pendingEjectClose?.Dispose();
             _pendingEjectClose = null;
             Log.Info("Eject panel closed.");
-            if (_taskbarNavigation is not null)
+            if (_navigation is not null)
             {
-                _taskbarNavigation.IsEnabled = _radioPanel is null && _audioPanel is null;
+                _navigation.IsEnabled = _radioPanel is null && _audioPanel is null;
             }
-            _taskbar?.Activate();
+            _overlay?.Activate();
         };
         panel.Show();
-        panel.DockAboveTaskbar(_taskbar?.Position.Y ?? 0);
+        panel.DockBelowHeader(_overlay?.HeaderBottomScreenY ?? 0);
         panel.Activate();
+    }
+
+    /// <summary>Closes whichever status panel is open, immediately — used when
+    /// the sheet itself is already going, so there is nothing left to defer for.</summary>
+    private void CloseStatusPanelsNow()
+    {
+        if (_radioPanel is not null)
+        {
+            Log.Info("Quick access closed with the radio panel open — closing the panel.");
+            _radioPanel.Close();
+        }
+        if (_audioPanel is not null)
+        {
+            Log.Info("Quick access closed with the audio panel open — closing the panel.");
+            _audioPanel.Close();
+        }
+        if (_ejectPanel is not null)
+        {
+            Log.Info("Quick access closed with the eject panel open — closing the panel.");
+            _ejectPanel.Close();
+        }
     }
 
     /// <summary>The desktop-DPI factor for WSGM surfaces. The boost exists ONLY
@@ -1700,7 +1644,7 @@ public sealed class OverlayController : IDisposable
             : DisplayScale.GetUiScalePercent(_config) / 100.0;
 
     /// <summary>Attaches (or detaches, with null) the game-mode tray host whose
-    /// icons render in the bar's tray area. ShellSession owns the host's
+    /// icons render in the sheet's header. ShellSession owns the host's
     /// lifecycle — created per game-mode span, destroyed before explorer starts.</summary>
     /// <param name="host">The live tray host, or null when leaving game mode.</param>
     public void AttachTrayHost(TrayHost? host)
@@ -1718,24 +1662,24 @@ public sealed class OverlayController : IDisposable
     }
 
     private void OnTrayIconsChanged()
-        => _taskbarViewModel?.ReconcileTray(_trayHost?.Table.Icons ?? []);
+        => _switcherViewModel?.ReconcileTray(_trayHost?.Table.Icons ?? []);
 
     private System.Collections.Generic.HashSet<uint> _steamPids = [];
     private DateTime _steamPidsAtUtc;
 
-    /// <summary>Rebuilds/updates the tile collection in place. While the bar is
-    /// open the foreground window is the bar itself, so the highlight uses the
+    /// <summary>Rebuilds/updates the Open apps chips in place. While the sheet is
+    /// open the foreground window is the sheet itself, so the highlight uses the
     /// captured pre-open foreground instead.</summary>
-    private void RefreshTaskbarEntries()
+    private void RefreshSwitcherEntries()
     {
-        if (_taskbarViewModel is null)
+        if (_switcherViewModel is null)
         {
             return;
         }
-        // Steam's pid set barely moves within a bar session, but resolving it
+        // Steam's pid set barely moves within a sheet session, but resolving it
         // snapshots the whole process table — on the UI thread that also drives the
-        // 16 ms gamepad poll and the tile focus. Re-read at the SteamMonitor's own
-        // 5 s cadence instead of on every 1 s tile refresh.
+        // 16 ms gamepad poll and the chip focus. Re-read at the SteamMonitor's own
+        // 5 s cadence instead of on every 1 s chip refresh.
         var now = DateTime.UtcNow;
         if (_steamPidsAtUtc == default || now - _steamPidsAtUtc >= TimeSpan.FromSeconds(5))
         {
@@ -1743,23 +1687,23 @@ public sealed class OverlayController : IDisposable
             _steamPidsAtUtc = now;
         }
         var steamPids = _steamPids;
-        var active = _taskbar is { IsVisible: true }
-            ? _taskbarRestoreFocusTo
+        var active = _overlay is { IsVisible: true }
+            ? _restoreFocusTo
             : Interop.NativeMethods.GetForegroundWindow();
-        _taskbarViewModel.Reconcile(
+        _switcherViewModel.Reconcile(
             WindowFinder.ListSwitchableWindows(),
             active,
             window =>
             {
                 // Cached icons are handed over synchronously; a miss resolves off the
                 // UI thread (cross-process WM_GETICON probes plus a possible exe read)
-                // and lands on the tile in place when it arrives.
+                // and lands on the chip in place when it arrives.
                 Avalonia.Media.Imaging.Bitmap? icon = null;
                 if (_iconCache is not null && !_iconCache.TryGetCached(window.Hwnd, out icon))
                 {
                     _iconCache.ResolveInBackground(window.Hwnd, window.ProcessId, ApplyResolvedIcon);
                 }
-                return new TaskbarEntry(
+                return new AppSwitcherEntry(
                     window.Hwnd,
                     window.Title,
                     steamPids.Contains(window.ProcessId),
@@ -1767,8 +1711,8 @@ public sealed class OverlayController : IDisposable
             });
     }
 
-    /// <summary>Places a background-resolved icon on its tile, if that tile is still on
-    /// the open bar. Runs off the UI thread, so it marshals before touching view state.</summary>
+    /// <summary>Places a background-resolved icon on its chip, if that chip is still on
+    /// the open sheet. Runs off the UI thread, so it marshals before touching view state.</summary>
     private void ApplyResolvedIcon(nint hwnd, Avalonia.Media.Imaging.Bitmap? icon)
     {
         if (icon is null)
@@ -1777,13 +1721,13 @@ public sealed class OverlayController : IDisposable
         }
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
-            // The window may have closed, or the bar may have been dismissed and its
+            // The window may have closed, or the sheet may have been dismissed and its
             // cache cleared, between the resolve starting and finishing.
-            if (_taskbarViewModel is null || _taskbar is not { IsVisible: true })
+            if (_switcherViewModel is null || _overlay is not { IsVisible: true })
             {
                 return;
             }
-            foreach (var entry in _taskbarViewModel.Entries)
+            foreach (var entry in _switcherViewModel.Entries)
             {
                 if (entry.Hwnd == hwnd)
                 {
@@ -1794,142 +1738,57 @@ public sealed class OverlayController : IDisposable
         });
     }
 
-    /// <summary>Keeps the open bar current (new/closed windows, titles, minimize
-    /// state) without disturbing the focused tile — Reconcile updates in place.</summary>
-    private void StartTaskbarRefresh()
+    /// <summary>Keeps the open sheet's strip current (new/closed windows, titles,
+    /// minimize state) without disturbing the focused chip — Reconcile updates in place.</summary>
+    private void StartSwitcherRefresh()
     {
-        StopTaskbarRefresh();
+        StopSwitcherRefresh();
         // Parameterless ctor + explicit Start (invariant 4).
-        _taskbarRefresh = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-        _taskbarRefresh.Tick += (_, _) => RefreshTaskbarEntries();
-        _taskbarRefresh.Start();
+        _switcherRefresh = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _switcherRefresh.Tick += (_, _) => RefreshSwitcherEntries();
+        _switcherRefresh.Start();
     }
 
-    private void StopTaskbarRefresh()
+    private void StopSwitcherRefresh()
     {
-        _taskbarRefresh?.Stop();
-        _taskbarRefresh = null;
+        _switcherRefresh?.Stop();
+        _switcherRefresh = null;
     }
 
     private IDisposable? _pendingTopmostRestore;
 
     /// <summary>Forwards a tray-icon activation to its owner. For context menus
-    /// the bar additionally drops Topmost for a while: WinForms tray menus shown
+    /// the sheet additionally drops Topmost for a while: WinForms tray menus shown
     /// via plain Show() (Handheld Companion since its commit c86932bc) are
-    /// NON-topmost and never activated — over a topmost bar they open BEHIND it,
+    /// NON-topmost and never activated — over a topmost sheet they open BEHIND it,
     /// which reads as "the menu doesn't appear" (device-reported).</summary>
     private void OnTrayIconActivated(TrayIconEntry entry, bool contextMenu, Avalonia.PixelPoint anchor)
     {
         if (contextMenu)
         {
-            if (_taskbar is not null)
+            if (_overlay is not null)
             {
-                _taskbar.Topmost = false;
+                _overlay.Topmost = false;
                 _pendingTopmostRestore?.Dispose();
                 _pendingTopmostRestore = RunOnUiThreadAfter(TimeSpan.FromSeconds(10), () =>
                 {
                     _pendingTopmostRestore = null;
-                    if (_taskbar is not null)
+                    if (_overlay is not null)
                     {
-                        _taskbar.Topmost = true;
+                        _overlay.Topmost = true;
                     }
                 });
             }
         }
         else
         {
-            // A plain activation opens/shows the owning app — dismiss the bar so it
-            // comes forward (same rule as picking a window tile). A context-menu
-            // request keeps the bar: the menu pops over it.
-            _taskbarSuppressFocusRestore = true;
-            CloseTaskbar();
+            // A plain activation opens/shows the owning app — dismiss the sheet so it
+            // comes forward (same rule as picking an Open apps chip). A context-menu
+            // request keeps the sheet: the menu pops over it.
+            _suppressFocusRestore = true;
+            CloseOverlay();
         }
         _trayHost?.SendClick(entry.Icon, contextMenu, anchor.X, anchor.Y);
-    }
-
-    private void OnTaskbarClosed()
-    {
-        ReleaseUiSurface(TaskbarSurface);
-        // The panel is a child of the bar in everything but parenthood: it
-        // binds the SystemStatus disposed below and runs its own gamepad
-        // navigation. Leaving it alive past its bar (quick access opened by
-        // hotkey or edge swipe takes this path) left a topmost window bound to
-        // a disposed manager, competing for controller input with the overlay.
-        // Closed directly, not deferred: the bar is already going.
-        if (_radioPanel is not null)
-        {
-            Log.Info("Taskbar closed with the radio panel open — closing the panel.");
-            _radioPanel.Close();
-        }
-        if (_audioPanel is not null)
-        {
-            Log.Info("Taskbar closed with the audio panel open — closing the panel.");
-            _audioPanel.Close();
-        }
-        if (_ejectPanel is not null)
-        {
-            Log.Info("Taskbar closed with the eject panel open — closing the panel.");
-            _ejectPanel.Close();
-        }
-        _taskbarClosePending = false;
-        _pendingTaskbarClose = null;
-        _pendingTopmostRestore?.Dispose();
-        _pendingTopmostRestore = null;
-        StopTaskbarRefresh();
-        _taskbarNavigation?.Dispose();
-        _taskbarNavigation = null;
-        if (_overlay is null)
-        {
-            ReleaseSteamInputLease();
-        }
-        if (!(_config.GamepadChord.Enabled && _config.GamepadChord.Buttons != 0) && _overlay is null)
-        {
-            _gamepad.Stop();
-        }
-        _taskbar = null;
-        _taskbarViewModel = null;
-        _systemStatus?.Dispose();
-        _systemStatus = null;
-        // Free the rasterized icons with the bar; the next open re-resolves.
-        _iconCache?.Clear();
-        // Same for the cached Steam pid set: the next bar session starts fresh.
-        _steamPidsAtUtc = default;
-        // Game mode only, and only when no tile pick redirected focus (invariant 6).
-        if (!_taskbarSuppressFocusRestore && _taskbarRestoreFocusTo != 0 && !ExplorerControl.IsRunningInSession())
-        {
-            Log.Info("Restoring previously focused window (taskbar).");
-            WindowFinder.BringToForeground(_taskbarRestoreFocusTo);
-        }
-        _taskbarRestoreFocusTo = 0;
-        if (_touchSwipes is not null && _overlay is null)
-        {
-            _touchSwipes.WatchTaps = false;
-        }
-        if (_overlay is null)
-        {
-            ShowTouchEdges();
-            _pendingTrim?.Dispose();
-            _pendingTrim = RunOnUiThreadAfter(TimeSpan.FromSeconds(5),
-                () => MemoryTrim.TrimBestEffort("taskbar closed"));
-        }
-    }
-
-    /// <summary>Closes the taskbar through the same deferred path as the overlay
-    /// (the 150 ms grace lets the window's hook eat the touch-promotion ghost
-    /// click — invariant 3).</summary>
-    private void CloseTaskbar()
-    {
-        if (_taskbar is null || _taskbarClosePending)
-        {
-            return;
-        }
-        _taskbarClosePending = true;
-        _pendingTaskbarClose = RunOnUiThreadAfter(TimeSpan.FromMilliseconds(150), () =>
-        {
-            _taskbarClosePending = false;
-            _pendingTaskbarClose = null;
-            _taskbar?.Close();
-        });
     }
 
     private bool _closePending;
@@ -2013,8 +1872,8 @@ public sealed class OverlayController : IDisposable
         _uiInput.Dispose();
         _gamepad.Dispose();
         DisposeTouchEdges();
-        StopTaskbarRefresh();
-        if (_overlay is not null || _taskbar is not null)
+        StopSwitcherRefresh();
+        if (_overlay is not null)
         {
             // This controller owes a lease release (its overlay is open / pending
             // close). Fire it NOW, not in the deferred Closed handler 150 ms from
@@ -2030,11 +1889,10 @@ public sealed class OverlayController : IDisposable
         // dispatcher may stop pumping before the 150 ms lands and the Close()
         // never runs — deliberately fine: the lease was already released
         // synchronously above, and process exit destroys the window anyway.
-        CloseOverlay();
-        // The bar's deferred Closed handler clears the icon cache; disposing it
+        // The sheet's deferred Closed handler clears the icon cache; disposing it
         // here would leave the still-open window rendering disposed bitmaps for
         // the 150 ms grace.
-        CloseTaskbar();
+        CloseOverlay();
     }
 
     private void HideTouchEdges()

@@ -217,29 +217,26 @@ reports; do not resume proxy-timing changes unless a failing trace differs.
    general rule: on any poll that feeds splash dismissal or takeover progress, a swallowed exception
    is the lesser failure. Prefer a throttled one-shot warning over a narrower catch.
 
-**Taskbar + tray host** (`Overlay\TaskbarWindow/TaskbarViewModel`, `Core\TrayProtocol.cs`,
-`Shell\TrayHost.cs`, `Shell\SystemStatus.cs`): bottom-edge swipe in game mode opens a **full-width
-three-zone bar** — left WSGM button (opens quick access through the existing handover), centre the
-switchable windows (`WindowFinder.ListSwitchableWindows`) in a horizontally scrolling strip, right
-the tray icons (also bounded/scrolling) plus Wi-Fi/Bluetooth buttons, battery and clock from
-`SystemStatus`. Columns are `Auto,*,Auto` ON PURPOSE: the old `*,Auto,*` let a large tile count push
-the home button and the whole status cluster off a 1280-wide screen. Tiles keep FIXED sizes at every
-count. The buttons open the `RadioManager`-backed radio panel; they must never invoke `ms-settings:`
-(the immersive shell cannot activate it without Explorer in the session). The right edge stays quick
-access, and `OverlayController` owns BOTH surfaces (shared Steam Input lease released only when both
-are closed, mutual exclusion with restore-target handover, same 150 ms deferred close and
-ghost-click WndProc hook). Tile refreshes reconcile IN PLACE — a wholesale rebuild would destroy the
-focused button under the gamepad cursor. `TrayHost` registers a window class literally named
-`Shell_TrayWnd` (that's how `Shell_NotifyIcon` finds a tray; game mode has no explorer, so without
-it closed-to-tray apps lose their icons) and parses the WM_COPYDATA wire format in the pure,
-unit-tested `TrayProtocol` (32-bit handle fields on every architecture). Two hard rules: (a) **never
-coexist with explorer's taskbar** — the host is destroyed on `SessionModes.DesktopModeStarting`
-(before `StartExplorer`) and recreated on `GameModeEntered`; (b) the **UIPI gate**: WSGM is usually
-elevated, and unelevated apps' `Shell_NotifyIcon` WM_COPYDATA is silently dropped by UIPI unless
-`ChangeWindowMessageFilterEx(WM_COPYDATA, MSGFLT_ALLOW)` is applied to the tray window — no shipped
-replacement shell runs elevated, so this gate is WSGM-specific and its device verification status
-must be tracked via the `Tray host created (… WM_COPYDATA filter …)` / `Tray icon Added/Rejected`
-log lines.
+**Open apps strip + tray host** (`Overlay\OverlayWindow/AppSwitcherViewModel`,
+`Core\TrayProtocol.cs`, `Shell\TrayHost.cs`, `Shell\SystemStatus.cs`): the former bottom taskbar
+lives inside the quick access sheet — the switchable windows (`WindowFinder.ListSwitchableWindows`)
+as a horizontally scrolling chip strip along the sheet's bottom, the tray icons (bounded/scrolling,
+budgeted by `OverlayWindow.ComputeTrayMaxWidth` so they can never push the fixed pills off a
+1280-wide screen) plus the Wi-Fi/Bluetooth/audio/eject pills, battery and clock from `SystemStatus`
+in the sheet's header. Chips and pills keep FIXED sizes at every count. The pills open the
+`RadioManager`-backed radio panel; they must never invoke `ms-settings:` (the immersive shell cannot
+activate it without Explorer in the session). Chip refreshes reconcile IN PLACE — a wholesale
+rebuild would destroy the focused button under the gamepad cursor. `TrayHost` registers a window
+class literally named `Shell_TrayWnd` (that's how `Shell_NotifyIcon` finds a tray; game mode has no
+explorer, so without it closed-to-tray apps lose their icons) and parses the WM_COPYDATA wire format
+in the pure, unit-tested `TrayProtocol` (32-bit handle fields on every architecture). Two hard
+rules: (a) **never coexist with explorer's taskbar** — the host is destroyed on
+`SessionModes.DesktopModeStarting` (before `StartExplorer`) and recreated on `GameModeEntered`; (b)
+the **UIPI gate**: WSGM is usually elevated, and unelevated apps' `Shell_NotifyIcon` WM_COPYDATA is
+silently dropped by UIPI unless `ChangeWindowMessageFilterEx(WM_COPYDATA, MSGFLT_ALLOW)` is applied
+to the tray window — no shipped replacement shell runs elevated, so this gate is WSGM-specific and
+its device verification status must be tracked via the `Tray host created (… WM_COPYDATA filter …)`
+/ `Tray icon Added/Rejected` log lines.
 
 A third rule guards the outbound side: (c) **relay only application-defined callback messages in
 `WM_USER..0xFFFF`**. `TrayProtocol.IsRelayableCallback` applies that range in `TrayHost.SendClick`;

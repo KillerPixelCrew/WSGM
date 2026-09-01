@@ -5,9 +5,9 @@ using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
-/// <summary>The taskbar's controller-friendly master-volume and default-device
+/// <summary>The sheet's controller-friendly master-volume and default-device
 /// panel. It remains a separate top-level window so combo-box popups and focus
-/// traversal work while the taskbar is visible underneath.</summary>
+/// traversal work while the sheet is visible underneath.</summary>
 public partial class AudioWindow : Window
 {
     private const double BaseWidth = 500;
@@ -32,15 +32,15 @@ public partial class AudioWindow : Window
             _audio.Refresh();
             VolumeSlider.Focus(NavigationMethod.Directional);
         };
-        TaskbarPanel.WirePanelBehaviour(this);
+        StatusPanel.WirePanelBehaviour(this);
     }
 
     private void OnRefreshClicked(object? sender, RoutedEventArgs e) => _audio.Refresh();
 
     /// <summary>Places the panel just above the right-hand status section of the
     /// taskbar and scales it back to the user's normal desktop DPI.</summary>
-    /// <param name="taskbarTop">The taskbar's physical top edge.</param>
-    internal void DockAboveTaskbar(int taskbarTop = 0) => TaskbarPanel.DockAboveTaskbar(
-        this, RootScale, _uiScale, BaseWidth, BaseHeight, taskbarTop, "Audio");
+    /// <param name="anchorBottom">The sheet's physical top edge.</param>
+    internal void DockBelowHeader(int anchorBottom) => StatusPanel.DockBelowHeader(
+        this, RootScale, _uiScale, BaseWidth, BaseHeight, anchorBottom, "Audio");
 
 }

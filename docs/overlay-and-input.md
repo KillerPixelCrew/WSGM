@@ -5,13 +5,30 @@ section says device-verified or live-verified, it encodes something that only re
 real hardware or against a live Steam client, and changing it without re-verifying is a regression
 waiting to happen.
 
-**Quick access panel** (`Overlay\OverlayWindow`): a `TabStrip` over four always-alive destination
-panels — Home / Steam / Device / System — LB/RB cycling with wrap (via `GamepadNavigation`'s
-optional `tabPrevious`/`tabNext`), reopening on Home, focus landing on the first row after a switch,
-and the warning `InfoBar` staying panel-level above the tabs. `DefaultFocusTarget` resolves to the
-ACTIVE destination's first row (HomeAppButton is invisible on the others). Note the taskbar's
-navigation deliberately passes NO tab callbacks: during the 150 ms surface handover both navigations
-are alive, so routing LB/RB there would double-advance the panel's tabs.
+**Quick access sheet** (`Overlay\OverlayWindow`): ONE top-docked surface that replaced the
+right-side panel and the bottom taskbar. It covers `SheetHeightFraction` (81 %) of the display and
+leaves the game visible below — that strip is outside the window rectangle, so the existing
+raw-input tap-outside dismissal closes the sheet with no extra code; a fullscreen window would have
+needed a second dismiss mechanism. Header: wordmark + active-destination eyebrow, then the status
+pills (tray icons from the game-mode `TrayHost`, eject, audio, Wi-Fi, Bluetooth, battery, clock,
+close) bound to a per-open `SystemStatus`; the radio/audio/eject panels hang from the header's
+measured bottom edge (`HeaderBottomScreenY` → `StatusPanel.DockBelowHeader`). A `TabStrip` over the
+always-alive destination roots — Quick access / Session (`Home`) / Steam / optional Device / Tools
+(`System`) / Power — LB/RB cycling with wrap (via `GamepadNavigation`'s optional
+`tabPrevious`/`tabNext`), reopening on the last destination, focus landing on the first row after a
+switch, and the warning `InfoBar` staying panel-level above the tabs. `DefaultFocusTarget` resolves
+to the ACTIVE destination's first row. **Quick access is the home root and the Back target of every
+other root**: `AppConfig.QuickAccessPins` holds row ids (each pinnable `CardButton` carries its id
+in `Tag`; X / touch-hold / right-click toggles one through `PinToggleRequested`), and the root
+renders live MIRRORS of the XAML rows that follow their title/description/badge/visibility and press
+through to the source's Click handlers — so a row that rewrites its own title ("Really?", "Applied
+to …") keeps working when pinned — plus Device rows (capability keys and the direct-row focus keys)
+re-rendered from the current snapshot on every Device render. Along the sheet's bottom sits the
+**Open apps** chip strip (`AppSwitcherViewModel`, reconciled IN PLACE every second — a wholesale
+rebuild would destroy the focused chip under the gamepad cursor; Y cycles to the next window, X on a
+tray pill opens its context menu). The peer keyboard window hangs over the sheet's lower edge (the
+exposed game strip is too short for it); D-pad Down off the sheet's last row crosses into it and Up
+off the keyboard's top row crosses back.
 
 Destinations host in-place nested pages: six self-drawing sub-views over `OverlaySubView`
 (`LibraryTabsView`, `CardManagerView`, `ArtworkView`, `LaunchWrapperView`, `WakeLockHoldersView`,
@@ -54,9 +71,11 @@ auto-repeat) and full-state `StateChanged` (chords) → `GamepadNavigation` (foc
 tab order, synthesized Enter to activate, arrow-key mirror with 250 ms dedupe, skips TextBoxes so
 the touch keyboard doesn't pop) and `GamepadChordWatcher`. `Overlay\TouchSwipeMonitor` observes the
 raw HID digitizer (`RIDEV_INPUTSINK`, observation only) for four configurable edge swipes _and_
-tap-outside-overlay dismissal. Bottom/right retain WSGM's taskbar/quick-access actions; left/top
-always send Steam's installed-client keyboard mappings Ctrl+1 (Steam menu) / Ctrl+2 (Quick Access
-Menu), including while a game is foreground — bringing Steam's menu over the game is their purpose.
+tap-outside-overlay dismissal. The edge map is SteamOS's: top opens WSGM's sheet, bottom opens it on
+the Open apps strip (game mode only — on the desktop explorer's taskbar owns that edge, and falling
+back to the sheet read as a regression, device-reported); left/right always send Steam's
+installed-client keyboard mappings Ctrl+1 (Steam menu) / Ctrl+2 (Quick Access Menu), including while
+a game is foreground — bringing Steam's menu over the game is their purpose.
 
 **Managed-controller capture and source changes**: each visible WSGM surface owns one named capture
 claim. The first claim neutralizes the virtual target; nested claims keep capture active, and the
@@ -106,13 +125,11 @@ Refused edits log the requested operation and current selection instead of silen
    hit-testing, deliberately not dismiss-on-deactivate (cycling deactivates the panel while it must
    stay open).
 
-6. **The restore target and its suppression are per-surface, and neither may outlive an abandoned
-   close.** The overlay and the taskbar each keep their own pair (the window that was foreground
-   when they opened, and whether an action redirected focus), because during the 150 ms handover
-   both surfaces are alive and one bar's opener is not the other's. A close that is cancelled — the
-   surface is re-shown inside the deferral — must clear both: a latched suppression would silently
-   disable the refocus for the rest of that surface's life, and a stale target would call back a
-   window the user has since left. Picking a taskbar tile suppresses the restore deliberately, for
-   the same reason Next-app cycling does: the app the user just chose has to stay foreground.
-   `OverlayController` is where all four fields live; this rule is why they are reset in the
-   cancelled-close path and not only in `Closed`.
+6. **The restore target and its suppression may not outlive an abandoned close.** The sheet keeps
+   the pair (the window that was foreground when it opened, and whether an action redirected focus).
+   A close that is cancelled — the sheet is re-shown inside the deferral — must clear both: a
+   latched suppression would silently disable the refocus for the rest of that sheet's life, and a
+   stale target would call back a window the user has since left. Picking an Open apps chip or
+   activating a tray icon suppresses the restore deliberately, for the same reason Next-app cycling
+   does: the app the user just chose has to stay foreground. `OverlayController` is where the fields
+   live; this rule is why they are reset in the cancelled-close path and not only in `Closed`.

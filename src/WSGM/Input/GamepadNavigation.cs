@@ -35,6 +35,7 @@ public sealed class GamepadNavigation : IDisposable
     private readonly Func<bool>? _isNintendoLayout;
     private readonly Func<InputElement?>? _preferredFocus;
     private readonly Action<InputElement?>? _secondary;
+    private readonly Action<InputElement?>? _tertiary;
     private readonly Action? _tabPrevious;
     private readonly Action? _tabNext;
 
@@ -89,10 +90,13 @@ public sealed class GamepadNavigation : IDisposable
     /// Null leaves the button unhandled.</param>
     /// <param name="onEdge">Optional callback when a directional move finds no target in
     /// that direction (a window edge) — used to cross focus into an adjacent window.</param>
+    /// <param name="tertiary">Optional action for the physical north button (Xbox Y),
+    /// invoked with the currently focused element — the sheet's next-app cycle.</param>
     public GamepadNavigation(IUiButtonSource gamepad, Window window, Action back,
         Func<bool>? isNintendoLayout = null, Func<InputElement?>? preferredFocus = null,
         Action<InputElement?>? secondary = null, Action? tabPrevious = null,
-        Action? tabNext = null, Action<NavigationDirection>? onEdge = null)
+        Action? tabNext = null, Action<NavigationDirection>? onEdge = null,
+        Action<InputElement?>? tertiary = null)
     {
         _gamepad = gamepad;
         _window = window;
@@ -100,6 +104,7 @@ public sealed class GamepadNavigation : IDisposable
         _isNintendoLayout = isNintendoLayout;
         _preferredFocus = preferredFocus;
         _secondary = secondary;
+        _tertiary = tertiary;
         _tabPrevious = tabPrevious;
         _tabNext = tabNext;
         _onEdge = onEdge;
@@ -160,6 +165,12 @@ public sealed class GamepadNavigation : IDisposable
         if (_secondary is not null && buttons.HasFlag(GamepadButtons.X))
         {
             _secondary(target);
+            return;
+        }
+        // Physical north button, likewise position-stable across layouts.
+        if (_tertiary is not null && buttons.HasFlag(GamepadButtons.Y))
+        {
+            _tertiary(target);
             return;
         }
         // Shoulder buttons cycle tab strips where the host wired them up.

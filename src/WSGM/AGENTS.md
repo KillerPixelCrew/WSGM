@@ -1,7 +1,7 @@
 # WSGM application
 
 This is the self-contained Avalonia executable. It owns Settings, the game-mode shell session, the
-quick-access/taskbar surfaces, and the per-user configuration and boot manifest.
+quick access sheet, and the per-user configuration and boot manifest.
 
 - Keep OS declarations and managed COM interfaces inside `Interop\`; expose narrow managed results
   to the rest of the application.

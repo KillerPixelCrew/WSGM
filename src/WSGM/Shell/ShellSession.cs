@@ -374,9 +374,9 @@ public sealed class ShellSession : IAsyncDisposable
                 _overlay?.ShowDevicePage();
                 return _overlay is not null;
             }, cancellationToken),
-            ToggleTaskbarAsync = cancellationToken => RunUiActionAsync(() =>
+            ToggleOpenAppsAsync = cancellationToken => RunUiActionAsync(() =>
             {
-                _overlay?.ToggleTaskbar();
+                _overlay?.ToggleOpenApps();
                 return _overlay is not null;
             }, cancellationToken),
             ToggleDesktopGameModeAsync = cancellationToken => RunUiActionAsync(() =>

@@ -58,38 +58,29 @@ public sealed class GamepadChordConfig
     public bool Hold { get; set; }
 }
 
-/// <summary>What an inward edge swipe opens.</summary>
-public enum EdgeAction
-{
-    /// <summary>The quick-access panel.</summary>
-    QuickAccess,
-
-    /// <summary>The game-mode taskbar (the swipe is ignored in desktop mode,
-    /// where explorer's real taskbar owns the bottom edge).</summary>
-    Taskbar,
-}
-
 /// <summary>Controls the raw-input edge-swipe activation areas.</summary>
+/// <remarks>
+/// The SteamOS edge map: top and bottom open WSGM's quick access sheet (bottom lands on
+/// the Open apps strip and is ignored in desktop mode, where explorer's taskbar owns
+/// that edge); left and right send Steam Big Picture's own menu shortcuts.
+/// </remarks>
 public sealed class GestureConfig
 {
-    /// <summary>Whether a swipe from the bottom edge is recognized.</summary>
+    /// <summary>Whether a swipe up from the bottom edge opens the quick access sheet
+    /// with focus on its Open apps strip (game mode only).</summary>
     public bool BottomEdge { get; set; } = true;
 
-    /// <summary>Whether a swipe from the right edge opens the overlay.</summary>
-    public bool RightEdge { get; set; } = true;
+    /// <summary>Whether a swipe down from the top edge opens the quick access sheet.</summary>
+    public bool TopEdge { get; set; } = true;
 
     /// <summary>Whether a swipe from the left edge opens Steam's Big Picture menu.</summary>
     public bool LeftEdgeSteamMenu { get; set; } = true;
 
-    /// <summary>Whether a swipe from the top edge opens Steam's Big Picture quick-access menu.</summary>
-    public bool TopEdgeSteamQuickAccess { get; set; } = true;
+    /// <summary>Whether a swipe from the right edge opens Steam's Big Picture quick-access menu.</summary>
+    public bool RightEdgeSteamQuickAccess { get; set; } = true;
 
     /// <summary>Strip thickness in physical pixels.</summary>
     public int StripThickness { get; set; } = 16;
-
-    /// <summary>What the bottom-edge swipe opens (the right edge always opens
-    /// quick access).</summary>
-    public EdgeAction BottomEdgeAction { get; set; } = EdgeAction.Taskbar;
 }
 
 /// <summary>Selects the controller-button glyph family rendered by the UI.</summary>
@@ -722,6 +713,13 @@ public sealed class AppConfig
 
     /// <summary>Touch-edge gesture configuration for opening the overlay.</summary>
     public GestureConfig Gestures { get; set; } = new();
+
+    /// <summary>Rows pinned to the quick access sheet's home tab, as stable row ids
+    /// (a row's <c>Tag</c>: <c>home.steam</c>, <c>system.keep-awake</c>, a device
+    /// capability key, …) in display order. An id the running build cannot resolve
+    /// is kept (a device plugin's row survives the device being unplugged) but not
+    /// rendered.</summary>
+    public List<string> QuickAccessPins { get; set; } = [];
 
     /// <summary>Controller glyph family displayed by the UI.</summary>
     public GlyphStyle GlyphStyle { get; set; } = GlyphStyle.Xbox;

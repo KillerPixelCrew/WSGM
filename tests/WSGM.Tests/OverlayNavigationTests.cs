@@ -10,19 +10,26 @@ public sealed class OverlayNavigationTests
         OverlayNavigation navigation = new();
 
         Assert.Equal(
-            new[] { OverlayDestination.Home, OverlayDestination.Steam, OverlayDestination.System },
+            new[]
+            {
+                OverlayDestination.QuickAccess, OverlayDestination.Home, OverlayDestination.Steam,
+                OverlayDestination.System, OverlayDestination.Power,
+            },
             navigation.VisibleDestinations);
 
         navigation.SetDeviceVisible(true);
 
         Assert.Equal(
-            new[] { OverlayDestination.Home, OverlayDestination.Steam, OverlayDestination.Device,
-                OverlayDestination.System },
+            new[]
+            {
+                OverlayDestination.QuickAccess, OverlayDestination.Home, OverlayDestination.Steam,
+                OverlayDestination.Device, OverlayDestination.System, OverlayDestination.Power,
+            },
             navigation.VisibleDestinations);
     }
 
     [Fact]
-    public void HidingDeviceWhileItIsSelectedReturnsToHomeAndDropsItsPages()
+    public void HidingDeviceWhileItIsSelectedReturnsToQuickAccessAndDropsItsPages()
     {
         OverlayNavigation navigation = new();
         navigation.SetDeviceVisible(true);
@@ -30,9 +37,18 @@ public sealed class OverlayNavigationTests
 
         navigation.SetDeviceVisible(false);
 
-        Assert.Equal(OverlayDestination.Home, navigation.Destination);
-        Assert.Equal(OverlayPage.Home, navigation.Page);
+        Assert.Equal(OverlayDestination.QuickAccess, navigation.Destination);
+        Assert.Equal(OverlayPage.QuickAccess, navigation.Page);
         Assert.Equal(1, navigation.Depth);
+    }
+
+    [Fact]
+    public void TheSheetOpensOnQuickAccess()
+    {
+        OverlayNavigation navigation = new();
+
+        Assert.Equal(OverlayDestination.QuickAccess, navigation.Destination);
+        Assert.Equal(OverlayPage.QuickAccess, navigation.Page);
     }
 
     [Fact]
@@ -41,7 +57,7 @@ public sealed class OverlayNavigationTests
         OverlayNavigation navigation = new();
         navigation.Select(OverlayDestination.Steam);
 
-        Assert.False(navigation.Push(OverlayPage.SystemWakeLocks, "wrong.destination"));
+        Assert.False(navigation.Push(OverlayPage.PowerWakeLocks, "wrong.destination"));
         for (int depth = 1; depth < OverlayNavigation.MaximumDepth; depth++)
         {
             Assert.True(navigation.Push(OverlayPage.SteamLibraryTabs, $"steam.row.{depth}"));
@@ -52,7 +68,7 @@ public sealed class OverlayNavigationTests
     }
 
     [Fact]
-    public void BackPriorityIsPopupThenDialogThenNestedThenHomeThenOverlay()
+    public void BackPriorityIsPopupThenDialogThenNestedThenQuickAccessThenOverlay()
     {
         OverlayNavigation navigation = new();
         navigation.Select(OverlayDestination.Steam);
@@ -65,7 +81,12 @@ public sealed class OverlayNavigationTests
         Assert.Equal("steam.artwork", navigation.Pop());
         Assert.Equal(OverlayBackAction.ReturnHome, navigation.BackAction(false, false));
 
+        // Session (the Home destination) is a root like any other now: Back returns to
+        // Quick access from it, and only Quick access itself closes the sheet.
         navigation.Select(OverlayDestination.Home);
+        Assert.Equal(OverlayBackAction.ReturnHome, navigation.BackAction(false, false));
+
+        navigation.Select(OverlayDestination.QuickAccess);
         Assert.Equal(OverlayBackAction.CloseOverlay, navigation.BackAction(false, false));
     }
 

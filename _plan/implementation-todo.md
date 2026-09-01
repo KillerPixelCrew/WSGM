@@ -435,8 +435,17 @@ make the architecture smaller.
       state and writes.
 - [ ] Add WASAPI session/per-app volume and multichannel speaker configuration/reapply. The Claw's
       stereo endpoint cannot establish the multichannel contract.
-- [ ] Redesign the overlay presentation, especially Device, without moving state ownership out of
-      its existing services.
+- [x] Redesign the overlay presentation as the top-edge quick access sheet (2026-09-01): one
+      surface replaces the right panel and the bottom taskbar; Quick access (pinned rows) is the
+      home root, Session / Steam / Device / Tools / Power follow; the Open apps strip, tray and
+      status pills moved into the sheet; the edge map is SteamOS's (left/right Steam, top/bottom
+      WSGM); `AppConfig.QuickAccessPins` holds the pins. State ownership is unchanged — the Device
+      root still renders `IDeviceOverlaySource` snapshots and pinned Device rows are re-rendered
+      from them. **Attended acceptance on the reference Claw is still outstanding** (sheet geometry
+      and slide-in at every UI scale, tap-outside on the exposed strip, pinning by X / touch-hold,
+      Open apps chips, status panels hanging from the header, keyboard window over the sheet's
+      lower edge, OEM taskbar button now opening the sheet on Open apps). The Device root's own
+      presentation (sections as cards) was left as it was.
 - [ ] Add Avalonia headless interaction tests, deterministic render capture and selective visual
       baselines before that redesign.
 - [x] Evaluate richer read-only CDP developer tooling. Chrome DevTools MCP attaches to Steam's own

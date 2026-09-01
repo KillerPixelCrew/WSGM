@@ -4,18 +4,28 @@ using WSGM.Core;
 
 namespace WSGM.Overlay;
 
-/// <summary>Stable top-level destinations in the quick-access overlay.</summary>
+/// <summary>Stable top-level destinations in the quick access sheet, in strip order.</summary>
 internal enum OverlayDestination
 {
+    /// <summary>The pinned rows — the sheet's home and the Back target of every other root.</summary>
+    QuickAccess,
+
+    /// <summary>Steam start/focus, desktop, Big Picture and Steam exit (labelled "Session").</summary>
     Home,
     Steam,
     Device,
+
+    /// <summary>System and storage tools (labelled "Tools").</summary>
     System,
+
+    /// <summary>Wake, idle timeouts and the session-ending actions.</summary>
+    Power,
 }
 
 /// <summary>Stable page identifiers used by the bounded in-overlay navigation stack.</summary>
 internal enum OverlayPage
 {
+    QuickAccess,
     Home,
     Steam,
     SteamLibraryTabs,
@@ -34,7 +44,8 @@ internal enum OverlayPage
     DeviceGlyphs,
     DeviceDiagnostics,
     System,
-    SystemWakeLocks,
+    Power,
+    PowerWakeLocks,
 }
 
 /// <summary>The single action selected by Back/B after higher-priority UI has been considered.</summary>
@@ -43,6 +54,8 @@ internal enum OverlayBackAction
     ClosePopup,
     CloseDialog,
     LeaveNestedPage,
+
+    /// <summary>Return to the Quick access root from another destination's root.</summary>
     ReturnHome,
     CloseOverlay,
 }
@@ -66,7 +79,7 @@ internal sealed class OverlayNavigation
 
     internal OverlayNavigation()
     {
-        Select(OverlayDestination.Home);
+        Select(OverlayDestination.QuickAccess);
     }
 
     internal OverlayDestination Destination { get; private set; }
@@ -76,9 +89,10 @@ internal sealed class OverlayNavigation
     internal int Depth => _stack.Count;
 
     internal IReadOnlyList<OverlayDestination> VisibleDestinations => _deviceVisible
-        ? [OverlayDestination.Home, OverlayDestination.Steam, OverlayDestination.Device,
-            OverlayDestination.System]
-        : [OverlayDestination.Home, OverlayDestination.Steam, OverlayDestination.System];
+        ? [OverlayDestination.QuickAccess, OverlayDestination.Home, OverlayDestination.Steam,
+            OverlayDestination.Device, OverlayDestination.System, OverlayDestination.Power]
+        : [OverlayDestination.QuickAccess, OverlayDestination.Home, OverlayDestination.Steam,
+            OverlayDestination.System, OverlayDestination.Power];
 
     internal bool IsVisible(OverlayDestination destination)
         => destination != OverlayDestination.Device || _deviceVisible;
@@ -93,7 +107,7 @@ internal sealed class OverlayNavigation
         _deviceVisible = visible;
         if (!visible && Destination == OverlayDestination.Device)
         {
-            Select(OverlayDestination.Home);
+            Select(OverlayDestination.QuickAccess);
         }
 
         return true;
@@ -162,22 +176,27 @@ internal sealed class OverlayNavigation
             return OverlayBackAction.LeaveNestedPage;
         }
 
-        return Destination == OverlayDestination.Home
+        // Quick access is the sheet's home: Back from any other root returns there, and Back
+        // from it closes the sheet.
+        return Destination == OverlayDestination.QuickAccess
             ? OverlayBackAction.CloseOverlay
             : OverlayBackAction.ReturnHome;
     }
 
     private static OverlayPage RootPage(OverlayDestination destination) => destination switch
     {
+        OverlayDestination.QuickAccess => OverlayPage.QuickAccess,
         OverlayDestination.Home => OverlayPage.Home,
         OverlayDestination.Steam => OverlayPage.Steam,
         OverlayDestination.Device => OverlayPage.Device,
         OverlayDestination.System => OverlayPage.System,
+        OverlayDestination.Power => OverlayPage.Power,
         _ => throw new ArgumentOutOfRangeException(nameof(destination)),
     };
 
     private static OverlayDestination DestinationFor(OverlayPage page) => page switch
     {
+        OverlayPage.QuickAccess => OverlayDestination.QuickAccess,
         OverlayPage.Home => OverlayDestination.Home,
         OverlayPage.Steam or OverlayPage.SteamLibraryTabs or OverlayPage.SteamCardManager
             or OverlayPage.SteamArtwork or OverlayPage.SteamLaunchConfiguration
@@ -188,7 +207,8 @@ internal sealed class OverlayNavigation
             or OverlayPage.DeviceColor
             or OverlayPage.DeviceGlyphs or OverlayPage.DeviceDiagnostics
             => OverlayDestination.Device,
-        OverlayPage.System or OverlayPage.SystemWakeLocks => OverlayDestination.System,
+        OverlayPage.System => OverlayDestination.System,
+        OverlayPage.Power or OverlayPage.PowerWakeLocks => OverlayDestination.Power,
         _ => throw new ArgumentOutOfRangeException(nameof(page)),
     };
 }

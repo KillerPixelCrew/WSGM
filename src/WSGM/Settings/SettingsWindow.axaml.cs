@@ -244,19 +244,6 @@ public partial class SettingsWindow : Window
         _testOverlay.ShowOverlay();
     }
 
-    /// <summary>Shows the game-mode taskbar for a local test (called by the
-    /// Quick access page). Direct ShowTaskbar: the swipe routing's game-mode
-    /// gate would bounce a dev desktop (explorer alive) back to quick access,
-    /// so the button bypasses routing to make the bar locally testable.</summary>
-    internal void ShowTestTaskbar()
-    {
-        _testOverlay?.Dispose();
-        var config = _viewModel.SnapshotForPreview();
-        _testOverlay = new OverlayController(config, monitor: null, new SessionModes(config, monitor: null),
-            previewOnly: true);
-        _testOverlay.ShowTaskbar();
-    }
-
     /// <summary>Raises Quick Setup over the window on a first run, or after a build
     /// adds a setting that needs an explicit decision.</summary>
     /// <remarks>
