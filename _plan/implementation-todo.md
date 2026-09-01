@@ -350,7 +350,7 @@ directly so the taskbar slider lags the OSD by one poll.
       41 native tests passed, the Release build completed with zero warnings/errors, and all 1,821
       managed tests passed. The finished diff was inspected before commit.
 
-## Controller and Quick Settings milestone - complete in source
+## Controller and Quick Settings milestone - complete
 
 - [x] Implement target-specific VIIPER Xbox 360 and DualShock 4 report encoders, feedback handling
       and deterministic report tests; expose both targets in Settings now that their backends can
@@ -383,13 +383,19 @@ directly so the taskbar slider lags the OSD by one poll.
       reproduced SHA-256 `1FC3EB40FCE67E2D344B1EFF7E5AE0F13602FE6FAE67EF44D7E1D9EA7CA3A765`;
       41 native/Rust tests and all 1,863 managed tests passed; the Release build completed with zero
       warnings/errors.
-- [x] Run `./build.ps1` and copy `publish\WSGM-Setup-1.5.1.exe` (160,348,233 bytes) to `Z:\`;
+- [x] Run `./build.ps1` and copy `publish\WSGM-Setup-1.5.1.exe` (160,369,069 bytes) to `Z:\`;
       source and destination SHA-256 both
-      `C87D87565787834C35FA2DE06515A835264CB58B12737159FC09FF273C540564`.
-- [ ] Publish a new Claw plugin release and move `third_party\claw-plugin\claw-plugin.lock.json` to
-      its immutable asset digest. Tagging/publishing is maintainer-authorized work and has not been
-      inferred from source implementation; until this is done, the shipped pinned package lacks
-      the new charge-limit capability even though WSGM's overlay and CEF integration are complete.
+      `D36416BC675FDC81CD20B9FE723C1EF7B9CB92017CF0A5ABD643AB3CE33DB8AB`.
+- [x] Publish Claw plugin `v1.1.0` from commit `c5e0acb` and move
+      `third_party\claw-plugin\claw-plugin.lock.json` to the canonical 27,048,601-byte release asset,
+      SHA-256 `29687502143E7BD3A13313C7174DD49B206742DB172F5A9ED33884C0E911B25D`.
+      The release workflow passed, its sidecar checksum matched the downloaded bytes, and Device
+      Lab validated the acquired package with all 24 pinned glyph files present.
+- [x] Deploy the finished milestone on the attended `MS-1T52` reference unit. The first smoke pass
+      exposed incorrectly cased WinMM exports in the split audio library; `windows-device-control`
+      commit `fc1a8c3` names the exact `waveOut*` entry points and is pinned here. The final session
+      loaded plugin `1.1.0`, published `battery.charge-limit`, verified the native-QAM device-controls
+      patch, and logged no startup error or unobserved WinMM exception.
 
 ## Verification for this milestone
 
