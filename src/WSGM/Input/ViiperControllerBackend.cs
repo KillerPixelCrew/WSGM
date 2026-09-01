@@ -123,7 +123,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 _ => throw new InvalidOperationException($"The backend cannot create a {kind} target."),
             };
             Check(NativeViiper.DeviceAdd(BusId, deviceType, out uint deviceId), "add the device");
-            _deviceId = deviceId;
+            Volatile.Write(ref _deviceId, deviceId);
             _deviceKind = kind;
             try
             {
@@ -148,11 +148,12 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 throw;
             }
 
-            _target = new HidTargetHandle(kind, Interlocked.Increment(ref _generation));
+            HidTargetHandle target = new(kind, Interlocked.Increment(ref _generation));
+            Volatile.Write(ref _target, target);
             Log.Info(
                 $"Virtual controller created: {kind} as VIIPER device {BusId}:{deviceId}, "
-                + $"generation={_target.Generation}.");
-            return _target;
+                + $"generation={target.Generation}.");
+            return target;
         }
         finally
         {
@@ -205,9 +206,9 @@ internal sealed class ViiperControllerBackend : IHidBackend
             // handle is forgotten: VIIPER owns a device object and feedback callback beyond WSGM's
             // bookkeeping, and both leak for the rest of the process otherwise.
             lost = true;
+            Volatile.Write(ref _target, null);
             bool removed = RemoveDeviceUnderGate();
             _removalUnverifiedGeneration = removed ? null : target.Generation;
-            _target = null;
         }
         finally
         {
@@ -254,8 +255,10 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 return;
             }
 
+            // Make the native callback inert before plugout. VIIPER can have one host feedback
+            // callback already in flight while it detaches the usbip-win2 port.
+            Volatile.Write(ref _target, null);
             bool removed = RemoveDeviceUnderGate();
-            _target = null;
             // Removal is reported from what the library actually did, not from WSGM's bookkeeping;
             // the handle is dropped either way because an unaddressable target must not keep being
             // written to.
@@ -301,14 +304,9 @@ internal sealed class ViiperControllerBackend : IHidBackend
             if (_target is not null)
             {
                 long generation = _target.Generation;
+                Volatile.Write(ref _target, null);
                 RemoveDeviceUnderGate();
-                _target = null;
                 TargetLost?.Invoke(this, generation);
-            }
-
-            if (_self.IsAllocated)
-            {
-                _self.Free();
             }
 
             if (_initialized)
@@ -317,6 +315,13 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 // separately; doing both would report a missing bus on the second call.
                 SafeNative(NativeViiper.Shutdown, "shut down the controller backend");
                 _initialized = false;
+            }
+
+            // The callback's user-data handle outlives VIIPER itself. Shutdown joins the native
+            // server lifetime, so no callback can start after this point with a released handle.
+            if (_self.IsAllocated)
+            {
+                _self.Free();
             }
         }
         finally
@@ -371,14 +376,14 @@ internal sealed class ViiperControllerBackend : IHidBackend
     /// </summary>
     /// <remarks>
     /// The callback runs on a library thread, so it does the least possible work: decode, raise, and
-    /// return. A pinned handle carries the instance across the native boundary because
+    /// return. A strong handle carries the instance across the native boundary because
     /// <c>UnmanagedCallersOnly</c> cannot capture one, and it is released on disposal.
     /// </remarks>
     private unsafe void RegisterFeedbackUnderGate(uint deviceId)
     {
         if (!_self.IsAllocated)
         {
-            _self = GCHandle.Alloc(this, GCHandleType.Weak);
+            _self = GCHandle.Alloc(this);
         }
 
         int result = NativeViiper.DeviceSetFeedbackCallback(
@@ -416,7 +421,12 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 return;
             }
 
-            HidTargetHandle? target = backend._target;
+            if (busId != BusId || deviceId != Volatile.Read(ref backend._deviceId))
+            {
+                return;
+            }
+
+            HidTargetHandle? target = Volatile.Read(ref backend._target);
             if (target is null || DecodeFeedback(target.Kind, new ReadOnlySpan<byte>(data, length))
                 is not { } motors)
             {
@@ -520,7 +530,8 @@ internal sealed class ViiperControllerBackend : IHidBackend
         }
 
         uint deviceId = _deviceId;
-        _deviceId = 0;
+        ManagedControllerTarget? kind = _deviceKind;
+        Volatile.Write(ref _deviceId, 0);
         _fastHandle = 0;
         _deviceKind = null;
         bool removed = false;
@@ -534,6 +545,10 @@ internal sealed class ViiperControllerBackend : IHidBackend
                     Log.Warn(
                         $"VIIPER refused to remove device {BusId}:{deviceId}: status={status}, "
                         + $"{NativeViiper.TakeLastError()}.");
+                }
+                else
+                {
+                    Log.Info($"Virtual controller removed: {kind} as VIIPER device {BusId}:{deviceId}.");
                 }
 
                 return status;

@@ -59,6 +59,38 @@ public sealed class ManagedControllerBackendTests
     }
 
     [Fact]
+    public async Task RouterDetachesFeedbackRouteBeforeBackendRemovalStarts()
+    {
+        DeterministicFakeHidBackend backend = new();
+        DeterministicFakeHapticSink sink = new(42);
+        await using ManagedControllerRouter router = new(backend, sink);
+        HidTargetHandle target = await router.CreateAsync(
+            ManagedControllerTarget.SteamDeckComposite,
+            42,
+            CancellationToken.None);
+        int droppedBeforeRemoval = router.Output.DroppedFrames;
+        backend.Removing = _ =>
+        {
+            backend.EmitOutput(new()
+            {
+                TargetGeneration = target.Generation,
+                Timestamp = DateTimeOffset.UtcNow,
+                LowFrequency = 1,
+                HighFrequency = 1,
+            });
+            Assert.Equal(droppedBeforeRemoval + 1, router.Output.DroppedFrames);
+        };
+
+        await router.ReplaceAsync(
+            ManagedControllerTarget.Xbox360,
+            43,
+            CancellationToken.None);
+
+        Assert.DoesNotContain(sink.Frames, frame =>
+            frame.TargetGeneration == target.Generation && frame.LowFrequency > 0);
+    }
+
+    [Fact]
     public async Task InvalidSourceSamplePublishesNeutralAndStopsForwarding()
     {
         DeterministicFakeHidBackend backend = new();
@@ -300,6 +332,8 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
 
     internal Exception? NextRemoveFailure { get; set; }
 
+    internal Action<HidTargetHandle>? Removing { get; set; }
+
     internal HidTargetHandle? CurrentTarget
     {
         get
@@ -443,6 +477,7 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
     public Task RemoveTargetAsync(HidTargetHandle target, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        Action<HidTargetHandle>? removing;
         lock (_gate)
         {
             ThrowIfDisposed();
@@ -454,6 +489,13 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
             }
 
             _operations.Add($"remove:{target.Generation}");
+            removing = Removing;
+        }
+
+        removing?.Invoke(target);
+
+        lock (_gate)
+        {
             if (AutoRemove)
             {
                 CompleteRemovalUnderGate(target.Generation);

@@ -552,6 +552,9 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
         }
 
         await NeutralizeUnderGateAsync(reason, cancellationToken).ConfigureAwait(false);
+        // Close the managed route before native plugout: a host feedback packet already in flight
+        // during removal must see no route to the physical controller or the replacement target.
+        _output.Detach(target.Generation);
         await _backend.RemoveTargetAsync(target, cancellationToken).ConfigureAwait(false);
         if (!await _backend.WaitForRemovalAsync(target, cancellationToken).ConfigureAwait(false))
         {
@@ -559,7 +562,6 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
             throw new InvalidOperationException("Virtual target removal was not observed.");
         }
 
-        _output.Detach(target.Generation);
         _target = null;
         _sourceGeneration = 0;
         _lastSequence = long.MinValue;

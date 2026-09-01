@@ -196,7 +196,15 @@ the values as normalized axes was why Steam saw a motion source but no usable gy
 360 and DualShock 4 now have their own VIIPER wire encoders and are advertised as selectable
 targets: X360 maps the standard buttons, byte triggers and signed sticks; DS4 additionally maps
 touch contacts, gyro and acceleration. The shell never installs or repairs a driver at runtime.
-`third_party/controller/README.md` records the live-device evidence and exact pins.
+`third_party/controller/viiper/README.md` records the live-device evidence and exact pins.
+
+A target replacement also owns the usbip-win2 client attachment, not just VIIPER's server-side
+device. Attach records the driver-assigned port and removal issues `IOCTL_PLUGOUT_HARDWARE` for that
+port before deleting the server device; otherwise the closed old stream remains as a stale Windows
+attachment and the next target is not a true live replacement. This is the focused backport of
+`Alia5/VIIPER@679f7e0` used by Handheld Companion, layered on WSGM's pinned performance/Steam Deck
+fork. The managed feedback route closes and the backend target becomes unavailable before plugout,
+so an output packet already in flight cannot reach the physical controller or the replacement.
 
 ## Authored profiles
 

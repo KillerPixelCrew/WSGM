@@ -400,6 +400,14 @@ directly so the taskbar slider lags the OSD by one poll.
       projected PascalCase target ids while the host payload reader allowed lowercase only, so every
       valid dropdown selection was rejected before VIIPER ran. The reader now accepts the exact
       projected identifier alphabet and a regression test sends every supported target through it.
+- [x] Repair live VIIPER target replacement without dropping WSGM's patched Steam Deck/performance
+      build. Handheld Companion's bundled library led to upstream `Alia5/VIIPER@679f7e0`: attach
+      records usbip-win2's assigned port and remove explicitly plugs that port out before deleting
+      the server device. WSGM backports that fix onto `024aef3a` as patch 0004, closes managed
+      feedback routing before native removal, and tests that removal-time output cannot cross into
+      the old physical route. `./eng/verify.ps1 -Fix` passed after the repair: the pinned VIIPER
+      patches applied and built, Steam Deck Go tests passed, Release built with zero warnings or
+      errors, and all 1,873 managed tests passed.
 
 ## Verification for this milestone
 

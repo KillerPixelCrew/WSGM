@@ -39,6 +39,14 @@ retry. It also made the intended ordering impossible: a caller cannot present a 
 before Windows enumerates the device when adding it is what enumerates it. With attach explicit,
 WSGM opens the fast handle, submits a neutral frame, and only then lets the host see the controller.
 
+`0004-detach-usbip-port-on-device-remove.patch` backports `Alia5/VIIPER@679f7e0`, the detach fix
+used by Handheld Companion's working live target changes, without replacing this repository's newer
+performance branch or the Steam Deck patches above. usbip-win2 assigns a client port when a device
+is attached. Removing only VIIPER's server-side device closes its stream but does not plug that port
+out of the Windows driver, so an immediate replacement can collide with the stale attachment. The
+patch retains the port returned by either attach route and issues `IOCTL_PLUGOUT_HARDWARE` before
+server-side removal, with the command route as fallback.
+
 PR #2 needed adapting rather than applying verbatim: this branch replaced the inline `ctx.Done()`
 waits with `device.BlockUntilDeadline`, so the two endpoint cases collapse into one that blocks and
 returns no data.
@@ -59,7 +67,7 @@ The library exposes a flat C ABI over blittable types, so WSGM binds it directly
 
 ## Build baseline
 
-Verified with Go 1.27.0 and WinLibs GCC on the reference Claw, 2026-08-29. `go build ./...` succeeds
+Verified with Go 1.27.0 and WinLibs GCC on the reference Claw, 2026-09-01. `go build ./...` succeeds
 for the whole tree, `go test ./device/steamdeck/...` passes with the patch applied, and
 `eng\build-viiper.ps1 -Validate` runs the whole sequence end to end.
 
