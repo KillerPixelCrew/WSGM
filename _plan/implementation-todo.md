@@ -484,6 +484,35 @@ make the architecture smaller.
       owns the DOM and no webpack global — and keep `close_page` away from real Steam windows.
       `tools\WsgmLibTest` stays the scripted path; the MCP client is for interactive investigation.
 
+## Field regressions of 2026-09-01 - fixed in source, attended re-check pending
+
+Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, not a symptom.
+
+- [x] **QAM crashed on open** (`Cannot read properties of undefined (reading 'get')`): the
+      brightness gate's `claimValue` tried to redefine `m_msgSettings.is_display_brightness_available`,
+      a MobX accessor, threw "not a data property", and its rollback re-`defineProperty`'d the
+      accessor — which deletes the observable behind it and leaves a getter that throws on every
+      read. Steam's QAM and WSGM's own probe then died on the same read (reproduced live over CDP).
+      Toolkit `ownership.ts` now claims and restores accessor-backed fields through their setter
+      and refuses read-only accessors; `check-ownership-claims.mjs` covers both. A client that hit
+      this stays broken until Steam restarts.
+- [x] **Wi-Fi and Bluetooth "state is unavailable"**: `InvalidOperation_ResetGlobalComWrappersInstance`.
+      The Claw package ships its own `WinRT.Runtime.dll`, the collectible plugin context loaded it,
+      and WSGM's radio code was the second CsWinRT runtime to initialize in the process.
+      `PluginLoadContext` now resolves host-first (SDK and the WinRT pair pinned by identity; every
+      other dependency asked of the default context before the package copy). Rationale in
+      `docs\device-integration.md`.
+- [x] **Radio/audio/eject panels flickered for a frame under touch, worked with the mouse**: the
+      touch-synthesized ghost click re-activated the sheet after the panel opened, and between two
+      topmost windows activation decides who is on top. The panels are now owned by the sheet
+      (`ShowOwnedBySheet`); tap-outside dismissals log the tap and the panel rectangle.
+- [x] **`wsgm.native-qam.tdp` tore itself down every ~2 s**: the probe still required
+      `__wsgmOriginalGetState` to be a function, but the claim primitive stores a property snapshot
+      there. Probe and the gate's reclaim path accept both shapes.
+- [ ] Attended: open the QAM after a Steam restart (no error boundary, brightness row present and
+      moving the panel), Wi-Fi and Bluetooth panels populated, each status panel opened and
+      operated by touch, and the TDP row stable across a minute of polling.
+
 ## Attended/live acceptance still required
 
 These checks intentionally do not run unattended and are not source-completion blockers:

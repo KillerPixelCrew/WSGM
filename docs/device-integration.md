@@ -72,6 +72,19 @@ unload after verified cleanup, but it is not process-crash containment: a proces
 native plugin failure now terminates WSGM with the plugin. Existing WSGM/session recovery and the
 plugin's bounded next-start recovery record are the remaining recovery boundary. This is the
 explicit maintenance-cost tradeoff of the in-process design, not a claim of equivalent isolation.
+
+Dependency resolution inside that context is **host-first**. Package authors cannot be expected to
+trim what their SDK copies beside the plugin: any `-windows10.0.x` build ships `WinRT.Runtime.dll`
+and `Microsoft.Windows.SDK.NET.dll`, and a second `WinRT.Runtime` in the process makes whichever
+side initializes second fail its process-global `ComWrappers` registration for good — on the Claw
+the plugin touched WinRT first and WSGM's own Wi-Fi and Bluetooth queries were the side that died
+(2026-09-01). `PluginLoadContext.Load` therefore pins the SDK and the WinRT pair to the host's
+loaded assemblies by name, asks the default context for every other dependency before consulting
+the package, and uses the package copy only for assemblies the host does not have or cannot satisfy
+by version (that duplicate is logged once). This is the parent-first rule plugin hosts converge on
+(`PluginLoader.PreferSharedTypes`, Java class loading): sharing what the host already owns costs
+nothing the isolation was buying, while a duplicate of anything with process-wide state is a fault
+no later cleanup can undo.
 There are no runtime trust tiers, publisher grants, signer rotation/revocation, package ranking,
 quarantine catalog, or de-elevated plugin class.
 

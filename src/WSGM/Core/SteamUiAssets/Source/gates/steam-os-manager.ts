@@ -164,7 +164,11 @@ function createSteamOsManagerGate() {
     // already paid for: a successful install would make the next probe declare the patch
     // incompatible, tearing down what it had just done.
     const existing = manager.GetState;
-    const recoverable = claimed(existing, getState) ? existing[getState.original] : existing;
+    // The carried original is the claim primitive's property snapshot; a bridge older than the
+    // snapshot stored the bare function.
+    const carried = claimed(existing, getState) ? existing[getState.original] : existing;
+    const recoverable =
+      carried && typeof carried === "object" && "value" in carried ? carried.value : carried;
     if (typeof recoverable !== "function") {
       lastError = "SteamOS Manager GetState is not recoverable";
       return { ok: false, error: lastError };

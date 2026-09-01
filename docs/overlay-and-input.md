@@ -111,6 +111,12 @@ Refused edits log the requested operation and current selection instead of silen
    Hence: `OverlayController.CloseOverlay` defers the actual `Close()` by 150 ms, and
    `OverlayWindow`'s WndProc hook eats `MI_WP_SIGNATURE`-tagged (touch-synthesized) mouse messages.
    Removing either brings back ghost clicks that press buttons in whatever sits under the panel.
+   The swallowed click still carries `WM_MOUSEACTIVATE`, so it re-activates the sheet after the
+   tap's real click has already opened a status panel over it; two topmost windows order by
+   activation, and the panel was covered one frame after it appeared (touch only — the mouse sends
+   no second activation; device-reproduced 2026-09-01). The radio, audio and eject panels are
+   therefore shown as windows **owned by the sheet** (`OverlayController.ShowOwnedBySheet`), which
+   Windows keeps above their owner regardless of activation.
 
 4. **Avalonia's 3-arg `DispatcherTimer(interval, priority, callback)` ctor auto-starts the timer.**
    This once made `IsRunning` permanently true and silently broke every "start if not running"

@@ -1151,7 +1151,7 @@ public sealed class OverlayController : IDisposable
         {
             if (!HitsWindow(_radioPanel, x, y))
             {
-                Log.Info("Touch outside radio panel — dismissing.");
+                Log.Info($"Touch at {x},{y} outside radio panel {WindowRect(_radioPanel)} — dismissing.");
                 CloseRadioPanel();
             }
             return;
@@ -1160,7 +1160,7 @@ public sealed class OverlayController : IDisposable
         {
             if (!HitsWindow(_audioPanel, x, y))
             {
-                Log.Info("Touch outside audio panel — dismissing.");
+                Log.Info($"Touch at {x},{y} outside audio panel {WindowRect(_audioPanel)} — dismissing.");
                 CloseAudioPanel();
             }
             return;
@@ -1169,7 +1169,7 @@ public sealed class OverlayController : IDisposable
         {
             if (!HitsWindow(_ejectPanel, x, y))
             {
-                Log.Info("Touch outside eject panel — dismissing.");
+                Log.Info($"Touch at {x},{y} outside eject panel {WindowRect(_ejectPanel)} — dismissing.");
                 CloseEjectPanel();
             }
             return;
@@ -1178,7 +1178,7 @@ public sealed class OverlayController : IDisposable
             && !HitsWindow(_overlay, x, y)
             && (_keyboardWindow is null || !HitsWindow(_keyboardWindow, x, y)))
         {
-            Log.Info("Touch outside quick access — dismissing.");
+            Log.Info($"Touch at {x},{y} outside quick access {WindowRect(_overlay)} — dismissing.");
             CloseOverlay();
         }
     }
@@ -1191,14 +1191,42 @@ public sealed class OverlayController : IDisposable
             // that is still coming up.
             return true;
         }
+        return WindowRect(window).Contains(new Avalonia.PixelPoint(x, y));
+    }
+
+    /// <summary>The window's screen rectangle in physical pixels — the space raw touch reports in.</summary>
+    private static Avalonia.PixelRect WindowRect(Avalonia.Controls.Window window)
+    {
         // Window scaling, not the screens cache — the cache reports the
         // pre-game-mode factor after the runtime display-scale flip, which
         // inflates the hit box and swallows taps just outside the window.
         var scaling = StatusPanel.CurrentWindowScale(window);
-        var pos = window.Position;
         var w = (int)Math.Ceiling(window.Width * scaling);
         var h = (int)Math.Ceiling(window.Height * scaling);
-        return x >= pos.X && x < pos.X + w && y >= pos.Y && y < pos.Y + h;
+        return new Avalonia.PixelRect(window.Position, new Avalonia.PixelSize(w, h));
+    }
+
+    /// <summary>Shows a status panel as a window OWNED by the sheet, so it stays above the sheet
+    /// whatever activates the sheet next.</summary>
+    /// <remarks>
+    /// Both are topmost, so between them z-order follows activation — and a touch tap activates
+    /// the sheet twice: once at the finger, and again when Windows' touch-synthesized mouse click
+    /// arrives after the panel has already opened (invariant 3 in <c>docs\overlay-and-input.md</c>;
+    /// the hook swallows the click but <c>WM_MOUSEACTIVATE</c> still lands). An unowned panel
+    /// showed for one frame and was covered by the sheet it hangs from, while the mouse, which
+    /// sends no second activation, worked (device-reproduced 2026-09-01). An owned window is
+    /// always kept above its owner, which is the relationship the panels actually have.
+    /// </remarks>
+    private void ShowOwnedBySheet(Avalonia.Controls.Window panel)
+    {
+        if (_overlay is { IsVisible: true } sheet)
+        {
+            panel.Show(sheet);
+        }
+        else
+        {
+            panel.Show();
+        }
     }
 
     private RadioWindow? _radioPanel;
@@ -1539,7 +1567,7 @@ public sealed class OverlayController : IDisposable
             }
             _overlay?.Activate();
         };
-        panel.Show();
+        ShowOwnedBySheet(panel);
         panel.DockBelowHeader(_overlay?.HeaderBottomScreenY ?? 0, _overlay?.RightScreenX ?? 0);
         panel.Activate();
     }
@@ -1625,7 +1653,7 @@ public sealed class OverlayController : IDisposable
             }
             _overlay?.Activate();
         };
-        panel.Show();
+        ShowOwnedBySheet(panel);
         panel.DockBelowHeader(_overlay?.HeaderBottomScreenY ?? 0, _overlay?.RightScreenX ?? 0);
         panel.Activate();
     }

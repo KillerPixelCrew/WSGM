@@ -170,19 +170,61 @@ internal sealed class PluginPackageLoader : IDisposable
             _resolver = new AssemblyDependencyResolver(entryPath);
         }
 
+        // Assemblies that may exist only once per process, whatever version the package carries.
+        // CsWinRT's runtime registers a process-global ComWrappers instance when it first runs; a
+        // second copy loaded into this context makes whichever side initializes second throw
+        // "Attempt to update previously set global instance" for the rest of the process. The
+        // Claw package ships both (any `-windows10.0.x` plugin build copies them), and the plugin
+        // touched WinRT first, so WSGM's own Wi-Fi and Bluetooth queries were the side that died
+        // (device-reproduced 2026-09-01).
+        private static readonly Dictionary<string, Assembly> HostOwned = new(StringComparer.Ordinal)
+        {
+            [SdkName] = typeof(IDevicePlugin).Assembly,
+            [typeof(WinRT.IWinRTObject).Assembly.GetName().Name!] = typeof(WinRT.IWinRTObject).Assembly,
+            [typeof(Windows.Foundation.Point).Assembly.GetName().Name!] =
+                typeof(Windows.Foundation.Point).Assembly,
+        };
+
         protected override Assembly? Load(AssemblyName assemblyName)
         {
-            if (string.Equals(assemblyName.Name, SdkName, StringComparison.Ordinal))
+            // The host's SDK is the type-identity boundary, whatever assembly version the plugin
+            // was compiled against. Deferring to the default context instead would re-check the
+            // version and refuse a plugin built against a different SDK build even when the
+            // contract still matches - the manifest apiVersion is the real compatibility gate,
+            // not the assembly version. The WinRT pair is pinned for the same reason plus the
+            // process-global registration above.
+            if (HostOwned.TryGetValue(assemblyName.Name ?? string.Empty, out Assembly? hostOwned))
             {
-                // The host's SDK is the type-identity boundary, whatever assembly version the
-                // plugin was compiled against. Deferring to the default context instead would
-                // re-check the version and refuse a plugin built against a different SDK build
-                // even when the contract still matches - the manifest apiVersion is the real
-                // compatibility gate, not the assembly version.
-                return typeof(IDevicePlugin).Assembly;
+                return hostOwned;
             }
 
+            // Host-first for everything else: a dependency the host already ships is shared, not
+            // duplicated. Package authors cannot be expected to trim the framework and runtime
+            // assemblies their SDK copies beside the plugin, and a second copy of anything that
+            // holds process-wide state (native handles, COM registrations, static caches) is a
+            // fault the host cannot recover from. The package-local copy is only used for
+            // assemblies the host does not have at all — which is the isolation the context is
+            // for. A version the host cannot satisfy also falls through to the package copy, so
+            // a plugin carrying a newer library than WSGM still loads; that duplicate is logged
+            // once because it is the case that can bite later.
             string? path = _resolver.ResolveAssemblyToPath(assemblyName);
+            try
+            {
+                return Default.LoadFromAssemblyName(assemblyName);
+            }
+            catch (FileNotFoundException)
+            {
+                // Not a host assembly: package-local or absent.
+            }
+            catch (FileLoadException ex)
+            {
+                if (path is not null)
+                {
+                    Log.Warn($"Plugin dependency {assemblyName.Name} {assemblyName.Version} loads "
+                        + $"from the package because the host's copy does not satisfy it ({ex.Message}).");
+                }
+            }
+
             if (path is null)
             {
                 return null;
