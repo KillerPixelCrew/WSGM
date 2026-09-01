@@ -1,3 +1,4 @@
+using System.Text.Json;
 using WSGM.Core;
 using WSGM.Input;
 using WSGM.Shell;
@@ -163,6 +164,18 @@ public sealed class NativeQamControllerTargetTests
         Assert.Equal(
             expected,
             DeviceCoordinatorNativeQamControllerTargetService.TryParseTarget(candidate, out _));
+    }
+
+    [Fact]
+    public void EveryProjectedTargetSurvivesTheHostPayloadBoundary()
+    {
+        foreach (ManagedControllerTarget target in Enum.GetValues<ManagedControllerTarget>())
+        {
+            using JsonDocument payload = JsonDocument.Parse($$"""{"target":"{{target}}"}""");
+
+            Assert.True(NativeQamPayload.TryReadTarget(payload.RootElement, out string parsed));
+            Assert.Equal(target.ToString(), parsed);
+        }
     }
 
     [Fact]

@@ -396,6 +396,10 @@ directly so the taskbar slider lags the OSD by one poll.
       commit `fc1a8c3` names the exact `waveOut*` entry points and is pinned here. The final session
       loaded plugin `1.1.0`, published `battery.charge-limit`, verified the native-QAM device-controls
       patch, and logged no startup error or unobserved WinMM exception.
+- [x] Repair the native-QAM controller-target command boundary found during attended use. The row
+      projected PascalCase target ids while the host payload reader allowed lowercase only, so every
+      valid dropdown selection was rejected before VIIPER ran. The reader now accepts the exact
+      projected identifier alphabet and a regression test sends every supported target through it.
 
 ## Verification for this milestone
 

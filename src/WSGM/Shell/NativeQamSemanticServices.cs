@@ -277,6 +277,7 @@ internal static class NativeQamPayload
         foreach (char character in target)
         {
             if (!(character is >= 'a' and <= 'z'
+                or >= 'A' and <= 'Z'
                 or >= '0' and <= '9'
                 or '.' or '_' or '-'))
             {

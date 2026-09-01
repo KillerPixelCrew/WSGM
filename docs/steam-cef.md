@@ -432,6 +432,13 @@ are a publication table, and its `(patchId, command)` dispatch is a handler tabl
 readers named for each wire shape. This keeps every refusal on the existing host-side diagnostic
 path and makes patch coverage auditable without another orchestration layer or more files.
 
+Controller-target ids are the exact projected `ManagedControllerTarget` names (`SteamDeckComposite`,
+`Xbox360`, `DualShock4`) from state through the Valve dropdown and back to the host. The payload
+boundary accepts ASCII uppercase for those PascalCase ids while retaining its length, character and
+exact-object-shape checks. A lowercase-only reader let the row render and the dropdown select
+normally but rejected every valid command before controller management ran; the live log exposed
+that otherwise silent boundary mismatch.
+
 The card badge and library tabs deliberately remain on their verified legacy resident scripts for
 now. A read-only named-module probe can establish that their primitives still exist, but cannot
 prove resident installation, SPA survival, current-game clearing, CSSLoader coexistence, native-tab
