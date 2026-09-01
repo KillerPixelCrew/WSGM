@@ -348,6 +348,12 @@ internal static partial class NativeMethods
     internal const uint WmMouseMove = 0x0200;
     internal const uint WmLButtonDown = 0x0201;
     internal const uint WmLButtonUp = 0x0202;
+    /// <summary>Sent to an inactive window before a mouse button-down; the reply decides whether
+    /// the click activates it. Touch activation uses WM_POINTERACTIVATE instead, so a reply here
+    /// affects only mouse clicks — real ones and the ones Windows synthesizes from a tap.</summary>
+    internal const uint WmMouseActivate = 0x0021;
+    /// <summary>WM_MOUSEACTIVATE reply: deliver the click, do not activate.</summary>
+    internal const nint MaNoActivate = 3;
     /// <summary>GetMessageExtraInfo() upper bits marking touch/pen-synthesized mouse messages.</summary>
     internal const uint MiWpSignatureMask = 0xFFFFFF00;
     internal const uint MiWpSignature = 0xFF515700;

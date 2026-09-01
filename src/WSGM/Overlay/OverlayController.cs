@@ -1206,26 +1206,28 @@ public sealed class OverlayController : IDisposable
         return new Avalonia.PixelRect(window.Position, new Avalonia.PixelSize(w, h));
     }
 
-    /// <summary>Shows a status panel as a window OWNED by the sheet, so it stays above the sheet
-    /// whatever activates the sheet next.</summary>
+    /// <summary>Keeps the sheet from taking activation away from an open status panel on a mouse
+    /// click — above all the mouse click Windows synthesizes from the tap that opened it.</summary>
     /// <remarks>
-    /// Both are topmost, so between them z-order follows activation — and a touch tap activates
-    /// the sheet twice: once at the finger, and again when Windows' touch-synthesized mouse click
-    /// arrives after the panel has already opened (invariant 3 in <c>docs\overlay-and-input.md</c>;
-    /// the hook swallows the click but <c>WM_MOUSEACTIVATE</c> still lands). An unowned panel
-    /// showed for one frame and was covered by the sheet it hangs from, while the mouse, which
-    /// sends no second activation, worked (device-reproduced 2026-09-01). An owned window is
-    /// always kept above its owner, which is the relationship the panels actually have.
+    /// The sheet and its panels are all topmost, so between them z-order follows activation. A
+    /// touch tap on a pill activates the sheet at the finger, opens the panel on release, and
+    /// then Windows' touch-synthesized mouse click arrives at the sheet (invariant 3 in
+    /// <c>docs\overlay-and-input.md</c>): the hook swallows the click, but its
+    /// <c>WM_MOUSEACTIVATE</c> had already re-activated the sheet, which raised it over the panel
+    /// that opened one frame earlier. The mouse sends no second activation, so it worked.
+    /// Answering <c>MA_NOACTIVATE</c> while a panel is open keeps the click and drops only the
+    /// activation; a real finger on the sheet still activates it through
+    /// <c>WM_POINTERACTIVATE</c>, and the tap-outside rule closes the panel on that same tap.
+    /// Ownership was tried first and cannot be expressed here: Avalonia re-points every
+    /// <c>ShowInTaskbar=false</c> window's owner slot at its own hidden helper on each property
+    /// update, so panel and sheet stay siblings (live z-order capture, 2026-09-01).
     /// </remarks>
-    private void ShowOwnedBySheet(Avalonia.Controls.Window panel)
+    private void SyncSheetMouseActivation()
     {
-        if (_overlay is { IsVisible: true } sheet)
+        if (_overlay is not null)
         {
-            panel.Show(sheet);
-        }
-        else
-        {
-            panel.Show();
+            _overlay.SuppressMouseActivation =
+                _radioPanel is not null || _audioPanel is not null || _ejectPanel is not null;
         }
     }
 
@@ -1476,8 +1478,10 @@ public sealed class OverlayController : IDisposable
             {
                 _navigation.IsEnabled = _audioPanel is null && _ejectPanel is null;
             }
+            SyncSheetMouseActivation();
             _overlay?.Activate();
         };
+        SyncSheetMouseActivation();
         panel.Show();
         // The header's real bottom edge, not a height to add: the sheet is a
         // topmost window rather than a registered appbar, so the screen's working
@@ -1565,9 +1569,11 @@ public sealed class OverlayController : IDisposable
             {
                 _navigation.IsEnabled = _radioPanel is null && _ejectPanel is null;
             }
+            SyncSheetMouseActivation();
             _overlay?.Activate();
         };
-        ShowOwnedBySheet(panel);
+        SyncSheetMouseActivation();
+        panel.Show();
         panel.DockBelowHeader(_overlay?.HeaderBottomScreenY ?? 0, _overlay?.RightScreenX ?? 0);
         panel.Activate();
     }
@@ -1651,9 +1657,11 @@ public sealed class OverlayController : IDisposable
             {
                 _navigation.IsEnabled = _radioPanel is null && _audioPanel is null;
             }
+            SyncSheetMouseActivation();
             _overlay?.Activate();
         };
-        ShowOwnedBySheet(panel);
+        SyncSheetMouseActivation();
+        panel.Show();
         panel.DockBelowHeader(_overlay?.HeaderBottomScreenY ?? 0, _overlay?.RightScreenX ?? 0);
         panel.Activate();
     }

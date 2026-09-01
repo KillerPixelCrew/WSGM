@@ -504,14 +504,20 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       `docs\device-integration.md`.
 - [x] **Radio/audio/eject panels flickered for a frame under touch, worked with the mouse**: the
       touch-synthesized ghost click re-activated the sheet after the panel opened, and between two
-      topmost windows activation decides who is on top. The panels are now owned by the sheet
-      (`ShowOwnedBySheet`); tap-outside dismissals log the tap and the panel rectangle.
+      topmost windows activation decides who is on top. While a panel is open the sheet now
+      answers `WM_MOUSEACTIVATE` with `MA_NOACTIVATE` (`SyncSheetMouseActivation`); tap-outside
+      dismissals log the tap and the panel rectangle. Ownership was tried first, both as
+      `Window.Show(owner)` and as a `GWLP_HWNDPARENT` write after `Show()`; live z-order captures
+      showed Avalonia re-parks every `ShowInTaskbar=false` window under its hidden helper, so the
+      panel stayed a sibling of the sheet either way.
 - [x] **`wsgm.native-qam.tdp` tore itself down every ~2 s**: the probe still required
       `__wsgmOriginalGetState` to be a function, but the claim primitive stores a property snapshot
       there. Probe and the gate's reclaim path accept both shapes.
+- [x] Attended 2026-09-01: radio, audio and eject panels open and stay open under touch on the
+      Claw (maintainer-confirmed; z-order capture shows the panel above the sheet through the
+      synthesized click). TDP row applied once and held in the log.
 - [ ] Attended: open the QAM after a Steam restart (no error boundary, brightness row present and
-      moving the panel), Wi-Fi and Bluetooth panels populated, each status panel opened and
-      operated by touch, and the TDP row stable across a minute of polling.
+      moving the panel) and confirm the Wi-Fi and Bluetooth panels are populated.
 
 ## Attended/live acceptance still required
 

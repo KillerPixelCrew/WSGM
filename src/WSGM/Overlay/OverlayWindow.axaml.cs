@@ -1313,6 +1313,29 @@ public partial class OverlayWindow : Window
         Win32Properties.AddWndProcHookCallback(
             this,
             Interop.NativeMethods.SwallowTouchSynthesizedMouse);
+        Win32Properties.AddWndProcHookCallback(this, DeclineMouseActivationForPanels);
+    }
+
+    /// <summary>True while a status panel hangs from the header. A mouse click on the sheet then
+    /// reaches its control without activating the sheet, so the click Windows synthesizes from
+    /// the tap that opened the panel cannot raise the sheet over it. Set by
+    /// <c>OverlayController.SyncSheetMouseActivation</c>; see its remarks for the mechanism.</summary>
+    internal bool SuppressMouseActivation { get; set; }
+
+    private nint DeclineMouseActivationForPanels(
+        nint hWnd,
+        uint msg,
+        nint wParam,
+        nint lParam,
+        ref bool handled)
+    {
+        if (msg == Interop.NativeMethods.WmMouseActivate && SuppressMouseActivation)
+        {
+            handled = true;
+            return Interop.NativeMethods.MaNoActivate;
+        }
+
+        return nint.Zero;
     }
 
 

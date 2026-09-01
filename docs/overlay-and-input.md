@@ -114,9 +114,17 @@ Refused edits log the requested operation and current selection instead of silen
    The swallowed click still carries `WM_MOUSEACTIVATE`, so it re-activates the sheet after the
    tap's real click has already opened a status panel over it; two topmost windows order by
    activation, and the panel was covered one frame after it appeared (touch only — the mouse sends
-   no second activation; device-reproduced 2026-09-01). The radio, audio and eject panels are
-   therefore shown as windows **owned by the sheet** (`OverlayController.ShowOwnedBySheet`), which
-   Windows keeps above their owner regardless of activation.
+   no second activation; device-reproduced 2026-09-01). While a radio, audio or eject panel is
+   open, the sheet therefore answers `WM_MOUSEACTIVATE` with `MA_NOACTIVATE`
+   (`OverlayWindow.SuppressMouseActivation`, kept in step by
+   `OverlayController.SyncSheetMouseActivation`): the click is still delivered, only the
+   activation is dropped. A real finger on the sheet activates it through `WM_POINTERACTIVATE`,
+   which is unaffected, and the tap-outside rule closes the panel on that tap anyway. Window
+   ownership was tried first and does not work here: Avalonia re-points every
+   `ShowInTaskbar=false` window's owner slot at its hidden helper on `Show()` and on every
+   property update, so `Window.Show(owner)` and a `GWLP_HWNDPARENT` write after `Show()` both
+   left panel and sheet as siblings and the sheet kept covering the panel (live z-order captures
+   on the device, 2026-09-01).
 
 4. **Avalonia's 3-arg `DispatcherTimer(interval, priority, callback)` ctor auto-starts the timer.**
    This once made `IsRunning` permanently true and silently broke every "start if not running"
