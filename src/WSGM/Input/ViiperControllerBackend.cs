@@ -535,6 +535,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
         _fastHandle = 0;
         _deviceKind = null;
         bool removed = false;
+        Log.Info($"Virtual controller removal started: {kind} as VIIPER device {BusId}:{deviceId}.");
         SafeNative(
             () =>
             {

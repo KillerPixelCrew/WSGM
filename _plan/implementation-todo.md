@@ -401,13 +401,20 @@ directly so the taskbar slider lags the OSD by one poll.
       valid dropdown selection was rejected before VIIPER ran. The reader now accepts the exact
       projected identifier alphabet and a regression test sends every supported target through it.
 - [x] Repair live VIIPER target replacement without dropping WSGM's patched Steam Deck/performance
-      build. Handheld Companion's bundled library led to upstream `Alia5/VIIPER@679f7e0`: attach
-      records usbip-win2's assigned port and remove explicitly plugs that port out before deleting
-      the server device. WSGM backports that fix onto `024aef3a` as patch 0004, closes managed
-      feedback routing before native removal, and tests that removal-time output cannot cross into
-      the old physical route. `./eng/verify.ps1 -Fix` passed after the repair: the pinned VIIPER
+      build. WSGM continues to build `corando98/VIIPER@024aef3a` from `viiper-controller`;
+      Handheld Companion's bundled commit `679f7e0` supplied only the usbip-win2 port-tracking and
+      plugout change carried here as patch 0004. WSGM closes managed feedback routing before native
+      removal and tests that removal-time output cannot cross into the old physical route.
+      `./eng/verify.ps1 -Fix` passed after the repair: the pinned VIIPER
       patches applied and built, Steam Deck Go tests passed, Release built with zero warnings or
-      errors, and all 1,873 managed tests passed.
+      errors, and all 1,873 managed tests passed. The first attended target change then exposed a
+      second native boundary: plugout still held VIIPER's global mutex with its reverse callback
+      registered, and Windows reported that it could not create a new stack guard page. Patch 0005
+      quiesces and drains feedback before releasing the mutex across the blocking driver detach. A
+      clean `./eng/verify.ps1 -Fix` rerun applied all five patches to the pinned corando commit,
+      rebuilt the native library, completed Release with zero warnings/errors, and passed all 1,873
+      managed tests. One preceding run hit the unrelated canceled-command timing test; that test
+      passed alone in 171 ms and in the clean full rerun.
 
 ## Verification for this milestone
 

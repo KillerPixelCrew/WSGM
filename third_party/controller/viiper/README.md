@@ -39,13 +39,22 @@ retry. It also made the intended ordering impossible: a caller cannot present a 
 before Windows enumerates the device when adding it is what enumerates it. With attach explicit,
 WSGM opens the fast handle, submits a neutral frame, and only then lets the host see the controller.
 
-`0004-detach-usbip-port-on-device-remove.patch` backports `Alia5/VIIPER@679f7e0`, the detach fix
-used by Handheld Companion's working live target changes, without replacing this repository's newer
-performance branch or the Steam Deck patches above. usbip-win2 assigns a client port when a device
-is attached. Removing only VIIPER's server-side device closes its stream but does not plug that port
-out of the Windows driver, so an immediate replacement can collide with the stale attachment. The
-patch retains the port returned by either attach route and issues `IOCTL_PLUGOUT_HARDWARE` before
-server-side removal, with the command route as fallback.
+`0004-detach-usbip-port-on-device-remove.patch` backports the detach change from Handheld
+Companion's bundled VIIPER commit `679f7e0` without replacing the pinned
+`corando98/VIIPER@024aef3a` `viiper-controller` baseline, its newer performance work, or the Steam
+Deck patches above. usbip-win2 assigns a client port when a device is attached. Removing only
+VIIPER's server-side device closes its stream but does not plug that port out of the Windows driver,
+so an immediate replacement can collide with the stale attachment. The patch retains the port
+returned by either attach route and issues `IOCTL_PLUGOUT_HARDWARE` before server-side removal, with
+the command route as fallback.
+
+`0005-quiesce-feedback-before-client-detach.patch` closes the remaining live-removal race found on
+the reference Claw. Patch 0004 performed the blocking driver plugout while holding VIIPER's global
+C-API mutex and while its reverse feedback callback was still registered. usbip-win2 may deliver a
+last output packet as it cancels the endpoints, so WSGM could re-enter from VIIPER's Go thread while
+the caller synchronously waited for removal; Windows then reported that it could not create a new
+stack guard page. Removal now deletes the registration, drains callbacks that already crossed the
+registration boundary, and releases the global mutex before asking the driver to plug the port out.
 
 PR #2 needed adapting rather than applying verbatim: this branch replaced the inline `ctx.Done()`
 waits with `device.BlockUntilDeadline`, so the two endpoint cases collapse into one that blocks and

@@ -201,10 +201,14 @@ touch contacts, gyro and acceleration. The shell never installs or repairs a dri
 A target replacement also owns the usbip-win2 client attachment, not just VIIPER's server-side
 device. Attach records the driver-assigned port and removal issues `IOCTL_PLUGOUT_HARDWARE` for that
 port before deleting the server device; otherwise the closed old stream remains as a stale Windows
-attachment and the next target is not a true live replacement. This is the focused backport of
-`Alia5/VIIPER@679f7e0` used by Handheld Companion, layered on WSGM's pinned performance/Steam Deck
-fork. The managed feedback route closes and the backend target becomes unavailable before plugout,
-so an output packet already in flight cannot reach the physical controller or the replacement.
+attachment and the next target is not a true live replacement. This is the focused backport from
+Handheld Companion's bundled VIIPER commit `679f7e0`, layered on WSGM's pinned
+`corando98/VIIPER@024aef3a` `viiper-controller` performance/Steam Deck baseline. The managed
+feedback route closes and the backend target becomes unavailable before plugout. VIIPER then removes
+its reverse callback registration, drains callbacks already in flight, and releases its global C-API
+mutex across the blocking driver request. That ordering keeps a final host output packet from
+re-entering WSGM during synchronous removal or reaching the physical controller or replacement
+target.
 
 ## Authored profiles
 
