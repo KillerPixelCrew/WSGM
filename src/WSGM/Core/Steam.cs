@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
@@ -299,10 +300,7 @@ public static class Steam
         _ => throw new ArgumentOutOfRangeException(nameof(shortcut)),
     };
 
-    /// <summary>Stops Steam for an application update that must replace an
-    /// injected payload DLL. First requests Steam's normal shutdown, then uses
-    /// WSGM's possibly elevated token to end any client that remains after a
-    /// bounded grace period; the unelevated installer cannot do this reliably.</summary>
+    /// <summary>Requests a graceful Steam shutdown for an application update.</summary>
     public static void StopForUpdate() => StopForUpdate(UpdateStopBudget);
 
     /// <summary>Stops Steam and launch wrappers without exceeding the updater-owned pre-shutdown
@@ -317,8 +315,13 @@ public static class Steam
         }
 
         Stopwatch elapsed = Stopwatch.StartNew();
-        if (IsRunning)
+        Process[] runningSteam = CurrentSessionProcesses(MainProcessName);
+        if (runningSteam.Length > 0)
         {
+            foreach (Process process in runningSteam)
+            {
+                process.Dispose();
+            }
             Log.Info("Update requested — closing Steam to release the Steam Input payload.");
             AppLauncher.StartProtocol(ExitUrl);
             TimeSpan gracefulDeadline = budget < UpdateGracefulExitBudget
@@ -326,7 +329,7 @@ public static class Steam
                 : UpdateGracefulExitBudget;
             while (elapsed.Elapsed < gracefulDeadline)
             {
-                Process[] remaining = Process.GetProcessesByName(MainProcessName);
+                Process[] remaining = CurrentSessionProcesses(MainProcessName);
                 if (remaining.Length == 0)
                 {
                     Log.Info("Steam exited gracefully for update.");
@@ -346,29 +349,14 @@ public static class Steam
                 }
             }
 
-            Process[] remainingSteam = elapsed.Elapsed < budget
-                ? Process.GetProcessesByName(MainProcessName)
-                : [];
+            Process[] remainingSteam = CurrentSessionProcesses(MainProcessName);
             foreach (Process process in remainingSteam)
             {
                 try
                 {
-                    if (elapsed.Elapsed >= budget)
-                    {
-                        Log.Warn("Steam update-stop budget expired before every client could be ended.");
-                        continue;
-                    }
-                    Log.Warn($"Steam did not exit for update — ending process {process.Id}.");
-                    process.Kill(entireProcessTree: true);
-                    int waitMilliseconds = RemainingWaitMilliseconds(elapsed, budget, 5_000);
-                    if (waitMilliseconds > 0)
-                    {
-                        process.WaitForExit(waitMilliseconds);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Log.Warn($"Could not end Steam process {process.Id} for update: {ex.Message}");
+                    Log.Warn(
+                        $"Steam pid {process.Id} did not exit gracefully; setup will defer the "
+                            + "update instead of terminating Steam or a running game.");
                 }
                 finally
                 {
@@ -388,19 +376,30 @@ public static class Steam
         }
     }
 
-    private static int RemainingWaitMilliseconds(
-        Stopwatch elapsed,
-        TimeSpan budget,
-        int phaseMaximumMilliseconds)
+    private static Process[] CurrentSessionProcesses(string processName)
     {
-        TimeSpan remaining = budget - elapsed.Elapsed;
-        if (remaining <= TimeSpan.Zero)
+        int sessionId = Process.GetCurrentProcess().SessionId;
+        var matches = new List<Process>();
+        foreach (Process process in Process.GetProcessesByName(processName))
         {
-            return 0;
+            try
+            {
+                if (process.SessionId == sessionId)
+                {
+                    matches.Add(process);
+                }
+                else
+                {
+                    process.Dispose();
+                }
+            }
+            catch
+            {
+                process.Dispose();
+            }
         }
 
-        return Math.Min(
-            phaseMaximumMilliseconds,
-            Math.Max(1, (int)Math.Ceiling(remaining.TotalMilliseconds)));
+        return [.. matches];
     }
+
 }

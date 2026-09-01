@@ -3,6 +3,38 @@ namespace WSGM.Tests;
 public sealed class InstallerShutdownContractTests
 {
     [Fact]
+    public void UsbipRunPublishesAndConsumesItsOwnBoundedOutcomeInsteadOfTrustingExitZero()
+    {
+        string source = File.ReadAllText(
+            Path.Combine(RepositoryRoot, "installer", "WSGM.iss"));
+        string run = Slice(source, "[Run]", "[UninstallRun]");
+        string report = Slice(
+            source,
+            "procedure ReportUsbipInstallOutcome();",
+            "function WasShellRunning(): Boolean;");
+        string restart = Slice(
+            source,
+            "function NeedRestart(): Boolean;",
+            "function UsbipInstallStatusPath(): String;");
+
+        Assert.Contains(
+            "-StatusPath \"\"{commonappdata}\\WSGM\\usbip-install-status.ini\"\"",
+            run,
+            StringComparison.Ordinal);
+        Assert.Contains("BeforeInstall: PrepareUsbipInstallOutcome", run, StringComparison.Ordinal);
+        Assert.Contains("AfterInstall: ReportUsbipInstallOutcome", run, StringComparison.Ordinal);
+        Assert.Contains("GetIniString('usbip', 'schemaVersion'", report, StringComparison.Ordinal);
+        Assert.Contains("Outcome = 'installed'", report, StringComparison.Ordinal);
+        Assert.Contains("Outcome = 'already-present'", report, StringComparison.Ordinal);
+        Assert.Contains("Outcome = 'failed'", report, StringComparison.Ordinal);
+        Assert.Contains("Outcome = 'blocked-newer-version'", report, StringComparison.Ordinal);
+        Assert.Contains("UsbipOutcomeReported := True;", report, StringComparison.Ordinal);
+        Assert.DoesNotContain("ExitCode", report, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("UsbipRebootRequired or not UsbipOutcomeReported", restart, StringComparison.Ordinal);
+        Assert.DoesNotContain("WasUpgrade", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ForceFallbackPreservesShellAnchorUntilRecoveryAcknowledgement()
     {
         string source = File.ReadAllText(
@@ -26,7 +58,7 @@ public sealed class InstallerShutdownContractTests
         string uninstallStop = Slice(
             source,
             "function StopRunningInstancesForUninstall(): Boolean;",
-            "procedure StopLaunchWrappers();");
+            "function ReplacementBlockersPresent(IncludeSteam: Boolean): Boolean;");
         string acknowledgedRetirement = From(
             waitForRecovery,
             "ForceStopCurrentSessionImage('WSGM.ShellAnchor.exe')");
@@ -70,11 +102,12 @@ public sealed class InstallerShutdownContractTests
         AssertOrdered(
             acknowledgedRetirement,
             "ForceStopCurrentSessionImage('WSGM.ShellAnchor.exe')",
-            "DeleteFile(AnchorPath)");
+            "CreateFileW(AnchorPath");
         AssertOrdered(
             acknowledgedRetirement,
-            "DeleteFile(AnchorPath)",
-            "CloseHandleK(H)");
+            "CreateFileW(AnchorPath",
+            "CloseHandleK(Probe)");
+        Assert.DoesNotContain("DeleteFile(AnchorPath)", waitForRecovery, StringComparison.Ordinal);
         Assert.False(forceScope.Contains(" /T ", StringComparison.OrdinalIgnoreCase));
         Assert.True(source.Contains(
             "CloseApplicationsFilterExcludes=WSGM.ShellAnchor.exe",
@@ -132,8 +165,8 @@ public sealed class InstallerShutdownContractTests
         Assert.True(reserveOwner.Contains(
             "DeviceOwnerHandle := 0;",
             StringComparison.Ordinal));
-        AssertOrdered(prepare, "AcquireDevicePackageSlotGate()", "StopLogonService();");
-        AssertOrdered(prepare, "StopLogonService();", "StopRunningInstances()");
+        AssertOrdered(prepare, "AcquireDevicePackageSlotGate()", "not StopLogonService()");
+        AssertOrdered(prepare, "not StopLogonService()", "StopRunningInstances()");
         AssertOrdered(prepare, "StopRunningInstances()", "ReserveDeviceOwner()");
         AssertOrdered(prepare, "ReserveDeviceOwner()", "CleanupStaleDevicePluginStaging()");
         AssertOrdered(
@@ -298,7 +331,7 @@ public sealed class InstallerShutdownContractTests
         AssertOrdered(
             initialize,
             "InspectLogonServiceState(",
-            "StopLogonService();");
+            "not StopLogonService()");
         AssertOrdered(
             initialize,
             "StopRunningInstancesForUninstall()",
@@ -331,7 +364,7 @@ public sealed class InstallerShutdownContractTests
         string inspection = Slice(
             source,
             "function InspectLogonServiceState(var Exists, Running: Boolean): Boolean;",
-            "procedure StopLogonService();");
+            "function StopLogonService(): Boolean;");
         string restore = Slice(
             source,
             "procedure RestoreStoppedServiceAndRuntime(const Operation: String;",
@@ -369,10 +402,10 @@ public sealed class InstallerShutdownContractTests
         AssertOrdered(
             setup,
             "InspectLogonServiceState(SetupServiceExisted, SetupServiceWasRunning)",
-            "if SetupServiceWasRunning then");
+            "if SetupServiceWasRunning and not StopLogonService() then");
         AssertOrdered(
             setup,
-            "if SetupServiceWasRunning then",
+            "if SetupServiceWasRunning and not StopLogonService() then",
             "StopRunningInstances()");
         Assert.True(source.Contains(
             "'Setup rollback', SetupServiceExisted, SetupServiceWasRunning,",
@@ -380,10 +413,10 @@ public sealed class InstallerShutdownContractTests
         AssertOrdered(
             uninstall,
             "InspectLogonServiceState(",
-            "if UninstallServiceWasRunning then");
+            "if UninstallServiceWasRunning and not StopLogonService() then");
         AssertOrdered(
             uninstall,
-            "if UninstallServiceWasRunning then",
+            "if UninstallServiceWasRunning and not StopLogonService() then",
             "StopRunningInstancesForUninstall()");
         Assert.True(source.Contains(
             "'Uninstall rollback', UninstallServiceExisted, UninstallServiceWasRunning,",
@@ -411,6 +444,10 @@ public sealed class InstallerShutdownContractTests
             prepare,
             "if not ReserveDeviceOwner() then",
             "if not CleanupStaleDevicePluginStaging() then");
+        string blockerRefusal = Slice(
+            prepare,
+            "if FileExists(ExpandConstant('{app}\\WSGM.exe')) and ReplacementBlockersPresent(True) then",
+            "if not ReserveDeviceOwner() then");
         string stagingRefusal = From(prepare, "if not CleanupStaleDevicePluginStaging() then");
         string deinitialize = Slice(
             source,
@@ -432,7 +469,11 @@ public sealed class InstallerShutdownContractTests
         Assert.True(prepare.Contains(
             "else if StopRunningInstances() then",
             StringComparison.Ordinal));
-        Assert.Equal(2, CountOccurrences(prepare, "RestoreStoppedSetupRuntime();"));
+        Assert.Equal(3, CountOccurrences(prepare, "RestoreStoppedSetupRuntime();"));
+        AssertOrdered(
+            blockerRefusal,
+            "ReleaseDevicePublicationReservations();",
+            "RestoreStoppedSetupRuntime();");
         AssertOrdered(
             ownerRefusal,
             "ReleaseDevicePublicationReservations();",
@@ -449,7 +490,7 @@ public sealed class InstallerShutdownContractTests
             StringComparison.Ordinal));
         Assert.False(restore.Contains("'start WSGMLogonService'", StringComparison.Ordinal));
         Assert.True(serviceInstallerSource.Contains(
-            "StartForInstall(service);",
+            "if (!StartForInstall(service))",
             StringComparison.Ordinal));
         Assert.True(serviceInstallerSource.Contains(
             "NativeMethods.StartServiceW(service, 1, (nint)argv)",

@@ -39,6 +39,11 @@ if (-not ($outputFull + [IO.Path]::DirectorySeparatorChar).StartsWith(
 $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) (
     "WSGM-DeviceComponents-{0}-{1}" -f $PID, [Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
+$acquisitionMetadata = @(
+    ".pinned-version",
+    ".pinned-payload.json",
+    ".wsgm-acquisition-owner.json"
+)
 
 function Invoke-ComponentPublish(
     [string]$Project,
@@ -140,9 +145,14 @@ try {
     New-Item -ItemType Directory -Path $deviceLabDestination -Force | Out-Null
     Copy-Item -Path (Join-Path $deviceLabStaging "*") `
         -Destination $deviceLabDestination -Recurse -Force
-    # The staging stamp records the pin for the acquire script; it is not part of the payload.
-    Remove-Item -LiteralPath (Join-Path $deviceLabDestination ".pinned-version") `
-        -Force -ErrorAction SilentlyContinue
+    # Acquisition ownership and cache-validation metadata belong to the local cache, not to the
+    # released component payload.
+    foreach ($metadataName in $acquisitionMetadata) {
+        $metadataPath = Join-Path $deviceLabDestination $metadataName
+        if (Test-Path -LiteralPath $metadataPath) {
+            Remove-Item -LiteralPath $metadataPath -Force
+        }
+    }
 
     # The built-in device package is built, validated and packed in its own repository and pinned
     # here by digest. It references the plugin SDK as its own submodule, so building it inside this
@@ -174,9 +184,14 @@ try {
     New-Item -ItemType Directory -Path $packageDestination -Force | Out-Null
     Copy-Item -Path (Join-Path $pluginStaging "*") `
         -Destination $packageDestination -Recurse -Force
-    # The staging stamp records the pin for the acquire script; it is not package content.
-    Remove-Item -LiteralPath (Join-Path $packageDestination ".pinned-version") `
-        -Force -ErrorAction SilentlyContinue
+    # Acquisition ownership and cache-validation metadata belong to the local cache, not to the
+    # released package.
+    foreach ($metadataName in $acquisitionMetadata) {
+        $metadataPath = Join-Path $packageDestination $metadataName
+        if (Test-Path -LiteralPath $metadataPath) {
+            Remove-Item -LiteralPath $metadataPath -Force
+        }
+    }
 
     foreach ($required in @("PROVENANCE.md", "THIRD_PARTY_NOTICES.md", "LICENSE.txt", $entryAssembly)) {
         if (-not (Test-Path -LiteralPath (Join-Path $packageDestination $required) -PathType Leaf)) {

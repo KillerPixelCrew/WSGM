@@ -50,6 +50,25 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 
     private readonly AppConfig _config;
+    private bool _isSaving;
+
+    /// <summary>Gets whether an asynchronous save is currently persisting its captured
+    /// settings snapshot. The window disables every editor for this interval so it
+    /// cannot acknowledge changes that were made after the snapshot was taken.</summary>
+    public bool IsSaving
+    {
+        get => _isSaving;
+        private set
+        {
+            if (_isSaving == value)
+            {
+                return;
+            }
+
+            _isSaving = value;
+            Raise(nameof(IsSaving));
+        }
+    }
 
     /// <summary>Loads the current configuration and discovers locally installed startup suggestions.</summary>
     public SettingsViewModel()
@@ -76,21 +95,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         string? installedPluginId,
         bool filterToInstalledPlugin)
     {
-        SaveCommand = new RelayCommand(() =>
-        {
-            try
-            {
-                Save();
-                StatusText = $"Saved {DateTime.Now:HH:mm:ss}";
-            }
-            catch (Exception ex)
-            {
-                // A failed config write (locked/read-only file) must not escape a
-                // command invocation — in-shell it would hit the panic path.
-                Log.Error("Saving settings failed", ex);
-                StatusText = $"Save failed: {ex.Message}";
-            }
-        });
+        SaveCommand = new AsyncRelayCommand(SaveWithStatusAsync);
         OpenLogLocationCommand = new RelayCommand(OpenLogLocation);
         RemoveAppCommand = new RelayCommand<StartupAppRow>(row =>
         {
@@ -201,7 +206,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     // --- Commands (bound by the Settings pages; bodies stay on the named methods) ---
     /// <summary>Gets the command that merges and persists the edited settings,
     /// reporting the outcome (including the last-save time) via <see cref="StatusText"/>.</summary>
-    public RelayCommand SaveCommand { get; }
+    public AsyncRelayCommand SaveCommand { get; }
 
     /// <summary>Gets the command that reveals wsgm.log in Explorer.</summary>
     public RelayCommand OpenLogLocationCommand { get; }
@@ -802,15 +807,23 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// <summary>Refreshes the read-only owner snapshot without creating a device cycle.</summary>
     public async Task RefreshDeviceOwnerStatusAsync()
     {
-        DeviceCoordinatorDiagnosticsSnapshot? snapshot =
-            await DeviceCoordinatorDiagnosticsClient.TryReadAsync(
-                (uint)System.Diagnostics.Process.GetCurrentProcess().SessionId,
-                TimeSpan.FromMilliseconds(750));
-        DeviceOwnerStatusText = snapshot is null
-            ? "No running device coordinator detected. Saved changes apply at the next shell start."
-            : $"{snapshot.State} · {snapshot.InstalledPackage?.PackageId ?? "no package"} · "
-                + $"{snapshot.HealthyCapabilityCount}/{snapshot.CapabilityCount} healthy · "
-                + $"cycle {snapshot.CycleGeneration}";
+        try
+        {
+            DeviceCoordinatorDiagnosticsSnapshot? snapshot =
+                await DeviceCoordinatorDiagnosticsClient.TryReadAsync(
+                    (uint)System.Diagnostics.Process.GetCurrentProcess().SessionId,
+                    TimeSpan.FromMilliseconds(750));
+            DeviceOwnerStatusText = snapshot is null
+                ? "No running device coordinator detected. Saved changes apply at the next shell start."
+                : $"{snapshot.State} · {snapshot.InstalledPackage?.PackageId ?? "no package"} · "
+                    + $"{snapshot.HealthyCapabilityCount}/{snapshot.CapabilityCount} healthy · "
+                    + $"cycle {snapshot.CycleGeneration}";
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Warn($"Device owner status refresh failed: {ex.Message}");
+            DeviceOwnerStatusText = $"Could not read the running device owner: {ex.Message}";
+        }
     }
 
     /// <summary>Gets whether first-run Quick Setup still has to be answered.</summary>
@@ -1326,6 +1339,81 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             || selected == DisplayManagementMode.AutomaticProfiles
                 && initial != DisplayManagementMode.AutomaticProfiles;
 
+    internal sealed record SaveRequest(
+        AppConfig Values,
+        SplashConfig Splash,
+        IReadOnlyDictionary<string, CapabilityValue> PluginEdits,
+        IReadOnlyList<DeviceAuthoredProfile>? DeviceProfiles,
+        string PluginDevice,
+        string PluginId,
+        bool AutoTdpEdited,
+        bool ControllerTargetEdited,
+        bool GlyphSelectionEdited,
+        bool QuickSetupWasAnswered);
+
+    private sealed record SaveResult(
+        AppConfig Config,
+        IReadOnlyList<string> FailedSlots,
+        string? Failure);
+
+    /// <summary>Captures every UI-owned value into an isolated graph on the UI thread.</summary>
+    private SaveRequest CaptureSaveRequest()
+    {
+        SplashConfig splash = BuildSplashConfig();
+        AppConfig values = ConfigStore.CloneJson(_config, ConfigJsonContext.Default.AppConfig);
+        ApplyTo(values, splash);
+        // ApplyTo intentionally reuses several bound objects. One final contract copy
+        // makes the worker independent from edits made while the save is running.
+        values = ConfigStore.CloneJson(values, ConfigJsonContext.Default.AppConfig);
+        splash = values.Splash;
+        return new SaveRequest(
+            values,
+            splash,
+            new Dictionary<string, CapabilityValue>(_pluginSettingEdits, StringComparer.Ordinal),
+            _deviceProfilesEdited ? [.. DeviceProfiles.Select(static profile => profile.ToStored())] : null,
+            _pluginSettingsDevice,
+            _pluginSettingsPlugin,
+            _deviceAutoTdpEdited,
+            _deviceControllerTargetEdited,
+            _deviceGlyphSelectionEdited,
+            QuickSetupAnswered);
+    }
+
+    private async Task SaveWithStatusAsync()
+    {
+        IsSaving = true;
+        StatusText = "Saving…";
+        var importLease = false;
+        try
+        {
+            // The Settings window itself owns one import session, but it may close
+            // while this asynchronous save is copying a staged theme. Take a second
+            // counted lease so window cleanup cannot delete the source mid-copy.
+            SplashTheme.BeginImportSession();
+            importLease = true;
+            SaveRequest request = CaptureSaveRequest();
+            SaveResult result = await Task.Run(() => PersistSave(request));
+            CompletePersistedSave(result);
+            await Task.Run(() => ApplySteamInputManagementAfterSave(result.Config));
+            Raise(nameof(SteamInputShimStatusText));
+            StatusText = $"Saved {DateTime.Now:HH:mm:ss}";
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error("Saving settings failed", ex);
+            StatusText = $"Save failed: {ex.Message}";
+        }
+        finally
+        {
+            if (importLease)
+            {
+                SplashTheme.EndImportSession();
+            }
+
+            IsSaving = false;
+        }
+    }
+
     /// <summary>Applies the UI-owned fields over a FRESH load and saves that.
     /// While this window is open, the elevated one-shots (UAC, lock-on-wake) and
     /// the shell persist registry snapshots and display-scale state to the
@@ -1334,6 +1422,139 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// The config mutex only serializes individual reads/writes — it cannot
     /// merge — so the merge has to happen here.</summary>
     public void Save()
+    {
+        SplashTheme.BeginImportSession();
+        try
+        {
+            SaveResult result = PersistSave(CaptureSaveRequest());
+            CompletePersistedSave(result);
+            ApplySteamInputManagementAfterSave(result.Config);
+            Raise(nameof(SteamInputShimStatusText));
+        }
+        finally
+        {
+            SplashTheme.EndImportSession();
+        }
+    }
+
+    /// <summary>Applies an immutable UI-thread snapshot onto a fresh on-disk load.</summary>
+    internal static void ApplyCapturedValues(
+        AppConfig config,
+        SaveRequest request,
+        SplashConfig preparedSplash)
+    {
+        AppConfig values = request.Values;
+        config.SteamAutoRelaunch = values.SteamAutoRelaunch;
+        config.SteamLaunchUnelevated = values.SteamLaunchUnelevated;
+        config.SteamGridDbApiKey = values.SteamGridDbApiKey;
+        config.StartupDelayMs = values.StartupDelayMs;
+        config.StaggerDelayMs = values.StaggerDelayMs;
+        config.BootSplashEnabled = values.BootSplashEnabled;
+        config.GameModeBootEnabled = values.GameModeBootEnabled;
+
+        DisplayManagementMode previousDisplayMode = config.DisplayManagement;
+        config.DisplayManagement = values.DisplayManagement;
+        if (ShouldWriteDisplayProfiles(previousDisplayMode, values.DisplayManagement))
+        {
+            config.DisplayProfiles = [.. values.DisplayProfiles];
+        }
+
+        config.SteamInputLeaseEnabled = values.SteamInputLeaseEnabled;
+        config.SteamInputManagementEnabled = values.SteamInputManagementEnabled;
+        config.DeviceIntegration.Enabled = values.DeviceIntegration.Enabled;
+        config.DeviceIntegration.ControllerManagementEnabled =
+            values.DeviceIntegration.ControllerManagementEnabled;
+        if (request.AutoTdpEdited)
+        {
+            config.DeviceIntegration.AutoTdpEnabled = values.DeviceIntegration.AutoTdpEnabled;
+        }
+        if (request.ControllerTargetEdited)
+        {
+            config.DeviceIntegration.ControllerTarget = values.DeviceIntegration.ControllerTarget;
+        }
+        if (request.GlyphSelectionEdited)
+        {
+            config.DeviceIntegration.GlyphSelection = values.DeviceIntegration.GlyphSelection;
+        }
+
+        if ((request.PluginEdits.Count > 0 || request.DeviceProfiles is not null)
+            && request.PluginDevice.Length > 0
+            && request.PluginId.Length > 0)
+        {
+            PluginSettingsScope scope = FindOrAddSaveScope(
+                config,
+                request.PluginDevice,
+                request.PluginId);
+            foreach ((string settingId, CapabilityValue value) in request.PluginEdits)
+            {
+                PluginSettingValue? entry = scope.Values.FirstOrDefault(candidate =>
+                    string.Equals(candidate.SettingId, settingId, StringComparison.Ordinal));
+                if (entry is null)
+                {
+                    entry = new PluginSettingValue { SettingId = settingId };
+                    scope.Values.Add(entry);
+                }
+                entry.Boolean = value.Kind is CapabilityValueKind.Boolean ? value.BooleanValue : null;
+                entry.Integer = value.Kind is CapabilityValueKind.Integer ? value.IntegerValue : null;
+                entry.Choice = value.Kind is CapabilityValueKind.Choice ? value.ChoiceValue : null;
+                entry.Color = value.Kind is CapabilityValueKind.Color ? value.ColorValue : null;
+                entry.Text = value.Kind is CapabilityValueKind.Text ? value.TextValue : null;
+            }
+            if (request.DeviceProfiles is not null)
+            {
+                scope.Profiles = [.. request.DeviceProfiles];
+            }
+        }
+
+        config.Performance.Enabled = values.Performance.Enabled;
+        config.Performance.FrameLimitStrategy = values.Performance.FrameLimitStrategy;
+        if (request.QuickSetupWasAnswered)
+        {
+            QuickSetup.MarkCompleted(config);
+        }
+        config.Cef.Enabled = values.Cef.Enabled;
+        config.Cef.LibraryTabs = values.Cef.LibraryTabs;
+        config.Cef.CardManager = values.Cef.CardManager;
+        config.Cef.SdFormat = values.Cef.SdFormat;
+        config.Cef.Artwork = values.Cef.Artwork;
+        config.Cef.WifiIndicator = values.Cef.WifiIndicator;
+        config.Cef.NativeQuickAccess = values.Cef.NativeQuickAccess;
+        config.Cef.DownloadKeepAwake = values.Cef.DownloadKeepAwake;
+        config.Cef.DownloadQueueSort = values.Cef.DownloadQueueSort;
+        config.MuteWhileDisplayOff = values.MuteWhileDisplayOff;
+        config.Hotkey = values.Hotkey;
+        config.GamepadChord = values.GamepadChord;
+        config.Gestures.BottomEdge = values.Gestures.BottomEdge;
+        config.Gestures.TopEdge = values.Gestures.TopEdge;
+        config.Gestures.LeftEdgeSteamMenu = values.Gestures.LeftEdgeSteamMenu;
+        config.Gestures.RightEdgeSteamQuickAccess = values.Gestures.RightEdgeSteamQuickAccess;
+        config.GlyphStyle = values.GlyphStyle;
+        config.AccentColor = values.AccentColor;
+        config.Splash = preparedSplash;
+        config.StartupApps = [.. values.StartupApps];
+    }
+
+    private static PluginSettingsScope FindOrAddSaveScope(
+        AppConfig config,
+        string deviceDefinitionId,
+        string pluginId)
+    {
+        PluginSettingsScope? scope = config.DeviceIntegration.PluginSettings.FirstOrDefault(candidate =>
+            string.Equals(candidate.DeviceDefinitionId, deviceDefinitionId, StringComparison.Ordinal)
+            && string.Equals(candidate.PluginId, pluginId, StringComparison.Ordinal));
+        if (scope is null)
+        {
+            scope = new PluginSettingsScope
+            {
+                DeviceDefinitionId = deviceDefinitionId,
+                PluginId = pluginId,
+            };
+            config.DeviceIntegration.PluginSettings.Add(scope);
+        }
+        return scope;
+    }
+
+    private static SaveResult PersistSave(SaveRequest request)
     {
         // Copy the picked splash images into the stable per-user splash directory
         // FIRST, and deliberately OUTSIDE the cross-process config lock. Two-phase on
@@ -1350,7 +1571,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         // unserialized access. Staging is safe unlocked because it touches no live
         // file and every sidecar name carries its own GUID (see SplashAssets), so two
         // concurrent savers can no longer collide while staging.
-        var splash = BuildSplashConfig();
+        var splash = request.Splash;
         using var splashAssets = SplashAssets.Prepare(splash);
 
         AppConfig config;
@@ -1385,7 +1606,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             {
                 previousLogoPath = fresh.Splash.LogoImagePath;
                 previousBackgroundPath = fresh.Splash.BackgroundImagePath;
-                ApplyTo(fresh, splash);
+                ApplyCapturedValues(fresh, request, splash);
             });
             failedSlots = splashAssets.Commit();
             // A slot that could not be promoted (locked file, AV hold, permissions)
@@ -1404,20 +1625,24 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             BootManifestWriter.WriteCurrent(config);
         }
 
-        AdoptMaterializedPaths(config.Splash, failedSlots);
+        return new SaveResult(config, failedSlots, failure);
+    }
+
+    private void CompletePersistedSave(SaveResult result)
+    {
+        AdoptMaterializedPaths(result.Config.Splash, result.FailedSlots);
         // Re-color the running UI live; Application.Current is null in unit tests.
         if (Application.Current is { } app)
         {
-            AccentPalette.Apply(app, AccentPalette.Parse(config.AccentColor));
+            AccentPalette.Apply(app, AccentPalette.Parse(result.Config.AccentColor));
         }
-        if (failure is not null)
+        if (result.Failure is not null)
         {
             // Everything else was persisted and applied — but the save did not do what
             // it said, so SaveCommand must report "Save failed", never "Saved".
-            throw new System.IO.IOException(failure);
+            throw new System.IO.IOException(result.Failure);
         }
         Log.Info("Settings saved.");
-        ApplySteamInputManagementAfterSave(config);
     }
 
     /// <summary>Brings Steam's directory in line with the setting that was just
@@ -1453,7 +1678,6 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         {
             WarnAboutShimOnlyLaunchFixes(config);
         }
-        Raise(nameof(SteamInputShimStatusText));
     }
 
     /// <summary>Names the games whose stored launch fix just stopped blocking.</summary>
@@ -1595,11 +1819,12 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     /// <returns>A copy that will not change when this view model is later saved.</returns>
     public AppConfig SnapshotForPreview()
     {
-        ApplyTo(_config);
+        AppConfig snapshot = ConfigStore.CloneJson(_config, ConfigJsonContext.Default.AppConfig);
+        ApplyTo(snapshot);
         // A real copy through the production JSON contract: the preview's
         // OverlayController must not see later Save() mutations of the live
         // _config outside its ApplyConfig wholesale-replace contract.
-        return ConfigStore.CloneJson(_config, ConfigJsonContext.Default.AppConfig);
+        return ConfigStore.CloneJson(snapshot, ConfigJsonContext.Default.AppConfig);
     }
 
     private void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));

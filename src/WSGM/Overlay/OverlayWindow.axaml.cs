@@ -1225,6 +1225,7 @@ public partial class OverlayWindow : Window
     private static OverlayDestination _lastDestination = OverlayDestination.QuickAccess;
 
     private readonly double _uiScale;
+    private readonly PixelPoint? _preferredScreenPoint;
 
     /// <summary>The factor RootScale currently applies (1.0 = no transform). The
     /// sheet's inner layout happens in pre-transform units, so every budget derived
@@ -1237,9 +1238,17 @@ public partial class OverlayWindow : Window
     /// <param name="status">The live clock/battery/radio/audio status the header pills bind.</param>
     /// <param name="uiScale">The desktop-DPI scale factor for WSGM UI (e.g. 1.5
     /// for a 150% desktop; see DisplayScale.GetUiScalePercent).</param>
-    public OverlayWindow(OverlayViewModel viewModel, AppSwitcherViewModel switcher, SystemStatus status, double uiScale = 1.0)
+    /// <param name="preferredScreenPoint">A physical point in the foreground window that summoned
+    /// the sheet. Null falls back to Avalonia's current window or primary-screen selection.</param>
+    public OverlayWindow(
+        OverlayViewModel viewModel,
+        AppSwitcherViewModel switcher,
+        SystemStatus status,
+        double uiScale = 1.0,
+        PixelPoint? preferredScreenPoint = null)
     {
         _uiScale = uiScale;
+        _preferredScreenPoint = preferredScreenPoint;
         _switcher = switcher;
         InitializeComponent();
         DataContext = viewModel;
@@ -1996,7 +2005,13 @@ public partial class OverlayWindow : Window
     /// <summary>The header's bottom edge in physical screen pixels, for the radio,
     /// audio and eject panels to hang from.</summary>
     internal int HeaderBottomScreenY
-        => Position.Y + (int)Math.Ceiling(Header.Bounds.Height * _contentScale * DesktopScaling);
+        => Position.Y
+            + (int)Math.Ceiling(
+                Header.Bounds.Height * _contentScale * StatusPanel.CurrentWindowScale(this));
+
+    /// <summary>The sheet's physical right edge, used to keep peer panels on the same display.</summary>
+    internal int RightScreenX
+        => Position.X + (int)Math.Ceiling(Bounds.Width * StatusPanel.CurrentWindowScale(this));
 
     // ---- Geometry ----
 
@@ -2032,25 +2047,33 @@ public partial class OverlayWindow : Window
         return Math.Max(TrayMinWidth, inner * TrayWidthFraction);
     }
 
-    /// <summary>Spans the sheet across the primary display's top edge, sized to
+    /// <summary>Spans the sheet across the summoning window's display top edge, sized to
     /// <see cref="SheetHeightFraction"/> of its height, and slides it down from
     /// above the screen. The window never covers the whole display: the strip left
     /// below is the game's, and the tap-outside dismissal.</summary>
     private void DockToTopEdge()
     {
-        var screen = Screens?.Primary;
+        var screen = _preferredScreenPoint is { } point
+            ? Screens?.ScreenFromPoint(point)
+            : null;
+        screen ??= Screens?.ScreenFromWindow(this) ?? Screens?.Primary;
+        if (screen is null && Screens is { ScreenCount: > 0 })
+        {
+            screen = Screens.All[0];
+        }
         if (screen is null)
         {
             return;
         }
 
         var bounds = screen.Bounds;
-        // The WINDOW'S scaling, not screen.Scaling: Avalonia's screens cache goes
-        // stale when the display scale flips (game/desktop transitions) while no
-        // Avalonia window exists to receive the display change — a freshly opened
-        // window carries the true current DPI (device-observed: overlay kept the
-        // desktop DPI after returning to game mode).
-        var scaling = DesktopScaling;
+        // A new top-level starts on Windows' default monitor. Move its HWND onto the
+        // selected display before reading its effective DPI; otherwise a secondary
+        // display is sized using the primary display's scale. Do not use
+        // screen.Scaling: Avalonia's screen cache can retain the pre-game-mode DPI
+        // when no window existed to receive the display transition.
+        Position = new PixelPoint(bounds.X, bounds.Y);
+        var scaling = StatusPanel.CurrentWindowScale(this);
         // Render at the desktop's DPI: game mode forces displays to 100%, which
         // otherwise shrinks this DIP-sized sheet to millimeters on dense
         // handheld screens (device-reported). The content lays out in
@@ -2583,7 +2606,10 @@ public partial class OverlayWindow : Window
         FocusFirstControl(FormatConfirmView);
     }
 
-    private async void OnFormatConfirmed(object? sender, RoutedEventArgs e)
+    private void OnFormatConfirmed(object? sender, RoutedEventArgs e) =>
+        Log.Observe(FormatConfirmedAsync(), "SD-card format");
+
+    private async Task FormatConfirmedAsync()
     {
         if (_format is null || _pendingTarget is null)
         {
@@ -2700,7 +2726,10 @@ public partial class OverlayWindow : Window
         });
     }
 
-    private async void OnAddLibrary(object? sender, RoutedEventArgs e)
+    private void OnAddLibrary(object? sender, RoutedEventArgs e) =>
+        Log.Observe(AddLibraryAsync(), "Steam library folder picker");
+
+    private async Task AddLibraryAsync()
     {
         if (_format is null)
         {

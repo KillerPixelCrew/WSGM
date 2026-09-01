@@ -6,8 +6,8 @@
 # build keeps running the OLD injected script until Steam restarts, and a fix then appears to do
 # nothing (see docs\steam-cef.md).
 #
-# Order matters: WSGM first, then Steam, so WSGM's patch synchronization is already watching when
-# Steam's SharedJSContext appears.
+# Order matters on restart: WSGM first, then Steam, so WSGM's patch synchronization is already
+# watching when Steam's SharedJSContext appears.
 #
 # This script is for the attended dev loop only. It is not part of any release path, CI never
 # calls it, and it deliberately does not touch WSGM.LogonService.exe (Program Files, elevation,
@@ -32,8 +32,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 # The shell may only run on the reference Claw. The maintainer develops on other machines where
-# WSGM is not installed, and this script ends Explorer's replacement-in-waiting (it kills Steam and
-# restarts the live shell) — on the wrong machine that is a takeover of a desktop nobody offered.
+# WSGM is not installed, and this script restarts Steam and the live shell — on the wrong machine
+# that is a takeover of a desktop nobody offered.
 # The board product is the same one-command identity check the root AGENTS.md mandates before any
 # hardware work.
 $board = (Get-CimInstance -ClassName Win32_BaseBoard).Product
@@ -66,16 +66,37 @@ if (-not (Test-Path -LiteralPath $newExe)) {
     throw "No published WSGM.exe at $newExe - build first or drop -SkipBuild."
 }
 
-Write-Host '== Stopping Steam and WSGM ==' -ForegroundColor Cyan
-foreach ($name in 'steam', 'WSGM', 'WSGM.Launch') {
-    try { Stop-Process -Name $name -Force -ErrorAction Stop } catch {
-        # Not running is the normal case for at least one of these; anything else should be seen.
-        if ($_.CategoryInfo.Category -ne 'ObjectNotFound') { Write-Error -ErrorRecord $_ }
+$sessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId
+$wrappers = @(Get-Process -Name 'WSGM.Launch' -ErrorAction SilentlyContinue |
+    Where-Object SessionId -eq $sessionId)
+if ($wrappers.Count -ne 0) {
+    $ids = ($wrappers.Id | Sort-Object) -join ', '
+    throw "dev-deploy refused: a game launch wrapper is active in this session (PID $ids). Close the game normally and retry."
+}
+
+Write-Host '== Asking Steam to exit, then stopping WSGM ==' -ForegroundColor Cyan
+$steamProcesses = @(Get-Process -Name 'steam' -ErrorAction SilentlyContinue |
+    Where-Object SessionId -eq $sessionId)
+if ($steamProcesses.Count -ne 0) {
+    Start-Process 'steam://exit'
+    $deadline = [Diagnostics.Stopwatch]::StartNew()
+    do {
+        Start-Sleep -Milliseconds 250
+        $steamProcesses = @(Get-Process -Name 'steam' -ErrorAction SilentlyContinue |
+            Where-Object SessionId -eq $sessionId)
+    } while ($steamProcesses.Count -ne 0 -and $deadline.Elapsed -lt [TimeSpan]::FromSeconds(20))
+
+    if ($steamProcesses.Count -ne 0) {
+        throw 'dev-deploy refused: Steam did not exit normally within 20 seconds. Close it manually and retry.'
     }
 }
-# A killed process releases its image mapping asynchronously; copying too early intermittently
-# hits a locked file.
-Start-Sleep -Seconds 3
+
+$wsgmProcesses = @(Get-Process -Name 'WSGM' -ErrorAction SilentlyContinue |
+    Where-Object SessionId -eq $sessionId)
+foreach ($process in $wsgmProcesses) {
+    Stop-Process -Id $process.Id -Force -ErrorAction Stop
+    Wait-Process -Id $process.Id -Timeout 10 -ErrorAction SilentlyContinue
+}
 
 Write-Host "== Swapping files into $binDirectory ==" -ForegroundColor Cyan
 # WSGM.exe plus everything the publish stages beside it that the installer would also place in

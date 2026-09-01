@@ -531,12 +531,12 @@ public sealed class ConfigurationTests
     [Fact]
     public void TheConfigLockIsReentrantOnTheSameThreadSoNestedLoadAndSaveStillBalance()
     {
-        // SettingsViewModel.SaveMerged holds this scope across Mutate → Commit
+        // The Settings save transaction holds this scope across Mutate → Commit
         // while ConfigStore.Load/Save re-acquire the same named mutex inside it.
         using var outer = ConfigStore.AcquireLock();
-        // Acquire() degrades to a lock-less scope when the named mutex is already held
-        // by another process; every exclusivity assertion below would then pass without
-        // testing anything, so fail loudly instead.
+        // Write scopes fail closed when another process owns the mutex. Keep the
+        // assertion as an explicit statement that the following checks exercise the
+        // real kernel lock rather than only the thread-local recursion counter.
         Assert.True(ConfigStore.HasExclusiveLock, "the config mutex was held elsewhere");
 
         var nested = System.Diagnostics.Stopwatch.StartNew();

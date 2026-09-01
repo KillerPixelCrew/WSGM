@@ -595,6 +595,38 @@
         },
       };
     };
+
+    /// Coalesces expensive device-persistent writes while preserving the last value.
+    /// A colour is edited through three sliders; committing each component separately can queue
+    /// stale intermediate colours behind a firmware write-rate limit. The last edit replaces the
+    /// pending one, and unmount flushes it so closing QAM cannot lose the user's final colour.
+    const useTrailingCommit = (controlRuntime, delayMilliseconds, commit) => {
+      const pending = controlRuntime.react.useRef(null);
+      const timer = controlRuntime.react.useRef(null);
+      const commitRef = controlRuntime.react.useRef(commit);
+      commitRef.current = commit;
+
+      const flush = () => {
+        if (timer.current !== null) {
+          globalThis.clearTimeout(timer.current);
+          timer.current = null;
+        }
+        const value = pending.current;
+        pending.current = null;
+        if (value !== null) commitRef.current(value);
+      };
+      controlRuntime.react.useEffect(
+        () => () => {
+          flush();
+        },
+        [],
+      );
+      return (value) => {
+        pending.current = value;
+        if (timer.current !== null) globalThis.clearTimeout(timer.current);
+        timer.current = globalThis.setTimeout(flush, delayMilliseconds);
+      };
+    };
     // Steam's localizer returns the token itself when it has no string for it, which is truthy and
     // would render "#QuickAccess_..." as a label. Live-verified 2026-08-29: a known token localizes,
     // an unknown one comes straight back.
@@ -983,6 +1015,17 @@
           "deviceControls",
           normalizeDeviceControlsState,
         );
+        const definition = definitions.deviceControls;
+        const send = (command, payload) =>
+          void request(
+            definition.patchId,
+            command,
+            payload,
+            nextActionGeneration(definition.patchId),
+          ).catch(() => {});
+        const queueColorCommit = useTrailingCommit(controlRuntime, 350, ({ zone, color }) =>
+          send(definition.colorCommand, { zone, color }),
+        );
         const [selectedZone, setSelectedZone] = controlRuntime.react.useState("");
         const chargeValue = state?.chargeLimit
           ? (state.chargeLimit.observed ?? state.chargeLimit.desired)
@@ -1001,7 +1044,6 @@
         const colorBrightnessEcho = useEchoedValue(controlRuntime, hsv?.brightness ?? null);
         if (!state) return note("deviceControls", "no state");
 
-        const definition = definitions.deviceControls;
         const rows: unknown[] = [];
         const appendSlider = (key, properties) => {
           rows.push(
@@ -1012,14 +1054,6 @@
             ),
           );
         };
-        const send = (command, payload) =>
-          void request(
-            definition.patchId,
-            command,
-            payload,
-            nextActionGeneration(definition.patchId),
-          ).catch(() => {});
-
         if (state.chargeLimit?.available && chargeEcho.value !== null) {
           const range = state.chargeLimit;
           appendSlider("wsgm-native-qam-charge-limit", {
@@ -1109,7 +1143,7 @@
             ),
           );
           const commitColor = (hue, saturation, brightness) =>
-            send(definition.colorCommand, {
+            queueColorCommit({
               zone: zone.id,
               color: hsvToRgb(hue, saturation, brightness),
             });

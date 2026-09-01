@@ -43,7 +43,7 @@ WizardStyle=modern
 UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\WSGM.exe
 SetupIconFile=..\src\WSGM\Assets\wsgm.ico
-CloseApplications=yes
+CloseApplications=no
 ; Restart Manager must not close the fixed-purpose recovery owner before [Code] observes its
 ; recovery acknowledgement. The installer retires this one image itself after that boundary.
 CloseApplicationsFilterExcludes=WSGM.ShellAnchor.exe
@@ -151,7 +151,7 @@ Filename: "{autopf}\WSGM\WSGM.LogonService.exe"; Parameters: "--install"; Flags:
 ; running and the user is still looking at setup. The script exits 0 even when it fails — a machine
 ; without the driver is a supported state where controller management reports itself unavailable —
 ; so this can never strand a WSGM install on a driver problem.
-Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\Install-UsbipDriver.ps1"""; StatusMsg: "Installing the USB/IP driver for virtual controller support..."; Tasks: usbipdriver; Flags: runhidden waituntilterminated
+Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\Install-UsbipDriver.ps1"" -StatusPath ""{commonappdata}\WSGM\usbip-install-status.ini"""; StatusMsg: "Installing the USB/IP driver for virtual controller support..."; Tasks: usbipdriver; Flags: runhidden waituntilterminated; BeforeInstall: PrepareUsbipInstallOutcome; AfterInstall: ReportUsbipInstallOutcome
 Filename: "{app}\HidHide_1.5.230_x64.exe"; Parameters: "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL /SP-"; StatusMsg: "Installing HidHide for physical controller isolation..."; Tasks: usbipdriver; Flags: runhidden waituntilterminated skipifdoesntexist
 ; Update restart: if the shell was running it comes back as the shell; a plain
 ; settings instance comes back as settings (no args = DecideMode).
@@ -276,6 +276,9 @@ var
   SetupServiceStateCaptured: Boolean;
   SetupServiceWasRunning: Boolean;
   SetupShutdownApplied: Boolean;
+  UsbipOutcomeReported: Boolean;
+  UsbipRebootRequired: Boolean;
+  UsbipStatusPrepared: Boolean;
   UninstallMutationStarted: Boolean;
   UninstallServiceExisted: Boolean;
   UninstallServiceWasRunning: Boolean;
@@ -284,7 +287,6 @@ var
   UninstallWasShell: Boolean;
   WasShell: Boolean;
   WasRunning: Boolean;
-  WasUpgrade: Boolean;
 
 // Mirrors Core\Steam.cs detection: HKCU SteamExe (stored with forward slashes),
 // then the machine-wide install dir. Detection only — the path is never stored.
@@ -322,23 +324,101 @@ begin
   SetupServiceStateCaptured := False;
   SetupServiceWasRunning := False;
   SetupShutdownApplied := False;
-  // Capture this before [Files] creates/replaces WSGM.exe. The fixed per-user
-  // location has no interactive directory page, so an existing payload means
-  // this setup is updating an installed WSGM rather than performing a fresh install.
-  WasUpgrade := FileExists(ExpandConstant('{localappdata}\WSGM\bin\WSGM.exe'));
+  UsbipOutcomeReported := False;
+  UsbipRebootRequired := False;
+  UsbipStatusPrepared := False;
   Result := SteamInstalled();
   if not Result then
     MsgBox(CustomMessage('SteamMissing'), mbCriticalError, MB_OK);
 end;
 
-// Killing elevated Steam is necessary to unload the injected payload, but it is
-// disruptive enough that an interactive upgrade should offer Windows' standard
-// Restart now / restart later choice on the Finished page. Never mark a silent
-// upgrade for restart: /VERYSILENT would reboot automatically unless its caller
-// happened to supply /NORESTART.
+// Only a newly installed USB/IP driver requires a routine reboot. An incomplete
+// outcome stays conservative, while an already-present or failed optional driver
+// no longer makes every ordinary WSGM update advertise a needless restart. Never
+// mark silent setup for restart: /VERYSILENT could reboot automatically.
 function NeedRestart(): Boolean;
 begin
-  Result := (WasUpgrade or WizardIsTaskSelected('usbipdriver')) and not WizardSilent();
+  Result := WizardIsTaskSelected('usbipdriver') and
+    (UsbipRebootRequired or not UsbipOutcomeReported) and not WizardSilent();
+end;
+
+function UsbipInstallStatusPath(): String;
+begin
+  Result := ExpandConstant('{commonappdata}\WSGM\usbip-install-status.ini');
+end;
+
+procedure PrepareUsbipInstallOutcome();
+var
+  StatusPath: String;
+begin
+  UsbipOutcomeReported := False;
+  UsbipRebootRequired := False;
+  StatusPath := UsbipInstallStatusPath();
+  UsbipStatusPrepared := not FileExists(StatusPath) or DeleteFile(StatusPath);
+  if not UsbipStatusPrepared then
+    Log('USB/IP: the previous outcome marker could not be removed; stale data will not be trusted');
+end;
+
+procedure WarnUsbipInstallOutcome(const Detail: String);
+begin
+  Log('USB/IP: ' + Detail);
+  if not WizardSilent() then
+    MsgBox(Detail + #13#10 + #13#10 +
+      'WSGM was installed, but controller management may remain unavailable.',
+      mbInformation, MB_OK);
+end;
+
+procedure ReportUsbipInstallOutcome();
+var
+  StatusPath, SchemaVersion, Outcome, RequiredVersion, ObservedVersion,
+    DriverRegistered, RebootRequired, MessageText, Detail: String;
+begin
+  StatusPath := UsbipInstallStatusPath();
+  if not UsbipStatusPrepared then
+  begin
+    WarnUsbipInstallOutcome('The USB/IP driver result could not be verified.');
+    Exit;
+  end;
+  if not FileExists(StatusPath) then
+  begin
+    WarnUsbipInstallOutcome('The USB/IP driver did not publish a result.');
+    Exit;
+  end;
+
+  SchemaVersion := GetIniString('usbip', 'schemaVersion', '', StatusPath);
+  Outcome := GetIniString('usbip', 'outcome', '', StatusPath);
+  RequiredVersion := GetIniString('usbip', 'requiredVersion', '', StatusPath);
+  ObservedVersion := GetIniString('usbip', 'observedVersion', '', StatusPath);
+  DriverRegistered := GetIniString('usbip', 'driverRegistered', 'unknown', StatusPath);
+  RebootRequired := GetIniString('usbip', 'rebootRequired', 'false', StatusPath);
+  MessageText := Copy(GetIniString('usbip', 'message', '', StatusPath), 1, 512);
+  if SchemaVersion <> '1' then
+  begin
+    WarnUsbipInstallOutcome('The USB/IP driver returned an unsupported status format.');
+    Exit;
+  end;
+
+  UsbipRebootRequired := CompareText(RebootRequired, 'true') = 0;
+  Detail := 'outcome=' + Outcome + ', required=' + RequiredVersion +
+    ', observed=' + ObservedVersion + ', registered=' + DriverRegistered +
+    ', reboot=' + RebootRequired;
+  if (Outcome = 'installed') or (Outcome = 'already-present') then
+  begin
+    UsbipOutcomeReported := True;
+    Log('USB/IP: ' + Detail);
+    Exit;
+  end;
+  if (Outcome = 'failed') or (Outcome = 'blocked-newer-version') then
+  begin
+    UsbipOutcomeReported := True;
+    if MessageText = '' then
+      MessageText := 'The optional USB/IP driver was not made available.';
+    WarnUsbipInstallOutcome(MessageText + ' (' + Detail + ')');
+    Exit;
+  end;
+
+  WarnUsbipInstallOutcome(
+    'The USB/IP driver returned an incomplete result (' + Detail + ').');
 end;
 
 function WasShellRunning(): Boolean;
@@ -358,6 +438,10 @@ end;
 
 function OpenEventW(dwDesiredAccess: LongWord; bInheritHandle: BOOL; lpName: String): THandle;
   external 'OpenEventW@kernel32.dll stdcall';
+function CreateFileW(lpFileName: String; dwDesiredAccess, dwShareMode: LongWord;
+  lpSecurityAttributes: LongWord; dwCreationDisposition, dwFlagsAndAttributes: LongWord;
+  hTemplateFile: THandle): THandle;
+  external 'CreateFileW@kernel32.dll stdcall';
 function OpenSCManagerW(lpMachineName, lpDatabaseName,
   dwDesiredAccess: LongWord): THandle;
   external 'OpenSCManagerW@advapi32.dll stdcall';
@@ -879,7 +963,7 @@ end;
 procedure WaitForShellAnchorRecovery();
 var
   AnchorPath: String;
-  H: THandle;
+  H, Probe: THandle;
   WaitResult: LongWord;
 begin
   AnchorPath := ExpandConstant('{app}\WSGM.ShellAnchor.exe');
@@ -894,12 +978,18 @@ begin
     'Local\WSGM.ShellAnchor.RecoverySettled');
   if H = 0 then
   begin
-    // No recovery owner advertised itself. Delete the old image now so [Files] cannot discover a
-    // late lock and silently request a reboot; a concurrent pre-handshake anchor makes this fail.
-    if FileExists(AnchorPath) and not DeleteFile(AnchorPath) then
+    // Keep the installed image intact so a later preflight refusal or setup rollback can restart
+    // the old build. A zero-access, zero-share open checks replaceability without mutating it.
+    if FileExists(AnchorPath) then
     begin
-      ShellAnchorReplacementSafe := False;
-      Log('Shell-anchor image remained locked without a recovery event; silent update will preserve it');
+      Probe := CreateFileW(AnchorPath, 0, 0, 0, 3 { OPEN_EXISTING }, $80, 0);
+      if Probe = InvalidHandleValue then
+      begin
+        ShellAnchorReplacementSafe := False;
+        Log('Shell-anchor image remained locked without a recovery event; silent update will preserve it');
+      end
+      else
+        CloseHandleK(Probe);
     end;
     Exit;
   end;
@@ -910,10 +1000,16 @@ begin
     // exit a short head start, then retire only this session's companion before replacement.
     Sleep(250);
     ForceStopCurrentSessionImage('WSGM.ShellAnchor.exe');
-    if FileExists(AnchorPath) and not DeleteFile(AnchorPath) then
+    if FileExists(AnchorPath) then
     begin
-      ShellAnchorReplacementSafe := False;
-      Log('Acknowledged shell-anchor image remained locked; silent update will preserve it');
+      Probe := CreateFileW(AnchorPath, 0, 0, 0, 3 { OPEN_EXISTING }, $80, 0);
+      if Probe = InvalidHandleValue then
+      begin
+        ShellAnchorReplacementSafe := False;
+        Log('Acknowledged shell-anchor image remained locked; silent update will preserve it');
+      end
+      else
+        CloseHandleK(Probe);
     end;
   end
   else
@@ -964,30 +1060,36 @@ begin
   WaitForShellAnchorRecovery();
 end;
 
-procedure StopLaunchWrappers();
+function ReplacementBlockersPresent(IncludeSteam: Boolean): Boolean;
 var
   R: Integer;
+  Args, Script: String;
 begin
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM WSGM.Launch.exe /T /F', '', SW_HIDE, ewWaitUntilTerminated, R);
-  // Pre-1.4 wrappers: an update must release these before [InstallDelete] can
-  // remove them, or the stale exe survives and keeps old launch options alive.
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM WSGM.Deelevate.exe /T /F', '', SW_HIDE, ewWaitUntilTerminated, R);
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM steam-input-lease.exe /T /F', '', SW_HIDE, ewWaitUntilTerminated, R);
-end;
+  // The Local shutdown event and wrapper ownership are session scoped. Inspect that exact session
+  // and fail closed if inspection itself is unavailable. Setup never terminates Steam or a launch
+  // wrapper: either can own a running game tree that needs its normal save/exit path.
+  if IncludeSteam then
+    Script := '$names=@(''steam'',''WSGM.Launch'',''WSGM.Deelevate'',''steam-input-lease''); '
+  else
+    Script := '$names=@(''WSGM.Launch'',''WSGM.Deelevate'',''steam-input-lease''); ';
+  Script := '$session=(Get-Process -Id $PID).SessionId; ' + Script +
+    '$blocked=@(Get-Process -ErrorAction SilentlyContinue | Where-Object { ' +
+    '$_.SessionId -eq $session -and $names -contains $_.ProcessName }); ' +
+    'if($blocked.Count -gt 0){exit 75}; exit 0';
+  Args := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "' + Script + '"';
+  if not Exec(
+    ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    Args, '', SW_HIDE, ewWaitUntilTerminated, R) then
+  begin
+    Log('Could not start the current-session update blocker inspection; refusing replacement');
+    Result := True;
+    Exit;
+  end;
 
-// Steam Input Lease injects its gate into steam.exe. The graceful WSGM update
-// event above sends steam://exit from WSGM's (possibly elevated) token; give
-// Steam a bounded chance to comply, then clean up leftovers. This is update-only:
-// a user uninstalling WSGM should not have Steam force-closed as a side effect.
-procedure StopSteamForUpdate();
-var
-  R: Integer;
-begin
-  Sleep(5000);
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM steam.exe /T /F', '', SW_HIDE, ewWaitUntilTerminated, R);
-  // Releases the new wrapper executable too. /T also stops its helper and
-  // launched target; setup already shuts Steam down before this point.
-  StopLaunchWrappers();
+  Result := R <> 0;
+  if Result then
+    Log('Current-session Steam or launch wrapper blocks safe replacement (inspection code ' +
+      IntToStr(R) + ')');
 end;
 
 function InspectLogonServiceState(var Exists, Running: Boolean): Boolean;
@@ -1055,14 +1157,54 @@ end;
 // mid-update and flips the post-update restart into desktop mode. Also frees
 // the service binary for [Files] (covers the abandoned preview too — same
 // service name). Delete is not needed on updates; --install reconfigures.
-procedure StopLogonService();
+function StopLogonService(): Boolean;
 var
-  R: Integer;
+  I, R: Integer;
+  Exists, Running: Boolean;
 begin
-  Exec(ExpandConstant('{sys}\sc.exe'), 'stop WSGMLogonService', '', SW_HIDE, ewWaitUntilTerminated, R);
-  // sc stop is asynchronous; the service stops within a control cycle. A short
-  // fixed wait suffices (the SCM refuses file locks only while START_PENDING).
-  Sleep(1500);
+  Result := False;
+  if not InspectLogonServiceState(Exists, Running) then
+  begin
+    Log('Could not inspect WSGMLogonService before requesting stop');
+    Exit;
+  end;
+  if not Exists or not Running then
+  begin
+    Result := True;
+    Exit;
+  end;
+
+  if not Exec(
+    ExpandConstant('{sys}\sc.exe'),
+    'stop WSGMLogonService',
+    '', SW_HIDE, ewWaitUntilTerminated, R) then
+  begin
+    Log('Could not start the WSGMLogonService stop request');
+    Exit;
+  end;
+  if R <> 0 then
+  begin
+    // A concurrent service stop can race the request. Accept only a fresh
+    // observation of the stopped/missing state; otherwise fail before files move.
+    if InspectLogonServiceState(Exists, Running) and (not Exists or not Running) then
+    begin
+      Result := True;
+      Exit;
+    end;
+    Log('WSGMLogonService stop request exited with code ' + IntToStr(R));
+    Exit;
+  end;
+
+  for I := 1 to 40 do
+  begin
+    if InspectLogonServiceState(Exists, Running) and (not Exists or not Running) then
+    begin
+      Result := True;
+      Exit;
+    end;
+    Sleep(250);
+  end;
+  Log('WSGMLogonService did not reach the stopped state within ten seconds');
 end;
 
 procedure RestoreStoppedServiceAndRuntime(const Operation: String;
@@ -1144,8 +1286,12 @@ begin
     end;
     SetupServiceStateCaptured := True;
   end;
-  if SetupServiceWasRunning then
-    StopLogonService();
+  if SetupServiceWasRunning and not StopLogonService() then
+  begin
+    ReleaseDevicePackageGateReservation();
+    Result := 'The WSGM logon service did not stop cleanly. Setup made no file changes.';
+    Exit;
+  end;
   // Capture the initial mode exactly once. A post-shutdown refusal restores that mode, and a retry
   // stops it again without overwriting the classification with the temporary stopped state.
   if not SetupRuntimeClassificationCaptured then
@@ -1158,19 +1304,21 @@ begin
   end
   else if StopRunningInstances() then
     Log('Setup retry stopped the previously restored WSGM runtime');
-  // Force-closing Steam is only justified when a WSGM instance was actually
-  // running: only then is there an injected gate to unload and a steam://exit
-  // for Steam to comply with. On a fresh install (or with WSGM not running) the
-  // /T kill would take a running game's process tree down with no save prompt,
-  // for a five-second wait that buys nothing. The wrapper cleanup stays
-  // unconditional — [Files]/[InstallDelete] need those binaries unlocked.
-  if WasRunning then
-    StopSteamForUpdate()
-  else
-    StopLaunchWrappers();
   if WasRunning then
     Sleep(500);
   SetupShutdownApplied := True;
+
+  // An existing installation may have its injected payload loaded in Steam or a launch wrapper
+  // holding the game tree. Defer the update instead of killing either. Fresh installs do not own
+  // those images and therefore do not block merely because Steam is open.
+  if FileExists(ExpandConstant('{app}\WSGM.exe')) and ReplacementBlockersPresent(True) then
+  begin
+    ReleaseDevicePublicationReservations();
+    RestoreStoppedSetupRuntime();
+    Result := 'Steam or a game launched through WSGM is still running. Close it normally, ' +
+      'then retry setup. No process was terminated.';
+    Exit;
+  end;
 
   // WSGM now loads its one plugin in-process. The package gate prevents new package maintenance,
   // and the owner marker proves neither WSGM nor Device Lab can have plugin code loaded while the
@@ -1236,12 +1384,24 @@ begin
       'Uninstall refused to stop the current session.', mbCriticalError, MB_OK);
     Exit;
   end;
-  if UninstallServiceWasRunning then
-    StopLogonService();
+  if UninstallServiceWasRunning and not StopLogonService() then
+  begin
+    ReleaseDevicePackageGateReservation();
+    MsgBox('The WSGM logon service did not stop cleanly. Uninstall made no file changes.',
+      mbCriticalError, MB_OK);
+    Exit;
+  end;
   UninstallWasShell := CheckForMutexes('WSGM.Shell');
   UninstallWasRunning := StopRunningInstancesForUninstall() or UninstallWasShell;
-  StopLaunchWrappers();
   UninstallShutdownApplied := True;
+  if ReplacementBlockersPresent(False) then
+  begin
+    ReleaseDevicePublicationReservations();
+    RestoreStoppedUninstallRuntime();
+    MsgBox('A game launched through WSGM is still running. Close it normally, then retry ' +
+      'uninstall. No process was terminated.', mbCriticalError, MB_OK);
+    Exit;
+  end;
   if not ReserveDeviceOwner() then
   begin
     ReleaseDevicePublicationReservations();

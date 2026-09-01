@@ -228,11 +228,13 @@ public sealed class AutoTdpServiceTests
         }
 
         harness.Outcome = CommandOutcome.Rejected;
-        await harness.Service.DisposeAsync();
+        InvalidOperationException failure = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => harness.Service.DisposeAsync().AsTask());
 
         Assert.Equal(15, harness.Writes[^1].Value.IntegerValue);
         Assert.Equal(AutoTdpState.Off, harness.Service.Status.State);
         Assert.Contains("was not confirmed", harness.Service.Status.Detail, StringComparison.Ordinal);
+        Assert.Contains("could not verify restoration", failure.Message, StringComparison.Ordinal);
     }
 
     private static async Task WaitForWriteCountAsync(Harness harness, int count)

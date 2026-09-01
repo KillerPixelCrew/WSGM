@@ -11,7 +11,8 @@
     release machine, where the right answer is to stop and look rather than to ship bytes nobody
     reviewed.
 
-    Nothing here is checked in. The destination is generated, gitignored, and safe to delete.
+    Nothing here is checked in. A generated destination carries an ownership marker and a complete
+    payload inventory. Existing caller-owned directories without that marker are never erased.
 
 .PARAMETER Destination
     Where to expand the verified tree. Defaults to the staging directory the build uses.
@@ -39,29 +40,75 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'acquisition-helpers.ps1')
+
 $lock = Get-Content -LiteralPath $LockPath -Raw | ConvertFrom-Json
 $entry = $lock.component
 $destinationRoot = [System.IO.Path]::GetFullPath($Destination)
-$stampPath = Join-Path $destinationRoot '.pinned-version'
-$executablePath = Join-Path $destinationRoot $entry.executable
+$ownerId = 'WSGM.acquire-devicelab/v1'
+$assetName = [IO.Path]::GetFileName([string]$entry.asset)
+$assetUri = $null
+if ($assetName -cne [string]$entry.asset -or
+    $assetName -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*\.zip$' -or
+    [long]$entry.assetBytes -le 0 -or
+    [string]$entry.assetSha256 -notmatch '^[A-Fa-f0-9]{64}$' -or
+    -not [Uri]::TryCreate([string]$entry.assetUrl, [UriKind]::Absolute, [ref]$assetUri) -or
+    $assetUri.Scheme -cne [Uri]::UriSchemeHttps -or
+    [Uri]::UnescapeDataString([IO.Path]::GetFileName($assetUri.AbsolutePath)) -cne $assetName) {
+    throw 'The Device Lab lock has an unsafe asset name, URL, size or digest.'
+}
 
-# The stamp records which pin produced this tree. Without it, a stale staging directory from an
-# earlier pin would be reused silently and the installer would ship the previous version.
-if (-not $Force -and
-    (Test-Path -LiteralPath $stampPath -PathType Leaf) -and
-    (Test-Path -LiteralPath $executablePath -PathType Leaf) -and
-    (Get-Content -LiteralPath $stampPath -Raw).Trim() -ceq $entry.assetSha256) {
+function Assert-DeviceLabPayload([string]$Root) {
+    $applicationName = [IO.Path]::GetFileNameWithoutExtension([string]$entry.executable)
+    $requiredFiles = @(
+        [string]$entry.executable,
+        "$applicationName.dll",
+        "$applicationName.deps.json",
+        "$applicationName.runtimeconfig.json",
+        'LICENSE.txt',
+        'THIRD_PARTY_NOTICES.md',
+        'DotNetRuntime-LICENSE.txt',
+        'DotNetRuntime-THIRD-PARTY-NOTICES.txt')
+    foreach ($required in $requiredFiles) {
+        if ([IO.Path]::IsPathRooted($required) -or
+            [IO.Path]::GetFileName($required) -cne $required) {
+            throw "The Device Lab lock or payload names an unsafe required file: $required"
+        }
+        $path = Join-Path $Root $required
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf) -or
+            (Get-Item -LiteralPath $path).Length -le 0) {
+            throw "The verified Device Lab archive did not contain a non-empty $required."
+        }
+    }
+}
+
+if (-not $Force -and (Test-WsgmPayloadCache `
+    -Root $destinationRoot `
+    -OwnerId $ownerId `
+    -AssetSha256 $entry.assetSha256 `
+    -ValidatePayload ${function:Assert-DeviceLabPayload})) {
     Write-Information "Device Lab $($entry.version) is already staged." -InformationAction Continue
     return $destinationRoot
 }
 
-if (Test-Path -LiteralPath $destinationRoot) {
-    Remove-Item -LiteralPath $destinationRoot -Recurse -Force
+Assert-WsgmDestinationReplaceable `
+    -Root $destinationRoot `
+    -OwnerId $ownerId
+
+$destinationParent = Split-Path -Path $destinationRoot -Parent
+$destinationLeaf = Split-Path -Path $destinationRoot -Leaf
+if ([string]::IsNullOrWhiteSpace($destinationParent) -or
+    [string]::IsNullOrWhiteSpace($destinationLeaf)) {
+    throw "Device Lab destination must be a named directory below a filesystem root: $destinationRoot"
 }
-New-Item -ItemType Directory -Path $destinationRoot -Force | Out-Null
+New-Item -ItemType Directory -Path $destinationParent -Force | Out-Null
+$operationId = [Guid]::NewGuid().ToString('N')
+$stagingRoot = Join-Path $destinationParent (
+    ".$destinationLeaf.staging-$PID-$operationId")
+New-Item -ItemType Directory -Path $stagingRoot | Out-Null
 
 $archivePath = Join-Path ([System.IO.Path]::GetTempPath()) (
-    'WSGM-DeviceLab-{0}-{1}' -f $PID, $entry.asset)
+    'WSGM-DeviceLab-{0}-{1}-{2}' -f $PID, $operationId, $assetName)
 
 Write-Information "Acquiring Device Lab $($entry.version)" -InformationAction Continue
 try {
@@ -69,35 +116,47 @@ try {
     $previousProgress = $ProgressPreference
     try {
         $ProgressPreference = 'SilentlyContinue'
-        Invoke-WebRequest -Uri $entry.assetUrl -OutFile $archivePath -UseBasicParsing
+        Invoke-WebRequest -Uri $assetUri.AbsoluteUri -OutFile $archivePath -UseBasicParsing
     }
     finally {
         $ProgressPreference = $previousProgress
     }
 
+    $actualBytes = (Get-Item -LiteralPath $archivePath).Length
+    if ($actualBytes -ne [long]$entry.assetBytes) {
+        throw "Size mismatch for $assetName`: expected $($entry.assetBytes), got $actualBytes."
+    }
     $actualHash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToUpperInvariant()
     if ($actualHash -cne $entry.assetSha256) {
-        throw "Hash mismatch for $($entry.asset): expected $($entry.assetSha256), got $actualHash."
+        throw "Hash mismatch for $assetName`: expected $($entry.assetSha256), got $actualHash."
     }
 
-    Expand-Archive -LiteralPath $archivePath -DestinationPath $destinationRoot -Force
-
-    if (-not (Test-Path -LiteralPath $executablePath -PathType Leaf)) {
-        throw "The verified Device Lab archive did not contain $($entry.executable)."
+    Expand-Archive -LiteralPath $archivePath -DestinationPath $stagingRoot -Force
+    Assert-WsgmPayloadHasNoLinks -Root $stagingRoot
+    Assert-DeviceLabPayload $stagingRoot
+    Initialize-WsgmPayloadMetadata `
+        -Root $stagingRoot `
+        -OwnerId $ownerId `
+        -AssetSha256 $entry.assetSha256
+    if (-not (Test-WsgmPayloadCache `
+        -Root $stagingRoot `
+        -OwnerId $ownerId `
+        -AssetSha256 $entry.assetSha256 `
+        -ValidatePayload ${function:Assert-DeviceLabPayload})) {
+        throw 'The staged Device Lab payload failed its complete inventory check.'
     }
 
-    Set-Content -LiteralPath $stampPath -Value $entry.assetSha256 -NoNewline
-    Write-Information "  verified and staged $($entry.asset) ($actualHash)" -InformationAction Continue
-}
-catch {
-    # A partial tree is worse than none: the build would stage it and ship an incomplete tool.
-    if (Test-Path -LiteralPath $destinationRoot) {
-        Remove-Item -LiteralPath $destinationRoot -Recurse -Force -ErrorAction SilentlyContinue
-    }
-    throw
+    Install-WsgmPayloadAtomically `
+        -StagingRoot $stagingRoot `
+        -DestinationRoot $destinationRoot `
+        -OwnerId $ownerId
+    Write-Information "  verified and staged $assetName ($actualHash)" -InformationAction Continue
 }
 finally {
     Remove-Item -LiteralPath $archivePath -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $stagingRoot) {
+        Remove-Item -LiteralPath $stagingRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 return $destinationRoot

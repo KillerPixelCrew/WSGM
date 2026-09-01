@@ -39,8 +39,9 @@ public partial class AudioWindow : Window
 
     /// <summary>Places the panel just above the right-hand status section of the
     /// taskbar and scales it back to the user's normal desktop DPI.</summary>
-    /// <param name="anchorBottom">The sheet's physical top edge.</param>
-    internal void DockBelowHeader(int anchorBottom) => StatusPanel.DockBelowHeader(
-        this, RootScale, _uiScale, BaseWidth, BaseHeight, anchorBottom, "Audio");
+    /// <param name="anchorBottom">The sheet header's physical bottom edge.</param>
+    /// <param name="anchorRight">The sheet's physical right edge.</param>
+    internal void DockBelowHeader(int anchorBottom, int anchorRight) => StatusPanel.DockBelowHeader(
+        this, RootScale, _uiScale, BaseWidth, BaseHeight, anchorBottom, anchorRight, "Audio");
 
 }

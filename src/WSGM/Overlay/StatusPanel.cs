@@ -63,13 +63,15 @@ internal static class StatusPanel
     /// <param name="baseHeight">The panel's design height in DIPs.</param>
     /// <param name="anchorBottom">The sheet header's physical bottom edge, or 0 to hang from the
     /// top of the display.</param>
+    /// <param name="anchorRight">The sheet's physical right edge, or 0 when it is unavailable.</param>
     /// <param name="name">Panel name for the scale log line.</param>
     /// <remarks>
     /// Positioned from the header's ACTUAL bottom edge rather than derived from the working area:
     /// the sheet is a topmost window, not a registered appbar, so the working area does not account
-    /// for it. The scale factor comes from the window, never <c>screen.Scaling</c> — the screens
-    /// cache still reports the pre-game-mode factor at exactly the moment this runs, and using it
-    /// parked the panel far from its anchor (device-reported).
+    /// for it. The window is moved onto the target display before its effective DPI is queried.
+    /// The scale never comes from <c>screen.Scaling</c> — the screens cache still reports the
+    /// pre-game-mode factor at exactly the moment this runs, and using it parked the panel far
+    /// from its anchor (device-reported).
     /// </remarks>
     internal static void DockBelowHeader(
         Window window,
@@ -78,20 +80,16 @@ internal static class StatusPanel
         double baseWidth,
         double baseHeight,
         int anchorBottom,
+        int anchorRight,
         string name)
     {
         ArgumentNullException.ThrowIfNull(window);
         ArgumentNullException.ThrowIfNull(root);
 
-        double scale = window.DesktopScaling;
-        double factor = Math.Clamp(uiScale / scale, 1.0, 3.0);
-        if (Math.Abs(factor - 1.0) >= 0.01)
-        {
-            Log.Info($"{name} panel UI scale {factor:0.##}x (desktop DPI over current {scale:0.##}).");
-            root.LayoutTransform = new ScaleTransform(factor, factor);
-        }
-
-        Screen? screen = window.Screens.Primary
+        Screen? screen = anchorRight != 0 && anchorBottom != 0
+            ? window.Screens.ScreenFromPoint(new PixelPoint(anchorRight - 1, anchorBottom - 1))
+            : window.Screens.ScreenFromWindow(window);
+        screen ??= window.Screens.Primary
             ?? (window.Screens.ScreenCount > 0 ? window.Screens.All[0] : null);
         if (screen is null)
         {
@@ -100,6 +98,18 @@ internal static class StatusPanel
 
         PixelRect area = screen.Bounds;
         int top = Math.Max(anchorBottom, area.Y);
+
+        // A top-level is initially created on Windows' default monitor. Move it first, then ask
+        // the HWND for its effective DPI; reading DesktopScaling before this move sizes a panel
+        // with the primary display's DPI when the sheet was summoned on another monitor.
+        window.Position = new PixelPoint(area.X, area.Y);
+        double scale = CurrentWindowScale(window);
+        double factor = Math.Clamp(uiScale / scale, 1.0, 3.0);
+        if (Math.Abs(factor - 1.0) >= 0.01)
+        {
+            Log.Info($"{name} panel UI scale {factor:0.##}x (desktop DPI over current {scale:0.##}).");
+            root.LayoutTransform = new ScaleTransform(factor, factor);
+        }
 
         // Clamp against the space below the header, in DIPs. The panel's own scroll viewer absorbs
         // a shortened panel, and the sizes must be final before the position is computed from them.
@@ -117,5 +127,16 @@ internal static class StatusPanel
         int x = area.X + area.Width - width - margin;
         int y = Math.Min(top + gap, Math.Max(area.Y, area.Y + area.Height - height));
         window.Position = new PixelPoint(x, y);
+    }
+
+    /// <summary>Gets the HWND's current effective scale, falling back to Avalonia only when the
+    /// native handle is unavailable. The sheet and its peer panels deliberately share this rule.</summary>
+    internal static double CurrentWindowScale(Window window)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        nint hwnd = window.TryGetPlatformHandle()?.Handle ?? 0;
+        uint dpi = hwnd == 0 ? 0 : NativeMethods.GetDpiForWindow(hwnd);
+        double scale = dpi == 0 ? window.DesktopScaling : dpi / 96.0;
+        return double.IsFinite(scale) && scale > 0 ? scale : 1.0;
     }
 }

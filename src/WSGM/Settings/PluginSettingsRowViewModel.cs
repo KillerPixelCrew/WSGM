@@ -24,8 +24,9 @@ public sealed class PluginSettingRowViewModel : INotifyPropertyChanged
     private readonly PluginSettingDescriptor _descriptor;
     private bool _booleanValue;
     private int _integerValue;
+    private int _colorValue;
     private string _textValue = string.Empty;
-    private CapabilityChoice? _selectedChoice;
+    private PluginSettingChoiceViewModel? _selectedChoice;
 
     /// <summary>Creates a row for one declared setting.</summary>
     /// <param name="descriptor">The plugin's declaration.</param>
@@ -36,7 +37,11 @@ public sealed class PluginSettingRowViewModel : INotifyPropertyChanged
         ArgumentNullException.ThrowIfNull(descriptor);
         ArgumentNullException.ThrowIfNull(value);
         _descriptor = descriptor;
-        Choices = descriptor.Choices;
+        Choices = descriptor.Choices
+            .Select(static choice => new PluginSettingChoiceViewModel(
+                choice.Value,
+                DisplayLabel(choice.Display, choice.Value)))
+            .ToArray();
         Adopt(value);
     }
 
@@ -54,15 +59,13 @@ public sealed class PluginSettingRowViewModel : INotifyPropertyChanged
     /// Rendered as text and never as markup. <see cref="CapabilityDisplay"/> already bounds and
     /// validates it; this only chooses between the localized key and the custom string.
     /// </remarks>
-    public string Label => _descriptor.Display.Key is DisplayKey.Custom
-        ? _descriptor.Display.CustomLabel ?? _descriptor.SettingId
-        : _descriptor.Display.Key.ToString();
+    public string Label => DisplayLabel(_descriptor.Display, _descriptor.SettingId);
 
     // CapabilityDisplay carries one label and no description. A setting that needs explanation
     // needs a clearer label rather than a second text field in the SDK.
 
     /// <summary>Legal options for a choice setting.</summary>
-    public IReadOnlyList<CapabilityChoice> Choices { get; }
+    public IReadOnlyList<PluginSettingChoiceViewModel> Choices { get; }
 
     /// <summary>Whether this row draws a toggle.</summary>
     public bool IsToggle => _descriptor.ValueKind is CapabilityValueKind.Boolean;
@@ -72,6 +75,9 @@ public sealed class PluginSettingRowViewModel : INotifyPropertyChanged
 
     /// <summary>Whether this row draws a choice list.</summary>
     public bool IsChoice => _descriptor.ValueKind is CapabilityValueKind.Choice;
+
+    /// <summary>Whether this row draws a colour picker.</summary>
+    public bool IsColor => _descriptor.ValueKind is CapabilityValueKind.Color;
 
     /// <summary>Whether this row draws a text box.</summary>
     public bool IsText => _descriptor.ValueKind is CapabilityValueKind.Text;
@@ -87,6 +93,42 @@ public sealed class PluginSettingRowViewModel : INotifyPropertyChanged
 
     /// <summary>Longest accepted text, for a text setting.</summary>
     public int MaximumLength => _descriptor.MaximumLength ?? PluginSettingDescriptor.MaxTextLength;
+
+    /// <summary>The packed RGB value exposed through Avalonia's colour type.</summary>
+    public Avalonia.Media.Color PickerColor
+    {
+        get => Avalonia.Media.Color.FromUInt32((uint)(0xFF000000 | _colorValue));
+        set
+        {
+            int packed = (value.R << 16) | (value.G << 8) | value.B;
+            if (_colorValue == packed)
+            {
+                return;
+            }
+
+            _colorValue = packed;
+            Raise(nameof(PickerColor));
+            Raise(nameof(ColorHex));
+            Publish(new CapabilityValue
+            {
+                Kind = CapabilityValueKind.Color,
+                ColorValue = packed,
+            });
+        }
+    }
+
+    /// <summary>The same colour as an editable controller-friendly RGB string.</summary>
+    public string ColorHex
+    {
+        get => $"#{_colorValue:X6}";
+        set
+        {
+            if (Avalonia.Media.Color.TryParse(value, out Avalonia.Media.Color color))
+            {
+                PickerColor = color;
+            }
+        }
+    }
 
     /// <summary>Gets or sets the value of a boolean setting.</summary>
     public bool BooleanValue
@@ -164,7 +206,7 @@ public sealed class PluginSettingRowViewModel : INotifyPropertyChanged
     }
 
     /// <summary>Gets or sets the selected option of a choice setting.</summary>
-    public CapabilityChoice? SelectedChoice
+    public PluginSettingChoiceViewModel? SelectedChoice
     {
         get => _selectedChoice;
         set
@@ -199,20 +241,53 @@ public sealed class PluginSettingRowViewModel : INotifyPropertyChanged
         ArgumentNullException.ThrowIfNull(value);
         _booleanValue = value.BooleanValue ?? false;
         _integerValue = value.IntegerValue ?? Minimum;
+        _colorValue = (value.ColorValue ?? 0) & 0xFFFFFF;
         _textValue = value.TextValue ?? string.Empty;
         _selectedChoice = Choices.FirstOrDefault(
             choice => string.Equals(choice.Value, value.ChoiceValue, StringComparison.Ordinal));
         Raise(nameof(BooleanValue));
         Raise(nameof(IntegerValue));
+        Raise(nameof(PickerColor));
+        Raise(nameof(ColorHex));
         Raise(nameof(TextValue));
         Raise(nameof(SelectedChoice));
     }
+
+    private static string DisplayLabel(CapabilityDisplay display, string fallback) => display.Key switch
+    {
+        DisplayKey.Custom => display.CustomLabel ?? fallback,
+        DisplayKey.Tdp => "TDP",
+        DisplayKey.SustainedPowerLimit => "Sustained power limit",
+        DisplayKey.BoostPowerLimit => "Boost power limit",
+        DisplayKey.PerformanceProfile => "Performance profile",
+        DisplayKey.FanMode => "Fan mode",
+        DisplayKey.FanSpeed => "Fan speed",
+        DisplayKey.FanCurve => "Fan curve",
+        DisplayKey.FanLeft => "Left fan",
+        DisplayKey.FanRight => "Right fan",
+        DisplayKey.ChargeLimit => "Charge limit",
+        DisplayKey.BypassCharging => "Bypass charging",
+        DisplayKey.Lighting => "Lighting",
+        DisplayKey.Brightness => "Brightness",
+        DisplayKey.LightingEffect => "Lighting effect",
+        DisplayKey.LightingEffectSpeed => "Effect speed",
+        DisplayKey.CpuTemperature => "CPU temperature",
+        DisplayKey.Battery => "Battery",
+        DisplayKey.Controller => "Controller",
+        DisplayKey.Motion => "Motion",
+        DisplayKey.Rumble => "Rumble",
+        DisplayKey.VariableRefreshRate => "Variable refresh rate",
+        _ => fallback,
+    };
 
     private void Publish(CapabilityValue value) => Edited?.Invoke(SettingId, value);
 
     private void Raise(string name) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
+
+/// <summary>One choice option with separate persisted identity and user-facing label.</summary>
+public sealed record PluginSettingChoiceViewModel(string Value, string Label);
 
 /// <summary>One titled group of plugin setting rows, which is also a focus group.</summary>
 public sealed class PluginSettingSectionViewModel

@@ -27,9 +27,12 @@ waiting to happen.
   `WSGM.LogonService.exe --install` (create-or-reconfigure + failure actions + start).
   `[UninstallRun]` order: service `--uninstall` (stop+delete) → `--unregister-shell` (legacy no-op
   on service installs) → `--uninstall-restore`, all before files are deleted; `[UninstallDelete]`
-  also removes `{autopf}\WSGM` and `{commonappdata}\WSGM`. Interactive upgrades return `True` from
-  Inno's `NeedRestart`; silent upgrades must return `False`, because `/VERYSILENT` otherwise reboots
-  automatically unless its caller supplied `/NORESTART`.
+  also removes `{autopf}\WSGM` and `{commonappdata}\WSGM`. An update asks current-session Steam to
+  exit normally and refuses replacement while Steam or a WSGM launch wrapper remains; setup never
+  terminates either process tree. `NeedRestart` follows the USB/IP install outcome (and stays
+  conservative when that bounded status is missing), rather than marking every ordinary upgrade for
+  reboot. Silent setup always returns `False`, because `/VERYSILENT` could otherwise reboot
+  automatically.
 - The direct HKCU Winlogon shell replacement was **retired** (2026-08): running the session without
   Explorer ever initializing broke touch features, and the Explorer-first service boot is the
   device-verified fix. 2.0 deleted the registration path entirely (no install code, no auto mode);
@@ -51,9 +54,10 @@ waiting to happen.
 - **`Local\WSGM.ExitForUpdate` is a cross-version coordination contract.** Its name, user plus
   Administrators `EVENT_MODIFY_STATE | SYNCHRONIZE` grant (`0x00100002`), medium label, and startup
   reset must remain compatible with older running builds. One signal releases every WSGM instance;
-  the update path stops Steam, runs bounded application cleanup, and verifies Explorer recovery. The
-  unelevated Settings instance also needs the event grant, so narrowing it breaks ordinary update
-  shutdown.
+  the update path requests Steam's normal exit, runs bounded application cleanup, and verifies
+  Explorer recovery; a client or launch wrapper that remains is a setup refusal, not a process kill.
+  The unelevated Settings instance also needs the event grant, so narrowing it breaks ordinary
+  update shutdown.
 - **Uninstall uses `Local\WSGM.ExitForUninstall`.** It keeps the same event-access and stale-signal
   behavior, selects the fixed uninstall budget, and does not stop Steam. Removal of older builds
   falls back to the update event before the force-stop path.
@@ -66,10 +70,10 @@ waiting to happen.
 - Config lives at `%LOCALAPPDATA%\WSGM\config.json` (`Core\ConfigStore`, System.Text.Json source-gen
   — new scalar props need no context changes). Registry snapshots inside it (previous
   shell/UAC/lock-screen values) belong to the install lifecycle; never clobber them from feature
-  code. `ConfigStore.AcquireLock()` is the cross-process scope; `SaveMerged` holds it across the
-  config write AND the splash-asset promotion, but the multi-megabyte image copies happen OUTSIDE it
-  (sidecars are per-transaction unique, so staging cannot collide). Nested acquisition on the same
-  thread is free — do not reintroduce stacked 2 s timeouts.
+  code. `ConfigStore.AcquireLock()` is the cross-process scope; the Settings save transaction holds
+  it across the config write AND the splash-asset promotion, but the multi-megabyte image copies
+  happen OUTSIDE it (sidecars are per-transaction unique, so staging cannot collide). Nested
+  acquisition on the same thread is free — do not reintroduce stacked 2 s timeouts.
 - The app targets .NET 10 and Avalonia 12.1.1. `LoadingIndicators.Avalonia` is vendored under
   `third_party\LoadingIndicators.Avalonia` and built from source because its published Avalonia 11
   package has precompiled XAML that fails on Avalonia 12; its Unlicense text ships from

@@ -204,4 +204,16 @@ public sealed class DeviceProfileAuthoringTests
 
         Assert.Equal(0x102030, viewModel.DeviceProfiles[0].ToStored().Color);
     }
+
+    [Fact]
+    public void AColourProfileCanBeEditedThroughItsHexControllerPath()
+    {
+        SettingsViewModel viewModel = new(Config());
+        viewModel.AddDeviceProfile("lighting.color", color: true);
+
+        viewModel.DeviceProfiles[0].ColorHex = "#123ABC";
+
+        Assert.Equal("#123ABC", viewModel.DeviceProfiles[0].ColorHex);
+        Assert.Equal(0x123ABC, viewModel.DeviceProfiles[0].Color);
+    }
 }

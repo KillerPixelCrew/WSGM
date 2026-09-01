@@ -24,21 +24,23 @@
                     <TextBlock Text="ACCENT" />
                 </Border>
                 <Border Classes="setting-row alt">
-                    <!-- Swatch buttons (34x34, check overlay on the active color)
+                    <!-- Swatch buttons (44x44, check overlay on the active color)
                          are built in code-behind from the preset list. -->
                     <StackPanel x:Name="SwatchPanel" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" />
                 </Border>
                 <Border Classes="setting-row">
-                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                    <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
                         <TextBlock Text="Custom color" Classes="setting-title" VerticalAlignment="Center" />
                         <!-- MaxLength mirrors the cap ConfigStore.Normalize enforces
                              on AccentColor (Core\ConfigStore), exactly as the splash
                              color boxes below do: every keystroke re-parses this value
                              to repaint the swatches and the picker. -->
-                        <TextBox Grid.Column="1" Width="110" Text="{Binding AccentColorHex}" MaxLength="32"
+                        <TextBox Grid.Column="1" x:Name="AccentHexBox" Width="110" Text="{Binding AccentColorHex}" MaxLength="32"
                                  VerticalAlignment="Center" ToolTip.Tip="Hex color, e.g. #FF9D3D" />
                         <ColorPicker Grid.Column="2" x:Name="AccentPicker" VerticalAlignment="Center"
                                      ColorChanged="OnAccentPickerColorChanged" />
+                        <Button Grid.Column="3" Content="Edit" Tag="Accent" Click="OnEditTextWithController"
+                                AutomationProperties.Name="Edit accent color with controller" />
                     </Grid>
                 </Border>
 
@@ -46,7 +48,7 @@
                     <TextBlock Text="SPLASH · CONTENT" />
                 </Border>
                 <Border Classes="setting-row alt">
-                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                    <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
                         <TextBlock Text="Preset" Classes="setting-title" VerticalAlignment="Center" />
                         <ComboBox Grid.Column="1" x:Name="PresetCombo" Width="150" VerticalAlignment="Center" />
                         <Button Grid.Column="2" Content="Apply" Click="OnApplyPreset" VerticalAlignment="Center"
@@ -54,27 +56,31 @@
                     </Grid>
                 </Border>
                 <Border Classes="setting-row">
-                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                    <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
                         <TextBlock Text="Title text" Classes="setting-title" VerticalAlignment="Center" />
                         <!-- MaxLength mirrors the caps NormalizeSplash enforces
                              (Core\ConfigStore): the splash title and caption are one
                              unwrapped line each, so the editor must not be able to
                              create a value that a later load would truncate. -->
-                        <TextBox Grid.Column="1" Width="170" Text="{Binding Splash.Text}" MaxLength="200"
+                        <TextBox Grid.Column="1" x:Name="SplashTitleBox" Width="170" Text="{Binding Splash.Text}" MaxLength="200"
                                  VerticalAlignment="Center" />
-                        <ToggleSwitch Grid.Column="2" IsChecked="{Binding Splash.TextEnabled}" VerticalAlignment="Center"
+                        <Button Grid.Column="2" Content="Edit" Tag="Title" Click="OnEditTextWithController"
+                                AutomationProperties.Name="Edit splash title with controller" />
+                        <ToggleSwitch Grid.Column="3" IsChecked="{Binding Splash.TextEnabled}" VerticalAlignment="Center"
                                       ToolTip.Tip="Show the text block (title and caption)" />
                     </Grid>
                 </Border>
                 <Border Classes="setting-row alt">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                         <TextBlock Text="Caption" Classes="setting-title" VerticalAlignment="Center" />
-                        <TextBox Grid.Column="1" Width="170" Text="{Binding Splash.Caption}" MaxLength="200"
+                        <TextBox Grid.Column="1" x:Name="SplashCaptionBox" Width="170" Text="{Binding Splash.Caption}" MaxLength="200"
                                  VerticalAlignment="Center" PlaceholderText="No caption" />
+                        <Button Grid.Column="2" Content="Edit" Tag="Caption" Click="OnEditTextWithController"
+                                AutomationProperties.Name="Edit splash caption with controller" />
                     </Grid>
                 </Border>
                 <Border Classes="setting-row">
-                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                    <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
                         <TextBlock Text="Text sizes" Classes="setting-title" VerticalAlignment="Center" />
                         <NumericUpDown Grid.Column="1" Width="100" Value="{Binding Splash.TitleFontSize}"
                                        Minimum="1" Maximum="400" Increment="1" FormatString="0"
@@ -196,25 +202,24 @@
                     <TextBlock Text="SPLASH · COLORS &amp; IMAGES" />
                 </Border>
                 <Border Classes="setting-row alt">
-                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                    <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
                         <TextBlock Text="Background color" Classes="setting-title" VerticalAlignment="Center" />
-                        <!-- Swatch buttons open a color-picker flyout: the TOUCH path to
-                             these colors. Flyout content lives in its own popup root,
-                             which gamepad navigation cannot enter, and pad traversal
-                             skips the hex TextBoxes — so these four colors have no
-                             controller path today. B is handled (SettingsWindow's back
-                             action closes an open flyout first) so it dismisses the
-                             picker instead of Settings. -->
-                        <Button Grid.Column="1" Width="22" Height="22" MinWidth="22" MinHeight="22" Padding="0"
+                        <!-- The swatch is the touch path; the adjacent Edit action opens
+                             the controller keyboard because navigation skips TextBoxes
+                             and cannot enter a color-picker flyout's popup root. -->
+                        <Button Grid.Column="1" Width="44" Height="44" MinWidth="44" MinHeight="44" Padding="0"
                                 CornerRadius="4" VerticalAlignment="Center"
                                 BorderBrush="{StaticResource HcControlBorderBrush}" BorderThickness="1"
                                 Background="{Binding SplashBackgroundColorHex, Converter={x:Static c:HexBrushConverter.Instance}}"
-                                Tag="Background" Click="OnSplashColorSwatchClick" ToolTip.Tip="Pick a color" />
+                                Tag="Background" Click="OnSplashColorSwatchClick" ToolTip.Tip="Pick a color"
+                                AutomationProperties.Name="Pick splash background color" />
                         <!-- 32 = the same cap NormalizeSplash puts on the persisted
                              color strings; the longest value that can ever parse is
                              "#AARRGGBB" or a known-color name. -->
-                        <TextBox Grid.Column="2" Width="100" Text="{Binding SplashBackgroundColorHex}" MaxLength="32"
+                        <TextBox Grid.Column="2" x:Name="SplashBackgroundColorBox" Width="100" Text="{Binding SplashBackgroundColorHex}" MaxLength="32"
                                  VerticalAlignment="Center" />
+                        <Button Grid.Column="3" Content="Edit" Tag="BackgroundColor" Click="OnEditTextWithController"
+                                AutomationProperties.Name="Edit splash background color with controller" />
                     </Grid>
                 </Border>
                 <Border Classes="setting-row">
@@ -227,39 +232,48 @@
                     </Grid>
                 </Border>
                 <Border Classes="setting-row alt">
-                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                    <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
                         <TextBlock Text="Text color" Classes="setting-title" VerticalAlignment="Center" />
-                        <Button Grid.Column="1" Width="22" Height="22" MinWidth="22" MinHeight="22" Padding="0"
+                        <Button Grid.Column="1" Width="44" Height="44" MinWidth="44" MinHeight="44" Padding="0"
                                 CornerRadius="4" VerticalAlignment="Center"
                                 BorderBrush="{StaticResource HcControlBorderBrush}" BorderThickness="1"
                                 Background="{Binding SplashTextColorHex, Converter={x:Static c:HexBrushConverter.Instance}}"
-                                Tag="Text" Click="OnSplashColorSwatchClick" ToolTip.Tip="Pick a color" />
-                        <TextBox Grid.Column="2" Width="100" Text="{Binding SplashTextColorHex}" MaxLength="32"
+                                Tag="Text" Click="OnSplashColorSwatchClick" ToolTip.Tip="Pick a color"
+                                AutomationProperties.Name="Pick splash text color" />
+                        <TextBox Grid.Column="2" x:Name="SplashTextColorBox" Width="100" Text="{Binding SplashTextColorHex}" MaxLength="32"
                                  VerticalAlignment="Center" />
+                        <Button Grid.Column="3" Content="Edit" Tag="TextColor" Click="OnEditTextWithController"
+                                AutomationProperties.Name="Edit splash text color with controller" />
                     </Grid>
                 </Border>
                 <Border Classes="setting-row">
-                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                    <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
                         <TextBlock Text="Caption color" Classes="setting-title" VerticalAlignment="Center" />
-                        <Button Grid.Column="1" Width="22" Height="22" MinWidth="22" MinHeight="22" Padding="0"
+                        <Button Grid.Column="1" Width="44" Height="44" MinWidth="44" MinHeight="44" Padding="0"
                                 CornerRadius="4" VerticalAlignment="Center"
                                 BorderBrush="{StaticResource HcControlBorderBrush}" BorderThickness="1"
                                 Background="{Binding SplashCaptionColorHex, Converter={x:Static c:HexBrushConverter.Instance}}"
-                                Tag="Caption" Click="OnSplashColorSwatchClick" ToolTip.Tip="Pick a color" />
-                        <TextBox Grid.Column="2" Width="100" Text="{Binding SplashCaptionColorHex}" MaxLength="32"
+                                Tag="Caption" Click="OnSplashColorSwatchClick" ToolTip.Tip="Pick a color"
+                                AutomationProperties.Name="Pick splash caption color" />
+                        <TextBox Grid.Column="2" x:Name="SplashCaptionColorBox" Width="100" Text="{Binding SplashCaptionColorHex}" MaxLength="32"
                                  VerticalAlignment="Center" />
+                        <Button Grid.Column="3" Content="Edit" Tag="CaptionColor" Click="OnEditTextWithController"
+                                AutomationProperties.Name="Edit splash caption color with controller" />
                     </Grid>
                 </Border>
                 <Border Classes="setting-row alt">
-                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                    <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
                         <TextBlock Text="Spinner color" Classes="setting-title" VerticalAlignment="Center" />
-                        <Button Grid.Column="1" Width="22" Height="22" MinWidth="22" MinHeight="22" Padding="0"
+                        <Button Grid.Column="1" Width="44" Height="44" MinWidth="44" MinHeight="44" Padding="0"
                                 CornerRadius="4" VerticalAlignment="Center"
                                 BorderBrush="{StaticResource HcControlBorderBrush}" BorderThickness="1"
                                 Background="{Binding SplashSpinnerColorHex, Converter={x:Static c:HexBrushConverter.Instance}}"
-                                Tag="Spinner" Click="OnSplashColorSwatchClick" ToolTip.Tip="Pick a color" />
-                        <TextBox Grid.Column="2" Width="100" Text="{Binding SplashSpinnerColorHex}" MaxLength="32"
+                                Tag="Spinner" Click="OnSplashColorSwatchClick" ToolTip.Tip="Pick a color"
+                                AutomationProperties.Name="Pick splash spinner color" />
+                        <TextBox Grid.Column="2" x:Name="SplashSpinnerColorBox" Width="100" Text="{Binding SplashSpinnerColorHex}" MaxLength="32"
                                  VerticalAlignment="Center" />
+                        <Button Grid.Column="3" Content="Edit" Tag="SpinnerColor" Click="OnEditTextWithController"
+                                AutomationProperties.Name="Edit splash spinner color with controller" />
                     </Grid>
                 </Border>
                 <Border Classes="setting-row">
@@ -310,7 +324,7 @@
                     </Grid>
                 </Border>
                 <Border Classes="setting-row">
-                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                    <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
                         <StackPanel VerticalAlignment="Center" Spacing="1">
                             <TextBlock Text="Splash theme file" Classes="setting-title" />
                             <TextBlock Text="Share the look, images included (.wsgmsplash)." Classes="caption" />

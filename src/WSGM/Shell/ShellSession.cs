@@ -71,6 +71,7 @@ public sealed class ShellSession : IAsyncDisposable
     private System.IO.FileSystemWatcher? _configWatcher;
     private System.Threading.Timer? _configDebounce;
     private readonly object _configDebounceGate = new();
+    private long _configReloadGeneration;
     private Task? _startupTask;
     private DeviceCoordinator? _deviceCoordinator;
     private IDeviceOverlaySource? _deviceOverlay;
@@ -1474,10 +1475,11 @@ public sealed class ShellSession : IAsyncDisposable
             void Reload(object? state)
                 => _ = Task.Run(() =>
                 {
+                    long generation = (long)(state ?? 0L);
                     var config = ConfigStore.Load();
                     Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                     {
-                        if (_disposed)
+                        if (_disposed || generation != Interlocked.Read(ref _configReloadGeneration))
                         {
                             return;
                         }
@@ -1512,7 +1514,9 @@ public sealed class ShellSession : IAsyncDisposable
                 lock (_configDebounceGate)
                 {
                     _configDebounce?.Dispose();
-                    _configDebounce = new System.Threading.Timer(Reload, null, 500, System.Threading.Timeout.Infinite);
+                    long generation = Interlocked.Increment(ref _configReloadGeneration);
+                    _configDebounce = new System.Threading.Timer(
+                        Reload, generation, 500, System.Threading.Timeout.Infinite);
                 }
             }
             _configWatcher.Changed += (_, _) => Debounce();
@@ -1676,6 +1680,7 @@ public sealed class ShellSession : IAsyncDisposable
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
+                failures.Add(ex);
                 Log.Error("AutoTDP restoration was unverified during application shutdown", ex);
             }
             finally
@@ -1810,7 +1815,11 @@ public sealed class ShellSession : IAsyncDisposable
             // else resets it is a change the user never made and would have to hunt for.
             if (_refreshPairing is not null)
             {
-                _ = _refreshPairing.Restore();
+                if (!_refreshPairing.Restore())
+                {
+                    failures.Add(new InvalidOperationException(
+                        "The pre-game display refresh rate could not be restored."));
+                }
                 _refreshPairing = null;
             }
 
@@ -1819,7 +1828,11 @@ public sealed class ShellSession : IAsyncDisposable
             // visible of the two changes to be left with.
             if (_resolutions is not null)
             {
-                _ = _resolutions.Restore();
+                if (!_resolutions.Restore())
+                {
+                    failures.Add(new InvalidOperationException(
+                        "The pre-game display resolution could not be restored."));
+                }
                 _resolutions = null;
             }
 
@@ -1886,15 +1899,15 @@ public sealed class ShellSession : IAsyncDisposable
         _configWatcher?.Dispose();
         _configWatcher = null;
         _splash = null;
-        if (_messageWindow is not null)
+        MessageWindow? messageWindow = _messageWindow;
+        if (messageWindow is not null)
         {
-            _messageWindow.SessionEnding -= OnSessionEnding;
-            _messageWindow.SessionLocked -= OnSessionLocked;
-            _messageWindow.SessionUnlocked -= OnSessionUnlocked;
-            _messageWindow.SystemSuspending -= OnSystemSuspending;
-            _messageWindow.SystemResumed -= OnSystemResumed;
+            messageWindow.SessionEnding -= OnSessionEnding;
+            messageWindow.SessionLocked -= OnSessionLocked;
+            messageWindow.SessionUnlocked -= OnSessionUnlocked;
+            messageWindow.SystemSuspending -= OnSystemSuspending;
+            messageWindow.SystemResumed -= OnSystemResumed;
         }
-        _messageWindow = null;
         _overlay?.Dispose();
         _overlay = null;
         _performanceOverlay?.Dispose();
@@ -1919,6 +1932,10 @@ public sealed class ShellSession : IAsyncDisposable
         }
         _monitor?.Dispose();
         _monitor = null;
+        // Last: every service above deregisters its own native notification from this window.
+        // Destroying the HWND first makes those orderly deregistrations race a dead handle.
+        messageWindow?.Dispose();
+        _messageWindow = null;
     }
 
     private void RetireTrayHostForShutdown()

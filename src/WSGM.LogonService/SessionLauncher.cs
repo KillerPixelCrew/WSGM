@@ -368,8 +368,11 @@ internal static class SessionLauncher
 
         if (!NativeMethods.CreateEnvironmentBlock(out var environment, token, false))
         {
-            // Launch with the service's environment rather than not at all.
-            environment = 0;
+            error = Marshal.GetLastWin32Error();
+            ServiceLog.Warn(
+                $"CreateEnvironmentBlock failed (error {error}); refusing to launch an "
+                    + "interactive process with the SYSTEM service environment.");
+            return false;
         }
         var desktop = Marshal.StringToHGlobalUni(@"winsta0\default");
         try
@@ -404,14 +407,32 @@ internal static class SessionLauncher
 
     private static string? GetUserProfileDirectory(nint token)
     {
-        var size = 512u;
-        var buffer = new char[size];
-        if (!NativeMethods.GetUserProfileDirectoryW(token, buffer, ref size))
+        uint size = 0;
+        _ = NativeMethods.GetUserProfileDirectoryW(token, null, ref size);
+        if (size == 0)
         {
             return null;
         }
-        var terminator = Array.IndexOf(buffer, '\0');
-        return new string(buffer, 0, terminator < 0 ? buffer.Length : terminator);
+
+        for (int attempt = 0; attempt < 2; attempt++)
+        {
+            var buffer = new char[size];
+            uint available = size;
+            if (NativeMethods.GetUserProfileDirectoryW(token, buffer, ref available))
+            {
+                int terminator = Array.IndexOf(buffer, '\0');
+                return new string(buffer, 0, terminator < 0 ? buffer.Length : terminator);
+            }
+
+            if (available <= size)
+            {
+                return null;
+            }
+
+            size = available;
+        }
+
+        return null;
     }
 
     private static TimeSpan? GetLogonAge(uint sessionId)

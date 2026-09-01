@@ -303,41 +303,24 @@ internal static class LaunchWrapperCommand
 
     private static void StopRunningHelpers(string reason, TimeSpan? timeout)
     {
-        Stopwatch? elapsed = timeout is null ? null : Stopwatch.StartNew();
+        int currentSession = Process.GetCurrentProcess().SessionId;
         foreach (Process process in Process.GetProcessesByName(
                      Path.GetFileNameWithoutExtension(HelperFileName)))
         {
             try
             {
-                TimeSpan remaining = timeout is null
-                    ? TimeSpan.FromMilliseconds(5_000)
-                    : timeout.Value - elapsed!.Elapsed;
-                if (remaining <= TimeSpan.Zero)
+                if (process.SessionId != currentSession)
                 {
-                    Log.Warn($"Launch-wrapper stop budget expired before pid {process.Id} could be ended.");
                     continue;
                 }
 
-                Log.Info($"Stopping launch wrapper pid {process.Id} ({reason}).");
-                // The medium child owns the launched game/emulator. Ending its
-                // complete tree releases both the wrapper executable and target
-                // before an update/uninstall replaces or removes the helper.
-                process.Kill(entireProcessTree: true);
-                remaining = timeout is null
-                    ? TimeSpan.FromMilliseconds(5_000)
-                    : timeout.Value - elapsed!.Elapsed;
-                if (remaining <= TimeSpan.Zero)
-                {
-                    continue;
-                }
-                int waitMilliseconds = Math.Min(
-                    5_000,
-                    Math.Max(1, (int)Math.Ceiling(remaining.TotalMilliseconds)));
-                process.WaitForExit(waitMilliseconds);
+                Log.Warn(
+                    $"Launch wrapper pid {process.Id} is still active ({reason}); setup must "
+                        + "defer replacement until its game exits.");
             }
             catch (Exception ex)
             {
-                Log.Warn($"Could not stop launch wrapper pid {process.Id}: {ex.Message}");
+                Log.Warn($"Could not inspect launch wrapper pid {process.Id}: {ex.Message}");
             }
             finally
             {

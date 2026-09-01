@@ -110,6 +110,14 @@ public class App : Application
                 deadline => _session.ShutdownAsync(reason, deadline),
                 reason);
         }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // ShutdownRequested is necessarily an async-void framework boundary.
+            // Nothing may escape it: an unexpected cleanup fault must still report
+            // a failed handoff and terminate with the failure exit code.
+            Log.Error("Application shutdown failed", ex);
+            outcome = ApplicationShutdownOutcome.Failed;
+        }
         finally
         {
             _shutdownOutcome = outcome;

@@ -37,13 +37,14 @@ public sealed class PluginSettingRowViewModelTests
             (CapabilityValueKind.Boolean, row => row.IsToggle),
             (CapabilityValueKind.Integer, row => row.IsRange),
             (CapabilityValueKind.Choice, row => row.IsChoice),
+            (CapabilityValueKind.Color, row => row.IsColor),
             (CapabilityValueKind.Text, row => row.IsText),
         ];
 
         foreach ((CapabilityValueKind kind, Func<PluginSettingRowViewModel, bool> flag) in cases)
         {
             PluginSettingRowViewModel row = new(Descriptor(kind, 0, 10), Value(kind));
-            bool[] flags = [row.IsToggle, row.IsRange, row.IsChoice, row.IsText];
+            bool[] flags = [row.IsToggle, row.IsRange, row.IsChoice, row.IsColor, row.IsText];
 
             Assert.True(flag(row));
             Assert.Single(flags, set => set);
@@ -167,6 +168,48 @@ public sealed class PluginSettingRowViewModelTests
         Assert.Equal(CapabilityValueKind.Choice, edited.Kind);
         Assert.Equal("loud", edited.ChoiceValue);
         Assert.Null(edited.TextValue);
+    }
+
+    [Fact]
+    public void AColorEditPublishesPackedRgbAndKeepsAControllerFriendlyHexValue()
+    {
+        PluginSettingRowViewModel row = new(
+            Descriptor(CapabilityValueKind.Color),
+            new CapabilityValue { Kind = CapabilityValueKind.Color, ColorValue = 0x010203 });
+        CapabilityValue? edited = null;
+        row.Edited += (_, value) => edited = value;
+
+        row.ColorHex = "#AABBCC";
+
+        Assert.Equal("#AABBCC", row.ColorHex);
+        Assert.Equal(CapabilityValueKind.Color, edited?.Kind);
+        Assert.Equal(0xAABBCC, edited?.ColorValue);
+    }
+
+    [Fact]
+    public void ChoiceOptionsExposeTheirValidatedDisplayLabelInsteadOfRecordToString()
+    {
+        PluginSettingDescriptor descriptor = Descriptor(CapabilityValueKind.Choice);
+        descriptor = descriptor with
+        {
+            Choices =
+            [
+                new CapabilityChoice(
+                    "machine-value",
+                    new CapabilityDisplay { Key = DisplayKey.PerformanceProfile }),
+            ],
+        };
+
+        PluginSettingRowViewModel row = new(
+            descriptor,
+            new CapabilityValue
+            {
+                Kind = CapabilityValueKind.Choice,
+                ChoiceValue = "machine-value",
+            });
+
+        Assert.Equal("machine-value", Assert.Single(row.Choices).Value);
+        Assert.Equal("Performance profile", Assert.Single(row.Choices).Label);
     }
 
     [Fact]

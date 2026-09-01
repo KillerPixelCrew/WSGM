@@ -21,8 +21,8 @@ public static class ConfigStore
     // interleave. It CANNOT merge: saving an AppConfig loaded long ago overwrites
     // every field another process persisted in between, so long-lived holders must
     // re-load and re-apply only their own fields before saving (see
-    // SettingsViewModel.SaveMerged). The timeout is short and a miss only logs —
-    // recovery paths must never block here.
+    // SettingsViewModel.Save). Read-only startup may degrade after the short timeout; every
+    // write and read-modify-write transaction fails closed instead of risking a lost update.
     private const string MutexName = @"Local\WSGM.Config";
     private const int MutexTimeoutMs = 2000;
 
@@ -31,10 +31,10 @@ public static class ConfigStore
     /// <returns>A normalized configuration that callers can use without null checks.</returns>
     public static AppConfig Load()
     {
-        using var guard = ConfigMutex.Acquire();
+        using var guard = ConfigMutex.Acquire(requireExclusive: false);
         try
         {
-            return LoadForMutation();
+            return LoadCurrentDocument();
         }
         catch (Exception ex)
         {
@@ -53,7 +53,12 @@ public static class ConfigStore
     /// <returns>The normalized configuration, or defaults only when no file exists.</returns>
     internal static AppConfig LoadForMutation()
     {
-        using var guard = ConfigMutex.Acquire();
+        using var guard = ConfigMutex.Acquire(requireExclusive: true);
+        return LoadCurrentDocument();
+    }
+
+    private static AppConfig LoadCurrentDocument()
+    {
         if (!File.Exists(ConfigPath))
         {
             return new AppConfig();
@@ -830,16 +835,40 @@ public static class ConfigStore
     /// <param name="config">The configuration state to serialize.</param>
     public static void Save(AppConfig config)
     {
-        using var guard = ConfigMutex.Acquire();
+        using var guard = ConfigMutex.Acquire(requireExclusive: true);
         Directory.CreateDirectory(Log.Directory);
         var json = JsonSerializer.Serialize(config, ConfigJsonContext.Default.AppConfig);
-        // Per-process temp name so concurrent savers never share it; a leftover
-        // .tmp from a failed rename is harmlessly overwritten by that process later.
-        var temp = $"{ConfigPath}.{Environment.ProcessId}.tmp";
-        File.WriteAllText(temp, json);
-        // Atomic replace (MoveFileEx REPLACE_EXISTING) — covers both the exists and
-        // not-yet-exists cases without a TOCTOU window.
-        File.Move(temp, ConfigPath, overwrite: true);
+        var temp = $"{ConfigPath}.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            using (var stream = new FileStream(
+                       temp,
+                       FileMode.CreateNew,
+                       FileAccess.Write,
+                       FileShare.None))
+            using (var writer = new StreamWriter(stream))
+            {
+                writer.Write(json);
+            }
+
+            // Atomic replace (MoveFileEx REPLACE_EXISTING) — covers both the exists and
+            // not-yet-exists cases without a TOCTOU window.
+            File.Move(temp, ConfigPath, overwrite: true);
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(temp);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                // Cleanup must not replace the actual write/move failure with a
+                // secondary temp-file error. A unique orphan is harmless and can
+                // be diagnosed from this bounded warning.
+                Log.Warn($"Config temp cleanup failed for '{Path.GetFileName(temp)}': {ex.Message}");
+            }
+        }
     }
 
     /// <summary>The only supported read-modify-write path for config.json: takes the
@@ -855,7 +884,7 @@ public static class ConfigStore
     /// this method and ABORTS the mutation; <see cref="Load"/> stays available for
     /// read-only callers.</para>
     /// <para>A caller that needs more work under the same lock (see
-    /// SettingsViewModel.SaveMerged, which also promotes splash assets and writes the
+    /// SettingsViewModel's save transaction, which also promotes splash assets and writes the
     /// boot manifest) wraps this in its own <see cref="AcquireLock"/> scope — the
     /// nested acquisition is free.</para></summary>
     /// <param name="mutate">Applies the caller's fields to the freshly loaded configuration.</param>
@@ -863,7 +892,7 @@ public static class ConfigStore
     /// <exception cref="InvalidDataException">The existing file could not be parsed.</exception>
     internal static AppConfig Mutate(Action<AppConfig> mutate)
     {
-        using var guard = ConfigMutex.Acquire();
+        using var guard = ConfigMutex.Acquire(requireExclusive: true);
         var config = LoadForMutation();
         mutate(config);
         Save(config);
@@ -872,7 +901,7 @@ public static class ConfigStore
 
     /// <summary>Takes the cross-process config lock for a caller that must keep a
     /// whole read-modify-write sequence — plus the file work between its steps —
-    /// atomic against other WSGM processes. SettingsViewModel.SaveMerged holds it
+    /// atomic against other WSGM processes. SettingsViewModel.Save holds it
     /// across Load → Save → the splash-asset Commit → the boot-manifest write, so
     /// config.json and the live splash images can never be left describing different
     /// states. Only FAST operations belong in such a scope: the timeout below is
@@ -887,11 +916,10 @@ public static class ConfigStore
     /// recursion count instead made a contended save cost one timeout per nested call
     /// (Load + Save + repair Save + the outer scope ≈ 6-8 s of frozen UI and four
     /// "Config mutex timed out" lines). Only the OUTERMOST scope releases, so the hold
-    /// survives until this scope is disposed, and the degraded no-lock path is
-    /// inherited by the nested calls — acquiring the lock for one step of a sequence
-    /// whose outer scope already gave up would not restore any guarantee.</para></summary>
+    /// survives until this scope is disposed. Write transactions never enter a
+    /// degraded scope: timeout or mutex failure aborts them.</para></summary>
     /// <returns>A scope that releases the lock when disposed.</returns>
-    internal static IDisposable AcquireLock() => ConfigMutex.Acquire();
+    internal static IDisposable AcquireLock() => ConfigMutex.Acquire(requireExclusive: true);
 
     /// <summary>Deep-copies one configuration document through the production JSON
     /// contract — the one clone mechanism for config shapes, so a copy can never
@@ -909,12 +937,11 @@ public static class ConfigStore
     /// can be asserted without going near the per-user config file.</summary>
     internal static int LockDepth => ConfigMutex.CurrentDepth;
 
-    /// <summary>Whether the calling thread owns the named mutex rather than using
-    /// the recovery-only degraded path.</summary>
+    /// <summary>Whether the calling thread owns the named mutex.</summary>
     internal static bool HasExclusiveLock => ConfigMutex.HasExclusiveOwnership;
 
-    /// <summary>Cross-process guard around Load/Save. Failure to create or acquire
-    /// the mutex degrades to lock-less operation with a warning — never a deadlock.
+    /// <summary>Cross-process guard around Load/Save. Read-only loads may degrade
+    /// with a warning; writes fail closed when the mutex cannot be acquired.
     /// Re-entrant per thread through a depth counter: only the outermost scope talks
     /// to the kernel object, so a nested acquisition costs nothing even while another
     /// process holds the lock.
@@ -958,11 +985,16 @@ public static class ConfigStore
         internal static int CurrentDepth => _depth;
         internal static bool HasExclusiveOwnership => _hasExclusiveOwnership;
 
-        public static ConfigMutex Acquire()
+        public static ConfigMutex Acquire(bool requireExclusive)
         {
             if (_depth > 0)
             {
-                // Already held by this thread (SaveMerged's scope around Load/Save):
+                if (requireExclusive && !_hasExclusiveOwnership)
+                {
+                    throw new InvalidOperationException(
+                        "An exclusive config operation cannot be nested inside a degraded read.");
+                }
+                // Already held by this thread (Settings Save's scope around Load/Save):
                 // no kernel call, and above all no second MutexTimeoutMs wait.
                 _depth++;
                 return new ConfigMutex(null, owned: false, nested: true, level: _depth);
@@ -985,12 +1017,24 @@ public static class ConfigStore
                 }
                 if (!owned)
                 {
-                    Log.Warn("Config mutex timed out — proceeding without cross-process lock.");
+                    if (requireExclusive)
+                    {
+                        throw new TimeoutException(
+                            "The shared WSGM configuration is busy; the save was not performed.");
+                    }
+
+                    Log.Warn("Config mutex timed out — continuing with a read-only snapshot.");
                 }
             }
             catch (Exception ex)
             {
-                Log.Warn($"Config mutex unavailable, proceeding without lock: {ex.Message}");
+                if (requireExclusive)
+                {
+                    mutex?.Dispose();
+                    throw;
+                }
+
+                Log.Warn($"Config mutex unavailable for read-only load: {ex.Message}");
             }
             // Counted even when the acquisition degraded, so the nested steps of one
             // sequence inherit that decision instead of each paying the timeout again.

@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Media;
+using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Settings.Pages;
@@ -64,6 +66,73 @@ public partial class PluginSettingsPage : UserControl
             viewModel.RemoveSelectedDeviceProfile();
         }
     }
+
+    private void OnEditProfileName(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is SettingsViewModel { SelectedDeviceProfile: { } profile }
+            && TopLevel.GetTopLevel(this) is SettingsWindow window)
+        {
+            window.ShowOnScreenKeyboard(
+                profile.Name,
+                DeviceAuthoredProfile.MaxNameLength,
+                "Device profile name",
+                value =>
+                {
+                    profile.Name = value;
+                    return null;
+                });
+        }
+    }
+
+    private void OnEditProfileColor(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is SettingsViewModel { SelectedDeviceProfile: { } profile }
+            && TopLevel.GetTopLevel(this) is SettingsWindow window)
+        {
+            ShowColorKeyboard(window, profile.ColorHex, "Device profile colour", value => profile.ColorHex = value);
+        }
+    }
+
+    private void OnEditPluginText(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is PluginSettingRowViewModel row
+            && TopLevel.GetTopLevel(this) is SettingsWindow window)
+        {
+            window.ShowOnScreenKeyboard(
+                row.TextValue,
+                row.MaximumLength,
+                row.Label,
+                value =>
+                {
+                    row.TextValue = value;
+                    return null;
+                });
+        }
+    }
+
+    private void OnEditPluginColor(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is PluginSettingRowViewModel row
+            && TopLevel.GetTopLevel(this) is SettingsWindow window)
+        {
+            ShowColorKeyboard(window, row.ColorHex, row.Label, value => row.ColorHex = value);
+        }
+    }
+
+    private static void ShowColorKeyboard(
+        SettingsWindow window,
+        string initial,
+        string title,
+        System.Action<string> apply) =>
+        window.ShowOnScreenKeyboard(initial, 9, title, value =>
+        {
+            if (!Color.TryParse(value, out _))
+            {
+                return "Enter a color such as #FF9D3D.";
+            }
+            apply(value);
+            return null;
+        });
 
     /// <summary>The capability a newly authored curve profile targets.</summary>
     private const string FanCurveCapabilityId = "fan.curve";

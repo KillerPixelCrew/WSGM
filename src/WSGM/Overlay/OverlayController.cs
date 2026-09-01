@@ -787,7 +787,7 @@ public sealed class OverlayController : IDisposable
         // pills and Steam's own surfaces are the same state rather than two views that can disagree.
         _systemStatus = new SystemStatus(_sessionAudio, _sessionRadios);
         _systemStatus.Start();
-        _overlay = new OverlayWindow(vm, switcher, _systemStatus, UiScale());
+        _overlay = new OverlayWindow(vm, switcher, _systemStatus, UiScale(), WindowCenter(_restoreFocusTo));
         _overlay.AttachDeviceBridge(_device);
         _overlay.AttachPerformanceSource(_performance);
         _overlay.SetPins(_config.QuickAccessPins);
@@ -1045,6 +1045,19 @@ public sealed class OverlayController : IDisposable
         }
     }
 
+    private static Avalonia.PixelPoint? WindowCenter(nint window)
+    {
+        if (window == 0 || !Interop.NativeMethods.GetWindowRect(window, out var rect)
+            || rect.Right <= rect.Left || rect.Bottom <= rect.Top)
+        {
+            return null;
+        }
+
+        return new Avalonia.PixelPoint(
+            rect.Left + ((rect.Right - rect.Left) / 2),
+            rect.Top + ((rect.Bottom - rect.Top) / 2));
+    }
+
     /// <summary>The bottom-swipe entry: the sheet, with controller focus landing on
     /// the Open apps strip rather than the selected root's first row — one gesture to
     /// the running programs, which is what the bottom edge used to open.</summary>
@@ -1181,7 +1194,7 @@ public sealed class OverlayController : IDisposable
         // Window scaling, not the screens cache — the cache reports the
         // pre-game-mode factor after the runtime display-scale flip, which
         // inflates the hit box and swallows taps just outside the window.
-        var scaling = window.DesktopScaling;
+        var scaling = StatusPanel.CurrentWindowScale(window);
         var pos = window.Position;
         var w = (int)Math.Ceiling(window.Width * scaling);
         var h = (int)Math.Ceiling(window.Height * scaling);
@@ -1212,6 +1225,10 @@ public sealed class OverlayController : IDisposable
         var window = new KeyboardWindow(prompt, initial, maxLength, UiScale());
         _keyboardWindow = window;
         overlay.KeyboardOwnsFocus = true;
+        // Create the keyboard on the sheet's monitor. Its first Opened handler
+        // reads the HWND DPI to restore desktop-sized touch targets; without this
+        // seed position a secondary-monitor keyboard used the primary DPI.
+        window.Position = overlay.Position;
         window.Accepted += text => onAccept(text);
         // The window's own Opened handler (subscribed first) applies the UI-scale
         // LayoutTransform, which only changes Bounds on the NEXT layout pass — so the
@@ -1255,10 +1272,11 @@ public sealed class OverlayController : IDisposable
         // Settle any pending layout first: the UI-scale LayoutTransform applied on open
         // invalidates measure, and Bounds only reflects it after a layout pass.
         window.UpdateLayout();
-        var scaling = window.DesktopScaling;
+        var scaling = StatusPanel.CurrentWindowScale(window);
         var widthPx = (int)Math.Ceiling(Math.Max(window.Bounds.Width, 300) * scaling);
         var heightPx = (int)Math.Ceiling(Math.Max(window.Bounds.Height, 200) * scaling);
-        var overlayWidthPx = (int)Math.Ceiling(overlay.Bounds.Width * scaling);
+        var overlayWidthPx = (int)Math.Ceiling(
+            overlay.Bounds.Width * StatusPanel.CurrentWindowScale(overlay));
         var x = overlay.Position.X + Math.Max(0, (overlayWidthPx - widthPx) / 2);
         var screen = overlay.Screens.ScreenFromWindow(overlay);
         var y = overlay.Position.Y;
@@ -1436,7 +1454,7 @@ public sealed class OverlayController : IDisposable
         // The header's real bottom edge, not a height to add: the sheet is a
         // topmost window rather than a registered appbar, so the screen's working
         // area does not account for it.
-        panel.DockBelowHeader(_overlay?.HeaderBottomScreenY ?? 0);
+        panel.DockBelowHeader(_overlay?.HeaderBottomScreenY ?? 0, _overlay?.RightScreenX ?? 0);
         panel.Activate();
     }
 
@@ -1522,7 +1540,7 @@ public sealed class OverlayController : IDisposable
             _overlay?.Activate();
         };
         panel.Show();
-        panel.DockBelowHeader(_overlay?.HeaderBottomScreenY ?? 0);
+        panel.DockBelowHeader(_overlay?.HeaderBottomScreenY ?? 0, _overlay?.RightScreenX ?? 0);
         panel.Activate();
     }
 
@@ -1608,7 +1626,7 @@ public sealed class OverlayController : IDisposable
             _overlay?.Activate();
         };
         panel.Show();
-        panel.DockBelowHeader(_overlay?.HeaderBottomScreenY ?? 0);
+        panel.DockBelowHeader(_overlay?.HeaderBottomScreenY ?? 0, _overlay?.RightScreenX ?? 0);
         panel.Activate();
     }
 

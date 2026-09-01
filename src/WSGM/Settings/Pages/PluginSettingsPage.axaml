@@ -55,9 +55,13 @@
                 </Border>
                 <Border Classes="setting-row alt" IsVisible="{Binding HasSelectedDeviceProfile}">
                     <StackPanel Spacing="8">
-                        <TextBox Text="{Binding SelectedDeviceProfile.Name}"
-                                 MaxLength="48"
-                                 PlaceholderText="Profile name" />
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                            <TextBox Text="{Binding SelectedDeviceProfile.Name}"
+                                     MaxLength="48"
+                                     PlaceholderText="Profile name" />
+                            <Button Grid.Column="1" Content="Edit" Click="OnEditProfileName"
+                                    AutomationProperties.Name="Edit profile name with controller" />
+                        </Grid>
                         <c:CurveEditor x:Name="ProfileCurve"
                                        Height="220"
                                        IsVisible="{Binding SelectedDeviceProfile.IsCurveProfile}"
@@ -66,10 +70,16 @@
                                    TextWrapping="Wrap"
                                    IsVisible="{Binding SelectedDeviceProfile.IsCurveProfile}"
                                    Text="Drag a point to move it, tap the plot to add one, Delete to remove the selected point. The device checks the curve against its own limits when the profile is applied." />
-                        <ColorPicker x:Name="ProfileColor"
-                                     HorizontalAlignment="Left"
-                                     IsVisible="{Binding SelectedDeviceProfile.IsColorProfile}"
-                                     Color="{Binding SelectedDeviceProfile.PickerColor, Mode=TwoWay}" />
+                        <StackPanel Orientation="Horizontal" Spacing="8"
+                                    IsVisible="{Binding SelectedDeviceProfile.IsColorProfile}">
+                            <ColorPicker x:Name="ProfileColor"
+                                         HorizontalAlignment="Left"
+                                         Color="{Binding SelectedDeviceProfile.PickerColor, Mode=TwoWay}" />
+                            <TextBlock Text="{Binding SelectedDeviceProfile.ColorHex}"
+                                       Classes="caption" VerticalAlignment="Center" />
+                            <Button Content="Edit colour" Click="OnEditProfileColor"
+                                    AutomationProperties.Name="Edit profile color with controller" />
+                        </StackPanel>
                     </StackPanel>
                 </Border>
 
@@ -114,14 +124,27 @@
                                                               MinWidth="180"
                                                               ItemsSource="{Binding Choices}"
                                                               SelectedItem="{Binding SelectedChoice}"
+                                                              DisplayMemberBinding="{Binding Label}"
                                                               IsVisible="{Binding IsChoice}"
                                                               VerticalAlignment="Center" />
-                                                    <TextBox Grid.Column="1"
-                                                             MinWidth="180"
-                                                             MaxLength="{Binding MaximumLength}"
-                                                             Text="{Binding TextValue}"
-                                                             IsVisible="{Binding IsText}"
-                                                             VerticalAlignment="Center" />
+                                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
+                                                                IsVisible="{Binding IsText}">
+                                                        <TextBox MinWidth="180"
+                                                                 MaxLength="{Binding MaximumLength}"
+                                                                 Text="{Binding TextValue}"
+                                                                 VerticalAlignment="Center" />
+                                                        <Button Content="Edit" Click="OnEditPluginText"
+                                                                AutomationProperties.Name="Edit plugin text value with controller" />
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
+                                                                IsVisible="{Binding IsColor}">
+                                                        <ColorPicker Color="{Binding PickerColor, Mode=TwoWay}"
+                                                                     VerticalAlignment="Center" />
+                                                        <TextBlock Text="{Binding ColorHex}" Classes="caption"
+                                                                   VerticalAlignment="Center" />
+                                                        <Button Content="Edit colour" Click="OnEditPluginColor"
+                                                                AutomationProperties.Name="Edit plugin color with controller" />
+                                                    </StackPanel>
                                                 </Grid>
                                             </Border>
                                         </DataTemplate>

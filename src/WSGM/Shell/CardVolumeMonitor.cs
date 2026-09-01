@@ -75,6 +75,9 @@ internal sealed class CardVolumeMonitor : IDisposable
     private readonly Func<bool> _enabled;
     private readonly Func<Task> _afterReconcile;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly CancellationTokenSource _lifetime = new();
+    private readonly object _lifetimeGate = new();
+    private readonly HashSet<Task> _activePasses = [];
 
     /// <summary>Library paths seen as live removable cards this session, normalized
     /// key to the path as it was discovered. Only touched inside a reconcile pass,
@@ -147,30 +150,82 @@ internal sealed class CardVolumeMonitor : IDisposable
     /// </summary>
     private void Schedule()
     {
-        _settle ??= new Timer(_ => _ = RunPassAsync(), null, Timeout.Infinite, Timeout.Infinite);
-        _settle.Change(SettleDelay, Timeout.InfiniteTimeSpan);
+        lock (_lifetimeGate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _settle ??= new Timer(_ => StartPass(), null, Timeout.Infinite, Timeout.Infinite);
+            _settle.Change(SettleDelay, Timeout.InfiniteTimeSpan);
+        }
     }
 
-    private async Task RunPassAsync()
+    private void StartPass()
     {
-        if (_disposed || !_enabled() || !Steam.IsRunning)
+        Task pass;
+        lock (_lifetimeGate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            pass = RunPassAsync(_lifetime.Token);
+            _activePasses.Add(pass);
+        }
+
+        _ = pass.ContinueWith(
+            completed => CompletePass(completed),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private void CompletePass(Task pass)
+    {
+        if (pass.Exception is { } failure)
+        {
+            Log.Warn($"Card volumes: reconcile worker failed during teardown: {failure.GetBaseException().Message}");
+        }
+
+        lock (_lifetimeGate)
+        {
+            _activePasses.Remove(pass);
+            if (_disposed && _activePasses.Count == 0)
+            {
+                _gate.Dispose();
+                _lifetime.Dispose();
+            }
+        }
+    }
+
+    private async Task RunPassAsync(CancellationToken lifetimeToken)
+    {
+        if (lifetimeToken.IsCancellationRequested || !_enabled() || !Steam.IsRunning)
         {
             return;
         }
         // One pass at a time. A second card arriving mid-pass simply waits; the scan
         // is cheap and the state it reads is whatever is true when it runs.
-        if (!await _gate.WaitAsync(TimeSpan.Zero).ConfigureAwait(false))
+        if (!await _gate.WaitAsync(TimeSpan.Zero, lifetimeToken).ConfigureAwait(false))
         {
             return;
         }
         try
         {
-            using var timeout = new CancellationTokenSource(PassTimeout);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetimeToken);
+            timeout.CancelAfter(PassTimeout);
             var changed = await ReconcileAsync(timeout.Token).ConfigureAwait(false);
             if (changed)
             {
                 await _afterReconcile().ConfigureAwait(false);
             }
+        }
+        catch (OperationCanceledException) when (lifetimeToken.IsCancellationRequested)
+        {
+            Log.Info("Card volumes: reconcile canceled during monitor shutdown.");
         }
         catch (OperationCanceledException)
         {
@@ -441,15 +496,23 @@ internal sealed class CardVolumeMonitor : IDisposable
     /// <summary>Unsubscribes and stops reacting to volume notifications.</summary>
     public void Dispose()
     {
-        if (_disposed)
+        lock (_lifetimeGate)
         {
-            return;
+            if (_disposed)
+            {
+                return;
+            }
+            _disposed = true;
+            _settle?.Dispose();
+            _settle = null;
+            _lifetime.Cancel();
+            if (_activePasses.Count == 0)
+            {
+                _gate.Dispose();
+                _lifetime.Dispose();
+            }
         }
-        _disposed = true;
         _window.VolumeChanged -= OnVolumeChanged;
         _window.DeregisterVolumeNotifications();
-        _settle?.Dispose();
-        _settle = null;
-        _gate.Dispose();
     }
 }

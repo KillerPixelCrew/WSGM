@@ -115,8 +115,9 @@ public partial class RadioWindow : Window
     /// DPI-scaled.</summary>
     /// <param name="anchorBottom">The bar's top edge in physical screen pixels, or
     /// 0 when it is not on screen.</param>
-    internal void DockBelowHeader(int anchorBottom) => StatusPanel.DockBelowHeader(
-        this, RootScale, _uiScale, BaseWidth, BaseHeight, anchorBottom, "Radio");
+    /// <param name="anchorRight">The bar's right edge in physical screen pixels, or 0.</param>
+    internal void DockBelowHeader(int anchorBottom, int anchorRight) => StatusPanel.DockBelowHeader(
+        this, RootScale, _uiScale, BaseWidth, BaseHeight, anchorBottom, anchorRight, "Radio");
 
     /// <summary>Scrolls a newly focused row (or its action button) into the
     /// viewport. A no-op when it is already fully visible.</summary>
@@ -164,30 +165,32 @@ public partial class RadioWindow : Window
         _applyingSwitch = false;
     }
 
-    // These handlers sit at an async-void UI boundary. A Windows radio or audio
-    // failure must be observed here so one unavailable device cannot terminate
-    // the shell process.
-    private static async Task RunRadioActionAsync(Task action, string operation)
+    // Invoke inside the try as well as awaiting inside it: WinRT-backed methods
+    // can fail synchronously before they return a Task.
+    private async Task RunRadioActionAsync(Func<Task> action, string operation)
     {
         try
         {
-            await action;
+            await action();
         }
         catch (Exception ex)
         {
             Log.Warn($"Radio panel {operation} failed: {ex.Message}");
+            _radios.ReportStatus($"{operation} failed: {ex.Message}");
         }
     }
 
-    private async void OnRadioSwitchToggled(object? sender, RoutedEventArgs e)
+    private void OnRadioSwitchToggled(object? sender, RoutedEventArgs e)
     {
         if (_applyingSwitch)
         {
             return;
         }
         var on = RadioSwitch.IsChecked == true;
-        await RunRadioActionAsync(_radios.SetRadioAsync(OnBluetoothTab, on),
-            $"{(OnBluetoothTab ? "Bluetooth" : "Wi-Fi")} power {(on ? "on" : "off")}");
+        var bluetooth = OnBluetoothTab;
+        _ = RunRadioActionAsync(
+            () => _radios.SetRadioAsync(bluetooth, on),
+            $"{(bluetooth ? "Bluetooth" : "Wi-Fi")} power {(on ? "on" : "off")}");
     }
 
     /// <summary>Selecting a network reveals its actions. It never connects or
@@ -205,7 +208,7 @@ public partial class RadioWindow : Window
         }
     }
 
-    private async void OnNetworkAction(object? sender, RoutedEventArgs e)
+    private void OnNetworkAction(object? sender, RoutedEventArgs e)
     {
         if ((sender as Control)?.DataContext is not WifiNetworkEntry entry)
         {
@@ -213,7 +216,7 @@ public partial class RadioWindow : Window
         }
         if (entry.Connected)
         {
-            await RunRadioActionAsync(_radios.DisconnectAsync(), "Wi-Fi disconnect");
+            _ = RunRadioActionAsync(() => _radios.DisconnectAsync(), "Wi-Fi disconnect");
             return;
         }
         if (entry.Security == WifiSecurity.Enterprise)
@@ -221,6 +224,9 @@ public partial class RadioWindow : Window
             // 802.1X needs an EAP profile and a credential flow this panel has no
             // business guessing at; say so rather than failing obscurely later.
             Log.Info($"Wi-Fi connect: {entry.Ssid} skipped, enterprise networks are not supported.");
+            _radios.ReportStatus(
+                $"{entry.Ssid} uses enterprise Wi-Fi, which this panel cannot configure. "
+                + "Connect from Windows Settings in desktop mode.");
             return;
         }
         if (entry.NeedsPassword)
@@ -229,15 +235,16 @@ public partial class RadioWindow : Window
             ShowPrompt(PromptMode.WifiPassword, $"Connect to {entry.Ssid}", "Enter the network password.");
             return;
         }
-        await RunRadioActionAsync(_radios.ConnectAsync(entry.Ssid, null),
+        _ = RunRadioActionAsync(
+            () => _radios.ConnectAsync(entry.Ssid, null),
             $"Wi-Fi connect to {entry.Ssid}");
     }
 
-    private async void OnNetworkForget(object? sender, RoutedEventArgs e)
+    private void OnNetworkForget(object? sender, RoutedEventArgs e)
     {
         if ((sender as Control)?.DataContext is WifiNetworkEntry entry)
         {
-            await RunRadioActionAsync(_radios.ForgetAsync(entry.Ssid),
+            _ = RunRadioActionAsync(() => _radios.ForgetAsync(entry.Ssid),
                 $"Wi-Fi forget {entry.Ssid}");
         }
     }
@@ -257,7 +264,7 @@ public partial class RadioWindow : Window
     /// <summary>The primary action: pair a stranger, or soft-connect/disconnect
     /// a paired audio device. Never unpairs — that is the Remove button's job,
     /// so a tap meant as "disconnect" can never destroy the pairing.</summary>
-    private async void OnDeviceAction(object? sender, RoutedEventArgs e)
+    private void OnDeviceAction(object? sender, RoutedEventArgs e)
     {
         if ((sender as Control)?.DataContext is not BluetoothDeviceEntry entry || entry.Busy)
         {
@@ -265,22 +272,26 @@ public partial class RadioWindow : Window
         }
         if (!entry.Paired)
         {
-            _radios.BeginPairing(entry);
+            _ = RunRadioActionAsync(() =>
+            {
+                _radios.BeginPairing(entry);
+                return Task.CompletedTask;
+            }, $"Bluetooth pairing for {entry.Name}");
             return;
         }
         if (entry.AudioConnectable)
         {
-            await RunRadioActionAsync(
-                _radios.SetAudioConnectionAsync(entry, connect: !entry.AudioActive),
+            _ = RunRadioActionAsync(
+                () => _radios.SetAudioConnectionAsync(entry, connect: !entry.AudioActive),
                 $"Bluetooth audio {(entry.AudioActive ? "disconnect" : "connect")} for {entry.Name}");
         }
     }
 
-    private async void OnDeviceRemove(object? sender, RoutedEventArgs e)
+    private void OnDeviceRemove(object? sender, RoutedEventArgs e)
     {
         if ((sender as Control)?.DataContext is BluetoothDeviceEntry { Busy: false } entry)
         {
-            await RunRadioActionAsync(_radios.UnpairAsync(entry), $"Bluetooth unpair {entry.Name}");
+            _ = RunRadioActionAsync(() => _radios.UnpairAsync(entry), $"Bluetooth unpair {entry.Name}");
         }
     }
 
@@ -367,7 +378,7 @@ public partial class RadioWindow : Window
         ShowTab(Tabs.SelectedIndex);
     }
 
-    private async void OnPromptAccept(object? sender, RoutedEventArgs e)
+    private void OnPromptAccept(object? sender, RoutedEventArgs e)
     {
         var mode = _prompt;
         var text = PromptInput.Text ?? "";
@@ -385,7 +396,7 @@ public partial class RadioWindow : Window
         switch (mode)
         {
             case PromptMode.WifiPassword:
-                await RunRadioActionAsync(_radios.ConnectAsync(ssid, text),
+                _ = RunRadioActionAsync(() => _radios.ConnectAsync(ssid, text),
                     $"Wi-Fi connect to {ssid}");
                 break;
             case PromptMode.PairingPin:

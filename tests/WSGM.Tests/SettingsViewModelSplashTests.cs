@@ -146,7 +146,7 @@ public sealed class SettingsViewModelSplashTests
 
     // --- The failed-promotion repair step ---
     // Deliberately exercised through the pure repair method and the injected save
-    // delegate: SaveMerged's own restore path used to end in an embedded
+    // delegate: the save transaction's restore path used to end in an embedded
     // ConfigStore.Save, so testing it at all meant overwriting the developer's real
     // %LOCALAPPDATA%\WSGM\config.json. Nothing below touches the file system.
 

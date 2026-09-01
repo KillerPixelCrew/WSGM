@@ -198,6 +198,12 @@ targets: X360 maps the standard buttons, byte triggers and signed sticks; DS4 ad
 touch contacts, gyro and acceleration. The shell never installs or repairs a driver at runtime.
 `third_party/controller/viiper/README.md` records the live-device evidence and exact pins.
 
+The optional installer task owns initial usbip-win2/HidHide installation. Its USB/IP helper remains
+nonfatal, but publishes an atomic bounded status under `%ProgramData%\WSGM`; setup reads that status
+instead of treating exit code zero as proof that the signed driver registered. A new installation
+requests a reboot, an already-present driver does not, and a failed, newer-unreviewed, missing, or
+malformed result is shown without rolling back WSGM itself.
+
 A target replacement also owns the usbip-win2 client attachment, not just VIIPER's server-side
 device. Attach records the driver-assigned port and removal issues `IOCTL_PLUGOUT_HARDWARE` for that
 port before deleting the server device; otherwise the closed old stream remains as a stale Windows

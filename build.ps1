@@ -11,10 +11,21 @@ if ($csproj -notmatch '<Version>([^<]+)</Version>') { throw "No <Version> found 
 $version = $Matches[1]
 
 # This check rebuilds the asset from its TypeScript source and compares, so stale generated Steam
-# UI code fails immediately. Run before the native toolchains for that reason.
-Write-Host "== Validating release inputs ==" -ForegroundColor Cyan
-npm run steam-assets:check
-if ($LASTEXITCODE -ne 0) { throw "Steam UI asset drift check failed" }
+# UI code fails immediately. Install exactly the dependency graph in package-lock.json first: a
+# release build must work from a clean checkout and must not reuse an unreviewed node_modules tree.
+Write-Host "== Restoring locked Node.js tools ==" -ForegroundColor Cyan
+Push-Location $root
+try {
+    npm ci --ignore-scripts --no-audit --no-fund
+    if ($LASTEXITCODE -ne 0) { throw "npm ci failed" }
+
+    Write-Host "== Validating release inputs ==" -ForegroundColor Cyan
+    npm run steam-assets:check
+    if ($LASTEXITCODE -ne 0) { throw "Steam UI asset drift check failed" }
+}
+finally {
+    Pop-Location
+}
 
 # The Steam Input gate is built from the source in native\SteamInput on every
 # release build, so a shipped installer can never carry a gate older than the

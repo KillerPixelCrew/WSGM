@@ -57,7 +57,7 @@ public partial class KeyboardWindow : Window
 
     private void ApplyScale()
     {
-        var factor = Math.Clamp(_uiScale / DesktopScaling, 1.0, 3.0);
+        var factor = Math.Clamp(_uiScale / StatusPanel.CurrentWindowScale(this), 1.0, 3.0);
         if (Math.Abs(factor - 1.0) >= 0.01)
         {
             RootScale.LayoutTransform = new ScaleTransform(factor, factor);

@@ -1,4 +1,6 @@
 using System;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Input;
 
 namespace WSGM.Core;
@@ -30,6 +32,51 @@ public sealed class RelayCommand : ICommand
     /// <summary>Invokes the captured action. The <paramref name="parameter"/> is ignored.</summary>
     /// <param name="parameter">Unused; parameterless commands take no argument.</param>
     public void Execute(object? parameter) => _execute();
+}
+
+/// <summary>An asynchronous command that disables itself while its operation is running and
+/// observes every failure at the unavoidable async-void <see cref="ICommand.Execute"/> boundary.</summary>
+public sealed class AsyncRelayCommand : ICommand
+{
+    private readonly Func<Task> _execute;
+    private int _running;
+
+    /// <summary>Creates a serialized asynchronous command.</summary>
+    public AsyncRelayCommand(Func<Task> execute) =>
+        _execute = execute ?? throw new ArgumentNullException(nameof(execute));
+
+    /// <inheritdoc />
+    public event EventHandler? CanExecuteChanged;
+
+    /// <inheritdoc />
+    public bool CanExecute(object? parameter) => Volatile.Read(ref _running) == 0;
+
+    /// <inheritdoc />
+    public async void Execute(object? parameter)
+    {
+        if (Interlocked.CompareExchange(ref _running, 1, 0) != 0)
+        {
+            return;
+        }
+
+        CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+        try
+        {
+            await _execute();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // A command implementation should normally report its own user-facing
+            // failure. This last boundary guarantees a forgotten catch never tears
+            // down Avalonia or becomes an unobserved Task.
+            Log.Error("Asynchronous command failed", ex);
+        }
+        finally
+        {
+            Volatile.Write(ref _running, 0);
+            CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
 }
 
 /// <summary>The typed-parameter companion of <see cref="RelayCommand"/>: the

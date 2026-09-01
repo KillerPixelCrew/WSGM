@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Data.Converters;
 using Avalonia.Interactivity;
@@ -126,8 +127,8 @@ public partial class AppearancePage : UserControl
             };
             var button = new Button
             {
-                Width = 34,
-                Height = 34,
+                Width = 44,
+                Height = 44,
                 Padding = new Thickness(0),
                 CornerRadius = new CornerRadius(4),
                 // Local value, so the shared :pointerover style can't wash it out.
@@ -138,6 +139,7 @@ public partial class AppearancePage : UserControl
                 Tag = hex,
             };
             ToolTip.SetTip(button, hex);
+            AutomationProperties.SetName(button, $"Use accent color {hex}");
             button.Click += OnSwatchClick;
             _swatches.Add((button, color, check));
             SwatchPanel.Children.Add(button);
@@ -372,7 +374,10 @@ public partial class AppearancePage : UserControl
 
     /// <summary>One picker for both image slots, keyed by the button's Tag
     /// ("Logo" or "Background").</summary>
-    private async void OnBrowseImage(object? sender, RoutedEventArgs e)
+    private void OnBrowseImage(object? sender, RoutedEventArgs e) =>
+        ObservePageAction(() => BrowseImageAsync(sender), "Image picker");
+
+    private async Task BrowseImageAsync(object? sender)
     {
         var logo = (sender as Button)?.Tag as string == "Logo";
         if (_viewModel is not null
@@ -442,7 +447,10 @@ public partial class AppearancePage : UserControl
         }
     }
 
-    private async void OnExportSplash(object? sender, RoutedEventArgs e)
+    private void OnExportSplash(object? sender, RoutedEventArgs e) =>
+        ObservePageAction(() => ExportSplashAsync(sender), "Splash export");
+
+    private async Task ExportSplashAsync(object? sender)
     {
         if (_viewModel is null || TopLevel.GetTopLevel(this) is not { } topLevel)
         {
@@ -474,7 +482,10 @@ public partial class AppearancePage : UserControl
             : "Splash theme export failed — see wsgm.log for details.";
     }
 
-    private async void OnImportSplash(object? sender, RoutedEventArgs e)
+    private void OnImportSplash(object? sender, RoutedEventArgs e) =>
+        ObservePageAction(() => ImportSplashAsync(sender), "Splash import");
+
+    private async Task ImportSplashAsync(object? sender)
     {
         if (_viewModel is null || TopLevel.GetTopLevel(this) is not { } topLevel)
         {
@@ -509,6 +520,65 @@ public partial class AppearancePage : UserControl
         }
         _viewModel.LoadSplash(imported);
         _viewModel.StatusText = "Splash theme imported — Save changes to keep it.";
+    }
+
+    /// <summary>Opens the controller keyboard for one of the otherwise skipped text fields.</summary>
+    private void OnEditTextWithController(object? sender, RoutedEventArgs e)
+    {
+        if (TopLevel.GetTopLevel(this) is not SettingsWindow window)
+        {
+            return;
+        }
+
+        switch ((sender as Button)?.Tag as string)
+        {
+            case "Accent":
+                window.ShowOnScreenKeyboard(AccentHexBox, "Accent color");
+                break;
+            case "Title":
+                window.ShowOnScreenKeyboard(SplashTitleBox, "Splash title");
+                break;
+            case "Caption":
+                window.ShowOnScreenKeyboard(SplashCaptionBox, "Splash caption");
+                break;
+            case "BackgroundColor":
+                window.ShowOnScreenKeyboard(SplashBackgroundColorBox, "Splash background color");
+                break;
+            case "TextColor":
+                window.ShowOnScreenKeyboard(SplashTextColorBox, "Splash text color");
+                break;
+            case "CaptionColor":
+                window.ShowOnScreenKeyboard(SplashCaptionColorBox, "Splash caption color");
+                break;
+            case "SpinnerColor":
+                window.ShowOnScreenKeyboard(SplashSpinnerColorBox, "Splash spinner color");
+                break;
+        }
+    }
+
+    /// <summary>Observes a page action across both its synchronous invocation and
+    /// asynchronous continuation. File-picker and archive failures therefore stay
+    /// visible in Settings instead of escaping an async-void event boundary.</summary>
+    private void ObservePageAction(Func<Task> action, string operation) =>
+        _ = ObservePageActionAsync(action, operation);
+
+    private async Task ObservePageActionAsync(Func<Task> action, string operation)
+    {
+        try
+        {
+            await action();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Warn($"{operation} failed: {ex.Message}");
+            if (_viewModel is not null)
+            {
+                _viewModel.StatusText = $"{operation} failed: {ex.Message}";
+            }
+        }
     }
 
     /// <summary>Runs one blocking splash-theme archive operation off the UI thread

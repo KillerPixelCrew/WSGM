@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -72,6 +73,7 @@ public partial class SettingsWindow : Window
         _leaseHandoffPending = gameModeSurface;
         InitializeComponent();
         DataContext = _viewModel;
+        _viewModel.PropertyChanged += OnViewModelPropertyChanged;
 
         // The one page table: it drives the tab strip, the visibility toggle and
         // the focus landing alike (the XAML hosts the same pages in this order).
@@ -156,6 +158,7 @@ public partial class SettingsWindow : Window
         Closed += (_, _) =>
         {
             _closed = true;
+            _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
             _gamepad.Stop();
             WindowFinder.ExcludeOwnWindow(_switchableHwnd);
             // _closed makes the lease unwanted; the reconciler releases it.
@@ -260,8 +263,8 @@ public partial class SettingsWindow : Window
         }
         QuickSetupSteamInput.IsChecked = viewModel.SteamInputManagementEnabled;
         QuickSetupCef.IsChecked = viewModel.CefEnabled;
-        SettingsRoot.IsEnabled = false;
         QuickSetupOverlay.IsVisible = true;
+        UpdateSettingsEnabled();
         QuickSetupContinueButton.Focus();
     }
 
@@ -277,7 +280,7 @@ public partial class SettingsWindow : Window
     private void CompleteQuickSetup(bool steamInput, bool cef)
     {
         QuickSetupOverlay.IsVisible = false;
-        SettingsRoot.IsEnabled = true;
+        UpdateSettingsEnabled();
         if (DataContext is not SettingsViewModel viewModel)
         {
             return;
@@ -290,6 +293,20 @@ public partial class SettingsWindow : Window
             $"steamInputManagement={steamInput}, cef={cef}.");
         viewModel.SaveCommand.Execute(null);
     }
+
+    private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(SettingsViewModel.IsSaving))
+        {
+            UpdateSettingsEnabled();
+        }
+    }
+
+    /// <summary>Keeps the page controls inert while either Quick Setup owns input or a
+    /// save is persisting its immutable snapshot. This prevents a post-capture edit
+    /// from being followed by a misleading "Saved" acknowledgement.</summary>
+    private void UpdateSettingsEnabled() =>
+        SettingsRoot.IsEnabled = !_viewModel.IsSaving && !QuickSetupOverlay.IsVisible;
 
     /// <summary>Whether the unsaved glyph selection is the Nintendo family, whose
     /// A/B labels are swapped relative to Xbox — shared by every
@@ -340,16 +357,92 @@ public partial class SettingsWindow : Window
     /// <param name="title">The dialog window title.</param>
     internal void ShowOnScreenKeyboard(TextBox target, string title)
     {
-        var keyboard = new OnScreenKeyboard { Target = target };
+        ArgumentNullException.ThrowIfNull(target);
+        OpenKeyboardEditor(
+            target.Text ?? string.Empty,
+            target.MaxLength,
+            title,
+            value =>
+            {
+                target.Text = value;
+                target.CaretIndex = value.Length;
+                target.SelectionStart = value.Length;
+                target.SelectionEnd = value.Length;
+                return null;
+            });
+    }
+
+    /// <summary>Opens the controller keyboard for a value that has no fixed TextBox,
+    /// such as a row created from a plugin manifest.</summary>
+    /// <param name="initialValue">Initial text shown to the user.</param>
+    /// <param name="maximumLength">Hard input bound.</param>
+    /// <param name="title">Dialog title.</param>
+    /// <param name="accept">Applies the result and returns an error to keep the dialog open, or null.</param>
+    internal void ShowOnScreenKeyboard(
+        string initialValue,
+        int maximumLength,
+        string title,
+        Func<string, string?> accept)
+    {
+        ArgumentNullException.ThrowIfNull(accept);
+        OpenKeyboardEditor(initialValue, Math.Max(1, maximumLength), title, accept);
+    }
+
+    private void OpenKeyboardEditor(
+        string initialValue,
+        int maximumLength,
+        string title,
+        Func<string, string?> accept)
+    {
+        var editor = new TextBox
+        {
+            Text = initialValue ?? string.Empty,
+            MaxLength = Math.Max(0, maximumLength),
+            Margin = new Thickness(12, 12, 12, 0),
+            MinHeight = 44,
+        };
+        editor.CaretIndex = editor.Text?.Length ?? 0;
+        editor.SelectionStart = editor.CaretIndex;
+        editor.SelectionEnd = editor.CaretIndex;
+        var keyboard = new OnScreenKeyboard { Target = editor };
+        var validation = new TextBlock
+        {
+            IsVisible = false,
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+            Margin = new Thickness(12, 8, 12, 0),
+        };
+        var content = new StackPanel();
+        content.Children.Add(editor);
+        content.Children.Add(validation);
+        content.Children.Add(keyboard);
         var window = new Window
         {
             Title = title,
             Width = 760,
-            Height = 430,
+            Height = 460,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Content = keyboard,
+            Content = content,
         };
-        keyboard.Accepted += (_, _) => window.Close();
+        keyboard.Accepted += (_, _) =>
+        {
+            try
+            {
+                string? error = accept(editor.Text ?? string.Empty);
+                if (!string.IsNullOrEmpty(error))
+                {
+                    validation.Text = error;
+                    validation.IsVisible = true;
+                    return;
+                }
+                window.Close();
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Log.Warn($"On-screen keyboard value apply failed: {ex.Message}");
+                validation.Text = $"Could not apply that value: {ex.Message}";
+                validation.IsVisible = true;
+            }
+        };
         GamepadNavigation? keyboardNavigation = null;
         window.Opened += (_, _) =>
         {

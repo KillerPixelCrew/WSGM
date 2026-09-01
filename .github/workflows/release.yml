@@ -24,6 +24,16 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Add Rust clippy component
+        shell: pwsh
+        run: rustup component add clippy
+
       # Derive the version once (v1.2.3 -> 1.2.3). The tag name goes through env,
       # never spliced into script source (script-injection hardening).
       - name: Derive version from tag
@@ -55,6 +65,12 @@ jobs:
           while ($parts.Count -lt 4) { $parts += '0' }
           $mver = $parts -join '.'
           (Get-Content src/WSGM/app.manifest) -replace 'assemblyIdentity version="[^"]*"', "assemblyIdentity version=`"$mver`"" | Set-Content src/WSGM/app.manifest
+
+      # A tag is not allowed to bypass the same source, generated-asset, Rust clippy, build, and
+      # test gate used for ordinary pushes. build.ps1 repeats its release-specific staging checks.
+      - name: Verify release source (including Rust clippy)
+        shell: pwsh
+        run: ./eng/verify.ps1
 
       # windows-latest ships the .NET SDK, native build tools, and Inno Setup 6 —
       # exactly what build.ps1 expects locally.

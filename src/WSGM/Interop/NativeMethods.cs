@@ -22,6 +22,12 @@ internal static partial class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool PostMessageW(nint hWnd, uint msg, nint wParam, nint lParam);
 
+    /// <summary>Returns the effective DPI for the monitor currently containing
+    /// <paramref name="hWnd"/>. Unlike a cached screen descriptor, this reflects
+    /// a window that has just crossed onto another monitor.</summary>
+    [LibraryImport("user32.dll")]
+    internal static partial uint GetDpiForWindow(nint hWnd);
+
     // ---- Input-desktop readiness (Core\InputDesktop) ----
     [LibraryImport("user32.dll", SetLastError = true)]
     internal static partial nint OpenInputDesktop(uint dwFlags, [MarshalAs(UnmanagedType.Bool)] bool fInherit, uint dwDesiredAccess);
@@ -314,6 +320,19 @@ internal static partial class NativeMethods
 
     [LibraryImport("user32.dll")]
     internal static partial nint GetForegroundWindow();
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeRect
+    {
+        internal int Left;
+        internal int Top;
+        internal int Right;
+        internal int Bottom;
+    }
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetWindowRect(nint hWnd, out NativeRect rect);
 
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

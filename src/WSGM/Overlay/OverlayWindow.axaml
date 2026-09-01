@@ -67,6 +67,7 @@
                                         <Button Classes="pill tray"
                                                 Click="OnTrayClick"
                                                 PointerReleased="OnTrayPointerReleased"
+                                                AutomationProperties.Name="{Binding Tip}"
                                                 ToolTip.Tip="{Binding Tip}">
                                             <Image Source="{Binding Image}" Width="18" Height="18" />
                                         </Button>
@@ -87,6 +88,7 @@
                                  same rule as Explorer's Safely Remove Hardware icon. -->
                             <Button x:Name="EjectButton"
                                     Classes="pill"
+                                    AutomationProperties.Name="Safely remove hardware"
                                     ToolTip.Tip="Safely remove hardware"
                                     IsVisible="{Binding Drives.HasDrives}"
                                     Click="OnEjectTileClicked">
@@ -94,12 +96,14 @@
                             </Button>
                             <Button x:Name="AudioButton"
                                     Classes="pill"
+                                    AutomationProperties.Name="Audio settings"
                                     ToolTip.Tip="{Binding Audio.VolumeText}"
                                     Click="OnAudioTileClicked">
                                 <Path Classes="status-icon" Data="{x:Static c:Icons.Volume}" Width="18" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Center" />
                             </Button>
                             <Button x:Name="WifiButton"
                                     Classes="pill"
+                                    AutomationProperties.Name="Wi-Fi settings"
                                     ToolTip.Tip="Wi-Fi"
                                     Click="OnRadioTileClicked"
                                     Tag="wifi">
@@ -116,6 +120,7 @@
                             </Button>
                             <Button x:Name="BluetoothButton"
                                     Classes="pill"
+                                    AutomationProperties.Name="Bluetooth settings"
                                     ToolTip.Tip="Bluetooth"
                                     Click="OnRadioTileClicked"
                                     Tag="bluetooth">
@@ -140,7 +145,8 @@
                                 <TextBlock Text="{Binding ClockText}" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
                             </Border>
                         </StackPanel>
-                        <Button x:Name="CloseButton" Classes="pill close" Content="×" Click="OnClose" ToolTip.Tip="Close quick access" Margin="4,0,0,0" />
+                        <Button x:Name="CloseButton" Classes="pill close" Content="×" Click="OnClose"
+                                AutomationProperties.Name="Close quick access" ToolTip.Tip="Close quick access" Margin="4,0,0,0" />
                     </StackPanel>
                 </Grid>
             </Border>

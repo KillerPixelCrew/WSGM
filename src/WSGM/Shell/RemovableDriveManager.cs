@@ -474,6 +474,12 @@ public sealed class RemovableDriveManager : INotifyPropertyChanged, IDisposable
                 StatusText = result.Message;
             }
         }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Warn($"Eject: {entry.Name} failed unexpectedly: {ex.Message}");
+            entry.ResultText = "Eject failed";
+            StatusText = $"Could not eject {entry.Name}: {ex.Message}";
+        }
         finally
         {
             entry.Busy = false;

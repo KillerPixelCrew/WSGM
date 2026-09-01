@@ -39,6 +39,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     private int _refreshing;
     private bool _scanning;
     private bool _accessLogged;
+    private volatile bool _disposed;
 
     /// <summary>Describes a pairing question for the UI to render.</summary>
     /// <param name="Token">Identifies the request when answering.</param>
@@ -252,6 +253,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     /// UI-thread callers only. Idempotent.</summary>
     public void Start()
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         if (_timer is not null)
         {
             return;
@@ -267,7 +269,22 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     /// state.</summary>
     public void Dispose()
     {
+        if (_disposed)
+        {
+            return;
+        }
+        _disposed = true;
         StopScanning();
+        if (_pairingInProgress)
+        {
+            if (_pairingToken != 0)
+            {
+                RespondToPairing(_pairingToken, accept: false, null);
+            }
+            FinishPairing();
+        }
+        PairingRequested = null;
+        PairingFinished = null;
         if (_timer is null)
         {
             return;
@@ -282,6 +299,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     /// looking at, which on a handheld is battery.</summary>
     public void StartScanning()
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         if (_scanning)
         {
             return;
@@ -1157,6 +1175,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
 
     private bool _pairingInProgress;
     private BluetoothDeviceEntry? _pairingEntry;
+    private uint _pairingToken;
 
     /// <summary>Starts pairing a device. Questions arrive on
     /// <see cref="PairingRequested"/> and must be answered with
@@ -1164,6 +1183,7 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
     /// <param name="entry">The device to pair.</param>
     public void BeginPairing(BluetoothDeviceEntry entry)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         if (_pairingInProgress)
         {
             StatusText = "Another pairing is already in progress.";
@@ -1224,15 +1244,27 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             _pairingEntry.Busy = false;
             _pairingEntry = null;
         }
+        _pairingToken = 0;
         _pairingInProgress = false;
     }
 
     private void OnPairingRequested(WindowsRadio.PairingRequest request)
     {
+        _pairingToken = request.Token;
+        if (_disposed)
+        {
+            RespondToPairing(request.Token, accept: false, null);
+            return;
+        }
         Log.Info($"Bluetooth pairing: question received (token {request.Token}, "
             + $"kind {request.Kind}, pin '{request.Pin}') for {request.DeviceName}.");
         Dispatcher.UIThread.Post(() =>
         {
+            if (_disposed)
+            {
+                RespondToPairing(request.Token, accept: false, null);
+                return;
+            }
             var handled = PairingRequested is not null;
             Log.Info($"Bluetooth pairing: prompting the user (token {request.Token}, "
                 + $"handler attached: {handled}).");
@@ -1248,11 +1280,19 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
 
     private void OnPairingDone(WindowsRadio.PairingResult? result, Exception? failure)
     {
+        if (_disposed)
+        {
+            return;
+        }
         var outcome = result?.Outcome;
         var text = failure?.Message
             ?? (result is { } completed ? $"Windows status {completed.RawStatus}" : string.Empty);
         Dispatcher.UIThread.Post(() =>
         {
+            if (_disposed)
+            {
+                return;
+            }
             var entry = _pairingEntry;
             var name = entry?.Name ?? "device";
             // Same reasoning as unpair: apply the outcome we already know rather
@@ -1273,6 +1313,10 @@ public sealed class RadioManager : INotifyPropertyChanged, IDisposable
             PairingFinished?.Invoke(summary);
         });
     }
+
+    /// <summary>Shows a non-transient panel decision that did not reach Windows.</summary>
+    /// <param name="message">Short actionable text for the panel status line.</param>
+    internal void ReportStatus(string message) => StatusText = message;
 
     /// <summary>The message for a finished pairing attempt.</summary>
     /// <param name="outcome">How it ended, or <see langword="null"/> when the attempt threw

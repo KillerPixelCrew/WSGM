@@ -100,6 +100,7 @@ public sealed class DeviceProfileRowViewModel : INotifyPropertyChanged
             _color = bounded;
             Raise(nameof(Color));
             Raise(nameof(PickerColor));
+            Raise(nameof(ColorHex));
         }
     }
 
@@ -108,6 +109,19 @@ public sealed class DeviceProfileRowViewModel : INotifyPropertyChanged
     {
         get => Avalonia.Media.Color.FromUInt32((uint)(0xFF000000 | (_color ?? 0)));
         set => Color = (value.R << 16) | (value.G << 8) | value.B;
+    }
+
+    /// <summary>The authored colour as an editable RGB string.</summary>
+    public string ColorHex
+    {
+        get => $"#{(_color ?? 0):X6}";
+        set
+        {
+            if (Avalonia.Media.Color.TryParse(value, out Avalonia.Media.Color color))
+            {
+                PickerColor = color;
+            }
+        }
     }
 
     /// <summary>Whether this profile authors a colour.</summary>

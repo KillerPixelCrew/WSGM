@@ -37,8 +37,9 @@ public partial class EjectWindow : Window
     /// mechanism as the audio panel).</summary>
     /// <param name="anchorBottom">The bar's top edge in physical screen pixels, or
     /// 0 when it is not on screen.</param>
-    internal void DockBelowHeader(int anchorBottom) => StatusPanel.DockBelowHeader(
-        this, RootScale, _uiScale, BaseWidth, BaseHeight, anchorBottom, "Eject");
+    /// <param name="anchorRight">The bar's right edge in physical screen pixels, or 0.</param>
+    internal void DockBelowHeader(int anchorBottom, int anchorRight) => StatusPanel.DockBelowHeader(
+        this, RootScale, _uiScale, BaseWidth, BaseHeight, anchorBottom, anchorRight, "Eject");
 
     /// <summary>Selecting a row reveals its Eject action. It never ejects on its
     /// own: a stray tap must not pull a mounted game library.</summary>
@@ -54,11 +55,13 @@ public partial class EjectWindow : Window
         }
     }
 
-    private async void OnDriveEject(object? sender, RoutedEventArgs e)
+    private void OnDriveEject(object? sender, RoutedEventArgs e)
     {
         if ((sender as Control)?.DataContext is RemovableDriveEntry entry)
         {
-            await _drives.EjectAsync(entry);
+            // EjectAsync contains the user-visible error boundary. Detach only
+            // after that boundary so no event-handler exception can reach Avalonia.
+            Core.Log.Observe(_drives.EjectAsync(entry), $"eject {entry.Name}");
         }
     }
 

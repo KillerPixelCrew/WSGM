@@ -228,6 +228,10 @@ public static class SteamGridDb
         {
             throw;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             Log.Warn($"SteamGridDB image download failed ({url}): {ex.Message}");
@@ -262,6 +266,10 @@ public static class SteamGridDb
             return document.RootElement.Clone();
         }
         catch (SteamGridDbException)
+        {
+            throw;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
