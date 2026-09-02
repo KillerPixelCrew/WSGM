@@ -83,17 +83,19 @@ public sealed class ControllerDependencyAdapterTests
     }
 
     [Theory]
-    // LRA click intensities are floored onto 0.35..1 because ERM motors do not start below
-    // roughly a third of full drive; zero must stay zero so stop events still stop.
-    [InlineData(64, 0, 0.35f + (0.65f * 64 / 255f))]
-    [InlineData(64, 4, 0.35f + (0.65f * 96 / 255f))]
-    [InlineData(64, -16, 0f)]
+    // The live-captured layout carries a small enum level, not a byte intensity: presses arrive
+    // as level 3, releases as level 2. Levels map onto the range ERM motors can render; zero
+    // must stay zero so stop events still stop.
+    [InlineData(0, 0, 0f)]
+    [InlineData(1, 0, 0.45f)]
+    [InlineData(2, 0, 0.7f)]
+    [InlineData(3, 3, 1f)]
     public void SteamDeckClickHapticBecomesABoundedErmTick(
         byte intensity,
         sbyte gain,
         float expected)
     {
-        byte[] report = [0xEA, 0, 0, 0, intensity, unchecked((byte)gain)];
+        byte[] report = [0xEA, 0x0D, 0, 2, intensity, unchecked((byte)gain)];
 
         DecodedHapticFeedback feedback = Assert.IsType<DecodedHapticFeedback>(
             ViiperControllerBackend.DecodeFeedback(

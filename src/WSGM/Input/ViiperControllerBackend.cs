@@ -446,13 +446,13 @@ internal sealed class ViiperControllerBackend : IHidBackend
             // broken" with no evidence in a pasted log — while unbounded logging here would run
             // at haptic rate. Decoded frames are included so their strengths are inspectable.
             int seen = backend._undecodedFeedback.AddOrUpdate(report[0], 1, (_, n) => n + 1);
-            if (seen <= 4)
+            if (seen <= 8)
             {
                 string outcome = decoded is { } d
                     ? $"decoded low={d.LowFrequency:F3} high={d.HighFrequency:F3} stopAfter={d.StopAfter?.TotalMilliseconds:F0}ms"
                     : "undecoded";
                 Log.Warn(
-                    $"{target.Kind} feedback frame ({seen}/4 shown, {outcome}): length={length}, "
+                    $"{target.Kind} feedback frame ({seen}/8 shown, {outcome}): length={length}, "
                         + $"bytes={Convert.ToHexString(report[..Math.Min(length, 24)])}.");
             }
 
@@ -535,13 +535,20 @@ internal sealed class ViiperControllerBackend : IHidBackend
 
             if (report.Length >= 6 && report[0] == HapticCommandId)
             {
-                // Steam's interaction haptics (button/gyro feedback) arrive here as LRA-grade
-                // clicks — observed live at intensities of 1-10% — and the command carries no
-                // duration. Rendering it as a continuous drive latched the motor at a level the
-                // Claw's ERM hardware cannot even spin up at; each event becomes a bounded tick
-                // instead, floored onto the range the motors physically render.
-                int value = Math.Clamp(report[4] + (unchecked((sbyte)report[5]) * 8), 0, 255);
-                float strength = ErmTickStrength(value);
+                // Steam's interaction haptics (button/gyro feedback). The frames captured live
+                // (`EA 0D side style level gain …`) carry small enum levels, not the legacy
+                // 0..255 intensity: presses arrive as style 2 level 3, releases as style 1
+                // level 2. Scaling the level as a byte made every click near-zero. The level
+                // maps onto the ERM range directly, and the command carries no duration, so each
+                // event becomes a bounded tick — a continuous drive at these levels latched the
+                // motors at a strength they cannot even start at.
+                float strength = report[4] switch
+                {
+                    0 => 0f,
+                    1 => 0.45f,
+                    2 => 0.7f,
+                    _ => 1f,
+                };
                 return strength <= 0f
                     ? new(0f, 0f)
                     : new(strength, strength, TimeSpan.FromMilliseconds(35));
