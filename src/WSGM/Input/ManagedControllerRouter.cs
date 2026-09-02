@@ -199,6 +199,19 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
                 }
 
                 HapticOutputFrame frame = _sink.Capabilities.Clamp(output.Frame);
+                TimeSpan? stopAfter = output.StopAfter;
+                if (stopAfter is not null && !frame.IsSilent)
+                {
+                    // Bounded haptic events carry protocol intent (an LRA-grade click can be one
+                    // millisecond at one percent); the plugin's declared motor physics decide how
+                    // that renders. Continuous rumble envelopes pass through untouched — flooring
+                    // them would make every quiet scene buzz.
+                    frame = FloorForMotors(frame, _sink.Capabilities.MinimumStartIntensity);
+                    if (_sink.Capabilities.MinimumPulse > stopAfter)
+                    {
+                        stopAfter = _sink.Capabilities.MinimumPulse;
+                    }
+                }
                 int framesPerSecond = Math.Clamp(_sink.Capabilities.MaxFramesPerSecond, 1, 1000);
                 TimeSpan minimumInterval = TimeSpan.FromSeconds(1d / framesPerSecond);
                 if (_lastDispatchTimestamp != 0)
@@ -242,7 +255,7 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
                     {
                         firstOutput = !_outputObserved;
                         _outputObserved = true;
-                        SchedulePulseStopUnderGate(output, target, routeGeneration);
+                        SchedulePulseStopUnderGate(stopAfter, target, routeGeneration);
                     }
 
                     if (firstOutput)
@@ -290,6 +303,31 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
             && (output.StopAfter is null || output.StopAfter > TimeSpan.Zero);
     }
 
+    /// <summary>Maps a bounded event's nonzero channels onto the range the motors can start at.</summary>
+    /// <param name="frame">The event frame after channel clamping.</param>
+    /// <param name="minimumStartIntensity">The plugin-declared motor floor; zero passes through.</param>
+    /// <returns>The frame with each nonzero channel compressed onto floor..1.</returns>
+    /// <remarks>Zero channels stay zero so stop events still stop.</remarks>
+    internal static HapticOutputFrame FloorForMotors(
+        HapticOutputFrame frame,
+        float minimumStartIntensity)
+    {
+        if (minimumStartIntensity <= 0f)
+        {
+            return frame;
+        }
+
+        float floor = Math.Min(1f, minimumStartIntensity);
+        float Map(float value) => value <= 0f ? 0f : floor + ((1f - floor) * Math.Min(1f, value));
+        return frame with
+        {
+            LowFrequency = Map(frame.LowFrequency),
+            HighFrequency = Map(frame.HighFrequency),
+            LeftTrigger = Map(frame.LeftTrigger),
+            RightTrigger = Map(frame.RightTrigger),
+        };
+    }
+
     private bool MatchesRouteUnderGate(HidTargetOutput output) =>
         _target is { } target
         && output.Frame.TargetGeneration == target.Generation
@@ -304,12 +342,12 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
     }
 
     private void SchedulePulseStopUnderGate(
-        HidTargetOutput output,
+        TimeSpan? pulseStop,
         HidTargetHandle target,
         long routeGeneration)
     {
         CancelPulseStopUnderGate();
-        if (output.StopAfter is not { } stopAfter)
+        if (pulseStop is not { } stopAfter)
         {
             return;
         }

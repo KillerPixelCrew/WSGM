@@ -523,13 +523,12 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 // Steam-private haptic event (0xDC), observed from Steam's own rumble paths on
                 // Windows where ID_TRIGGER_RUMBLE_CMD never arrives: length 2, then what the
                 // SC2-generation protocol documents as side and command (0 stop, 1 click,
-                // 2 strong click). Rendered as a symmetric pulse long enough for the Claw's ERM
-                // motors, which need tens of milliseconds just to spin up — an LRA-length click
-                // is imperceptible on them.
+                // 2 strong click). Protocol intent; the output router renders it against the
+                // plugin's declared motor physics.
                 float strength = report[3] switch
                 {
                     0 => 0f,
-                    1 => 0.7f,
+                    1 => 0.5f,
                     _ => 1f,
                 };
                 return strength <= 0f
@@ -549,17 +548,10 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 // Steam's interaction haptics (button/gyro feedback). The frames captured live
                 // (`EA 0D side style level gain …`) carry small enum levels, not the legacy
                 // 0..255 intensity: presses arrive as style 2 level 3, releases as style 1
-                // level 2. Scaling the level as a byte made every click near-zero. The level
-                // maps onto the ERM range directly, and the command carries no duration, so each
-                // event becomes a bounded tick — a continuous drive at these levels latched the
-                // motors at a strength they cannot even start at.
-                float strength = report[4] switch
-                {
-                    0 => 0f,
-                    1 => 0.45f,
-                    2 => 0.7f,
-                    _ => 1f,
-                };
+                // level 2. Scaling the level as a byte made every click near-zero. This decode
+                // is protocol intent only — level over the enum range as a bounded click — and
+                // the output router renders it against the plugin's declared motor physics.
+                float strength = Math.Min(1f, report[4] / 3f);
                 return strength <= 0f
                     ? new(0f, 0f)
                     : new(strength, strength, TimeSpan.FromMilliseconds(35));
@@ -570,14 +562,14 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 ushort period = BinaryPrimitives.ReadUInt16LittleEndian(report[5..7]);
                 ushort count = BinaryPrimitives.ReadUInt16LittleEndian(report[7..9]);
                 int value = Math.Min(byte.MaxValue, (count * 16) + report[9]);
-                // Steam's gyro tick pulses request one millisecond at sub-percent intensity —
-                // faithful on a voice coil, nonexistent on an ERM motor. Same floor and minimum
-                // window as the click path above.
-                float strength = ErmTickStrength(value);
+                // Protocol intent only: Steam's gyro ticks legitimately request one millisecond
+                // at sub-percent intensity, and whether that is renderable is the plugin's
+                // declared motor physics, applied by the output router.
+                float strength = value / (float)byte.MaxValue;
                 double requestedMilliseconds = Math.Ceiling(period * (long)count / 1000d);
                 TimeSpan stopAfter = TimeSpan.FromMilliseconds(Math.Clamp(
                     requestedMilliseconds,
-                    25,
+                    1,
                     MaxEmulatedPulseDuration.TotalMilliseconds));
                 return strength <= 0f
                     ? new(0f, 0f)
@@ -600,15 +592,6 @@ internal sealed class ViiperControllerBackend : IHidBackend
             _ => null,
         };
     }
-
-    /// <summary>Maps an LRA click intensity onto the strength range ERM motors can render.</summary>
-    /// <remarks>
-    /// Below roughly a third of full drive an ERM motor does not reliably start at all, so the
-    /// 0..255 intensity is compressed onto 0.35..1 rather than scaled linearly; zero stays zero
-    /// so stop events still stop.
-    /// </remarks>
-    private static float ErmTickStrength(int value) =>
-        value <= 0 ? 0f : 0.35f + (0.65f * (value / (float)byte.MaxValue));
 
     private unsafe bool SubmitUnderGate(CanonicalControllerSample sample)
     {

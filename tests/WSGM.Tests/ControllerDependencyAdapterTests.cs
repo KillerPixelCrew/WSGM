@@ -1,4 +1,5 @@
 using WSGM.Core;
+using WSGM.Device.Sdk.Input;
 using WSGM.Input;
 using WSGM.Shell;
 
@@ -84,11 +85,11 @@ public sealed class ControllerDependencyAdapterTests
 
     [Theory]
     // The live-captured layout carries a small enum level, not a byte intensity: presses arrive
-    // as level 3, releases as level 2. Levels map onto the range ERM motors can render; zero
-    // must stay zero so stop events still stop.
+    // as level 3, releases as level 2. The decode is protocol intent — level over the enum
+    // range — and motor-specific rendering happens in the output router, not here.
     [InlineData(0, 0, 0f)]
-    [InlineData(1, 0, 0.45f)]
-    [InlineData(2, 0, 0.7f)]
+    [InlineData(1, 0, 1f / 3f)]
+    [InlineData(2, 0, 2f / 3f)]
     [InlineData(3, 3, 1f)]
     public void SteamDeckClickHapticBecomesABoundedErmTick(
         byte intensity,
@@ -120,10 +121,27 @@ public sealed class ControllerDependencyAdapterTests
                 ManagedControllerTarget.SteamDeckComposite,
                 report));
 
-        Assert.Equal(0.35f + (0.65f * 35 / 255f), feedback.LowFrequency, 5);
+        Assert.Equal(35 / 255f, feedback.LowFrequency, 5);
         Assert.Equal(feedback.LowFrequency, feedback.HighFrequency);
-        // The requested two milliseconds are stretched to the ERM spin-up minimum.
-        Assert.Equal(TimeSpan.FromMilliseconds(25), feedback.StopAfter);
+        Assert.Equal(TimeSpan.FromMilliseconds(2), feedback.StopAfter);
+    }
+
+    [Fact]
+    public void MotorFloorCompressesEventChannelsAndKeepsZeroSilent()
+    {
+        HapticOutputFrame frame = new()
+        {
+            TargetGeneration = 1,
+            Timestamp = DateTimeOffset.UnixEpoch,
+            LowFrequency = 0.008f,
+            HighFrequency = 0f,
+        };
+
+        HapticOutputFrame floored = ControllerOutputRouter.FloorForMotors(frame, 0.35f);
+
+        Assert.Equal(0.35f + (0.65f * 0.008f), floored.LowFrequency, 5);
+        Assert.Equal(0f, floored.HighFrequency);
+        Assert.Same(frame, ControllerOutputRouter.FloorForMotors(frame, 0f));
     }
 
     [Fact]
