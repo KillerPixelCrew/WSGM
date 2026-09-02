@@ -170,6 +170,15 @@ internal static class SteamDeckNeptuneReport
                 destination[28..30],
                 ScaledMotion(motion.AccelY, AccelCountsPerG));
         }
+        else if (motion.HasGyro)
+        {
+            // EXPERIMENT (2026-09-02): constant 1g gravity while the device publishes no
+            // accelerometer, to test whether Steam's gyro processing gates on a plausible
+            // gravity vector. Not shippable — a fixed vector misreports every orientation.
+            BinaryPrimitives.WriteInt16LittleEndian(
+                destination[28..30],
+                ScaledMotion(1f, AccelCountsPerG));
+        }
 
         if (motion.HasGyro)
         {
