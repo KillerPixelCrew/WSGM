@@ -37,7 +37,8 @@ internal sealed record HidTargetHandle(
 
 internal sealed record HidTargetOutput(
     HapticOutputFrame Frame,
-    ManagedControllerTarget SourceKind);
+    ManagedControllerTarget SourceKind,
+    TimeSpan? StopAfter = null);
 
 internal interface IHidBackend : IAsyncDisposable
 {

@@ -43,8 +43,11 @@ internal sealed class ViiperControllerBackend : IHidBackend
         ManagedControllerTarget.DualShock4,
     ];
 
-    /// <summary>Rumble command identifier in the Deck's feedback report.</summary>
+    /// <summary>Steam haptic command identifiers in the Deck's feedback report.</summary>
+    private const byte HapticPulseCommandId = 0x8F;
+    private const byte HapticCommandId = 0xEA;
     private const byte RumbleCommandId = 0xEB;
+    private static readonly TimeSpan MaxEmulatedPulseDuration = TimeSpan.FromSeconds(5);
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private GCHandle _self;
@@ -428,7 +431,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
 
             HidTargetHandle? target = Volatile.Read(ref backend._target);
             if (target is null || DecodeFeedback(target.Kind, new ReadOnlySpan<byte>(data, length))
-                is not { } motors)
+                is not { } feedback)
             {
                 return;
             }
@@ -439,11 +442,12 @@ internal sealed class ViiperControllerBackend : IHidBackend
                     new HapticOutputFrame
                     {
                         TargetGeneration = target.Generation,
-                        LowFrequency = motors.LowFrequency,
-                        HighFrequency = motors.HighFrequency,
+                        LowFrequency = feedback.LowFrequency,
+                        HighFrequency = feedback.HighFrequency,
                         Timestamp = DateTimeOffset.UtcNow,
                     },
-                    target.Kind));
+                    target.Kind,
+                    feedback.StopAfter));
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -452,23 +456,66 @@ internal sealed class ViiperControllerBackend : IHidBackend
         }
     }
 
-    /// <summary>Decodes one VIIPER target feedback frame into canonical rumble motors.</summary>
-    internal static (float LowFrequency, float HighFrequency)? DecodeFeedback(
+    /// <summary>Decodes one VIIPER target feedback frame into canonical physical motors.</summary>
+    /// <remarks>
+    /// Steam uses ordinary 16-bit rumble and two trackpad-haptic commands for the Deck target.
+    /// The Claw has ERM motors rather than Deck trackpad actuators, so haptics are represented as
+    /// symmetric motor strength. A pulse also carries the bounded time after which the output
+    /// router must send zero; leaving that timer in the native callback would let an old pulse stop
+    /// a newer route or leave a latched physical motor running during teardown.
+    /// </remarks>
+    internal static DecodedHapticFeedback? DecodeFeedback(
         ManagedControllerTarget kind,
-        ReadOnlySpan<byte> report) => kind switch
+        ReadOnlySpan<byte> report)
+    {
+        if (kind is ManagedControllerTarget.SteamDeckComposite)
         {
-            ManagedControllerTarget.SteamDeckComposite
-                when report.Length >= 9 && report[0] == RumbleCommandId =>
-                (BinaryPrimitives.ReadUInt16LittleEndian(report[5..7]) / (float)ushort.MaxValue,
-                    BinaryPrimitives.ReadUInt16LittleEndian(report[7..9]) / (float)ushort.MaxValue),
-            ManagedControllerTarget.Xbox360 when report.Length >= 2 =>
-                (report[0] / (float)byte.MaxValue, report[1] / (float)byte.MaxValue),
+            if (report.Length >= 9 && report[0] == RumbleCommandId)
+            {
+                return new(
+                    BinaryPrimitives.ReadUInt16LittleEndian(report[5..7])
+                        / (float)ushort.MaxValue,
+                    BinaryPrimitives.ReadUInt16LittleEndian(report[7..9])
+                        / (float)ushort.MaxValue);
+            }
+
+            if (report.Length >= 6 && report[0] == HapticCommandId)
+            {
+                int value = Math.Clamp(report[4] + (unchecked((sbyte)report[5]) * 8), 0, 255);
+                float strength = value / (float)byte.MaxValue;
+                return new(strength, strength);
+            }
+
+            if (report.Length >= 10 && report[0] == HapticPulseCommandId)
+            {
+                ushort period = BinaryPrimitives.ReadUInt16LittleEndian(report[5..7]);
+                ushort count = BinaryPrimitives.ReadUInt16LittleEndian(report[7..9]);
+                int value = Math.Min(byte.MaxValue, (count * 16) + report[9]);
+                float strength = value / (float)byte.MaxValue;
+                double requestedMilliseconds = Math.Ceiling(period * (long)count / 1000d);
+                TimeSpan stopAfter = TimeSpan.FromMilliseconds(Math.Clamp(
+                    requestedMilliseconds,
+                    1,
+                    MaxEmulatedPulseDuration.TotalMilliseconds));
+                return new(strength, strength, stopAfter);
+            }
+
+            return null;
+        }
+
+        return kind switch
+        {
+            ManagedControllerTarget.Xbox360 when report.Length >= 2 => new(
+                report[0] / (float)byte.MaxValue,
+                report[1] / (float)byte.MaxValue),
             // DS4 orders the small/high-frequency motor first and the large/low-frequency motor
             // second, followed by LED and flash state that WSGM deliberately does not own.
-            ManagedControllerTarget.DualShock4 when report.Length >= 7 =>
-                (report[1] / (float)byte.MaxValue, report[0] / (float)byte.MaxValue),
+            ManagedControllerTarget.DualShock4 when report.Length >= 7 => new(
+                report[1] / (float)byte.MaxValue,
+                report[0] / (float)byte.MaxValue),
             _ => null,
         };
+    }
 
     private unsafe bool SubmitUnderGate(CanonicalControllerSample sample)
     {
@@ -586,3 +633,8 @@ internal sealed class ViiperControllerBackend : IHidBackend
         }
     }
 }
+
+internal readonly record struct DecodedHapticFeedback(
+    float LowFrequency,
+    float HighFrequency,
+    TimeSpan? StopAfter = null);

@@ -38,21 +38,20 @@ protected Program Files location, `RTSS.exe` product/version identity, required 
 exports, and running process path all agree. It reads the DLL export table as data instead of
 loading the DLL. A process merely named `RTSS` is never sufficient. `RtssNativeAdapter` then loads
 only that exact architecture-matched, signed DLL by absolute path. It uses the documented profile
-API for `FramerateLimit` and `EnableStat`, saves the selected global/application profile, requests
-running-profile reload, and reads the same properties back. The overlay control exposes Steam's
-five selector notches and **writes no RTSS profile property at all**: `1`–`3` are the fixed
-WSGM-rendered OSD presets with HandheldCompanion's structure (Minimal / Extended / Full,
-`Core\RtssOsd.cs`); `4` is **Custom** — HC's Custom level, one row per widget with the order and
-per-widget detail configured on WSGM's Settings Integration page
-(`PerformanceConfig.OsdCustom*`); `0` renders nothing. The user's own RTSS-side overlays (Overlay
-Editor layouts, own statistics, external feeders) are entirely theirs and simply coexist. Earlier
-same-day shapes mapped levels to `EnableStat` and then `EnableOSD`, and each stamped a USER-owned
-per-app setting into every profile the service targets — the `EnableOSD=0` spray turned off every
-overlay on the device (2026-09-01); the level therefore lives in WSGM's renderer, whose live
-state is the verified readback. On the wire the level is
-Valve's `EGraphicsPerfOverlayLevel` (Hidden=0, Basic=1, Medium=2, Full=3, Minimal=4 — Minimal was
-added last), NOT the notch order; `NativeQamOverlayLevelWire` translates at the QAM boundary in
-both directions, and everything behind it speaks notches.
+API for `FramerateLimit`, saves the selected global/application profile, requests running-profile
+reload, and reads the same property back. The overlay control exposes Steam's five selector notches:
+`1`–`3` are the fixed WSGM-rendered OSD presets with HandheldCompanion's structure (Minimal /
+Extended / Full, `Core\RtssOsd.cs`); `4` is **Custom** — HC's Custom level, one row per widget with
+the order and per-widget detail configured on WSGM's Settings Integration page
+(`PerformanceConfig.OsdCustom*`); `0` renders nothing. The level lives in WSGM's renderer, whose
+live state is the verified readback, but RTSS still requires its separate `EnableOSD` presentation
+gate. Every nonzero apply sets that gate to `1` in the global and current executable profiles before
+publishing the slot. Zero only clears WSGM's slot and never writes `EnableOSD=0`, because that would
+disable the user's other RTSS feeders too — the field regression that turned off every overlay on
+the device on 2026-09-01. On the wire the level is Valve's `EGraphicsPerfOverlayLevel` (Hidden=0,
+Basic=1, Medium=2, Full=3, Minimal=4 — Minimal was added last), NOT the notch order;
+`NativeQamOverlayLevelWire` translates at the QAM boundary in both directions, and everything behind
+it speaks notches.
 
 The shared performance contract already provides:
 
@@ -168,19 +167,33 @@ The numbered overlay levels have the separately verified mapping the previous bi
 (maintainer-directed, 2026-09-01). Levels 1–3 are drawn by WSGM into one claimed RTSS OSD slot:
 `RtssOsdSlots` is a C# port of RTSSSharedMemoryNET's claim/update/release protocol (the library
 HandheldCompanion ships; vendoring its C++/CLI fork was declined again in favor of the port), with
-the header offsets live-verified against RTSS 2.21 on the Claw — OSD array at +96, eight slots,
-slot 0 reserved for RTSS, owner `WSGM` at entry+256, text in `szOSDEx` at entry+512 for 2.7+, the
-2.14+ busy flag taken interlocked around text writes, and `dwOSDFrame` bumped per update. The
-content templates in `RtssOsdContent` are HC's `Overlay/Strategy` structures; `<FR>`/`<FT>` are
-RTSS's own framerate tags. The sensor values come from RTSS's own LibreHardwareMonitor provider
+the header offsets live-verified against RTSS 2.21 on the Claw — OSD array at +96, eight slots, slot
+0 reserved for RTSS, owner `WSGM` at entry+256, text in `szOSDEx` at entry+512 for 2.7+, the 2.14+
+busy flag taken interlocked around text writes, and `dwOSDFrame` bumped per update. The content
+templates in `RtssOsdContent` are HC's `Overlay/Strategy` structures; `<FR>`/`<FT>` are RTSS's own
+framerate tags. The sensor values come from RTSS's own LibreHardwareMonitor provider
 (maintainer-directed, 2026-09-01): `LHMDataProvider.exe` — the Overlay Editor's GUI-less LHM —
 publishes the whole sensor tree as XML in the `LHMDPSharedMemory` mapping under
-`Global\Access_LHMDPSharedMemory`, and `RtssLhmSensors` selects values with HC's sensor-name
-rules (`CPU Total`, `CPU Package` power/temperature, `D3D 3D`, `GPU Power`, the
-dedicated-beats-shared GPU memory order). WSGM starts the provider with `-i` when the mapping is
-absent — it deduplicates itself and is the same process the editor spawns. Samples are cached at
-HC's one-second sensor cadence; the kernel counters (CPU times, memory status) fill anything the
-provider does not publish, and the battery stays kernel-fed because the provider ships with its
-battery section disabled. Entries whose metric has no source simply do not render — HC's own
-degrade rule. Releasing the slot zeroes the whole entry so it returns to the pool; an RTSS
-restart is survived by reopening the mapping and re-claiming on the next tick.
+`Global\Access_LHMDPSharedMemory`, and `RtssLhmSensors` selects values with HC's sensor-name rules
+(`CPU Total`, `CPU Package` power/temperature, `D3D 3D`, `GPU Power`, the dedicated-beats-shared GPU
+memory order). WSGM starts the provider with `-i` when the mapping is absent — it deduplicates
+itself and is the same process the editor spawns. Samples are cached at HC's one-second sensor
+cadence; the kernel counters (CPU times, memory status) fill anything the provider does not publish,
+and the battery stays kernel-fed because the provider ships with its battery section disabled.
+Entries whose metric has no source simply do not render — HC's own degrade rule. Releasing the slot
+zeroes the whole entry so it returns to the pool; an RTSS restart is survived by reopening the
+mapping and re-claiming on the next tick.
+
+The slot is OSD data, not a WSGM-owned desktop window. It becomes visible only inside a rendering
+process RTSS has hooked and whose RTSS profile permits OSD. Handheld Companion has the same hook
+boundary: its `OSDManager` creates an OSD only from RTSS's `Hooked(AppEntry)` notification.
+Therefore `OSD slot claimed and updating` proves only one half of the feature; the profile
+presentation gate must also be open.
+
+The 2026-09-02 report established that `EnableOSD` was disabled globally and in every inspected
+profile until the maintainer repaired it manually. A read taken after that repair showed WSGM's
+nonempty slot plus `ShellHost.exe` and game entries, but could not establish the pre-repair cause
+and must not be described as healthy end-to-end evidence. The missing mechanism was the one-way
+profile activation above. Re-applying a nonzero level through the overlay or QAM now repairs global
+plus the current executable; later application transitions repair each profile as it becomes
+current.

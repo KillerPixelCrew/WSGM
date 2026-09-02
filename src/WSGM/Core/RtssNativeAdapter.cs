@@ -11,12 +11,14 @@ namespace WSGM.Core;
 internal sealed class RtssNativeAdapter : IRtssAdapter
 {
     private const string FrameLimitProperty = "FramerateLimit";
+    private const string OverlayEnabledProperty = "EnableOSD";
     // Steam's selector runs OFF plus 1..4, all rendered by WSGM's own OSD slot: 1..3 are the
     // fixed presets (HandheldCompanion's structure, fed from RTSS's LibreHardwareMonitor
     // provider) and 4 is the user-configured Custom layout from WSGM's Settings — HC's Custom
-    // level. The level writes NO profile property: earlier cuts mapped levels to EnableStat and
-    // then EnableOSD, and each stamped a USER-owned per-app setting into every profile the
-    // service targets (the EnableOSD=0 spray killed every overlay on the device, 2026-09-01).
+    // level. EnableOSD is only the RTSS presentation gate: a nonzero WSGM level sets it to one in
+    // the global and current profiles, while zero only clears WSGM's slot. Writing EnableOSD=0
+    // here would disable external feeders too — the field regression that killed every overlay on
+    // the reference device on 2026-09-01.
     private const int MaximumOverlayLevel = 4;
     private readonly RtssDiscovery _discovery;
     private readonly RtssOsdRenderer _osd;
@@ -150,15 +152,22 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
     {
         RtssProfileApi api = _api
             ?? throw new InvalidOperationException("RTSS profile API is not loaded.");
-        api.LoadProfile(request.RtssProfileName);
-        // The overlay level writes nothing into the profile — see the constants above. RTSS
-        // profile properties are the user's; WSGM's overlay lives in WSGM's own OSD slot.
         if (request.Control is PerformanceControl.OverlayLevel)
         {
+            IReadOnlyList<string> activationProfiles = OverlayActivationProfiles(
+                request.Value,
+                request.RtssProfileName);
+            if (activationProfiles.Count > 0
+                && !TryEnableOverlayPresentation(api, activationProfiles, out string? refusal))
+            {
+                return new(false, refusal);
+            }
+
             _osd.SetLevel(request.Value);
             return new(true, null);
         }
 
+        api.LoadProfile(request.RtssProfileName);
         (string property, uint propertyValue) = request.Control switch
         {
             PerformanceControl.FrameLimit =>
@@ -174,6 +183,80 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         api.UpdateProfiles();
         return new(true, null);
     }
+
+    private static bool TryEnableOverlayPresentation(
+        RtssProfileApi api,
+        IReadOnlyList<string> profiles,
+        out string? refusal)
+    {
+        bool changed = false;
+        List<string> changedProfiles = [];
+        foreach (string profile in profiles)
+        {
+            api.LoadProfile(profile);
+            if (api.TryGetUInt32(OverlayEnabledProperty, out uint enabled) && enabled == 1)
+            {
+                continue;
+            }
+
+            if (!api.TrySetUInt32(OverlayEnabledProperty, 1))
+            {
+                refusal = profile.Length == 0
+                    ? "RTSS rejected enabling OSD presentation in the global profile."
+                    : $"RTSS rejected enabling OSD presentation for '{profile}'.";
+                return false;
+            }
+
+            api.SaveProfile(profile);
+            changed = true;
+            changedProfiles.Add(profile);
+        }
+
+        if (changed)
+        {
+            api.UpdateProfiles();
+        }
+
+        string requested = ProfileLabels(profiles);
+        Log.Change(
+            "rtss.overlay-presentation",
+            changedProfiles.Count == 0
+                ? $"RTSS OSD presentation already enabled: profiles={requested}."
+                : $"RTSS OSD presentation enabled: profiles={requested}; "
+                    + $"changed={ProfileLabels(changedProfiles)}.");
+
+        refusal = null;
+        return true;
+    }
+
+    private static string ProfileLabel(string profile) => profile.Length == 0
+        ? "<global>"
+        : profile;
+
+    private static string ProfileLabels(IReadOnlyList<string> profiles)
+    {
+        string[] labels = new string[profiles.Count];
+        for (int index = 0; index < profiles.Count; index++)
+        {
+            labels[index] = ProfileLabel(profiles[index]);
+        }
+
+        return string.Join(", ", labels);
+    }
+
+    /// <summary>Profiles whose RTSS presentation gate a nonzero WSGM overlay must open.</summary>
+    /// <remarks>
+    /// Global covers applications without an explicit profile; the current executable is added
+    /// because an explicit per-app `EnableOSD=0` overrides global state. The service re-applies on
+    /// every application transition, so each profile is repaired when it becomes the active target.
+    /// </remarks>
+    internal static IReadOnlyList<string> OverlayActivationProfiles(
+        int overlayLevel,
+        string requestedProfile) => overlayLevel <= 0
+            ? []
+            : string.IsNullOrEmpty(requestedProfile)
+                ? [string.Empty]
+                : [requestedProfile, string.Empty];
 
     public ValueTask DisposeAsync()
     {

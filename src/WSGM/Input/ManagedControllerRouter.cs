@@ -38,10 +38,13 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
     private readonly SemaphoreSlim _sinkGate = new(1, 1);
     private readonly Task _worker;
     private HidTargetHandle? _target;
+    private CancellationTokenSource? _pulseStopCancellation;
     private long _sourceGeneration;
     private long _routeGeneration;
+    private long _pulseSequence;
     private long _lastDispatchTimestamp;
     private bool _outputFaulted;
+    private bool _outputObserved;
     private bool _disposed;
 
     internal ControllerOutputRouter(
@@ -69,6 +72,8 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
             _routeGeneration++;
             _lastDispatchTimestamp = 0;
             _outputFaulted = false;
+            _outputObserved = false;
+            CancelPulseStopUnderGate();
             DrainUnderGate();
         }
     }
@@ -80,6 +85,7 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
         {
             target = _target;
             _routeGeneration++;
+            CancelPulseStopUnderGate();
             DrainUnderGate();
         }
 
@@ -111,6 +117,7 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
             _target = null;
             _sourceGeneration = 0;
             _routeGeneration++;
+            CancelPulseStopUnderGate();
             DrainUnderGate();
         }
     }
@@ -128,6 +135,7 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
             _backend.OutputReceived -= OnOutputReceived;
             _target = null;
             _routeGeneration++;
+            CancelPulseStopUnderGate();
             DrainUnderGate();
         }
 
@@ -141,7 +149,6 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
         {
         }
 
-        _sinkGate.Dispose();
         _lifetime.Dispose();
     }
 
@@ -230,6 +237,20 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
 
                     await _sink.ApplyAsync(frame, _lifetime.Token).ConfigureAwait(false);
                     _lastDispatchTimestamp = _timeProvider.GetTimestamp();
+                    bool firstOutput;
+                    lock (_gate)
+                    {
+                        firstOutput = !_outputObserved;
+                        _outputObserved = true;
+                        SchedulePulseStopUnderGate(output, target, routeGeneration);
+                    }
+
+                    if (firstOutput)
+                    {
+                        Log.Info(
+                            $"Managed controller output active: target={target.Kind}, "
+                                + $"generation={target.Generation}, timed={output.StopAfter is not null}.");
+                    }
                 }
                 catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
                 {
@@ -265,7 +286,8 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
             && ManagedControllerSampleValidator.FiniteUnit(output.Frame.LowFrequency)
             && ManagedControllerSampleValidator.FiniteUnit(output.Frame.HighFrequency)
             && ManagedControllerSampleValidator.FiniteUnit(output.Frame.LeftTrigger)
-            && ManagedControllerSampleValidator.FiniteUnit(output.Frame.RightTrigger);
+            && ManagedControllerSampleValidator.FiniteUnit(output.Frame.RightTrigger)
+            && (output.StopAfter is null || output.StopAfter > TimeSpan.Zero);
     }
 
     private bool MatchesRouteUnderGate(HidTargetOutput output) =>
@@ -278,6 +300,108 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
         while (_queue.Reader.TryRead(out _))
         {
             DroppedFrames++;
+        }
+    }
+
+    private void SchedulePulseStopUnderGate(
+        HidTargetOutput output,
+        HidTargetHandle target,
+        long routeGeneration)
+    {
+        CancelPulseStopUnderGate();
+        if (output.StopAfter is not { } stopAfter)
+        {
+            return;
+        }
+
+        CancellationTokenSource cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            _lifetime.Token);
+        long pulseSequence = _pulseSequence;
+        _pulseStopCancellation = cancellation;
+        _ = StopPulseAfterAsync(
+            stopAfter,
+            target,
+            routeGeneration,
+            pulseSequence,
+            cancellation);
+    }
+
+    private async Task StopPulseAfterAsync(
+        TimeSpan delay,
+        HidTargetHandle target,
+        long routeGeneration,
+        long pulseSequence,
+        CancellationTokenSource cancellation)
+    {
+        try
+        {
+            await Task.Delay(delay, _timeProvider, cancellation.Token).ConfigureAwait(false);
+            await _sinkGate.WaitAsync(cancellation.Token).ConfigureAwait(false);
+            try
+            {
+                lock (_gate)
+                {
+                    if (_disposed
+                        || _routeGeneration != routeGeneration
+                        || _pulseSequence != pulseSequence
+                        || _target != target)
+                    {
+                        return;
+                    }
+                }
+
+                await _sink.StopAsync(
+                    target.Generation,
+                    "virtual-controller-pulse-complete",
+                    cancellation.Token).ConfigureAwait(false);
+            }
+            finally
+            {
+                _sinkGate.Release();
+            }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            lock (_gate)
+            {
+                _outputFaulted = true;
+            }
+
+            Log.Error("Managed controller pulse stop faulted; input remains active", ex);
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                if (_pulseSequence == pulseSequence)
+                {
+                    _pulseStopCancellation = null;
+                }
+            }
+
+            cancellation.Dispose();
+        }
+    }
+
+    private void CancelPulseStopUnderGate()
+    {
+        _pulseSequence++;
+        CancellationTokenSource? cancellation = _pulseStopCancellation;
+        _pulseStopCancellation = null;
+        if (cancellation is null)
+        {
+            return;
+        }
+
+        try
+        {
+            cancellation.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
         }
     }
 }

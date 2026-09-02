@@ -177,6 +177,40 @@ public sealed class ManagedControllerBackendTests
     }
 
     [Fact]
+    public async Task OutputRouterStopsTimedHapticPulseWithoutLatchingThePhysicalMotors()
+    {
+        DeterministicFakeHidBackend backend = new();
+        DeterministicFakeHapticSink sink = new(7, new()
+        {
+            LowFrequency = OutputChannelSupport.Native,
+            HighFrequency = OutputChannelSupport.Native,
+            MaxFramesPerSecond = 1000,
+        });
+        await using ManagedControllerRouter router = new(backend, sink);
+        HidTargetHandle target = await router.CreateAsync(
+            ManagedControllerTarget.SteamDeckComposite,
+            7,
+            CancellationToken.None);
+
+        backend.EmitOutput(
+            new HapticOutputFrame
+            {
+                TargetGeneration = target.Generation,
+                Timestamp = DateTimeOffset.UtcNow,
+                LowFrequency = 0.5f,
+                HighFrequency = 0.5f,
+            },
+            stopAfter: TimeSpan.FromMilliseconds(5));
+
+        Assert.True(SpinWait.SpinUntil(
+            () => sink.StopReasons.Contains("virtual-controller-pulse-complete"),
+            TimeSpan.FromSeconds(1)));
+        Assert.Equal(0.5f, sink.Frames[0].LowFrequency);
+        Assert.Equal(0, sink.Frames[^1].LowFrequency);
+        Assert.Equal(target.Generation, sink.Frames[^1].TargetGeneration);
+    }
+
+    [Fact]
     public async Task BackendTargetLossFaultsInputWithoutReusingGeneration()
     {
         DeterministicFakeHidBackend backend = new();
@@ -552,7 +586,10 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
         }
     }
 
-    internal void EmitOutput(HapticOutputFrame frame, ManagedControllerTarget? sourceKind = null)
+    internal void EmitOutput(
+        HapticOutputFrame frame,
+        ManagedControllerTarget? sourceKind = null,
+        TimeSpan? stopAfter = null)
     {
         HidTargetOutput output;
         lock (_gate)
@@ -563,7 +600,7 @@ internal sealed class DeterministicFakeHidBackend : IHidBackend
                 throw new InvalidOperationException("No target exists.");
             }
 
-            output = new(frame, sourceKind ?? _target.Kind);
+            output = new(frame, sourceKind ?? _target.Kind, stopAfter);
             _operations.Add($"output:{frame.TargetGeneration}");
             if (DelayOutput)
             {

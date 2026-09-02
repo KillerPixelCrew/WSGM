@@ -31,11 +31,12 @@ public sealed class ControllerDependencyAdapterTests
         float expectedLow,
         float expectedHigh)
     {
-        (float low, float high) = Assert.IsType<(float, float)>(
+        DecodedHapticFeedback feedback = Assert.IsType<DecodedHapticFeedback>(
             ViiperControllerBackend.DecodeFeedback(target, report));
 
-        Assert.Equal(expectedLow, low, 5);
-        Assert.Equal(expectedHigh, high, 5);
+        Assert.Equal(expectedLow, feedback.LowFrequency, 5);
+        Assert.Equal(expectedHigh, feedback.HighFrequency, 5);
+        Assert.Null(feedback.StopAfter);
     }
 
     [Fact]
@@ -43,13 +44,50 @@ public sealed class ControllerDependencyAdapterTests
     {
         byte[] report = [0xEB, 0, 0, 0, 0, 0, 0x80, 0xFF, 0xFF];
 
-        (float low, float high) = Assert.IsType<(float, float)>(
+        DecodedHapticFeedback feedback = Assert.IsType<DecodedHapticFeedback>(
             ViiperControllerBackend.DecodeFeedback(
                 ManagedControllerTarget.SteamDeckComposite,
                 report));
 
-        Assert.Equal(32768 / (float)ushort.MaxValue, low, 5);
-        Assert.Equal(1f, high);
+        Assert.Equal(32768 / (float)ushort.MaxValue, feedback.LowFrequency, 5);
+        Assert.Equal(1f, feedback.HighFrequency);
+        Assert.Null(feedback.StopAfter);
+    }
+
+    [Theory]
+    [InlineData(64, 0, 64 / 255f)]
+    [InlineData(64, 4, 96 / 255f)]
+    [InlineData(64, -16, 0f)]
+    public void SteamDeckContinuousHapticBecomesSymmetricPhysicalOutput(
+        byte intensity,
+        sbyte gain,
+        float expected)
+    {
+        byte[] report = [0xEA, 0, 0, 0, intensity, unchecked((byte)gain)];
+
+        DecodedHapticFeedback feedback = Assert.IsType<DecodedHapticFeedback>(
+            ViiperControllerBackend.DecodeFeedback(
+                ManagedControllerTarget.SteamDeckComposite,
+                report));
+
+        Assert.Equal(expected, feedback.LowFrequency, 5);
+        Assert.Equal(expected, feedback.HighFrequency, 5);
+        Assert.Null(feedback.StopAfter);
+    }
+
+    [Fact]
+    public void SteamDeckHapticPulseCarriesBoundedMotorStopTime()
+    {
+        byte[] report = [0x8F, 0, 0, 0, 0, 0xE8, 0x03, 2, 0, 3];
+
+        DecodedHapticFeedback feedback = Assert.IsType<DecodedHapticFeedback>(
+            ViiperControllerBackend.DecodeFeedback(
+                ManagedControllerTarget.SteamDeckComposite,
+                report));
+
+        Assert.Equal(35 / 255f, feedback.LowFrequency, 5);
+        Assert.Equal(feedback.LowFrequency, feedback.HighFrequency);
+        Assert.Equal(TimeSpan.FromMilliseconds(2), feedback.StopAfter);
     }
 
     [Fact]

@@ -207,6 +207,28 @@ public sealed class PerformancePolicyResolverTests
 public sealed class PerformanceServiceTests
 {
     [Fact]
+    public void NonzeroOverlayOpensBothCurrentAndGlobalRtssPresentationGates()
+    {
+        Assert.Equal(
+            ["game.exe", string.Empty],
+            RtssNativeAdapter.OverlayActivationProfiles(3, "game.exe"));
+    }
+
+    [Fact]
+    public void GlobalOverlayDoesNotWriteTheSameRtssProfileTwice()
+    {
+        Assert.Equal(
+            [string.Empty],
+            RtssNativeAdapter.OverlayActivationProfiles(1, string.Empty));
+    }
+
+    [Fact]
+    public void OverlayOffDoesNotCloseAnyRtssPresentationGate()
+    {
+        Assert.Empty(RtssNativeAdapter.OverlayActivationProfiles(0, "game.exe"));
+    }
+
+    [Fact]
     public async Task VerifiedReadbackCompletesTheSingleSharedCommand()
     {
         await using var adapter = new FakeRtssAdapter();

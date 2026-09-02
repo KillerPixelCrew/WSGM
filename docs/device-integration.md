@@ -101,6 +101,11 @@ the plugin, and unloads the collectible context only when cleanup was verified. 
 at its caller deadline retains its stable late-completion task so an eventual hardware outcome is
 still observed instead of being misattributed to a later command.
 
+Controller management is an optional child policy, not a plugin-health requirement. A plugin whose
+other services are healthy remains `Active` when that child is deliberately off; its controller and
+haptic capabilities separately publish `ResourceReleased`. A requested controller acquisition that
+fails is still a degraded service and must not be disguised as the disabled case.
+
 Startup cancellation after acquisition gets a fresh bounded controller handoff and plugin stop,
 while process-lifetime cancellation preserves the runtime for the outer shutdown owner to stop under
 its application deadline. Generation-bearing direct publications validate cycle and descriptor
@@ -209,6 +214,13 @@ the values as normalized axes was why Steam saw a motion source but no usable gy
 targets: X360 maps the standard buttons, byte triggers and signed sticks; DS4 additionally maps
 touch contacts, gyro and acceleration. The shell never installs or repairs a driver at runtime.
 `third_party/controller/viiper/README.md` records the live-device evidence and exact pins.
+
+The Steam Deck target's return path accepts all three feedback shapes Steam sends: ordinary
+sixteen-bit `0xEB` rumble, continuous `0xEA` trackpad haptics approximated symmetrically on the
+physical motors, and `0x8F` haptic pulses. A pulse carries a bounded, route-generation-checked stop
+back through the serialized haptic sink; an old pulse can neither stop a replacement target nor
+leave the Claw's latched motors running. The first physical output admitted for each target is
+logged once, never at report cadence.
 
 The optional installer task owns initial usbip-win2/HidHide installation. Its USB/IP helper remains
 nonfatal, but publishes an atomic bounded status under `%ProgramData%\WSGM`; setup reads that status

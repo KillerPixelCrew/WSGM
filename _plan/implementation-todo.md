@@ -575,11 +575,14 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       (`LHMDPSharedMemory`, HC's sensor-name selection, 1 s cadence — no WSGM sensor stack), and
       after the External idea proved to require driving the Overlay Editor's private state, level
       4 became **Custom** — HC's Custom level, order and per-widget detail configured on the
-      Settings Integration page. The level writes NO RTSS profile property: the `EnableStat` and
-      then `EnableOSD` mappings each stamped a user-owned per-app setting into every targeted
-      profile (the `EnableOSD=0` spray killed every overlay on the device; repaired in place).
-      WSGM's renderer holds the level and is the verified readback. Also fixed on device: the
-      metrics cache initialized its "never sampled" sentinel to `long.MinValue`, whose tick
+      Settings Integration page. WSGM's renderer holds the level and is the verified readback. The
+      first `EnableOSD` mapping wrote both 0 and 1; its `0` spray killed every overlay on the device
+      and was repaired in place, so it was removed at the time. A 2026-09-02 field report then proved
+      the opposite edge: with global and per-app presentation already disabled, slot publication
+      alone cannot show anything. Nonzero levels now perform a one-way `EnableOSD=1` activation for
+      global plus the current executable; zero clears only WSGM's slot and cannot disable external
+      feeders. Also fixed on device: the metrics cache initialized its "never sampled" sentinel to
+      `long.MinValue`, whose tick
       subtraction overflowed and froze every sample empty. Contract: `docs\rtss.md`.
 - [x] **RTSS shared-memory signature constant was byte-order-mirrored** (found while wiring the
       OSD): the server writes `dwSignature = 'RTSS'` as a C multichar constant, value `0x52545353`
@@ -593,6 +596,31 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       overlay, 0 clears, and the chosen level survives a WSGM restart. AutoTDP: confirm frametime
       samples actually arrive in a game now that the reader's signature matches (watch its log
       instead of assuming the pre-fix acceptance still holds).
+
+## Field regressions of 2026-09-02 - fixed or bounded in source, attended re-check pending
+
+- [x] **Device Plugin stayed “partially failed” after controller management was enabled:** the Claw
+      plugin counted its intentionally passive controller service as unhealthy when the child policy
+      was off at startup. Controller and haptic capabilities already recovered after the live enable,
+      but the start-only aggregate remained `Degraded`. The optional controller service is now
+      excluded from aggregate health only while deliberately disabled; its two capabilities continue
+      to report `ResourceReleased`, and a requested acquisition failure remains unhealthy.
+- [x] **Steam Controller mode had no UI haptics:** the Steam Deck Composite feedback decoder accepted
+      only `0xEB` conventional rumble and silently dropped Steam's `0xEA` continuous haptic and
+      `0x8F` pulse commands. The Handheld Companion target supplied the missing command shapes;
+      WSGM now approximates both on the Claw's two ERM motors, bounds and generation-checks pulse
+      stops, and logs the first admitted output once per target without logging at report cadence.
+- [x] **Desktop performance overlay remained invisible even though WSGM claimed a slot:** RTSS had
+      `EnableOSD=0` globally and in every inspected profile until the maintainer repaired them
+      manually. The post-repair read of WSGM's populated slot was not evidence that the feature had
+      been healthy. A nonzero overlay apply now opens the RTSS presentation gate in both the global
+      and current executable profiles; level zero clears only WSGM's slot and never writes the
+      destructive `EnableOSD=0`. Application transitions repair other profiles as they become active.
+- [ ] Attended after deployment: with Steam Deck Composite selected, confirm a Steam UI haptic and a
+      game's ordinary rumble both reach the Claw, then confirm the new first-output log and a zeroed
+      physical report after a pulse. In Desktop Mode, first set the relevant profiles back to
+      `EnableOSD=0`, apply a nonzero level through both the overlay and QAM, and confirm global plus
+      the current executable read back `1` and the WSGM overlay becomes visible without manual repair.
 
 ## Attended/live acceptance still required
 
