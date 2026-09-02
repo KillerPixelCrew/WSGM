@@ -533,6 +533,58 @@ public sealed class PerformanceServiceTests
     }
 
     [Fact]
+    public async Task AnApplicationWithoutItsOwnProfileIsWrittenThroughTheGlobalProfile()
+    {
+        // Saving an RTSS profile that does not exist creates it, which sprayed a profile onto
+        // every executable that ever took focus (device-observed 2026-09-02). Without a per-game
+        // opt-in and without an existing RTSS profile, the global profile carries the value.
+        await using var adapter = new FakeRtssAdapter();
+        await using var service = CreateService(
+            adapter,
+            new PerformancePolicy(new PerformanceValues(null, null), []));
+
+        await service.SetTargetAsync(
+            new PerformanceApplicationTarget("process:hitman3.exe", null, "HITMAN3.exe"));
+        PerformanceCommandState command = await service.SetAsync(
+            PerformanceControl.FrameLimit,
+            60,
+            PerformancePersistenceTarget.Automatic,
+            "qam",
+            "no-optin");
+
+        Assert.Equal(PerformanceCommandPhase.SucceededVerified, command.Phase);
+        Assert.All(adapter.Applies, request => Assert.Equal(string.Empty, request.RtssProfileName));
+        Assert.DoesNotContain("HITMAN3.exe", adapter.Values.Keys);
+    }
+
+    [Fact]
+    public async Task AnExistingRtssProfileStillReceivesTheEffectiveValues()
+    {
+        // An RTSS profile that already exists is the stronger RTSS layer: its explicit values
+        // would silently override a global write, so the effective values go into it even without
+        // a WSGM per-game entry.
+        await using var adapter = new FakeRtssAdapter();
+        adapter.ExistingProfiles.Add("game.exe");
+        await using var service = CreateService(
+            adapter,
+            new PerformancePolicy(new PerformanceValues(null, null), []));
+
+        await service.SetTargetAsync(
+            new PerformanceApplicationTarget("process:game.exe", null, "game.exe"));
+        PerformanceCommandState command = await service.SetAsync(
+            PerformanceControl.FrameLimit,
+            60,
+            PerformancePersistenceTarget.Automatic,
+            "qam",
+            "existing-profile");
+
+        Assert.Equal(PerformanceCommandPhase.SucceededVerified, command.Phase);
+        Assert.Contains(adapter.Applies, request => request.RtssProfileName == "game.exe"
+            && request.Control == PerformanceControl.FrameLimit
+            && request.Value == 60);
+    }
+
+    [Fact]
     public async Task InvalidRtssProfileNameNeverReachesAdapter()
     {
         await using var adapter = new FakeRtssAdapter();
@@ -605,6 +657,14 @@ public sealed class PerformanceServiceTests
         {
             [string.Empty] = PerformanceValues.Empty,
         };
+
+        /// <summary>Profiles RTSS already holds on disk, as the service would find them.</summary>
+        public HashSet<string> ExistingProfiles { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public bool ProfileExists(string rtssProfileName) =>
+            rtssProfileName.Length == 0
+            || ExistingProfiles.Contains(rtssProfileName)
+            || Values.ContainsKey(rtssProfileName);
 
         public List<RtssApplyRequest> Applies { get; } = [];
 

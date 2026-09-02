@@ -23,8 +23,11 @@ public enum FrameLimitStrategy
     NativeModes,
 
     /// <summary>
-    /// Cap frames, and pick the lowest mode the driver actually accepted that is an exact multiple
-    /// of the cap — including modes synthesized beyond what the panel advertises.
+    /// Cap frames, and pick the lowest driver-accepted mode that shows every frame at least twice —
+    /// including modes synthesized beyond what the panel advertises. A doubled cadence is what lets
+    /// adaptive sync's low-framerate compensation smooth the presentation; holding a 30 FPS cap at
+    /// 30 Hz keeps that machinery out of reach. When no doubled multiple exists the lowest exact
+    /// multiple still wins, and failing that the lowest mode that can present the cap.
     /// </summary>
     FrameDoubling,
 }
@@ -84,8 +87,27 @@ public static class FrameLimitPairing
             _ => [],
         };
 
+        // FrameDoubling wants each frame shown at least twice: a doubled cadence is the one LFC and
+        // frame-hold smoothing can work with, where an exact 1:1 mode (30 FPS at 30 Hz) presents a
+        // low-refresh flickery image the panel is honest about but the user asked to avoid
+        // (maintainer-directed 2026-09-02). Still the LOWEST such mode, because refresh rate is a
+        // power cost: 60 Hz carries a 30 FPS cap as smoothly as 120 Hz and costs less.
+        if (strategy is FrameLimitStrategy.FrameDoubling)
+        {
+            int? doubled = candidates
+                .Where(hz => hz % capFps == 0 && hz >= capFps * 2)
+                .OrderBy(hz => hz)
+                .Select(hz => (int?)hz)
+                .FirstOrDefault();
+            if (doubled is not null)
+            {
+                return doubled;
+            }
+        }
+
         // The lowest exact multiple, because refresh rate is a power cost: a 30 FPS cap held at
-        // 30 Hz costs meaningfully less than the same cap held at 120 Hz.
+        // 30 Hz costs meaningfully less than the same cap held at 120 Hz. Under NativeModes this is
+        // the whole policy; under FrameDoubling it is the fallback when no doubled mode exists.
         int? exact = candidates
             .Where(hz => hz >= capFps && hz % capFps == 0)
             .OrderBy(hz => hz)

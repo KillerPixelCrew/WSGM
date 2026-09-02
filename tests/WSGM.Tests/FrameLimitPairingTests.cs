@@ -22,14 +22,27 @@ public sealed class FrameLimitPairingTests
     [Theory]
     [InlineData(24, 48)]
     [InlineData(25, 75)]
-    [InlineData(30, 30)]
+    [InlineData(30, 60)]
     [InlineData(40, 120)]
     [InlineData(50, 100)]
-    [InlineData(60, 60)]
-    public void SelectRefreshHz_FrameDoubling_TakesTheLowestExactMultiple(int cap, int expected)
+    [InlineData(60, 120)]
+    public void SelectRefreshHz_FrameDoubling_TakesTheLowestDoubledMultiple(int cap, int expected)
     {
+        // At least twice the cap, so adaptive sync's low-framerate compensation has a cadence to
+        // work with: 30 FPS pairs with 60 Hz rather than a flickery 1:1 30 Hz, and 60 with 120.
         Assert.Equal(expected, FrameLimitPairing.SelectRefreshHz(
             FrameLimitStrategy.FrameDoubling, cap, ClawNative, ClawAccepted));
+    }
+
+    [Fact]
+    public void SelectRefreshHz_FrameDoubling_FallsBackToTheExactMultipleWhenNothingDoubles()
+    {
+        // Multiples of 100 beyond 100 itself exceed what the driver accepts, so the exact
+        // single-cadence mode is still better than a non-multiple.
+        Assert.Equal(100, FrameLimitPairing.SelectRefreshHz(
+            FrameLimitStrategy.FrameDoubling, 100, ClawNative, ClawAccepted));
+        Assert.Equal(120, FrameLimitPairing.SelectRefreshHz(
+            FrameLimitStrategy.FrameDoubling, 120, ClawNative, ClawAccepted));
     }
 
     [Theory]
@@ -80,7 +93,7 @@ public sealed class FrameLimitPairingTests
         // The Legion Go case that motivated the strategy split.
         int[] twoModes = [30, 60];
 
-        Assert.Equal(30, FrameLimitPairing.SelectRefreshHz(
+        Assert.Equal(60, FrameLimitPairing.SelectRefreshHz(
             FrameLimitStrategy.FrameDoubling, 30, twoModes, twoModes));
         Assert.Equal(60, FrameLimitPairing.SelectRefreshHz(
             FrameLimitStrategy.FrameDoubling, 20, twoModes, twoModes));

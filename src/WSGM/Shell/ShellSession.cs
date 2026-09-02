@@ -1475,8 +1475,8 @@ public sealed class ShellSession : IAsyncDisposable
     /// identity is used at all, so the precedence between Steam and the foreground stays in the one
     /// pure function that can be tested.
     /// </remarks>
-    private void OnForegroundApplicationChanged(string executable)
-        => _runningApplications?.ReportForeground(executable);
+    private void OnForegroundApplicationChanged(string executable, string? imagePath)
+        => _runningApplications?.ReportForeground(executable, imagePath);
 
     /// <summary>Turns variable refresh rate on or off through the device plugin.</summary>
     /// <param name="enabled">The requested state.</param>

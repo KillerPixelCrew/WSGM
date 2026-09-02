@@ -40,6 +40,26 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
 
     /// <inheritdoc/>
     /// <remarks>
+    /// Answered from the installation's <c>Profiles</c> directory rather than the profile API,
+    /// because the API's LoadProfile cannot distinguish "absent" from "present with defaults" —
+    /// and SaveProfile on an absent name is precisely the creation this check exists to avoid.
+    /// </remarks>
+    public bool ProfileExists(string rtssProfileName)
+    {
+        if (rtssProfileName.Length == 0)
+        {
+            return true;
+        }
+
+        string? directory = _lastProbe?.ExecutablePath is { } executable
+            ? Path.GetDirectoryName(executable)
+            : null;
+        return directory is not null
+            && File.Exists(Path.Combine(directory, "Profiles", rtssProfileName + ".cfg"));
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
     /// Every entry point of this adapter runs on the thread pool. All of the work below is
     /// synchronous — registry reads, filesystem and signature checks, PE-export inspection, process
     /// enumeration, and the profile API's own blocking calls — and the callers reach it from a
@@ -325,6 +345,10 @@ internal sealed class SimulatedRtssAdapter : IRtssAdapter
     {
         // No renderer here; the simulated adapter never draws.
     }
+
+    /// <inheritdoc/>
+    public bool ProfileExists(string rtssProfileName) =>
+        rtssProfileName.Length == 0 || _profiles.ContainsKey(rtssProfileName);
 
     private static readonly RtssCapabilities Capabilities = new(
         0,

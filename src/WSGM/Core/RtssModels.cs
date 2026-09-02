@@ -178,6 +178,17 @@ internal interface IRtssAdapter : IAsyncDisposable
     /// <param name="settings">The widget order and per-widget detail.</param>
     void ApplyOsdCustomization(RtssOsdCustomSettings settings);
 
+    /// <summary>Whether RTSS already holds a profile with this exact name.</summary>
+    /// <param name="rtssProfileName">The application profile name; empty means the global profile.</param>
+    /// <remarks>
+    /// Saving an RTSS profile that does not exist creates it, so the service asks first: a
+    /// per-application profile is only written when the user opted the application in or RTSS
+    /// already carries one whose explicit values would otherwise override the global write.
+    /// Without this check every focused executable grew a profile
+    /// (device-observed 2026-09-02).
+    /// </remarks>
+    bool ProfileExists(string rtssProfileName);
+
     Task<RtssProbe> ProbeAsync(CancellationToken cancellationToken);
 
     Task<RtssReadback> ReadAsync(

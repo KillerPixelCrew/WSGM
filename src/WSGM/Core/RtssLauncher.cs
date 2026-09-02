@@ -7,7 +7,7 @@ namespace WSGM.Core;
 
 /// <summary>
 /// Starts the verified RTSS installation when WSGM needs it and it is not running — only ever the
-/// executable discovery verified, and only once per session. The rationale is in
+/// executable discovery verified, with a cooldown between attempts. The rationale is in
 /// <c>docs\rtss.md</c> ("WSGM starts RTSS").
 /// </summary>
 internal sealed class RtssLauncher
@@ -20,18 +20,33 @@ internal sealed class RtssLauncher
     /// </remarks>
     internal static TimeSpan SettleTimeout { get; } = TimeSpan.FromSeconds(10);
 
+    /// <summary>Minimum gap between start attempts.</summary>
+    /// <remarks>
+    /// Not once per session: RTSS's own window has no close-to-tray, so one accidental X kills the
+    /// frame limit, the OSD and AutoTDP's frametimes for the rest of the session
+    /// (maintainer-reported 2026-09-02). Every attempt still fires only on a NotRunning probe — no
+    /// process exists — so a second copy is never started; the cooldown only keeps an RTSS that
+    /// exits immediately from being relaunched on every poll.
+    /// </remarks>
+    internal static TimeSpan RestartCooldown { get; } = TimeSpan.FromSeconds(30);
+
     private readonly Func<string, Task<bool>> _start;
-    private int _attempted;
+    private readonly TimeProvider _timeProvider;
+    private long _lastAttemptTicks = long.MinValue;
 
     /// <summary>Creates the launcher.</summary>
     /// <param name="start">Starts the executable; injected so tests never launch anything.</param>
-    internal RtssLauncher(Func<string, Task<bool>>? start = null)
+    /// <param name="timeProvider">Time source for the cooldown; injected for tests.</param>
+    internal RtssLauncher(
+        Func<string, Task<bool>>? start = null,
+        TimeProvider? timeProvider = null)
     {
         _start = start ?? StartDetachedAsync;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     /// <summary>Whether this session has already tried to start RTSS.</summary>
-    internal bool Attempted => Volatile.Read(ref _attempted) != 0;
+    internal bool Attempted => Volatile.Read(ref _lastAttemptTicks) != long.MinValue;
 
     /// <summary>Decides whether a probe result means WSGM should start RTSS.</summary>
     /// <param name="probe">The most recent probe.</param>
@@ -51,7 +66,7 @@ internal sealed class RtssLauncher
             && !string.IsNullOrWhiteSpace(probe.ExecutablePath);
     }
 
-    /// <summary>Starts RTSS once, if this probe says it is needed and not running.</summary>
+    /// <summary>Starts RTSS if this probe says it is needed, not running, and off cooldown.</summary>
     /// <param name="probe">The most recent probe.</param>
     /// <param name="enabled">Whether the user has performance control switched on.</param>
     /// <param name="cancellationToken">Cancels the attempt.</param>
@@ -61,7 +76,15 @@ internal sealed class RtssLauncher
         bool enabled,
         CancellationToken cancellationToken = default)
     {
-        if (!ShouldStart(probe, enabled) || Interlocked.Exchange(ref _attempted, 1) != 0)
+        if (!ShouldStart(probe, enabled))
+        {
+            return false;
+        }
+
+        long now = _timeProvider.GetUtcNow().UtcTicks;
+        long last = Volatile.Read(ref _lastAttemptTicks);
+        if ((last != long.MinValue && now - last < RestartCooldown.Ticks)
+            || Interlocked.CompareExchange(ref _lastAttemptTicks, now, last) != last)
         {
             return false;
         }
@@ -73,7 +96,9 @@ internal sealed class RtssLauncher
             bool started = await _start(executable).ConfigureAwait(false);
             if (!started)
             {
-                Log.Warn("RTSS did not start; performance controls stay unavailable this session.");
+                Log.Warn(
+                    "RTSS did not start; performance controls stay unavailable until the next "
+                    + "attempt after the cooldown.");
                 return false;
             }
         }

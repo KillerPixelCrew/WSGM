@@ -607,7 +607,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             }
 
             PerformanceApplicationTarget? target;
-            string profile;
+            bool applicationOptedIn;
             PerformancePolicy? previousPolicy = null;
             PerformancePolicy? changedPolicy = null;
             lock (_stateGate)
@@ -626,15 +626,25 @@ internal sealed class PerformanceService : IAsyncDisposable
                     _state = WithResolvedDesired(_state);
                 }
 
-                // RTSS application profiles are whole snapshots, while WSGM precedence is per
-                // property. Whenever an application is running, write every effective value into
-                // its RTSS profile even when the value came from WSGM's global layer. Otherwise a
-                // disabled or previously-used application profile remains the stronger RTSS layer
-                // and silently keeps stale values over the global profile.
-                profile = target?.RtssProfileName ?? string.Empty;
+                applicationOptedIn = PerformancePolicyResolver.Find(
+                    _policy,
+                    target?.ApplicationId) is not null;
+            }
+
+            // Saving an RTSS profile that does not exist creates it, which sprayed a profile onto
+            // every executable that ever took focus (device-observed 2026-09-02). A running
+            // application's own profile is therefore written only when the user opted the
+            // application in, or when RTSS already carries that profile — whose explicit values
+            // would otherwise stay the stronger RTSS layer and silently override the global write.
+            // Everything else goes to the global profile, which covers the application anyway.
+            string profile = EffectiveRtssProfile(target, applicationOptedIn);
+            lock (_stateGate)
+            {
                 _commandProfiles[sequence] = target is null
                     ? string.Empty
-                    : target.RtssProfileName ?? $"pending application {target.ApplicationId}";
+                    : target.RtssProfileName is null
+                        ? $"pending application {target.ApplicationId}"
+                        : profile;
             }
 
             if (changedPolicy is not null)
@@ -836,12 +846,39 @@ internal sealed class PerformanceService : IAsyncDisposable
             return null;
         }
 
+        bool applicationOptedIn;
+        lock (_stateGate)
+        {
+            applicationOptedIn = PerformancePolicyResolver.Find(
+                _policy,
+                target?.ApplicationId) is not null;
+        }
+
+        // The same profile-selection rule as the apply path, so readback observes the profile the
+        // writes actually target instead of reporting a phantom external change against a
+        // never-written application profile.
         RtssReadback readback = await _adapter.ReadAsync(
-            target?.RtssProfileName ?? string.Empty,
+            EffectiveRtssProfile(target, applicationOptedIn),
             probe.Generation,
             cancellationToken).ConfigureAwait(false);
         UpdateReadback(probe, readback, detectExternalChange: true);
         return null;
+    }
+
+    /// <summary>The RTSS profile a command or readback for this target actually addresses.</summary>
+    /// <param name="target">The running-application target, or null for global.</param>
+    /// <param name="applicationOptedIn">Whether WSGM policy holds a per-application entry.</param>
+    private string EffectiveRtssProfile(
+        PerformanceApplicationTarget? target,
+        bool applicationOptedIn)
+    {
+        string name = target?.RtssProfileName ?? string.Empty;
+        if (name.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        return applicationOptedIn || _adapter.ProfileExists(name) ? name : string.Empty;
     }
 
     private void UpdateReadback(RtssProbe probe, RtssReadback readback, bool detectExternalChange)

@@ -80,25 +80,53 @@ public sealed class RtssLauncherTests
     }
 
     [Fact]
-    public async Task ItTriesOnceASessionRatherThanEveryPoll()
+    public async Task WithinTheCooldownItTriesOnceRatherThanEveryPoll()
     {
-        // The probe runs on every poll. Retrying would mean launching a single-instance program
-        // repeatedly, which at best wastes work and at worst produces the "multiple processes match"
-        // case discovery already treats as degraded.
+        // The probe runs on every poll. Immediate retries would mean launching a single-instance
+        // program repeatedly, which at best wastes work and at worst produces the "multiple
+        // processes match" case discovery already treats as degraded.
         int starts = 0;
-        RtssLauncher launcher = new(_ =>
-        {
-            starts++;
-            return Task.FromResult(true);
-        });
+        TestTimeProvider clock = new();
+        RtssLauncher launcher = new(
+            _ =>
+            {
+                starts++;
+                return Task.FromResult(true);
+            },
+            clock);
 
         RtssProbe probe = Probe(RtssAvailability.NotRunning);
         Assert.True(await launcher.TryStartAsync(probe, enabled: true, Cancelled()));
         Assert.False(await launcher.TryStartAsync(probe, enabled: true, Cancelled()));
+        clock.Now += RtssLauncher.RestartCooldown - TimeSpan.FromSeconds(1);
         Assert.False(await launcher.TryStartAsync(probe, enabled: true, Cancelled()));
 
         Assert.Equal(1, starts);
         Assert.True(launcher.Attempted);
+    }
+
+    [Fact]
+    public async Task AnRtssClosedByTheUserIsStartedAgainAfterTheCooldown()
+    {
+        // RTSS's window has no close-to-tray, so one accidental X used to end the frame limit, OSD
+        // and AutoTDP frametimes for the rest of the session. A later NotRunning probe past the
+        // cooldown starts it again; the probe state already guarantees no second copy exists.
+        int starts = 0;
+        TestTimeProvider clock = new();
+        RtssLauncher launcher = new(
+            _ =>
+            {
+                starts++;
+                return Task.FromResult(true);
+            },
+            clock);
+
+        RtssProbe probe = Probe(RtssAvailability.NotRunning);
+        Assert.True(await launcher.TryStartAsync(probe, enabled: true, Cancelled()));
+        clock.Now += RtssLauncher.RestartCooldown;
+        Assert.True(await launcher.TryStartAsync(probe, enabled: true, Cancelled()));
+
+        Assert.Equal(2, starts);
     }
 
     [Fact]
@@ -127,6 +155,13 @@ public sealed class RtssLauncherTests
 
     /// <summary>Already-cancelled, so the settle delay returns at once instead of waiting.</summary>
     private static CancellationToken Cancelled() => new(canceled: true);
+
+    private sealed class TestTimeProvider : TimeProvider
+    {
+        public DateTimeOffset Now { get; set; } = DateTimeOffset.Parse("2026-09-02T12:00:00Z");
+
+        public override DateTimeOffset GetUtcNow() => Now;
+    }
 
     private static RtssProbe Probe(RtssAvailability availability) => new(
         availability,

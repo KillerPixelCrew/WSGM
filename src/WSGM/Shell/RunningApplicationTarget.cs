@@ -53,10 +53,19 @@ internal sealed record SteamRunningAppObservation(
     string? Diagnostic);
 
 /// <summary>Optional executable/profile resolution for one known Steam AppID.</summary>
+/// <param name="ExecutablePath">The shortcut target, when Steam exposes one.</param>
+/// <param name="RtssProfileName">The executable file name RTSS keys its profile on.</param>
+/// <param name="Diagnostic">Why the resolution is partial, for the log.</param>
+/// <param name="InstallFolder">
+/// A store title's install folder. Steam never exposes a store title's executable, so the folder is
+/// what the foreground pairing is validated against: only a process running from inside it may
+/// become the game's RTSS profile.
+/// </param>
 internal sealed record SteamRunningAppProfile(
     string? ExecutablePath,
     string? RtssProfileName,
-    string? Diagnostic);
+    string? Diagnostic,
+    string? InstallFolder = null);
 
 /// <summary>
 /// The application the user currently has in front of them, independent of Steam.
@@ -65,13 +74,19 @@ internal sealed record SteamRunningAppProfile(
 /// File name of the foreground process with its extension, or <see langword="null"/> when nothing
 /// usable is in front.
 /// </param>
+/// <param name="ExecutablePath">
+/// Full image path of the same process, when it could be read. The projection needs it to prove a
+/// candidate actually runs from a Steam title's install folder before pairing the two.
+/// </param>
 /// <remarks>
 /// This is the second identity source, and it exists so per-application policy works outside a
 /// Steam game: on the desktop, for a title launched from another launcher, or for anything the user
 /// picks a profile for from the overlay. It never competes with Steam — see
 /// <see cref="RunningApplicationTargetProjection"/> for the precedence rule.
 /// </remarks>
-internal sealed record ForegroundApplicationObservation(string? ExecutableName)
+internal sealed record ForegroundApplicationObservation(
+    string? ExecutableName,
+    string? ExecutablePath = null)
 {
     /// <summary>Nothing usable in the foreground.</summary>
     internal static ForegroundApplicationObservation None { get; } = new((string?)null);
@@ -101,7 +116,7 @@ internal static class RunningApplicationTargetProjection
         ForegroundApplicationObservation? foreground = null)
     {
         RunningApplicationTargetSnapshot candidate = Project(observation, profile, observedAt);
-        candidate = ApplyForeground(current, candidate, foreground);
+        candidate = ApplyForeground(current, candidate, profile, foreground);
         if (Equivalent(current, candidate))
         {
             return current with { ObservedAt = observedAt };
@@ -116,6 +131,7 @@ internal static class RunningApplicationTargetProjection
     private static RunningApplicationTargetSnapshot ApplyForeground(
         RunningApplicationTargetSnapshot current,
         RunningApplicationTargetSnapshot steam,
+        SteamRunningAppProfile? profile,
         ForegroundApplicationObservation? foreground)
     {
         if (steam.State is RunningApplicationTargetState.IdentityOnly
@@ -124,9 +140,26 @@ internal static class RunningApplicationTargetProjection
             && string.Equals(current.ApplicationId, steam.ApplicationId, StringComparison.Ordinal)
             && current.RtssProfileName is { Length: > 0 })
         {
-            // Steam does not expose a launch executable for ordinary store applications. Once the
-            // foreground has supplied it, keep that pairing until Steam's AppID changes: an alt-tab
-            // changes focus, not the game whose per-application policy is active.
+            // Steam does not expose a launch executable for ordinary store applications. Once one
+            // has been supplied, keep the pairing across focus changes — an alt-tab changes focus,
+            // not the game whose per-application policy is active. A DIFFERENT executable proven to
+            // run from the game's own install folder may still take the pairing over: that is a
+            // launcher handing off to the real game process.
+            if (ValidatedGameExecutable(profile, foreground) is { } handoff
+                && !string.Equals(
+                    handoff.Name,
+                    current.RtssProfileName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return steam with
+                {
+                    State = RunningApplicationTargetState.Active,
+                    ExecutablePath = handoff.Path,
+                    RtssProfileName = handoff.Name,
+                    Diagnostic = null,
+                };
+            }
+
             return steam with
             {
                 State = RunningApplicationTargetState.Active,
@@ -154,18 +187,92 @@ internal static class RunningApplicationTargetProjection
             return steam;
         }
 
-        bool steamOwnsIdentity = steam.State is RunningApplicationTargetState.IdentityOnly;
+        if (steam.State is RunningApplicationTargetState.IdentityOnly)
+        {
+            // Steam's own game. The foreground is whatever the user happens to have in focus — a
+            // terminal, a browser — so a bare name must never become the game's profile: that
+            // pairing is sticky for the whole run, and WindowsTerminal.exe captured HITMAN 3's
+            // frame limit exactly this way (device-observed 2026-09-02). A store title's install
+            // folder is known, so only an executable proven to run from it may pair. A shortcut has
+            // no folder to check and its target resolution already names the executable, so its
+            // rare unresolved case keeps the name-based fill.
+            if (steam.SteamAppId is { } appId
+                && !SteamRunningApplicationProbe.IsShortcutAppId(appId))
+            {
+                if (ValidatedGameExecutable(profile, foreground) is not { } game)
+                {
+                    return steam;
+                }
+
+                return steam with
+                {
+                    State = RunningApplicationTargetState.Active,
+                    ExecutablePath = game.Path,
+                    RtssProfileName = game.Name,
+                    Diagnostic = null,
+                };
+            }
+
+            return steam with
+            {
+                State = RunningApplicationTargetState.Active,
+                ExecutablePath = null,
+                RtssProfileName = profileName,
+                Diagnostic = null,
+            };
+        }
+
         return steam with
         {
             State = RunningApplicationTargetState.Active,
-            ApplicationId = steamOwnsIdentity
-                ? steam.ApplicationId
-                : $"process:{profileName.ToLowerInvariant()}",
-            SteamAppId = steamOwnsIdentity ? steam.SteamAppId : null,
+            ApplicationId = $"process:{profileName.ToLowerInvariant()}",
+            SteamAppId = null,
             ExecutablePath = null,
             RtssProfileName = profileName,
             Diagnostic = null,
         };
+    }
+
+    /// <summary>
+    /// The foreground executable, if and only if it provably runs from the game's install folder.
+    /// </summary>
+    private static (string Name, string Path)? ValidatedGameExecutable(
+        SteamRunningAppProfile? profile,
+        ForegroundApplicationObservation? foreground)
+    {
+        if (profile?.InstallFolder is not { Length: > 0 } folder
+            || foreground?.ExecutablePath is not { Length: > 0 } path)
+        {
+            return null;
+        }
+
+        string name = (foreground.ExecutableName ?? string.Empty).Trim();
+        if (ForegroundApplicationFilter.Classify(name) is not ForegroundApplicationKind.Application
+            || name.Length is 0 or > 128
+            || !name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        string fullPath;
+        string prefix;
+        try
+        {
+            fullPath = Path.GetFullPath(path);
+            string fullFolder = Path.GetFullPath(folder);
+            prefix = fullFolder.EndsWith(Path.DirectorySeparatorChar)
+                ? fullFolder
+                : fullFolder + Path.DirectorySeparatorChar;
+        }
+        catch (Exception)
+        {
+            // An unparsable path proves nothing; without proof there is no pairing.
+            return null;
+        }
+
+        return fullPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? (name, fullPath)
+            : null;
     }
 
     private static RunningApplicationTargetSnapshot Project(
@@ -372,21 +479,16 @@ internal sealed class SteamRunningApplicationProbe
         uint steamAppId,
         CancellationToken cancellationToken)
     {
-        if (!IsShortcutAppId(steamAppId))
-        {
-            return new SteamRunningAppProfile(
-                null,
-                null,
-                "Steam identified the running title by AppID but did not expose its executable; "
-                + "RTSS remains on the global profile.");
-        }
-
+        // One details read serves both kinds of entry: a shortcut names its target executable, and
+        // a store title names only its install folder — Steam never exposes a store title's
+        // executable, so the folder is what foreground pairing is validated against.
         string expression =
             "(async()=>{try{const d=await new Promise(res=>{let t;try{" +
             "const h=SteamClient.Apps.RegisterForAppDetails(" + steamAppId + ",d=>{" +
             "clearTimeout(t);try{h.unregister();}catch(_){}res(d);});" +
             "t=setTimeout(()=>{try{h.unregister();}catch(_){}res(null);},3000);" +
-            "}catch(_){res(null);}});return JSON.stringify({ok:!!d,exe:d&&d.strShortcutExe||''});" +
+            "}catch(_){res(null);}});return JSON.stringify({ok:!!d,exe:d&&d.strShortcutExe||''," +
+            "dir:d&&d.strInstallFolder||''});" +
             "}catch(e){return JSON.stringify({ok:false,err:String((e&&e.message)||e)});}})()";
         SteamUiEvaluationResult result = await _transport.EvaluateAsync(
             SteamUiTargetRole.SharedJsContext,
@@ -406,14 +508,66 @@ internal sealed class SteamRunningApplicationProbe
                 && executable.ValueKind == JsonValueKind.String
                 ? executable.GetString() ?? string.Empty
                 : string.Empty;
-            return NormalizeShortcutTarget(target);
+            string folder = root.TryGetProperty("dir", out JsonElement installFolder)
+                && installFolder.ValueKind == JsonValueKind.String
+                ? installFolder.GetString() ?? string.Empty
+                : string.Empty;
+            return IsShortcutAppId(steamAppId)
+                ? NormalizeShortcutTarget(target)
+                : NormalizeInstallFolder(folder);
         }
         catch (Exception ex)
         {
             return new SteamRunningAppProfile(
                 null,
                 null,
-                $"Steam shortcut target was invalid: {ex.Message}");
+                $"Steam app details were invalid: {ex.Message}");
+        }
+    }
+
+    /// <summary>Turns a store title's reported install folder into pairing evidence.</summary>
+    /// <param name="folder">The <c>strInstallFolder</c> value Steam reported.</param>
+    internal static SteamRunningAppProfile NormalizeInstallFolder(string folder)
+    {
+        folder = folder.Trim();
+        if (string.IsNullOrWhiteSpace(folder))
+        {
+            return new SteamRunningAppProfile(
+                null,
+                null,
+                "Steam did not report the running title's install folder; "
+                + "RTSS remains on the global profile.");
+        }
+
+        try
+        {
+            if (!Path.IsPathFullyQualified(folder))
+            {
+                return new SteamRunningAppProfile(
+                    null,
+                    null,
+                    "Steam reported an install folder that is not an absolute path.");
+            }
+
+            string normalized = Path.GetFullPath(folder);
+            if (!Directory.Exists(normalized))
+            {
+                return new SteamRunningAppProfile(
+                    null,
+                    null,
+                    "Steam's reported install folder is not present.");
+            }
+
+            return new SteamRunningAppProfile(
+                null,
+                null,
+                "Steam exposes no executable for a store title; the RTSS profile pairs with the "
+                + "foreground process running from its install folder.",
+                normalized);
+        }
+        catch (Exception ex)
+        {
+            return new SteamRunningAppProfile(null, null, ex.Message);
         }
     }
 
@@ -556,6 +710,7 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
 
     /// <summary>Reports the application the user brought to the foreground.</summary>
     /// <param name="executableName">Foreground executable file name, or null for none.</param>
+    /// <param name="executablePath">Full image path of the same process, when readable.</param>
     /// <remarks>
     /// Still one monitor and one projection: the foreground is an input to the same projection, not
     /// a second observer publishing its own answer. It republishes against the last Steam
@@ -563,7 +718,7 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
     /// second CEF poll this class exists to avoid — and it would run on whatever thread the window
     /// hook fired on.
     /// </remarks>
-    internal void ReportForeground(string? executableName)
+    internal void ReportForeground(string? executableName, string? executablePath = null)
     {
         SteamRunningAppObservation? observation;
         lock (_stateGate)
@@ -573,10 +728,14 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
                 return;
             }
 
-            ForegroundApplicationObservation next = new(executableName);
+            ForegroundApplicationObservation next = new(executableName, executablePath);
             if (string.Equals(
                     _foreground.ExecutableName,
                     next.ExecutableName,
+                    StringComparison.OrdinalIgnoreCase)
+                && string.Equals(
+                    _foreground.ExecutablePath,
+                    next.ExecutablePath,
                     StringComparison.OrdinalIgnoreCase))
             {
                 return;
@@ -741,8 +900,8 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
             {
                 return;
             }
-            _nextProfileRetry = singleAppId is not null
-                && string.IsNullOrWhiteSpace(_profile?.RtssProfileName)
+            _nextProfileRetry = singleAppId is { } resolvedId
+                && ProfileUnresolved(resolvedId, _profile)
                 ? now + ProfileRetryInterval
                 : default;
         }
@@ -753,7 +912,7 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
         }
     }
 
-    /// <summary>Decides when an AppID needs a fresh executable lookup.</summary>
+    /// <summary>Decides when an AppID needs a fresh executable or install-folder lookup.</summary>
     internal static bool ShouldResolveProfile(
         uint? observedAppId,
         uint? resolvedAppId,
@@ -762,9 +921,20 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
         DateTimeOffset retryAt) =>
         observedAppId != resolvedAppId
         || (observedAppId is { } appId
-            && SteamRunningApplicationProbe.IsShortcutAppId(appId)
-            && string.IsNullOrWhiteSpace(profile?.RtssProfileName)
+            && ProfileUnresolved(appId, profile)
             && now >= retryAt);
+
+    /// <summary>Whether resolution is still missing what pairing needs for this kind of entry.</summary>
+    /// <remarks>
+    /// A shortcut resolves to its target executable; a store title resolves to its install folder,
+    /// because Steam never exposes a store title's executable. Each kind retries only its own
+    /// missing answer — a resolved store title must not re-query every interval merely because its
+    /// profile name legitimately stays empty.
+    /// </remarks>
+    private static bool ProfileUnresolved(uint appId, SteamRunningAppProfile? profile) =>
+        SteamRunningApplicationProbe.IsShortcutAppId(appId)
+            ? string.IsNullOrWhiteSpace(profile?.RtssProfileName)
+            : string.IsNullOrWhiteSpace(profile?.InstallFolder);
 
     private void Publish(
         SteamRunningAppObservation observation,

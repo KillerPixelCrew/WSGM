@@ -158,8 +158,11 @@ Consequences encoded in `Core\FrameLimitPairing.cs`, `Core\EdidModes.cs` and
 - Rates are enumerated and then tested; a driver may refuse one it enumerated. `CDS_TEST` changes
   nothing and is safe while a game runs.
 - Discovery is cached because each candidate costs a driver round trip.
-- Pairing takes the **lowest** exact multiple, since refresh rate is a power cost: 30 FPS held at 30
-  Hz costs meaningfully less than the same cap at 120 Hz.
+- The frame-doubling strategy prefers the lowest mode at **at least twice the cap** (30 FPS at
+  60 Hz, 60 at 120), because a 1:1 cadence keeps adaptive sync's low-framerate compensation out of
+  reach and a 30 Hz panel visibly flickers (maintainer-directed 2026-09-02). Where no doubled
+  multiple exists, and under native-modes always, pairing takes the **lowest** exact multiple, since
+  refresh rate is a power cost.
 - A cap with no exact multiple leaves the refresh rate alone. Forcing a near-miss mode adds judder
   rather than removing it.
 - A mode change is not free — an exclusive-fullscreen title can hitch, minimize, or drop out across

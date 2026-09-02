@@ -58,7 +58,18 @@ The shared performance contract already provides:
 - global and per-application desired state with per-property application-to-global fallback;
 - one canonical application identity fed by Steam lifetime notifications and foreground-window
   observation: Steam AppID wins when exactly one game is running, while a usable foreground
-  executable fills Steam's missing store-app profile or identifies an application outside Steam;
+  executable fills Steam's missing store-app profile or identifies an application outside Steam.
+  For a store title the fill is **proof-gated**: Steam's `strInstallFolder` is resolved from the
+  same AppDetails read as the shortcut target, and only a foreground process whose image path lies
+  inside that folder may become the game's RTSS profile — a bare foreground name once made
+  WindowsTerminal.exe HITMAN 3's sticky frame-limit target for a whole run (device-observed
+  2026-09-02). The pairing survives alt-tab, and a different validated executable from the same
+  folder takes it over (launcher handing off to the game);
+- per-application RTSS profile writes only when the user opted the application in or RTSS already
+  carries that profile (whose explicit values would otherwise override the global write); everything
+  else goes to the global profile. Saving an absent RTSS profile creates it, and applying effective
+  values on every application transition had sprayed a profile onto every executable that ever took
+  focus — the RTSS profile list filled with terminals and installers (device-observed 2026-09-02);
 - identity-only per-application policy when Steam has named the game but Windows has not exposed its
   executable yet; preferences persist against the AppID and report `Deferred` instead of being
   misapplied to RTSS's global profile, then apply when foreground enrichment arrives;
@@ -88,9 +99,12 @@ because of start order. `RtssLauncher` therefore starts it, under two rules:
 - Only ever the executable discovery already verified: registered under a protected install root,
   signed, product name RTSS, version 7.3 or newer. It never resolves a path itself and never takes
   one from configuration, so it cannot be pointed at another program.
-- One attempt per session. RTSS not appearing is a state worth reporting once, not something to
-  retry into: a second copy of a single-instance program is at best wasted and at worst the
-  "multiple processes match" case discovery already treats as degraded.
+- A cooldown between attempts (30 s), not once per session. RTSS's own window has no close-to-tray,
+  so one accidental X used to end the frame limit, the OSD and AutoTDP's frametimes for the rest of
+  the session (maintainer-reported 2026-09-02); a later NotRunning probe past the cooldown starts it
+  again. Every attempt still fires only on a NotRunning probe — discovery found no process — so a
+  second copy of the single-instance program is never started, and the cooldown keeps an RTSS that
+  exits immediately from being relaunched on every poll.
 
 ## Frametime-driven AutoTDP
 

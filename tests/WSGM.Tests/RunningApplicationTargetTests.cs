@@ -117,6 +117,29 @@ public sealed class RunningApplicationTargetTests : IDisposable
         Assert.Null(profile.Diagnostic);
     }
 
+    [Fact]
+    public void AnExistingAbsoluteInstallFolderBecomesPairingEvidence()
+    {
+        SteamRunningAppProfile profile =
+            SteamRunningApplicationProbe.NormalizeInstallFolder(_tempDirectory);
+
+        Assert.Equal(Path.GetFullPath(_tempDirectory), profile.InstallFolder);
+        Assert.Null(profile.RtssProfileName);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(@"steamapps\common\Game")]
+    [InlineData(@"Q:\definitely\not\present")]
+    public void UntruthfulInstallFoldersProduceNoPairingEvidence(string folder)
+    {
+        SteamRunningAppProfile profile =
+            SteamRunningApplicationProbe.NormalizeInstallFolder(folder);
+
+        Assert.Null(profile.InstallFolder);
+        Assert.NotNull(profile.Diagnostic);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("relative.exe")]
@@ -198,13 +221,83 @@ public sealed class RunningApplicationTargetTests : IDisposable
         RunningApplicationTargetSnapshot target = RunningApplicationTargetProjection.Apply(
             RunningApplicationTargetSnapshot.Initial(now),
             new SteamRunningAppObservation(true, [42], 2, null),
-            new SteamRunningAppProfile(null, null, "Steam exposes no executable."),
+            new SteamRunningAppProfile(
+                null,
+                null,
+                "Steam exposes no executable.",
+                @"D:\SteamLibrary\steamapps\common\Game"),
             now,
-            new ForegroundApplicationObservation("game.exe"));
+            new ForegroundApplicationObservation(
+                "game.exe",
+                @"D:\SteamLibrary\steamapps\common\Game\bin\game.exe"));
 
         Assert.Equal(RunningApplicationTargetState.Active, target.State);
         Assert.Equal("steam:42", target.ApplicationId);
         Assert.Equal((uint)42, target.SteamAppId);
+        Assert.Equal("game.exe", target.RtssProfileName);
+        Assert.Equal(
+            @"D:\SteamLibrary\steamapps\common\Game\bin\game.exe",
+            target.ExecutablePath);
+    }
+
+    [Fact]
+    public void AForegroundOutsideTheInstallFolderNeverBecomesTheGamesProfile()
+    {
+        // The bug this rule exists for: a terminal focused while a store title was resolving became
+        // HITMAN 3's sticky RTSS target, and the frame limit landed on WindowsTerminal.exe
+        // (device-observed 2026-09-02).
+        DateTimeOffset now = DateTimeOffset.Parse("2026-09-02T12:00:00Z");
+
+        RunningApplicationTargetSnapshot target = RunningApplicationTargetProjection.Apply(
+            RunningApplicationTargetSnapshot.Initial(now),
+            new SteamRunningAppObservation(true, [42], 2, null),
+            new SteamRunningAppProfile(
+                null,
+                null,
+                "Steam exposes no executable.",
+                @"D:\SteamLibrary\steamapps\common\Game"),
+            now,
+            new ForegroundApplicationObservation(
+                "WindowsTerminal.exe",
+                @"C:\Program Files\WindowsApps\Terminal\WindowsTerminal.exe"));
+
+        Assert.Equal(RunningApplicationTargetState.IdentityOnly, target.State);
+        Assert.Null(target.RtssProfileName);
+    }
+
+    [Fact]
+    public void AStoreTitleWithoutAKnownInstallFolderStaysIdentityOnly()
+    {
+        // No folder means no proof; a bare foreground name pairing here is how the wrong
+        // application captured a game's profile for its whole run.
+        DateTimeOffset now = DateTimeOffset.Parse("2026-09-02T12:00:00Z");
+
+        RunningApplicationTargetSnapshot target = RunningApplicationTargetProjection.Apply(
+            RunningApplicationTargetSnapshot.Initial(now),
+            new SteamRunningAppObservation(true, [42], 2, null),
+            new SteamRunningAppProfile(null, null, "Install folder still resolving."),
+            now,
+            new ForegroundApplicationObservation("game.exe", @"D:\Games\game.exe"));
+
+        Assert.Equal(RunningApplicationTargetState.IdentityOnly, target.State);
+        Assert.Null(target.RtssProfileName);
+    }
+
+    [Fact]
+    public void AnUnresolvedShortcutStillTakesTheForegroundName()
+    {
+        // A shortcut has no install folder to check, and its target resolution normally names the
+        // executable outright; the rare unresolved one keeps the name-based fill.
+        DateTimeOffset now = DateTimeOffset.Parse("2026-09-02T12:00:00Z");
+
+        RunningApplicationTargetSnapshot target = RunningApplicationTargetProjection.Apply(
+            RunningApplicationTargetSnapshot.Initial(now),
+            new SteamRunningAppObservation(true, [0x8000002A], 2, null),
+            new SteamRunningAppProfile(null, null, "The shortcut target is a script."),
+            now,
+            new ForegroundApplicationObservation("game.exe"));
+
+        Assert.Equal(RunningApplicationTargetState.Active, target.State);
         Assert.Equal("game.exe", target.RtssProfileName);
     }
 
@@ -213,24 +306,68 @@ public sealed class RunningApplicationTargetTests : IDisposable
     {
         DateTimeOffset now = DateTimeOffset.Parse("2026-08-30T12:00:00Z");
         SteamRunningAppObservation observation = new(true, [42], 2, null);
-        SteamRunningAppProfile unresolved = new(null, null, "Steam exposes no executable.");
+        SteamRunningAppProfile unresolved = new(
+            null,
+            null,
+            "Steam exposes no executable.",
+            @"D:\SteamLibrary\steamapps\common\Game");
         RunningApplicationTargetSnapshot game = RunningApplicationTargetProjection.Apply(
             RunningApplicationTargetSnapshot.Initial(now),
             observation,
             unresolved,
             now,
-            new ForegroundApplicationObservation("game.exe"));
+            new ForegroundApplicationObservation(
+                "game.exe",
+                @"D:\SteamLibrary\steamapps\common\Game\game.exe"));
 
         RunningApplicationTargetSnapshot altTabbed = RunningApplicationTargetProjection.Apply(
             game,
             observation,
             unresolved,
             now.AddSeconds(1),
-            new ForegroundApplicationObservation("chrome.exe"));
+            new ForegroundApplicationObservation(
+                "chrome.exe",
+                @"C:\Program Files\Google\Chrome\chrome.exe"));
 
         Assert.Equal("steam:42", altTabbed.ApplicationId);
         Assert.Equal("game.exe", altTabbed.RtssProfileName);
         Assert.Equal(game.Generation, altTabbed.Generation);
+    }
+
+    [Fact]
+    public void ALauncherHandsThePairingToTheGameProcessFromTheSameFolder()
+    {
+        // A launcher takes focus first and validly pairs; when the game process from the same
+        // install folder comes to the front, the profile follows it rather than staying on the
+        // launcher for the whole run.
+        DateTimeOffset now = DateTimeOffset.Parse("2026-09-02T12:00:00Z");
+        SteamRunningAppObservation observation = new(true, [42], 2, null);
+        SteamRunningAppProfile unresolved = new(
+            null,
+            null,
+            "Steam exposes no executable.",
+            @"D:\SteamLibrary\steamapps\common\Game");
+        RunningApplicationTargetSnapshot launcher = RunningApplicationTargetProjection.Apply(
+            RunningApplicationTargetSnapshot.Initial(now),
+            observation,
+            unresolved,
+            now,
+            new ForegroundApplicationObservation(
+                "launcher.exe",
+                @"D:\SteamLibrary\steamapps\common\Game\launcher.exe"));
+
+        RunningApplicationTargetSnapshot game = RunningApplicationTargetProjection.Apply(
+            launcher,
+            observation,
+            unresolved,
+            now.AddSeconds(5),
+            new ForegroundApplicationObservation(
+                "game.exe",
+                @"D:\SteamLibrary\steamapps\common\Game\bin\game.exe"));
+
+        Assert.Equal("launcher.exe", launcher.RtssProfileName);
+        Assert.Equal("game.exe", game.RtssProfileName);
+        Assert.Equal("steam:42", game.ApplicationId);
     }
 
     [Fact]

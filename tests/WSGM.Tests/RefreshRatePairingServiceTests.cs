@@ -61,8 +61,8 @@ public sealed class RefreshRatePairingServiceTests
 
         Assert.True(harness.Service.Restore());
 
-        // The original is captured once, so two cap changes still restore 120 rather than 30.
-        Assert.Equal([30, 48, 120], harness.Applied);
+        // The original is captured once, so two cap changes still restore 120 rather than 60.
+        Assert.Equal([60, 48, 120], harness.Applied);
     }
 
     [Fact]
@@ -87,7 +87,7 @@ public sealed class RefreshRatePairingServiceTests
         harness.ApplySucceeds = true;
         Assert.True(harness.Service.Restore());
 
-        Assert.Equal([30, 120], harness.Applied);
+        Assert.Equal([60, 120], harness.Applied);
     }
 
     [Fact]
@@ -99,7 +99,7 @@ public sealed class RefreshRatePairingServiceTests
 
         harness.Service.SetStrategy(FrameLimitStrategy.FrameLimitOnly);
 
-        Assert.Equal([30, 120], harness.Applied);
+        Assert.Equal([60, 120], harness.Applied);
     }
 
     [Fact]
