@@ -494,6 +494,12 @@ public sealed class ShellSession : IAsyncDisposable
             performance: _performanceOverlay,
             audio: _audio,
             radios: _radios);
+        // The sheet is recreated per open, so its one-time cost — compiled-XAML populate JIT for
+        // the process's largest window — lands on the user's first swipe (~1.5 s on the Claw).
+        // Pay it at idle instead; every later open constructs against warm code.
+        Avalonia.Threading.Dispatcher.UIThread.Post(
+            _overlay.WarmUp,
+            Avalonia.Threading.DispatcherPriority.ApplicationIdle);
 
         if (_deviceCoordinator is { } controllerCapture && _overlay is { } captureSurface)
         {

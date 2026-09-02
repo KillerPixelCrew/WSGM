@@ -1116,6 +1116,39 @@ public sealed class OverlayController : IDisposable
         });
     }
 
+    /// <summary>Constructs and discards one throwaway sheet so the first real swipe does not pay
+    /// the process's one-time cost for its largest window — compiled-XAML populate JIT and the
+    /// instantiation of every page host — measured as a ~1.5 s first open on the Claw while every
+    /// later open is immediate.</summary>
+    /// <remarks>UI thread, intended for an idle moment after the session is up. The throwaway
+    /// window is never shown: the constructor is wiring only, and nothing live is attached — no
+    /// status Start, no device bridge, no performance source, no lease.</remarks>
+    public void WarmUp()
+    {
+        if (_disposed || _overlay is not null)
+        {
+            return;
+        }
+
+        try
+        {
+            var status = new SystemStatus(_sessionAudio, _sessionRadios);
+            var window = new OverlayWindow(
+                new OverlayViewModel(),
+                new AppSwitcherViewModel(),
+                status,
+                UiScale());
+            window.Close();
+            status.Dispose();
+            Log.Info("Quick access sheet warmed for first open.");
+        }
+        catch (Exception ex)
+        {
+            // Warm-up is an optimization; the first swipe still works without it.
+            Log.Warn($"Quick access warm-up failed: {ex.Message}");
+        }
+    }
+
     /// <summary>Opens or closes the primary overlay exactly once.</summary>
     public void ToggleOverlay()
     {
