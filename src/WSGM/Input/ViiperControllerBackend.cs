@@ -49,6 +49,17 @@ internal sealed class ViiperControllerBackend : IHidBackend
     private const byte RumbleCommandId = 0xEB;
     private const byte HapticEventCommandId = 0xDC;
     private const byte HapticGainCommandId = 0xE2;
+
+    /// <summary>Feedback command ids Steam sends that deliberately produce no motor output.</summary>
+    /// <remarks>
+    /// Configuration and identity chatter observed live: clear-mappings, attribute and string
+    /// queries, settings writes, default-settings load and default-mappings, audio mapping, the
+    /// haptic gain set, and the empty frame. Anything outside this set is a protocol novelty and
+    /// is worth its bounded log line.
+    /// </remarks>
+    private static readonly System.Collections.Frozen.FrozenSet<byte> KnownIgnoredFeedback =
+        System.Collections.Frozen.FrozenSet.ToFrozenSet<byte>(
+            [0x00, 0x81, 0x83, 0x85, 0x87, 0x8E, 0xAE, 0xC1, HapticGainCommandId]);
     private static readonly TimeSpan MaxEmulatedPulseDuration = TimeSpan.FromSeconds(5);
 
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -439,25 +450,24 @@ internal sealed class ViiperControllerBackend : IHidBackend
             }
 
             ReadOnlySpan<byte> report = new(data, length);
-            DecodedHapticFeedback? decoded = DecodeFeedback(target.Kind, report);
-
-            // A few samples per command id, then silence: Steam speaks more feedback shapes than
-            // SDL does, and a silently dropped or imperceptibly rendered one reads as "rumble is
-            // broken" with no evidence in a pasted log — while unbounded logging here would run
-            // at haptic rate. Decoded frames are included so their strengths are inspectable.
-            int seen = backend._undecodedFeedback.AddOrUpdate(report[0], 1, (_, n) => n + 1);
-            if (seen <= 8)
+            if (DecodeFeedback(target.Kind, report) is not { } feedback)
             {
-                string outcome = decoded is { } d
-                    ? $"decoded low={d.LowFrequency:F3} high={d.HighFrequency:F3} stopAfter={d.StopAfter?.TotalMilliseconds:F0}ms"
-                    : "undecoded";
-                Log.Warn(
-                    $"{target.Kind} feedback frame ({seen}/8 shown, {outcome}): length={length}, "
-                        + $"bytes={Convert.ToHexString(report[..Math.Min(length, 24)])}.");
-            }
+                // Steam's known configuration chatter is dropped silently; a command id this
+                // decoder has never seen gets a few bounded samples in the log, because that is
+                // how every haptic shape above was found and a future Steam protocol change
+                // would otherwise read as "rumble is broken" with no evidence.
+                if (!KnownIgnoredFeedback.Contains(report[0]))
+                {
+                    int seen = backend._undecodedFeedback.AddOrUpdate(report[0], 1, (_, n) => n + 1);
+                    if (seen <= 4)
+                    {
+                        Log.Warn(
+                            $"Unknown {target.Kind} feedback frame ({seen}/4 shown): "
+                                + $"length={length}, "
+                                + $"bytes={Convert.ToHexString(report[..Math.Min(length, 24)])}.");
+                    }
+                }
 
-            if (decoded is not { } feedback)
-            {
                 return;
             }
 
