@@ -96,8 +96,11 @@ public sealed class SteamDeckNeptuneReportTests
             Sample(CanonicalButtons.None) with { LeftTrigger = 0.5f, RightTrigger = 1f });
 
         Assert.Equal(0x03, frame[8]);
-        Assert.Equal(32768, BitConverter.ToUInt16(frame, 44));
-        Assert.Equal(ushort.MaxValue, BitConverter.ToUInt16(frame, 46));
+        // The wire fields are signed 16-bit, so full travel is 32767. A 0..65535 scale read as
+        // negative past half pull: Steam saw the trigger release mid-pull and press again on the
+        // way back, double-clicking and tearing drags loose in desktop mode.
+        Assert.Equal(16384, BitConverter.ToInt16(frame, 44));
+        Assert.Equal(short.MaxValue, BitConverter.ToInt16(frame, 46));
     }
 
     [Fact]
@@ -152,10 +155,11 @@ public sealed class SteamDeckNeptuneReportTests
         Assert.Equal(short.MinValue + 1, BitConverter.ToInt16(frame, 18));
         Assert.Equal(16384, BitConverter.ToInt16(frame, 20));
         Assert.Equal(0, BitConverter.ToInt16(frame, 22));
-        Assert.Equal(ushort.MaxValue, BitConverter.ToUInt16(frame, 56));
-        Assert.Equal(32768, BitConverter.ToUInt16(frame, 58));
-        Assert.Equal(ushort.MaxValue, BitConverter.ToUInt16(frame, 60));
-        Assert.Equal(0, BitConverter.ToUInt16(frame, 62));
+        // Pressure fields share the signed 16-bit range with the triggers.
+        Assert.Equal(short.MaxValue, BitConverter.ToInt16(frame, 56));
+        Assert.Equal(16384, BitConverter.ToInt16(frame, 58));
+        Assert.Equal(short.MaxValue, BitConverter.ToInt16(frame, 60));
+        Assert.Equal(0, BitConverter.ToInt16(frame, 62));
     }
 
     [Fact]

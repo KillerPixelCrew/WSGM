@@ -132,7 +132,7 @@ internal static class SteamDeckNeptuneReport
 
         WriteMotion(sample.Motion, destination);
 
-        // Triggers are unsigned 16-bit on the wire; the canonical model is a 0..1 unit.
+        // Triggers are signed 16-bit on the wire; the canonical model is a 0..1 unit.
         BinaryPrimitives.WriteUInt16LittleEndian(destination[44..46], Trigger(sample.LeftTrigger));
         BinaryPrimitives.WriteUInt16LittleEndian(destination[46..48], Trigger(sample.RightTrigger));
 
@@ -192,8 +192,17 @@ internal static class SteamDeckNeptuneReport
     private static byte Mask(CanonicalButtons buttons, CanonicalButtons flag, byte bit) =>
         (buttons & flag) != 0 ? bit : (byte)0;
 
+    /// <summary>Scales a 0..1 unit onto the wire's trigger/pressure range.</summary>
+    /// <remarks>
+    /// The trigger and pressure fields are signed 16-bit on the wire (Valve's
+    /// <c>sTriggerRaw</c>/<c>sPressure</c> members; SDL3 doubles 0..32767 onto the full axis
+    /// range), so full travel is 32767. Scaling to 65535 made every pull past half travel read
+    /// as negative — Steam saw the trigger release mid-pull and press again on the way back,
+    /// which double-clicked and tore held drags loose in desktop mode (device-observed
+    /// 2026-09-02).
+    /// </remarks>
     private static ushort Trigger(float value) =>
-        (ushort)Math.Clamp(MathF.Round(value * ushort.MaxValue), 0, ushort.MaxValue);
+        (ushort)Math.Clamp(MathF.Round(value * short.MaxValue), 0, short.MaxValue);
 
     /// <summary>Scales a canonical -1..1 axis onto the wire's signed range.</summary>
     /// <remarks>
