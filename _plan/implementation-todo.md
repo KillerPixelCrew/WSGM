@@ -610,12 +610,22 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       `0x8F` pulse commands. The Handheld Companion target supplied the missing command shapes;
       WSGM now approximates both on the Claw's two ERM motors, bounds and generation-checks pulse
       stops, and logs the first admitted output once per target without logging at report cadence.
+      The first deployed cut still rendered the action-only haptic sink as `Unknown` and disabled
+      its row because the generic projection demanded readback that the descriptor explicitly does
+      not support. Available unreadable actions now render `Ready` / `RUN` and can invoke the bounded
+      physical preview; game/Steam feedback still needs attended confirmation through the new log.
 - [x] **Desktop performance overlay remained invisible even though WSGM claimed a slot:** RTSS had
       `EnableOSD=0` globally and in every inspected profile until the maintainer repaired them
       manually. The post-repair read of WSGM's populated slot was not evidence that the feature had
       been healthy. A nonzero overlay apply now opens the RTSS presentation gate in both the global
       and current executable profiles; level zero clears only WSGM's slot and never writes the
       destructive `EnableOSD=0`. Application transitions repair other profiles as they become active.
+- [ ] **Legacy RTSS own-statistics cleanup is an explicit maintainer choice:** the orange overlay
+      observed after deployment is consistent with `EnableStat=1`, which remains in RTSS's global
+      profile and several app profiles from the retired property mapping. WSGM's slot followed every
+      requested level, including zero, and the other live slot was empty. Do not bulk-clear the
+      external profiles without choosing global-only versus all-profile cleanup; current WSGM no
+      longer writes `EnableStat` in either direction.
 - [ ] Attended after deployment: with Steam Deck Composite selected, confirm a Steam UI haptic and a
       game's ordinary rumble both reach the Claw, then confirm the new first-output log and a zeroed
       physical report after a pulse. In Desktop Mode, first set the relevant profiles back to

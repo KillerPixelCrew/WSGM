@@ -954,7 +954,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     private void OnAutoTdpStatusChanged(AutoTdpStatus _) =>
         Avalonia.Threading.Dispatcher.UIThread.Post(() => Changed?.Invoke());
 
-    private static DeviceOverlayCapability ToOverlayCapability(
+    internal static DeviceOverlayCapability ToOverlayCapability(
         DeviceCapabilityView view,
         IReadOnlySet<string> declaredSections)
     {
@@ -964,8 +964,14 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         CapabilityValue? displayed = projection.PendingValue
             ?? projection.DesiredValue
             ?? state.ObservedValue;
-        bool current = state.Available
-            && state.Quality is HardwareStateQuality.Observed or HardwareStateQuality.Verified;
+        bool actionOnlyReady = state.Available
+            && state.Reason is null
+            && descriptor.SupportsAction
+            && !descriptor.SupportsRead
+            && state.Quality is HardwareStateQuality.Unknown;
+        bool current = actionOnlyReady
+            || state.Available
+                && state.Quality is HardwareStateQuality.Observed or HardwareStateQuality.Verified;
         CapabilityValue? next = NextValue(descriptor, displayed);
         bool colorWrite = descriptor.ValueKind is CapabilityValueKind.Color
             && displayed?.ColorValue is not null;
@@ -980,6 +986,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             _ when projection.DesiredValueOutOfRange =>
                 "Saved value is outside the current firmware range",
             _ when state.Reason is not null => state.Reason.Detail,
+            _ when actionOnlyReady => "Ready · action has no readback",
             _ => $"{QualityLabel(state.Quality)} · {PersistenceLabel(descriptor.Persistence)}",
         }) ?? "Capability state is unavailable.";
         return new DeviceOverlayCapability(
@@ -989,7 +996,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             StatusFor(projection),
             DisplayLabel(descriptor.Display),
             description,
-            FormatValue(displayed, descriptor.Unit),
+            descriptor.SupportsAction ? "RUN" : FormatValue(displayed, descriptor.Unit),
             canInvoke,
             displayed,
             descriptor.SupportsAction ? null : next)

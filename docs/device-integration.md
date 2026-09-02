@@ -222,6 +222,10 @@ back through the serialized haptic sink; an old pulse can neither stop a replace
 leave the Claw's latched motors running. The first physical output admitted for each target is
 logged once, never at report cadence.
 
+An action-only haptic sink has availability but deliberately has no readback. The overlay treats an
+available, unreadable action as `Ready`, shows `RUN`, and permits its bounded preview instead of
+mislabeling the absent value as `Unknown` and disabling the only direct hardware test.
+
 The optional installer task owns initial usbip-win2/HidHide installation. Its USB/IP helper remains
 nonfatal, but publishes an atomic bounded status under `%ProgramData%\WSGM`; setup reads that status
 instead of treating exit code zero as proof that the signed driver registered. A new installation

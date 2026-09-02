@@ -197,3 +197,11 @@ and must not be described as healthy end-to-end evidence. The missing mechanism 
 profile activation above. Re-applying a nonzero level through the overlay or QAM now repairs global
 plus the current executable; later application transitions repair each profile as it becomes
 current.
+
+The orange statistics/frametime display reported after that deployment is a separate RTSS-owned
+surface: the live shared-memory inventory showed only WSGM's level-dependent slot plus an empty
+Overlay Editor slot, while RTSS's `Global` profile and several application profiles still had
+`EnableStat=1`. Early WSGM builds wrote that property, but current WSGM cannot distinguish those
+leftovers from a user's intentional RTSS statistics settings. The level selector therefore does not
+silently clear `EnableStat`; cleanup of the affected RTSS profiles is an explicit maintenance
+choice.

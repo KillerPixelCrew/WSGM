@@ -29,6 +29,40 @@ public sealed class DeviceOverlayProjectionTests
     }
 
     [Fact]
+    public void AvailableActionOnlyCapabilityIsRunnableWithoutInventingReadback()
+    {
+        CapabilityDescriptor descriptor = new()
+        {
+            CapabilityId = "haptic.rumble",
+            Role = CapabilityRole.HapticSink,
+            ValueKind = CapabilityValueKind.None,
+            Display = new CapabilityDisplay { Key = DisplayKey.Rumble },
+            SupportsAction = true,
+            Persistence = CapabilityPersistence.Volatile,
+        };
+        CapabilityState state = new()
+        {
+            CapabilityId = descriptor.CapabilityId,
+            Available = true,
+            Quality = HardwareStateQuality.Unknown,
+            DescriptorGeneration = 4,
+            CycleGeneration = 3,
+        };
+
+        DeviceOverlayCapability capability = DeviceOverlayBridge.ToOverlayCapability(
+            new DeviceCapabilityView(
+                descriptor,
+                new CapabilityProjection { State = state },
+                LastResult: null),
+            new HashSet<string>(StringComparer.Ordinal));
+
+        Assert.Equal(DescriptorStatus.Available, capability.Status);
+        Assert.True(capability.CanInvoke);
+        Assert.Equal("RUN", capability.TrailingText);
+        Assert.Equal("Ready · action has no readback", capability.Description);
+    }
+
+    [Fact]
     public async Task SimulatedDeviceMutationRaisesOneSharedChangeAndUpdatesReadback()
     {
         using SimulatedDeviceOverlaySource source = new();
