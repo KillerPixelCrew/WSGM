@@ -173,6 +173,11 @@ internal sealed record RtssApplyResult(bool Applied, string? Diagnostic);
 /// <summary>Adapter boundary used by the shared service and deterministic tests.</summary>
 internal interface IRtssAdapter : IAsyncDisposable
 {
+    /// <summary>Applies the Custom overlay's configuration (selector level 4). A cheap handoff
+    /// to the adapter's renderer; adapters without one ignore it.</summary>
+    /// <param name="settings">The widget order and per-widget detail.</param>
+    void ApplyOsdCustomization(RtssOsdCustomSettings settings);
+
     Task<RtssProbe> ProbeAsync(CancellationToken cancellationToken);
 
     Task<RtssReadback> ReadAsync(

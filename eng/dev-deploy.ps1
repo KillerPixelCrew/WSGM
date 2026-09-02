@@ -91,21 +91,66 @@ if ($steamProcesses.Count -ne 0) {
     }
 }
 
-$wsgmProcesses = @(Get-Process -Name 'WSGM' -ErrorAction SilentlyContinue |
-    Where-Object SessionId -eq $sessionId)
-foreach ($process in $wsgmProcesses) {
-    Stop-Process -Id $process.Id -Force -ErrorAction Stop
-    Wait-Process -Id $process.Id -Timeout 10 -ErrorAction SilentlyContinue
-}
+# Stop until quiet, not once: the logon-service watchdog respawns WSGM right after a kill, and
+# that respawn held WSGM.exe through the copy on three consecutive deploys (2026-09-01). A process
+# may also exit between enumeration and Stop-Process, which is success, not an error.
+$stopDeadline = [Diagnostics.Stopwatch]::StartNew()
+do {
+    $wsgmProcesses = @(Get-Process -Name 'WSGM' -ErrorAction SilentlyContinue |
+        Where-Object SessionId -eq $sessionId)
+    foreach ($process in $wsgmProcesses) {
+        try {
+            Stop-Process -Id $process.Id -Force -ErrorAction Stop
+            Wait-Process -Id $process.Id -Timeout 10 -ErrorAction SilentlyContinue
+        } catch [Microsoft.PowerShell.Commands.ProcessCommandException] {
+            # Already gone — the watchdog's respawn can die on its own between the
+            # enumeration and the stop.
+        }
+    }
+    if ($wsgmProcesses.Count -eq 0) { break }
+    Start-Sleep -Milliseconds 250
+} while ($stopDeadline.Elapsed -lt [TimeSpan]::FromSeconds(10))
 
 Write-Host "== Swapping files into $binDirectory ==" -ForegroundColor Cyan
 # WSGM.exe plus everything the publish stages beside it that the installer would also place in
 # {app}: the launch wrapper and the native helper DLLs. The ShellAnchor is the same binary under
 # the shell-registration name; leaving it stale would run two different builds in one session.
-Copy-Item -LiteralPath $newExe -Destination (Join-Path $binDirectory 'WSGM.exe') -Force
+# The exe copy retries briefly: a killed process releases its image lock a beat after the process
+# object dies, and the watchdog respawn can hold it for a moment more.
+$copied = $false
+for ($attempt = 1; $attempt -le 10 -and -not $copied; $attempt++) {
+    try {
+        Copy-Item -LiteralPath $newExe -Destination (Join-Path $binDirectory 'WSGM.exe') -Force -ErrorAction Stop
+        $copied = $true
+    } catch [System.IO.IOException] {
+        Get-Process -Name 'WSGM' -ErrorAction SilentlyContinue |
+            Where-Object SessionId -eq $sessionId |
+            Stop-Process -Force -Confirm:$false -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 500
+    }
+}
+if (-not $copied) {
+    throw "WSGM.exe stayed locked through 10 copy attempts - is something else holding $binDirectory\WSGM.exe?"
+}
 $anchor = Join-Path $binDirectory 'WSGM.ShellAnchor.exe'
 if (Test-Path -LiteralPath $anchor) {
-    Copy-Item -LiteralPath $newExe -Destination $anchor -Force
+    # A desktop session keeps a live anchor process (Explorer's launch parent) that holds this
+    # image. It is inert after Explorer is up, so stop it rather than shipping a stale anchor.
+    $anchorCopied = $false
+    for ($attempt = 1; $attempt -le 10 -and -not $anchorCopied; $attempt++) {
+        try {
+            Copy-Item -LiteralPath $newExe -Destination $anchor -Force -ErrorAction Stop
+            $anchorCopied = $true
+        } catch [System.IO.IOException] {
+            Get-Process -Name 'WSGM.ShellAnchor' -ErrorAction SilentlyContinue |
+                Where-Object SessionId -eq $sessionId |
+                Stop-Process -Force -Confirm:$false -ErrorAction SilentlyContinue
+            Start-Sleep -Milliseconds 500
+        }
+    }
+    if (-not $anchorCopied) {
+        throw "WSGM.ShellAnchor.exe stayed locked through 10 copy attempts."
+    }
 }
 foreach ($pattern in 'WSGM.Launch.exe', '*.dll') {
     Get-ChildItem -LiteralPath $appPublish -Filter $pattern -ErrorAction SilentlyContinue |

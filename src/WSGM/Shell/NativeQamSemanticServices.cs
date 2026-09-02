@@ -549,8 +549,29 @@ internal sealed class PerformanceServiceNativeQamAdapter
         }
 
         string? failure = null;
-        foreach (NativeQamPerfChange change in delta.Recognized)
+        foreach (NativeQamPerfChange received in delta.Recognized)
         {
+            // The overlay level travels as Valve's enum value, not the notch the user picked —
+            // see NativeQamOverlayLevelWire. Everything downstream speaks notches.
+            NativeQamPerfChange change = received.Kind is NativeQamPerfSetting.OverlayLevel
+                ? received with { Value = NativeQamOverlayLevelWire.ToNotch(received.Value) }
+                : received;
+
+            // Echo suppression, the volume/brightness rule: Steam's side re-sends values it did
+            // not originate — a control committing its computed value after WSGM's own state
+            // publication moved it, or a settings replay restating the store. Applying a
+            // restatement made the level ping-pong between two writers at the poll cadence
+            // (device log 2026-09-01, 21:42: OverlayLevel alternating 4/0 every ~2 s with the
+            // user idle). A value that already equals WSGM's desired one changes nothing and is
+            // dropped before it can re-enter the loop; a genuine user change always differs.
+            if (RestatesDesired(change))
+            {
+                Log.Change(
+                    $"native-qam-echo-{change.Kind}",
+                    $"Native QAM delta restated {change.Kind}={change.Value}; already desired — skipped.");
+                continue;
+            }
+
             SteamUiCommandResult result = await ApplyPerfChangeAsync(
                 change,
                 CorrelationId(request),
@@ -567,6 +588,25 @@ internal sealed class PerformanceServiceNativeQamAdapter
         }
 
         return new(failure is null, failure);
+    }
+
+    /// <summary>Whether a delta field only restates the value WSGM already wants.</summary>
+    /// <param name="change">The decoded change.</param>
+    /// <returns>True to drop the change as an echo.</returns>
+    /// <remarks>Only the RTSS-backed settings are judged here: their desired values live in the
+    /// performance service and are what the state publication told Steam in the first place. The
+    /// display-owned settings pass through; their owners are idempotent.</remarks>
+    private bool RestatesDesired(NativeQamPerfChange change)
+    {
+        PerformanceValues desired = _service.Current.Desired;
+        return change.Kind switch
+        {
+            NativeQamPerfSetting.OverlayLevel => desired.OverlayLevel == change.Value,
+            NativeQamPerfSetting.FrameLimit => desired.FrameLimit == change.Value,
+            NativeQamPerfSetting.FrameLimitEnabled =>
+                change.AsFlag == (desired.FrameLimit is > 0),
+            _ => false,
+        };
     }
 
     /// <summary>Applies one change from Steam's own performance panel.</summary>

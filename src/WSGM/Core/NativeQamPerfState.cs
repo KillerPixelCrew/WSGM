@@ -317,8 +317,10 @@ internal static class NativeQamPerfProjection
                 // the miss, so a level outside 0-4 throws inside the render and Steam's error
                 // boundary blanks the whole Performance tab. Clamping here is the cheap side of
                 // that trade — the control is always mounted, so an absent value is not an option
-                // either.
-                PerfOverlayLevel = Math.Clamp(values.OverlayLevel ?? 0, 0, MaximumOverlayLevel),
+                // either. The wire value is Valve's enum, not the notch index — see
+                // NativeQamOverlayLevelWire.
+                PerfOverlayLevel = NativeQamOverlayLevelWire.ToSteam(
+                    Math.Clamp(values.OverlayLevel ?? 0, 0, MaximumOverlayLevel)),
                 IsAdvancedSettingsEnabled = advancedSettingsEnabled,
                 AllowExternalDisplayRefreshControl = support.RefreshRatesSelectable ? true : null,
             },

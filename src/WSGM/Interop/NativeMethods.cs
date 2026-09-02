@@ -598,6 +598,32 @@ internal static partial class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool GetSystemPowerStatus(out SystemPowerStatus status);
 
+    // ---- RTSS OSD metrics (Core\RtssOsd) ----
+    // FILETIME pairs as raw 64-bit ticks; kernel time includes idle.
+    [LibraryImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetSystemTimes(
+        out long idleTime, out long kernelTime, out long userTime);
+
+    /// <summary>MEMORYSTATUSEX; <see cref="Length"/> must be set before the call.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct MemoryStatusEx
+    {
+        public uint Length;
+        public uint MemoryLoad;
+        public ulong TotalPhys;
+        public ulong AvailPhys;
+        public ulong TotalPageFile;
+        public ulong AvailPageFile;
+        public ulong TotalVirtual;
+        public ulong AvailVirtual;
+        public ulong AvailExtendedVirtual;
+    }
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GlobalMemoryStatusEx(ref MemoryStatusEx status);
+
     // ---- Window icons (taskbar) ----
     internal const uint WmGetIcon = 0x007F;
     internal const uint WmQueryDragIcon = 0x0037;

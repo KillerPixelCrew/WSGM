@@ -129,6 +129,14 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         DeviceGlyphSelectionIndex = (int)_config.DeviceIntegration.GlyphSelection;
         PerformanceEnabled = _config.Performance.Enabled;
         FrameLimitStrategyIndex = (int)_config.Performance.FrameLimitStrategy;
+        OsdCustomOrder = _config.Performance.OsdCustomOrder;
+        OsdCustomTimeIndex = Math.Clamp(_config.Performance.OsdCustomTime, 0, 2);
+        OsdCustomFpsIndex = Math.Clamp(_config.Performance.OsdCustomFps, 0, 2);
+        OsdCustomCpuIndex = Math.Clamp(_config.Performance.OsdCustomCpu, 0, 2);
+        OsdCustomRamIndex = Math.Clamp(_config.Performance.OsdCustomRam, 0, 2);
+        OsdCustomGpuIndex = Math.Clamp(_config.Performance.OsdCustomGpu, 0, 2);
+        OsdCustomVramIndex = Math.Clamp(_config.Performance.OsdCustomVram, 0, 2);
+        OsdCustomBatteryIndex = Math.Clamp(_config.Performance.OsdCustomBattery, 0, 2);
         CefEnabled = _config.Cef.Enabled;
         CefLibraryTabs = _config.Cef.LibraryTabs;
         CefCardManager = _config.Cef.CardManager;
@@ -880,6 +888,74 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         set { _performanceEnabled = value; Raise(nameof(PerformanceEnabled)); }
     }
 
+    private string _osdCustomOrder = "Time,GPU,CPU,VRAM,RAM,BATT,FPS";
+    private int _osdCustomTimeIndex = 2;
+    private int _osdCustomFpsIndex = 2;
+    private int _osdCustomCpuIndex = 2;
+    private int _osdCustomRamIndex = 2;
+    private int _osdCustomGpuIndex = 2;
+    private int _osdCustomVramIndex = 2;
+    private int _osdCustomBatteryIndex = 2;
+
+    /// <summary>The three detail options shared by every Custom-overlay widget selector.</summary>
+    public List<string> OsdCustomLevels { get; } = ["Hidden", "Minimal", "Full"];
+
+    /// <summary>Custom overlay (level 4) widget order, comma-separated widget names.</summary>
+    public string OsdCustomOrder
+    {
+        get => _osdCustomOrder;
+        set { _osdCustomOrder = value; Raise(nameof(OsdCustomOrder)); }
+    }
+
+    /// <summary>Clock detail for the Custom overlay.</summary>
+    public int OsdCustomTimeIndex
+    {
+        get => _osdCustomTimeIndex;
+        set { _osdCustomTimeIndex = value; Raise(nameof(OsdCustomTimeIndex)); }
+    }
+
+    /// <summary>Framerate detail for the Custom overlay.</summary>
+    public int OsdCustomFpsIndex
+    {
+        get => _osdCustomFpsIndex;
+        set { _osdCustomFpsIndex = value; Raise(nameof(OsdCustomFpsIndex)); }
+    }
+
+    /// <summary>CPU detail for the Custom overlay.</summary>
+    public int OsdCustomCpuIndex
+    {
+        get => _osdCustomCpuIndex;
+        set { _osdCustomCpuIndex = value; Raise(nameof(OsdCustomCpuIndex)); }
+    }
+
+    /// <summary>Memory detail for the Custom overlay.</summary>
+    public int OsdCustomRamIndex
+    {
+        get => _osdCustomRamIndex;
+        set { _osdCustomRamIndex = value; Raise(nameof(OsdCustomRamIndex)); }
+    }
+
+    /// <summary>GPU detail for the Custom overlay.</summary>
+    public int OsdCustomGpuIndex
+    {
+        get => _osdCustomGpuIndex;
+        set { _osdCustomGpuIndex = value; Raise(nameof(OsdCustomGpuIndex)); }
+    }
+
+    /// <summary>Video-memory detail for the Custom overlay.</summary>
+    public int OsdCustomVramIndex
+    {
+        get => _osdCustomVramIndex;
+        set { _osdCustomVramIndex = value; Raise(nameof(OsdCustomVramIndex)); }
+    }
+
+    /// <summary>Battery detail for the Custom overlay.</summary>
+    public int OsdCustomBatteryIndex
+    {
+        get => _osdCustomBatteryIndex;
+        set { _osdCustomBatteryIndex = value; Raise(nameof(OsdCustomBatteryIndex)); }
+    }
+
     /// <summary>Gets or sets how a frame cap is paired with the panel's refresh rate.</summary>
     /// <remarks>
     /// Index into <see cref="FrameLimitStrategy"/>, in declaration order, so the combo box needs no
@@ -1294,6 +1370,14 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             FrameLimitStrategyIndex,
             0,
             Enum.GetValues<FrameLimitStrategy>().Length - 1);
+        config.Performance.OsdCustomOrder = OsdCustomOrder;
+        config.Performance.OsdCustomTime = Math.Clamp(OsdCustomTimeIndex, 0, 2);
+        config.Performance.OsdCustomFps = Math.Clamp(OsdCustomFpsIndex, 0, 2);
+        config.Performance.OsdCustomCpu = Math.Clamp(OsdCustomCpuIndex, 0, 2);
+        config.Performance.OsdCustomRam = Math.Clamp(OsdCustomRamIndex, 0, 2);
+        config.Performance.OsdCustomGpu = Math.Clamp(OsdCustomGpuIndex, 0, 2);
+        config.Performance.OsdCustomVram = Math.Clamp(OsdCustomVramIndex, 0, 2);
+        config.Performance.OsdCustomBattery = Math.Clamp(OsdCustomBatteryIndex, 0, 2);
         if (QuickSetupAnswered)
         {
             // Stamped only on a save that actually persists the answer, so a failed
@@ -1508,6 +1592,14 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
         config.Performance.Enabled = values.Performance.Enabled;
         config.Performance.FrameLimitStrategy = values.Performance.FrameLimitStrategy;
+        config.Performance.OsdCustomOrder = values.Performance.OsdCustomOrder;
+        config.Performance.OsdCustomTime = values.Performance.OsdCustomTime;
+        config.Performance.OsdCustomFps = values.Performance.OsdCustomFps;
+        config.Performance.OsdCustomCpu = values.Performance.OsdCustomCpu;
+        config.Performance.OsdCustomRam = values.Performance.OsdCustomRam;
+        config.Performance.OsdCustomGpu = values.Performance.OsdCustomGpu;
+        config.Performance.OsdCustomVram = values.Performance.OsdCustomVram;
+        config.Performance.OsdCustomBattery = values.Performance.OsdCustomBattery;
         if (request.QuickSetupWasAnswered)
         {
             QuickSetup.MarkCompleted(config);

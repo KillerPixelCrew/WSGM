@@ -80,6 +80,61 @@
                         </ComboBox>
                     </Grid>
                 </Border>
+
+                <Border Classes="section-header" IsVisible="{Binding PerformanceEnabled}">
+                    <TextBlock Text="CUSTOM OVERLAY (LEVEL 4)" />
+                </Border>
+                <Border Classes="setting-row alt" IsVisible="{Binding PerformanceEnabled}">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel VerticalAlignment="Center" Spacing="1">
+                            <TextBlock Text="Widget order" Classes="setting-title" />
+                            <TextBlock Text="Rows of the Quick Access overlay selector's Custom level, top to bottom. Names: Time, GPU, CPU, VRAM, RAM, BATT, FPS; unknown names are ignored." Classes="caption" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <TextBox Grid.Column="1" Width="230" VerticalAlignment="Center" Text="{Binding OsdCustomOrder}" />
+                    </Grid>
+                </Border>
+                <Border Classes="setting-row" IsVisible="{Binding PerformanceEnabled}">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <TextBlock Text="Clock" Classes="setting-title" VerticalAlignment="Center" />
+                        <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}" SelectedIndex="{Binding OsdCustomTimeIndex}" />
+                    </Grid>
+                </Border>
+                <Border Classes="setting-row alt" IsVisible="{Binding PerformanceEnabled}">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <TextBlock Text="Framerate" Classes="setting-title" VerticalAlignment="Center" />
+                        <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}" SelectedIndex="{Binding OsdCustomFpsIndex}" />
+                    </Grid>
+                </Border>
+                <Border Classes="setting-row" IsVisible="{Binding PerformanceEnabled}">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <TextBlock Text="CPU" Classes="setting-title" VerticalAlignment="Center" />
+                        <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}" SelectedIndex="{Binding OsdCustomCpuIndex}" />
+                    </Grid>
+                </Border>
+                <Border Classes="setting-row alt" IsVisible="{Binding PerformanceEnabled}">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <TextBlock Text="GPU" Classes="setting-title" VerticalAlignment="Center" />
+                        <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}" SelectedIndex="{Binding OsdCustomGpuIndex}" />
+                    </Grid>
+                </Border>
+                <Border Classes="setting-row" IsVisible="{Binding PerformanceEnabled}">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <TextBlock Text="Memory" Classes="setting-title" VerticalAlignment="Center" />
+                        <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}" SelectedIndex="{Binding OsdCustomRamIndex}" />
+                    </Grid>
+                </Border>
+                <Border Classes="setting-row alt" IsVisible="{Binding PerformanceEnabled}">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <TextBlock Text="Video memory" Classes="setting-title" VerticalAlignment="Center" />
+                        <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}" SelectedIndex="{Binding OsdCustomVramIndex}" />
+                    </Grid>
+                </Border>
+                <Border Classes="setting-row" IsVisible="{Binding PerformanceEnabled}">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <TextBlock Text="Battery" Classes="setting-title" VerticalAlignment="Center" />
+                        <ComboBox Grid.Column="1" Width="230" VerticalAlignment="Center" ItemsSource="{Binding OsdCustomLevels}" SelectedIndex="{Binding OsdCustomBatteryIndex}" />
+                    </Grid>
+                </Border>
             </StackPanel>
 
             <StackPanel Grid.Column="2" IsVisible="{Binding CefEnabled}">

@@ -3,6 +3,45 @@ using System.Text.Json;
 
 namespace WSGM.Core;
 
+/// <summary>Translates Steam's <c>perf_overlay_level</c> wire values to and from WSGM's notch
+/// order.</summary>
+/// <remarks>
+/// Valve added the Minimal preset last, so <c>EGraphicsPerfOverlayLevel</c> is Hidden=0, Basic=1,
+/// Medium=2, Full=3, Minimal=4 — while the selector presents OFF, Minimal, Basic, Medium, Full.
+/// WSGM's semantic level is the NOTCH: 0 off, 1–3 the fixed WSGM-rendered OSD presets, 4 the
+/// user-configured Custom layout.
+/// Treating the wire value as the notch put the top level on the first notch and shifted the rest
+/// (live-verified 2026-09-01: parking the selector on notch 1 stores
+/// <c>perf_overlay_level=4</c>). Both QAM boundary directions translate; everything behind the
+/// boundary — policy, adapter, OSD renderer — speaks notches.
+/// </remarks>
+internal static class NativeQamOverlayLevelWire
+{
+    /// <summary>Maps a Steam wire value to the selector notch WSGM's levels are defined on.</summary>
+    /// <param name="steamValue">The <c>perf_overlay_level</c> value Steam sent.</param>
+    /// <returns>The notch, with unknown values reading as off.</returns>
+    internal static int ToNotch(int steamValue) => steamValue switch
+    {
+        4 => 1,
+        1 => 2,
+        2 => 3,
+        3 => 4,
+        _ => 0,
+    };
+
+    /// <summary>Maps a WSGM notch to the Steam wire value the selector resolves.</summary>
+    /// <param name="notch">The WSGM semantic level.</param>
+    /// <returns>The wire value, with unknown notches reading as hidden.</returns>
+    internal static int ToSteam(int notch) => notch switch
+    {
+        1 => 4,
+        2 => 1,
+        3 => 2,
+        4 => 3,
+        _ => 0,
+    };
+}
+
 /// <summary>One setting change Steam's performance panel asked WSGM to make.</summary>
 /// <param name="Kind">Which setting changed.</param>
 /// <param name="Value">The requested value; meaning depends on <paramref name="Kind"/>.</param>

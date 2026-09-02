@@ -70,8 +70,11 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
 {
     private const string MapName = "RTSSSharedMemoryV2";
 
-    // 'RTSS' little-endian, as written by the server.
-    private const uint Signature = 0x53535452;
+    // The server writes dwSignature = 'RTSS' as a C multichar constant: the DWORD VALUE is
+    // 0x52545353 and the bytes in memory read "SSTR". The byte-order-mirrored 0x53535452 shipped
+    // here first and made Parse refuse every real mapping — the reader reported "no samples"
+    // silently. Live-verified on RTSS 2.21 (2026-09-01, OSD work).
+    private const uint Signature = 0x52545353;
     private const uint MinimumVersion = 0x0002_0000;
 
     // Header, all DWORD: signature, version, appEntrySize, appArrOffset, appArrSize.

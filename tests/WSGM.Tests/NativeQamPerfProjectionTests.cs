@@ -94,7 +94,8 @@ public sealed class NativeQamPerfProjectionTests
         Assert.Contains("\"is_vrr_supported\":true", json);
         Assert.Contains("\"is_vrr_enabled\":true", json);
         Assert.Contains("\"display_refresh_manual_hz\":120", json);
-        Assert.Contains("\"perf_overlay_level\":2", json);
+        // Notch 2 travels as Valve's enum value Basic=1 (see NativeQamOverlayLevelWire).
+        Assert.Contains("\"perf_overlay_level\":1", json);
         Assert.Contains("\"currentGameId\":\"42\"", json);
     }
 

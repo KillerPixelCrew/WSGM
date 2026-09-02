@@ -17,7 +17,8 @@ namespace WSGM.Tests;
 /// </remarks>
 public sealed class RtssFrametimeReaderTests
 {
-    private const uint Signature = 0x53535452;
+    // 'RTSS' as the server's C multichar constant — bytes "SSTR" in memory.
+    private const uint Signature = 0x52545353;
     private const uint Version = 0x0002_0015;
     private const int EntrySize = 12416;
     private const int ArrayOffset = 4096;

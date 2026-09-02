@@ -559,6 +559,11 @@ public sealed class PerformanceServiceTests
 
     private sealed class FakeRtssAdapter : IRtssAdapter
     {
+        public void ApplyOsdCustomization(RtssOsdCustomSettings settings)
+        {
+            // The fake has no renderer; the service only forwards.
+        }
+
         public static readonly RtssProbe ReadyProbe = new(
             RtssAvailability.Ready,
             "7.3.7",

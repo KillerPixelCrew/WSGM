@@ -188,6 +188,17 @@ internal sealed class PerformanceService : IAsyncDisposable
 
     internal TimeSpan PollInterval => _pollInterval;
 
+    /// <summary>Hands the Custom overlay's configuration (selector level 4) to the adapter's
+    /// renderer.</summary>
+    /// <param name="settings">The widget order and per-widget detail.</param>
+    /// <remarks>Deliberately outside the adapter gate: it changes what the renderer draws on its
+    /// next tick, not RTSS state, and must stay applicable while a command is in flight.</remarks>
+    internal void ApplyOsdCustomization(RtssOsdCustomSettings settings)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        _adapter.ApplyOsdCustomization(settings);
+    }
+
     internal IDisposable AcquireObservation()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);

@@ -529,8 +529,39 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       cold start — log shows `transport closed: Big Picture was requested` before
       `Started protocol: steam://open/bigpicture`, the window appears every time, and QAM rows,
       tabs, Wi-Fi indicator and download sort return after each entry.
+- [x] **QAM Overlay slider stuck on Off**: the RTSS adapter's verified overlay bounds were `{0,1}`
+      (binary `EnableStat`) while Steam's selector offers 0–4, so every write above 1 was rejected
+      and the slider snapped back. Levels 1–3 are now WSGM-rendered OSD presets with
+      HandheldCompanion's structure (`Core\RtssOsd.cs`, a C# port of RTSSSharedMemoryNET's slot
+      protocol — maintainer chose the port over vendoring the C++/CLI fork); level 4 is External
+      (`EnableStat=1`, the user's own RTSS layout). Two follow-up defects found on device: the
+      wire value is Valve's `EGraphicsPerfOverlayLevel` (Minimal=4, added last), not the notch —
+      `NativeQamOverlayLevelWire` now translates at the QAM boundary (untranslated, notch 1 ran
+      External and everything shifted); and Steam re-commits store values it did not originate, so
+      the delta handler drops changes that restate WSGM's current desired value (the 4↔0
+      ping-pong at poll cadence in the 21:42 log). Maintainer then redirected the design twice:
+      the OSD's sensor values come from RTSS's own LibreHardwareMonitor provider
+      (`LHMDPSharedMemory`, HC's sensor-name selection, 1 s cadence — no WSGM sensor stack), and
+      after the External idea proved to require driving the Overlay Editor's private state, level
+      4 became **Custom** — HC's Custom level, order and per-widget detail configured on the
+      Settings Integration page. The level writes NO RTSS profile property: the `EnableStat` and
+      then `EnableOSD` mappings each stamped a user-owned per-app setting into every targeted
+      profile (the `EnableOSD=0` spray killed every overlay on the device; repaired in place).
+      WSGM's renderer holds the level and is the verified readback. Also fixed on device: the
+      metrics cache initialized its "never sampled" sentinel to `long.MinValue`, whose tick
+      subtraction overflowed and froze every sample empty. Contract: `docs\rtss.md`.
+- [x] **RTSS shared-memory signature constant was byte-order-mirrored** (found while wiring the
+      OSD): the server writes `dwSignature = 'RTSS'` as a C multichar constant, value `0x52545353`
+      (bytes "SSTR"); `RtssFrametimeReader` shipped `0x53535452` and therefore refused every real
+      mapping — frametime samples silently read as "no rendering application", which also idles
+      AutoTDP. Live-verified against RTSS 2.21; reader, OSD writer and both test suites now use
+      the measured value.
 - [ ] Attended: open the QAM after a Steam restart (no error boundary, brightness row present and
-      moving the panel) and confirm the Wi-Fi and Bluetooth panels are populated.
+      moving the panel) and confirm the Wi-Fi and Bluetooth panels are populated. Overlay slider:
+      each notch 1–3 draws the HC-style OSD in a hooked game, 4 shows RTSS's own configured
+      overlay, 0 clears, and the chosen level survives a WSGM restart. AutoTDP: confirm frametime
+      samples actually arrive in a game now that the reader's signature matches (watch its log
+      instead of assuming the pre-fix acceptance still holds).
 
 ## Attended/live acceptance still required
 

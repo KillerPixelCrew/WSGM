@@ -398,6 +398,7 @@ public sealed class ShellSession : IAsyncDisposable
             _overlayTestOnly ? PersistSimulatedPerformancePolicyAsync : PersistPerformancePolicyAsync,
             BuildPerformancePolicy(_config, forceEnabled: _overlayTestOnly));
         _performanceOverlay = new PerformanceOverlayBridge(_performance);
+        _performance.ApplyOsdCustomization(RtssOsdCustomSettings.FromConfig(_config.Performance));
 
         // Overlay-test runs without a real display to move, and pairing is the one performance
         // concern that changes hardware state rather than an RTSS profile.
@@ -2284,6 +2285,7 @@ public sealed class ShellSession : IAsyncDisposable
         }
 
         _refreshPairing?.SetStrategy(config.Performance.FrameLimitStrategy);
+        performance.ApplyOsdCustomization(RtssOsdCustomSettings.FromConfig(config.Performance));
         _ = ObservePerformanceConfigAsync(
             performance,
             BuildPerformancePolicy(config, forceEnabled: _overlayTestOnly));

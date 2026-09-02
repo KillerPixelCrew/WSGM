@@ -11,8 +11,15 @@ namespace WSGM.Core;
 internal sealed class RtssNativeAdapter : IRtssAdapter
 {
     private const string FrameLimitProperty = "FramerateLimit";
-    private const string OverlayLevelProperty = "EnableStat";
+    // Steam's selector runs OFF plus 1..4, all rendered by WSGM's own OSD slot: 1..3 are the
+    // fixed presets (HandheldCompanion's structure, fed from RTSS's LibreHardwareMonitor
+    // provider) and 4 is the user-configured Custom layout from WSGM's Settings — HC's Custom
+    // level. The level writes NO profile property: earlier cuts mapped levels to EnableStat and
+    // then EnableOSD, and each stamped a USER-owned per-app setting into every profile the
+    // service targets (the EnableOSD=0 spray killed every overlay on the device, 2026-09-01).
+    private const int MaximumOverlayLevel = 4;
     private readonly RtssDiscovery _discovery;
+    private readonly RtssOsdRenderer _osd;
     private RtssProfileApi? _api;
     private RtssProbe? _lastProbe;
     private long _generation;
@@ -21,7 +28,13 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
     internal RtssNativeAdapter(RtssDiscovery? discovery = null)
     {
         _discovery = discovery ?? new RtssDiscovery();
+        // The renderer's sensor source starts RTSS's LHM provider on demand, which needs the
+        // installation directory the last probe verified.
+        _osd = new RtssOsdRenderer(() => _lastProbe?.ExecutablePath);
     }
+
+    /// <inheritdoc/>
+    public void ApplyOsdCustomization(RtssOsdCustomSettings settings) => _osd.ApplyCustom(settings);
 
     /// <inheritdoc/>
     /// <remarks>
@@ -60,7 +73,7 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
                 Capabilities = new RtssCapabilities(
                     0,
                     1000,
-                    new HashSet<int> { 0, 1 },
+                    new HashSet<int> { 0, 1, 2, 3, MaximumOverlayLevel },
                     FrameLimitReadback: true,
                     OverlayLevelReadback: true),
                 Diagnostic = "RTSS profile API is ready.",
@@ -103,14 +116,10 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
             throw new InvalidDataException("RTSS did not return a valid frame-limit value.");
         }
 
-        if (!api.TryGetUInt32(OverlayLevelProperty, out uint overlayLevel)
-            || overlayLevel > 1)
-        {
-            throw new InvalidDataException("RTSS did not return a valid own-statistics value.");
-        }
-
+        // The overlay level is WSGM-owned renderer state, not an RTSS property; reading this
+        // process's own live level is the verified readback.
         return new RtssReadback(
-            new PerformanceValues((int)frameLimit, (int)overlayLevel),
+            new PerformanceValues((int)frameLimit, _osd.Level),
             PerformanceReadbackQuality.Verified,
             PerformanceReadbackQuality.Verified,
             DateTimeOffset.UtcNow);
@@ -128,9 +137,9 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         }
 
         if (request.Control is PerformanceControl.OverlayLevel
-            && request.Value is not (0 or 1))
+            && request.Value is < 0 or > MaximumOverlayLevel)
         {
-            return new(false, "The RTSS own-statistics value must be off or on.");
+            return new(false, "The overlay level is outside the supported range.");
         }
 
         await RequireReadyAsync(request.Generation, cancellationToken).ConfigureAwait(false);
@@ -142,14 +151,21 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         RtssProfileApi api = _api
             ?? throw new InvalidOperationException("RTSS profile API is not loaded.");
         api.LoadProfile(request.RtssProfileName);
-        string property = request.Control switch
+        // The overlay level writes nothing into the profile — see the constants above. RTSS
+        // profile properties are the user's; WSGM's overlay lives in WSGM's own OSD slot.
+        if (request.Control is PerformanceControl.OverlayLevel)
         {
-            PerformanceControl.FrameLimit => FrameLimitProperty,
-            PerformanceControl.OverlayLevel => OverlayLevelProperty,
-            _ => string.Empty,
+            _osd.SetLevel(request.Value);
+            return new(true, null);
+        }
+
+        (string property, uint propertyValue) = request.Control switch
+        {
+            PerformanceControl.FrameLimit =>
+                (FrameLimitProperty, checked((uint)request.Value)),
+            _ => (string.Empty, 0u),
         };
-        if (property.Length == 0
-            || !api.TrySetUInt32(property, checked((uint)request.Value)))
+        if (property.Length == 0 || !api.TrySetUInt32(property, propertyValue))
         {
             return new(false, "RTSS rejected the performance-profile value.");
         }
@@ -164,6 +180,7 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         if (!_disposed)
         {
             _disposed = true;
+            _osd.Dispose();
             ReleaseApi();
         }
 
@@ -220,6 +237,12 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
 /// <summary>In-memory RTSS adapter used only by the safe overlay-test mode.</summary>
 internal sealed class SimulatedRtssAdapter : IRtssAdapter
 {
+    /// <inheritdoc/>
+    public void ApplyOsdCustomization(RtssOsdCustomSettings settings)
+    {
+        // No renderer here; the simulated adapter never draws.
+    }
+
     private static readonly RtssCapabilities Capabilities = new(
         0,
         240,
