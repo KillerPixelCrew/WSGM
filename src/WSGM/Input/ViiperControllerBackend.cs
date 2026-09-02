@@ -439,19 +439,25 @@ internal sealed class ViiperControllerBackend : IHidBackend
             }
 
             ReadOnlySpan<byte> report = new(data, length);
-            if (DecodeFeedback(target.Kind, report) is not { } feedback)
-            {
-                // A few samples per command id, then silence: Steam speaks more feedback shapes
-                // than SDL does, and a silently dropped one reads as "rumble is broken" with no
-                // evidence in a pasted log — while unbounded logging here would run at haptic rate.
-                int seen = backend._undecodedFeedback.AddOrUpdate(report[0], 1, (_, n) => n + 1);
-                if (seen <= 4)
-                {
-                    Log.Warn(
-                        $"Undecoded {target.Kind} feedback frame ({seen}/4 shown): length={length}, "
-                            + $"bytes={Convert.ToHexString(report[..Math.Min(length, 24)])}.");
-                }
+            DecodedHapticFeedback? decoded = DecodeFeedback(target.Kind, report);
 
+            // A few samples per command id, then silence: Steam speaks more feedback shapes than
+            // SDL does, and a silently dropped or imperceptibly rendered one reads as "rumble is
+            // broken" with no evidence in a pasted log — while unbounded logging here would run
+            // at haptic rate. Decoded frames are included so their strengths are inspectable.
+            int seen = backend._undecodedFeedback.AddOrUpdate(report[0], 1, (_, n) => n + 1);
+            if (seen <= 4)
+            {
+                string outcome = decoded is { } d
+                    ? $"decoded low={d.LowFrequency:F3} high={d.HighFrequency:F3} stopAfter={d.StopAfter?.TotalMilliseconds:F0}ms"
+                    : "undecoded";
+                Log.Warn(
+                    $"{target.Kind} feedback frame ({seen}/4 shown, {outcome}): length={length}, "
+                        + $"bytes={Convert.ToHexString(report[..Math.Min(length, 24)])}.");
+            }
+
+            if (decoded is not { } feedback)
+            {
                 return;
             }
 
@@ -529,9 +535,16 @@ internal sealed class ViiperControllerBackend : IHidBackend
 
             if (report.Length >= 6 && report[0] == HapticCommandId)
             {
+                // Steam's interaction haptics (button/gyro feedback) arrive here as LRA-grade
+                // clicks — observed live at intensities of 1-10% — and the command carries no
+                // duration. Rendering it as a continuous drive latched the motor at a level the
+                // Claw's ERM hardware cannot even spin up at; each event becomes a bounded tick
+                // instead, floored onto the range the motors physically render.
                 int value = Math.Clamp(report[4] + (unchecked((sbyte)report[5]) * 8), 0, 255);
-                float strength = value / (float)byte.MaxValue;
-                return new(strength, strength);
+                float strength = ErmTickStrength(value);
+                return strength <= 0f
+                    ? new(0f, 0f)
+                    : new(strength, strength, TimeSpan.FromMilliseconds(35));
             }
 
             if (report.Length >= 10 && report[0] == HapticPulseCommandId)
@@ -539,13 +552,18 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 ushort period = BinaryPrimitives.ReadUInt16LittleEndian(report[5..7]);
                 ushort count = BinaryPrimitives.ReadUInt16LittleEndian(report[7..9]);
                 int value = Math.Min(byte.MaxValue, (count * 16) + report[9]);
-                float strength = value / (float)byte.MaxValue;
+                // Steam's gyro tick pulses request one millisecond at sub-percent intensity —
+                // faithful on a voice coil, nonexistent on an ERM motor. Same floor and minimum
+                // window as the click path above.
+                float strength = ErmTickStrength(value);
                 double requestedMilliseconds = Math.Ceiling(period * (long)count / 1000d);
                 TimeSpan stopAfter = TimeSpan.FromMilliseconds(Math.Clamp(
                     requestedMilliseconds,
-                    1,
+                    25,
                     MaxEmulatedPulseDuration.TotalMilliseconds));
-                return new(strength, strength, stopAfter);
+                return strength <= 0f
+                    ? new(0f, 0f)
+                    : new(strength, strength, stopAfter);
             }
 
             return null;
@@ -564,6 +582,15 @@ internal sealed class ViiperControllerBackend : IHidBackend
             _ => null,
         };
     }
+
+    /// <summary>Maps an LRA click intensity onto the strength range ERM motors can render.</summary>
+    /// <remarks>
+    /// Below roughly a third of full drive an ERM motor does not reliably start at all, so the
+    /// 0..255 intensity is compressed onto 0.35..1 rather than scaled linearly; zero stays zero
+    /// so stop events still stop.
+    /// </remarks>
+    private static float ErmTickStrength(int value) =>
+        value <= 0 ? 0f : 0.35f + (0.65f * (value / (float)byte.MaxValue));
 
     private unsafe bool SubmitUnderGate(CanonicalControllerSample sample)
     {

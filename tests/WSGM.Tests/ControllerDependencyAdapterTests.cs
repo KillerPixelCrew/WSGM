@@ -83,10 +83,12 @@ public sealed class ControllerDependencyAdapterTests
     }
 
     [Theory]
-    [InlineData(64, 0, 64 / 255f)]
-    [InlineData(64, 4, 96 / 255f)]
+    // LRA click intensities are floored onto 0.35..1 because ERM motors do not start below
+    // roughly a third of full drive; zero must stay zero so stop events still stop.
+    [InlineData(64, 0, 0.35f + (0.65f * 64 / 255f))]
+    [InlineData(64, 4, 0.35f + (0.65f * 96 / 255f))]
     [InlineData(64, -16, 0f)]
-    public void SteamDeckContinuousHapticBecomesSymmetricPhysicalOutput(
+    public void SteamDeckClickHapticBecomesABoundedErmTick(
         byte intensity,
         sbyte gain,
         float expected)
@@ -100,7 +102,10 @@ public sealed class ControllerDependencyAdapterTests
 
         Assert.Equal(expected, feedback.LowFrequency, 5);
         Assert.Equal(expected, feedback.HighFrequency, 5);
-        Assert.Null(feedback.StopAfter);
+        if (expected > 0f)
+        {
+            Assert.Equal(TimeSpan.FromMilliseconds(35), feedback.StopAfter);
+        }
     }
 
     [Fact]
@@ -113,9 +118,10 @@ public sealed class ControllerDependencyAdapterTests
                 ManagedControllerTarget.SteamDeckComposite,
                 report));
 
-        Assert.Equal(35 / 255f, feedback.LowFrequency, 5);
+        Assert.Equal(0.35f + (0.65f * 35 / 255f), feedback.LowFrequency, 5);
         Assert.Equal(feedback.LowFrequency, feedback.HighFrequency);
-        Assert.Equal(TimeSpan.FromMilliseconds(2), feedback.StopAfter);
+        // The requested two milliseconds are stretched to the ERM spin-up minimum.
+        Assert.Equal(TimeSpan.FromMilliseconds(25), feedback.StopAfter);
     }
 
     [Fact]
