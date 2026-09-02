@@ -46,6 +46,9 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     /// <summary>Last logged availability per capability, so only changes are written.</summary>
     private readonly Dictionary<DeviceCapabilityKey, bool> _availability = [];
     private readonly Dictionary<DeviceCapabilityKey, SemaphoreSlim> _commandGates = [];
+
+    /// <summary>Overlay sections of the accepted descriptor set, replaced with each set.</summary>
+    private IReadOnlyList<CapabilitySection> _sections = [];
     private DevicePluginRuntime? _client;
     private DeviceDesiredProfile? _desiredProfile;
     private string? _hardwareProfileId;
@@ -82,6 +85,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             _pendingValues.Clear();
             _availability.Clear();
             _commandGates.Clear();
+            _sections = [];
             _connected = true;
             client.DescriptorSetReceived += OnDescriptorSet;
             client.CapabilityStateReceived += OnStateDelta;
@@ -176,6 +180,18 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         }
     }
 
+    /// <summary>The declared overlay sections of the accepted descriptor set.</summary>
+    internal IReadOnlyList<CapabilitySection> Sections
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _sections;
+            }
+        }
+    }
+
     internal IReadOnlyList<DeviceCapabilityView> Snapshot()
     {
         lock (_gate)
@@ -212,6 +228,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         {
             DetachUnderGate();
             _pendingValues.Clear();
+            _sections = [];
         }
 
         Publish();
@@ -352,6 +369,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             }
 
             _descriptorGeneration = descriptors.Generation;
+            _sections = descriptors.Sections;
             _descriptors.Clear();
             foreach (CapabilityDescriptor descriptor in descriptors.Descriptors)
             {
@@ -763,10 +781,38 @@ internal static class DeviceCapabilityValidation
             return false;
         }
 
+        if (set.Sections.Count > CapabilitySection.MaxSections)
+        {
+            error = $"Descriptor set declares more than {CapabilitySection.MaxSections} sections.";
+            return false;
+        }
+
+        Dictionary<string, CapabilitySection> sections = new(StringComparer.Ordinal);
+        foreach (CapabilitySection section in set.Sections)
+        {
+            if (section is null)
+            {
+                error = "Descriptor set contains a null section.";
+                return false;
+            }
+
+            if (!section.TryValidate(out error))
+            {
+                return false;
+            }
+
+            if (!sections.TryAdd(section.SectionId, section))
+            {
+                error = $"Descriptor set declares section '{section.SectionId}' more than once.";
+                return false;
+            }
+        }
+
         HashSet<DeviceCapabilityKey> keys = [];
         foreach (CapabilityDescriptor descriptor in set.Descriptors)
         {
             if (!TryValidateDescriptor(descriptor, out error)
+                || !TryValidatePlacement(descriptor, sections, out error)
                 || !keys.Add(new DeviceCapabilityKey(
                     descriptor.CapabilityId,
                     descriptor.InstanceId)))
@@ -848,6 +894,53 @@ internal static class DeviceCapabilityValidation
         return valid;
     }
 
+    /// <summary>Checks a descriptor's section and category references against the declared layout.</summary>
+    /// <remarks>
+    /// A section declared in the set is the plugin authoring its own overlay surface, so any role
+    /// may be placed there. Outside that layout the old rule stands: a semantic role keeps the home
+    /// WSGM gives it, and only a generic role may name a settings-manifest section — an unknown id
+    /// there falls back to a WSGM-owned group instead of failing, which is why it is not an error.
+    /// </remarks>
+    private static bool TryValidatePlacement(
+        CapabilityDescriptor descriptor,
+        Dictionary<string, CapabilitySection> sections,
+        out string? error)
+    {
+        CapabilitySection? home = null;
+        if (descriptor.SectionId is { } sectionId
+            && !sections.TryGetValue(sectionId, out home))
+        {
+            if (!descriptor.Role.IsGeneric())
+            {
+                // Named in the error, because from the plugin author's side this looks like a
+                // section that was simply ignored.
+                error =
+                    $"Capability role {descriptor.Role} may not declare the undeclared section "
+                    + $"'{sectionId}': a semantic role keeps the placement WSGM gives it on every "
+                    + "device unless the descriptor set declares the layout.";
+                return false;
+            }
+
+            home = null;
+        }
+
+        if (descriptor.CategoryId is { } categoryId
+            && (home is null
+                || !home.Categories.Any(category => string.Equals(
+                    category.CategoryId,
+                    categoryId,
+                    StringComparison.Ordinal))))
+        {
+            error =
+                $"Capability '{descriptor.CapabilityId}' names category '{categoryId}' that its "
+                + "declared section does not carry.";
+            return false;
+        }
+
+        error = null;
+        return true;
+    }
+
     private static bool TryValidateDescriptor(CapabilityDescriptor descriptor, out string? error)
     {
         if (!DeviceIdentifier.IsValid(descriptor.CapabilityId, MaxIdLength)
@@ -862,23 +955,18 @@ internal static class DeviceCapabilityValidation
             return false;
         }
 
-        if (descriptor.SectionId is { } sectionId)
+        if (descriptor.SectionId is { } sectionId
+            && !DeviceIdentifier.IsValid(sectionId, MaxSectionIdLength))
         {
-            if (!descriptor.Role.IsGeneric())
-            {
-                // Named in the error, because from the plugin author's side this looks like a
-                // section that was simply ignored.
-                error =
-                    $"Capability role {descriptor.Role} may not declare a section: a semantic role "
-                    + "keeps the placement WSGM gives it on every device.";
-                return false;
-            }
+            error = "Capability section ID is invalid.";
+            return false;
+        }
 
-            if (!DeviceIdentifier.IsValid(sectionId, MaxSectionIdLength))
-            {
-                error = "Capability section ID is invalid.";
-                return false;
-            }
+        if (descriptor.CategoryId is { } categoryId
+            && !DeviceIdentifier.IsValid(categoryId, CapabilityCategory.MaxCategoryIdLength))
+        {
+            error = "Capability category ID is invalid.";
+            return false;
         }
 
         if (!descriptor.SupportsRead && !descriptor.SupportsWrite && !descriptor.SupportsAction)

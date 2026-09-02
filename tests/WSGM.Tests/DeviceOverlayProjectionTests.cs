@@ -1,3 +1,4 @@
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Overlay;
 using WSGM.Shell;
 
@@ -59,5 +60,58 @@ public sealed class DeviceOverlayProjectionTests
         Assert.Equal("AUTO", before.TrailingText);
         Assert.Equal("STEAM", after.TrailingText);
         Assert.Equal(1, changes);
+    }
+
+    [Fact]
+    public void SimulatedDeviceDeclaresThePluginLayout()
+    {
+        using SimulatedDeviceOverlaySource source = new();
+
+        DeviceOverlaySnapshot snapshot = source.Snapshot();
+
+        Assert.Equal(
+            ["power", "cooling", "lighting"],
+            snapshot.PluginSections.Select(section => section.SectionId));
+        Assert.Contains(snapshot.Capabilities, capability =>
+            capability.PluginSectionId == "lighting"
+            && capability.Role == CapabilityRole.LightingZoneColor);
+        Assert.Contains(snapshot.Capabilities, capability =>
+            capability.Role == CapabilityRole.LightingBrightness);
+        // One row stays unplaced so the WSGM fallback grouping keeps working beside the layout.
+        Assert.Contains(snapshot.Capabilities, capability => capability.PluginSectionId is null);
+    }
+
+    [Fact]
+    public async Task SimulatedColorAndBrightnessAcceptStagedValues()
+    {
+        using SimulatedDeviceOverlaySource source = new();
+        DeviceOverlaySnapshot snapshot = source.Snapshot();
+        DeviceOverlayCapability rings = snapshot.Capabilities.Single(
+            capability => capability.CapabilityId == "preview.lighting.rings");
+        DeviceOverlayCapability brightness = snapshot.Capabilities.Single(
+            capability => capability.CapabilityId == "preview.lighting.brightness");
+
+        await source.InvokeAsync(rings with
+        {
+            NextValue = new CapabilityValue
+            {
+                Kind = CapabilityValueKind.Color,
+                ColorValue = 0x123456,
+            },
+        });
+        await source.InvokeAsync(brightness with
+        {
+            NextValue = new CapabilityValue
+            {
+                Kind = CapabilityValueKind.Integer,
+                IntegerValue = 55,
+            },
+        });
+
+        DeviceOverlaySnapshot after = source.Snapshot();
+        Assert.Equal("#123456", after.Capabilities.Single(
+            capability => capability.CapabilityId == "preview.lighting.rings").TrailingText);
+        Assert.Equal("55%", after.Capabilities.Single(
+            capability => capability.CapabilityId == "preview.lighting.brightness").TrailingText);
     }
 }

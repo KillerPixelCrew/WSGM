@@ -52,6 +52,21 @@ public sealed class OverlayNavigationTests
     }
 
     [Fact]
+    public void APluginSectionPageCarriesItsSectionId()
+    {
+        OverlayNavigation navigation = new();
+        navigation.SetDeviceVisible(true);
+        Assert.True(navigation.Select(OverlayDestination.Device));
+
+        Assert.True(navigation.Push(OverlayPage.DevicePluginSection, "menu.key", "cooling"));
+
+        Assert.Equal("cooling", navigation.SectionId);
+        Assert.Equal(OverlayDestination.Device, navigation.Destination);
+        Assert.Equal("menu.key", navigation.Pop());
+        Assert.Null(navigation.SectionId);
+    }
+
+    [Fact]
     public void NestedStackRejectsAnotherDestinationAndStopsAtItsBound()
     {
         OverlayNavigation navigation = new();

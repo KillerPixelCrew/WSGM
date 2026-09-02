@@ -772,9 +772,11 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
     {
         RunningApplicationTargetSnapshot next;
         bool changed;
+        string? foregroundName;
         lock (_stateGate)
         {
             _lastObservation = observation;
+            foregroundName = _foreground.ExecutableName;
             next = RunningApplicationTargetProjection.Apply(
                 _current,
                 observation,
@@ -785,6 +787,15 @@ internal sealed class RunningApplicationMonitor : IAsyncDisposable
             _current = next;
         }
 
+        // Keyed on content, not on state transitions: a device where Steam forever reports an
+        // empty running set never transitions, and that silence is exactly the observation that
+        // diagnoses "per-game controls never appear".
+        Log.Change(
+            "running-apps.observation",
+            $"Steam running-app observation: reachable={observation.Reachable}, "
+                + $"ids=[{string.Join(",", observation.AppIds)}], "
+                + $"generation={observation.SourceGeneration}, "
+                + $"foreground={foregroundName ?? "-"}, projected={next.State}");
         if (!changed)
         {
             return;

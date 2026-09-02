@@ -29,6 +29,15 @@ scaffold is moved to another machine. Implement exact detection first, then add 
 services. Publish only semantic descriptors, state, input, and diagnostics through
 `IPluginHostAdapter`; vendor addresses, packets, handles, and recovery state stay inside the plugin.
 
+A plugin owns its Device-tab layout by declaring overlay sections inside every
+`CapabilityDescriptorSet` (API version 2): up to 16 `CapabilitySection` entries with bounded
+categories, each titled by a `SettingSectionKey` or bounded custom text and iconed from the closed
+`SectionIcon` vocabulary, and `SectionId`/`CategoryId`/`SortOrder` on each descriptor placing it.
+Any role may be placed in a declared section — the layout ships atomically with the capabilities it
+lays out — while an unplaced capability keeps the semantic home WSGM derives from its role, and a
+semantic role naming an undeclared section rejects the whole set. Layout is grouping only: WSGM
+still owns every title string, icon geometry, and control shape it renders.
+
 Every hardware write must recheck current identity and bounds, serialize its real transport, read
 back when the hardware supports it, and restore the captured original state on failure or stop.
 Unknown identity or ranges fail closed. A partial device is valid: publish the working capabilities

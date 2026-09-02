@@ -32,3 +32,6 @@ Windows to suspend.
   while a gamepad focus target exists.
 - Keep visual styling in `Themes\` tokens and shared controls; consumer XAML must not add literal
   colours or a second focus-adornment mechanism.
+- Plugin-declared Device sections are pages addressed by route (`OverlayPage.DevicePluginSection`
+  plus its section id), never new enum values; the color editor's spectrum consumes only
+  Left/Right, so Up/Down always escape to the sliders below it.

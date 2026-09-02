@@ -172,8 +172,126 @@ public sealed class DeviceOverlaySectionPagesTests
         Assert.Equal(keys.Length, keys.Distinct(StringComparer.Ordinal).Count());
     }
 
+    [Fact]
+    public void PluginSectionsLeadTheMenuInDeclaredOrder()
+    {
+        DeviceOverlaySnapshot snapshot = Snapshot(
+            Capability("diag", DeviceOverlaySection.Diagnostics),
+            Placed("fan", "cooling"),
+            Placed("limit", "power")) with
+        {
+            PluginSections = [Section("power"), Section("cooling")],
+        };
+
+        IReadOnlyList<DeviceOverlaySectionEntry> entries =
+            DeviceOverlaySectionPages.Build(snapshot);
+
+        // The declared layout is the device describing itself, so it leads; the WSGM-owned
+        // sections holding whatever remains follow it.
+        Assert.Equal(
+            ["power", "cooling", null],
+            entries.Select(entry => entry.PluginSectionId));
+        Assert.Equal(DeviceOverlaySection.Diagnostics, entries[^1].Section);
+        Assert.All(
+            entries.Where(entry => entry.PluginSectionId is not null),
+            entry => Assert.Equal(OverlayPage.DevicePluginSection, entry.Page));
+    }
+
+    [Fact]
+    public void AnEmptyDeclaredSectionIsDropped()
+    {
+        DeviceOverlaySnapshot snapshot = Snapshot(Placed("limit", "power")) with
+        {
+            PluginSections = [Section("power"), Section("cooling")],
+        };
+
+        Assert.Equal(
+            "power",
+            Assert.Single(DeviceOverlaySectionPages.Build(snapshot)).PluginSectionId);
+    }
+
+    [Fact]
+    public void APluginSectionCardAggregatesItsRowsAndWorstStatus()
+    {
+        DeviceOverlaySnapshot snapshot = Snapshot(
+            Placed("a", "power"),
+            Placed("b", "power", DescriptorStatus.Faulted)) with
+        {
+            PluginSections = [Section("power")],
+        };
+
+        DeviceOverlaySectionEntry entry =
+            Assert.Single(DeviceOverlaySectionPages.Build(snapshot));
+
+        Assert.Equal(2, entry.Count);
+        Assert.Equal(DescriptorStatus.Faulted, entry.Status);
+    }
+
+    [Fact]
+    public void APluginSectionPageOrdersBySortOrderThenSnapshotOrder()
+    {
+        DeviceOverlaySnapshot snapshot = Snapshot(
+            Placed("late", "power") with { SortOrder = 1 },
+            Placed("leadA", "power"),
+            Placed("leadB", "power")) with
+        {
+            PluginSections = [Section("power")],
+        };
+
+        Assert.Equal(
+            ["leadA", "leadB", "late"],
+            DeviceOverlaySectionPages.CapabilitiesInPluginSection(snapshot, "power")
+                .Select(capability => capability.CapabilityId));
+    }
+
+    [Fact]
+    public void PlacedRowsNeverLeakIntoTheirFallbackSection()
+    {
+        DeviceOverlaySnapshot snapshot = Snapshot(
+            Placed("fan", "cooling"),
+            Capability("power", DeviceOverlaySection.PowerAndThermals)) with
+        {
+            PluginSections = [Section("cooling")],
+        };
+
+        Assert.Equal(
+            "power",
+            Assert.Single(DeviceOverlaySectionPages.CapabilitiesIn(
+                snapshot,
+                DeviceOverlaySection.PowerAndThermals)).CapabilityId);
+    }
+
+    [Fact]
+    public void PluginSectionFocusKeysAreDistinctFromTheFixedOnes()
+    {
+        DeviceOverlaySectionEntry entry = new(
+            DeviceOverlaySection.Overview,
+            OverlayPage.DevicePluginSection,
+            "Power",
+            "",
+            1,
+            DescriptorStatus.Available)
+        {
+            PluginSectionId = "power",
+        };
+
+        Assert.Equal("device.section.plugin.power", DeviceOverlaySectionPages.FocusKey(entry));
+    }
+
     private static DeviceOverlaySnapshot Snapshot(params DeviceOverlayCapability[] capabilities) =>
         new(true, "Device", "Ready", null, capabilities);
+
+    private static DeviceOverlayCapability Placed(
+        string id,
+        string sectionId,
+        DescriptorStatus status = DescriptorStatus.Available) =>
+        Capability(id, DeviceOverlaySection.Overview, status) with
+        {
+            PluginSectionId = sectionId,
+        };
+
+    private static DeviceOverlayPluginSection Section(string id) =>
+        new(id, id, string.Empty, WSGM.Device.Sdk.Capabilities.SectionIcon.None, []);
 
     private static DeviceOverlayCapability Capability(
         string id,

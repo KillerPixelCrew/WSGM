@@ -475,6 +475,17 @@ make the architecture smaller.
       Open apps chips, status panels hanging from the header, keyboard window over the sheet's
       lower edge, OEM taskbar button now opening the sheet on Open apps). The Device root's own
       presentation (sections as cards) was left as it was.
+- [x] Make the Device tab plugin-authored (2026-09-02): SDK API v2 adds `CapabilitySection` /
+      `CapabilityCategory` (closed `SettingSectionKey` titles, `SectionIcon` icons, bounded custom
+      text) to the descriptor set, with `SectionId`/`CategoryId`/`SortOrder` placement on every
+      descriptor; the Claw package declares power/cooling/lighting/input/display and ships as
+      1.2.0 apiVersion 2 (SDK, Device Lab and Claw pins move in lockstep). The shell validates
+      layout references set-atomically, renders declared sections as leading menu tiles and
+      category-grouped pages (`OverlayPage.DevicePluginSection` carries the id in the route), and
+      keeps role-derived homes for unplaced rows. `DeviceColorView` became a full-spectrum editor
+      (hue field + RGB and firmware-brightness sliders + hex entry, explicit Apply);
+      `--overlay-test`'s simulated device declares the layout, a zone color, brightness, and a
+      fan curve so the whole path is testable off-device. Attended Claw acceptance outstanding.
 - [ ] Add Avalonia headless interaction tests, deterministic render capture and selective visual
       baselines before that redesign.
 - [x] Evaluate richer read-only CDP developer tooling. Chrome DevTools MCP attaches to Steam's own

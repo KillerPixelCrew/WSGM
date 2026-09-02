@@ -14,30 +14,30 @@ namespace WSGM.Overlay;
 /// <remarks>
 /// The editor stages every change locally and writes only when Apply is pressed. That is required
 /// for device lighting whose firmware persists every commit: navigating a picker must not stream
-/// writes into non-volatile profile memory. Presets and coarse channel steps keep the page usable
-/// with a gamepad; the overlay keyboard remains available for an exact hexadecimal value.
+/// writes into non-volatile profile memory. The full-spectrum field, the three channel sliders,
+/// and the firmware brightness slider all edit the same staged state; the overlay keyboard remains
+/// available for an exact hexadecimal value.
 /// </remarks>
 public sealed class DeviceColorView : OverlaySubView
 {
-    private static readonly (string Name, int Value)[] Presets =
-    [
-        ("White", 0xFFFFFF),
-        ("Red", 0xFF0000),
-        ("Orange", 0xFF8000),
-        ("Yellow", 0xFFFF00),
-        ("Green", 0x00FF00),
-        ("Cyan", 0x00FFFF),
-        ("Blue", 0x0000FF),
-        ("Purple", 0x8000FF),
-        ("Pink", 0xFF0080),
-        ("Off", 0x000000),
-    ];
-
     private IDeviceOverlaySource? _source;
     private DeviceOverlayCapability? _capability;
+    private DeviceOverlayCapability? _brightnessCapability;
     private int _initialColor;
     private int _color;
+    private int _initialBrightness;
+    private int _brightness;
     private bool _applying;
+
+    /// <summary>Guards the control↔state sync so one edit cannot echo through the others.</summary>
+    private bool _updating;
+
+    private Border? _swatch;
+    private TextBlock? _hexCaption;
+    private DeviceColorSpectrum? _spectrum;
+    private readonly Slider?[] _channels = new Slider?[3];
+    private readonly TextBlock?[] _channelValues = new TextBlock?[3];
+    private TextBlock? _brightnessValue;
 
     /// <inheritdoc />
     protected override string LogScope => "Device color";
@@ -45,7 +45,15 @@ public sealed class DeviceColorView : OverlaySubView
     /// <summary>Stages the capability's observed color and opens its editor.</summary>
     /// <param name="source">The device source that owns command execution.</param>
     /// <param name="capability">A writable color capability.</param>
-    internal void Open(IDeviceOverlaySource source, DeviceOverlayCapability capability)
+    /// <param name="brightness">
+    /// The device's firmware brightness capability from the same snapshot, or null when it has
+    /// none. Staged and applied with the color, because "how bright are the rings" is part of the
+    /// one question this editor answers.
+    /// </param>
+    internal void Open(
+        IDeviceOverlaySource source,
+        DeviceOverlayCapability capability,
+        DeviceOverlayCapability? brightness = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(capability);
@@ -57,6 +65,13 @@ public sealed class DeviceColorView : OverlaySubView
 
         _source = source;
         _capability = capability;
+        _brightnessCapability = brightness is
+        { CanInvoke: true, CurrentValue: { Kind: CapabilityValueKind.Integer, IntegerValue: not null } }
+            ? brightness
+            : null;
+        _initialBrightness = Math.Clamp(
+            _brightnessCapability?.CurrentValue?.IntegerValue ?? 0, 0, 100);
+        _brightness = _initialBrightness;
         _initialColor = color & 0xFFFFFF;
         _color = _initialColor;
         _applying = false;
@@ -75,46 +90,60 @@ public sealed class DeviceColorView : OverlaySubView
         }
 
         var stack = NewStack(capability.Title);
-        stack.Children.Add(new Border
+        _swatch = new Border
         {
-            Height = 48,
+            Height = 40,
             Margin = new Thickness(2, 0, 2, 4),
             CornerRadius = new CornerRadius(6),
             Background = new SolidColorBrush(ToAvaloniaColor(_color)),
             BorderBrush = Brushes.White,
             BorderThickness = new Thickness(1),
-        });
-        stack.Children.Add(Caption(
-            $"#{_color:X6} · changes are written only when Apply is pressed."));
+        };
+        stack.Children.Add(_swatch);
+        _hexCaption = Caption(HexCaptionText());
+        stack.Children.Add(_hexCaption);
 
-        stack.Children.Add(SectionLabel("PRESETS"));
-        foreach ((string name, int value) in Presets)
+        stack.Children.Add(SectionLabel("SPECTRUM"));
+        _spectrum = new DeviceColorSpectrum
         {
-            int selected = value;
-            stack.Children.Add(Row(
-                name,
-                $"#{selected:X6}",
-                Icons.Palette,
-                _applying ? null : () => SetColor(selected)));
-        }
+            Height = 170,
+            Margin = new Thickness(2, 0, 2, 4),
+            CornerRadius = new CornerRadius(6),
+            Color = ToAvaloniaColor(_color),
+        };
+        _spectrum.ColorChanged += (_, e) =>
+        {
+            if (!_updating && !_applying)
+            {
+                SetColor(
+                    (e.NewColor.R << 16) | (e.NewColor.G << 8) | e.NewColor.B,
+                    source: _spectrum);
+            }
+        };
+        stack.Children.Add(_spectrum);
 
         stack.Children.Add(SectionLabel("CHANNELS"));
-        stack.Children.Add(CycleRow("Red", Channel(16).ToString(CultureInfo.CurrentCulture),
-            () => CycleChannelAt(16)));
-        stack.Children.Add(CycleRow("Green", Channel(8).ToString(CultureInfo.CurrentCulture),
-            () => CycleChannelAt(8)));
-        stack.Children.Add(CycleRow("Blue", Channel(0).ToString(CultureInfo.CurrentCulture),
-            () => CycleChannelAt(0)));
+        stack.Children.Add(ChannelRow(0, "Red", 16));
+        stack.Children.Add(ChannelRow(1, "Green", 8));
+        stack.Children.Add(ChannelRow(2, "Blue", 0));
         stack.Children.Add(Row(
             "Exact hexadecimal color",
             $"#{_color:X6}",
             Icons.Wrench,
             _applying ? null : EditHex));
 
+        if (_brightnessCapability is not null)
+        {
+            stack.Children.Add(SectionLabel("BRIGHTNESS"));
+            stack.Children.Add(BrightnessRow());
+        }
+
         stack.Children.Add(SectionLabel(""));
         stack.Children.Add(PrimaryRow(
             _applying ? "Applying…" : "Apply",
-            "Commit this color to the device",
+            _brightnessCapability is null
+                ? "Commit this color to the device"
+                : "Commit this color and brightness to the device",
             Icons.Play,
             () =>
             {
@@ -123,24 +152,138 @@ public sealed class DeviceColorView : OverlaySubView
                     _ = RunSafelyAsync(ApplyAsync(), "apply");
                 }
             }));
-        stack.Children.Add(Row("Cancel", "Discard the staged color", Icons.ExitFullscreen,
+        stack.Children.Add(Row("Cancel", "Discard the staged changes", Icons.ExitFullscreen,
             _applying ? null : () => Back()));
         SetContent(stack);
     }
 
-    private int Channel(int shift) => (_color >> shift) & 0xFF;
-
-    private void SetColor(int value)
+    /// <summary>One channel slider row: label, 0–255 slider, live value.</summary>
+    private Grid ChannelRow(int index, string label, int shift)
     {
-        _color = value & 0xFFFFFF;
-        Replace(Render);
+        Slider slider = new()
+        {
+            Minimum = 0,
+            Maximum = 255,
+            TickFrequency = 5,
+            Value = Channel(shift),
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+        };
+        TextBlock value = SliderValueText(Channel(shift).ToString(CultureInfo.CurrentCulture));
+        _channels[index] = slider;
+        _channelValues[index] = value;
+        slider.ValueChanged += (_, _) =>
+        {
+            if (_updating || _applying)
+            {
+                return;
+            }
+
+            int mask = 0xFF << shift;
+            int next = Math.Clamp((int)Math.Round(slider.Value), 0, 255);
+            SetColor((_color & ~mask) | (next << shift), source: slider);
+        };
+        return SliderRow(label, slider, value);
     }
 
-    private void CycleChannelAt(int shift)
+    private Grid BrightnessRow()
     {
-        int mask = 0xFF << shift;
-        int next = CycleChannel(Channel(shift));
-        SetColor((_color & ~mask) | (next << shift));
+        Slider slider = new()
+        {
+            Minimum = 0,
+            Maximum = 100,
+            TickFrequency = 5,
+            Value = _brightness,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+        };
+        TextBlock value = SliderValueText($"{_brightness}%");
+        _brightnessValue = value;
+        slider.ValueChanged += (_, _) =>
+        {
+            if (_updating || _applying)
+            {
+                return;
+            }
+
+            _brightness = Math.Clamp((int)Math.Round(slider.Value), 0, 100);
+            value.Text = $"{_brightness}%";
+        };
+        return SliderRow("Brightness", slider, value);
+    }
+
+    private static Grid SliderRow(string label, Slider slider, TextBlock value)
+    {
+        Grid row = new()
+        {
+            ColumnDefinitions = new ColumnDefinitions("72,*,52"),
+            Margin = new Thickness(2, 0, 2, 0),
+        };
+        TextBlock caption = new()
+        {
+            Text = label,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+        };
+        Grid.SetColumn(slider, 1);
+        Grid.SetColumn(value, 2);
+        row.Children.Add(caption);
+        row.Children.Add(slider);
+        row.Children.Add(value);
+        return row;
+    }
+
+    private static TextBlock SliderValueText(string text) => new()
+    {
+        Text = text,
+        VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+        HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+    };
+
+    private string HexCaptionText() =>
+        $"#{_color:X6} · changes are written only when Apply is pressed.";
+
+    private int Channel(int shift) => (_color >> shift) & 0xFF;
+
+    /// <summary>Moves the staged color and syncs every control except the one that changed it.</summary>
+    /// <param name="value">The new packed RGB value.</param>
+    /// <param name="source">The control driving the change, skipped during sync.</param>
+    private void SetColor(int value, object? source = null)
+    {
+        _color = value & 0xFFFFFF;
+        _updating = true;
+        try
+        {
+            if (_swatch is not null)
+            {
+                _swatch.Background = new SolidColorBrush(ToAvaloniaColor(_color));
+            }
+
+            if (_hexCaption is not null)
+            {
+                _hexCaption.Text = HexCaptionText();
+            }
+
+            if (_spectrum is not null && !ReferenceEquals(_spectrum, source))
+            {
+                _spectrum.Color = ToAvaloniaColor(_color);
+            }
+
+            int[] shifts = [16, 8, 0];
+            for (int index = 0; index < 3; index++)
+            {
+                if (_channelValues[index] is { } text)
+                {
+                    text.Text = Channel(shifts[index]).ToString(CultureInfo.CurrentCulture);
+                }
+
+                if (_channels[index] is { } slider && !ReferenceEquals(slider, source))
+                {
+                    slider.Value = Channel(shifts[index]);
+                }
+            }
+        }
+        finally
+        {
+            _updating = false;
+        }
     }
 
     private void EditHex() => EditText(
@@ -151,7 +294,8 @@ public sealed class DeviceColorView : OverlaySubView
         {
             if (TryParseColor(value, out int color))
             {
-                _color = color;
+                SetColor(color);
+                Replace(Render);
             }
             else
             {
@@ -167,7 +311,11 @@ public sealed class DeviceColorView : OverlaySubView
         {
             return;
         }
-        if (_color == _initialColor)
+
+        bool colorChanged = _color != _initialColor;
+        bool brightnessChanged = _brightnessCapability is not null
+            && _brightness != _initialBrightness;
+        if (!colorChanged && !brightnessChanged)
         {
             RequestClose();
             return;
@@ -178,14 +326,30 @@ public sealed class DeviceColorView : OverlaySubView
         bool applied = false;
         try
         {
-            await source.InvokeAsync(capability with
+            if (colorChanged)
             {
-                NextValue = new CapabilityValue
+                await source.InvokeAsync(capability with
                 {
-                    Kind = CapabilityValueKind.Color,
-                    ColorValue = _color,
-                },
-            }).ConfigureAwait(true);
+                    NextValue = new CapabilityValue
+                    {
+                        Kind = CapabilityValueKind.Color,
+                        ColorValue = _color,
+                    },
+                }).ConfigureAwait(true);
+            }
+
+            if (brightnessChanged && _brightnessCapability is { } brightness)
+            {
+                await source.InvokeAsync(brightness with
+                {
+                    NextValue = new CapabilityValue
+                    {
+                        Kind = CapabilityValueKind.Integer,
+                        IntegerValue = _brightness,
+                    },
+                }).ConfigureAwait(true);
+            }
+
             applied = true;
         }
         finally
@@ -201,8 +365,6 @@ public sealed class DeviceColorView : OverlaySubView
             }
         }
     }
-
-    internal static int CycleChannel(int value) => value >= 255 ? 0 : Math.Min(255, value + 17);
 
     internal static bool TryParseColor(string? text, out int color)
     {

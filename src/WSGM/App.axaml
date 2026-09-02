@@ -21,6 +21,9 @@
 
     <Application.Styles>
         <fa:FluentAvaloniaTheme />
+        <!-- Theme for the ColorSpectrum the device color editor embeds; FluentAvalonia does not
+             carry Avalonia's ColorPicker control themes. -->
+        <StyleInclude Source="avares://Avalonia.Controls.ColorPicker/Themes/Fluent/Fluent.xaml" />
         <StyleInclude Source="/Themes/Typography.axaml" />
         <StyleInclude Source="/Themes/Shared.axaml" />
         <StyleInclude Source="/Themes/TabStripTheme.axaml" />

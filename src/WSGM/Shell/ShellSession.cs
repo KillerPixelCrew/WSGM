@@ -399,6 +399,17 @@ public sealed class ShellSession : IAsyncDisposable
             BuildPerformancePolicy(_config, forceEnabled: _overlayTestOnly));
         _performanceOverlay = new PerformanceOverlayBridge(_performance);
         _performance.ApplyOsdCustomization(RtssOsdCustomSettings.FromConfig(_config.Performance));
+        if (_overlayTestOnly)
+        {
+            // The per-application workflow must be inspectable in the safe UI mode: pretend one
+            // Steam game is running and focused, so Device -> Profiles shows the application layer
+            // instead of a permanently unavailable row. The real shell gets this target from
+            // RunningApplicationCoordinator, which overlay-test deliberately never creates.
+            _ = _performance.SetTargetAsync(new PerformanceApplicationTarget(
+                "steam:480",
+                480,
+                "PreviewGame.exe"));
+        }
 
         // Overlay-test runs without a real display to move, and pairing is the one performance
         // concern that changes hardware state rather than an RTSS profile.

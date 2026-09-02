@@ -43,6 +43,9 @@ internal enum OverlayPage
     DeviceColor,
     DeviceGlyphs,
     DeviceDiagnostics,
+
+    /// <summary>One plugin-declared Device section; the route carries which one.</summary>
+    DevicePluginSection,
     System,
     Power,
     PowerWakeLocks,
@@ -64,7 +67,8 @@ internal enum OverlayBackAction
 internal readonly record struct OverlayRoute(
     OverlayDestination Destination,
     OverlayPage Page,
-    string? ReturnFocusKey);
+    string? ReturnFocusKey,
+    string? SectionId = null);
 
 /// <summary>
 /// Owns top-level destination visibility and the bounded nested-page stack without retaining
@@ -85,6 +89,9 @@ internal sealed class OverlayNavigation
     internal OverlayDestination Destination { get; private set; }
 
     internal OverlayPage Page => _stack[^1].Page;
+
+    /// <summary>The plugin section id carried by the current page, when it is one.</summary>
+    internal string? SectionId => _stack[^1].SectionId;
 
     internal int Depth => _stack.Count;
 
@@ -132,7 +139,7 @@ internal sealed class OverlayNavigation
         return true;
     }
 
-    internal bool Push(OverlayPage page, string? returnFocusKey)
+    internal bool Push(OverlayPage page, string? returnFocusKey, string? sectionId = null)
     {
         if (_stack.Count >= MaximumDepth || DestinationFor(page) != Destination)
         {
@@ -141,7 +148,7 @@ internal sealed class OverlayNavigation
             return false;
         }
 
-        _stack.Add(new OverlayRoute(Destination, page, returnFocusKey));
+        _stack.Add(new OverlayRoute(Destination, page, returnFocusKey, sectionId));
         Log.Info($"Overlay nav: pushed {page} (depth={_stack.Count}).");
         return true;
     }
@@ -206,6 +213,7 @@ internal sealed class OverlayNavigation
             or OverlayPage.DeviceOem or OverlayPage.DeviceLightingAndFeatures
             or OverlayPage.DeviceColor
             or OverlayPage.DeviceGlyphs or OverlayPage.DeviceDiagnostics
+            or OverlayPage.DevicePluginSection
             => OverlayDestination.Device,
         OverlayPage.System => OverlayDestination.System,
         OverlayPage.Power or OverlayPage.PowerWakeLocks => OverlayDestination.Power,

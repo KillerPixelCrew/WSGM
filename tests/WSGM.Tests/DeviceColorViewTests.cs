@@ -23,9 +23,20 @@ public sealed class DeviceColorViewTests
         Assert.False(DeviceColorView.TryParseColor(text, out _));
 
     [Theory]
-    [InlineData(0, 17)]
-    [InlineData(238, 255)]
-    [InlineData(255, 0)]
-    public void ControllerChannelStepVisitsEndpointsAndWraps(int current, int expected) =>
-        Assert.Equal(expected, DeviceColorView.CycleChannel(current));
+    [InlineData(0, false, 351)]
+    [InlineData(351, true, 0)]
+    [InlineData(120, true, 129)]
+    public void SpectrumHueStepWrapsAroundTheWheel(double hue, bool right, double expected)
+    {
+        WSGM.Controls.DeviceColorSpectrum spectrum = new()
+        {
+            HsvColor = new Avalonia.Media.HsvColor(1, hue, 1, 1),
+        };
+
+        spectrum.ApplyDirection(right
+            ? Avalonia.Input.NavigationDirection.Right
+            : Avalonia.Input.NavigationDirection.Left);
+
+        Assert.Equal(expected, spectrum.HsvColor.H, 3);
+    }
 }
