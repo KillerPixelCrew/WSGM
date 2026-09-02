@@ -29,7 +29,6 @@ internal static class DualShock4Report
     private const byte DPadDown = 0x02;
     private const byte DPadLeft = 0x04;
     private const byte DPadRight = 0x08;
-    private const float DigitalTriggerThreshold = 0.2f;
     private const float GyroCountsPerDegreePerSecond = 16f;
     private const float AccelCountsPerG = 512f * 9.81f;
     private const ushort TouchMaxX = 1920;
@@ -59,8 +58,11 @@ internal static class DualShock4Report
             | Mask(buttons, CanonicalButtons.Y, Triangle)
             | Mask(buttons, CanonicalButtons.LeftShoulder, L1)
             | Mask(buttons, CanonicalButtons.RightShoulder, R1)
-            | (sample.LeftTrigger > DigitalTriggerThreshold ? L2 : (ushort)0)
-            | (sample.RightTrigger > DigitalTriggerThreshold ? R2 : (ushort)0)
+            // The digital bit rises with the first analogue movement, as on a real DualShock 4.
+            // A mid-travel threshold splits the press into two Steam Input activations; the same
+            // split double-clicked and broke drags on the Deck target (device-observed 2026-09-02).
+            | (sample.LeftTrigger > 0 ? L2 : (ushort)0)
+            | (sample.RightTrigger > 0 ? R2 : (ushort)0)
             | Mask(buttons, CanonicalButtons.View, Share)
             | Mask(buttons, CanonicalButtons.Menu, Options)
             | Mask(buttons, CanonicalButtons.LeftStick, L3)

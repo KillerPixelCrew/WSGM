@@ -101,14 +101,17 @@ public sealed class SteamDeckNeptuneReportTests
     }
 
     [Fact]
-    public void TriggerRestNoiseDoesNotBecomeAPermanentDigitalPress()
+    public void TheDigitalTriggerEdgeRisesWithTheFirstAnalogueMovement()
     {
+        // The edge and the analogue value must leave rest in the same frame. A mid-travel
+        // threshold hands Steam Input a second, later activation per pull: desktop mode then
+        // double-clicks every trigger and tears a held drag loose (device-observed 2026-09-02).
         byte[] frame = Frame(
-            Sample(CanonicalButtons.None) with { LeftTrigger = 0.1f, RightTrigger = 0.2f });
+            Sample(CanonicalButtons.None) with { LeftTrigger = 0.01f, RightTrigger = 0f });
 
-        Assert.Equal(0, frame[8] & 0x03);
+        Assert.Equal(0x02, frame[8] & 0x03);
         Assert.True(BitConverter.ToUInt16(frame, 44) > 0);
-        Assert.True(BitConverter.ToUInt16(frame, 46) > 0);
+        Assert.Equal(0, BitConverter.ToUInt16(frame, 46));
     }
 
     [Fact]

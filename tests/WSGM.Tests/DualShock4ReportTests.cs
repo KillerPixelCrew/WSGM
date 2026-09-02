@@ -39,7 +39,9 @@ public sealed class DualShock4ReportTests
         Assert.Equal(0x09, frame[6]);
         Assert.Equal(51, frame[7]);
         Assert.Equal(byte.MaxValue, frame[8]);
-        Assert.Equal(0x0800, BinaryPrimitives.ReadUInt16LittleEndian(frame[4..6]) & 0x0C00);
+        // Both digital trigger bits accompany their analogue values from the first movement,
+        // as on a real DualShock 4.
+        Assert.Equal(0x0C00, BinaryPrimitives.ReadUInt16LittleEndian(frame[4..6]) & 0x0C00);
     }
 
     [Fact]
