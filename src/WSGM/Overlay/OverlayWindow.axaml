@@ -51,7 +51,7 @@
                              geometry under the focused button. -->
                         <ScrollViewer x:Name="TrayScroller"
                                       x:DataType="ov:AppSwitcherViewModel"
-                                      HorizontalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Hidden"
                                       VerticalScrollBarVisibility="Disabled"
                                       AllowAutoHide="True"
                                       VerticalAlignment="Center"
@@ -559,7 +559,7 @@
                     <TextBlock Text="OPEN APPS" Classes="eyebrow" VerticalAlignment="Center" />
                     <ScrollViewer Grid.Column="1"
                                   x:Name="TileScroller"
-                                  HorizontalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Hidden"
                                   VerticalScrollBarVisibility="Disabled"
                                   AllowAutoHide="True"
                                   VerticalAlignment="Center">
