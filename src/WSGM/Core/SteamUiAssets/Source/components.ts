@@ -301,22 +301,11 @@
       typeof value === "string" && allowed.includes(value) ? value : null;
     const normalizePerformanceCommon = (value) => {
       if (!value || typeof value !== "object" || typeof value.available !== "boolean") return null;
-      const readbackQuality = validEnum(value.readbackQuality, [
-        "unavailable",
-        "verified",
-        "applied-unverified",
-        "stale",
-      ]);
-      const policyLayer = validEnum(value.policyLayer, ["none", "global", "application"]);
-      const adapterAvailability = validEnum(value.adapterAvailability, [
-        "unknown",
-        "not-installed",
-        "not-running",
-        "incompatible",
-        "adapter-unavailable",
-        "ready",
-        "degraded",
-      ]);
+      // Only what a row actually reads. This validator once also demanded readbackQuality,
+      // policyLayer and adapterAvailability — enums no component consumed and, after the review
+      // simplification deleted their only publisher, no state carried: every frame-limit
+      // delivery was rejected and the row silently vanished from the QAM (device-observed
+      // 2026-09-02, the first dogfooding find).
       const progress = validEnum(value.progress, [
         "idle",
         "queued",
@@ -329,15 +318,9 @@
         "failed",
         "external-change",
       ]);
-      if (!readbackQuality || !policyLayer || !adapterAvailability || !progress) return null;
+      if (!progress) return null;
       return Object.freeze({
         available: value.available,
-        supportsReadback: value.supportsReadback === true,
-        readbackQuality,
-        policyLayer,
-        applicationTargetAvailable: value.applicationTargetAvailable === true,
-        targetProfile: normalizeText(value.targetProfile),
-        adapterAvailability,
         progress,
         fault: normalizeText(value.fault),
         statusText: normalizeText(value.statusText),
