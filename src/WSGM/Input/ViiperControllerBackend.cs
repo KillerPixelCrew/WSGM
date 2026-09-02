@@ -497,14 +497,15 @@ internal sealed class ViiperControllerBackend : IHidBackend
         {
             if (report.Length >= 9 && report[0] == RumbleCommandId)
             {
-                // Steam's rumble values top out at 0x7FFF where SDL uses the full unsigned
-                // range (hhd records the same), so the signed maximum is full strength and
-                // SDL's larger values clamp rather than Steam's halving.
+                // Full unsigned 16-bit scale. hhd's notes claim Steam tops out at 0x7FFF, but
+                // live gameplay on this machine delivers values past 0x8B00 (Hitman,
+                // device-observed 2026-09-02) — a signed divisor clamps the whole upper half of
+                // the envelope to full strength and crushes the dynamics.
                 return new(
-                    Math.Min(1f, BinaryPrimitives.ReadUInt16LittleEndian(report[5..7])
-                        / (float)short.MaxValue),
-                    Math.Min(1f, BinaryPrimitives.ReadUInt16LittleEndian(report[7..9])
-                        / (float)short.MaxValue));
+                    BinaryPrimitives.ReadUInt16LittleEndian(report[5..7])
+                        / (float)ushort.MaxValue,
+                    BinaryPrimitives.ReadUInt16LittleEndian(report[7..9])
+                        / (float)ushort.MaxValue);
             }
 
             if (report.Length >= 4 && report[0] == HapticEventCommandId)

@@ -40,10 +40,10 @@ public sealed class ControllerDependencyAdapterTests
     }
 
     [Fact]
-    public void SteamDeckFeedbackScalesOnTheSignedMotorRange()
+    public void SteamDeckFeedbackKeepsItsSixteenBitMotorScale()
     {
-        // Steam's rumble values top out at 0x7FFF (SDL's larger unsigned values clamp), so the
-        // signed maximum must read as full strength — a 16-bit divisor halved every Steam rumble.
+        // Live gameplay delivers rumble values past 0x8000, so the scale is the full unsigned
+        // range — a signed divisor clamps the upper half of the envelope and crushes dynamics.
         byte[] report = [0xEB, 0, 0, 0, 0, 0, 0x80, 0xFF, 0xFF];
 
         DecodedHapticFeedback feedback = Assert.IsType<DecodedHapticFeedback>(
@@ -51,7 +51,7 @@ public sealed class ControllerDependencyAdapterTests
                 ManagedControllerTarget.SteamDeckComposite,
                 report));
 
-        Assert.Equal(32768 / (float)short.MaxValue, feedback.LowFrequency, 3);
+        Assert.Equal(32768 / (float)ushort.MaxValue, feedback.LowFrequency, 5);
         Assert.Equal(1f, feedback.HighFrequency);
         Assert.Null(feedback.StopAfter);
     }
