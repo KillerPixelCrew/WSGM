@@ -68,6 +68,16 @@ Use `--action controller` for the bounded controller-management check. A semanti
 uses `--action capability --capability <id> --value <semantic-value>` plus optional
 `--instance <id>`. Each run accepts exactly one explicit action.
 
+`--action haptic-sweep` is the interactive motor calibration that measures the two
+`HapticCapabilities` values a plugin must declare from its motor technology:
+`MinimumStartIntensity` (the weakest bounded haptic event the motors render) and `MinimumPulse`
+(the shortest). The device's own controls pace it — A steps each descending sweep, B marks the
+perception boundary — through three phases: continuous strength (informational; the host never
+floors continuous rumble), 30 ms ticks (the start intensity), and full-strength pulses of
+shrinking length (the minimum pulse). The report prints the values to declare verbatim. A voice
+coil or LRA that renders everything keeps the zero defaults; the Claw's ERM motors measured
+0.22 / 10 ms this way (2026-09-02).
+
 The hardware command refuses redirected input or output, CI, `--yes`, a nonmatching device, an
 active WSGM Device Integration owner, a process without elevation, or a reused state directory. It
 requires a local confirmation immediately before activation. The state-path, owner, elevation,
