@@ -50,6 +50,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
     private static readonly TimeSpan MaxEmulatedPulseDuration = TimeSpan.FromSeconds(5);
 
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<byte, int> _undecodedFeedback = new();
     private GCHandle _self;
     private bool _initialized;
     private uint _deviceId;
@@ -430,9 +431,25 @@ internal sealed class ViiperControllerBackend : IHidBackend
             }
 
             HidTargetHandle? target = Volatile.Read(ref backend._target);
-            if (target is null || DecodeFeedback(target.Kind, new ReadOnlySpan<byte>(data, length))
-                is not { } feedback)
+            if (target is null)
             {
+                return;
+            }
+
+            ReadOnlySpan<byte> report = new(data, length);
+            if (DecodeFeedback(target.Kind, report) is not { } feedback)
+            {
+                // A few samples per command id, then silence: Steam speaks more feedback shapes
+                // than SDL does, and a silently dropped one reads as "rumble is broken" with no
+                // evidence in a pasted log — while unbounded logging here would run at haptic rate.
+                int seen = backend._undecodedFeedback.AddOrUpdate(report[0], 1, (_, n) => n + 1);
+                if (seen <= 4)
+                {
+                    Log.Warn(
+                        $"Undecoded {target.Kind} feedback frame ({seen}/4 shown): length={length}, "
+                            + $"bytes={Convert.ToHexString(report[..Math.Min(length, 24)])}.");
+                }
+
                 return;
             }
 

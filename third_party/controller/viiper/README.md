@@ -67,6 +67,16 @@ PR #2 needed adapting rather than applying verbatim: this branch replaced the in
 waits with `device.BlockUntilDeadline`, so the two endpoint cases collapse into one that blocks and
 returns no data.
 
+`0006-report-credible-deck-attributes.patch` is WSGM's own. Steam decides controller features from
+the `GET_ATTRIBUTES_VALUES` identity block, and with the baseline's answers — board revision 1 and
+a BCD-style firmware build time (`0x20260226`, which reads as the year 1987 when taken as the unix
+epoch Steam expects) — Steam never sends `ID_TRIGGER_RUMBLE_CMD` (0xEB) to the virtual Deck, while
+SDL sends it regardless: rumble worked from SDL applications like RPCS3 but never from Steam Input
+(device-observed 2026-09-02, via WSGM's undecoded-feedback log showing Steam probing attributes and
+then withholding 0xEB). The patch reports the identity hhd's emulated Deck presents — board
+revision `0x2e`, real epoch firmware and bootloader build times, and the trailing attribute set
+(`0x0c`..`0x0e`) a current Deck answers — which Steam demonstrably sends rumble to.
+
 ## How WSGM builds and binds it
 
 `eng\build-viiper.ps1` checks the pinned revision out, applies the patches, optionally runs the Deck
