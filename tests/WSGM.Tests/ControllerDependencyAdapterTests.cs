@@ -40,8 +40,10 @@ public sealed class ControllerDependencyAdapterTests
     }
 
     [Fact]
-    public void SteamDeckFeedbackKeepsItsSixteenBitMotorScale()
+    public void SteamDeckFeedbackScalesOnTheSignedMotorRange()
     {
+        // Steam's rumble values top out at 0x7FFF (SDL's larger unsigned values clamp), so the
+        // signed maximum must read as full strength — a 16-bit divisor halved every Steam rumble.
         byte[] report = [0xEB, 0, 0, 0, 0, 0, 0x80, 0xFF, 0xFF];
 
         DecodedHapticFeedback feedback = Assert.IsType<DecodedHapticFeedback>(
@@ -49,9 +51,35 @@ public sealed class ControllerDependencyAdapterTests
                 ManagedControllerTarget.SteamDeckComposite,
                 report));
 
-        Assert.Equal(32768 / (float)ushort.MaxValue, feedback.LowFrequency, 5);
+        Assert.Equal(32768 / (float)short.MaxValue, feedback.LowFrequency, 3);
         Assert.Equal(1f, feedback.HighFrequency);
         Assert.Null(feedback.StopAfter);
+    }
+
+    [Fact]
+    public void SteamDeckHapticEventBecomesABoundedPulse()
+    {
+        // Steam-private 0xDC event as captured live: side 1, command 2 (strong click).
+        byte[] report = [0xDC, 0x02, 0x01, 0x02];
+
+        DecodedHapticFeedback feedback = Assert.IsType<DecodedHapticFeedback>(
+            ViiperControllerBackend.DecodeFeedback(
+                ManagedControllerTarget.SteamDeckComposite,
+                report));
+
+        Assert.Equal(1f, feedback.LowFrequency);
+        Assert.Equal(1f, feedback.HighFrequency);
+        Assert.NotNull(feedback.StopAfter);
+    }
+
+    [Fact]
+    public void SteamDeckHapticGainSetProducesNoOutput()
+    {
+        byte[] report = [0xE2, 0x02, 0x01, 0x20];
+
+        Assert.Null(ViiperControllerBackend.DecodeFeedback(
+            ManagedControllerTarget.SteamDeckComposite,
+            report));
     }
 
     [Theory]

@@ -47,6 +47,8 @@ internal sealed class ViiperControllerBackend : IHidBackend
     private const byte HapticPulseCommandId = 0x8F;
     private const byte HapticCommandId = 0xEA;
     private const byte RumbleCommandId = 0xEB;
+    private const byte HapticEventCommandId = 0xDC;
+    private const byte HapticGainCommandId = 0xE2;
     private static readonly TimeSpan MaxEmulatedPulseDuration = TimeSpan.FromSeconds(5);
 
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -489,11 +491,38 @@ internal sealed class ViiperControllerBackend : IHidBackend
         {
             if (report.Length >= 9 && report[0] == RumbleCommandId)
             {
+                // Steam's rumble values top out at 0x7FFF where SDL uses the full unsigned
+                // range (hhd records the same), so the signed maximum is full strength and
+                // SDL's larger values clamp rather than Steam's halving.
                 return new(
-                    BinaryPrimitives.ReadUInt16LittleEndian(report[5..7])
-                        / (float)ushort.MaxValue,
-                    BinaryPrimitives.ReadUInt16LittleEndian(report[7..9])
-                        / (float)ushort.MaxValue);
+                    Math.Min(1f, BinaryPrimitives.ReadUInt16LittleEndian(report[5..7])
+                        / (float)short.MaxValue),
+                    Math.Min(1f, BinaryPrimitives.ReadUInt16LittleEndian(report[7..9])
+                        / (float)short.MaxValue));
+            }
+
+            if (report.Length >= 4 && report[0] == HapticEventCommandId)
+            {
+                // Steam-private haptic event (0xDC), observed from Steam's own rumble paths on
+                // Windows where ID_TRIGGER_RUMBLE_CMD never arrives: length 2, then what the
+                // SC2-generation protocol documents as side and command (0 stop, 1 click,
+                // 2 strong click). Rendered as a short symmetric pulse on the Claw's motors.
+                float strength = report[3] switch
+                {
+                    0 => 0f,
+                    1 => 0.55f,
+                    _ => 1f,
+                };
+                return strength <= 0f
+                    ? new(0f, 0f)
+                    : new(strength, strength, TimeSpan.FromMilliseconds(40));
+            }
+
+            if (report.Length >= 2 && report[0] == HapticGainCommandId)
+            {
+                // Companion gain set (0xE2) for the event above. It configures rather than
+                // plays; decoding it as output would cancel the pulse it accompanies.
+                return null;
             }
 
             if (report.Length >= 6 && report[0] == HapticCommandId)
