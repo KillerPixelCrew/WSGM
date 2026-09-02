@@ -75,6 +75,33 @@ internal sealed record DeviceOverlayCapability(
 
     /// <summary>Placement within its section and category.</summary>
     public int SortOrder { get; init; }
+
+    /// <summary>What kind of value this capability carries, so the overlay picks a control:
+    /// integer range → slider, choice → dropdown, boolean → toggle, text → textbox, color →
+    /// swatch/editor, otherwise a plain action button.</summary>
+    public CapabilityValueKind ValueKind { get; init; } = CapabilityValueKind.None;
+
+    /// <summary>Whether the current value may be written. A read-only ranged capability still shows
+    /// its value but renders as a reading, not an adjustable control.</summary>
+    public bool Writable { get; init; }
+
+    /// <summary>Inclusive lower bound of an integer capability, or null when it has no range.</summary>
+    public int? Minimum { get; init; }
+
+    /// <summary>Inclusive upper bound of an integer capability, or null when it has no range.</summary>
+    public int? Maximum { get; init; }
+
+    /// <summary>Step between legal integer values; at least 1 when a range is present.</summary>
+    public int? Step { get; init; }
+
+    /// <summary>Unit for a numeric value, used to format the slider's live label.</summary>
+    public CapabilityUnit Unit { get; init; } = CapabilityUnit.None;
+
+    /// <summary>The ordered legal values of a choice capability, empty otherwise.</summary>
+    public IReadOnlyList<CapabilityChoice> Choices { get; init; } = [];
+
+    /// <summary>Maximum text length for a text capability, or null when it has none.</summary>
+    public int? MaximumLength { get; init; }
 }
 
 /// <summary>One category heading of a plugin-declared overlay section.</summary>
@@ -977,6 +1004,14 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 ? descriptor.CategoryId
                 : null,
             SortOrder = descriptor.SortOrder,
+            ValueKind = descriptor.ValueKind,
+            Writable = descriptor.SupportsWrite,
+            Minimum = descriptor.Minimum,
+            Maximum = descriptor.Maximum,
+            Step = descriptor.Step,
+            Unit = descriptor.Unit,
+            Choices = descriptor.Choices,
+            MaximumLength = descriptor.MaximumLength,
         };
     }
 

@@ -356,10 +356,15 @@ directly so the taskbar slider lags the OSD by one poll.
       WSGM never imposed a limit. Decision logic is the pure, tested `PerApplicationPowerPolicy`;
       restore writes use `CapabilityCommandOrigin.ProfileRestore` so they never re-enter the manual
       funnel. **Attended device validation pending** on the reference Claw.
-- [ ] Apply the same per-layer persist/restore to **VRR** (its config fields already exist). Deferred
-      from the power pass: VRR has no natural "no preference" restore baseline the way power has the
-      device ceiling, so its default-on-exit needs a decision before it drives a display and risks a
-      mode-change flicker.
+- [x] Apply the same per-layer persist/restore to **VRR** (`PerApplicationVrrPolicy`). The QAM VRR
+      toggle now saves to the running application's layer and the state is restored on transition;
+      its restore baseline is off (Steam's own default and a fixed-refresh desktop's expectation).
+      **Attended device validation pending.**
+- [x] Rebuild the overlay's per-application profile UI as a **headline toggle on the Device root**,
+      the way Steam's per-game toggle heads the Performance tab, replacing the Profiles submenu. The
+      per-application detail rows (detected application, active layer, reset) and the shared frame-
+      limit/overlay rows moved to Power and thermals alongside the hardware profile and authored fan
+      curve; the Profiles section tile is gone.
 
 ## Controller and Quick Settings milestone - complete
 

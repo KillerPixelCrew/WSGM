@@ -324,6 +324,33 @@ public partial class OverlayWindow : Window
 
     private void OnDeviceChanged() => Dispatcher.UIThread.Post(RefreshDevicePanel);
 
+    /// <summary>True while focus is on an interactive value control inside the capability list — a
+    /// slider, dropdown, toggle or textbox the user is adjusting. A telemetry-driven rebuild while
+    /// one is focused would destroy it under the user, so the refresh is skipped until they leave.</summary>
+    private bool IsEditingDeviceValue()
+    {
+        if (TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement()
+            is not Control focused)
+        {
+            return false;
+        }
+
+        if (focused is not (Slider or ComboBox or ToggleSwitch or TextBox))
+        {
+            return false;
+        }
+
+        for (Visual? node = focused; node is not null; node = node.GetVisualParent())
+        {
+            if (ReferenceEquals(node, DeviceCapabilityList))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>
     /// Redraws the written activation hints as the device's own buttons, where one resolved.
     /// </summary>
@@ -363,6 +390,16 @@ public partial class OverlayWindow : Window
         ConfigureTabs(snapshot.Visible);
         DeviceStatusTitle.Text = snapshot.Status;
         DeviceStatusDetail.Text = snapshot.Detail;
+
+        // Do not tear the list down while the user is operating a value control on it. Read-only
+        // telemetry (fan RPM, temperature) streams several samples a second and each one posts a
+        // refresh; rebuilding would destroy the focused slider/dropdown mid-adjust — the pad
+        // cannot hold Left/Right across it, and the row's debounced write timer would die with the
+        // row before it commits. The next change after the user moves on rebuilds as normal.
+        if (IsEditingDeviceValue())
+        {
+            return;
+        }
         string? focusedKey = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement()
             is Control focused
             ? focused.Tag as string
@@ -396,7 +433,7 @@ public partial class OverlayWindow : Window
             ? Avalonia.Layout.HorizontalAlignment.Stretch
             : Avalonia.Layout.HorizontalAlignment.Left;
         DescriptorStatusRow? restoreFocus = openSection is { } section
-            ? RenderDeviceSection(snapshot, performance, section, focusedKey)
+            ? RenderDeviceSection(snapshot, section, focusedKey)
             : openPluginSection is { } pluginSectionId
                 ? RenderDevicePluginSection(snapshot, pluginSectionId, focusedKey)
                 : RenderDeviceSectionMenu(snapshot, performance, focusedKey);
@@ -438,6 +475,27 @@ public partial class OverlayWindow : Window
         string? focusedKey)
     {
         DescriptorStatusRow? restoreFocus = null;
+
+        // The per-application profile toggle is the headline of the Device root, the way Steam's own
+        // per-game toggle heads the Performance tab: one control, on top of the page, that turns a
+        // separate profile for the running application on or off. Its settings live on Power and
+        // thermals; this is only the switch. Rendered before the section grid so it reads first.
+        if (performance is { Visible: true }
+            && performance.ProfileRows.FirstOrDefault(row => string.Equals(
+                row.Id,
+                DeviceOverlaySectionPages.ApplicationProfileRowId,
+                StringComparison.Ordinal)) is { } applicationProfile)
+        {
+            const string toggleFocusKey = "device.application-profile";
+            DescriptorStatusRow toggle = CreatePerformanceRow(applicationProfile, toggleFocusKey);
+            toggle.Margin = new Thickness(0, 0, 0, 12);
+            DeviceCapabilityList.Children.Add(toggle);
+            if (string.Equals(toggleFocusKey, focusedKey, StringComparison.Ordinal))
+            {
+                restoreFocus = toggle;
+            }
+        }
+
         // A grid of tile cards rather than a stretched stack: the sheet is wide, and
         // a full-width row per section read as the old sidebar scaled up.
         var grid = new Avalonia.Controls.Primitives.UniformGrid { Columns = 3 };
@@ -523,18 +581,27 @@ public partial class OverlayWindow : Window
 
         void AddRows(IEnumerable<DeviceOverlayCapability> rows)
         {
+            var flow = new DeviceRowFlow(DeviceCapabilityList);
             foreach (DeviceOverlayCapability capability in rows)
             {
                 string key = capability.InstanceId is { Length: > 0 }
                     ? $"{capability.CapabilityId}#{capability.InstanceId}"
                     : capability.CapabilityId;
+                if (TryCreateDeviceControl(capability, key) is { } control)
+                {
+                    flow.Add(control, wide: control is DeviceSliderRow);
+                    continue;
+                }
+
                 DescriptorStatusRow button = CreateDeviceCapabilityRow(capability, key, brightness);
-                DeviceCapabilityList.Children.Add(button);
+                flow.Add(button, wide: false);
                 if (string.Equals(key, focusedKey, StringComparison.Ordinal))
                 {
                     restoreFocus = button;
                 }
             }
+
+            flow.Flush();
         }
 
         AddRows(capabilities.Where(capability => capability.CategoryId is null));
@@ -585,7 +652,6 @@ public partial class OverlayWindow : Window
 
     private DescriptorStatusRow? RenderDeviceSection(
         DeviceOverlaySnapshot snapshot,
-        PerformanceOverlaySnapshot? performance,
         DeviceOverlaySection section,
         string? focusedKey)
     {
@@ -599,22 +665,31 @@ public partial class OverlayWindow : Window
         heading.Classes.Add("eyebrow");
         DeviceCapabilityList.Children.Add(heading);
 
+        var sectionFlow = new DeviceRowFlow(DeviceCapabilityList);
         foreach (DeviceOverlayCapability capability
             in DeviceOverlaySectionPages.CapabilitiesIn(snapshot, section))
         {
             string key = capability.InstanceId is { Length: > 0 }
                 ? $"{capability.CapabilityId}#{capability.InstanceId}"
                 : capability.CapabilityId;
+            if (TryCreateDeviceControl(capability, key) is { } control)
+            {
+                sectionFlow.Add(control, wide: control is DeviceSliderRow);
+                continue;
+            }
+
             DescriptorStatusRow button = CreateDeviceCapabilityRow(
                 capability,
                 key,
                 sectionBrightness);
-            DeviceCapabilityList.Children.Add(button);
+            sectionFlow.Add(button, wide: false);
             if (string.Equals(key, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = button;
             }
         }
+
+        sectionFlow.Flush();
 
         // AutoTDP moves the power limit rather than being one, so it sits with the limit it moves
         // instead of arriving through the capability list.
@@ -638,8 +713,9 @@ public partial class OverlayWindow : Window
         }
 
         // The selected hardware profile is stored configuration rather than a device capability, so
-        // it is a direct row for the same reason as the others on this surface.
-        if (section is DeviceOverlaySection.Profiles && snapshot.Profile is { } profile)
+        // it is a direct row for the same reason as the others on this surface. It sits with power
+        // and thermals now that the per-application profile is the toggle on the Device root.
+        if (section is DeviceOverlaySection.PowerAndThermals && snapshot.Profile is { } profile)
         {
             const string profileFocusKey = "device.hardware-profile";
             DescriptorStatusRow row = new();
@@ -661,7 +737,7 @@ public partial class OverlayWindow : Window
         // The authored fan profile, below the plugin's hardware profile. Two rows on one page
         // because they are genuinely different things: the hardware profile comes from the plugin
         // and switches its own values, while this chooses between curves the user drew in Settings.
-        if (section is DeviceOverlaySection.Profiles && snapshot.AuthoredProfile is { } authored)
+        if (section is DeviceOverlaySection.PowerAndThermals && snapshot.AuthoredProfile is { } authored)
         {
             const string authoredFocusKey = "device.authored-profile";
             DescriptorStatusRow authoredRow = new();
@@ -677,21 +753,6 @@ public partial class OverlayWindow : Window
             if (string.Equals(authoredFocusKey, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = authoredRow;
-            }
-        }
-
-        if (section is DeviceOverlaySection.Profiles && performance is { Visible: true })
-        {
-            foreach (DescriptorRow descriptor in performance.ProfileRows.Concat(performance.Rows))
-            {
-                DescriptorStatusRow row = CreatePerformanceRow(
-                    descriptor,
-                    $"performance.profile.{descriptor.Id}");
-                DeviceCapabilityList.Children.Add(row);
-                if (string.Equals(row.Tag as string, focusedKey, StringComparison.Ordinal))
-                {
-                    restoreFocus = row;
-                }
             }
         }
 
@@ -1034,6 +1095,195 @@ public partial class OverlayWindow : Window
         });
     }
 
+    /// <summary>True when a capability should render as a slider: a writable integer with a real
+    /// declared range. Colour keeps its editor; everything else stays a row.</summary>
+    private static bool RendersAsSlider(DeviceOverlayCapability capability) =>
+        capability.ValueKind is CapabilityValueKind.Integer
+        && capability.Writable
+        && capability.Minimum is { } min
+        && capability.Maximum is { } max
+        && max > min;
+
+    /// <summary>Builds the proper control for a writable capability — slider, toggle, dropdown or
+    /// textbox — or null when it has no dedicated control and should render as a plain row (an
+    /// action, a colour swatch, or a read-only value). Sets the row's focus target so gamepad
+    /// focus restore lands on the interactive control.</summary>
+    private Control? TryCreateDeviceControl(DeviceOverlayCapability capability, string key)
+    {
+        if (RendersAsSlider(capability))
+        {
+            return CreateDeviceSliderRow(capability, key);
+        }
+
+        if (!capability.Writable)
+        {
+            return null;
+        }
+
+        switch (capability.ValueKind)
+        {
+            case CapabilityValueKind.Boolean:
+            {
+                (Border row, _) = DeviceControlRows.Toggle(
+                    key,
+                    capability.Title,
+                    capability.Description,
+                    capability.CurrentValue?.BooleanValue ?? false,
+                    capability.CanInvoke,
+                    value => WriteDeviceValue(capability, new CapabilityValue
+                    {
+                        Kind = CapabilityValueKind.Boolean,
+                        BooleanValue = value,
+                    }));
+                return row;
+            }
+
+            case CapabilityValueKind.Choice when capability.Choices.Count > 0:
+            {
+                (Border row, _) = DeviceControlRows.Choice(
+                    key,
+                    capability.Title,
+                    capability.Description,
+                    capability.Choices,
+                    capability.CurrentValue?.ChoiceValue,
+                    capability.CanInvoke,
+                    value => WriteDeviceValue(capability, new CapabilityValue
+                    {
+                        Kind = CapabilityValueKind.Choice,
+                        ChoiceValue = value,
+                    }));
+                return row;
+            }
+
+            case CapabilityValueKind.Text:
+            {
+                (Border row, _) = DeviceControlRows.Text(
+                    key,
+                    capability.Title,
+                    capability.Description,
+                    capability.CurrentValue?.TextValue,
+                    capability.MaximumLength,
+                    capability.CanInvoke,
+                    value => WriteDeviceValue(capability, new CapabilityValue
+                    {
+                        Kind = CapabilityValueKind.Text,
+                        TextValue = value,
+                    }));
+                return row;
+            }
+
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>Lays a group's rows into the wide sheet while respecting the pad: a slider (or any
+    /// control that keeps Left/Right for its own value) spans the full width so Up/Down alone moves
+    /// between rows, and the remaining compact rows — toggles, dropdowns, buttons, readings — pair
+    /// two to a line. Order is preserved, so a wide row flushes the current pair before it.</summary>
+    private sealed class DeviceRowFlow(StackPanel host)
+    {
+        private const double Gutter = 12;
+        private Grid? _pair;
+
+        public void Add(Control row, bool wide)
+        {
+            if (wide)
+            {
+                Flush();
+                host.Children.Add(row);
+                return;
+            }
+
+            if (_pair is null)
+            {
+                _pair = new Grid
+                {
+                    ColumnDefinitions = new ColumnDefinitions("*,*"),
+                    ColumnSpacing = Gutter,
+                };
+                host.Children.Add(_pair);
+            }
+
+            Grid.SetColumn(row, _pair.Children.Count);
+            _pair.Children.Add(row);
+            if (_pair.Children.Count == 2)
+            {
+                _pair = null;
+            }
+        }
+
+        public void Flush() => _pair = null;
+    }
+
+    private void WriteDeviceValue(DeviceOverlayCapability capability, CapabilityValue value)
+    {
+        IDeviceOverlaySource? bridge = _deviceBridge;
+        if (bridge is null || _closed)
+        {
+            return;
+        }
+
+        _ = CommitDeviceValueAsync(bridge, capability with { NextValue = value });
+    }
+
+    /// <summary>Builds the labelled slider for an integer-range capability and wires its debounced
+    /// commit to the device write path — the same <c>InvokeAsync(with NextValue)</c> the colour
+    /// editor uses.</summary>
+    private DeviceSliderRow CreateDeviceSliderRow(DeviceOverlayCapability capability, string key)
+    {
+        int min = capability.Minimum!.Value;
+        int max = capability.Maximum!.Value;
+        int current = capability.CurrentValue?.IntegerValue ?? min;
+        var row = new DeviceSliderRow(
+            key,
+            capability.Title,
+            capability.Description,
+            min,
+            max,
+            capability.Step ?? 1,
+            capability.Unit,
+            current,
+            capability.CanInvoke,
+            value =>
+            {
+                IDeviceOverlaySource? bridge = _deviceBridge;
+                if (bridge is null || _closed)
+                {
+                    return;
+                }
+
+                _ = CommitDeviceValueAsync(
+                    bridge,
+                    capability with
+                    {
+                        NextValue = new CapabilityValue
+                        {
+                            Kind = CapabilityValueKind.Integer,
+                            IntegerValue = value,
+                        },
+                    });
+            });
+        return row;
+    }
+
+    private async System.Threading.Tasks.Task CommitDeviceValueAsync(
+        IDeviceOverlaySource bridge,
+        DeviceOverlayCapability capability)
+    {
+        try
+        {
+            await bridge.InvokeAsync(capability, _deviceLifetime.Token);
+        }
+        catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Device value write failed: {capability.CapabilityId}, {ex.Message}");
+        }
+    }
+
     private DescriptorStatusRow CreateDeviceCapabilityRow(
         DeviceOverlayCapability capability,
         string key,
@@ -1151,8 +1401,17 @@ public partial class OverlayWindow : Window
         PerformanceStatus.Text = snapshot.Status;
         string? focusedKey = CurrentSemanticFocusKey();
         DescriptorStatusRow? restoreFocus = null;
+        // On Device the per-application enable toggle is promoted to the headline toggle on the root,
+        // so the Power and thermals rows are the detail (detected application, active layer, reset)
+        // plus the shared frame-limit and overlay rows. On System there is no Device root to host the
+        // toggle, so it stays inline with the rest.
         IEnumerable<DescriptorRow> descriptors = _navigation.IsVisible(OverlayDestination.Device)
-            ? snapshot.Rows
+            ? snapshot.ProfileRows
+                .Where(row => !string.Equals(
+                    row.Id,
+                    DeviceOverlaySectionPages.ApplicationProfileRowId,
+                    StringComparison.Ordinal))
+                .Concat(snapshot.Rows)
             : snapshot.ProfileRows.Concat(snapshot.Rows);
         foreach (DescriptorRow descriptor in descriptors)
         {

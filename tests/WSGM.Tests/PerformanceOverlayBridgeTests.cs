@@ -50,7 +50,7 @@ public sealed class PerformanceOverlayBridgeTests
     }
 
     [Fact]
-    public async Task DeviceProfilesSurfaceOwnsTheCompletePerApplicationWorkflow()
+    public async Task PerApplicationRowsLiveOnPowerAndThermalsExceptTheHeadlineToggle()
     {
         await using PerformanceService service = new(
             new SimulatedRtssAdapter(),
@@ -71,11 +71,17 @@ public sealed class PerformanceOverlayBridgeTests
             row => Assert.Equal("reset-profile", row.Id));
         Assert.Equal("Steam 42", before.ProfileRows[0].TrailingText);
         Assert.Equal("Global", before.ProfileRows[1].TrailingText);
+        // The per-application detail rows and the shared frame-limit/overlay rows count into Power
+        // and thermals, where they render; the enable toggle is the headline on the Device root, so
+        // it is not counted into any section.
         DeviceOverlaySnapshot device = new(true, "Ready", string.Empty, null, []);
-        DeviceOverlaySectionEntry profiles = Assert.Single(
+        DeviceOverlaySectionEntry power = Assert.Single(
             DeviceOverlaySectionPages.Build(device, before));
-        Assert.Equal(DeviceOverlaySection.Profiles, profiles.Section);
-        Assert.Equal(before.ProfileRows.Count + before.Rows.Count, profiles.Count);
+        Assert.Equal(DeviceOverlaySection.PowerAndThermals, power.Section);
+        int toggleRows = before.ProfileRows.Count(row =>
+            row.Id == DeviceOverlaySectionPages.ApplicationProfileRowId);
+        Assert.Equal(1, toggleRows);
+        Assert.Equal(before.ProfileRows.Count - toggleRows + before.Rows.Count, power.Count);
 
         await bridge.InvokeAsync(before.ProfileRows.Single(row =>
             row.Id == "application-profile"));

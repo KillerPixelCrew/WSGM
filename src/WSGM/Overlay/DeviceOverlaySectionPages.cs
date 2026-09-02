@@ -45,6 +45,18 @@ internal sealed record DeviceOverlaySectionEntry(
 /// </remarks>
 internal static class DeviceOverlaySectionPages
 {
+    /// <summary>The id of the per-application enable toggle among the performance profile rows.</summary>
+    /// <remarks>
+    /// It is the headline toggle on the Device root — the one control that turns a per-application
+    /// profile on — so it is pulled out of the section rows both here (it is not counted into any
+    /// section) and in the renderer (it is drawn at the top of the root, not in a page). One id, so
+    /// the two never disagree about which row is the toggle.
+    /// </remarks>
+    internal const string ApplicationProfileRowId = "application-profile";
+
+    /// <summary>The reset action among the performance profile rows.</summary>
+    internal const string ResetProfileRowId = "reset-profile";
+
     /// <summary>The fixed order sections are offered in.</summary>
     /// <remarks>
     /// Ordered by how often a handheld user reaches for them, not by the enum. Power comes first
@@ -55,7 +67,6 @@ internal static class DeviceOverlaySectionPages
     [
         DeviceOverlaySection.Overview,
         DeviceOverlaySection.PowerAndThermals,
-        DeviceOverlaySection.Profiles,
         DeviceOverlaySection.ControllerAndMotion,
         DeviceOverlaySection.Oem,
         DeviceOverlaySection.LightingAndFeatures,
@@ -169,24 +180,19 @@ internal static class DeviceOverlaySectionPages
 
         if (performance is { Visible: true })
         {
-            foreach (DescriptorRow row in performance.ProfileRows)
+            // The performance rows render on Power and thermals (frame limit, overlay level, and the
+            // per-application detail rows), so they count toward that page. The per-application enable
+            // toggle is not counted here at all: it is the headline toggle on the Device root, not a
+            // row inside any section.
+            foreach (DescriptorRow row in performance.ProfileRows
+                .Where(row => !string.Equals(row.Id, ApplicationProfileRowId, StringComparison.Ordinal))
+                .Concat(performance.Rows))
             {
-                counts[DeviceOverlaySection.Profiles] =
-                    counts.GetValueOrDefault(DeviceOverlaySection.Profiles) + 1;
-                statuses[DeviceOverlaySection.Profiles] = MoreSerious(
+                counts[DeviceOverlaySection.PowerAndThermals] =
+                    counts.GetValueOrDefault(DeviceOverlaySection.PowerAndThermals) + 1;
+                statuses[DeviceOverlaySection.PowerAndThermals] = MoreSerious(
                     statuses.GetValueOrDefault(
-                        DeviceOverlaySection.Profiles,
-                        DescriptorStatus.None),
-                    row.Status);
-            }
-
-            foreach (DescriptorRow row in performance.Rows)
-            {
-                counts[DeviceOverlaySection.Profiles] =
-                    counts.GetValueOrDefault(DeviceOverlaySection.Profiles) + 1;
-                statuses[DeviceOverlaySection.Profiles] = MoreSerious(
-                    statuses.GetValueOrDefault(
-                        DeviceOverlaySection.Profiles,
+                        DeviceOverlaySection.PowerAndThermals,
                         DescriptorStatus.None),
                     row.Status);
             }
@@ -245,8 +251,11 @@ internal static class DeviceOverlaySectionPages
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         yield return (DeviceOverlaySection.PowerAndThermals, snapshot.AutoTdp);
-        yield return (DeviceOverlaySection.Profiles, snapshot.Profile);
-        yield return (DeviceOverlaySection.Profiles, snapshot.AuthoredProfile);
+        // The hardware performance profile and the authored fan curve sit with power and thermals:
+        // the per-application profile is now the toggle on the Device root, so there is no Profiles
+        // page to hold them, and both are decisions about how the device performs and cools.
+        yield return (DeviceOverlaySection.PowerAndThermals, snapshot.Profile);
+        yield return (DeviceOverlaySection.PowerAndThermals, snapshot.AuthoredProfile);
         yield return (DeviceOverlaySection.ControllerAndMotion, snapshot.Controller);
         yield return (DeviceOverlaySection.Diagnostics, snapshot.Recovery);
         yield return (DeviceOverlaySection.Glyphs, snapshot.GlyphSelection);

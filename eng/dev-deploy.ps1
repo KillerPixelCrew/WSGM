@@ -25,7 +25,11 @@ param(
     [string[]]$WsgmArguments = @('--shell'),
 
     # Leave Steam and WSGM stopped after the swap instead of restarting them.
-    [switch]$NoRestart
+    [switch]$NoRestart,
+
+    # Skip refreshing the installed device plugin. The plugin rebuild + one elevation prompt only
+    # matter when the SDK or the built-in package changed; a pure WSGM code loop can skip both.
+    [switch]$SkipPlugin
 )
 
 Set-StrictMode -Version Latest
@@ -157,6 +161,56 @@ foreach ($pattern in 'WSGM.Launch.exe', '*.dll') {
         ForEach-Object {
             Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $binDirectory $_.Name) -Force
         }
+}
+
+if (-not $SkipPlugin) {
+    # The installed device plugin is a separate package under Program Files that the WSGM bin swap
+    # never touches, so a dev loop that changes the SDK leaves a stale plugin the running host
+    # rejects as api-incompatible (device features silently gone). Rebuild it from the pinned
+    # submodules exactly as the installer does, then swap the validated tree into the protected
+    # slot. Only this step needs elevation, so it is the one UAC prompt of a dev deploy.
+    Write-Host '== Staging device plugin from submodules ==' -ForegroundColor Cyan
+    $pluginStage = Join-Path $root 'publish\DevDeviceComponents'
+    Remove-Item -LiteralPath $pluginStage -Recurse -Force -ErrorAction SilentlyContinue
+    & "$root\eng\stage-device-components.ps1" -OutputRoot $pluginStage
+    if ($LASTEXITCODE -ne 0) { throw 'Device plugin staging failed.' }
+
+    $packagesRoot = Join-Path $pluginStage 'Packages'
+    $stagedPackage = @(Get-ChildItem -LiteralPath $packagesRoot -Directory)
+    if ($stagedPackage.Count -ne 1) {
+        throw "Expected exactly one staged package under $packagesRoot; found $($stagedPackage.Count)."
+    }
+    $packageId = $stagedPackage[0].Name
+    $stagedTree = $stagedPackage[0].FullName
+    $installedRoot = Join-Path $env:ProgramFiles 'WSGM\DevicePlugins\installed'
+    $installedTree = Join-Path $installedRoot $packageId
+
+    Write-Host "== Installing device plugin $packageId (elevation required) ==" -ForegroundColor Cyan
+    # A single elevated child does the protected-slot swap: replace the package directory atomically
+    # (stage beside, then swap) so a failed copy never leaves a half-written plugin the host loads.
+    $swap = @"
+`$ErrorActionPreference = 'Stop'
+`$installedRoot = '$installedRoot'
+`$installedTree = '$installedTree'
+`$stagedTree = '$stagedTree'
+New-Item -ItemType Directory -Path `$installedRoot -Force | Out-Null
+`$incoming = "`$installedTree.incoming"
+`$old = "`$installedTree.old"
+if (Test-Path -LiteralPath `$incoming) { Remove-Item -LiteralPath `$incoming -Recurse -Force }
+Copy-Item -LiteralPath `$stagedTree -Destination `$incoming -Recurse -Force
+if (Test-Path -LiteralPath `$old) { Remove-Item -LiteralPath `$old -Recurse -Force }
+if (Test-Path -LiteralPath `$installedTree) { Rename-Item -LiteralPath `$installedTree -NewName (Split-Path -Leaf `$old) }
+Rename-Item -LiteralPath `$incoming -NewName (Split-Path -Leaf `$installedTree)
+if (Test-Path -LiteralPath `$old) { Remove-Item -LiteralPath `$old -Recurse -Force }
+"@
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($swap))
+    $elevated = Start-Process -FilePath 'powershell.exe' `
+        -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encoded) `
+        -Verb RunAs -Wait -PassThru
+    if ($elevated.ExitCode -ne 0) {
+        throw "Elevated device plugin install failed (exit $($elevated.ExitCode))."
+    }
+    Write-Host "Device plugin $packageId installed." -ForegroundColor Green
 }
 
 if ($NoRestart) {

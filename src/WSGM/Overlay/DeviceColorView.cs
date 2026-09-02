@@ -90,6 +90,22 @@ public sealed class DeviceColorView : OverlaySubView
         }
 
         var stack = NewStack(capability.Title);
+
+        // Two columns so the editor fills the wide sheet instead of scrolling a tall single
+        // column: the preview and spectrum on the left, the precise controls and actions on the
+        // right.
+        var columns = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,*"),
+            ColumnSpacing = 16,
+        };
+        var left = new StackPanel { Spacing = 4 };
+        var right = new StackPanel { Spacing = 4 };
+        Grid.SetColumn(left, 0);
+        Grid.SetColumn(right, 1);
+        columns.Children.Add(left);
+        columns.Children.Add(right);
+
         _swatch = new Border
         {
             Height = 40,
@@ -99,14 +115,14 @@ public sealed class DeviceColorView : OverlaySubView
             BorderBrush = Brushes.White,
             BorderThickness = new Thickness(1),
         };
-        stack.Children.Add(_swatch);
+        left.Children.Add(_swatch);
         _hexCaption = Caption(HexCaptionText());
-        stack.Children.Add(_hexCaption);
+        left.Children.Add(_hexCaption);
 
-        stack.Children.Add(SectionLabel("SPECTRUM"));
+        left.Children.Add(SectionLabel("SPECTRUM"));
         _spectrum = new DeviceColorSpectrum
         {
-            Height = 170,
+            Height = 220,
             Margin = new Thickness(2, 0, 2, 4),
             CornerRadius = new CornerRadius(6),
             Color = ToAvaloniaColor(_color),
@@ -120,13 +136,13 @@ public sealed class DeviceColorView : OverlaySubView
                     source: _spectrum);
             }
         };
-        stack.Children.Add(_spectrum);
+        left.Children.Add(_spectrum);
 
-        stack.Children.Add(SectionLabel("CHANNELS"));
-        stack.Children.Add(ChannelRow(0, "Red", 16));
-        stack.Children.Add(ChannelRow(1, "Green", 8));
-        stack.Children.Add(ChannelRow(2, "Blue", 0));
-        stack.Children.Add(Row(
+        right.Children.Add(SectionLabel("CHANNELS"));
+        right.Children.Add(ChannelRow(0, "Red", 16));
+        right.Children.Add(ChannelRow(1, "Green", 8));
+        right.Children.Add(ChannelRow(2, "Blue", 0));
+        right.Children.Add(Row(
             "Exact hexadecimal color",
             $"#{_color:X6}",
             Icons.Wrench,
@@ -134,12 +150,12 @@ public sealed class DeviceColorView : OverlaySubView
 
         if (_brightnessCapability is not null)
         {
-            stack.Children.Add(SectionLabel("BRIGHTNESS"));
-            stack.Children.Add(BrightnessRow());
+            right.Children.Add(SectionLabel("BRIGHTNESS"));
+            right.Children.Add(BrightnessRow());
         }
 
-        stack.Children.Add(SectionLabel(""));
-        stack.Children.Add(PrimaryRow(
+        right.Children.Add(SectionLabel(""));
+        right.Children.Add(PrimaryRow(
             _applying ? "Applying…" : "Apply",
             _brightnessCapability is null
                 ? "Commit this color to the device"
@@ -152,8 +168,10 @@ public sealed class DeviceColorView : OverlaySubView
                     _ = RunSafelyAsync(ApplyAsync(), "apply");
                 }
             }));
-        stack.Children.Add(Row("Cancel", "Discard the staged changes", Icons.ExitFullscreen,
+        right.Children.Add(Row("Cancel", "Discard the staged changes", Icons.ExitFullscreen,
             _applying ? null : () => Back()));
+
+        stack.Children.Add(columns);
         SetContent(stack);
     }
 
