@@ -506,16 +506,18 @@ internal sealed class ViiperControllerBackend : IHidBackend
                 // Steam-private haptic event (0xDC), observed from Steam's own rumble paths on
                 // Windows where ID_TRIGGER_RUMBLE_CMD never arrives: length 2, then what the
                 // SC2-generation protocol documents as side and command (0 stop, 1 click,
-                // 2 strong click). Rendered as a short symmetric pulse on the Claw's motors.
+                // 2 strong click). Rendered as a symmetric pulse long enough for the Claw's ERM
+                // motors, which need tens of milliseconds just to spin up — an LRA-length click
+                // is imperceptible on them.
                 float strength = report[3] switch
                 {
                     0 => 0f,
-                    1 => 0.55f,
+                    1 => 0.7f,
                     _ => 1f,
                 };
                 return strength <= 0f
                     ? new(0f, 0f)
-                    : new(strength, strength, TimeSpan.FromMilliseconds(40));
+                    : new(strength, strength, TimeSpan.FromMilliseconds(150));
             }
 
             if (report.Length >= 2 && report[0] == HapticGainCommandId)
