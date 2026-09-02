@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
@@ -17,7 +19,16 @@ internal sealed record DeviceOverlaySectionEntry(
     string Title,
     string Description,
     int Count,
-    DescriptorStatus Status);
+    DescriptorStatus Status)
+{
+    /// <summary>The plugin-declared section this entry opens, or null for a WSGM-owned one.</summary>
+    /// <remarks>When set, <see cref="Section"/> is meaningless and <see cref="Page"/> is
+    /// <see cref="OverlayPage.DevicePluginSection"/>.</remarks>
+    public string? PluginSectionId { get; init; }
+
+    /// <summary>The declared icon for a plugin section's card.</summary>
+    public SectionIcon Icon { get; init; } = SectionIcon.None;
+}
 
 /// <summary>
 /// Turns a Device snapshot into the section list the destination's root page shows.
@@ -85,8 +96,15 @@ internal static class DeviceOverlaySectionPages
     };
 
     /// <summary>The stable focus key for a section's card on the root page.</summary>
-    /// <param name="section">The section.</param>
     /// <returns>Its focus key.</returns>
+    /// <summary>The stable focus key for an entry's card on the root page.</summary>
+    /// <param name="entry">The menu entry.</param>
+    /// <returns>Its focus key.</returns>
+    internal static string FocusKey(DeviceOverlaySectionEntry entry) =>
+        entry.PluginSectionId is { } id
+            ? "device.section.plugin." + id
+            : FocusKey(entry.Section);
+
     internal static string FocusKey(DeviceOverlaySection section) =>
         "device.section." + section switch
         {
@@ -112,8 +130,19 @@ internal static class DeviceOverlaySectionPages
         ArgumentNullException.ThrowIfNull(snapshot);
         Dictionary<DeviceOverlaySection, int> counts = [];
         Dictionary<DeviceOverlaySection, DescriptorStatus> statuses = [];
+        Dictionary<string, int> pluginCounts = [];
+        Dictionary<string, DescriptorStatus> pluginStatuses = [];
         foreach (DeviceOverlayCapability capability in snapshot.Capabilities)
         {
+            if (capability.PluginSectionId is { } pluginSection)
+            {
+                pluginCounts[pluginSection] = pluginCounts.GetValueOrDefault(pluginSection) + 1;
+                pluginStatuses[pluginSection] = MoreSerious(
+                    pluginStatuses.GetValueOrDefault(pluginSection, DescriptorStatus.None),
+                    capability.Status);
+                continue;
+            }
+
             counts[capability.Section] = counts.GetValueOrDefault(capability.Section) + 1;
             statuses[capability.Section] = MoreSerious(
                 statuses.GetValueOrDefault(capability.Section, DescriptorStatus.None),
@@ -164,6 +193,30 @@ internal static class DeviceOverlaySectionPages
         }
 
         List<DeviceOverlaySectionEntry> entries = [];
+
+        // The plugin's declared layout leads: it is the device describing itself. The WSGM-owned
+        // sections that remain — profiles, glyphs, diagnostics, and any unplaced rows — follow it.
+        foreach (DeviceOverlayPluginSection pluginSection in snapshot.PluginSections)
+        {
+            int pluginCount = pluginCounts.GetValueOrDefault(pluginSection.SectionId);
+            if (pluginCount == 0)
+            {
+                continue;
+            }
+
+            entries.Add(new DeviceOverlaySectionEntry(
+                DeviceOverlaySection.Overview,
+                OverlayPage.DevicePluginSection,
+                pluginSection.Title,
+                pluginSection.Description,
+                pluginCount,
+                pluginStatuses.GetValueOrDefault(pluginSection.SectionId, DescriptorStatus.None))
+            {
+                PluginSectionId = pluginSection.SectionId,
+                Icon = pluginSection.Icon,
+            });
+        }
+
         foreach (DeviceOverlaySection section in Order)
         {
             int count = counts.GetValueOrDefault(section);
@@ -211,13 +264,34 @@ internal static class DeviceOverlaySectionPages
         List<DeviceOverlayCapability> matching = [];
         foreach (DeviceOverlayCapability capability in snapshot.Capabilities)
         {
-            if (capability.Section == section)
+            if (capability.PluginSectionId is null && capability.Section == section)
             {
                 matching.Add(capability);
             }
         }
 
         return matching;
+    }
+
+    /// <summary>Selects the capabilities of one plugin-declared section, in placement order.</summary>
+    /// <param name="snapshot">The current Device snapshot.</param>
+    /// <param name="sectionId">The declared section.</param>
+    /// <returns>That section's capabilities ordered by sort order, then snapshot order.</returns>
+    internal static IReadOnlyList<DeviceOverlayCapability> CapabilitiesInPluginSection(
+        DeviceOverlaySnapshot snapshot,
+        string sectionId)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        return snapshot.Capabilities
+            .Select((capability, index) => (Capability: capability, Index: index))
+            .Where(item => string.Equals(
+                item.Capability.PluginSectionId,
+                sectionId,
+                StringComparison.Ordinal))
+            .OrderBy(item => item.Capability.SortOrder)
+            .ThenBy(item => item.Index)
+            .Select(item => item.Capability)
+            .ToList();
     }
 
     /// <summary>Picks the status a section should advertise from those of its rows.</summary>

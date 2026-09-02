@@ -12,6 +12,7 @@ using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Device.Sdk.Settings;
 using WSGM.Input;
 using WSGM.Overlay;
 
@@ -61,7 +62,35 @@ internal sealed record DeviceOverlayCapability(
     string TrailingText,
     bool CanInvoke,
     CapabilityValue? CurrentValue = null,
-    CapabilityValue? NextValue = null);
+    CapabilityValue? NextValue = null)
+{
+    /// <summary>The descriptor's semantic role, for consumers pairing related controls.</summary>
+    public CapabilityRole Role { get; init; } = CapabilityRole.GenericReadOnly;
+
+    /// <summary>The declared overlay section holding this row, or null for the WSGM fallback home.</summary>
+    public string? PluginSectionId { get; init; }
+
+    /// <summary>The declared category within that section, or null for the section's lead group.</summary>
+    public string? CategoryId { get; init; }
+
+    /// <summary>Placement within its section and category.</summary>
+    public int SortOrder { get; init; }
+}
+
+/// <summary>One category heading of a plugin-declared overlay section.</summary>
+internal sealed record DeviceOverlayCategory(string Id, string Title);
+
+/// <summary>One plugin-declared overlay section, projected for presentation.</summary>
+/// <remarks>
+/// Presentation-only: titles are already resolved from the WSGM-owned key vocabulary or bounded
+/// plugin text, so no consumer of this record touches SDK display metadata again.
+/// </remarks>
+internal sealed record DeviceOverlayPluginSection(
+    string SectionId,
+    string Title,
+    string Description,
+    SectionIcon Icon,
+    IReadOnlyList<DeviceOverlayCategory> Categories);
 
 /// <summary>One control in the glyph preview.</summary>
 /// <param name="Control">The physical control this glyph stands for.</param>
@@ -106,7 +135,11 @@ internal sealed record DeviceOverlaySnapshot(
     DescriptorRow? Recovery = null,
     DescriptorRow? Profile = null,
     DeviceOverlayGlyphPreview? GlyphPreview = null,
-    DescriptorRow? AuthoredProfile = null);
+    DescriptorRow? AuthoredProfile = null)
+{
+    /// <summary>Plugin-declared overlay sections in presentation order.</summary>
+    public IReadOnlyList<DeviceOverlayPluginSection> PluginSections { get; init; } = [];
+}
 
 /// <summary>Closed semantic source consumed by the Device overlay destination.</summary>
 internal interface IDeviceOverlaySource : IDisposable
@@ -226,9 +259,13 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         DeviceCycleState state = _coordinator.State;
         InstalledDevicePackage? package = _coordinator.InstalledPackage;
         ControllerManagerStatus controllerStatus = _coordinator.Controllers.Snapshot();
+        IReadOnlyList<CapabilitySection> declaredSections = _coordinator.Capabilities.Sections;
+        HashSet<string> declaredSectionIds = new(
+            declaredSections.Select(section => section.SectionId),
+            StringComparer.Ordinal);
         List<DeviceOverlayCapability> capabilities = _coordinator.Capabilities.Snapshot()
             .Take(128)
-            .Select(ToOverlayCapability)
+            .Select(view => ToOverlayCapability(view, declaredSectionIds))
             .ToList();
         DescriptorRow glyphSelection = PhysicalGlyphSelectionView(
             _coordinator.PhysicalGlyphSelection,
@@ -312,7 +349,10 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                     selection.Profiles,
                     selection.SelectedProfileId,
                     selection.ApplicationScoped)
-                : null);
+                : null)
+        {
+            PluginSections = ProjectSections(declaredSections),
+        };
     }
 
     /// <summary>Projects controller management into the Controller and motion page's own row.</summary>
@@ -887,7 +927,9 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     private void OnAutoTdpStatusChanged(AutoTdpStatus _) =>
         Avalonia.Threading.Dispatcher.UIThread.Post(() => Changed?.Invoke());
 
-    private static DeviceOverlayCapability ToOverlayCapability(DeviceCapabilityView view)
+    private static DeviceOverlayCapability ToOverlayCapability(
+        DeviceCapabilityView view,
+        IReadOnlySet<string> declaredSections)
     {
         CapabilityDescriptor descriptor = view.Descriptor;
         CapabilityProjection projection = view.Projection;
@@ -923,7 +965,19 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             FormatValue(displayed, descriptor.Unit),
             canInvoke,
             displayed,
-            descriptor.SupportsAction ? null : next);
+            descriptor.SupportsAction ? null : next)
+        {
+            Role = descriptor.Role,
+            PluginSectionId = descriptor.SectionId is { } sectionId
+                && declaredSections.Contains(sectionId)
+                ? sectionId
+                : null,
+            CategoryId = descriptor.SectionId is { } declared
+                && declaredSections.Contains(declared)
+                ? descriptor.CategoryId
+                : null,
+            SortOrder = descriptor.SortOrder,
+        };
     }
 
     internal static DescriptorRow PhysicalGlyphSelectionView(
@@ -976,6 +1030,55 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             CanInvoke: true,
             status);
     }
+
+    /// <summary>Projects the declared overlay sections for presentation, in declared order.</summary>
+    internal static IReadOnlyList<DeviceOverlayPluginSection> ProjectSections(
+        IReadOnlyList<CapabilitySection> sections) =>
+        sections
+            .Select((section, index) => (Section: section, Index: index))
+            .OrderBy(item => item.Section.SortOrder)
+            .ThenBy(item => item.Index)
+            .Select(item => new DeviceOverlayPluginSection(
+                item.Section.SectionId,
+                SectionTitle(item.Section.Key, item.Section.CustomTitle),
+                item.Section.CustomDescription ?? SectionDescription(item.Section.Key),
+                item.Section.Icon,
+                item.Section.Categories
+                    .Select((category, categoryIndex) => (Category: category, Index: categoryIndex))
+                    .OrderBy(entry => entry.Category.SortOrder)
+                    .ThenBy(entry => entry.Index)
+                    .Select(entry => new DeviceOverlayCategory(
+                        entry.Category.CategoryId,
+                        SectionTitle(entry.Category.Key, entry.Category.CustomTitle)))
+                    .ToList()))
+            .ToList();
+
+    /// <summary>The WSGM-owned title behind a section key; custom text is bounded plugin text.</summary>
+    private static string SectionTitle(SettingSectionKey key, string? custom) => key switch
+    {
+        SettingSectionKey.Custom => custom ?? "Device",
+        SettingSectionKey.General => "General",
+        SettingSectionKey.Power => "Power",
+        SettingSectionKey.Fans => "Fans",
+        SettingSectionKey.Lighting => "Lighting",
+        SettingSectionKey.Controller => "Controller",
+        SettingSectionKey.Display => "Display",
+        SettingSectionKey.Advanced => "Advanced",
+        SettingSectionKey.Diagnostics => "Diagnostics",
+        _ => key.ToString(),
+    };
+
+    /// <summary>WSGM's own card description for a keyed section that supplies none.</summary>
+    private static string SectionDescription(SettingSectionKey key) => key switch
+    {
+        SettingSectionKey.Power => "Power and performance controls",
+        SettingSectionKey.Fans => "Cooling control and readings",
+        SettingSectionKey.Lighting => "Device lighting",
+        SettingSectionKey.Controller => "Controller, motion, and rumble",
+        SettingSectionKey.Display => "Display features",
+        SettingSectionKey.Diagnostics => "Health and readings",
+        _ => "Device controls",
+    };
 
     private static DeviceOverlaySection SectionFor(CapabilityRole role) => role switch
     {
@@ -1185,6 +1288,9 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
 {
     private int _tdp = 15;
     private bool _lighting = true;
+    private int _brightness = 80;
+    private int _ringColor = 0xFF9D3D;
+    private int _chargeLimit = 80;
     private int _fanMode;
     private int _glyphSelection;
     private bool _autoTdp;
@@ -1193,6 +1299,49 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
 
     /// <summary>Two named profiles, so the preview shows the cycle rather than a single state.</summary>
     private static readonly string[] PreviewProfiles = ["handheld", "docked"];
+
+    /// <summary>A static six-point monotonic curve, matching the A2VM firmware contract.</summary>
+    private static readonly IReadOnlyList<CurvePoint> PreviewCurve =
+    [
+        new CurvePoint(0, 0),
+        new CurvePoint(40, 10),
+        new CurvePoint(55, 25),
+        new CurvePoint(70, 45),
+        new CurvePoint(85, 70),
+        new CurvePoint(100, 100),
+    ];
+
+    /// <summary>
+    /// The layout a real plugin would declare, so --overlay-test exercises sections, categories,
+    /// icons, and the mixed case where rows without a placement keep their WSGM fallback home.
+    /// </summary>
+    private static readonly IReadOnlyList<DeviceOverlayPluginSection> PreviewSections =
+    [
+        new DeviceOverlayPluginSection(
+            "power",
+            "Power",
+            "Performance scenario, power limits, and charging",
+            SectionIcon.Power,
+            [
+                new DeviceOverlayCategory("limits", "Limits"),
+                new DeviceOverlayCategory("charging", "Charging"),
+            ]),
+        new DeviceOverlayPluginSection(
+            "cooling",
+            "Fans",
+            "Fan control, curves, and thermal readings",
+            SectionIcon.Fan,
+            [
+                new DeviceOverlayCategory("control", "Control"),
+                new DeviceOverlayCategory("readings", "Readings"),
+            ]),
+        new DeviceOverlayPluginSection(
+            "lighting",
+            "Lighting",
+            "Ring and button lighting",
+            SectionIcon.Lighting,
+            [new DeviceOverlayCategory("zones", "Zones")]),
+    ];
 
     public event Action? Changed;
 
@@ -1259,7 +1408,36 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     {
                         Kind = CapabilityValueKind.Integer,
                         IntegerValue = _tdp >= 30 ? 8 : _tdp + 1,
-                    }),
+                    })
+                {
+                    Role = CapabilityRole.PowerSustainedLimit,
+                    PluginSectionId = "power",
+                    CategoryId = "limits",
+                },
+                new DeviceOverlayCapability(
+                    "preview.battery.charge-limit",
+                    null,
+                    DeviceOverlaySection.PowerAndThermals,
+                    DescriptorStatus.Available,
+                    "Charge limit",
+                    "Observed · stored on device",
+                    $"{_chargeLimit}%",
+                    CanInvoke: true,
+                    CurrentValue: new CapabilityValue
+                    {
+                        Kind = CapabilityValueKind.Integer,
+                        IntegerValue = _chargeLimit,
+                    },
+                    NextValue: new CapabilityValue
+                    {
+                        Kind = CapabilityValueKind.Integer,
+                        IntegerValue = _chargeLimit >= 100 ? 60 : _chargeLimit + 20,
+                    })
+                {
+                    Role = CapabilityRole.ChargeLimit,
+                    PluginSectionId = "power",
+                    CategoryId = "charging",
+                },
                 new DeviceOverlayCapability(
                     "preview.fan.mode",
                     null,
@@ -1278,7 +1456,33 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     {
                         Kind = CapabilityValueKind.Choice,
                         ChoiceValue = fanModes[(_fanMode + 1) % fanModes.Length],
-                    }),
+                    })
+                {
+                    Role = CapabilityRole.FanMode,
+                    PluginSectionId = "cooling",
+                    CategoryId = "control",
+                },
+                new DeviceOverlayCapability(
+                    "preview.fan.curve",
+                    null,
+                    DeviceOverlaySection.PowerAndThermals,
+                    DescriptorStatus.Available,
+                    "Fan curve",
+                    "Authored in Settings · both fans follow one curve",
+                    $"{PreviewCurve.Count} points",
+                    CanInvoke: false,
+                    CurrentValue: new CapabilityValue
+                    {
+                        Kind = CapabilityValueKind.Curve,
+                        CurveValue = PreviewCurve,
+                    },
+                    NextValue: null)
+                {
+                    Role = CapabilityRole.FanCurve,
+                    PluginSectionId = "cooling",
+                    CategoryId = "control",
+                    SortOrder = 1,
+                },
                 new DeviceOverlayCapability(
                     "preview.lighting",
                     null,
@@ -1297,7 +1501,55 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     {
                         Kind = CapabilityValueKind.Boolean,
                         BooleanValue = !_lighting,
-                    }),
+                    })
+                {
+                    Role = CapabilityRole.LightingPower,
+                    PluginSectionId = "lighting",
+                },
+                new DeviceOverlayCapability(
+                    "preview.lighting.brightness",
+                    null,
+                    DeviceOverlaySection.LightingAndFeatures,
+                    DescriptorStatus.Available,
+                    "Brightness",
+                    "Verified readback · stored on device",
+                    $"{_brightness}%",
+                    CanInvoke: true,
+                    CurrentValue: new CapabilityValue
+                    {
+                        Kind = CapabilityValueKind.Integer,
+                        IntegerValue = _brightness,
+                    },
+                    NextValue: new CapabilityValue
+                    {
+                        Kind = CapabilityValueKind.Integer,
+                        IntegerValue = _brightness >= 100 ? 20 : _brightness + 20,
+                    })
+                {
+                    Role = CapabilityRole.LightingBrightness,
+                    PluginSectionId = "lighting",
+                    SortOrder = 1,
+                },
+                new DeviceOverlayCapability(
+                    "preview.lighting.rings",
+                    null,
+                    DeviceOverlaySection.LightingAndFeatures,
+                    DescriptorStatus.Available,
+                    "Rings",
+                    "Both rings share one color · opens the color editor",
+                    $"#{_ringColor:X6}",
+                    CanInvoke: true,
+                    CurrentValue: new CapabilityValue
+                    {
+                        Kind = CapabilityValueKind.Color,
+                        ColorValue = _ringColor,
+                    },
+                    NextValue: null)
+                {
+                    Role = CapabilityRole.LightingZoneColor,
+                    PluginSectionId = "lighting",
+                    CategoryId = "zones",
+                },
                 new DeviceOverlayCapability(
                     "preview.temperature.cpu",
                     null,
@@ -1308,7 +1560,12 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     "54 °C",
                     CanInvoke: false,
                     CurrentValue: null,
-                    NextValue: null),
+                    NextValue: null)
+                {
+                    Role = CapabilityRole.Telemetry,
+                    PluginSectionId = "cooling",
+                    CategoryId = "readings",
+                },
                 new DeviceOverlayCapability(
                     "preview.rumble",
                     null,
@@ -1319,8 +1576,16 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     "RUN",
                     CanInvoke: true,
                     CurrentValue: null,
-                    NextValue: null),
-            ]);
+                    NextValue: null)
+                {
+                    // Deliberately unplaced: the row proves the WSGM fallback home still renders
+                    // beside a declared layout.
+                    Role = CapabilityRole.HapticSink,
+                },
+            ])
+        {
+            PluginSections = PreviewSections,
+        };
     }
 
     public Task InvokeAsync(
@@ -1339,6 +1604,16 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 break;
             case "preview.lighting":
                 _lighting = capability.NextValue?.BooleanValue ?? _lighting;
+                break;
+            case "preview.battery.charge-limit":
+                _chargeLimit = capability.NextValue?.IntegerValue ?? _chargeLimit;
+                break;
+            case "preview.lighting.brightness":
+                _brightness = Math.Clamp(
+                    capability.NextValue?.IntegerValue ?? _brightness, 0, 100);
+                break;
+            case "preview.lighting.rings":
+                _ringColor = (capability.NextValue?.ColorValue ?? _ringColor) & 0xFFFFFF;
                 break;
         }
 

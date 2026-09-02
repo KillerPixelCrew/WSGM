@@ -218,21 +218,21 @@ switch alone. What a healthy game-mode cold start looks like in `wsgm.log`:
 after that the first `Steam UI patch … Applying`. A patch line before the window line is the
 regression. Attended re-verification of this gate on the Claw is still outstanding.
 
-**The gate alone was not enough: state already injected hangs the rebuild too (device-diagnosed
-over CDP, 2026-09-01).** A desktop-to-game transition fires `steam://open/bigpicture` against a
+**The gate alone was not enough: state already injected hangs the rebuild too (device-diagnosed over
+CDP, 2026-09-01).** A desktop-to-game transition fires `steam://open/bigpicture` against a
 SharedJSContext that desktop mode had already patched — the transport there opens on the master
 switch alone. Steam then rebuilds its front-end in place (same `CLIENT_SESSION`): the gamepad UI
 bootstrap found WSGM's `SteamClient.System.*` namespaces, took the Deck code path, and its calls
-went unanswered when the mode flip closed the transport two seconds after the request. Live state
-of the hang: `GetDesiredSteamUIWindows()` records the wanted gamepad window native-side, `uiMode`
-stays 7, `g_PopupManager` holds no popups, `Audio.GetDevices()` pends and then rejects on the
-bridge's 5 s timeout — and no window is ever created. The transitions therefore retract first:
-`SessionModes` awaits `ShellSession.PrepareSteamUiForBigPictureAsync` (bounded to 5 s) before ANY
-`RequestBigPictureWhilePausedAsync`, which retracts the injected UI through the still-open
-transport and closes the choke point (`TransportShouldBeOpen` carries the pending flag), so
-Steam's rebuild sees stock Windows client state — the one bootstrap Valve ships here. The hold
-lifts when the transition settles on any path; the window then reopens the gate and every patch
-re-applies through it. `Steam UI transport closed: Big Picture was requested …` before
+went unanswered when the mode flip closed the transport two seconds after the request. Live state of
+the hang: `GetDesiredSteamUIWindows()` records the wanted gamepad window native-side, `uiMode` stays
+7, `g_PopupManager` holds no popups, `Audio.GetDevices()` pends and then rejects on the bridge's 5 s
+timeout — and no window is ever created. The transitions therefore retract first: `SessionModes`
+awaits `ShellSession.PrepareSteamUiForBigPictureAsync` (bounded to 5 s) before ANY
+`RequestBigPictureWhilePausedAsync`, which retracts the injected UI through the still-open transport
+and closes the choke point (`TransportShouldBeOpen` carries the pending flag), so Steam's rebuild
+sees stock Windows client state — the one bootstrap Valve ships here. The hold lifts when the
+transition settles on any path; the window then reopens the gate and every patch re-applies through
+it. `Steam UI transport closed: Big Picture was requested …` before
 `Started protocol: steam://open/bigpicture` is the healthy transition shape in `wsgm.log`.
 
 7. **Big Picture's UI (steamwebhelper/CEF) suspends rendering while fully occluded** — a BP intro

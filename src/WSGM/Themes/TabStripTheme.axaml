@@ -92,6 +92,18 @@
         <Setter Property="Stroke" Value="{StaticResource HcTextPrimaryBrush}" />
     </Style>
 
+    <!-- The quick access sheet's variant: tighter, tracked, semibold labels under
+         the uppercase destination names the window supplies. Scoped by class so
+         Settings keeps the standard strip. -->
+    <Style Selector="controls|TabStrip.sheet Button.tab-strip-tab">
+        <Setter Property="MinHeight" Value="44" />
+    </Style>
+    <Style Selector="controls|TabStrip.sheet Button.tab-strip-tab TextBlock">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="LetterSpacing" Value="1" />
+    </Style>
+
     <!-- Accent underline marking the active tab -->
     <Style Selector="Button.tab-strip-tab Border.tab-strip-underline">
         <Setter Property="Background" Value="{DynamicResource HcAccentBrush}" />

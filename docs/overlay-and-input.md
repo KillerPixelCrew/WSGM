@@ -40,6 +40,13 @@ destination, and any state the page releases on the way out); the enter/leave se
 `AnySubView`, `DefaultFocusTarget`, the `Activated` teardown and B-cancel all read that table. Never
 a Popup/Flyout, which `GamepadNavigation` cannot reach.
 
+**Plugin-declared Device sections** render as their own pages: the descriptor set's sections lead
+the Device root menu (WSGM's own sections — profiles, glyphs, diagnostics, and unplaced rows —
+follow), and `OverlayPage.DevicePluginSection` carries the open section's id in the route rather
+than adding an enum value per section. A section page groups its rows under the declared category
+eyebrows in sort-then-snapshot order; a section that vanishes with a descriptor generation while its
+page is open renders a plain "no longer available" line rather than an empty page.
+
 **Per-application performance profiles** are part of Device -> Profiles, not a second detector or a
 device-plugin feature. `PerformanceOverlayBridge` projects the session's one `PerformanceService`
 into closed rows for the detected Steam/foreground application, active Global/Application layer, the
@@ -50,11 +57,14 @@ and edits are stored for that AppID until foreground observation supplies the RT
 Performance state changes rebuild both the owning Device page and its section-card count, so the
 Profiles page cannot disappear merely because no plugin publishes a hardware profile.
 
-Device lighting color opens `DeviceColorView` rather than cycling an opaque integer in the row.
-Presets, coarse RGB channel steps and exact `#RRGGBB` keyboard entry are staged locally; only the
-explicit Apply row invokes the capability. This is a persistence constraint, not presentation
-polish: the Claw has no volatile RGB path, so streaming a write on every controller step would wear
-and repeatedly commit its non-volatile lighting profile.
+Device lighting color opens `DeviceColorView` rather than cycling an opaque integer in the row. The
+full-spectrum hue field (`DeviceColorSpectrum` consumes Left/Right like a horizontal slider, so
+Up/Down still move focus to the sliders below it), the three RGB channel sliders, the firmware
+brightness slider, and exact `#RRGGBB` keyboard entry are staged locally; only the explicit Apply
+row invokes the capability — the color write first, then the brightness write when it changed. This
+is a persistence constraint, not presentation polish: the Claw has no volatile RGB path, so
+streaming a write on every controller step would wear and repeatedly commit its non-volatile
+lighting profile.
 
 **Text entry in the panel is a press-to-edit ROW, never a bare `TextBox`** (maintainer, on the
 format name reading as broken). Every editable name — the tab editor, card rename, filter patterns —
@@ -110,21 +120,20 @@ Refused edits log the requested operation and current selection instead of silen
    events handled, so `WM_POINTER` reaches `DefWindowProc`, which synthesizes a delayed mouse click.
    Hence: `OverlayController.CloseOverlay` defers the actual `Close()` by 150 ms, and
    `OverlayWindow`'s WndProc hook eats `MI_WP_SIGNATURE`-tagged (touch-synthesized) mouse messages.
-   Removing either brings back ghost clicks that press buttons in whatever sits under the panel.
-   The swallowed click still carries `WM_MOUSEACTIVATE`, so it re-activates the sheet after the
-   tap's real click has already opened a status panel over it; two topmost windows order by
-   activation, and the panel was covered one frame after it appeared (touch only — the mouse sends
-   no second activation; device-reproduced 2026-09-01). While a radio, audio or eject panel is
-   open, the sheet therefore answers `WM_MOUSEACTIVATE` with `MA_NOACTIVATE`
+   Removing either brings back ghost clicks that press buttons in whatever sits under the panel. The
+   swallowed click still carries `WM_MOUSEACTIVATE`, so it re-activates the sheet after the tap's
+   real click has already opened a status panel over it; two topmost windows order by activation,
+   and the panel was covered one frame after it appeared (touch only — the mouse sends no second
+   activation; device-reproduced 2026-09-01). While a radio, audio or eject panel is open, the sheet
+   therefore answers `WM_MOUSEACTIVATE` with `MA_NOACTIVATE`
    (`OverlayWindow.SuppressMouseActivation`, kept in step by
-   `OverlayController.SyncSheetMouseActivation`): the click is still delivered, only the
-   activation is dropped. A real finger on the sheet activates it through `WM_POINTERACTIVATE`,
-   which is unaffected, and the tap-outside rule closes the panel on that tap anyway. Window
-   ownership was tried first and does not work here: Avalonia re-points every
-   `ShowInTaskbar=false` window's owner slot at its hidden helper on `Show()` and on every
-   property update, so `Window.Show(owner)` and a `GWLP_HWNDPARENT` write after `Show()` both
-   left panel and sheet as siblings and the sheet kept covering the panel (live z-order captures
-   on the device, 2026-09-01).
+   `OverlayController.SyncSheetMouseActivation`): the click is still delivered, only the activation
+   is dropped. A real finger on the sheet activates it through `WM_POINTERACTIVATE`, which is
+   unaffected, and the tap-outside rule closes the panel on that tap anyway. Window ownership was
+   tried first and does not work here: Avalonia re-points every `ShowInTaskbar=false` window's owner
+   slot at its hidden helper on `Show()` and on every property update, so `Window.Show(owner)` and a
+   `GWLP_HWNDPARENT` write after `Show()` both left panel and sheet as siblings and the sheet kept
+   covering the panel (live z-order captures on the device, 2026-09-01).
 
 4. **Avalonia's 3-arg `DispatcherTimer(interval, priority, callback)` ctor auto-starts the timer.**
    This once made `IsRunning` permanently true and silently broke every "start if not running"

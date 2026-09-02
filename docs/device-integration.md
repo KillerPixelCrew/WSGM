@@ -79,14 +79,13 @@ and `Microsoft.Windows.SDK.NET.dll`, and a second `WinRT.Runtime` in the process
 side initializes second fail its process-global `ComWrappers` registration for good — on the Claw
 the plugin touched WinRT first and WSGM's own Wi-Fi and Bluetooth queries were the side that died
 (2026-09-01). `PluginLoadContext.Load` therefore pins the SDK and the WinRT pair to the host's
-loaded assemblies by name, asks the default context for every other dependency before consulting
-the package, and uses the package copy only for assemblies the host does not have or cannot satisfy
-by version (that duplicate is logged once). This is the parent-first rule plugin hosts converge on
+loaded assemblies by name, asks the default context for every other dependency before consulting the
+package, and uses the package copy only for assemblies the host does not have or cannot satisfy by
+version (that duplicate is logged once). This is the parent-first rule plugin hosts converge on
 (`PluginLoader.PreferSharedTypes`, Java class loading): sharing what the host already owns costs
 nothing the isolation was buying, while a duplicate of anything with process-wide state is a fault
-no later cleanup can undo.
-There are no runtime trust tiers, publisher grants, signer rotation/revocation, package ranking,
-quarantine catalog, or de-elevated plugin class.
+no later cleanup can undo. There are no runtime trust tiers, publisher grants, signer
+rotation/revocation, package ranking, quarantine catalog, or de-elevated plugin class.
 
 Plugins publish only the public semantic SDK. WMI, HID, sensors, lighting, firmware, controller, and
 recovery implementation stays inside the plugin. A plugin cannot supply XAML, JavaScript, URLs,

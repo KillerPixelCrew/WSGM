@@ -212,6 +212,18 @@ public sealed class GamepadNavigation : IDisposable
                 buttons.HasFlag(GamepadButtons.DPadRight));
             return;
         }
+        // The color spectrum keeps Left/Right for its hue sweep, exactly like a horizontal
+        // slider; Up/Down still move focus so the d-pad can reach the channel sliders below it.
+        if (target is DeviceColorSpectrum spectrum
+            && (buttons.HasFlag(GamepadButtons.DPadLeft)
+                || buttons.HasFlag(GamepadButtons.DPadRight)))
+        {
+            _suppressKeyboardUntil = Environment.TickCount64 + CrossSourceSuppressionMs;
+            spectrum.ApplyDirection(buttons.HasFlag(GamepadButtons.DPadRight)
+                ? NavigationDirection.Right
+                : NavigationDirection.Left);
+            return;
+        }
         if (target is ComboBox { IsDropDownOpen: true } openSelector
             && (buttons.HasFlag(GamepadButtons.DPadUp)
                 || buttons.HasFlag(GamepadButtons.DPadDown)))
@@ -373,7 +385,7 @@ public sealed class GamepadNavigation : IDisposable
         // which those directions select an item. Likewise, a horizontal Slider
         // keeps Left/Right while Up/Down continues through the visual layout.
         var controlConsumesDirection = focused is TextBox or CurveEditor
-            || (focused is Slider && e.Key is Key.Left or Key.Right)
+            || (focused is Slider or DeviceColorSpectrum && e.Key is Key.Left or Key.Right)
             || (focused is ComboBox { IsDropDownOpen: true }
                 && e.Key is Key.Up or Key.Down);
         if (controlConsumesDirection)

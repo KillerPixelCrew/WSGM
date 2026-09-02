@@ -1,4 +1,5 @@
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Settings;
 using WSGM.Shell;
 
 namespace WSGM.Tests;
@@ -37,17 +38,35 @@ public sealed class CapabilitySectionScopeTests
         Persistence = CapabilityPersistence.Volatile,
     };
 
-    private static bool Validates(CapabilityDescriptor descriptor, out string? error) =>
+    private static bool Validates(
+        CapabilityDescriptor descriptor,
+        out string? error,
+        params CapabilitySection[] sections) =>
         DeviceCapabilityValidation.TryValidateDescriptorSet(
             new CapabilityDescriptorSet
             {
                 Generation = 1,
                 CycleGeneration = 1,
+                Sections = sections,
                 Descriptors = [descriptor],
             },
             1,
             0,
             out error);
+
+    private static CapabilitySection Declared(string id = "vendor.tuning") => new()
+    {
+        SectionId = id,
+        Key = SettingSectionKey.Power,
+        Categories =
+        [
+            new CapabilityCategory
+            {
+                CategoryId = "general",
+                Key = SettingSectionKey.General,
+            },
+        ],
+    };
 
     [Theory]
     [InlineData(CapabilityRole.GenericToggle)]
@@ -108,5 +127,49 @@ public sealed class CapabilitySectionScopeTests
     public void AnOverlongSectionIdIsRefused()
     {
         Assert.False(Validates(Generic(new string('a', 65)), out _));
+    }
+
+    [Fact]
+    public void ASemanticCapabilityMayBePlacedInASectionTheSetDeclares()
+    {
+        // The declared layout is the plugin authoring its own overlay surface; every title and
+        // icon in it comes from a WSGM-owned vocabulary, so the consistency rule is not weakened.
+        Assert.True(Validates(Semantic("vendor.tuning"), out string? error, Declared()), error);
+    }
+
+    [Fact]
+    public void ACategoryMustBelongToTheDeclaredSection()
+    {
+        Assert.True(Validates(
+            Generic("vendor.tuning") with { CategoryId = "general" },
+            out _,
+            Declared()));
+
+        bool valid = Validates(
+            Generic("vendor.tuning") with { CategoryId = "missing" },
+            out string? error,
+            Declared());
+
+        Assert.False(valid);
+        Assert.Contains("missing", error);
+    }
+
+    [Fact]
+    public void ACategoryWithoutADeclaredSectionIsRefused()
+    {
+        Assert.False(Validates(Generic() with { CategoryId = "general" }, out _));
+    }
+
+    [Fact]
+    public void ADuplicateDeclaredSectionIsRefusedByName()
+    {
+        bool valid = Validates(
+            Generic("vendor.tuning"),
+            out string? error,
+            Declared(),
+            Declared());
+
+        Assert.False(valid);
+        Assert.Contains("more than once", error);
     }
 }

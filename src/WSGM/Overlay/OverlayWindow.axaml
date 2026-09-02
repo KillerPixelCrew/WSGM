@@ -154,7 +154,7 @@
             <!-- Tab descriptors (labels + Icons geometries) are assigned in
                  code-behind; LB/RB cycle via GamepadNavigation. -->
             <Border Grid.Row="1" Background="{StaticResource HcBackgroundBrush}" BorderBrush="{StaticResource HcCardBorderBrush}" BorderThickness="0,0,0,1" Padding="8,0">
-                <c:TabStrip x:Name="Tabs" />
+                <c:TabStrip x:Name="Tabs" Classes="sheet" />
             </Border>
 
             <!-- Directional Focus() does not request scrolling itself. Keep the
@@ -178,7 +178,7 @@
                         <Border x:Name="PinnedEmptyHint"
                                 BorderBrush="{StaticResource HcCardBorderBrush}"
                                 BorderThickness="2"
-                                CornerRadius="4"
+                                CornerRadius="10"
                                 Padding="14,12">
                             <StackPanel Spacing="2">
                                 <TextBlock Text="Nothing pinned yet" Classes="setting-title" />
@@ -410,40 +410,44 @@
                     </StackPanel>
 
                     <!-- Tools (the System destination): what is left once Steam, Device
-                         and Power have their own destinations. Children are indexed by
-                         PlacePerformanceSection — keep the order. -->
-                    <StackPanel x:Name="PanelSystem" Spacing="4" IsVisible="False">
-                        <TextBlock Text="SYSTEM" Classes="eyebrow" Margin="2,0,2,2" />
-                        <c:CardButton Click="OnSettings"
-                                      Tag="system.settings"
-                                      IconGeometry="{x:Static c:Icons.Gear}"
-                                      Title="Settings"
-                                      Description="Shell, startup, and quick access configuration" />
-                        <c:CardButton Click="OnTaskManager"
-                                      Tag="system.task-manager"
-                                      IconGeometry="{x:Static c:Icons.Grid4}"
-                                      Title="Task Manager"
-                                      Description="Processes and performance" />
+                         and Power have their own destinations, as two columns. The LEFT
+                         column's children are indexed by PlacePerformanceSection — keep
+                         the order. -->
+                    <Grid x:Name="PanelSystem" ColumnDefinitions="*,*" ColumnSpacing="20" IsVisible="False">
+                        <StackPanel x:Name="SystemPrimaryColumn" Spacing="4">
+                            <TextBlock Text="SYSTEM" Classes="eyebrow" Margin="2,0,2,2" />
+                            <c:CardButton Click="OnSettings"
+                                          Tag="system.settings"
+                                          IconGeometry="{x:Static c:Icons.Gear}"
+                                          Title="Settings"
+                                          Description="Shell, startup, and quick access configuration" />
+                            <c:CardButton Click="OnTaskManager"
+                                          Tag="system.task-manager"
+                                          IconGeometry="{x:Static c:Icons.Grid4}"
+                                          Title="Task Manager"
+                                          Description="Processes and performance" />
 
-                        <!-- One shared performance projection is reparented into Device while
-                             integration is visible and remains here otherwise. Its source owns
-                             RTSS lifetime and state; this window only observes and invokes rows. -->
-                        <StackPanel x:Name="PerformanceSection" Spacing="4" IsVisible="False">
-                            <TextBlock Text="PERFORMANCE" Classes="eyebrow" Margin="2,6,2,2" />
-                            <TextBlock x:Name="PerformanceStatus"
-                                       Classes="caption"
-                                       TextWrapping="Wrap"
-                                       Margin="2,0,2,2" />
-                            <StackPanel x:Name="PerformanceRows" Spacing="4" />
+                            <!-- One shared performance projection is reparented into Device while
+                                 integration is visible and remains here otherwise. Its source owns
+                                 RTSS lifetime and state; this window only observes and invokes rows. -->
+                            <StackPanel x:Name="PerformanceSection" Spacing="4" IsVisible="False">
+                                <TextBlock Text="PERFORMANCE" Classes="eyebrow" Margin="2,6,2,2" />
+                                <TextBlock x:Name="PerformanceStatus"
+                                           Classes="caption"
+                                           TextWrapping="Wrap"
+                                           Margin="2,0,2,2" />
+                                <StackPanel x:Name="PerformanceRows" Spacing="4" />
+                            </StackPanel>
                         </StackPanel>
-
-                        <TextBlock Text="STORAGE" Classes="eyebrow" Margin="2,6,2,2" />
-                        <c:CardButton Click="OnEjectTileClicked"
-                                      Tag="system.eject"
-                                      IconGeometry="{x:Static c:Icons.Eject}"
-                                      Title="Safely remove hardware"
-                                      Description="Eject an SD card or USB drive" />
-                    </StackPanel>
+                        <StackPanel Grid.Column="1" Spacing="4">
+                            <TextBlock Text="STORAGE" Classes="eyebrow" Margin="2,0,2,2" />
+                            <c:CardButton Click="OnEjectTileClicked"
+                                          Tag="system.eject"
+                                          IconGeometry="{x:Static c:Icons.Eject}"
+                                          Title="Safely remove hardware"
+                                          Description="Eject an SD card or USB drive" />
+                        </StackPanel>
+                    </Grid>
 
                     <!-- Power: wake, idle timeouts, and the session-ending actions as
                          three columns. Each timeout row cycles its preset; the trailing

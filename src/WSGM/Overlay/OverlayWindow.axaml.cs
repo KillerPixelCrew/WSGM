@@ -384,9 +384,22 @@ public partial class OverlayWindow : Window
         }
 
         DeviceOverlaySection? openSection = DeviceOverlaySectionPages.SectionFor(_navigation.Page);
+        string? openPluginSection = _navigation.Page is OverlayPage.DevicePluginSection
+            ? _navigation.SectionId
+            : null;
+        bool onMenu = openSection is null && openPluginSection is null;
+        // Section pages are single columns of rows; uncapped they stretch across the
+        // whole sheet, which is exactly the old-sidebar-scaled-up look. The root's
+        // tile grid wants the full width.
+        DeviceCapabilityList.MaxWidth = onMenu ? double.PositiveInfinity : 720;
+        DeviceCapabilityList.HorizontalAlignment = onMenu
+            ? Avalonia.Layout.HorizontalAlignment.Stretch
+            : Avalonia.Layout.HorizontalAlignment.Left;
         DescriptorStatusRow? restoreFocus = openSection is { } section
             ? RenderDeviceSection(snapshot, performance, section, focusedKey)
-            : RenderDeviceSectionMenu(snapshot, performance, focusedKey);
+            : openPluginSection is { } pluginSectionId
+                ? RenderDevicePluginSection(snapshot, pluginSectionId, focusedKey)
+                : RenderDeviceSectionMenu(snapshot, performance, focusedKey);
 
         // A Device page that renders nothing is indistinguishable from a device that published
         // nothing, and the difference is the whole diagnosis. Reported on every render, not only
@@ -395,7 +408,8 @@ public partial class OverlayWindow : Window
         // all cannot even prove the render ran.
         Log.Change(
             "overlay.device.render",
-            $"Device page: page={_navigation.Page}, section={openSection?.ToString() ?? "menu"}, "
+            $"Device page: page={_navigation.Page}, "
+                + $"section={openSection?.ToString() ?? openPluginSection ?? "menu"}, "
                 + $"rows={DeviceCapabilityList.Children.Count}, "
                 + $"capabilities={snapshot.Capabilities.Count}, "
                 + $"glyphSelection={snapshot.GlyphSelection is not null}, "
@@ -424,12 +438,17 @@ public partial class OverlayWindow : Window
         string? focusedKey)
     {
         DescriptorStatusRow? restoreFocus = null;
+        // A grid of tile cards rather than a stretched stack: the sheet is wide, and
+        // a full-width row per section read as the old sidebar scaled up.
+        var grid = new Avalonia.Controls.Primitives.UniformGrid { Columns = 3 };
         foreach (DeviceOverlaySectionEntry entry in DeviceOverlaySectionPages.Build(
             snapshot,
             performance))
         {
-            string key = DeviceOverlaySectionPages.FocusKey(entry.Section);
+            string key = DeviceOverlaySectionPages.FocusKey(entry);
             DescriptorStatusRow row = new();
+            row.Classes.Add("tile");
+            row.Margin = new Thickness(0, 0, 10, 10);
             row.Apply(new DescriptorRow(
                 key,
                 entry.Title,
@@ -437,19 +456,133 @@ public partial class OverlayWindow : Window
                 entry.Count.ToString(CultureInfo.InvariantCulture),
                 CanInvoke: true,
                 entry.Status));
-            DeviceOverlaySection section = entry.Section;
-            row.Click += (_, _) => EnterDeviceSection(section);
-            DeviceCapabilityList.Children.Add(row);
+            if (SectionIconFor(entry.Icon) is { } sectionIcon)
+            {
+                row.IconGeometry = sectionIcon;
+            }
+
+            DeviceOverlaySectionEntry captured = entry;
+            row.Click += (_, _) =>
+            {
+                if (captured.PluginSectionId is { } pluginSection)
+                {
+                    EnterDevicePluginSection(pluginSection);
+                }
+                else
+                {
+                    EnterDeviceSection(captured.Section);
+                }
+            };
+            grid.Children.Add(row);
             if (string.Equals(key, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = row;
             }
         }
 
+        DeviceCapabilityList.Children.Add(grid);
         return restoreFocus;
     }
 
     /// <summary>Renders one Device section's rows.</summary>
+    /// <summary>Renders one plugin-declared section page: lead rows, then category groups.</summary>
+    private DescriptorStatusRow? RenderDevicePluginSection(
+        DeviceOverlaySnapshot snapshot,
+        string sectionId,
+        string? focusedKey)
+    {
+        DeviceOverlayPluginSection? pluginSection = snapshot.PluginSections
+            .FirstOrDefault(candidate => string.Equals(
+                candidate.SectionId,
+                sectionId,
+                StringComparison.Ordinal));
+        IReadOnlyList<DeviceOverlayCapability> capabilities =
+            DeviceOverlaySectionPages.CapabilitiesInPluginSection(snapshot, sectionId);
+        if (pluginSection is null || capabilities.Count == 0)
+        {
+            // The section vanished with a descriptor generation while its page was open. Saying so
+            // beats rendering an empty page that cannot explain itself.
+            DeviceCapabilityList.Children.Add(new TextBlock
+            {
+                Text = "This device section is no longer available.",
+                TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                Margin = new Thickness(2, 4),
+            });
+            return null;
+        }
+
+        DescriptorStatusRow? restoreFocus = null;
+        DeviceOverlayCapability? brightness = FindBrightness(snapshot);
+        TextBlock sectionHeading = new()
+        {
+            Text = pluginSection.Title.ToUpperInvariant(),
+            Margin = new Thickness(2, 2, 2, 2),
+        };
+        sectionHeading.Classes.Add("eyebrow");
+        DeviceCapabilityList.Children.Add(sectionHeading);
+
+        void AddRows(IEnumerable<DeviceOverlayCapability> rows)
+        {
+            foreach (DeviceOverlayCapability capability in rows)
+            {
+                string key = capability.InstanceId is { Length: > 0 }
+                    ? $"{capability.CapabilityId}#{capability.InstanceId}"
+                    : capability.CapabilityId;
+                DescriptorStatusRow button = CreateDeviceCapabilityRow(capability, key, brightness);
+                DeviceCapabilityList.Children.Add(button);
+                if (string.Equals(key, focusedKey, StringComparison.Ordinal))
+                {
+                    restoreFocus = button;
+                }
+            }
+        }
+
+        AddRows(capabilities.Where(capability => capability.CategoryId is null));
+        foreach (DeviceOverlayCategory category in pluginSection.Categories)
+        {
+            List<DeviceOverlayCapability> rows = capabilities
+                .Where(capability => string.Equals(
+                    capability.CategoryId,
+                    category.Id,
+                    StringComparison.Ordinal))
+                .ToList();
+            if (rows.Count == 0)
+            {
+                continue;
+            }
+
+            TextBlock label = new()
+            {
+                Text = category.Title.ToUpperInvariant(),
+                Margin = new Thickness(2, 8, 2, 2),
+            };
+            label.Classes.Add("eyebrow");
+            DeviceCapabilityList.Children.Add(label);
+            AddRows(rows);
+        }
+
+        return restoreFocus;
+    }
+
+    /// <summary>The firmware brightness capability paired into the color editor, when one exists.</summary>
+    private static DeviceOverlayCapability? FindBrightness(DeviceOverlaySnapshot snapshot) =>
+        snapshot.Capabilities.FirstOrDefault(capability =>
+            capability.Role is CapabilityRole.LightingBrightness);
+
+    /// <summary>WSGM's geometry for a declared section icon, or null for the shared default.</summary>
+    private static Avalonia.Media.Geometry? SectionIconFor(SectionIcon icon) => icon switch
+    {
+        SectionIcon.Power => Icons.Power,
+        SectionIcon.Fan => Icons.Snowflake,
+        SectionIcon.Battery => Icons.Battery,
+        SectionIcon.Lighting => Icons.Palette,
+        SectionIcon.Controller => Icons.Grid4,
+        SectionIcon.Display => Icons.Monitor,
+        SectionIcon.Gauge => Icons.ListLines,
+        SectionIcon.Wrench => Icons.Wrench,
+        _ => null,
+    };
+
     private DescriptorStatusRow? RenderDeviceSection(
         DeviceOverlaySnapshot snapshot,
         PerformanceOverlaySnapshot? performance,
@@ -457,6 +590,7 @@ public partial class OverlayWindow : Window
         string? focusedKey)
     {
         DescriptorStatusRow? restoreFocus = null;
+        DeviceOverlayCapability? sectionBrightness = FindBrightness(snapshot);
         TextBlock heading = new()
         {
             Text = DeviceSectionLabel(section),
@@ -471,7 +605,10 @@ public partial class OverlayWindow : Window
             string key = capability.InstanceId is { Length: > 0 }
                 ? $"{capability.CapabilityId}#{capability.InstanceId}"
                 : capability.CapabilityId;
-            DescriptorStatusRow button = CreateDeviceCapabilityRow(capability, key);
+            DescriptorStatusRow button = CreateDeviceCapabilityRow(
+                capability,
+                key,
+                sectionBrightness);
             DeviceCapabilityList.Children.Add(button);
             if (string.Equals(key, focusedKey, StringComparison.Ordinal))
             {
@@ -786,6 +923,23 @@ public partial class OverlayWindow : Window
         }
     }
 
+    /// <summary>Opens one plugin-declared section as its own page.</summary>
+    private void EnterDevicePluginSection(string sectionId)
+    {
+        if (!_navigation.Push(
+            OverlayPage.DevicePluginSection,
+            CurrentSemanticFocusKey(),
+            sectionId))
+        {
+            return;
+        }
+
+        UpdateGlyphInputObservation(false);
+        RefreshDevicePanel();
+        RefreshPerformancePanel();
+        FocusFirstControl(DeviceCapabilityList);
+    }
+
     private void EnterDeviceSection(DeviceOverlaySection section)
     {
         if (!_navigation.Push(
@@ -882,7 +1036,8 @@ public partial class OverlayWindow : Window
 
     private DescriptorStatusRow CreateDeviceCapabilityRow(
         DeviceOverlayCapability capability,
-        string key)
+        string key,
+        DeviceOverlayCapability? brightness = null)
     {
         DescriptorStatusRow button = new();
         button.Apply(new DescriptorRow(
@@ -903,7 +1058,7 @@ public partial class OverlayWindow : Window
             if (capability.CurrentValue is
                 { Kind: CapabilityValueKind.Color, ColorValue: not null })
             {
-                DeviceColorHost.Open(bridge, capability);
+                DeviceColorHost.Open(bridge, capability, brightness);
                 EnterSubView(OverlayPage.DeviceColor);
                 return;
             }
@@ -1053,12 +1208,12 @@ public partial class OverlayWindow : Window
     /// </remarks>
     private void PlacePerformanceSection(bool deviceVisible)
     {
-        StackPanel target = deviceVisible ? PanelDevice : PanelSystem;
+        StackPanel target = deviceVisible ? PanelDevice : SystemPrimaryColumn;
         int targetIndex = deviceVisible ? 2 : 3;
         if (!target.Children.Contains(PerformanceSection))
         {
             PanelDevice.Children.Remove(PerformanceSection);
-            PanelSystem.Children.Remove(PerformanceSection);
+            SystemPrimaryColumn.Children.Remove(PerformanceSection);
             target.Children.Insert(Math.Min(targetIndex, target.Children.Count), PerformanceSection);
         }
     }
@@ -1120,14 +1275,16 @@ public partial class OverlayWindow : Window
         ShowDestination(_navigation.Destination, restoreFocus: false);
     }
 
+    // Labels are uppercased for the sheet's tracked strip; DestinationLabel stays the
+    // sentence-case name everything else (the eyebrow uppercases itself) uses.
     private static TabStripItem CreateDestinationTab(OverlayDestination destination) => destination switch
     {
-        OverlayDestination.QuickAccess => new TabStripItem(DestinationLabel(destination), Icons.Panel, (int)destination),
-        OverlayDestination.Home => new TabStripItem(DestinationLabel(destination), Icons.Play, (int)destination),
-        OverlayDestination.Steam => new TabStripItem(DestinationLabel(destination), Icons.SteamLike, (int)destination),
-        OverlayDestination.Device => new TabStripItem(DestinationLabel(destination), Icons.Gear, (int)destination),
-        OverlayDestination.System => new TabStripItem(DestinationLabel(destination), Icons.Wrench, (int)destination),
-        OverlayDestination.Power => new TabStripItem(DestinationLabel(destination), Icons.Power, (int)destination),
+        OverlayDestination.QuickAccess => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(), Icons.Panel, (int)destination),
+        OverlayDestination.Home => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(), Icons.Play, (int)destination),
+        OverlayDestination.Steam => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(), Icons.SteamLike, (int)destination),
+        OverlayDestination.Device => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(), Icons.Gear, (int)destination),
+        OverlayDestination.System => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(), Icons.Wrench, (int)destination),
+        OverlayDestination.Power => new TabStripItem(DestinationLabel(destination).ToUpperInvariant(), Icons.Power, (int)destination),
         _ => throw new ArgumentOutOfRangeException(nameof(destination)),
     };
 
@@ -1763,6 +1920,7 @@ public partial class OverlayWindow : Window
     private CardButton CreatePinMirror(string id, CardButton source)
     {
         var clone = new CardButton { Tag = PinTagPrefix + id };
+        clone.Classes.Add("tile");
         foreach (var cls in source.Classes)
         {
             if (cls is "primary" or "danger")
@@ -1839,6 +1997,7 @@ public partial class OverlayWindow : Window
         if (row is not null)
         {
             row.Tag = PinTagPrefix + id;
+            row.Classes.Add("tile");
         }
         return row;
     }
