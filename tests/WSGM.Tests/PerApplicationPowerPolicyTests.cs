@@ -106,4 +106,62 @@ public sealed class PerApplicationPowerPolicyTests
         Assert.Equal(PerAppPowerAction.Leave, autoOn.Action);
         Assert.Equal(PerAppPowerAction.Leave, autoOff.Action);
     }
+
+    [Fact]
+    public void VrrAnEnabledProfilePrefersItsOwnState()
+    {
+        Assert.True(PerApplicationVrrPolicy.ResolveEffective(
+            globalState: false,
+            applicationState: true,
+            perGameProfileActive: true));
+    }
+
+    [Fact]
+    public void VrrADisabledProfileInheritsTheGlobalState()
+    {
+        Assert.False(PerApplicationVrrPolicy.ResolveEffective(
+            globalState: false,
+            applicationState: true,
+            perGameProfileActive: false));
+    }
+
+    [Fact]
+    public void VrrNoStateAnywhereResolvesToNone()
+    {
+        Assert.Null(PerApplicationVrrPolicy.ResolveEffective(null, null, true));
+    }
+
+    [Fact]
+    public void VrrAResolvedStateIsAlwaysApplied()
+    {
+        PerAppVrrDecision decision = PerApplicationVrrPolicy.DecideOnTargetChange(
+            effectiveState: true,
+            stateCurrentlyImposed: false);
+
+        Assert.Equal(PerAppVrrAction.Apply, decision.Action);
+        Assert.True(decision.Enabled);
+    }
+
+    [Fact]
+    public void VrrNoStateReturnsToOffWhenAProfileHadImposedOne()
+    {
+        // The leak this prevents: a game turned VRR on; leaving it with no state preferred returns
+        // to off — Steam's own default and a fixed-refresh desktop's expectation — not on.
+        PerAppVrrDecision decision = PerApplicationVrrPolicy.DecideOnTargetChange(
+            effectiveState: null,
+            stateCurrentlyImposed: true);
+
+        Assert.Equal(PerAppVrrAction.Apply, decision.Action);
+        Assert.False(decision.Enabled);
+    }
+
+    [Fact]
+    public void VrrNoStateAndNothingImposedLeavesTheDisplayUntouched()
+    {
+        PerAppVrrDecision decision = PerApplicationVrrPolicy.DecideOnTargetChange(
+            effectiveState: null,
+            stateCurrentlyImposed: false);
+
+        Assert.Equal(PerAppVrrAction.Leave, decision.Action);
+    }
 }

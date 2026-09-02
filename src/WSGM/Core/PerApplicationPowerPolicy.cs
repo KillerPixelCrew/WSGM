@@ -89,3 +89,59 @@ internal static class PerApplicationPowerPolicy
             : new PerAppPowerDecision(PerAppPowerAction.ReleaseToCeiling, ceilingWatts);
     }
 }
+
+/// <summary>What to do with the variable-refresh state when the running application changes.</summary>
+internal enum PerAppVrrAction
+{
+    /// <summary>Write a concrete on/off state.</summary>
+    Apply,
+
+    /// <summary>Change nothing. WSGM never set a state, so it has none to take back.</summary>
+    Leave,
+}
+
+/// <summary>One resolved variable-refresh decision for an application transition.</summary>
+/// <param name="Action">What the caller should do.</param>
+/// <param name="Enabled">The state to write for <see cref="PerAppVrrAction.Apply"/>.</param>
+internal readonly record struct PerAppVrrDecision(PerAppVrrAction Action, bool Enabled);
+
+/// <summary>
+/// Pure per-application variable-refresh policy, the display twin of
+/// <see cref="PerApplicationPowerPolicy"/>: which layer owns the VRR state and what a transition must
+/// do so a state set for one game does not leak onto the next application or the desktop.
+/// </summary>
+/// <remarks>
+/// Simpler than the power twin because there is no automatic controller to coordinate with. The one
+/// judgement it makes is the restore baseline: when no state is preferred but WSGM had set one,
+/// variable refresh returns to off — the state Steam's own model treats as the default and the one a
+/// fixed-refresh desktop expects — rather than being left on because a game enabled it.
+/// </remarks>
+internal static class PerApplicationVrrPolicy
+{
+    /// <summary>The variable-refresh state in force for an application, or null when none is preferred.</summary>
+    /// <param name="globalState">The global preference, or null for none.</param>
+    /// <param name="applicationState">The application's own preference, or null for none.</param>
+    /// <param name="perGameProfileActive">Whether the application keeps its own profile.</param>
+    /// <returns>The effective state, or null when neither layer prefers one.</returns>
+    internal static bool? ResolveEffective(
+        bool? globalState,
+        bool? applicationState,
+        bool perGameProfileActive) =>
+        perGameProfileActive && applicationState is { } state ? state : globalState;
+
+    /// <summary>Decides the display action for a transition to the resolved state.</summary>
+    /// <param name="effectiveState">The state resolved for the new application, or null for none.</param>
+    /// <param name="stateCurrentlyImposed">
+    /// Whether WSGM's per-application feature is the reason variable refresh currently holds a state.
+    /// Only then is there something to take back to the default.
+    /// </param>
+    /// <returns>The action and, where relevant, the state it carries.</returns>
+    internal static PerAppVrrDecision DecideOnTargetChange(
+        bool? effectiveState,
+        bool stateCurrentlyImposed) =>
+        effectiveState is { } state
+            ? new PerAppVrrDecision(PerAppVrrAction.Apply, state)
+            : stateCurrentlyImposed
+                ? new PerAppVrrDecision(PerAppVrrAction.Apply, false)
+                : new PerAppVrrDecision(PerAppVrrAction.Leave, false);
+}
