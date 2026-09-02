@@ -1506,8 +1506,18 @@ public partial class OverlayWindow : Window
     }
 
 
+    /// <summary>When set before the first show, the window primes the process-global render
+    /// backend off-screen and then closes: <see cref="OnOpened"/> skips docking, focus and the
+    /// CEF tab sync so nothing user-visible or Steam-touching happens during the warm pass.</summary>
+    internal bool WarmingUp { get; set; }
+
     private void OnOpened(object? sender, EventArgs e)
     {
+        if (WarmingUp)
+        {
+            return;
+        }
+
         DockToTopEdge();
         SelectDestination(_lastDestination);
         RestoreDestinationState(focus: true);

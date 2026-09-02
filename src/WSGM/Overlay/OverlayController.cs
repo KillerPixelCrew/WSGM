@@ -759,6 +759,7 @@ public sealed class OverlayController : IDisposable
             return;
         }
 
+        long openStarted = System.Diagnostics.Stopwatch.GetTimestamp();
         var vm = new OverlayViewModel
         {
             ExplorerRunning = ExplorerControl.IsRunningInSession(),
@@ -787,7 +788,9 @@ public sealed class OverlayController : IDisposable
         // pills and Steam's own surfaces are the same state rather than two views that can disagree.
         _systemStatus = new SystemStatus(_sessionAudio, _sessionRadios);
         _systemStatus.Start();
+        long setupDone = System.Diagnostics.Stopwatch.GetTimestamp();
         _overlay = new OverlayWindow(vm, switcher, _systemStatus, UiScale(), WindowCenter(_restoreFocusTo));
+        long constructDone = System.Diagnostics.Stopwatch.GetTimestamp();
         _overlay.AttachDeviceBridge(_device);
         _overlay.AttachPerformanceSource(_performance);
         _overlay.SetPins(_config.QuickAccessPins);
@@ -1036,6 +1039,15 @@ public sealed class OverlayController : IDisposable
             ReleaseUiSurface(QuickAccessSurface);
             throw;
         }
+        long showDone = System.Diagnostics.Stopwatch.GetTimestamp();
+        Avalonia.Threading.Dispatcher.UIThread.Post(
+            () => Log.Info(
+                "Quick access open timings: setup "
+                + $"{System.Diagnostics.Stopwatch.GetElapsedTime(openStarted, setupDone).TotalMilliseconds:F0} ms, "
+                + $"construct {System.Diagnostics.Stopwatch.GetElapsedTime(setupDone, constructDone).TotalMilliseconds:F0} ms, "
+                + $"show {System.Diagnostics.Stopwatch.GetElapsedTime(constructDone, showDone).TotalMilliseconds:F0} ms, "
+                + $"first frame {System.Diagnostics.Stopwatch.GetElapsedTime(showDone).TotalMilliseconds:F0} ms."),
+            Avalonia.Threading.DispatcherPriority.Background);
         RefreshWakeLockIndicator();
         StartWakeLockRefresh();
         StartSwitcherRefresh();
@@ -1137,10 +1149,28 @@ public sealed class OverlayController : IDisposable
                 new OverlayViewModel(),
                 new AppSwitcherViewModel(),
                 status,
-                UiScale());
-            window.Close();
-            status.Dispose();
-            Log.Info("Quick access sheet warmed for first open.");
+                UiScale())
+            {
+                WarmingUp = true,
+                // Far off-screen: the render backend (Skia GPU context, ANGLE device, the
+                // process-global glyph/geometry caches) initializes on the first PRESENTED window
+                // and survives its close — proven by the second open being a fresh window that is
+                // already fast. Priming it here moves that ~0.5 s off the user's first swipe. The
+                // topmost sheet is parked at a negative origin so the warm frame never flashes.
+                Position = new Avalonia.PixelPoint(-32000, -32000),
+                ShowInTaskbar = false,
+            };
+            window.Show();
+            // Let one full render pass complete before tearing the warm window down, then free
+            // it — the primed backend and caches are process-global and outlive it.
+            Avalonia.Threading.Dispatcher.UIThread.Post(
+                () =>
+                {
+                    window.Close();
+                    status.Dispose();
+                    Log.Info("Quick access sheet warmed for first open.");
+                },
+                Avalonia.Threading.DispatcherPriority.Background);
         }
         catch (Exception ex)
         {
