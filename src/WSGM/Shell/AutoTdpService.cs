@@ -189,6 +189,32 @@ internal sealed class AutoTdpService : IAsyncDisposable
         Publish(AutoTdpState.Paused, watts, null, null, "Paused by a manual power change.");
     }
 
+    /// <summary>Resumes automatic control that a per-application limit had paused.</summary>
+    /// <remarks>
+    /// Called when the application whose own limit paused control is no longer running and no limit
+    /// is preferred for what replaced it. The next window re-bases on whatever the device reports —
+    /// the same recovery path an unapplied write uses — so control continues from the real limit
+    /// rather than from a stale believed one. A no-op while AutoTDP is off: there is no control to
+    /// resume, and the next enable starts a fresh generation anyway.
+    /// </remarks>
+    internal void ResumeAutomaticControl()
+    {
+        lock (_gate)
+        {
+            if (!_enabled)
+            {
+                return;
+            }
+
+            _controller.ResumeAutomaticControl();
+            // Force the next tick through Start(current, …) so control re-bases on the limit the
+            // device actually holds now, not the value it believed before the application's override.
+            _controllerStarted = false;
+        }
+
+        Publish(AutoTdpState.Idle, null, null, null, "Automatic control resumed.");
+    }
+
     /// <inheritdoc/>
     public async ValueTask DisposeAsync()
     {

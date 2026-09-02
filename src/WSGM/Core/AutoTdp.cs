@@ -178,6 +178,27 @@ internal sealed class AutoTdpController
         _settling = 0;
     }
 
+    /// <summary>Lifts a manual pause so automatic control judges the next window again.</summary>
+    /// <remarks>
+    /// The counterpart to <see cref="PauseForManualChange"/> for a <em>scoped</em> override: a limit
+    /// set for one application pauses control while that application runs, and leaving the application
+    /// must return control rather than leave it paused forever. This does not itself pick a wattage —
+    /// the caller re-bases the controller on the value actually on the device next window, exactly as
+    /// it does after an unapplied write — so the pause simply ends.
+    /// <para>
+    /// It is deliberately distinct from a user's global manual change, which still pauses until
+    /// AutoTDP is switched off and on: that is the user overriding the controller, not a per-game
+    /// profile expiring.
+    /// </para>
+    /// </remarks>
+    internal void ResumeAutomaticControl()
+    {
+        _paused = false;
+        _probing = false;
+        ResetWindows();
+        _settling = 0;
+    }
+
     /// <summary>Evaluates one observation window.</summary>
     /// <param name="sample">The window to judge.</param>
     /// <param name="limits">Current device bounds.</param>

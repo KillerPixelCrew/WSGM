@@ -345,6 +345,21 @@ directly so the taskbar slider lags the OSD by one poll.
       `C034C4FD0B3FC449BCF89FCDDE809074A971D1B76EA12B24086732A4B1C23F1B`, repository invariants and
       41 native tests passed, the Release build completed with zero warnings/errors, and all 1,821
       managed tests passed. The finished diff was inspected before commit.
+- [x] Mount Valve's per-game toggle (`#QuickAccess_Tab_Perf_ToggleGameSettings`, a separate export
+      on the current client) and project the client's real "no game" id 769, not 0, so the QAM
+      offers and enables a per-game profile. Restrict `steamwebhelper.exe` and the launcher set in
+      `ForegroundApplicationFilter` so a launch does not latch the launcher as the game's executable.
+- [x] Make the **power limit** honour the per-application layer: persist a hand-set limit to the
+      running application's own layer when its profile is enabled (else global), restore the resolved
+      limit on every application transition, and take back a game's limit on exit — resume AutoTDP
+      when it is on, release to the device ceiling when it is off, leave the device untouched when
+      WSGM never imposed a limit. Decision logic is the pure, tested `PerApplicationPowerPolicy`;
+      restore writes use `CapabilityCommandOrigin.ProfileRestore` so they never re-enter the manual
+      funnel. **Attended device validation pending** on the reference Claw.
+- [ ] Apply the same per-layer persist/restore to **VRR** (its config fields already exist). Deferred
+      from the power pass: VRR has no natural "no preference" restore baseline the way power has the
+      device ceiling, so its default-on-exit needs a decision before it drives a display and risks a
+      mode-change flicker.
 
 ## Controller and Quick Settings milestone - complete
 
