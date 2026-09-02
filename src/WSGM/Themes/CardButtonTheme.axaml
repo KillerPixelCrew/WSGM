@@ -46,6 +46,15 @@
                                      same uniform scale as the old fixed size while
                                      letting the box hug the drawn glyph, which is
                                      what makes the alignments apply. -->
+                                <!-- A live color swatch (an RGB zone's current color) takes
+                                     the icon slot; callers null the icon when they set it. -->
+                                <Border Name="PART_Swatch"
+                                        Width="20"
+                                        Height="20"
+                                        CornerRadius="6"
+                                        VerticalAlignment="Center"
+                                        Background="{TemplateBinding SwatchBrush}"
+                                        IsVisible="{TemplateBinding SwatchBrush, Converter={x:Static ObjectConverters.IsNotNull}}" />
                                 <Panel Width="20"
                                        Height="20"
                                        VerticalAlignment="Center"
@@ -159,7 +168,7 @@
          matches the base template so the primary/danger/pinned state styles apply
          unchanged. -->
     <Style Selector="c|CardButton.tile">
-        <Setter Property="Height" Value="116" />
+        <Setter Property="Height" Value="120" />
         <Setter Property="Padding" Value="14,12" />
         <Setter Property="Template">
             <ControlTemplate TargetType="c:CardButton">
@@ -171,6 +180,14 @@
                         Padding="{TemplateBinding Padding}">
                     <Grid RowDefinitions="Auto,*,Auto">
                         <Grid ColumnDefinitions="Auto,*,Auto">
+                            <Border Name="PART_Swatch"
+                                    Width="22"
+                                    Height="22"
+                                    CornerRadius="6"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Center"
+                                    Background="{TemplateBinding SwatchBrush}"
+                                    IsVisible="{TemplateBinding SwatchBrush, Converter={x:Static ObjectConverters.IsNotNull}}" />
                             <Panel Width="22"
                                    Height="22"
                                    HorizontalAlignment="Left"
@@ -245,5 +262,17 @@
     </Style>
     <Style Selector="c|CardButton.danger /template/ Path#PART_Icon">
         <Setter Property="Stroke" Value="{StaticResource HcDangerBrush}" />
+    </Style>
+
+    <!-- The empty-slot affordance on the Quick access grid: surface-less, muted,
+         never enabled (an Avalonia Border cannot draw the mock's dashes, so the
+         resting card border stands in). -->
+    <Style Selector="c|CardButton.ghost">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{StaticResource HcCardBorderBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource HcTextMutedBrush}" />
+    </Style>
+    <Style Selector="c|CardButton.ghost /template/ TextBlock#PART_Title">
+        <Setter Property="Foreground" Value="{StaticResource HcTextMutedBrush}" />
     </Style>
 </Styles>

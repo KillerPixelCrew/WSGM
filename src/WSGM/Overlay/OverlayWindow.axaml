@@ -38,7 +38,7 @@
                  space and stay hittable. MaxWidth comes from the code-behind
                  (ComputeTrayMaxWidth) because it depends on the display width and
                  the RootScale touch factor. -->
-            <Border Grid.Row="0" x:Name="Header" Background="{StaticResource HcHeaderBrush}" BorderBrush="{StaticResource HcCardBorderBrush}" BorderThickness="0,0,0,1" Padding="16,0" Height="52">
+            <Border Grid.Row="0" x:Name="Header" Background="{StaticResource HcHeaderBrush}" BorderBrush="{StaticResource HcCardBorderBrush}" BorderThickness="0,0,0,1" Padding="24,0" Height="52">
                 <Grid ColumnDefinitions="Auto,*,Auto">
                     <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                         <TextBlock Text="WSGM" FontSize="15" FontWeight="Bold" VerticalAlignment="Center" />
@@ -99,7 +99,10 @@
                                     AutomationProperties.Name="Audio settings"
                                     ToolTip.Tip="{Binding Audio.VolumeText}"
                                     Click="OnAudioTileClicked">
-                                <Path Classes="status-icon" Data="{x:Static c:Icons.Volume}" Width="18" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                                    <Path Classes="status-icon" Data="{x:Static c:Icons.Volume}" Width="18" Stretch="Uniform" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding Audio.VolumeText}" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                </StackPanel>
                             </Button>
                             <Button x:Name="WifiButton"
                                     Classes="pill"
@@ -110,13 +113,21 @@
                                 <!-- Drawn, not a static path: the pill distinguishes
                                      off / disconnected / connected and shows signal
                                      strength, which one glyph cannot express. -->
-                                <c:RadioIcon Width="18" Height="18"
-                                             State="{Binding Radios.WifiIconState}"
-                                             Signal="{Binding Radios.WifiSignal}"
-                                             Accent="{DynamicResource HcAccentBrush}"
-                                             Muted="{StaticResource HcTextPrimaryBrush}"
-                                             VerticalAlignment="Center"
-                                             HorizontalAlignment="Center" />
+                                <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                                    <c:RadioIcon Width="18" Height="18"
+                                                 State="{Binding Radios.WifiIconState}"
+                                                 Signal="{Binding Radios.WifiSignal}"
+                                                 Accent="{DynamicResource HcAccentBrush}"
+                                                 Muted="{StaticResource HcTextPrimaryBrush}"
+                                                 VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding Radios.ConnectedSsid}"
+                                               FontSize="12"
+                                               FontWeight="SemiBold"
+                                               MaxWidth="90"
+                                               TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Center"
+                                               IsVisible="{Binding Radios.WifiConnected}" />
+                                </StackPanel>
                             </Button>
                             <Button x:Name="BluetoothButton"
                                     Classes="pill"
@@ -153,7 +164,7 @@
 
             <!-- Tab descriptors (labels + Icons geometries) are assigned in
                  code-behind; LB/RB cycle via GamepadNavigation. -->
-            <Border Grid.Row="1" Background="{StaticResource HcBackgroundBrush}" BorderBrush="{StaticResource HcCardBorderBrush}" BorderThickness="0,0,0,1" Padding="8,0">
+            <Border Grid.Row="1" Background="{StaticResource HcBackgroundBrush}" BorderBrush="{StaticResource HcCardBorderBrush}" BorderThickness="0,0,0,1" Padding="16,0">
                 <c:TabStrip x:Name="Tabs" Classes="sheet" />
             </Border>
 
@@ -164,7 +175,7 @@
                           x:Name="ContentScroller"
                           VerticalScrollBarVisibility="Auto"
                           GotFocus="OnContentGotFocus">
-                <StackPanel Margin="16,12" Spacing="6">
+                <StackPanel Margin="24,12" Spacing="6">
                     <!-- Panel-level warning: sits above the destination roots, so it
                          is visible on every one. -->
                     <fa:FAInfoBar IsOpen="{Binding HasWarning}" Title="WSGM" Message="{Binding WarningText}" Severity="Warning" IsClosable="False" Margin="0,0,0,4" />
@@ -173,18 +184,10 @@
                          any other destination). Cards are built in code — mirrors of
                          the XAML rows that follow their live title/description/badge,
                          and device rows re-rendered from the current snapshot. -->
+                    <!-- The ghost "Pin an option" tile is appended by RenderPins as the
+                         grid's permanent last cell (mock: empty-slot affordance). -->
                     <StackPanel x:Name="PanelQuickAccess" Spacing="8" IsVisible="True">
                         <UniformGrid x:Name="PinnedGrid" Columns="4" />
-                        <Border x:Name="PinnedEmptyHint"
-                                BorderBrush="{StaticResource HcCardBorderBrush}"
-                                BorderThickness="2"
-                                CornerRadius="10"
-                                Padding="14,12">
-                            <StackPanel Spacing="2">
-                                <TextBlock Text="Nothing pinned yet" Classes="setting-title" />
-                                <TextBlock Text="Press X on any row in Session, Steam, Device, Tools or Power to pin it here. X again unpins." Classes="caption" />
-                            </StackPanel>
-                        </Border>
                     </StackPanel>
 
                     <!-- Session (the Home destination). -->
@@ -524,12 +527,34 @@
                 </StackPanel>
             </ScrollViewer>
 
+            <!-- Pin feedback toast (mock: PinFlow): floats over the content just above
+                 the Open apps strip; hit-test transparent so it can never trap focus. -->
+            <Border x:Name="PinToast"
+                    Grid.Row="2"
+                    IsVisible="False"
+                    IsHitTestVisible="False"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Bottom"
+                    Margin="0,0,0,10"
+                    Height="40"
+                    Padding="16,0"
+                    CornerRadius="10"
+                    Background="{StaticResource HcCardHoverBrush}"
+                    BorderBrush="{StaticResource HcCardBorderBrush}"
+                    BorderThickness="1"
+                    BoxShadow="0 10 30 0 #73000000">
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <TextBlock x:Name="PinToastText" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <TextBlock x:Name="PinToastHint" Classes="caption" VerticalAlignment="Center" />
+                </StackPanel>
+            </Border>
+
             <!-- Open apps: the former taskbar's tile strip as a chip row pinned to
                  the sheet bottom. Chips keep a fixed height at every count and the
                  strip scrolls sideways once they no longer fit; a chip keeps its
                  place as windows open and close (reconcile-in-place). Controller
                  focus is scrolled into view explicitly (OnStripGotFocus). -->
-            <Border Grid.Row="3" x:Name="AppsStrip" x:DataType="ov:AppSwitcherViewModel" BorderBrush="{StaticResource HcCardBorderBrush}" BorderThickness="0,1,0,0" Padding="16,8">
+            <Border Grid.Row="3" x:Name="AppsStrip" x:DataType="ov:AppSwitcherViewModel" BorderBrush="{StaticResource HcCardBorderBrush}" BorderThickness="0,1,0,0" Padding="24,8">
                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
                     <TextBlock Text="OPEN APPS" Classes="eyebrow" VerticalAlignment="Center" />
                     <ScrollViewer Grid.Column="1"
@@ -538,7 +563,7 @@
                                   VerticalScrollBarVisibility="Disabled"
                                   AllowAutoHide="True"
                                   VerticalAlignment="Center">
-                        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Left" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Left" VerticalAlignment="Center">
                             <TextBlock Text="No open apps"
                                        Classes="caption"
                                        VerticalAlignment="Center"
@@ -547,7 +572,7 @@
                             <ItemsControl x:Name="AppTiles" ItemsSource="{Binding Entries}">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>
-                                        <StackPanel Orientation="Horizontal" Spacing="6" />
+                                        <StackPanel Orientation="Horizontal" Spacing="10" />
                                     </ItemsPanelTemplate>
                                 </ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate>
@@ -581,7 +606,7 @@
                 </Grid>
             </Border>
 
-            <Border Grid.Row="4" Classes="hc-footer" Padding="16,5">
+            <Border Grid.Row="4" Classes="hc-footer" Padding="24,5">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                     <StackPanel Orientation="Horizontal" Spacing="17">
                         <StackPanel Orientation="Horizontal" Spacing="5">

@@ -1047,6 +1047,16 @@ public partial class OverlayWindow : Window
             capability.TrailingText,
             capability.CanInvoke,
             capability.Status));
+        if (capability.CurrentValue is { Kind: CapabilityValueKind.Color, ColorValue: { } packedColor })
+        {
+            // The row wears its current color: swatch instead of icon (mock detail).
+            button.IconGeometry = null;
+            button.SwatchBrush = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromRgb(
+                (byte)((packedColor >> 16) & 0xFF),
+                (byte)((packedColor >> 8) & 0xFF),
+                (byte)(packedColor & 0xFF)));
+        }
+
         button.Click += async (_, _) =>
         {
             IDeviceOverlaySource? bridge = _deviceBridge;
@@ -1831,6 +1841,10 @@ public partial class OverlayWindow : Window
     /// <summary>The Tag prefix that marks a Quick access clone; X on one unpins.</summary>
     private const string PinTagPrefix = "pin:";
 
+    /// <summary>False until the first SetPins, so restoring stored pins never toasts.</summary>
+    private bool _pinsInitialized;
+    private DispatcherTimer? _pinToastTimer;
+
     private void IndexPinnableRows()
     {
         foreach (var button in this.GetLogicalDescendants().OfType<CardButton>())
@@ -1848,8 +1862,40 @@ public partial class OverlayWindow : Window
     /// <param name="ids">The pinned row ids in display order.</param>
     internal void SetPins(IReadOnlyList<string> ids)
     {
+        IReadOnlyList<string>? previous = _pinsInitialized ? _pins : null;
         _pins = ids;
+        _pinsInitialized = true;
         RenderPins();
+        if (previous is not null && ids.Count != previous.Count)
+        {
+            ShowPinToast(added: ids.Count > previous.Count);
+        }
+    }
+
+    /// <summary>Transient confirmation above the Open apps strip after a pin toggle.</summary>
+    private void ShowPinToast(bool added)
+    {
+        if (_closed)
+        {
+            return;
+        }
+
+        PinToastText.Text = added ? "Pinned to Quick access" : "Unpinned from Quick access";
+        PinToastHint.Text = added ? "X again to unpin" : string.Empty;
+        PinToast.IsVisible = true;
+        if (_pinToastTimer is null)
+        {
+            DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(2400) };
+            timer.Tick += (_, _) =>
+            {
+                timer.Stop();
+                PinToast.IsVisible = false;
+            };
+            _pinToastTimer = timer;
+        }
+
+        _pinToastTimer.Stop();
+        _pinToastTimer.Start();
     }
 
     private void RenderPins()
@@ -1879,7 +1925,19 @@ public partial class OverlayWindow : Window
                 restoreFocus = row;
             }
         }
-        PinnedEmptyHint.IsVisible = PinnedGrid.Children.Count == 0;
+        // The ghost cell is the permanent last slot: the pin affordance stays
+        // discoverable whether the grid is empty or full (mock: empty-slot card).
+        CardButton ghost = new()
+        {
+            IconGeometry = Icons.Pin,
+            Title = "Pin an option",
+            Description = "Hold X on any row in any tab; X again unpins",
+            IsEnabled = false,
+            Margin = new Thickness(0, 0, 10, 10),
+        };
+        ghost.Classes.Add("tile");
+        ghost.Classes.Add("ghost");
+        PinnedGrid.Children.Add(ghost);
         UpdatePinnedIndicators();
         Log.Change("overlay.pins", $"Quick access pins: {PinnedGrid.Children.Count} of {_pins.Count} rendered.");
         if (restoreFocus is not null)
@@ -1956,6 +2014,7 @@ public partial class OverlayWindow : Window
         clone.TrailingText = source.TrailingText;
         clone.TrailingGlyph = source.TrailingGlyph;
         clone.StatusBrush = source.StatusBrush;
+        clone.SwatchBrush = source.SwatchBrush;
         // The source's OWN IsVisible (bound to a feature flag), not its effective one —
         // the source panel is hidden whenever the Quick access root shows.
         clone.IsVisible = source.IsVisible;

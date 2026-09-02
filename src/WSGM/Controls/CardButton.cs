@@ -72,6 +72,20 @@ public class CardButton : Button
     /// <summary>
     /// Defines the <see cref="StatusBrush"/> property.
     /// </summary>
+    /// <summary>Defines the <see cref="SwatchBrush"/> property.</summary>
+    public static readonly StyledProperty<IBrush?> SwatchBrushProperty =
+        AvaloniaProperty.Register<CardButton, IBrush?>(nameof(SwatchBrush));
+
+    /// <summary>
+    /// A live color swatch drawn in the icon slot — an RGB zone's current color — or null to show
+    /// <see cref="IconGeometry"/>. Callers set exactly one of the two.
+    /// </summary>
+    public IBrush? SwatchBrush
+    {
+        get => GetValue(SwatchBrushProperty);
+        set => SetValue(SwatchBrushProperty, value);
+    }
+
     public static readonly StyledProperty<IBrush?> StatusBrushProperty =
         AvaloniaProperty.Register<CardButton, IBrush?>(nameof(StatusBrush));
 
