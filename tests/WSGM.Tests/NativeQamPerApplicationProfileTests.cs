@@ -17,7 +17,7 @@ public sealed class NativeQamPerApplicationProfileTests
         NativeQamPerfState global = adapter.PerfState;
 
         Assert.Equal("42", global.CurrentGameId);
-        Assert.Equal("0", global.ActiveProfileGameId);
+        Assert.Equal("769", global.ActiveProfileGameId);
         Assert.False(global.PerApp?.IsGamePerfProfileEnabled);
 
         Assert.True(await service.SetApplicationProfileEnabledAsync(true));

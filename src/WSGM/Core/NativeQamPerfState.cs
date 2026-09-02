@@ -37,19 +37,20 @@ internal sealed record NativeQamPerfState
     public NativeQamPerfApplicationSettings? PerApp { get; init; }
 
     /// <summary>
-    /// The running application's Steam AppID as a string, or <c>"0"</c> for none.
+    /// The running application's Steam AppID as a string, or <c>"769"</c> for none.
     /// </summary>
     /// <remarks>
     /// Steam decides the per-game profile is in use by comparing this with
-    /// <see cref="ActiveProfileGameId"/>; equal and non-zero means the running game's own profile is
-    /// the one on screen.
+    /// <see cref="ActiveProfileGameId"/>: equal, and not the Steam client's own pseudo-app, means
+    /// the running game's own profile is the one on screen. The no-game value is 769 — see
+    /// <see cref="NativeQamPerfProjection"/> — and never "0".
     /// </remarks>
     [JsonPropertyName("currentGameId")]
-    public string CurrentGameId { get; init; } = "0";
+    public string CurrentGameId { get; init; } = "769";
 
-    /// <summary>The AppID whose profile is being edited, or <c>"0"</c> for the global profile.</summary>
+    /// <summary>The AppID whose profile is being edited, or <c>"769"</c> for the global profile.</summary>
     [JsonPropertyName("activeProfileGameId")]
-    public string ActiveProfileGameId { get; init; } = "0";
+    public string ActiveProfileGameId { get; init; } = "769";
 }
 
 /// <summary>Bounds and support flags for the performance controls WSGM can back.</summary>
@@ -235,8 +236,14 @@ internal readonly record struct NativeQamPerfSupport(
 /// <summary>Builds the performance state from what WSGM knows, supplying only backed fields.</summary>
 internal static class NativeQamPerfProjection
 {
-    /// <summary>The AppID Steam uses to mean "no game".</summary>
-    private const string NoGame = "0";
+    /// <summary>The game id Valve uses to mean "no game": the Steam client's own pseudo-app.</summary>
+    /// <remarks>
+    /// 769, not "0" — live-read from the client's own components 2026-09-02. The profile header,
+    /// the per-game toggle's availability, and the name lookup all compare game ids against 769;
+    /// publishing "0" made the header take the game-specific branch, look up game id 0, and render
+    /// "Use profile from" with an empty name while HL2 was running.
+    /// </remarks>
+    private const string NoGame = "769";
 
     /// <summary>Highest level Steam's overlay-level selector has a notch for.</summary>
     /// <remarks>

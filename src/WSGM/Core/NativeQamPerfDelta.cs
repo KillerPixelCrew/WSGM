@@ -251,10 +251,20 @@ internal static class NativeQamPerfDeltaReader
             }
             : null;
 
+    /// <summary>The Steam client's own pseudo-game id, Valve's vocabulary for the global profile.</summary>
+    /// <remarks>
+    /// Every store setter stamps <c>gameid</c> from the current or active profile game id, and WSGM
+    /// publishes 769 for both whenever no per-game profile is in force, so a global-profile write
+    /// arrives carrying 769. Reading it as a real AppID would refuse every one of those writes as
+    /// stale against a session that has no running application.
+    /// </remarks>
+    private const ulong SteamClientPseudoGameId = 769;
+
     /// <remarks>
     /// <c>gameid</c> is a 64-bit id, and the client emits it as either a number or a string
-    /// depending on magnitude. Anything that is not a Steam AppID — zero, or a value beyond 32 bits
-    /// such as a full game id — targets the global profile rather than being guessed at.
+    /// depending on magnitude. Anything that is not a Steam AppID — zero, the Steam client's own
+    /// pseudo-app, or a value beyond 32 bits such as a full game id — targets the global profile
+    /// rather than being guessed at.
     /// </remarks>
     private static uint? ReadAppId(JsonElement message)
     {
@@ -270,6 +280,8 @@ internal static class NativeQamPerfDeltaReader
             _ => 0,
         };
 
-        return raw is > 0 and <= uint.MaxValue ? (uint)raw : null;
+        return raw is > 0 and <= uint.MaxValue && raw != SteamClientPseudoGameId
+            ? (uint)raw
+            : null;
     }
 }

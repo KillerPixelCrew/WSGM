@@ -53,9 +53,10 @@ function createPerfNamespace() {
         per_app: state.perApp ?? {},
       };
       // Steam identifies the per-game profile by comparing these two: equal means the running
-      // game's own profile is the one being edited.
-      target.m_msgState.current_game_id = state.currentGameId ?? "0";
-      target.m_msgState.active_profile_game_id = state.activeProfileGameId ?? "0";
+      // game's own profile is the one being edited. "No game" is 769 — the Steam client's own
+      // pseudo-app, the id Valve's components compare against — never "0".
+      target.m_msgState.current_game_id = state.currentGameId ?? "769";
+      target.m_msgState.active_profile_game_id = state.activeProfileGameId ?? "769";
     } catch (error) {
       lastError = String(error);
     }

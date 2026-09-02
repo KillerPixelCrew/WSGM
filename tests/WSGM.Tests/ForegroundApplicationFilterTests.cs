@@ -18,6 +18,10 @@ public sealed class ForegroundApplicationFilterTests
     [InlineData("wsgm.exe")]
     [InlineData("WSGM.exe")]
     [InlineData("steam.exe")]
+    // Big Picture's renderer, and the foreground process at the exact moment Steam reports a
+    // launch: treating it as an application paired it as the running game's executable.
+    [InlineData("steamwebhelper.exe")]
+    [InlineData("EpicGamesLauncher.exe")]
     [InlineData("explorer.exe")]
     [InlineData("taskmgr.exe")]
     [InlineData("StartMenuExperienceHost.exe")]

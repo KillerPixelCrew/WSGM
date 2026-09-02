@@ -107,11 +107,14 @@ public sealed class NativeQamPerfDeltaTests
     [Theory]
     [InlineData("0")]
     [InlineData("\"0\"")]
+    [InlineData("769")]
+    [InlineData("\"769\"")]
     [InlineData("\"18374686479671623680\"")]
     public void AGameIdThatIsNotAnAppIdTargetsTheGlobalProfile(string gameId)
     {
         // gameid is 64-bit and the client emits it as a number or a string by magnitude. A full
-        // game id is not an AppID and must not be truncated into one.
+        // game id is not an AppID and must not be truncated into one, and 769 — the Steam client's
+        // own pseudo-app — is how every store setter addresses the global profile.
         NativeQamPerfDeltaReader.TryRead(
             Payload($$$"""{"delta":{"gameid":{{{gameId}}}}}"""),
             out NativeQamPerfDelta delta,

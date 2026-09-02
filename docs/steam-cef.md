@@ -501,12 +501,26 @@ The per-application header is driven by identity, not by RTSS executable discove
 2026-08-31 screenshot showed Valve's complete Performance tab but a blank "Use profile from" header
 while WSGM's log had already observed Steam AppID 220: the managed projection discarded Steam's
 identity-only state because no executable profile was available yet. `PerformanceService` now keeps
-the canonical AppID separately from its optional RTSS profile. `current_game_id` therefore becomes
-non-zero as soon as Steam names one game; `active_profile_game_id` matches it only when that game's
+the canonical AppID separately from its optional RTSS profile. `current_game_id` therefore carries
+the AppID as soon as Steam names one game; `active_profile_game_id` matches it only when that game's
 persisted profile is enabled, and `per_app.is_game_perf_profile_enabled` reports that same policy
 fact. Foreground observation later supplies the executable without changing the AppID. A delta that
 names an AppID other than the currently projected one is refused as stale before reset or any value
 write.
+
+**Valve's "no game" is 769, never 0 — live-read from the components 2026-09-02.** The header, the
+per-game toggle's availability, and the app-name lookup all compare game ids against the Steam
+client's own pseudo-app 769 (`GetAppOverviewByGameID(active_profile_game_id)` renders the name):
+`active_profile_game_id == 769` is the "Default settings" branch, anything else renders "Use profile
+from &lt;name&gt;". Publishing "0" for the global case made the header take the game branch and look
+up game id 0 — a blank name while HL2 ran — so the projection publishes 769 wherever it used to say
+"0". The setters stamp their delta's `gameid` from the current or active profile id, so a
+global-profile write arrives carrying 769 and the delta reader maps it to "global" rather than
+treating it as a real AppID. The toggle itself (`#QuickAccess_Tab_Perf_ToggleGameSettings`) is a
+separate export from the header on the current client — the 2026-08-30 "not separately mountable"
+finding no longer holds — and is mounted as its own row under the `valveProfileHeader` kind:
+available when `current_game_id != 769`, checked when `current_game_id == active_profile_game_id`,
+writing through `SetGameSpecificProfileEnabled`.
 
 Charge limit and device lighting are WSGM-owned Quick Settings rows selected by SDK semantic role,
 not by a Claw package id. A 2026-08-31 live probe of literal module `30519` in `chunk~2dcc5aaf7.js`
@@ -615,9 +629,10 @@ Steam carries three generations of performance control and they are easy to conf
   one.** Its message shape is
   `{limits, settings:{global, per_app}, current_game_id, active_profile_game_id}`, and per-game
   profiles are exactly `current_game_id == active_profile_game_id` plus
-  `per_app.is_game_perf_profile_enabled`. WSGM supplies the first from canonical Steam identity and
-  the latter two from its persisted application-policy entry; RTSS executable resolution is not an
-  availability gate for the header.
+  `per_app.is_game_perf_profile_enabled`, with 769 — the Steam client's own pseudo-app, not 0 — as
+  the "no game / default settings" value both ids compare against. WSGM supplies the first from
+  canonical Steam identity and the latter two from its persisted application-policy entry; RTSS
+  executable resolution is not an availability gate for the header.
 - **The SteamOS Manager family** (`steamos_tdp_limit*`, `steamos_manual_gpu_clock*`) — client
   settings whose availability comes from a WebUI transport RPC. This is where TDP and charge limit
   live; there is **no** TDP component in the perf store at all.

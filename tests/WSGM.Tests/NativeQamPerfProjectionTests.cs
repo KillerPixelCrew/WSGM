@@ -157,7 +157,9 @@ public sealed class NativeQamPerfProjectionTests
             refreshRateHz: null);
 
         Assert.Equal("42", global.CurrentGameId);
-        Assert.Equal("0", global.ActiveProfileGameId);
+        // 769 is the Steam client's own pseudo-app, Valve's vocabulary for "default settings";
+        // publishing "0" made the header look up a game that does not exist.
+        Assert.Equal("769", global.ActiveProfileGameId);
     }
 
     [Fact]
@@ -174,8 +176,8 @@ public sealed class NativeQamPerfProjectionTests
             variableRefreshRateEnabled: null,
             refreshRateHz: null);
 
-        Assert.Equal("0", state.CurrentGameId);
-        Assert.Equal("0", state.ActiveProfileGameId);
+        Assert.Equal("769", state.CurrentGameId);
+        Assert.Equal("769", state.ActiveProfileGameId);
         Assert.Null(state.PerApp?.IsGamePerfProfileEnabled);
         // The cap still applies; only its presentation as a named game profile is withheld.
         Assert.Equal(60, state.PerApp?.FpsLimit);

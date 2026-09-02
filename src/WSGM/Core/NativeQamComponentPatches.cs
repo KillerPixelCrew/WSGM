@@ -260,10 +260,12 @@ internal static class NativeQamComponentPatches
         "native-qam-frame-limit-v1:performance-actions+performance-root+valve-slider",
         "wsgm_native_frame_limit_probe_");
 
-    /// <summary>Valve's profile header, which carries the per-game profile toggle inside it.</summary>
+    /// <summary>Valve's profile header and the per-game profile toggle, as one component kind.</summary>
     /// <remarks>
-    /// The toggle is not separately mountable — probed 2026-08-30, its token resolves to the same
-    /// export as the header — so the two arrive together or not at all.
+    /// Two separate exports of the perf-components module on the current client — re-probed
+    /// 2026-09-02 after the header rendered with no way to enable a profile — mounted as two rows
+    /// under this one kind because they are halves of one feature: the header names whose profile
+    /// is on screen, the toggle is the only control that can change that.
     /// </remarks>
     internal static NativeQamComponentPatch ValveProfileHeader { get; } = new(
         "wsgm.native-qam.valve-profile-header",

@@ -49,8 +49,34 @@ public static class ForegroundApplicationFilter
         "wsgm.exe",
         "wsgm.launch.exe",
         "wsgm.devicelab.exe",
+
+        // Launchers and their embedded browsers, adopted from HandheldCompanion's launcher list.
+        // steamwebhelper.exe is the load-bearing entry: it renders Big Picture itself, so it is the
+        // foreground process at the exact moment Steam reports a launch — and the identity-only
+        // upgrade then paired it as the running game's executable until the game exited (observed
+        // 2026-09-02: AppID 220 latched "RTSS profile steamwebhelper.exe").
         "steam.exe",
+        "steamwebhelper.exe",
+        "steamservice.exe",
         "gameoverlayui.exe",
+        "epicgameslauncher.exe",
+        "epicwebhelper.exe",
+        "battle.net.exe",
+        "agent.exe",
+        "ubisoftconnect.exe",
+        "upc.exe",
+        "uplaywebcore.exe",
+        "eadesktop.exe",
+        "ealauncher.exe",
+        "ealaunchhelper.exe",
+        "eabackgroundservice.exe",
+        "link2ea.exe",
+        "galaxyclient.exe",
+        "rockstarservice.exe",
+        "bethesdanetlauncher.exe",
+        "agsgamelaunchhelper.exe",
+        "gamecenter.exe",
+        "qtwebengineprocess.exe",
 
         // The shell itself, and the windows it puts in front of things.
         "explorer.exe",

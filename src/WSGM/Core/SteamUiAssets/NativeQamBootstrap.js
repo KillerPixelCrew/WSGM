@@ -1475,9 +1475,10 @@
           per_app: state.perApp ?? {},
         };
         // Steam identifies the per-game profile by comparing these two: equal means the running
-        // game's own profile is the one being edited.
-        target.m_msgState.current_game_id = state.currentGameId ?? "0";
-        target.m_msgState.active_profile_game_id = state.activeProfileGameId ?? "0";
+        // game's own profile is the one being edited. "No game" is 769 — the Steam client's own
+        // pseudo-app, the id Valve's components compare against — never "0".
+        target.m_msgState.current_game_id = state.currentGameId ?? "769";
+        target.m_msgState.active_profile_game_id = state.activeProfileGameId ?? "769";
       } catch (error) {
         lastError = String(error);
       }
@@ -1824,10 +1825,13 @@
     let resolutionControl;
     let vrrControl;
     let deviceControlsControl;
-    // Valve's profile header, which carries the per-game profile toggle inside it — probed
-    // 2026-08-30: the toggle is not a separately mountable export, so the two arrive together or
-    // not at all. And Valve's reset button. Both are additive: WSGM built neither.
+    // Valve's profile header and its per-game profile toggle. On the current client they are TWO
+    // exports of the perf-components module — re-probed 2026-09-02 after the header rendered with
+    // no way to enable a profile: the toggle's token resolves uniquely on its own, so each mounts
+    // as its own row under the one valveProfileHeader kind. And Valve's reset button. All are
+    // additive: WSGM built none of them.
     let valveProfileHeaderControl;
+    let valveProfileToggleControl;
     let valveResetControl;
     let valveRefreshRateControl;
     let valveOverlayLevelControl;
@@ -3086,6 +3090,12 @@
           "perf",
         ],
         [
+          "valveProfileHeader",
+          "wsgm-native-qam-valve-profile-toggle",
+          valveProfileToggleControl,
+          "perf",
+        ],
+        [
           "valveOverlayLevel",
           "wsgm-native-qam-valve-overlay-level",
           valveOverlayLevelControl,
@@ -3246,6 +3256,12 @@
       const perfExports = perfComponents ? runtime(perfComponents[0]) : null;
       valveProfileHeaderControl = perfExports
         ? uniqueFunction(perfExports, ["#QuickAccess_Tab_Perf_GameSpecificSettings"])
+        : null;
+      // The toggle reads current_game_id for availability, current==active for its checked state,
+      // and writes through SetGameSpecificProfileEnabled — all state WSGM already backs. Without
+      // this row nothing in the tab can enable a per-game profile.
+      valveProfileToggleControl = perfExports
+        ? uniqueFunction(perfExports, ["#QuickAccess_Tab_Perf_ToggleGameSettings"])
         : null;
       valveResetControl = perfExports
         ? uniqueFunction(perfExports, ["#QuickAccess_Tab_Perf_ResetToDefault"])
