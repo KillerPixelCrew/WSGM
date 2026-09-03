@@ -643,6 +643,21 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       `EnableOSD=0`, apply a nonzero level through both the overlay and QAM, and confirm global plus
       the current executable read back `1` and the WSGM overlay becomes visible without manual repair.
 
+## Motion correction of 2026-09-03 - fixed in source, attended re-check pending
+
+- [x] **The Claw accelerometer was approximated even though the physical sensor is available:**
+      Intel's IO driver hides the LSM6DSO `Physical Accelerometer` from WinRT by publishing it as a
+      legacy `SENSOR_TYPE_CUSTOM` COM sensor. A read-only probe on the reference A2VM confirmed live
+      g values in custom fields 7/8/9, and the installed Handheld Companion device definition
+      confirmed application mapping `(raw X, raw Z, -raw Y)`. The Claw package now owns that exact
+      `sensorsapi` path directly, rejects mismatched identity/type/state/fields, releases every COM
+      object deterministically, and publishes only measured acceleration. The synthetic gravity
+      estimator and its tests are deleted; if either physical sensor is unavailable, motion reports
+      the prerequisite failure honestly.
+- [ ] Attended after deployment: tilt each physical axis and confirm Steam Deck and DS4 targets move
+      in the expected direction without a freefall state; then suspend/resume and disable/re-enable
+      Device Integration while confirming the legacy sensor handle is released and reacquired.
+
 ## Attended/live acceptance still required
 
 These checks intentionally do not run unattended and are not source-completion blockers:

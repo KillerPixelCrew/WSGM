@@ -6,7 +6,7 @@ Target: MSI Claw 8 AI+ A2VM, baseboard `MS-1T52`
 
 Reference unit: this development machine
 
-Hardware observations: 2026-08-27 unless stated otherwise
+Hardware observations: 2026-08-27 unless stated otherwise; motion sensor findings updated 2026-09-03
 
 ## Purpose
 
@@ -101,7 +101,7 @@ services are:
 - Dual-fan capability and telemetry.
 - Controller source and mode switcher.
 - Rumble sink.
-- Gyroscope source and calibration.
+- Gyroscope and legacy custom accelerometer sources and calibration.
 - OEM WMI event source and firmware-chord suppressor.
 - Three-zone RGB capability.
 - Compact recovery record for temporary state that remains unresolved.
@@ -359,19 +359,27 @@ needed.
 
 ## Motion
 
-The verified source is Intel Integrated Sensor Solution `VID_8087&PID_0AC2` through WinRT
-`Gyrometer`:
+The verified sources are two projections of the Intel Integrated Sensor Solution
+`VID_8087&PID_0AC2`:
 
-- Three-axis angular velocity only.
-- Units: degrees/second.
-- Minimum report interval: 10 ms, therefore maximum 100 Hz.
-- No usable accelerometer, inclinometer, or orientation sensor was exposed in either controller
-  mode, including after the candidate MCU motion command.
+- WinRT `Gyrometer` provides three-axis angular velocity in degrees/second. Its minimum report
+  interval is 10 ms, therefore its maximum rate is 100 Hz.
+- The legacy `sensorsapi` COM API provides the STMicroelectronics LSM6DSO `Physical Accelerometer`.
+  Intel's driver classifies it as custom sensor type `e83af229-8640-4d18-a213-e22675ebb2c3`, so
+  WinRT `Accelerometer.GetDefault()` cannot see it.
+- The acceleration values are `VT_R4` custom fields 7, 8, and 9 in property set
+  `b14c764f-07cf-41e8-9d82-ebe3d0776a6f`. The observed values are in g and form a vector of about
+  1 g while the stationary device is tilted.
+- The plugin accepts only the exact friendly name, custom type, ready state, Intel HID identity,
+  and all three supported fields. It reads without configuring the sensor or its driver.
 - `SetMotionStatus(0x2F)` produced no reports/ACK and is not another source.
 
-Steam Deck and DS4 accelerometer fields remain neutral; Xbox drops motion. Do not synthesize gravity
-or orientation. The candidate physical transform is `+X,+Y,-Z`, pending final physical-axis
-validation and calibration.
+The application-axis transforms are gyro `(X, Y, -Z)` and accelerometer `(X, Z, -Y)`. The latter
+matches the installed Handheld Companion device definition and is covered by the live legacy-Sensor
+API readings. Never synthesize gravity or orientation: if either physical source cannot be opened,
+the motion service stays passive; a transient accelerometer read failure may hold only its last real
+sample for 250 ms. Xbox drops motion; Steam Deck and DS4 receive the measured fields through their
+normal encoders. Final attended axis-direction and suspend/resume validation remains required.
 
 ## OEM controls and firmware chord suppression
 
