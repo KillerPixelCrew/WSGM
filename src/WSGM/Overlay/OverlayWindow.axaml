@@ -41,6 +41,18 @@
             <Border Grid.Row="0" x:Name="Header" Background="{StaticResource HcHeaderBrush}" BorderBrush="{StaticResource HcCardBorderBrush}" BorderThickness="0,0,0,1" Padding="24,0" Height="52">
                 <Grid ColumnDefinitions="Auto,*,Auto">
                     <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <!-- Up one level, shown only while a nested page is open. It
+                             lives in the fixed header rather than in the page: a way
+                             out that scrolls off the bottom of a long section is not
+                             reachable when the user needs it. Same call as B. -->
+                        <Button x:Name="BackButton"
+                                Classes="pill"
+                                IsVisible="False"
+                                AutomationProperties.Name="Back"
+                                ToolTip.Tip="Back"
+                                Click="OnHeaderBack">
+                            <Path Classes="status-icon" Data="{x:Static c:Icons.ArrowLeft}" Width="16" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                        </Button>
                         <TextBlock Text="WSGM" FontSize="15" FontWeight="Bold" VerticalAlignment="Center" />
                         <TextBlock x:Name="TabEyebrow" Text="QUICK ACCESS" Classes="eyebrow" VerticalAlignment="Center" />
                     </StackPanel>

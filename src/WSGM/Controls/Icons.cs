@@ -57,6 +57,10 @@ public static class Icons
     public static StreamGeometry ArrowDown { get; } =
         StreamGeometry.Parse("M 12,4 L 12,20 M 5.5,13.5 L 12,20 L 18.5,13.5");
 
+    /// <summary>Straight arrow pointing left (leave the open page, one level up).</summary>
+    public static StreamGeometry ArrowLeft { get; } =
+        StreamGeometry.Parse("M 20,12 L 4,12 M 10.5,5.5 L 4,12 L 10.5,18.5");
+
     /// <summary>Two stacked documents (copy-to-clipboard commands).</summary>
     public static StreamGeometry CopyDoc { get; } =
         StreamGeometry.Parse("M 5,8 L 15,8 L 15,21 L 5,21 Z M 9,8 L 9,4 L 19,4 L 19,17 L 15,17");

@@ -45,6 +45,14 @@ page; the two used to be tracked separately and could disagree. Adding a page me
 out); the enter/leave sequence, `DefaultFocusTarget`, the `Activated` teardown and B-cancel all read
 that table. A page is never a Popup or Flyout, which `GamepadNavigation` cannot reach.
 
+The way back out is `BackButton` in the fixed header, shown while `OverlayNavigation.Depth > 1` and
+pressing exactly what B presses (`TryCancelSubView`). It is header chrome rather than a row in the
+page because a control inside the scrolling content is not reachable from where the user is — a long
+Device section pushes one past the bottom edge — and because the tab strip switches destinations
+rather than levels, which left touch-only users no way off a Device section at all.
+`TryCancelSubView` resolves the button's visibility for every route out; the enter paths and
+`ShowDestination` resolve it for every route in.
+
 ## Device sections, performance profiles and lighting color
 
 Plugin-declared Device sections render as their own pages and lead the Device root menu; WSGM's own
@@ -52,12 +60,8 @@ sections (profiles, glyphs, diagnostics, unplaced rows) follow. `OverlayPage.Dev
 carries the open section's id in the route rather than adding an enum value per section. Rows are
 grouped under the declared category eyebrows in sort-then-snapshot order. A section that vanishes
 with a descriptor generation while its page is open renders a plain "no longer available" line.
-
-Every one of those pages ends in a Back row that calls the same leave path B does, because a Device
-section has no chrome of its own — the tab strip switches destinations, not levels — and a
-touch-only user had no way off the page they opened. The row carries the device's East face glyph
-where one resolves. It is appended after the render diagnostic, so a section that draws nothing but
-its own way out still logs as an empty page.
+Leaving one runs the same body as leaving a WSGM section: the glyph sample lease is released and
+both panels are redrawn, which the generic pop fallback it used to take did neither of.
 
 Per-application performance profiles belong to Device → Profiles; they are not a second detector and
 not a device-plugin feature. `PerformanceOverlayBridge` projects the session's one

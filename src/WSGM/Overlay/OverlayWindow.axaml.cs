@@ -51,10 +51,6 @@ public partial class OverlayWindow : Window
     private const int DeviceLiveRefresh = 1;
     private const int PerformanceLiveRefresh = 2;
 
-    /// <summary>Focus key of the row that leaves a Device page. One key for every page, because
-    /// only one of those rows exists at a time and a rebuild has to put focus back on it.</summary>
-    private const string DeviceBackFocusKey = "device.back";
-
     /// <summary>Raised when the user requests to start or focus the home application.</summary>
     public event Action? HomeAppRequested;
 
@@ -222,6 +218,7 @@ public partial class OverlayWindow : Window
 
         view.Parent.IsVisible = false;
         view.Host.IsVisible = true;
+        SyncBackAffordance();
         FocusFirstControl(view.Host);
     }
 
@@ -247,6 +244,7 @@ public partial class OverlayWindow : Window
         SubViewClosed?.Invoke();
         view.Host.IsVisible = false;
         view.Parent.IsVisible = _navigation.Destination == view.Destination;
+        SyncBackAffordance();
         if (view.Parent.IsVisible)
         {
             RestoreRootFocus(returnFocusKey);
@@ -537,34 +535,8 @@ public partial class OverlayWindow : Window
                 + $"recovery={snapshot.Recovery is not null}",
             DeviceCapabilityList.Children.Count == 0 ? LogLevel.Warn : LogLevel.Info);
 
-        // Added after the line above so it still counts the rows the page actually published: a
-        // section that draws nothing but its way out is an empty page and must keep saying so.
-        Control? focusTarget = restoreFocus;
-        if (openSection is { } leavingSection)
-        {
-            focusTarget = AddDeviceBackRow(focusedKey, () => LeaveDeviceSection(leavingSection))
-                ?? focusTarget;
-        }
-        else if (openPluginSection is not null)
-        {
-            focusTarget = AddDeviceBackRow(focusedKey, LeaveDevicePluginSection) ?? focusTarget;
-        }
-
-        focusTarget?.Focus(NavigationMethod.Directional);
+        restoreFocus?.Focus(NavigationMethod.Directional);
         RenderPins();
-    }
-
-    /// <summary>Appends the leave row to the open Device page.</summary>
-    /// <param name="focusedKey">The focus key held before the rebuild.</param>
-    /// <param name="onBack">Leaves the page.</param>
-    /// <returns>The row, when it is the control focus must be restored to; otherwise null.</returns>
-    private CardButton? AddDeviceBackRow(string? focusedKey, Action onBack)
-    {
-        CardButton back = CreateDeviceBackRow(onBack);
-        DeviceCapabilityList.Children.Add(back);
-        return string.Equals(DeviceBackFocusKey, focusedKey, StringComparison.Ordinal)
-            ? back
-            : null;
     }
 
     /// <summary>
@@ -1128,6 +1100,7 @@ public partial class OverlayWindow : Window
                 is DeviceOverlaySection.ControllerAndMotion);
         RefreshDevicePanel();
         RefreshPerformancePanel();
+        SyncBackAffordance();
         FocusFirstControl(DeviceCapabilityList);
     }
 
@@ -1148,6 +1121,7 @@ public partial class OverlayWindow : Window
         // The shared performance rows belong to one Device page, so entering or leaving any page
         // changes whether they are on screen.
         RefreshPerformancePanel();
+        SyncBackAffordance();
         FocusFirstControl(DeviceCapabilityList);
     }
 
@@ -1178,30 +1152,6 @@ public partial class OverlayWindow : Window
         RestoreRootFocus(returnFocusKey);
     }
 
-    /// <summary>The row that leaves the open Device page, at the end of every one of them.</summary>
-    /// <param name="onBack">Leaves the page — the same call B makes.</param>
-    /// <remarks>
-    /// A Device section is a page with no chrome of its own: the tab strip switches destinations
-    /// rather than levels, so until this row existed the only way out of one was B on a pad or
-    /// Escape on a keyboard, and a touch-only user was stuck on the page they opened. It carries
-    /// the device's own East face glyph where one resolves, so the row and the button that does the
-    /// same thing read as one action.
-    /// </remarks>
-    private CardButton CreateDeviceBackRow(Action onBack)
-    {
-        CardButton back = new()
-        {
-            Tag = DeviceBackFocusKey,
-            Title = "Back",
-            Description = "Return to the Device menu",
-            IconGeometry = Icons.ExitFullscreen,
-            TrailingText = "B",
-            TrailingGlyph = _deviceBridge?.NavigationHint(GlyphControlId.FaceEast),
-            Margin = new Thickness(0, 8, 0, 0),
-        };
-        back.Click += (_, _) => onBack();
-        return back;
-    }
 
     /// <summary>Starts or stops the glyph input test's sample observation.</summary>
     /// <param name="observe">Whether the page that draws the samples is showing.</param>
@@ -2167,10 +2117,33 @@ public partial class OverlayWindow : Window
         }
     }
 
+    /// <summary>The header's up-affordance: the same action B takes, for touch and mouse.</summary>
+    /// <remarks>
+    /// In the fixed header rather than in the page, because a way out placed in scrolling content
+    /// is not reachable from where the user actually is — a long Device section pushes it past the
+    /// bottom edge. One button for every nested page, since every one of them is left the same way.
+    /// </remarks>
+    private void OnHeaderBack(object? sender, RoutedEventArgs e) => TryCancelSubView();
+
+    /// <summary>Shows the header's Back button exactly while there is a level above the open page.
+    /// Called after every transition that can change the depth of the nested-page stack.</summary>
+    private void SyncBackAffordance() => BackButton.IsVisible = _navigation.Depth > 1;
+
     /// <summary>Handles Back/B in strict dialog, nested-page, destination-root order.
     /// Returns false only when Home is already at its root and the controller should
     /// close the overlay. A format already running keeps running when its page closes.</summary>
+    /// <remarks>
+    /// Every way back — B, Escape and the header button — arrives here, so the header affordance is
+    /// resolved once on the way out instead of at each branch's own return.
+    /// </remarks>
     internal bool TryCancelSubView()
+    {
+        bool handled = CancelOpenPage();
+        SyncBackAffordance();
+        return handled;
+    }
+
+    private bool CancelOpenPage()
     {
         bool confirmationOpen = _confirmCloseLauncher || _confirmRestart || _confirmShutdown;
         switch (_navigation.BackAction(popupOpen: false, dialogOpen: confirmationOpen))
@@ -2264,6 +2237,9 @@ public partial class OverlayWindow : Window
 
     private void ShowDestination(OverlayDestination destination, bool restoreFocus)
     {
+        // Selecting a destination resets its stack to the root, so the header affordance is
+        // resolved here as well as on the enter/leave paths.
+        SyncBackAffordance();
         TabEyebrow.Text = DestinationLabel(destination).ToUpperInvariant();
         PanelQuickAccess.IsVisible = destination == OverlayDestination.QuickAccess;
         PanelHome.IsVisible = destination == OverlayDestination.Home;
