@@ -167,11 +167,11 @@ and running WSGM normally, with controller management simply unavailable — exa
 
 ### State of the installer work
 
-`WSGM.iss` declares a `controller` component; `libviiper.dll` with its notices and header, and the
-verified usbip-win2 installer, ship under it. Every one of those entries is
-`skipifsourcedoesntexist`, because they exist only when the release machine has a Go toolchain, a C
-compiler, and a network — `build.ps1` skips each loudly rather than failing an otherwise good
-release.
+`WSGM.iss` declares a `controller` component; `libviiper.dll` with its header and notices, and the
+verified usbip-win2 and HidHide installers, ship under it. They are required release inputs, not
+optional ones: `build.ps1` fails when the library was not produced or an installer could not be
+acquired and verified, because a release that offers the component must contain all of it. A
+release machine therefore needs a Go toolchain, a C compiler, and a network.
 
 The driver step is a separate ticked task, `Install-UsbipDriver.ps1`, run from `[Run]` before setup
 restarts anything of WSGM's. It prefers the staged installer and falls back to downloading the same
@@ -193,5 +193,6 @@ Two things learned by doing rather than reading, both of which would have produc
   installed" on a machine where it is. `pnputil` is no substitute either: its output is localised,
   and it prints German here.
 
-With the driver present, `viiper_device_attach` is the one entry point the binding has not yet been
-driven through. That is now testable on this machine, which already carries a usbip-win2 install.
+`viiper_device_attach` has since been driven end to end on the reference Claw; the duplicate
+attachment that led to `0003`, the stale port that led to `0004`, and the rumble identity that led
+to `0006` were all found by running it (see the patch notes above).

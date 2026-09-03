@@ -1,8 +1,16 @@
 # Controller dependency audit
 
-This directory pins the primary-source inputs reviewed for WSGM controller management. It contains
-metadata and notices only. No driver, installer, SDK assembly, or third-party executable is checked
-into the repository or copied into an application publish directory.
+This directory pins the primary-source inputs reviewed for WSGM controller management:
+
+- `controller-components.lock.json` — the reviewed usbip-win2 and HidHide releases, with digests,
+  signers and install identity. Every script that needs those values reads this file.
+- `licenses/` and `THIRD-PARTY-NOTICES.txt` — the retained upstream licence texts and their summary.
+- `viiper/` — the exact VIIPER revision WSGM builds `libviiper.dll` from and the six patches
+  `eng\build-viiper.ps1` applies on top of it, with its own `README.md` recording why each exists.
+
+No driver, installer, SDK assembly, or third-party executable is checked in. The release build
+acquires the two installers from their pinned releases and builds the library from its pinned
+revision; nothing here is copied into an application publish directory as-is.
 
 ## Current release decision
 
@@ -13,8 +21,9 @@ the Steam Input lease and the rest of Device Integration continue.
 
 ### Why VIIPER replaced HIDMaestro
 
-**Decided 2026-08-29.** VIIPER (`_ref/VIIPER`, corando98's `viiper-controller` branch) creates
-virtual USB devices in userspace over USBIP, and it wins on both halves of the gate above.
+**Decided 2026-08-29.** VIIPER (`corando98/VIIPER`, branch `viiper-controller`, pinned at
+`024aef3a` in `viiper/README.md`) creates virtual USB devices in userspace over USBIP, and it wins
+on both halves of the gate above.
 
 - **Nothing is missing.** Its `device/steamdeck` carries the whole Neptune frame natively, including
   all four rear controls and capacitive stick touch. The bit map is settled by three independent
@@ -95,19 +104,14 @@ than assumed.
 
 ### Applied to the branch
 
-The three fixes merged into `Valkirie/VIIPER` are carried onto corando98's `viiper-controller`
-branch, which is well ahead of that fork:
-
-| PR | Fix | State on this branch |
-| --- | --- | --- |
-| #4 | `ucLength` must be 64 or SDL3 discards every report | already present |
-| #3 | Clamp stick Y off `-32768`, which SDL3 negates back to itself | applied |
-| #2 | Placeholder mouse/keyboard endpoints must stay pending, not complete with idle input | applied |
-
-PR #2 needed adapting: this branch has replaced the inline `ctx.Done()` waits with
-`device.BlockUntilDeadline`, so the merged shape becomes one combined case that blocks and returns
-no data. `eng/build-viiper.ps1 -Validate` compiles this composition and runs its device tests before
-every release build.
+`viiper/README.md` is the record of what WSGM carries on top of the pinned revision and must stay
+the only one. In short: the two `Valkirie/VIIPER` fixes that branch lacks (#3 stick clamp, #2
+placeholder endpoints kept pending) travel in `0001`, together with a stale quaternion test
+assertion; the SDL3 `ucLength` fix (#4) is already present upstream; and `0002` through `0006` are
+WSGM's own — the usbip-win2 attach layouts, add-without-attach, port plug-out on remove, feedback
+quiescence before detach, and the credible Deck identity that makes Steam send rumble.
+`eng\build-viiper.ps1 -Validate` applies the whole set and runs the Deck device tests before every
+release build.
 
 ## Pinned primary sources
 
@@ -144,12 +148,14 @@ usbip-win2 and HidHide installers into `publish/App`. These are required release
 machine may omit the optional controller component, but a release artifact must contain the complete
 component it offers.
 
-Setup installs the driver from one place and one place only — an explicitly ticked task that runs
-`Install-UsbipDriver.ps1` while setup is on screen (INV-020). It re-verifies the pinned digest and
-signer on the user's disk before running anything, detects an existing install so it never
-reinstalls or downgrades one, confirms afterwards that `usbip2_ude` is actually registered rather
-than trusting an exit code, and treats every failure as non-fatal. `eng/assert-controller-pin.ps1`
-keeps the identity that script carries in step with this lock file.
+Setup installs the drivers from one place and one place only — the explicitly ticked
+`usbipdriver` task, which runs `Install-UsbipDriver.ps1` and then HidHide's own silent installer
+while setup is on screen (INV-020). The script re-verifies the pinned digest and signer on the
+user's disk before running anything, detects an existing install so it never reinstalls or
+downgrades one, confirms afterwards that `usbip2_ude` is actually registered rather than trusting an
+exit code, treats every failure as non-fatal, and writes a bounded status marker under
+`%ProgramData%\WSGM` that setup reads instead of the exit code. `eng/assert-controller-pin.ps1` keeps
+the identity that script carries in step with this lock file.
 
 The USB hub restart is why this may never move into the running shell: installing the driver
 re-enumerates every USB 3.0 hub, which on a handheld drops the built-in controller, the touch
@@ -179,10 +185,14 @@ DirectInput mode it enumerates as `1902/0001:0005 in64 out32`, it streams while 
 125 Hz, and its first report arrives about a millisecond after opening — measured with the exact
 `GENERIC_READ | GENERIC_WRITE` overlapped open the plugin uses.
 
-So two things are needed here. WSGM must register itself with HidHide *before* it needs to read a
-device rather than as part of hiding one; and a controller it cannot find must be able to say that
-HidHide is hiding it, because "no exact interface identity was available" sent the diagnosis in
-entirely the wrong direction.
+Both consequences have landed. `HidHideOwnedDeltaManager.EnsureReadableAsync` allowlists WSGM's
+own image before anything needs to read a device — `DeviceCoordinator` calls it ahead of the
+plugin's cycle start and again before controller management is re-enabled — adding nothing to the
+hidden set and leaving another owner's entries alone, so the later hiding transaction finds it
+present and records no delta. When the allowance cannot be granted the failure text names HidHide,
+so "no exact interface identity was available" no longer sends the diagnosis in the wrong direction.
+The device evidence, including the NT-path notation finding, is recorded in
+`docs\device-security.md`.
 
 ## Notices
 
