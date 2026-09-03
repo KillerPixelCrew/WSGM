@@ -58,10 +58,10 @@ The shared performance contract already provides:
 - global and per-application desired state with per-property application-to-global fallback;
 - one canonical application identity fed by Steam lifetime notifications and foreground-window
   observation: Steam AppID wins when exactly one game is running, while a usable foreground
-  executable fills Steam's missing store-app profile or identifies an application outside Steam.
-  For a store title the fill is **proof-gated**: Steam's `strInstallFolder` is resolved from the
-  same AppDetails read as the shortcut target, and only a foreground process whose image path lies
-  inside that folder may become the game's RTSS profile — a bare foreground name once made
+  executable fills Steam's missing store-app profile or identifies an application outside Steam. For
+  a store title the fill is **proof-gated**: Steam's `strInstallFolder` is resolved from the same
+  AppDetails read as the shortcut target, and only a foreground process whose image path lies inside
+  that folder may become the game's RTSS profile — a bare foreground name once made
   WindowsTerminal.exe HITMAN 3's sticky frame-limit target for a whole run (device-observed
   2026-09-02). The pairing survives alt-tab, and a different validated executable from the same
   folder takes it over (launcher handing off to the game);

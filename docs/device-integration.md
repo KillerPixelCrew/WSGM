@@ -53,9 +53,9 @@ Device Lab run from starting a second machine hardware cycle. The admitted coord
 sole package and loads its public entry type into one package-local collectible assembly-load
 context inside WSGM. That one runtime stays alive across Steam restarts, games, and desktop/game
 transitions. Runtime discovery and elevated install/removal share the exact crash-recovering
-`Global\WSGM.DevicePackageSlot` mutex. Maintenance takes that gate first, then reserves the
-hardware marker, and keeps both reservations through filesystem replacement, so package bytes
-cannot change under a loaded plugin. Uninstall holds the same objects through package deletion.
+`Global\WSGM.DevicePackageSlot` mutex. Maintenance takes that gate first, then reserves the hardware
+marker, and keeps both reservations through filesystem replacement, so package bytes cannot change
+under a loaded plugin. Uninstall holds the same objects through package deletion.
 
 When setup or uninstall refuses before file mutation, it restores the initially observed
 shell/settings mode and restarts the logon service through its installer-tagged start only when that
