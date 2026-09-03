@@ -376,16 +376,27 @@ Solution `VID_8087&PID_0AC2`:
 - The plugin accepts only the exact friendly names, custom type, ready state, Intel HID identity,
   required axes, and gyrometer counter.
 - Fresh physical reports are recorded asynchronously in `%LOCALAPPDATA%\WSGM\gyro.csv`, with one
-  16 MiB predecessor. Each culture-invariant row keeps raw, bias-corrected, and accelerometer
+  16 MiB predecessor. Each culture-invariant row keeps raw, offset, corrected, and accelerometer
   vectors plus sensor/receive timing, counter deltas, duplicate polls, read failures, and diagnostic
   queue drops. The bounded writer never performs file I/O on the sensor polling path.
+- **The gyroscope has a hardware zero-rate offset that Intel ISS does not remove** `[HW 2026-09-03]`.
+  Two eight-minute stationary captures hours apart both measure sensor-space
+  `(+0.75, -0.37, -0.14)` degrees/second against per-axis noise of 0.13, 0.07 and 0.06. It is
+  identical lying flat and held tilted, so it is neither a gravity nor an axis-transform error.
+  Peak stationary spans across 200 reports are 1.47 degrees/second and 0.023 g.
 - `SetMotionStatus(0x2F)` produced no reports/ACK and is not another source.
 
 The die-aligned physical gyro and accelerometer use one application-axis transform `(X, Z, -Y)`.
 The Steam Deck encoder applies its inverse `(X, -Z, Y)` exactly once when filling the controller's
 raw slots; this matches SDL's Deck decode and preserves the Deck ranges of 16 counts per degree per
-second and 16,384 counts per g. A stable 32-report rest window establishes the cycle's zero-rate
-bias, and only residual vectors within 0.15 degrees/second are zeroed. Never synthesize gravity or
+second and 16,384 counts per g. A Deck's own gyroscope arrives offset-free, so no target removes the
+offset above: uncorrected it reaches the wire as a permanent 12-count pitch and -6-count yaw and
+drifts the view along one fixed diagonal. The plugin therefore measures the offset from 200-report
+rest windows — gated on rate span, acceleration span and gravity magnitude, all sized from the
+captures above — and subtracts it. Subtraction only: no deadband and no zero-hold, because both
+replace the drift with a worse artifact. A steady yaw is invisible to every acceleration gate, so an
+implausible offset magnitude is refused and a later window may move a measured offset by at most a
+bounded fraction of a bounded per-axis correction. Never synthesize gravity or
 orientation: if either physical source cannot be opened, motion stays passive. A report older than
 50 ms stops contributing angular velocity while its last measured acceleration continues anchoring
 fusion. Xbox drops motion; Steam Deck and DS4 receive the measured fields through their normal

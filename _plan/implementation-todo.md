@@ -678,9 +678,25 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       degrees of path with 1,785 axis-direction reversals. HC 1.2.1.1's `SteamDeckTarget` instead
       takes `GamepadMotion.GetRawGyro()` and applies only the Deck's 16-count scale. The plugin now
       keeps the target boundary continuous and raw, leaving controller calibration to Steam.
-- [ ] Attended after deployment: tilt each physical axis and confirm Steam Deck and DS4 targets move
-      in the expected direction without a freefall state; then suspend/resume and disable/re-enable
-      Device Integration while confirming the legacy sensor handle is released and reacquired.
+- [x] **Steam does not calibrate a Deck target's gyro, so the raw offset drifted the view along a
+      fixed diagonal:** two stationary CSV captures hours apart measure the same sensor-space
+      zero-rate offset of `(+0.75, -0.37, -0.14)` degrees/second — 6x the per-axis noise, identical
+      lying flat and held tilted, so neither gravity nor the axis transform. `published_*` equalled
+      `raw_*` throughout, and the Neptune encoder therefore reported a permanent 12-count pitch and
+      -6-count yaw. A Deck's own gyroscope arrives offset-free, which is why nothing downstream
+      removed it. `StationaryGyroBiasCalibrator` now measures the offset from 200-report rest
+      windows and subtracts it, and the CSV regained its offset columns. Every gate is sized from
+      those captures: a 2 degrees/second per-axis rate span against a 1.47 peak, and a 0.05 g
+      acceleration span against a 0.023 peak, the latter also rejecting a slow tilt that holds
+      gravity at 1 g. The preceding finding stands — subtraction only, no deadband and no
+      zero-hold. A steady yaw is invisible to every acceleration gate, so an implausible offset
+      magnitude is refused and a later window may pull a measured offset by at most a bounded
+      fraction of a bounded per-axis correction.
+- [ ] Attended after deployment: confirm a stationary device holds still in Steam and that the log
+      reports the measured offset once, then tilt each physical axis and confirm Steam Deck and DS4
+      targets move in the expected direction without a freefall state; then suspend/resume and
+      disable/re-enable Device Integration while confirming the legacy sensor handle is released and
+      reacquired.
 
 ## Attended/live acceptance still required
 
