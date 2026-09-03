@@ -1123,54 +1123,54 @@ public partial class OverlayWindow : Window
         switch (capability.ValueKind)
         {
             case CapabilityValueKind.Boolean:
-            {
-                (Border row, _) = DeviceControlRows.Toggle(
-                    key,
-                    capability.Title,
-                    capability.Description,
-                    capability.CurrentValue?.BooleanValue ?? false,
-                    capability.CanInvoke,
-                    value => WriteDeviceValue(capability, new CapabilityValue
-                    {
-                        Kind = CapabilityValueKind.Boolean,
-                        BooleanValue = value,
-                    }));
-                return row;
-            }
+                {
+                    (Border row, _) = DeviceControlRows.Toggle(
+                        key,
+                        capability.Title,
+                        capability.Description,
+                        capability.CurrentValue?.BooleanValue ?? false,
+                        capability.CanInvoke,
+                        value => WriteDeviceValue(capability, new CapabilityValue
+                        {
+                            Kind = CapabilityValueKind.Boolean,
+                            BooleanValue = value,
+                        }));
+                    return row;
+                }
 
             case CapabilityValueKind.Choice when capability.Choices.Count > 0:
-            {
-                (Border row, _) = DeviceControlRows.Choice(
-                    key,
-                    capability.Title,
-                    capability.Description,
-                    capability.Choices,
-                    capability.CurrentValue?.ChoiceValue,
-                    capability.CanInvoke,
-                    value => WriteDeviceValue(capability, new CapabilityValue
-                    {
-                        Kind = CapabilityValueKind.Choice,
-                        ChoiceValue = value,
-                    }));
-                return row;
-            }
+                {
+                    (Border row, _) = DeviceControlRows.Choice(
+                        key,
+                        capability.Title,
+                        capability.Description,
+                        capability.Choices,
+                        capability.CurrentValue?.ChoiceValue,
+                        capability.CanInvoke,
+                        value => WriteDeviceValue(capability, new CapabilityValue
+                        {
+                            Kind = CapabilityValueKind.Choice,
+                            ChoiceValue = value,
+                        }));
+                    return row;
+                }
 
             case CapabilityValueKind.Text:
-            {
-                (Border row, _) = DeviceControlRows.Text(
-                    key,
-                    capability.Title,
-                    capability.Description,
-                    capability.CurrentValue?.TextValue,
-                    capability.MaximumLength,
-                    capability.CanInvoke,
-                    value => WriteDeviceValue(capability, new CapabilityValue
-                    {
-                        Kind = CapabilityValueKind.Text,
-                        TextValue = value,
-                    }));
-                return row;
-            }
+                {
+                    (Border row, _) = DeviceControlRows.Text(
+                        key,
+                        capability.Title,
+                        capability.Description,
+                        capability.CurrentValue?.TextValue,
+                        capability.MaximumLength,
+                        capability.CanInvoke,
+                        value => WriteDeviceValue(capability, new CapabilityValue
+                        {
+                            Kind = CapabilityValueKind.Text,
+                            TextValue = value,
+                        }));
+                    return row;
+                }
 
             default:
                 return null;

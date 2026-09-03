@@ -1470,6 +1470,7 @@ public sealed class ShellSession : IAsyncDisposable
 
     /// <summary>Hands a foreground application change to the running-application monitor.</summary>
     /// <param name="executable">Foreground executable file name.</param>
+    /// <param name="imagePath">Its full image path, or null when the process could not be opened.</param>
     /// <remarks>
     /// Straight through, with no policy of its own: the monitor's projection decides whether this
     /// identity is used at all, so the precedence between Steam and the foreground stays in the one

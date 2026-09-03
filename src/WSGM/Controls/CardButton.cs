@@ -69,9 +69,6 @@ public class CardButton : Button
     internal static readonly StyledProperty<PhysicalGlyphRenderPlan?> TrailingGlyphProperty =
         AvaloniaProperty.Register<CardButton, PhysicalGlyphRenderPlan?>(nameof(TrailingGlyph));
 
-    /// <summary>
-    /// Defines the <see cref="StatusBrush"/> property.
-    /// </summary>
     /// <summary>Defines the <see cref="SwatchBrush"/> property.</summary>
     public static readonly StyledProperty<IBrush?> SwatchBrushProperty =
         AvaloniaProperty.Register<CardButton, IBrush?>(nameof(SwatchBrush));
@@ -86,6 +83,7 @@ public class CardButton : Button
         set => SetValue(SwatchBrushProperty, value);
     }
 
+    /// <summary>Defines the <see cref="StatusBrush"/> property.</summary>
     public static readonly StyledProperty<IBrush?> StatusBrushProperty =
         AvaloniaProperty.Register<CardButton, IBrush?>(nameof(StatusBrush));
 
