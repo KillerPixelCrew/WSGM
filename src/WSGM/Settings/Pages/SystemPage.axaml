@@ -76,6 +76,15 @@
                             <Button Grid.Column="1" Content="Open log location" Command="{Binding OpenLogLocationCommand}" VerticalAlignment="Center" />
                         </Grid>
                     </Border>
+                    <Border Classes="setting-row">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                            <StackPanel VerticalAlignment="Center" Spacing="1">
+                                <TextBlock Text="Verbose logging" Classes="setting-title" />
+                                <TextBlock Text="Records extra detail while reproducing a problem. It makes the log considerably larger, so turn it off again once you have captured what you need. Takes effect immediately — no restart." Classes="caption" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsChecked="{Binding VerboseLogging}" VerticalAlignment="Center" />
+                        </Grid>
+                    </Border>
                 </StackPanel>
             </Grid>
         </Grid>

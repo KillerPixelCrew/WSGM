@@ -20,5 +20,5 @@ public sealed class WsgmSteamUiLog : ISteamUiLog
 
     /// <inheritdoc />
     public void Change(string key, string message, bool warning = false) =>
-        Log.Change(key, message, warning ? "warn " : "info ");
+        Log.Change(key, message, warning ? LogLevel.Warn : LogLevel.Info);
 }

@@ -718,6 +718,14 @@ public sealed class AppConfig
     /// </remarks>
     public bool SteamInputManagementEnabled { get; set; } = true;
 
+    /// <summary>How much detail reaches <c>wsgm.log</c>.</summary>
+    /// <remarks>
+    /// Absent from an older config.json this defaults to <see cref="Core.LogVerbosity.Normal"/>,
+    /// which records every transition, warning and failure. Verbose adds the debug level and is
+    /// meant for reproducing a specific problem, not for running on.
+    /// </remarks>
+    public LogVerbosity LogVerbosity { get; set; } = LogVerbosity.Normal;
+
     /// <summary>Which revision of the first-run Quick Setup this device has completed.</summary>
     /// <remarks>
     /// An int rather than a bool so a later build that adds a setting needing an

@@ -635,7 +635,7 @@ internal sealed class ViiperControllerBackend : IHidBackend
             "controller.viiper.submit",
             $"VIIPER rejected an input frame on device {BusId}:{_deviceId}: status={status}, "
                 + $"{NativeViiper.TakeLastError()}.",
-            "warn ");
+            LogLevel.Warn);
         return false;
     }
 

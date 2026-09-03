@@ -147,6 +147,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         CefDownloadKeepAwake = _config.Cef.DownloadKeepAwake;
         CefDownloadQueueSort = _config.Cef.DownloadQueueSort;
         MuteWhileDisplayOff = _config.MuteWhileDisplayOff;
+        VerboseLogging = _config.LogVerbosity == LogVerbosity.Verbose;
         _hotkey = _config.Hotkey;
         _chord = _config.GamepadChord;
         GestureBottom = _config.Gestures.BottomEdge;
@@ -880,6 +881,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     private bool _performanceEnabled;
     private int _frameLimitStrategyIndex;
     private bool _muteWhileDisplayOff;
+    private bool _verboseLogging;
 
     /// <summary>Gets or sets the shared RTSS performance integration master switch.</summary>
     public bool PerformanceEnabled
@@ -1002,6 +1004,9 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
 
     /// <summary>Gets or sets muting system audio while the screen is off.</summary>
     public bool MuteWhileDisplayOff { get => _muteWhileDisplayOff; set { _muteWhileDisplayOff = value; Raise(nameof(MuteWhileDisplayOff)); } }
+
+    /// <summary>Gets or sets whether the log records debug detail.</summary>
+    public bool VerboseLogging { get => _verboseLogging; set { _verboseLogging = value; Raise(nameof(VerboseLogging)); } }
 
     /// <summary>Gets a user-facing explanation of the sign-in behavior.</summary>
     public string ShellStatusText =>
@@ -1394,6 +1399,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.Cef.DownloadKeepAwake = CefDownloadKeepAwake;
         config.Cef.DownloadQueueSort = CefDownloadQueueSort;
         config.MuteWhileDisplayOff = MuteWhileDisplayOff;
+        config.LogVerbosity = VerboseLogging ? LogVerbosity.Verbose : LogVerbosity.Normal;
         config.Hotkey = _hotkey;
         config.GamepadChord = _chord;
         config.Gestures.BottomEdge = GestureBottom;
@@ -1614,6 +1620,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         config.Cef.DownloadKeepAwake = values.Cef.DownloadKeepAwake;
         config.Cef.DownloadQueueSort = values.Cef.DownloadQueueSort;
         config.MuteWhileDisplayOff = values.MuteWhileDisplayOff;
+        config.LogVerbosity = values.LogVerbosity;
         config.Hotkey = values.Hotkey;
         config.GamepadChord = values.GamepadChord;
         config.Gestures.BottomEdge = values.Gestures.BottomEdge;

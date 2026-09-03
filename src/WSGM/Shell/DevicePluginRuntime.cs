@@ -1055,16 +1055,11 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
 
         public void Trace(DeviceTraceLevel level, string scope, string message)
         {
-            if (_disposed || string.IsNullOrEmpty(message))
+            if (!TryFormat(scope, message, out string line))
             {
                 return;
             }
 
-            string normalizedScope = string.IsNullOrWhiteSpace(scope) ? "plugin" : scope;
-            string text = message.Length <= PluginTrace.MaxMessageLength
-                ? message
-                : message[..PluginTrace.MaxMessageLength];
-            string line = $"plugin/{normalizedScope}: {text}";
             switch (level)
             {
                 case DeviceTraceLevel.Info:
@@ -1076,7 +1071,53 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
                 case DeviceTraceLevel.Error:
                     Log.Error(line);
                     break;
+                case DeviceTraceLevel.Debug:
+                    Log.Debug(line);
+                    break;
             }
+        }
+
+        /// <summary>Routes a plugin's keyed state through the host's own repeat suppression.</summary>
+        /// <remarks>
+        /// Without this the plugin channel is the one part of the log that cannot be deduplicated,
+        /// which is exactly where the worst repetition has come from. The key is namespaced by
+        /// scope so two subsystems cannot collide on a short name like "state".
+        /// </remarks>
+        public void TraceChange(DeviceTraceLevel level, string scope, string key, string message)
+        {
+            if (!TryFormat(scope, message, out string line))
+            {
+                return;
+            }
+
+            Log.Change(
+                $"plugin/{Normalize(scope)}/{(string.IsNullOrWhiteSpace(key) ? "state" : key)}",
+                line,
+                level switch
+                {
+                    DeviceTraceLevel.Warn => LogLevel.Warn,
+                    DeviceTraceLevel.Error => LogLevel.Error,
+                    DeviceTraceLevel.Debug => LogLevel.Debug,
+                    _ => LogLevel.Info,
+                });
+        }
+
+        private static string Normalize(string scope) =>
+            string.IsNullOrWhiteSpace(scope) ? "plugin" : scope;
+
+        private bool TryFormat(string scope, string message, out string line)
+        {
+            line = string.Empty;
+            if (_disposed || string.IsNullOrEmpty(message))
+            {
+                return false;
+            }
+
+            string text = message.Length <= PluginTrace.MaxMessageLength
+                ? message
+                : message[..PluginTrace.MaxMessageLength];
+            line = $"plugin/{Normalize(scope)}: {text}";
+            return true;
         }
 
         public void ReportFault(string scope, string message)

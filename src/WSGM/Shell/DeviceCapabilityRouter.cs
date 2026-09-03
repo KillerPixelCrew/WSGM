@@ -501,8 +501,15 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             _lastResults[key] = result;
         }
 
-        Log.Info($"Device command: capability={key}, command={result.CommandId}, "
-            + $"outcome={result.Outcome}, rollback={result.Rollback}.");
+        // Keyed on the capability so a run of identical outcomes collapses: the interesting event
+        // is an outcome changing, not the hundreds of times a limit reapplied exactly as before.
+        // The command id is deliberately out of the deduplicated text — it is unique per call, so
+        // including it would defeat the key and it correlates nothing anyone reads later.
+        Log.Change(
+            $"device-command/{key}",
+            $"Device command: capability={key}, outcome={result.Outcome}, "
+                + $"rollback={result.Rollback}.",
+            result.Outcome is CommandOutcome.AppliedVerified ? LogLevel.Info : LogLevel.Warn);
         Publish();
     }
 

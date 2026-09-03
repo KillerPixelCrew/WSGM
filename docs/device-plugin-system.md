@@ -709,7 +709,14 @@ question:
 `device-plugin-late-fault`, `device-capability-state-rejected/<key>`,
 `device-capability-delta-rejected/<key>`, `controller-stale-sample`,
 `controller-sample-after-dispose`, `controller-sample-route-fault`, `device-profile/<cap>`,
-`glyph.selection`, `steam.ui.glyphs`, `ui-capture.<surface>`.
+`device-command/<capability>`, `glyph.selection`, `steam.ui.glyphs`, `ui-capture.<surface>`.
+
+A plugin reaches those same mechanics through the SDK: `PluginTrace.Debug` for detail the host
+suppresses unless verbose logging is on, and `PluginTrace.Change(scope, key, message)` for anything
+a poll loop observes. The host keys them `plugin/<scope>/<key>` so two subsystems cannot collide on
+a short name, and applies its own repeat suppression. Before API 3 the plugin channel could not
+reach `Log.Change` at all, which is why plugin lines were historically the worst repeaters in the
+file. Levels and key style are in `docs\logging.md`.
 
 ## 18. Worked example: the built-in MSI Claw package
 

@@ -135,7 +135,7 @@ internal sealed class OverlayNavigation
         Destination = destination;
         _stack.Clear();
         _stack.Add(new OverlayRoute(destination, RootPage(destination), null));
-        Log.Info($"Overlay nav: destination {destination}, page {Page}.");
+        Log.Debug($"Overlay nav: destination {destination}, page {Page}.");
         return true;
     }
 

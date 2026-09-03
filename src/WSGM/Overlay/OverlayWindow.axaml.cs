@@ -522,7 +522,7 @@ public partial class OverlayWindow : Window
                 + $"profile={snapshot.Profile is not null}, "
                 + $"performanceProfiles={performance?.ProfileRows.Count ?? 0}, "
                 + $"recovery={snapshot.Recovery is not null}",
-            DeviceCapabilityList.Children.Count == 0 ? "warn " : "info ");
+            DeviceCapabilityList.Children.Count == 0 ? LogLevel.Warn : LogLevel.Info);
 
         restoreFocus?.Focus(NavigationMethod.Directional);
         RenderPins();

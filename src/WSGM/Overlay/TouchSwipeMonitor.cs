@@ -570,7 +570,9 @@ public sealed unsafe class TouchSwipeMonitor : IDisposable
         _startX = x;
         _startY = y;
         _startedAt = (ulong)Environment.TickCount64;
-        Log.Info(
+        // Every edge contact, including the majority that never become a gesture. The line that
+        // matters is the one where a swipe actually triggers.
+        Log.Debug(
             $"Touch edge swipe started at {x},{y} " +
             $"(bottom={_bottomCandidate}, right={_rightCandidate}, " +
             $"left={_leftCandidate}, top={_topCandidate}).");

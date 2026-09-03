@@ -334,7 +334,11 @@ public sealed class OverlayController : IDisposable
         {
             AcquireSteamInputLease();
         }
-        Log.Info("Config reloaded.");
+
+        // Applied on reload so raising verbosity to reproduce something does not need a restart —
+        // the shell process that would have to be restarted is the one being diagnosed.
+        Log.SetVerbosity(config.LogVerbosity);
+        Log.Debug($"Config reloaded at {config.LogVerbosity} verbosity.");
     }
 
     private void OnSteamExited()

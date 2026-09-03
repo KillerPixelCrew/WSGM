@@ -79,6 +79,7 @@ outcome without re-verifying it is not. Read the relevant topic before editing:
 | `docs\power-and-display.md` | display/HDR, screen-off mute, keep-awake |
 | `docs\radios.md` | Wi-Fi, Bluetooth, audio and touch keyboard — and the library that owns them |
 | `docs\ui.md` | themes, controls, Settings and splash presentation |
+| `docs\logging.md` | levels, `Change` keys, verbosity and what the log file guarantees |
 | `docs\device-integration.md` | one-plugin slot and in-process runtime lifecycle |
 | `docs\device-plugin-system.md` | the host mechanism in detail: slot, gate, stager, load context, cycle, publications, commands, controller path, OEM, glyphs, Claw example, Device Lab |
 | `external\WSGM.Device.Sdk\docs\reference.md` | the public SDK contract, type by type, with every rule and limit |
@@ -294,7 +295,12 @@ mirror must stay retired. Upgrade cleanup may still name old artifacts solely to
   failures with the operation and decisive values.
 - Every branch ending in “nothing happened” logs why. Poll loops use `Log.Change(key, message)` so a
   transition is visible without repeating unchanged state thousands of times.
-- Plugins log through `PluginTrace.Info/Warn/Error/Failure`. Never log per 125 Hz sample.
+- Levels mean consequence, not volume: `Error` could not be handled, `Warn` changed behavior,
+  `Info` is a real transition, `Debug` only helps mid-investigation and is off by default. A routine
+  absence is not a warning, and a line that should not exist is not fixed by hiding it at `Debug`.
+  See `docs\logging.md`.
+- Plugins log through `PluginTrace.Debug/Info/Warn/Error/Failure` and `PluginTrace.Change` for
+  anything a poll loop observes. Never log per 125 Hz sample.
 - Public production APIs need meaningful XML documentation. Documentation explains contract,
   lifetime, ownership, non-obvious side effects and failure behavior; it does not restate a member's
   name. Test names are the executable specification and do not need XML docs.

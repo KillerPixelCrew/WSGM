@@ -113,6 +113,10 @@ public static class Program
         }
 
         Log.Init();
+        // Before anything else reads configuration, so a startup problem is captured at the
+        // verbosity the device is actually set to. The flag wins over the stored choice for this
+        // run, which is how a one-off reproduction is captured without persisting a setting.
+        ApplyLogVerbosity(args);
         // The Steam UI machinery writes through its own sink so it carries no dependency on this
         // application's logger. Installed here, right after Log.Init, because remote diagnosis of
         // the CEF surface is a pasted wsgm.log and a missed install would silently empty it.
@@ -569,6 +573,46 @@ public static class Program
             Log.Error($"Device plugin maintenance: {operation} failed", ex);
             return 1;
         }
+    }
+
+    /// <summary>Reports whether this run was asked for verbose logging on the command line.</summary>
+    /// <param name="args">Process arguments.</param>
+    /// <returns>True when <c>--verbose</c> is present.</returns>
+    internal static bool HasVerboseFlag(string[] args)
+    {
+        ArgumentNullException.ThrowIfNull(args);
+        return args.Contains("--verbose", StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Resolves this run's log verbosity from the command line, else configuration.</summary>
+    /// <param name="args">Process arguments.</param>
+    /// <returns>The verbosity applied, for tests; the side effect on <see cref="Log"/> is the point.</returns>
+    /// <remarks>
+    /// Configuration is read defensively: a damaged config.json must not decide whether the log
+    /// that would explain the damage exists. Any failure keeps the default.
+    /// </remarks>
+    internal static LogVerbosity ApplyLogVerbosity(string[] args)
+    {
+        LogVerbosity verbosity = LogVerbosity.Normal;
+        if (HasVerboseFlag(args))
+        {
+            verbosity = LogVerbosity.Verbose;
+        }
+        else
+        {
+            try
+            {
+                verbosity = ConfigStore.Load().LogVerbosity;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                or InvalidDataException or System.Text.Json.JsonException)
+            {
+                Log.Warn($"Log verbosity fell back to {verbosity}: {ex.Message}");
+            }
+        }
+
+        Log.SetVerbosity(verbosity);
+        return verbosity;
     }
 
     internal static DevicePluginMaintenanceMode ParseDevicePluginMaintenance(string[] args)

@@ -541,7 +541,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 + $"stableResources={presentation?.StableResources.Count ?? 0}, "
                 + $"controllerImages={presentation?.ControllerImages.Count ?? 0}, "
                 + $"absentControls={presentation?.AbsentControls.Count ?? 0}",
-            deliver ? "info " : "warn ");
+            deliver ? LogLevel.Info : LogLevel.Warn);
         _patches.SetPatchEnabled(SteamInputGlyphStylePatch.PatchId, deliver);
         _glyphDeliveryEnabled = deliver;
     }

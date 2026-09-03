@@ -356,7 +356,7 @@ internal sealed class WindowsRtssDiscoveryEnvironment : IRtssDiscoveryEnvironmen
                 Log.Change(
                     $"rtss.discovery.registration.{view}",
                     $"RTSS discovery could not read the {view} registration: {ex.Message}",
-                    "warn ");
+                    LogLevel.Warn);
             }
         }
 
@@ -411,7 +411,7 @@ internal sealed class WindowsRtssDiscoveryEnvironment : IRtssDiscoveryEnvironmen
             Log.Change(
                 $"rtss.discovery.file.{Path.GetFileName(path)}",
                 $"RTSS discovery could not inspect {Path.GetFileName(path)}: {ex.Message}",
-                "warn ");
+                LogLevel.Warn);
             return new(false, 0, null, null, false,
                 new HashSet<string>(StringComparer.Ordinal), false);
         }
@@ -437,7 +437,7 @@ internal sealed class WindowsRtssDiscoveryEnvironment : IRtssDiscoveryEnvironmen
                     Log.Change(
                         "rtss.discovery.process",
                         $"RTSS discovery could not inspect process {process.Id}: {ex.Message}",
-                        "warn ");
+                        LogLevel.Warn);
                 }
             }
         }

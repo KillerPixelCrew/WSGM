@@ -1079,7 +1079,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             $"rtss.command.{command.Control}",
             $"RTSS {command.Control}={command.RequestedValue?.ToString() ?? "none"} on {profile}: "
                 + $"{command.Phase}{detail}",
-            succeeded ? "info " : "warn ");
+            succeeded ? LogLevel.Info : LogLevel.Warn);
     }
 
     private PerformanceCommandState UpdateCommandLocked(PerformanceCommandState command)
