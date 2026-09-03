@@ -657,19 +657,27 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       collection exposes the LSM6DSO `Physical Gyrometer` in degrees/second plus opaque hardware
       report counter field 34, which advances at rest. The plugin now reads both physical sensors,
       requests the gyrometer's 10 ms and accelerometer's 2 ms driver minima, polls at 2 ms but
-      publishes only fresh gyro counters, restores prior intervals at cycle end, establishes a
-      stationary zero-rate bias over 32 fresh reports, and caps a transport-stale gyro at 50 ms.
+      publishes only fresh gyro counters, restores prior intervals at cycle end, passes the physical
+      angular rate to the target without a device-layer bias/deadband, and caps a transport-stale
+      gyro at 50 ms.
       Both die-aligned vectors enter the application as `(X, Z, -Y)`; the Neptune encoder applies
       SDL's inverse once and retains the Deck's 16 counts/(degree/second) and 16,384 counts/g scales.
 - [x] Add a separate bounded gyro CSV for the attended jitter investigation. Fresh physical reports
       are queued away from the poller into `%LOCALAPPDATA%\WSGM\gyro.csv` with one 16 MiB rotation;
-      rows retain raw, bias-corrected and acceleration vectors, hardware-counter deltas, sensor and
+      rows retain raw, published and acceleration vectors, hardware-counter deltas, sensor and
       monotonic receive cadence, intervening duplicate/read-failure counts, and diagnostic drops.
-- [x] **A blocking accelerometer read made a fresh gyro look stale:** the CSV isolated a 208.8 ms
-      combined read whose gyrometer report had been acquired 205.0 ms before publication, followed
-      by a 210 ms gyro jump with no duplicate counter, read failure, or queue drop. The physical
-      accelerometer is now read first and the gyrometer last, matching the reviewed HC 1.2.1.1
-      legacy-sensor path, so a stationary accelerometer wait cannot age the published gyro sample.
+- [x] **A blocking accelerometer read could make a fresh gyro look stale, but was not the reported
+      jitter:** the CSV isolated a 208.8 ms combined read whose gyrometer report had been acquired
+      205.0 ms before publication, followed by a 210 ms gyro jump with no duplicate counter, read
+      failure, or queue drop. The physical accelerometer is now read first and the gyrometer last,
+      matching the reviewed HC 1.2.1.1 legacy-sensor path, so a stationary accelerometer wait cannot
+      age the published gyro sample. The post-deploy sensor age stayed near 5–6 ms while the visible
+      jitter remained.
+- [x] **Device-layer bias correction turned stationary noise into random on/off motion:** in the
+      post-deploy stationary minute, the fixed `0.15` degrees/second radial deadband emitted 5.159
+      degrees of path with 1,785 axis-direction reversals. HC 1.2.1.1's `SteamDeckTarget` instead
+      takes `GamepadMotion.GetRawGyro()` and applies only the Deck's 16-count scale. The plugin now
+      keeps the target boundary continuous and raw, leaving controller calibration to Steam.
 - [ ] Attended after deployment: tilt each physical axis and confirm Steam Deck and DS4 targets move
       in the expected direction without a freefall state; then suspend/resume and disable/re-enable
       Device Integration while confirming the legacy sensor handle is released and reacquired.
