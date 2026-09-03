@@ -67,6 +67,35 @@ override the global write. Everything else goes to the global profile.
 Preferences persist against the AppID and report `Deferred` instead of being misapplied to the
 global profile; they apply when foreground enrichment arrives.
 
+### Every poll cross-checks the readback against what WSGM asked for
+
+An RTSS profile is a file its own UI, another overlay tool or a game's installer can rewrite, and
+none of them announce it. Nothing but the readback proves a profile still says what WSGM wrote, so
+`PerformanceService.DriftNeedsRepair` compares the two on every poll and re-applies the effective
+desired values through the ordinary `ApplyEffectiveDesiredAsync` path when they disagree.
+
+Three rules keep that from becoming a write loop:
+
+- Only a `Verified` readback counts. An unreadable property is not a mismatch, and treating it as
+  one would rewrite the profile on every poll.
+- Only a control WSGM actually has a desired value for. A user who has set no frame limit is never
+  fought over one.
+- **Once per disagreement.** A writer that takes the profile back between polls is a fight WSGM
+  cannot win and must not join, so a second consecutive disagreement about the same desired values
+  is reported and then left alone until the values change, the readback agrees, or the user sets the
+  value again by hand.
+
+| Line                                                | Meaning                                 |
+| --------------------------------------------------- | --------------------------------------- |
+| `RTSS drifted from what WSGM set (…); re-applying.` | First disagreement; one repair follows. |
+| `RTSS still disagrees after a repair (…)`           | Another writer owns it; WSGM stopped.   |
+| `RTSS holds the values WSGM set again.`             | The episode ended.                      |
+
+The command outcome line names its origin (`overlay`, `native-qam`, `application-transition`,
+`policy-reload`, `drift-repair`) for the same reason: a value nobody meant to set is otherwise
+unattributable, and placing that 12 FPS cap took a whole evening because the log could not say which
+surface had written it.
+
 ## OSD levels
 
 The overlay control exposes Steam's five selector notches. Levels 1–3 are fixed WSGM-rendered
@@ -88,13 +117,28 @@ QAM boundary in both directions, and everything behind it speaks notches.
 Those notch names are what the overlay's Performance overlay row offers, as a dropdown built from
 the levels the adapter actually publishes. It used to be a cycling button reading "On" for every one
 of 1 to 4, which made four different overlays indistinguishable in the one place they are chosen.
-The frame limit beside it is a slider over 0 to 280 FPS, zero reading "Off": the preset ladder it
-cycled through could not reach a rate the ladder did not contain, and 280 covers every panel a
-handheld drives while staying crossable on a thumbstick. Both write through
+The frame limit beside it is a slider, zero reading "Off": the preset ladder it cycled through could
+not reach a rate the ladder did not contain. Both write through
 `PerformanceOverlayBridge.SetValueAsync`, which refuses a value the adapter does not accept rather
 than sending it. `CyclePerformanceOverlayLevel` still cycles for the OEM button; there is
-deliberately no frame-limit equivalent, because stepping a 280-value range one notch at a time is
+deliberately no frame-limit equivalent, because stepping a range this size one notch at a time is
 not something a button can usefully do.
+
+### The overlay slider and the Quick Access row bookend the same way
+
+Both ask `FrameLimitPairing.FrameLimitRange` — 30 FPS up to the highest rate the display accepted,
+capped at 280 because the slider has to stay crossable on a thumbstick. They did not: the overlay
+ran over RTSS's own 0-1000 instead, so a stray thumbstick on the Device page set a 12 FPS cap that
+RTSS honoured and the Quick Access row could not represent. That row's injected half validates the
+state it is handed against its own bookends, so it discarded the whole thing and the frame-limit
+slider disappeared from the Quick Access Menu entirely (Claw, 2026-09-03).
+
+Both halves of that changed. The overlay's slider now spans the panel's range, and because it has no
+separate off switch the way SteamOS's row does, it keeps zero and treats everything under the floor
+as zero — `DescriptorRange.OffBelow`, applied to the committed value and to the label the user reads
+while dragging, so the two cannot disagree. On the toolkit side a cap outside the bookends now
+stretches them rather than invalidating the row: the row is where the user would have corrected the
+value, so deleting it is the one response that cannot be recovered from.
 
 Nonzero levels are drawn into one claimed RTSS OSD slot. `RtssOsdSlots` is a C# port of
 RTSSSharedMemoryNET's claim/update/release protocol, the library HandheldCompanion ships (vendoring

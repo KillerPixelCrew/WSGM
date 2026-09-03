@@ -401,6 +401,58 @@ public sealed class PerformanceServiceTests
     }
 
     [Fact]
+    public async Task DriftFromTheDesiredValuesIsReappliedOnce()
+    {
+        await using var adapter = new FakeRtssAdapter();
+        adapter.Values[string.Empty] = new PerformanceValues(60, 1);
+        await using var service = CreateService(
+            adapter,
+            new PerformancePolicy(new PerformanceValues(60, 1), []));
+        await service.RefreshAsync();
+        Assert.Empty(adapter.Applies);
+
+        adapter.Values[string.Empty] = new PerformanceValues(12, 1);
+        await service.RefreshAsync();
+
+        // Both controls are rewritten, because the repair goes through the same effective-desired
+        // path every application transition uses rather than a second partial one.
+        Assert.Equal(2, adapter.Applies.Count);
+        Assert.Equal(60, adapter.Values[string.Empty].FrameLimit);
+
+        await service.RefreshAsync();
+
+        Assert.Equal(2, adapter.Applies.Count);
+    }
+
+    [Fact]
+    public async Task AProfileTakenBackAfterARepairIsReportedRatherThanFought()
+    {
+        await using var adapter = new FakeRtssAdapter();
+        adapter.Values[string.Empty] = new PerformanceValues(60, 1);
+        await using var service = CreateService(
+            adapter,
+            new PerformancePolicy(new PerformanceValues(60, 1), []));
+        await service.RefreshAsync();
+
+        // A writer that takes the profile back the moment WSGM lets go of it.
+        adapter.OnApply = (request, _) =>
+        {
+            adapter.Write(request);
+            adapter.Values[request.RtssProfileName] = new PerformanceValues(12, 1);
+            return Task.FromResult(new RtssApplyResult(true, null));
+        };
+        adapter.Values[string.Empty] = new PerformanceValues(12, 1);
+        await service.RefreshAsync();
+        int afterOneRepair = adapter.Applies.Count;
+
+        await service.RefreshAsync();
+        await service.RefreshAsync();
+
+        Assert.Equal(2, afterOneRepair);
+        Assert.Equal(afterOneRepair, adapter.Applies.Count);
+    }
+
+    [Fact]
     public async Task ReloadedPolicyReconcilesThroughTheSameAdapterPath()
     {
         await using var adapter = new FakeRtssAdapter();

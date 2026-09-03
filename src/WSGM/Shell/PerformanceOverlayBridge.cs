@@ -41,11 +41,21 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         (4, "Custom"),
     ];
     private readonly PerformanceService _service;
+    private readonly Func<(int Minimum, int Maximum)?> _panelFrameLimitRange;
     private bool _disposed;
 
-    internal PerformanceOverlayBridge(PerformanceService service)
+    /// <param name="service">The session-owned RTSS service this projects.</param>
+    /// <param name="panelFrameLimitRange">
+    /// The caps the display can actually be asked for, from the same pairing policy that bookends
+    /// the Quick Access row. Null while no display has been enumerated — overlay-test has no
+    /// pairing service at all — and the slider then falls back to what RTSS alone will accept.
+    /// </param>
+    internal PerformanceOverlayBridge(
+        PerformanceService service,
+        Func<(int Minimum, int Maximum)?>? panelFrameLimitRange = null)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
+        _panelFrameLimitRange = panelFrameLimitRange ?? (static () => null);
         _service.StateChanged += OnStateChanged;
     }
 
@@ -417,11 +427,36 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         };
     }
 
-    /// <summary>The slider bounds RTSS will actually accept, clamped to a crossable range.</summary>
-    private static DescriptorRange FrameLimitRange(RtssCapabilities capabilities) => new(
-        Math.Max(0, capabilities.MinimumFrameLimit),
-        Math.Min(MaximumFrameLimit, capabilities.MaximumFrameLimit),
-        Step: 1);
+    /// <summary>The slider bounds, agreeing with the Quick Access row about what a legal cap is.</summary>
+    /// <remarks>
+    /// RTSS accepts 0 to 1000 and the pairing policy offers a much narrower band — 30 up to the
+    /// highest rate the display accepted. Running the slider over RTSS's range instead let the
+    /// overlay set a 12 FPS cap that the Quick Access row could not represent, and that row
+    /// disappeared rather than drawing it (Claw, 2026-09-03). The two now bookend the same way.
+    /// <para>
+    /// Zero stays reachable, because zero is how this row is switched off and the overlay has no
+    /// separate switch for it; <see cref="DescriptorRange.OffBelow"/> carries the gap between it
+    /// and the lowest real cap.
+    /// </para>
+    /// </remarks>
+    private DescriptorRange FrameLimitRange(RtssCapabilities capabilities)
+    {
+        int ceiling = Math.Min(MaximumFrameLimit, capabilities.MaximumFrameLimit);
+        if (_panelFrameLimitRange() is { } panel)
+        {
+            int floor = Math.Max(capabilities.MinimumFrameLimit, panel.Minimum);
+            int top = Math.Min(panel.Maximum, ceiling);
+            if (top >= floor)
+            {
+                return new DescriptorRange(0, top, Step: 1, OffBelow: floor);
+            }
+        }
+
+        return new DescriptorRange(
+            Math.Max(0, capabilities.MinimumFrameLimit),
+            ceiling,
+            Step: 1);
+    }
 
     /// <summary>The named notches this RTSS build accepts, in order.</summary>
     private static IReadOnlyList<DescriptorOption> OverlayLevelOptions(RtssCapabilities capabilities) =>

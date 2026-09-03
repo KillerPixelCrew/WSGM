@@ -2269,6 +2269,14 @@
       // half-populated range here rather than inside the big test below is also what
       // lets the rest of it treat maximumFps as a number.
       if ((minimumFps === null) !== (maximumFps === null)) return null;
+      // A cap only has to be something the limiter could hold. It is deliberately NOT required to
+      // sit between the bookends: a host that raised its floor, or a limiter written behind the
+      // host's back, would otherwise publish a state that deleted the whole row — and this row is
+      // the only place the user could have corrected the value. Observed on a Claw (2026-09-03),
+      // where a 12 FPS cap under a floor of 30 took the Quick Access slider away entirely and left
+      // no way to put it back. The bookends stretch to reach the value instead.
+      const capUnusable = (fps) =>
+        fps !== null && (!Number.isInteger(fps) || fps < 0 || fps > 1000);
       if (
         (minimumFps !== null &&
           maximumFps !== null &&
@@ -2277,26 +2285,22 @@
             minimumFps < 0 ||
             maximumFps < minimumFps ||
             maximumFps > 1000)) ||
-        // Zero is OFF and is deliberately outside the slider's range, which now starts at a cap
-        // worth playing at. Rejecting it here would have thrown away every state in which the user
-        // has no cap set — which is the default one.
-        (desiredFps !== null &&
-          desiredFps !== 0 &&
-          (!Number.isInteger(desiredFps) ||
-            minimumFps === null ||
-            maximumFps === null ||
-            desiredFps < minimumFps ||
-            desiredFps > maximumFps)) ||
-        (observedFps !== null &&
-          observedFps !== 0 &&
-          (!Number.isInteger(observedFps) ||
-            minimumFps === null ||
-            maximumFps === null ||
-            observedFps < minimumFps ||
-            observedFps > maximumFps)) ||
+        capUnusable(desiredFps) ||
+        capUnusable(observedFps) ||
         (common.available && minimumFps === null)
       )
         return null;
+      // Zero is OFF and is deliberately outside the slider's range, which starts at a cap worth
+      // playing at, so it is the one value that never stretches a bookend.
+      let lowestFps = minimumFps;
+      let highestFps = maximumFps;
+      if (lowestFps !== null && highestFps !== null) {
+        for (const fps of [desiredFps, observedFps]) {
+          if (fps === null || fps <= 0) continue;
+          if (fps < lowestFps) lowestFps = fps;
+          if (fps > highestFps) highestFps = fps;
+        }
+      }
       // Cap to refresh rate, for the "(60 Hz)" half of the label. Absent under the uncoupled
       // strategy, where a cap moves no display mode and there is nothing to name.
       const refreshForCap = new Map();
@@ -2338,8 +2342,8 @@
         refreshMaxHz >= refreshMinHz;
       return Object.freeze({
         ...common,
-        minimumFps,
-        maximumFps,
+        minimumFps: lowestFps,
+        maximumFps: highestFps,
         desiredFps,
         observedFps,
         limitEnabled: value.limitEnabled === true,

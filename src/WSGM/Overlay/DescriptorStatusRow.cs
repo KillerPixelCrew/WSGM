@@ -54,7 +54,14 @@ internal sealed record DescriptorRow(
 /// <param name="Minimum">Inclusive lower bound.</param>
 /// <param name="Maximum">Inclusive upper bound.</param>
 /// <param name="Step">Movement per pad nudge; at least 1.</param>
-internal readonly record struct DescriptorRange(int Minimum, int Maximum, int Step);
+/// <param name="OffBelow">
+/// The lowest value the row means anything at, or zero when every position is a real value. The
+/// frame limit has one: the slider must still reach zero, because zero is how the row is switched
+/// off and there is no separate switch, but the caps under the panel's floor are not values any
+/// other surface will accept. Everything below this reads and commits as zero rather than as a cap
+/// the Quick Access row would then refuse to draw.
+/// </param>
+internal readonly record struct DescriptorRange(int Minimum, int Maximum, int Step, int OffBelow = 0);
 
 /// <summary>One named value of a row the user picks from a dropdown.</summary>
 /// <param name="Value">The value written when it is chosen.</param>

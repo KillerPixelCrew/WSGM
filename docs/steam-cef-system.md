@@ -358,6 +358,12 @@ an unavailable state and refuse writes with the reason; audio, network, Bluetoot
 modules are not declared at all without their managers. A perf control is hidden by omitting its
 field; a component that cannot mount reports why in `renderOutcomes`.
 
+`state received but rejected by validation` is the outcome to look for when a row that used to draw
+stops drawing: the host published something the injected half refused, so the control returns null
+and the row vanishes with no other symptom. It is what a 12 FPS frame cap under a 30 FPS bookend
+produced (Claw, 2026-09-03) before that row learned to stretch its bookends instead of rejecting the
+value — see `docs\rtss.md`.
+
 ### Performance state
 
 The toolkit's `SteamPerformanceState` mirrors Valve's `CMsgSystemPerfState`: `limits`,

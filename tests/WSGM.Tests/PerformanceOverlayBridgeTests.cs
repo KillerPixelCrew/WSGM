@@ -13,8 +13,10 @@ public sealed class PerformanceOverlayBridgeTests
         await using PerformanceService service = new(
             new SimulatedRtssAdapter(),
             static (_, _) => Task.CompletedTask,
+            // The values the simulated profile already holds, so the poll's drift check has
+            // nothing to repair and this stays a test about the projection.
             new PerformancePolicy(
-                new PerformanceValues(60, 0),
+                new PerformanceValues(60, 2),
                 Array.Empty<PerformanceApplicationPolicy>()));
         using PerformanceOverlayBridge bridge = new(service);
         using IDisposable observation = bridge.AcquireObservation();
@@ -29,6 +31,46 @@ public sealed class PerformanceOverlayBridgeTests
         Assert.Equal("3", after.Rows.Single(row => row.Id == "overlay-level").TrailingText);
         Assert.Equal(3, service.Current.Desired.OverlayLevel);
         Assert.Equal(1, service.ObserverCount);
+    }
+
+    [Fact]
+    public async Task TheFrameLimitSliderBookendsWhereTheQuickAccessRowDoes()
+    {
+        await using PerformanceService service = new(
+            new SimulatedRtssAdapter(),
+            static (_, _) => Task.CompletedTask,
+            new PerformancePolicy(new PerformanceValues(60, 2), []));
+        using PerformanceOverlayBridge bridge = new(service, static () => (30, 120));
+        using IDisposable observation = bridge.AcquireObservation();
+        await service.RefreshAsync();
+
+        DescriptorRange range = bridge.Snapshot().Rows
+            .Single(row => row.Id == "frame-limit").Range!.Value;
+
+        // Zero stays reachable because it is how the overlay switches the cap off, and the panel's
+        // ceiling replaces RTSS's own — a cap outside these is one the Quick Access row cannot draw.
+        Assert.Equal(0, range.Minimum);
+        Assert.Equal(120, range.Maximum);
+        Assert.Equal(30, range.OffBelow);
+    }
+
+    [Fact]
+    public async Task WithoutAPanelRangeTheFrameLimitSliderFallsBackToWhatRtssAccepts()
+    {
+        await using PerformanceService service = new(
+            new SimulatedRtssAdapter(),
+            static (_, _) => Task.CompletedTask,
+            new PerformancePolicy(new PerformanceValues(60, 2), []));
+        using PerformanceOverlayBridge bridge = new(service);
+        using IDisposable observation = bridge.AcquireObservation();
+        await service.RefreshAsync();
+
+        DescriptorRange range = bridge.Snapshot().Rows
+            .Single(row => row.Id == "frame-limit").Range!.Value;
+
+        Assert.Equal(0, range.Minimum);
+        Assert.Equal(240, range.Maximum);
+        Assert.Equal(0, range.OffBelow);
     }
 
     [Fact]

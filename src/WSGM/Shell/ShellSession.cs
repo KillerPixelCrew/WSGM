@@ -425,7 +425,12 @@ public sealed class ShellSession : IAsyncDisposable
             _overlayTestOnly ? new SimulatedRtssAdapter() : new RtssNativeAdapter(),
             _overlayTestOnly ? PersistSimulatedPerformancePolicyAsync : PersistPerformancePolicyAsync,
             BuildPerformancePolicy(_config, forceEnabled: _overlayTestOnly));
-        _performanceOverlay = new PerformanceOverlayBridge(_performance);
+        // Read through the field rather than captured, because the pairing service is created a
+        // few lines below this and replaced on shutdown; the overlay slider then bookends exactly
+        // where the Quick Access row does instead of running over RTSS's own 0-1000.
+        _performanceOverlay = new PerformanceOverlayBridge(
+            _performance,
+            () => _refreshPairing?.FrameLimitRange());
         _performance.ApplyOsdCustomization(RtssOsdCustomSettings.FromConfig(_config.Performance));
         if (_overlayTestOnly)
         {

@@ -160,6 +160,21 @@ internal sealed class RefreshRatePairingService
         return FrameLimitPairing.FrameLimitOptions(strategy, advertised, accepted);
     }
 
+    /// <summary>The two ends of the cap range this panel can hold.</summary>
+    /// <returns>The inclusive bounds, or null when no rate is high enough to carry a cap.</returns>
+    /// <remarks>
+    /// Every surface that offers a frame limit asks this, so the overlay's slider and the Quick
+    /// Access row cannot disagree about what a legal cap is. They did: the overlay ran from RTSS's
+    /// own floor of zero and let a 12 FPS cap be set, which the Quick Access row then refused to
+    /// render at all because it bookends the slider here (Claw, 2026-09-03).
+    /// </remarks>
+    internal (int Minimum, int Maximum)? FrameLimitRange()
+    {
+        (FrameLimitStrategy strategy, IReadOnlyList<int> advertised, IReadOnlyList<int> accepted) =
+            Snapshot();
+        return FrameLimitPairing.FrameLimitRange(strategy, advertised, accepted);
+    }
+
     /// <summary>The refresh rate a cap would be presented at, without applying anything.</summary>
     /// <param name="capFps">The frame cap being considered.</param>
     /// <returns>The paired rate, or null when the refresh rate would be left alone.</returns>

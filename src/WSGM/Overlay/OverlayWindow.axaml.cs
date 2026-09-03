@@ -1595,8 +1595,8 @@ public partial class OverlayWindow : Window
                 CapabilityUnit.None,
                 current,
                 descriptor.CanInvoke,
-                value => WritePerformanceValue(descriptor.Id, value),
-                FormatFrameRate);
+                value => WritePerformanceValue(descriptor.Id, SettledValue(range, value)),
+                value => FormatFrameRate(SettledValue(range, value)));
         }
 
         if (descriptor.Options.Count > 0)
@@ -1629,6 +1629,15 @@ public partial class OverlayWindow : Window
 
         return null;
     }
+
+    /// <summary>What a slider position actually commits, once the row's off band is applied.</summary>
+    /// <remarks>
+    /// The label and the write ask the same question, so the number the user is reading while they
+    /// drag is the number that lands. Without that the handle would show a cap in the off band and
+    /// then write zero.
+    /// </remarks>
+    private static int SettledValue(DescriptorRange range, int value) =>
+        value < range.OffBelow ? 0 : value;
 
     /// <summary>A frame limit reads as a rate, and zero means the cap is off rather than "0 FPS".</summary>
     private static string FormatFrameRate(int value) => value <= 0

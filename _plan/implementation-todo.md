@@ -790,8 +790,40 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       curve editor, variable refresh, AutoTDP, both profile rows and the performance rows; drag a
       curve node and confirm it cannot dip below its neighbour, that the write is one command
       reaching both channels, and that each preset produces a visibly different curve; confirm the
-      frame-limit slider reaches 280 and reads "Off" at zero, and that the overlay dropdown names
-      all five levels and each renders the overlay it names.
+      frame-limit slider reaches the panel's highest rate and reads "Off" below 30, and that the
+      overlay dropdown names all five levels and each renders the overlay it names.
+
+## Frame-limit regressions of 2026-09-03 - fixed in source, attended re-check pending
+
+- [x] **A 12 FPS cap reached RTSS, and took the Quick Access frame-limit row with it:** one stray
+      thumbstick run on the Device page's frame-limit slider. The overlay slider ran over RTSS's own
+      0-1000 while every other surface bookends at `FrameLimitPairing.FrameLimitRange` — 30 up to
+      the highest rate the display accepted — so 12 was a value only the overlay could produce, RTSS
+      honoured it into the global profile, and the injected row then discarded the published state
+      as out of range and rendered nothing (`"frameLimit":"state received but rejected by
+      validation"`). Two regressions, one cause.
+- [x] **The overlay's slider bookends where the Quick Access row does.**
+      `PerformanceOverlayBridge` takes the panel range from the pairing service and clamps to it.
+      The overlay has no separate off switch, so zero stays reachable and `DescriptorRange.OffBelow`
+      carries the gap: everything under the floor commits as zero, and the label the user reads
+      while dragging is put through the same rule so it cannot promise a cap the write will not
+      make.
+- [x] **A cap outside the bookends stretches them rather than deleting the row** (toolkit,
+      `components.ts`). The row is the only place the user could have corrected the value, so
+      refusing to draw it is the one response there is no way back from. Non-integer, negative and
+      over-1000 caps are still rejected.
+- [x] **Every poll cross-checks the readback against the desired values.**
+      `PerformanceService.DriftNeedsRepair` re-applies through the ordinary effective-desired path
+      when RTSS holds something else, counts only a `Verified` readback, and repairs once per
+      disagreement — a writer that takes the profile back between polls is reported, not fought.
+      The command outcome line now names its origin, because this cap could not be attributed to a
+      surface from the log at all.
+- [ ] Attended after deployment: on the Claw, confirm the Quick Access frame-limit slider is back
+      with the stored 12 FPS cap visible on it and draggable up into the normal range; that the
+      overlay slider will not produce a cap between 1 and 29 and reads "Off" there; that a cap set
+      in either surface reads the same in the other and in RTSS's own profile view; and that editing
+      `FramerateLimit` by hand in RTSS produces one `RTSS drifted from what WSGM set` line followed
+      by one repair, not a write every two seconds.
 
 ## Attended/live acceptance still required
 
