@@ -375,10 +375,10 @@ Solution `VID_8087&PID_0AC2`:
   prior current interval; release restores it only if no other client changed the value meanwhile.
 - The plugin accepts only the exact friendly names, custom type, ready state, Intel HID identity,
   required axes, and gyrometer counter.
-- Fresh physical reports are recorded asynchronously in `%LOCALAPPDATA%\WSGM\gyro.csv`, with one
-  16 MiB predecessor. Each culture-invariant row keeps raw, offset, corrected, and accelerometer
-  vectors plus sensor/receive timing, counter deltas, duplicate polls, read failures, and diagnostic
-  queue drops. The bounded writer never performs file I/O on the sensor polling path.
+- Motion writes no per-report file. The CSV that produced the cadence and offset findings below was
+  removed once they were established: at 100 Hz it cost about 10 MB per five minutes, which does not
+  belong on a handheld's SSD. `wsgm.log` receives transitions only. A future raw-stream
+  investigation adds a capture temporarily and removes it with the finding.
 - **The gyroscope has a hardware zero-rate offset that Intel ISS does not remove** `[HW 2026-09-03]`.
   Two eight-minute stationary captures hours apart both measure sensor-space
   `(+0.75, -0.37, -0.14)` degrees/second against per-axis noise of 0.13, 0.07 and 0.06. It is

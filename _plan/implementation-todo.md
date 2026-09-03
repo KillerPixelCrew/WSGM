@@ -666,6 +666,10 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       are queued away from the poller into `%LOCALAPPDATA%\WSGM\gyro.csv` with one 16 MiB rotation;
       rows retain raw, published and acceleration vectors, hardware-counter deltas, sensor and
       monotonic receive cadence, intervening duplicate/read-failure counts, and diagnostic drops.
+      **Removed 2026-09-03** once it had produced the stale-read and zero-rate-offset findings
+      below: 100 Hz of rows cost roughly 10 MB per five minutes of play, which does not belong on a
+      handheld's SSD. The per-report bookkeeping that existed only to fill it went with it. A future
+      raw-stream investigation adds a capture temporarily and removes it with the finding.
 - [x] **A blocking accelerometer read could make a fresh gyro look stale, but was not the reported
       jitter:** the CSV isolated a 208.8 ms combined read whose gyrometer report had been acquired
       205.0 ms before publication, followed by a 210 ms gyro jump with no duplicate counter, read
