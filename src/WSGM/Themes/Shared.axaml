@@ -33,8 +33,8 @@
     </Style>
 
     <!-- Unified focus visual: no focus adorner anywhere; every button carries a
-         2 px border that flips to the accent color on focus (the device-proven
-         overlay mechanism). -->
+         2 px border that flips to the accent color for keyboard/directional focus.
+         Pointer focus deliberately stays visually quiet. -->
     <Style Selector="Button">
         <Setter Property="MinHeight" Value="26" />
         <Setter Property="Padding" Value="7,2" />
@@ -48,7 +48,7 @@
     <Style Selector="Button:pointerover">
         <Setter Property="Background" Value="{StaticResource HcControlHoverBrush}" />
     </Style>
-    <Style Selector="Button:focus">
+    <Style Selector="Button:focus-visible">
         <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
     </Style>
     <Style Selector="Button.primary">
@@ -111,7 +111,7 @@
         <Setter Property="Padding" Value="8,6" />
         <Setter Property="FocusAdorner" Value="{x:Null}" />
     </Style>
-    <Style Selector="Button.radio-row-header:focus">
+    <Style Selector="Button.radio-row-header:focus-visible">
         <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
     </Style>
     <Style Selector="StackPanel.radio-row-actions">

@@ -635,7 +635,7 @@
 
     <Window.Styles>
         <!-- Header status pills: compact rounded buttons. The local BorderBrush
-             wins the equal-specificity tie against Shared.axaml's Button:focus, so
+             wins the equal-specificity tie against Shared.axaml's Button:focus-visible, so
              the accent focus border is restated here (same workaround as
              TabStripTheme) — otherwise a focused pill would have no cue. -->
         <Style Selector="Button.pill">
@@ -649,7 +649,7 @@
             <Setter Property="HorizontalContentAlignment" Value="Center" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
-        <Style Selector="Button.pill:focus">
+        <Style Selector="Button.pill:focus-visible">
             <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
         </Style>
         <Style Selector="Button.pill:pointerover">
@@ -661,14 +661,14 @@
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderBrush" Value="Transparent" />
         </Style>
-        <Style Selector="Button.pill.tray:focus">
+        <Style Selector="Button.pill.tray:focus-visible">
             <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
         </Style>
         <Style Selector="Button.pill.close">
             <Setter Property="Foreground" Value="{StaticResource HcTextMutedBrush}" />
             <Setter Property="FontSize" Value="16" />
         </Style>
-        <Style Selector="Button.pill.close:focus">
+        <Style Selector="Button.pill.close:focus-visible">
             <Setter Property="Foreground" Value="{StaticResource HcTextPrimaryBrush}" />
         </Style>
         <!-- Read-only pills (battery, clock) share the shape without a focus stop. -->
@@ -701,7 +701,7 @@
             <Setter Property="CornerRadius" Value="6" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
-        <Style Selector="Button.app-chip:focus">
+        <Style Selector="Button.app-chip:focus-visible">
             <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
         </Style>
         <Style Selector="Button.app-chip:pointerover">

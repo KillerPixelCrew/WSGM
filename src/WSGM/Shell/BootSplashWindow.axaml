@@ -26,7 +26,7 @@
         <Style Selector="Button#DesktopButton">
             <Setter Property="Foreground" Value="{StaticResource HcTextMutedBrush}" />
         </Style>
-        <Style Selector="Button#DesktopButton:focus">
+        <Style Selector="Button#DesktopButton:focus-visible">
             <Setter Property="Foreground" Value="{StaticResource HcTextPrimaryBrush}" />
         </Style>
     </Window.Styles>

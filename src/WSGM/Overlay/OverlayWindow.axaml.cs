@@ -44,6 +44,12 @@ public partial class OverlayWindow : Window
     private PixelPoint _slideStart;
     private PixelPoint _slideEnd;
     private DateTime _slideStartedUtc;
+    private readonly HashSet<IPointer> _pressedPointers = [];
+    private int _pendingLiveRefreshes;
+    private int _liveRefreshScheduled;
+
+    private const int DeviceLiveRefresh = 1;
+    private const int PerformanceLiveRefresh = 2;
 
     /// <summary>Raised when the user requests to start or focus the home application.</summary>
     public event Action? HomeAppRequested;
@@ -322,7 +328,7 @@ public partial class OverlayWindow : Window
         }
     }
 
-    private void OnDeviceChanged() => Dispatcher.UIThread.Post(RefreshDevicePanel);
+    private void OnDeviceChanged() => QueueLiveRefresh(DeviceLiveRefresh);
 
     /// <summary>True while focus is on an interactive value control inside the capability list — a
     /// slider, dropdown, toggle or textbox the user is adjusting. A telemetry-driven rebuild while
@@ -367,14 +373,75 @@ public partial class OverlayWindow : Window
         HomeAppButton.TrailingGlyph = _deviceBridge?.NavigationHint(GlyphControlId.FaceSouth);
     }
 
-    private void OnPerformanceChanged() => Dispatcher.UIThread.Post(() =>
+    private void OnPerformanceChanged() => QueueLiveRefresh(PerformanceLiveRefresh);
+
+    /// <summary>Coalesces telemetry-driven redraws and keeps the current visual tree alive for the
+    /// complete pointer gesture. Replacing a button after pointer-down but before pointer-up drops
+    /// its Click, which presents as a button that needs a second tap.</summary>
+    private void QueueLiveRefresh(int refreshes)
     {
-        RefreshPerformancePanel();
-        if (_navigation.IsVisible(OverlayDestination.Device))
+        Interlocked.Or(ref _pendingLiveRefreshes, refreshes);
+        ScheduleLiveRefresh();
+    }
+
+    private void ScheduleLiveRefresh()
+    {
+        if (Interlocked.CompareExchange(ref _liveRefreshScheduled, 1, 0) == 0)
+        {
+            this.Dispatcher.Post(ProcessLiveRefreshes, DispatcherPriority.Background);
+        }
+    }
+
+    private void ProcessLiveRefreshes()
+    {
+        Interlocked.Exchange(ref _liveRefreshScheduled, 0);
+        if (_closed || _pressedPointers.Count > 0)
+        {
+            return;
+        }
+
+        int refreshes = Interlocked.Exchange(ref _pendingLiveRefreshes, 0);
+        if ((refreshes & PerformanceLiveRefresh) != 0)
+        {
+            RefreshPerformancePanel();
+        }
+        if ((refreshes & DeviceLiveRefresh) != 0
+            || (refreshes & PerformanceLiveRefresh) != 0
+                && _navigation.IsVisible(OverlayDestination.Device))
         {
             RefreshDevicePanel();
         }
-    });
+
+        if (Volatile.Read(ref _pendingLiveRefreshes) != 0)
+        {
+            ScheduleLiveRefresh();
+        }
+    }
+
+    private void OnPointerPressedForLiveRefresh(object? sender, PointerPressedEventArgs e)
+        => _pressedPointers.Add(e.Pointer);
+
+    private void OnPointerReleasedForLiveRefresh(object? sender, PointerReleasedEventArgs e)
+    {
+        _pressedPointers.Remove(e.Pointer);
+        ResumeLiveRefreshAfterPointer();
+    }
+
+    private void OnPointerCaptureLostForLiveRefresh(object? sender, PointerCaptureLostEventArgs e)
+    {
+        _pressedPointers.Remove(e.Pointer);
+        ResumeLiveRefreshAfterPointer();
+    }
+
+    private void ResumeLiveRefreshAfterPointer()
+    {
+        if (_pressedPointers.Count == 0 && Volatile.Read(ref _pendingLiveRefreshes) != 0)
+        {
+            // This tunnel handler runs before Button processes the release. Background priority
+            // lets Click finish against the original control before any deferred tree replacement.
+            ScheduleLiveRefresh();
+        }
+    }
 
     private void RefreshDevicePanel()
     {
@@ -1701,6 +1768,9 @@ public partial class OverlayWindow : Window
         // Touch and mouse routes to pinning: a hold on a row, or a right click.
         AddHandler(InputElement.HoldingEvent, OnHolding, RoutingStrategies.Bubble);
         AddHandler(PointerReleasedEvent, OnPointerReleasedForPin, RoutingStrategies.Bubble);
+        AddHandler(PointerPressedEvent, OnPointerPressedForLiveRefresh, RoutingStrategies.Tunnel);
+        AddHandler(PointerReleasedEvent, OnPointerReleasedForLiveRefresh, RoutingStrategies.Tunnel);
+        PointerCaptureLost += OnPointerCaptureLostForLiveRefresh;
 
         ConfigureTabs(showDevice: false);
         Tabs.SelectionChanged += OnTabSelectionChanged;
@@ -1817,6 +1887,11 @@ public partial class OverlayWindow : Window
         // These page controls are window-owned. Detach every cross-control callback and
         // invalidate asynchronous artwork loads at the same lifetime boundary.
         Tabs.SelectionChanged -= OnTabSelectionChanged;
+        RemoveHandler(PointerPressedEvent, OnPointerPressedForLiveRefresh);
+        RemoveHandler(PointerReleasedEvent, OnPointerReleasedForLiveRefresh);
+        PointerCaptureLost -= OnPointerCaptureLostForLiveRefresh;
+        _pressedPointers.Clear();
+        Interlocked.Exchange(ref _pendingLiveRefreshes, 0);
         LibraryTabsHost.CloseRequested -= LeaveLibraryTabsSubView;
         CardManagerHost.CloseRequested -= LeaveCardManagerSubView;
         CardManagerHost.FormatRequested -= OnFormatFromCardManager;

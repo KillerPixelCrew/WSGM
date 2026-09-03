@@ -12,8 +12,17 @@ colours. The runtime accent family (`HcAccentBrush`, `HcOnAccentBrush`, `HcOnAcc
 uses `DynamicResource`; stable tokens use `StaticResource`.
 
 Focus uses one mechanism: `FocusAdorner={x:Null}` plus a constant two-pixel border whose brush
-changes on `:focus`. Recreating Avalonia's adorner during focus movement loses it on activation
-transitions.
+changes on `:focus-visible`. That keeps the controller/keyboard cursor visible without leaving the
+same glow behind after every touch. Recreating Avalonia's adorner during focus movement loses it on
+activation transitions.
+
+Avalonia owns the visual tree, bound collections and observable presentation state on its
+dispatcher. Potentially slow Windows enumeration and process snapshots run off that thread; a
+completed detached result is posted back at background priority. Telemetry refreshes are coalesced
+before changing the visual tree, and never replace a control during its active pointer gesture.
+Compiled bindings are enabled project-wide. Current non-virtualized `ItemsControl` uses are bounded
+UI sets (device settings, radios, drives and open apps); an unbounded collection belongs in a
+height-constrained virtualizing control instead.
 
 Shared controls live under `Controls\`: `TabStrip` (the LB/RB tab bar), `CardButton` (card actions)
 and `Icons` (stroke-style `StreamGeometry`). Stroke icons use `Fill={x:Null}` so their interior

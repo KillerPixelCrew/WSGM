@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Device.Sdk.Input;
@@ -74,6 +75,7 @@ public sealed class OverlayController : IDisposable
     private SystemStatus? _systemStatus;
     private WindowIconCache? _iconCache;
     private Avalonia.Threading.DispatcherTimer? _switcherRefresh;
+    private int _switcherRefreshInFlight;
     private TrayHost? _trayHost;
     private string _pendingWarning = "";
     private bool _reopenOverlayForWarning;
@@ -801,7 +803,7 @@ public sealed class OverlayController : IDisposable
         _overlay.RadioPanelRequested += ShowRadioPanel;
         _overlay.AudioPanelRequested += ShowAudioPanel;
         _overlay.EjectPanelRequested += ShowEjectPanel;
-        Log.Info($"Quick access shown ({switcher.Entries.Count} windows).");
+        Log.Info("Quick access shown (Open apps snapshot queued).");
         _overlay.HomeAppRequested += () => { _suppressFocusRestore = true; CloseOverlay(); _modes.StartOrFocusSteam(); };
         _overlay.DesktopRequested += () =>
         {
@@ -1785,48 +1787,96 @@ public sealed class OverlayController : IDisposable
     private System.Collections.Generic.HashSet<uint> _steamPids = [];
     private DateTime _steamPidsAtUtc;
 
-    /// <summary>Rebuilds/updates the Open apps chips in place. While the sheet is
-    /// open the foreground window is the sheet itself, so the highlight uses the
-    /// captured pre-open foreground instead.</summary>
+    /// <summary>Queues an off-thread snapshot of the process/window tables, then reconciles the
+    /// Open apps chips on Avalonia's dispatcher. While the sheet is open the highlight uses the
+    /// captured pre-open foreground window.</summary>
     private void RefreshSwitcherEntries()
     {
-        if (_switcherViewModel is null)
+        AppSwitcherViewModel? viewModel = _switcherViewModel;
+        if (viewModel is null || Interlocked.CompareExchange(ref _switcherRefreshInFlight, 1, 0) != 0)
         {
             return;
         }
-        // Steam's pid set barely moves within a sheet session, but resolving it
-        // snapshots the whole process table — on the UI thread that also drives the
-        // 16 ms gamepad poll and the chip focus. Re-read at the SteamMonitor's own
-        // 5 s cadence instead of on every 1 s chip refresh.
+
         var now = DateTime.UtcNow;
-        if (_steamPidsAtUtc == default || now - _steamPidsAtUtc >= TimeSpan.FromSeconds(5))
-        {
-            _steamPids = WindowFinder.FindProcessIds(Steam.ProcessNames);
-            _steamPidsAtUtc = now;
-        }
-        var steamPids = _steamPids;
-        var active = _overlay is { IsVisible: true }
+        bool refreshSteamPids = _steamPidsAtUtc == default
+            || now - _steamPidsAtUtc >= TimeSpan.FromSeconds(5);
+        HashSet<uint> cachedSteamPids = [.. _steamPids];
+        nint active = _overlay is { IsVisible: true }
             ? _restoreFocusTo
             : Interop.NativeMethods.GetForegroundWindow();
-        _switcherViewModel.Reconcile(
-            WindowFinder.ListSwitchableWindows(),
-            active,
-            window =>
-            {
-                // Cached icons are handed over synchronously; a miss resolves off the
-                // UI thread (cross-process WM_GETICON probes plus a possible exe read)
-                // and lands on the chip in place when it arrives.
-                Avalonia.Media.Imaging.Bitmap? icon = null;
-                if (_iconCache is not null && !_iconCache.TryGetCached(window.Hwnd, out icon))
+        Log.Observe(
+            RefreshSwitcherEntriesAsync(
+                viewModel,
+                active,
+                refreshSteamPids,
+                cachedSteamPids,
+                now),
+            "Open apps refresh");
+    }
+
+    private async Task RefreshSwitcherEntriesAsync(
+        AppSwitcherViewModel viewModel,
+        nint active,
+        bool refreshSteamPids,
+        HashSet<uint> cachedSteamPids,
+        DateTime requestedAtUtc)
+    {
+        try
+        {
+            // EnumWindows, DWM queries and the process-table snapshot are synchronous Win32 work.
+            // Avalonia's dispatcher also owns pointer delivery and the 16 ms gamepad poll, so only
+            // a detached snapshot returns to it.
+            (HashSet<uint> SteamPids, IReadOnlyList<WindowFinder.AppWindow> Windows) snapshot =
+                await Task.Run(() =>
                 {
-                    _iconCache.ResolveInBackground(window.Hwnd, window.ProcessId, ApplyResolvedIcon);
+                    HashSet<uint> steamPids = refreshSteamPids
+                        ? WindowFinder.FindProcessIds(Steam.ProcessNames)
+                        : cachedSteamPids;
+                    return (steamPids, WindowFinder.ListSwitchableWindows());
+                }).ConfigureAwait(false);
+
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (_disposed || !ReferenceEquals(_switcherViewModel, viewModel))
+                {
+                    return;
                 }
-                return new AppSwitcherEntry(
-                    window.Hwnd,
-                    window.Title,
-                    steamPids.Contains(window.ProcessId),
-                    icon);
-            });
+
+                if (refreshSteamPids)
+                {
+                    _steamPids = snapshot.SteamPids;
+                    _steamPidsAtUtc = requestedAtUtc;
+                }
+
+                viewModel.Reconcile(
+                    snapshot.Windows,
+                    active,
+                    window => CreateSwitcherEntry(window, snapshot.SteamPids));
+            }, Avalonia.Threading.DispatcherPriority.Background);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _switcherRefreshInFlight, 0);
+        }
+    }
+
+    private AppSwitcherEntry CreateSwitcherEntry(
+        WindowFinder.AppWindow window,
+        IReadOnlySet<uint> steamPids)
+    {
+        // Cached icons are handed over synchronously; a miss resolves off the UI thread
+        // (cross-process WM_GETICON probes plus a possible exe read) and lands in place.
+        Avalonia.Media.Imaging.Bitmap? icon = null;
+        if (_iconCache is not null && !_iconCache.TryGetCached(window.Hwnd, out icon))
+        {
+            _iconCache.ResolveInBackground(window.Hwnd, window.ProcessId, ApplyResolvedIcon);
+        }
+        return new AppSwitcherEntry(
+            window.Hwnd,
+            window.Title,
+            steamPids.Contains(window.ProcessId),
+            icon);
     }
 
     /// <summary>Places a background-resolved icon on its chip, if that chip is still on

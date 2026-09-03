@@ -1,6 +1,6 @@
 <!-- ControlTheme + state styles for the shared CardButton control (icon,
      title, description, trailing text): a MinHeight 52 card, borderless at rest,
-     whose 2 px border flips to the accent color on focus while the surface
+     whose 2 px border flips to the accent color on visible focus while the surface
      lightens (the device-proven border-based focus visual — FocusAdorner stays
      null), plus the primary/danger/tile style classes. Accent-family tokens are consumed via DynamicResource (runtime
      accent pipeline); everything else StaticResource. The state styles live at
@@ -130,11 +130,11 @@
          above propagate them (icon stroke and title follow Foreground).
          Declaration order is load-bearing: .primary comes after :pointerover
          so a hovered primary card keeps the accent background, and
-         .primary:focus comes last so its primary-text border wins. -->
+         .primary:focus-visible comes last so its primary-text border wins. -->
     <Style Selector="c|CardButton:pointerover">
         <Setter Property="Background" Value="{StaticResource HcCardHoverBrush}" />
     </Style>
-    <Style Selector="c|CardButton:focus">
+    <Style Selector="c|CardButton:focus-visible">
         <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
         <Setter Property="Background" Value="{StaticResource HcCardHoverBrush}" />
     </Style>
@@ -152,7 +152,7 @@
         <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
         <Setter Property="Foreground" Value="{DynamicResource HcOnAccentBrush}" />
     </Style>
-    <Style Selector="c|CardButton.primary:focus">
+    <Style Selector="c|CardButton.primary:focus-visible">
         <Setter Property="BorderBrush" Value="{StaticResource HcTextPrimaryBrush}" />
     </Style>
     <Style Selector="c|CardButton.primary /template/ TextBlock#PART_Description">

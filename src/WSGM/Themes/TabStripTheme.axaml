@@ -52,7 +52,7 @@
     <!-- Tab buttons: flat over the host surface, muted at rest, primary text +
          accent underline when active. The 2 px transparent border keeps the
          unified border-based focus visual (Shared.axaml) without a size jump;
-         this file is included after Shared.axaml, so the :focus and
+         this file is included after Shared.axaml, so the :focus-visible and
          :pointerover rules are restated here to win the equal-specificity tie. -->
     <Style Selector="Button.tab-strip-tab">
         <Setter Property="Background" Value="Transparent" />
@@ -70,7 +70,7 @@
     <Style Selector="Button.tab-strip-tab:pointerover">
         <Setter Property="Background" Value="{StaticResource HcCardHoverBrush}" />
     </Style>
-    <Style Selector="Button.tab-strip-tab:focus">
+    <Style Selector="Button.tab-strip-tab:focus-visible">
         <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
     </Style>
     <Style Selector="Button.tab-strip-tab.active">

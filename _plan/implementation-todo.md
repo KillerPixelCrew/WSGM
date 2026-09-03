@@ -708,11 +708,20 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       targets move in the expected direction without a freefall state; then suspend/resume and
       disable/re-enable Device Integration while confirming the legacy sensor handle is released and
       reacquired.
+- [x] **Avalonia input responsiveness:** keep live device/performance redraws from replacing a
+      release-mode button during an active pointer gesture, move Open apps process/window snapshots
+      off the dispatcher, and use `:focus-visible` for every button-specific focus visual. The theme
+      regression test scans every AXAML selector so a local plain `Button:focus` override cannot
+      quietly bring touch focus glow back.
 
 ## Attended/live acceptance still required
 
 These checks intentionally do not run unattended and are not source-completion blockers:
 
+- [ ] **Touch responsiveness after deployment:** repeatedly tap device controls, pinned controls,
+      Open apps chips and tray pills across at least two live performance polling cycles; confirm
+      every first tap activates once, no row changes under the held finger, controller focus remains
+      visible, and touch/mouse focus does not leave an accent glow behind.
 - [ ] **Steam cold-start transport gate (regression found 2026-09-01):** on the Claw, ten
       game-mode cold starts of Steam (service boot, and desktop-to-game with Steam closed), each
       showing `Steam UI transport closed: game mode without a Big Picture window` BEFORE

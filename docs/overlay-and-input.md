@@ -32,6 +32,10 @@ cycles to the next window; X on a tray pill opens its context menu. The peer key
 over the sheet's lower edge because the exposed game strip is too short for it; D-pad Down off the
 sheet's last row crosses into it and Up off the keyboard's top row crosses back.
 
+The process/window snapshot behind that reconciliation runs off the UI thread. Only its immutable
+result returns to Avalonia: synchronous process and `EnumWindows` work on the dispatcher would
+compete with the 16 ms gamepad poll and pointer delivery.
+
 ## Sub-views and navigation
 
 Destinations host nested pages in place: six self-drawing sub-views over `OverlaySubView`, the XAML
@@ -92,6 +96,11 @@ edge swipes and for tap-outside dismissal. The edge map is SteamOS's:
 | bottom | opens the sheet on the Open apps strip, in game mode only  |
 | left   | sends Steam's installed-client mapping Ctrl+1 (Steam menu) |
 | right  | sends Ctrl+2 (Quick Access Menu)                           |
+
+Live device and performance publications may request a redraw while a finger or mouse button is
+down. The sheet coalesces those redraws and defers them until the routed pointer release has
+completed; replacing a release-mode Avalonia `Button` between its press and release drops its
+`Click` and looks exactly like a control that needs a second tap.
 
 On the desktop Explorer's taskbar owns the bottom edge; falling back to the sheet there read as a
 regression (device-reported). Left and right always send their keys, including while a game is
