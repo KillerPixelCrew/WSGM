@@ -211,6 +211,48 @@ public sealed class ConfigurationTests
         Assert.Equal("", Assert.Single(normalized.SgdbLinks).Name);
     }
 
+    /// The desired-state resolver takes the first entry matching a key, so a duplicate would make
+    /// file order decide which value the device gets.
+    [Fact]
+    public void NormalizeCollapsesDuplicateDeviceCapabilityLayersOntoTheFirstOfEach()
+    {
+        var config = new AppConfig();
+        config.DeviceIntegration.Profiles.Add(new DeviceDesiredProfile
+        {
+            DeviceIdentityKey = "claw",
+            Capabilities =
+            [
+                new DeviceCapabilityPreference
+                {
+                    CapabilityId = "fan.mode",
+                    GlobalDefault = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = 1 },
+                    HardwareProfiles =
+                    [
+                        new DeviceNamedDesiredValue { ProfileId = " handheld " },
+                        new DeviceNamedDesiredValue { ProfileId = "handheld" },
+                    ],
+                    ApplicationOverrides =
+                    [
+                        new DeviceApplicationDesiredValue { ApplicationId = " steam:42 " },
+                        new DeviceApplicationDesiredValue { ApplicationId = "steam:42" },
+                    ],
+                },
+                new DeviceCapabilityPreference
+                {
+                    CapabilityId = "fan.mode",
+                    GlobalDefault = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = 2 },
+                },
+            ],
+        });
+
+        var normalized = ConfigStore.Normalize(config);
+
+        var capability = Assert.Single(Assert.Single(normalized.DeviceIntegration.Profiles).Capabilities);
+        Assert.Equal(1, capability.GlobalDefault?.IntegerValue);
+        Assert.Equal("handheld", Assert.Single(capability.HardwareProfiles).ProfileId);
+        Assert.Equal("steam:42", Assert.Single(capability.ApplicationOverrides).ApplicationId);
+    }
+
     [Fact]
     public void NormalizeRepairsExplicitNullsInsideAnExistingSplashSection()
     {

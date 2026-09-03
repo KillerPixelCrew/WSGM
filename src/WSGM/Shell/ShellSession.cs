@@ -407,6 +407,12 @@ public sealed class ShellSession : IAsyncDisposable
                     PersistManualPowerLimit(watts);
                 });
 
+                // Variable refresh is stored the same way and for the same reason. Rooted on the
+                // coordinator rather than on the one control that used to save it, because the
+                // overlay's Device row reaches the capability directly and would otherwise apply a
+                // state the profile never learned about.
+                deviceCoordinator.AttachManualVariableRefreshOverride(PersistManualVariableRefresh);
+
                 _deviceOverlay = new DeviceOverlayBridge(deviceCoordinator, _autoTdp);
             }
         }
@@ -1481,6 +1487,11 @@ public sealed class ShellSession : IAsyncDisposable
 
     /// <summary>Turns variable refresh rate on or off through the device plugin.</summary>
     /// <param name="enabled">The requested state.</param>
+    /// <param name="origin">
+    /// Who asked. <see cref="CapabilityCommandOrigin.ProfileRestore"/> for a value WSGM is putting
+    /// back, so it is not saved again — the release case applies <see langword="false"/> when no
+    /// layer prefers a value at all, and storing that would invent a preference the user never set.
+    /// </param>
     /// <param name="cancellationToken">Cancels the device write.</param>
     /// <returns>Whether the device applied it.</returns>
     /// <remarks>
@@ -1490,6 +1501,7 @@ public sealed class ShellSession : IAsyncDisposable
     /// </remarks>
     private async Task<bool> ApplyVariableRefreshRateAsync(
         bool enabled,
+        CapabilityCommandOrigin origin,
         CancellationToken cancellationToken)
     {
         if (_deviceCoordinator is not { } coordinator)
@@ -1511,9 +1523,7 @@ public sealed class ShellSession : IAsyncDisposable
             view.Descriptor.InstanceId,
             new CapabilityValue { Kind = CapabilityValueKind.Boolean, BooleanValue = enabled },
             TimeSpan.FromSeconds(5),
-            // User, not AutomaticControl: this is a switch the user pressed, and the distinction is
-            // what lets a manual change pause automatic control rather than look like it.
-            CapabilityCommandOrigin.User,
+            origin,
             cancellationToken).ConfigureAwait(false);
 
         // Verified counts, unverified counts. A timeout does not: whether the panel changed is
@@ -2438,8 +2448,10 @@ public sealed class ShellSession : IAsyncDisposable
             return;
         }
 
-        if (await ApplyVariableRefreshRateAsync(decision.Enabled, cancellationToken)
-            .ConfigureAwait(false))
+        if (await ApplyVariableRefreshRateAsync(
+                decision.Enabled,
+                CapabilityCommandOrigin.ProfileRestore,
+                cancellationToken).ConfigureAwait(false))
         {
             _profileVrrImposed = effective is not null;
             Log.Info(
@@ -2500,26 +2512,34 @@ public sealed class ShellSession : IAsyncDisposable
             + (applicationLayer ? $"profile for {applicationId}." : "global profile."));
     }
 
-    /// <summary>Applies a variable-refresh state the user set, and saves it to the layer in force.</summary>
+    /// <summary>Applies a variable-refresh state the user set.</summary>
     /// <param name="enabled">The state the user chose.</param>
     /// <param name="cancellationToken">Cancels the device write.</param>
     /// <returns>Whether the display is now in that state.</returns>
     /// <remarks>
     /// The user-facing counterpart to <see cref="ApplyVariableRefreshRateAsync"/>, which stays the
-    /// bare device write the profile restore uses. This is what the native QAM's VRR control calls: it
-    /// applies the state and, only if the device took it, records it as the running application's
-    /// preference — its own layer when a per-game profile is enabled, the global layer otherwise — so
-    /// it is restored on the next launch instead of leaking onto whatever runs next.
+    /// bare device write the profile restore uses. This is what the native QAM's VRR control calls.
+    /// Saving is not done here: the write carries the user origin, so the coordinator's manual hook
+    /// runs <see cref="PersistManualVariableRefresh"/> for this path and for the overlay's Device
+    /// row alike, and one owner cannot save what the other does not.
     /// </remarks>
-    private async Task<bool> SetVariableRefreshRateFromUserAsync(
+    private Task<bool> SetVariableRefreshRateFromUserAsync(
         bool enabled,
-        CancellationToken cancellationToken)
-    {
-        if (!await ApplyVariableRefreshRateAsync(enabled, cancellationToken).ConfigureAwait(false))
-        {
-            return false;
-        }
+        CancellationToken cancellationToken) => ApplyVariableRefreshRateAsync(
+            enabled,
+            CapabilityCommandOrigin.User,
+            cancellationToken);
 
+    /// <summary>Saves a hand-set variable-refresh state to whichever profile layer is in force.</summary>
+    /// <param name="enabled">The state the device just accepted.</param>
+    /// <remarks>
+    /// Runs from the coordinator's manual funnel, so the state has already reached the device. This
+    /// only records it as the running application's preference — its own layer when a per-game
+    /// profile is enabled, the global layer otherwise — so the next launch restores it instead of
+    /// letting it leak onto whatever runs next.
+    /// </remarks>
+    private void PersistManualVariableRefresh(bool enabled)
+    {
         string? applicationId = _performance?.Current.Target?.ApplicationId;
         PerformanceApplicationConfig? entry = applicationId is { Length: > 0 } id
             ? _config.Performance.Applications.Find(application => string.Equals(
@@ -2533,7 +2553,7 @@ public sealed class ShellSession : IAsyncDisposable
         _profileVrrImposed = true;
         if (current == enabled)
         {
-            return true;
+            return;
         }
 
         ConfigStore.Mutate(config =>
@@ -2557,7 +2577,6 @@ public sealed class ShellSession : IAsyncDisposable
         Log.Info(
             $"Variable refresh {(enabled ? "on" : "off")} saved to the "
             + (applicationLayer ? $"profile for {applicationId}." : "global profile."));
-        return true;
     }
 
     private DeviceCapabilityView? FindPowerLimitCapability() =>

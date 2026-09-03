@@ -457,3 +457,79 @@ public static class DeviceDesiredStateResolver
             : new(preference.GlobalDefault, DeviceDesiredValueSource.GlobalDefault);
     }
 }
+
+/// <summary>Pure policy for recording a value the user set on a device control.</summary>
+/// <remarks>
+/// The counterpart to <see cref="DeviceDesiredStateResolver"/>, and deliberately narrower than it:
+/// resolution reads five layers, but only two of them are ones a person can author by moving a
+/// control. The AC/DC and named-profile layers are authored elsewhere, so writing into them from a
+/// control press would put a value somewhere the user cannot see they put it.
+/// </remarks>
+public static class DeviceDesiredStateWriter
+{
+    /// <summary>Stores one value in the layer a control press means.</summary>
+    /// <param name="device">The device-integration settings to write into.</param>
+    /// <param name="deviceIdentityKey">Stable local identity of the device being configured.</param>
+    /// <param name="capabilityId">The capability the value belongs to.</param>
+    /// <param name="instanceId">Its instance, or null for a single-instance capability.</param>
+    /// <param name="applicationId">
+    /// The running application, whose override layer receives the value, or null for the global
+    /// default. Mid-game a user is configuring what they are playing; on the desktop there is no
+    /// per-game scope to mean.
+    /// </param>
+    /// <param name="value">The value the device accepted.</param>
+    /// <remarks>
+    /// The profile and the capability entry are created on demand, because storing a value is the
+    /// first thing a user can do and refusing until some other write had already made a profile
+    /// would be arbitrary.
+    /// </remarks>
+    public static void Store(
+        DeviceIntegrationConfig device,
+        string deviceIdentityKey,
+        string capabilityId,
+        string? instanceId,
+        string? applicationId,
+        CapabilityValue value)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        ArgumentNullException.ThrowIfNull(value);
+        DeviceDesiredProfile? profile = device.Profiles.FirstOrDefault(item => string.Equals(
+            item.DeviceIdentityKey,
+            deviceIdentityKey,
+            StringComparison.Ordinal));
+        if (profile is null)
+        {
+            profile = new DeviceDesiredProfile { DeviceIdentityKey = deviceIdentityKey };
+            device.Profiles.Add(profile);
+        }
+
+        DeviceCapabilityPreference? preference = profile.Capabilities.FirstOrDefault(
+            item => string.Equals(item.CapabilityId, capabilityId, StringComparison.Ordinal)
+                && string.Equals(item.InstanceId, instanceId, StringComparison.Ordinal));
+        if (preference is null)
+        {
+            preference = new DeviceCapabilityPreference
+            {
+                CapabilityId = capabilityId,
+                InstanceId = instanceId,
+            };
+            profile.Capabilities.Add(preference);
+        }
+
+        if (string.IsNullOrWhiteSpace(applicationId))
+        {
+            preference.GlobalDefault = value;
+            return;
+        }
+
+        DeviceApplicationDesiredValue? entry = preference.ApplicationOverrides.FirstOrDefault(
+            item => string.Equals(item.ApplicationId, applicationId, StringComparison.Ordinal));
+        if (entry is null)
+        {
+            entry = new DeviceApplicationDesiredValue { ApplicationId = applicationId };
+            preference.ApplicationOverrides.Add(entry);
+        }
+
+        entry.Value = value;
+    }
+}

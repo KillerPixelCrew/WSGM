@@ -714,6 +714,43 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       regression test scans every AXAML selector so a local plain `Button:focus` override cannot
       quietly bring touch focus glow back.
 
+## Device-value persistence of 2026-09-03 - fixed in source, attended re-check pending
+
+- [x] **Nothing set on the overlay's Device tab was saved:** `DeviceCapabilityPreference` and its
+      five layers were read by the router, resolved by `DeviceDesiredStateResolver` and repaired by
+      `ConfigStore`, but no code path anywhere wrote them, and `UpdateCapabilityDesiredContext`
+      passed `applicationId: null` so the per-application layer could never resolve even if one had
+      existed. Every row on the tab therefore commanded the plugin and remembered nothing: a fan
+      mode, a lighting colour, a charge limit or a secondary power limit was gone at the next cycle
+      or the next boot, and only firmware-persistent capabilities appeared to survive. What did save
+      — the controller target, AutoTDP, glyph and hardware-profile selections, the authored fan and
+      lighting profile choice, the sustained power limit and variable refresh — is what made this
+      read as "only per-game profiles save".
+      `DeviceCoordinator.PersistUserCapabilityValueAsync` now stores every accepted `User` write
+      through the pure `DeviceDesiredStateWriter`, into the running application's override when a
+      game is running and the global default otherwise — the rule `CycleAuthoredProfileAsync`
+      already used. A running-application change updates the router's context and reconciles, so a
+      value saved for a game applies when it launches and the global one returns when it exits;
+      authored profiles are applied after that reconciliation, so an explicitly selected named
+      profile still wins for the two capabilities it covers.
+- [x] **One value must not get two homes:** `PowerSustainedLimit` and `VariableRefreshRate` are
+      excluded from the new funnel because `AppConfig.Performance` already stores them and also
+      owns their release-to-ceiling and return-to-off transitions. The Device tab's variable-refresh
+      row previously bypassed the only control that saved that state, so
+      `AttachManualVariableRefreshOverride` now routes every manual variable-refresh write to the
+      same owner Steam's own control uses, and the restore path was given the `ProfileRestore`
+      origin so putting a value back cannot re-save it. Desired-value reconciliation keeps the
+      `User` origin so a restored power limit still pauses AutoTDP, and the funnel skips any value
+      already equal to what the layers resolve to — which also stops a control released on its
+      starting value from writing configuration.
+- [x] `ConfigStore` normalization now collapses duplicate capability, hardware-profile and
+      application entries, because the resolver takes the first match and a duplicate would let file
+      order decide which value reached the device.
+- [ ] Attended after deployment: set a fan mode, a lighting colour and a secondary power limit on
+      the desktop, restart WSGM and confirm each is restored and logged as saved to the global
+      profile; repeat inside a game and confirm the values are logged against that application,
+      survive a restart, and give way to the global ones when the game exits.
+
 ## Attended/live acceptance still required
 
 These checks intentionally do not run unattended and are not source-completion blockers:

@@ -51,6 +51,19 @@ holds it across the config write and the splash-asset promotion, while the multi
 copies happen outside it (sidecars are per-transaction unique). Nested acquisition on one thread is
 free; do not reintroduce stacked 2 s timeouts.
 
+**WSGM is not a controller remapper.** OEM buttons are bound in plugin code, and the closed
+`OemAction` vocabulary has no authoring UI on purpose. Every handheld on the market today maps
+cleanly onto a Steam Deck controller with no buttons or functions left over, so a rebinding surface
+would answer a problem no supported device has while making WSGM responsible for input policy that
+belongs to Steam. See `docs\device-plugin-system.md`, "OEM controls".
+
+**A device control the user moves is remembered.** A `User` capability write the device accepted is
+stored as the desired value of the layer that press means — the running application's when a game is
+running, the global default otherwise. The sustained power limit and variable refresh are the two
+exceptions, stored under `Performance` because that owner also decides how each is released when an
+application closes; one value never gets two homes. Mechanism in `docs\device-plugin-system.md`,
+§11.
+
 **Toolchain pins.** .NET 10 and Avalonia 12.1.1. `LoadingIndicators.Avalonia` is vendored under
 `third_party\LoadingIndicators.Avalonia` and built from source, because its published Avalonia 11
 package has precompiled XAML that fails on Avalonia 12; its Unlicense text ships from

@@ -75,6 +75,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     private long _cycleGeneration;
     private string? _runningApplicationId;
     private Action<int>? _autoTdpManualOverride;
+    private Action<bool>? _manualVariableRefreshOverride;
     private bool _intentionalStop;
     private bool _faultRecoveryPending;
     private int _automaticRestartAttempts;
@@ -1426,8 +1427,18 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         await _controllers.ApplyRunningApplicationAsync(snapshot, cancellationToken)
             .ConfigureAwait(false);
 
+        // The stored per-application layer only means anything if the resolver is told which
+        // application is running, and the values it now resolves have to reach the device: a fan
+        // mode saved for a game is worth nothing if it is only restored at the next cycle.
+        UpdateCapabilityDesiredContext();
+        await ReconcileDesiredValuesAsync(
+            $"running application {snapshot.ApplicationId ?? "(none)"}",
+            cancellationToken).ConfigureAwait(false);
+
         // Authored profiles follow the same identity as everything else per-application: the fan
         // curve and the controller target can never disagree about which application is running.
+        // Applied last so an explicitly selected named profile wins over the per-capability value
+        // for the two capabilities it covers, rather than the order deciding at random.
         await ApplyAuthoredProfilesAsync(snapshot.ApplicationId, cancellationToken)
             .ConfigureAwait(false);
     }
@@ -1477,6 +1488,19 @@ public sealed class DeviceCoordinator : IAsyncDisposable
     /// so this is the one place that sees every manual change.
     /// </remarks>
     internal void AttachAutoTdpManualOverride(Action<int>? note) => _autoTdpManualOverride = note;
+
+    /// <summary>
+    /// Attaches the hook that saves a user-originated variable-refresh write to the performance
+    /// profile.
+    /// </summary>
+    /// <param name="note">Receives the accepted state, or null when no profile owner exists.</param>
+    /// <remarks>
+    /// Attached for the same reason as the power-limit hook: the overlay's Device row and Steam's
+    /// own variable-refresh control both reach the device through
+    /// <see cref="ExecuteCapabilityAsync"/>, so this is the one place that sees every manual change.
+    /// </remarks>
+    internal void AttachManualVariableRefreshOverride(Action<bool>? note) =>
+        _manualVariableRefreshOverride = note;
 
     /// <summary>Whether AutoTDP is switched on in the persisted configuration.</summary>
     internal bool AutoTdpEnabled => _config.DeviceIntegration.AutoTdpEnabled;
@@ -1612,6 +1636,13 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         if (origin is CapabilityCommandOrigin.User)
         {
             NotifyManualPowerChange(capabilityId, instanceId, value, result);
+            NotifyManualVariableRefreshChange(capabilityId, instanceId, value, result);
+            await PersistUserCapabilityValueAsync(
+                capabilityId,
+                instanceId,
+                value,
+                result,
+                cancellationToken).ConfigureAwait(false);
         }
 
         return result;
@@ -1645,6 +1676,138 @@ public sealed class DeviceCoordinator : IAsyncDisposable
         Log.Info($"AutoTDP paused: the sustained power limit was set to {watts} W by hand.");
         note(watts);
     }
+
+    /// <summary>Hands a hand-set variable-refresh state to the performance profile that owns it.</summary>
+    /// <remarks>
+    /// The Device row and Steam's own control are two ways to press the same switch, and only the
+    /// second used to reach the profile. Routing both through here keeps one stored answer for the
+    /// feature instead of giving the overlay a second one under device integration.
+    /// </remarks>
+    private void NotifyManualVariableRefreshChange(
+        string capabilityId,
+        string? instanceId,
+        CapabilityValue? value,
+        CapabilityCommandResult result)
+    {
+        if (_manualVariableRefreshOverride is not { } note
+            || value?.BooleanValue is not { } enabled
+            || result.Outcome is not (CommandOutcome.AppliedVerified
+                or CommandOutcome.AppliedUnverified)
+            || FindDescriptor(capabilityId, instanceId)?.Role
+                is not CapabilityRole.VariableRefreshRate)
+        {
+            return;
+        }
+
+        note(enabled);
+    }
+
+    /// <summary>Whether the performance profile, not the device profile, stores this role's value.</summary>
+    /// <remarks>
+    /// The sustained power limit and variable refresh already have a persistent owner in
+    /// <c>AppConfig.Performance</c>, which also decides how each is released when an application
+    /// closes. Storing them here as well would give one value two homes under two different scope
+    /// rules, and the two would disagree the moment a per-game profile is switched off. Their manual
+    /// writes reach that owner through the notification hooks above instead.
+    /// </remarks>
+    private static bool PerformanceProfileOwnsRole(CapabilityRole role) =>
+        role is CapabilityRole.PowerSustainedLimit or CapabilityRole.VariableRefreshRate;
+
+    /// <summary>Records a value the user just set as the desired state of the layer in force.</summary>
+    /// <param name="capabilityId">The capability that was commanded.</param>
+    /// <param name="instanceId">Its instance, or null for a single-instance capability.</param>
+    /// <param name="value">The requested value, or null for an action.</param>
+    /// <param name="result">What the plugin reported.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>A task completing once the value is stored, or immediately when it is not.</returns>
+    /// <remarks>
+    /// Without this the Device surface commanded hardware and remembered nothing: every row went
+    /// back to whatever the firmware held on the next cycle or the next boot. The layer is the same
+    /// one <see cref="CycleAuthoredProfileAsync"/> writes to — the running application's when there
+    /// is one, the global default otherwise — because mid-game a user is configuring what they are
+    /// playing, and on the desktop there is no per-game scope to mean.
+    /// <para>
+    /// Applied after the device took the value, not before: recording a preference the hardware
+    /// refused would restore a value on the next launch that the device never accepted. An
+    /// unverified write still counts, because the desired state is what the user asked for and the
+    /// plugin reports that it wrote it.
+    /// </para>
+    /// </remarks>
+    private async Task PersistUserCapabilityValueAsync(
+        string capabilityId,
+        string? instanceId,
+        CapabilityValue? value,
+        CapabilityCommandResult result,
+        CancellationToken cancellationToken)
+    {
+        if (value is null
+            || result.Outcome is not (CommandOutcome.AppliedVerified
+                or CommandOutcome.AppliedUnverified))
+        {
+            return;
+        }
+
+        DeviceCapabilityView? view = FindCapability(capabilityId, instanceId);
+        if (view is null
+            || !view.Descriptor.SupportsWrite
+            || PerformanceProfileOwnsRole(view.Descriptor.Role))
+        {
+            return;
+        }
+
+        // Desired-value reconciliation replays stored values through this same path and keeps the
+        // User origin deliberately, so that a restored power limit still pauses AutoTDP. A value
+        // that already equals what the layers resolve to is therefore not news, and writing it back
+        // would copy a global default into a per-application override merely because a game happened
+        // to be running when WSGM restored it. It also covers the ordinary case of a control landing
+        // back on the value it started from, which should write no configuration at all.
+        if (view.Projection.DesiredValue is { } desired && SameValue(desired, value))
+        {
+            return;
+        }
+
+        if (_identity is null)
+        {
+            Log.Warn(
+                $"Device value for {capabilityId}{Instance(instanceId)} was applied but not saved: "
+                + "this machine has no resolved device identity to store it under.");
+            return;
+        }
+
+        string identityKey = DeviceMachineIdentity.StableKey(_identity);
+        string? applicationId = _runningApplicationId is { Length: > 0 } running ? running : null;
+        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await PersistConfigurationAsync(
+                config => DeviceDesiredStateWriter.Store(
+                    config.DeviceIntegration,
+                    identityKey,
+                    capabilityId,
+                    instanceId,
+                    applicationId,
+                    value),
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _transitionGate.Release();
+        }
+
+        UpdateCapabilityDesiredContext();
+        Log.Info(
+            $"Device value for {capabilityId}{Instance(instanceId)} saved to the "
+            + (applicationId is null ? "global profile." : $"profile for {applicationId}."));
+    }
+
+    /// <summary>The published view of one capability instance, or null when none is published.</summary>
+    private DeviceCapabilityView? FindCapability(string capabilityId, string? instanceId) =>
+        _capabilities.Snapshot().FirstOrDefault(view =>
+            string.Equals(view.Descriptor.CapabilityId, capabilityId, StringComparison.Ordinal)
+            && string.Equals(view.Descriptor.InstanceId, instanceId, StringComparison.Ordinal));
+
+    private CapabilityDescriptor? FindDescriptor(string capabilityId, string? instanceId) =>
+        FindCapability(capabilityId, instanceId)?.Descriptor;
 
     /// <summary>Attaches WSGM-owned UI and system actions after the shell surfaces exist.</summary>
     internal void ConfigureOemActions(DeviceOemActionServices actions) =>
@@ -2077,7 +2240,7 @@ public sealed class DeviceCoordinator : IAsyncDisposable
             profile,
             onAcPower,
             profile?.SelectedHardwareProfileId,
-            applicationId: null);
+            _runningApplicationId);
     }
 
     private void UpdateOemConfiguration()

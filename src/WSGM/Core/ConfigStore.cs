@@ -578,7 +578,32 @@ public static class ConfigStore
                     || string.IsNullOrWhiteSpace(value.ProfileId));
                 capability.ApplicationOverrides.RemoveAll(static value => value is null
                     || string.IsNullOrWhiteSpace(value.ApplicationId));
+
+                // The desired-state resolver takes the first entry that matches a key, so a
+                // duplicated profile or application id would decide which value wins by file order.
+                // The first is kept: it is the one that resolution has been using.
+                HashSet<string> profileIds = new(StringComparer.Ordinal);
+                capability.HardwareProfiles.RemoveAll(
+                    value => !profileIds.Add(value.ProfileId.Trim()));
+                HashSet<string> applicationIds = new(StringComparer.Ordinal);
+                capability.ApplicationOverrides.RemoveAll(
+                    value => !applicationIds.Add(value.ApplicationId.Trim()));
+                foreach (DeviceNamedDesiredValue value in capability.HardwareProfiles)
+                {
+                    value.ProfileId = value.ProfileId.Trim();
+                }
+
+                foreach (DeviceApplicationDesiredValue value in capability.ApplicationOverrides)
+                {
+                    value.ApplicationId = value.ApplicationId.Trim();
+                }
             }
+
+            // Two entries for one capability instance would split its layers in half, and only the
+            // first would ever resolve.
+            HashSet<(string CapabilityId, string? InstanceId)> capabilityKeys = [];
+            profile.Capabilities.RemoveAll(
+                capability => !capabilityKeys.Add((capability.CapabilityId, capability.InstanceId)));
 
             profile.OemAssignments.RemoveAll(static assignment => assignment is null
                 || string.IsNullOrWhiteSpace(assignment.ControlId)

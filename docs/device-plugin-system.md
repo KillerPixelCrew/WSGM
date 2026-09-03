@@ -397,9 +397,12 @@ state is `Stale` with `HostUnavailable`.
 
 Every write or action funnels through
 `DeviceCoordinator.ExecuteCapabilityAsync(capabilityId, instanceId, value, timeout, origin)`. All
-production callers pass a 5 s timeout: the overlay, Settings and the native QAM (`User`), AutoTDP
-(`AutoTdp`), the VRR toggle, authored profile application and desired-value reconciliation
-(`AutomaticControl`, `ProfileRestore`).
+production callers pass a 5 s timeout: the overlay, Settings, the native QAM and the
+variable-refresh toggle (`User`), AutoTDP and authored profile application (`AutomaticControl`), and
+the per-application power and variable-refresh restore (`ProfileRestore`). Desired-value
+reconciliation keeps `User` so a restored power limit still pauses AutoTDP. The origin decides both
+whether AutoTDP steps aside and whether the value is saved (§11), so a restore must never claim to
+be one.
 
 The router holds one `SemaphoreSlim(1,1)` per capability key. Preflight builds the
 `CapabilityCommand` with a fresh id, the expected descriptor and cycle generations and
@@ -451,12 +454,24 @@ swapping plugins keeps the machine's preferences. Reconciliation applies them af
 profile is selected: lower limits first when lowering, raise the fast limit first when raising, skip
 values equal to the readback, and log one summary line.
 
-Two facts are easy to get wrong here. The coordinator always passes `applicationId: null` when it
-updates the router's desired context, so the application-override layer never resolves;
-per-application power limits and variable-refresh state are kept under `Performance.Applications`
-and applied by the shell's application reconciliation. And nothing in WSGM's UI writes the AC, DC,
-global or per-application preference records yet; a manual power-limit change persists to the
-performance profile, not to these layers.
+`DeviceCoordinator.PersistUserCapabilityValueAsync` is what fills these layers in. Every `User`
+write that the device accepted is stored by `DeviceDesiredStateWriter` into the layer a control
+press means: the running application's override when a game is running, the global default otherwise
+— the same rule `CycleAuthoredProfileAsync` uses, because mid-game a user is configuring what they
+are playing and on the desktop there is no per-game scope to mean. The AC, DC and named-profile
+layers are not written from a control press; they resolve but are authored elsewhere, and a press
+landing in a layer the user cannot see they used would be worse than not saving. A
+running-application change updates the router's context and reconciles, so a value saved for a game
+is applied when it launches and the global one comes back when it exits.
+
+Two roles are deliberately excluded, because `AppConfig.Performance` already stores them and also
+decides how each is released when an application closes: `PowerSustainedLimit` and
+`VariableRefreshRate`. Their manual writes reach that owner through `AttachAutoTdpManualOverride`
+and `AttachManualVariableRefreshOverride`, which the shell session roots, so the overlay row and
+Steam's own control save to one place instead of two. Reconciliation keeps the `User` origin so a
+restored power limit still pauses AutoTDP; the funnel therefore skips any value that already equals
+what the layers resolve to, which is also what stops a control landing back on its starting value
+from writing configuration.
 
 ### Plugin settings
 
@@ -602,8 +617,12 @@ notation; the findings behind that and the pre-start allowlist are in `device-in
 
 An unassigned control resolves to `Disabled`: WSGM claims no physical button by default, and the
 plugin exposes the front buttons to Steam as the target's own Guide and Quick Access buttons.
-Rear-button actions are assignable only to `Rear` placement and only when the target has rear
-buttons (Steam Deck); a control that `RequiresControllerAcquisition` needs management enabled.
+Assignments are authored in plugin code, and there is no UI to rebind them because WSGM does not
+build a remapper: every handheld on the market today maps cleanly onto a Steam Deck controller with
+no buttons or functions left over, so a remapper would be a general-purpose feature answering a
+problem no supported device has. Rear-button actions are assignable only to `Rear` placement and
+only when the target has rear buttons (Steam Deck); a control that `RequiresControllerAcquisition`
+needs management enabled.
 
 Events are refused for a stale source generation, an unknown control, a blank or over-long (128)
 deduplication id, a timestamp more than 5 s in the future, or one older than the 30 s deduplication
@@ -860,8 +879,6 @@ exact build, device, observed result and cleanup.
 
 ## 21. Known gaps
 
-- The desired-value application-override layer is never resolved (§11); per-application state lives
-  under `Performance.Applications`.
-- OEM assignments have no authoring UI (§13).
+- OEM assignments have no authoring UI, and will not get one (§13).
 - `eng\dev-deploy.ps1` swaps inside `installed` without the machine-wide objects (§6).
 - Unload of the plugin context is requested, never verified (§7).
