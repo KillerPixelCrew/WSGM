@@ -119,6 +119,29 @@
         <Setter Property="Spacing" Value="8" />
         <Setter Property="Margin" Value="10,0,10,10" />
     </Style>
+    <!-- The card a device VALUE row is drawn on: the slider, toggle, dropdown,
+         textbox and curve rows, which are Borders rather than CardButtons because
+         their interactive control is the focus stop, not the row.
+
+         Every value of the CardButton theme, because they sit line by line with
+         real CardButton rows on the Device pages and the two have to be one card
+         style. Until this existed the class was set on those Borders and matched
+         NOTHING — `c|CardButton.tile` is the unrelated quick-access grid variant —
+         so the sliders and toggles rendered as bare text bleeding to the sheet
+         edges between properly carded rows.
+
+         `:is(Border)` and not `Border`: an Avalonia type selector is exact, and
+         DeviceSliderRow and DeviceCurveRow derive from Border. -->
+    <Style Selector=":is(Border).tile">
+        <Setter Property="Background" Value="{StaticResource HcCardBrush}" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="2" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="MinHeight" Value="52" />
+        <Setter Property="Padding" Value="14,8" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+    </Style>
+
     <!-- Glyph preview tiles. The lit state is the accent, matching every other
          "this is the one" signal on these surfaces, so the input test reads the
          same way as focus and selection do rather than inventing a third colour.
