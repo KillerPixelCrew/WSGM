@@ -6,7 +6,7 @@
 (() => {
   let req;
   window.webpackChunksteamui.push([
-    ["wsgm_native_resolution_probe_" + Date.now()],
+    ["steam_ui_resolution_probe_" + Date.now()],
     {},
     (r) => {
       req = r;

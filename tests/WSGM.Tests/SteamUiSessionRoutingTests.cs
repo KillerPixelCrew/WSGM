@@ -25,7 +25,7 @@ public sealed class SteamUiSessionRoutingTests
             performance);
         host.Apply(true);
         await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
-            snapshot.Id == "wsgm.native-qam.bootstrap"
+            snapshot.Id == "steam-ui.bridge"
             && snapshot.State == SteamUiPatchState.Verified));
 
         transport.EmitRequest(
@@ -36,7 +36,7 @@ public sealed class SteamUiSessionRoutingTests
             payload: null);
         await WaitForAsync(() => transport.Responses.Count >= 1);
         transport.EmitRequest(
-            "wsgm.native-qam.tdp",
+            "steam-ui.power-limit",
             "setPrimaryLimit",
             sequence: 2,
             actionGeneration: 1,
@@ -83,7 +83,7 @@ public sealed class SteamUiSessionRoutingTests
             performance);
         host.Apply(true);
         await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
-            snapshot.Id == "wsgm.native-qam.bootstrap"
+            snapshot.Id == "steam-ui.bridge"
             && snapshot.State == SteamUiPatchState.Verified));
 
         transport.EmitRequest(
@@ -132,7 +132,7 @@ public sealed class SteamUiSessionRoutingTests
         host.Apply(true);
 
         await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
-            snapshot.Id == "wsgm.native-qam.frame-limit"
+            snapshot.Id == "steam-ui.frame-limit"
             && snapshot.State == SteamUiPatchState.Verified));
         await WaitForAsync(() => performance.ObserverCount == 1);
 
@@ -201,12 +201,12 @@ public sealed class SteamUiSessionRoutingTests
             {
                 value = "{\"ok\":false}";
             }
-            else if (expression.Contains("wsgm_qam_probe_", StringComparison.Ordinal))
+            else if (expression.Contains("steam_ui_bridge_probe_", StringComparison.Ordinal))
             {
                 value = "{\"tdpAvailability\":1,\"tdpComponent\":1,"
                     + "\"performanceActions\":1,\"profileProjection\":1}";
             }
-            else if (expression.Contains("wsgm_native_", StringComparison.Ordinal)
+            else if (expression.Contains("steam_ui_", StringComparison.Ordinal)
                 && expression.Contains("_probe_", StringComparison.Ordinal))
             {
                 value = "{\"performanceActions\":1,\"controllerPresentation\":1,"
@@ -217,7 +217,7 @@ public sealed class SteamUiSessionRoutingTests
             {
                 value = "{\"ok\":true,\"version\":1}";
             }
-            else if (expression.Contains("absent:!window.__wsgmSteamUi", StringComparison.Ordinal))
+            else if (expression.Contains("absent:!window.__steamUi", StringComparison.Ordinal))
             {
                 value = "{\"absent\":true}";
             }
@@ -288,7 +288,7 @@ public sealed class SteamUiSessionRoutingTests
             });
             string parameters = JsonSerializer.Serialize(new
             {
-                name = "__wsgmNativeBridge_v1_7b24d11c",
+                name = "__steamUiBridge_v1_7b24d11c",
                 payload = envelope,
             });
             NotificationReceived?.Invoke(this, new SteamUiNotification(

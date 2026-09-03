@@ -189,9 +189,11 @@ pinned submodule, so it can be versioned, consumed and reported against on its o
       gates, the Quick Access row host, the patch declarations, the typed state records, the
       command readers and a backend interface per surface are the toolkit's (`Steam*Surface`,
       `Steam*Row`, `Module(enabled, read, backend)`), and WSGM's `NativeQam*Service` classes only
-      implement the backends. The composed asset hashes exactly as before, so the injected script
-      is byte-identical to the device-verified one; patch ids, markers and log keys are unchanged.
-      WSGM's library manager, card badge, download sorting and glyph delivery stay WSGM's.
+      implement the backends. The injected JavaScript is unchanged in logic; every identifier the
+      library owns is renamed out of the `wsgm` namespace (`steam-ui.*` ids, `__steamUi*` markers,
+      bridge and binding names), so log keys under `steam.ui.patch.*` now carry the new ids and the
+      first deploy onto a client still carrying old markers needs one Steam restart. WSGM's library
+      manager, card badge, download sorting and glyph delivery stay WSGM's, with their `wsgm.` ids.
       **Remaining, and deferred by decision: the Extensions tab.** The host is built and tested;
       the surface is not, and it is not next. Also open: whether extensions may carry a .NET
       backend, which should not arrive as a side effect of building the tab. And the attended
@@ -549,8 +551,8 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       `Window.Show(owner)` and as a `GWLP_HWNDPARENT` write after `Show()`; live z-order captures
       showed Avalonia re-parks every `ShowInTaskbar=false` window under its hidden helper, so the
       panel stayed a sibling of the sheet either way.
-- [x] **`wsgm.native-qam.tdp` tore itself down every ~2 s**: the probe still required
-      `__wsgmOriginalGetState` to be a function, but the claim primitive stores a property snapshot
+- [x] **`steam-ui.power-limit` tore itself down every ~2 s**: the probe still required
+      `__steamUiOriginalGetState` to be a function, but the claim primitive stores a property snapshot
       there. Probe and the gate's reclaim path accept both shapes.
 - [x] Attended 2026-09-01: radio, audio and eject panels open and stay open under touch on the
       Claw (maintainer-confirmed; z-order capture shows the panel above the sheet through the

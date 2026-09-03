@@ -154,18 +154,18 @@ enabled while the header indicator is on.
 
 ### Patch inventory
 
-| Patch id                               | Class                                | Target          | Resource key                                 | Enabled by                 |
-| -------------------------------------- | ------------------------------------ | --------------- | -------------------------------------------- | -------------------------- |
-| `wsgm.native-qam.bootstrap`            | `SteamUiBridgePatch` (toolkit)       | SharedJSContext | `wsgm.native-qam.bridge`                     | QAM or network indicator   |
-| `wsgm.native-qam.perf`                 | gate `perf`                          | SharedJSContext | `wsgm.native-qam.perf-namespace`             | QAM                        |
-| `wsgm.native-qam.audio`                | gate `audio`                         | SharedJSContext | `wsgm.native-qam.audio-namespace`            | QAM, audio manager present |
-| `wsgm.native-qam.tdp`                  | gate `steamOsManager`                | SharedJSContext | `wsgm.native-qam.steamos-manager-state`      | QAM                        |
-| `wsgm.steam-display.brightness`        | gate `brightness`                    | SharedJSContext | `wsgm.steam-display.brightness-availability` | QAM                        |
-| `wsgm.steam-bluetooth.service`         | gate `bluetooth`                     | SharedJSContext | `wsgm.steam-bluetooth.manager-service`       | QAM, radio manager present |
-| `wsgm.steam-network.gate`              | gate `network`                       | SharedJSContext | `wsgm.steam-network.availability`            | QAM or network indicator   |
-| eleven `wsgm.native-qam.*` row patches | `SteamQuickAccessRowPatch` (toolkit) | SharedJSContext | `wsgm.native-qam.performance-root`           | QAM                        |
-| `wsgm.download-sort`                   | `SteamDownloadSortPatch`             | SharedJSContext | `steam.downloads.jsx-runtime`                | download sort only         |
-| `wsgm.steam-input.glyph-style`         | `SteamInputGlyphStylePatch`          | MainWindow      | `wsgm.steam-input.glyph-style`               | glyph delivery only        |
+| Patch id                               | Class                                | Target          | Resource key                         | Enabled by                 |
+| -------------------------------------- | ------------------------------------ | --------------- | ------------------------------------ | -------------------------- |
+| `steam-ui.bridge`                      | `SteamUiBridgePatch` (toolkit)       | SharedJSContext | `steam-ui.bridge-binding`            | QAM or network indicator   |
+| `steam-ui.performance`                 | gate `perf`                          | SharedJSContext | `steam-ui.performance-namespace`     | QAM                        |
+| `steam-ui.audio`                       | gate `audio`                         | SharedJSContext | `steam-ui.audio-namespace`           | QAM, audio manager present |
+| `steam-ui.power-limit`                 | gate `steamOsManager`                | SharedJSContext | `steam-ui.steamos-manager-state`     | QAM                        |
+| `steam-ui.brightness`                  | gate `brightness`                    | SharedJSContext | `steam-ui.brightness-availability`   | QAM                        |
+| `steam-ui.bluetooth`                   | gate `bluetooth`                     | SharedJSContext | `steam-ui.bluetooth-manager-service` | QAM, radio manager present |
+| `steam-ui.network`                     | gate `network`                       | SharedJSContext | `steam-ui.network-availability`      | QAM or network indicator   |
+| eleven `wsgm.native-qam.*` row patches | `SteamQuickAccessRowPatch` (toolkit) | SharedJSContext | `steam-ui.performanceormance-root`   | QAM                        |
+| `wsgm.download-sort`                   | `SteamDownloadSortPatch`             | SharedJSContext | `steam.downloads.jsx-runtime`        | download sort only         |
+| `wsgm.steam-input.glyph-style`         | `SteamInputGlyphStylePatch`          | MainWindow      | `wsgm.steam-input.glyph-style`       | glyph delivery only        |
 
 ### Switching and synchronization
 
@@ -195,11 +195,11 @@ manager, the bridge and the services; the shell detaches and disposes the transp
 `bridge.ts`, `ownership.ts`, `rpc.ts`, `gates\*.ts` sorted, then `components.ts`), then any
 WSGM-only fragments under `Core\SteamUiAssets\Source` (none today), then the toolkit's
 `epilogue.ts`, and closes the IIFE itself. Fragments are discovered by directory: **adding a gate is
-a new file in the toolkit's `gates\` and its `Steam*Surface` class, and nothing else.** Because the
-toolkit's fragments are the ones WSGM shipped before the move, the composed asset hashes exactly as
-it did then. The combined program is type-checked with TypeScript 7, type-stripped, cut at
-`// @wsgm-bundle-start`, formatted with Prettier, and written as
-`Core\SteamUiAssets\NativeQamBootstrap.js`; its SHA-256 is rewritten into
+a new file in the toolkit's `gates\` and its `Steam*Surface` class, and nothing else.** The
+toolkit's fragments are the ones WSGM shipped before the move with the library's identifiers renamed
+out of the `wsgm` namespace; WSGM's own patches keep their `wsgm.` ids. The combined program is
+type-checked with TypeScript 7, type-stripped, cut at `// @steam-ui-bundle-start`, formatted with
+Prettier, and written as `Core\SteamUiAssets\NativeQamBootstrap.js`; its SHA-256 is rewritten into
 `Core\SteamUiAssetCatalog.cs`. At runtime the catalog re-hashes the embedded resource and throws on
 a mismatch, so a hand edit cannot ship. `npm run steam-assets:check` rebuilds in memory and fails on
 a stale file, a stale hash, a second `.js` beside the asset, a BOM, invalid UTF-8 or more than 256
@@ -226,14 +226,14 @@ bridge.
 
 ### Gates
 
-| Gate             | Literal module                            | What it does                                                                                                                                                                                                                                                                                                           | Markers                                                                                        |
-| ---------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `perf`           | `74514` (perf store holder)               | `supplyNamespace(SteamClient.System, "Perf")` with `UpdateSettings(base64)` decoded through the store's own message class and forwarded as `updateSettings {delta}`; state written into `SystemPerfStore.m_msgState`                                                                                                   | `__wsgmOwnedNamespace`                                                                         |
-| `audio`          | `1409` (audio store)                      | supplies `System.Audio` (`GetDevices`, `SetDefaultDeviceOverride`, `SetDeviceVolume(id, direction, volume)`, no-op app volume, eight `RegisterFor*`); state feeds the running store through `RegisterOrUpdateDevice` and sets `m_bAvailable`; dispatches a volume change only above 0.004                              | `__wsgmOwnedNamespace`                                                                         |
-| `steamOsManager` | `90389` (manager), `21371` (query client) | claims `GetState` and merges `is_tdp_limit_available`, `tdp_limit_min`, `tdp_limit_max` into the real reply; invalidates `["SteamOSService","State","Manager"]`; watches `steamos_tdp_limit` and `steamos_tdp_limit_enabled` (settings change plus a 1 s timer) and sends `setPrimaryLimit {watts, enabled}` on change | `__wsgmOwnedGetState`, `__wsgmOriginalGetState`                                                |
-| `brightness`     | `59547` (display settings)                | `claimValue` on `is_display_brightness_available`, `claimMember` on `SetBrightness` → `setBrightness {percent}`; state sets the slider                                                                                                                                                                                 | `__wsgmBrightnessRevealed`, `__wsgmOriginalBrightnessAvailability`, `__wsgmOwnedSetBrightness` |
-| `network`        | `77347` (network store)                   | `claimAccessor` on the prototype getter `networkManagementAvailable`; wraps start/stop scanning and always calls through; writes up to 24 synthetic access points (ids 990001+) through `SetDeviceInfo`; removal deletes them and calls `ForceRefresh`                                                                 | `__wsgmOwnedGetter`, `__wsgmOriginalGetterDescriptor`, `__wsgmOwnedNetworkScan`                |
-| `bluetooth`      | `60517` (service stub), `21371`           | replaces eleven methods on the stub; one synthetic adapter; invalidates `["BluetoothManagerService","State"]`                                                                                                                                                                                                          | `__wsgmOwnedBluetoothService`, `__wsgmOriginalBluetoothServiceMethod`                          |
+| Gate             | Literal module                            | What it does                                                                                                                                                                                                                                                                                                           | Markers                                                                                                 |
+| ---------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `perf`           | `74514` (perf store holder)               | `supplyNamespace(SteamClient.System, "Perf")` with `UpdateSettings(base64)` decoded through the store's own message class and forwarded as `updateSettings {delta}`; state written into `SystemPerfStore.m_msgState`                                                                                                   | `__steamUiOwnedNamespace`                                                                               |
+| `audio`          | `1409` (audio store)                      | supplies `System.Audio` (`GetDevices`, `SetDefaultDeviceOverride`, `SetDeviceVolume(id, direction, volume)`, no-op app volume, eight `RegisterFor*`); state feeds the running store through `RegisterOrUpdateDevice` and sets `m_bAvailable`; dispatches a volume change only above 0.004                              | `__steamUiOwnedNamespace`                                                                               |
+| `steamOsManager` | `90389` (manager), `21371` (query client) | claims `GetState` and merges `is_tdp_limit_available`, `tdp_limit_min`, `tdp_limit_max` into the real reply; invalidates `["SteamOSService","State","Manager"]`; watches `steamos_tdp_limit` and `steamos_tdp_limit_enabled` (settings change plus a 1 s timer) and sends `setPrimaryLimit {watts, enabled}` on change | `__steamUiOwnedGetState`, `__steamUiOriginalGetState`                                                   |
+| `brightness`     | `59547` (display settings)                | `claimValue` on `is_display_brightness_available`, `claimMember` on `SetBrightness` → `setBrightness {percent}`; state sets the slider                                                                                                                                                                                 | `__steamUiBrightnessRevealed`, `__steamUiOriginalBrightnessAvailability`, `__steamUiOwnedSetBrightness` |
+| `network`        | `77347` (network store)                   | `claimAccessor` on the prototype getter `networkManagementAvailable`; wraps start/stop scanning and always calls through; writes up to 24 synthetic access points (ids 990001+) through `SetDeviceInfo`; removal deletes them and calls `ForceRefresh`                                                                 | `__steamUiOwnedGetter`, `__steamUiOriginalGetterDescriptor`, `__steamUiOwnedNetworkScan`                |
+| `bluetooth`      | `60517` (service stub), `21371`           | replaces eleven methods on the stub; one synthetic adapter; invalidates `["BluetoothManagerService","State"]`                                                                                                                                                                                                          | `__steamUiOwnedBluetoothService`, `__steamUiOriginalBluetoothServiceMethod`                             |
 
 ### The component host
 

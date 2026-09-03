@@ -1,5 +1,5 @@
 (() => {
-  const b = window.__wsgmSteamUi_v1_28d7c54a;
+  const b = window.__steamUi_v1_28d7c54a;
   const out = {};
   for (const kind of [
     "valveFrameLimit",

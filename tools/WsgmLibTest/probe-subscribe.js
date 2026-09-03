@@ -2,7 +2,7 @@
 // "subscription not allowlisted" for a patch id missing from config.allowed, and it throws during
 // render, which is why the whole tab went blank rather than one row disappearing.
 (() => {
-  const b = window.__wsgmSteamUi_v1_28d7c54a;
+  const b = window.__steamUi_v1_28d7c54a;
   if (!b) return JSON.stringify({ error: "bridge absent" });
   const out = {};
   for (const id of [

@@ -257,7 +257,7 @@ const connect = async () => {
 };
 
 const install = async (session) => {
-  const source = asset.replace("__WSGM_CONFIGURATION_JSON__", JSON.stringify(configuration));
+  const source = asset.replace("__STEAM_UI_CONFIGURATION_JSON__", JSON.stringify(configuration));
   const result = await session.evaluate(source);
   console.log("bootstrap:", result);
 
@@ -284,8 +284,8 @@ const status = async (session) => {
   const report = await session.evaluate(
     `(()=>{const b=${bridge};const s=window.SteamClient&&window.SteamClient.System;` +
       `const out={bridge:!!b,version:b&&b.version,` +
-      `audioNamespace:!!(s&&s.Audio),audioOwned:!!(s&&s.Audio&&s.Audio.__wsgmOwnedNamespace===true),` +
-      `perfNamespace:!!(s&&s.Perf),perfOwned:!!(s&&s.Perf&&s.Perf.__wsgmOwnedNamespace===true)};` +
+      `audioNamespace:!!(s&&s.Audio),audioOwned:!!(s&&s.Audio&&s.Audio.__steamUiOwnedNamespace===true),` +
+      `perfNamespace:!!(s&&s.Perf),perfOwned:!!(s&&s.Perf&&s.Perf.__steamUiOwnedNamespace===true)};` +
       `if(b){for(const n of ['audio','network','bluetooth','brightness','perf','steamOsManager']){` +
       `try{const g=b.gate?b.gate(n):null;out[n]=g?g.status():'absent';}catch(e){out[n]='ERR '+e;}}` +
       // nativeComponents.status takes a KIND. Calling it bare reports registered:false for every

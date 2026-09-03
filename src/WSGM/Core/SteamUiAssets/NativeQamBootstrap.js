@@ -4,12 +4,12 @@
   // after every fragment has registered. The early reuse return below is the one path that leaves
   // before the fragments run, and it returns its own result directly.
   let installResult;
-  const config = __WSGM_CONFIGURATION_JSON__;
+  const config = __STEAM_UI_CONFIGURATION_JSON__;
   const prior = window[config.namespace];
   if (
     prior &&
     prior.version === config.version &&
-    // Neither generation changes when WSGM is updated, so without the asset hash a new build kept
+    // Neither generation changes when the host is updated, so without the asset hash a new build kept
     // running the previous build's script until Steam itself restarted.
     prior.assetHash === config.assetHash &&
     prior.contextGeneration === config.contextGeneration &&
@@ -51,7 +51,7 @@
   const getWebpackRuntime = (scope) => {
     let runtime;
     window.webpackChunksteamui.push([
-      [`wsgm_${scope}_${Date.now()}`],
+      [`steam_ui_${scope}_${Date.now()}`],
       {},
       (value) => {
         runtime = value;
@@ -64,17 +64,17 @@
     return Array.isArray(commands) && commands.includes(command);
   };
   const send = (envelope) => {
-    if (disposed) throw new Error("WSGM bridge disposed");
+    if (disposed) throw new Error("Steam UI bridge disposed");
     const binding = window[config.binding];
-    if (typeof binding !== "function") throw new Error("WSGM Runtime binding unavailable");
+    if (typeof binding !== "function") throw new Error("Steam UI Runtime binding unavailable");
     binding(JSON.stringify(envelope));
   };
   // The host REJECTS an action generation of zero, and several gates were passing exactly that —
-  // "sequence or action generation is invalid" against wsgm.native-qam.perf/updateSettings,
+  // "sequence or action generation is invalid" against steam-ui.performance/updateSettings,
   // steam-network.gate/startScan and stopScan, and steam-bluetooth.service/setDiscovering, on the
   // reference device on 2026-08-30. Every Valve performance control's write, and every signal that
-  // Steam's network page had started looking for networks, was dropped by the bridge before WSGM
-  // ever saw it — which is why the Wi-Fi list never filled: WSGM was never told to scan.
+  // Steam's network page had started looking for networks, was dropped by the bridge before the host
+  // ever saw it — which is why the Wi-Fi list never filled: the host was never told to scan.
   //
   // Zero was meant as "no user-initiated row action here", which is true of a gate. Rather than
   // repeat the counter at each such call site, an absent or non-positive generation is allocated
@@ -119,7 +119,7 @@
         try {
           send({ ...envelope, type: "cancel" });
         } catch {}
-        reject(new Error("WSGM bridge request timed out"));
+        reject(new Error("Steam UI bridge request timed out"));
       }, config.timeoutMilliseconds);
       pending.set(sequence, { resolve, reject, timer, patchId, command });
       try {
@@ -194,27 +194,27 @@
     }
     for (const item of pending.values()) {
       clearTimeout(item.timer);
-      item.reject(new Error(reason || "WSGM bridge disposed"));
+      item.reject(new Error(reason || "Steam UI bridge disposed"));
     }
     pending.clear();
     subscribers.clear();
     latestStates.clear();
     actionGenerations.clear();
   };
-  // Stamped on every namespace WSGM defines on SteamClient, so a later probe can tell OUR namespace
+  // Stamped on every namespace the host defines on SteamClient, so a later probe can tell OUR namespace
   // from a real backend. Without it the two are indistinguishable and the compatibility check reads
   // its own successful install as "a native backend exists", refuses, and tears the patch down —
   // which is exactly what left this client with an empty audio page and a crashing Performance tab.
   //
   // A string key rather than a Symbol: it has to survive being read back from a probe evaluated in
   // a separate CDP call, where a Symbol from this scope is not reachable.
-  const ownedMarker = "__wsgmOwnedNamespace";
-  // The same idea one level down: a method WSGM overlaid rather than a namespace it defined. The
+  const ownedMarker = "__steamUiOwnedNamespace";
+  // The same idea one level down: a method the host overlaid rather than a namespace it defined. The
   // second key carries the method that was replaced, so an overlay outliving the closure that made
   // it can still be unwound back to the client's own.
   const getState = {
-    marker: "__wsgmOwnedGetState",
-    original: "__wsgmOriginalGetState",
+    marker: "__steamUiOwnedGetState",
+    original: "__steamUiOriginalGetState",
   };
   // Gates register themselves rather than being named here. The bridge used to construct each one
   // by name and publish it under a fixed property, which meant this file had to list every surface
@@ -263,7 +263,7 @@
   };
   const claimed = (host, keys) => !!host && host[keys.marker] === true;
   const captureProperty = (host, property) => ({
-    kind: "wsgm-property-snapshot-v1",
+    kind: "steam-ui-property-snapshot-v1",
     hadOwn: Object.hasOwn(host, property),
     descriptor: Object.getOwnPropertyDescriptor(host, property),
     value: host[property],
@@ -271,7 +271,7 @@
   const isPropertySnapshot = (value) =>
     !!value &&
     typeof value === "object" &&
-    value.kind === "wsgm-property-snapshot-v1" &&
+    value.kind === "steam-ui-property-snapshot-v1" &&
     typeof value.hadOwn === "boolean";
   // An accessor-backed field is one whose value lives BEHIND the property — a MobX observable, a
   // store's computed flag — and the only safe way to change it is through its own setter.
@@ -303,7 +303,7 @@
     const current = Object.getOwnPropertyDescriptor(host, property);
     const hadOwn = !(absentMeansMissing && value === undefined) && !!current;
     return {
-      kind: "wsgm-property-snapshot-v1",
+      kind: "steam-ui-property-snapshot-v1",
       hadOwn,
       descriptor: hadOwn && current && "value" in current ? { ...current, value } : undefined,
       value,
@@ -574,7 +574,7 @@
   // The store's availability flag is literally `null != SteamClient.System.Audio`, so defining this
   // object is the entire gate — there is nothing to patch and nothing to hide.
   function createAudioNamespace() {
-    const patchId = "wsgm.native-qam.audio";
+    const patchId = "steam-ui.audio";
     let installed = false;
     let lastError = "";
     let unsubscribe = null;
@@ -598,7 +598,7 @@
     let known = [];
     let originalStoreState = null;
     // Steam's audio identities are NUMBERS: the live store keeps m_activeOutputDeviceId as a
-    // uint32 with 0xFFFFFFFF for none (read off the running client, 2026-08-30). WSGM's endpoint
+    // uint32 with 0xFFFFFFFF for none (read off the running client, 2026-08-30). The host's endpoint
     // ids are Windows GUID strings, so devices listed by name but nothing could ever match as
     // active — which reads as "no default device" and disables the volume slider. Each GUID gets a
     // stable small number for Steam's side of the wire, translated back on every command.
@@ -628,7 +628,7 @@
     };
     const guidFor = (value) => deviceGuids.get(Number(value)) ?? null;
     // The store's device constructor ingests flOutputVolume/flInputVolume (0..1) into the map the
-    // sliders bind — omit them and that direction renders a grey bar over undefined. WSGM observes
+    // sliders bind — omit them and that direction renders a grey bar over undefined. The host observes
     // the two Windows defaults, so every endpoint of a direction carries that direction's current
     // default value; exposing a per-device number for an inactive endpoint would be invented.
     const toDevice = (entry, flOutputVolume, flInputVolume) => ({
@@ -638,7 +638,7 @@
       bHasInput: entry.hasInput === true,
       flOutputVolume: entry.hasOutput === true ? flOutputVolume : undefined,
       flInputVolume: entry.hasInput === true && flInputVolume !== null ? flInputVolume : undefined,
-      // Speaker configuration and HDMI CEC reach a service WSGM does not supply. Reported empty and
+      // Speaker configuration and HDMI CEC reach a service the host does not supply. Reported empty and
       // false rather than invented, so those controls simply do not appear.
       currentConfig: {},
       availableConfigs: [],
@@ -700,7 +700,7 @@
         }
         // (deviceId, DIRECTION, volume) — in that order. Read off the store's own methods
         // 2026-08-30: OnAudioDeviceVolumeChanged(e,t,r) forwards to OnVolumeUpdated(t,r), which is
-        // m_mapVolumes.set(t, r). The direction is the KEY and the volume is the VALUE, and WSGM
+        // m_mapVolumes.set(t, r). The direction is the KEY and the volume is the VALUE, and the host
         // was passing them the other way round — every entry it wrote was keyed by a float volume
         // with 1 or 0 as its value, so getDeviceVolume(direction) found nothing and the slider had
         // no number to sit on.
@@ -744,13 +744,13 @@
           //
           // But writing on every publish is wrong in both directions at once. It dispatches a
           // volume change once a second, which is Steam's OSD popping up forever; and while the
-          // user is dragging, the store is already holding the value they chose, so pushing WSGM's
+          // user is dragging, the store is already holding the value they chose, so pushing the host's
           // not-yet-observed one snaps the handle back under their thumb.
           //
-          // So: seed a direction that has no value at all, and otherwise write only when WSGM's
+          // So: seed a direction that has no value at all, and otherwise write only when the host's
           // OWN reading moved — something outside Steam changed the volume — and the store has not
           // already caught up. Both are suppressed, because neither is the user acting inside
-          // Steam: a hardware button already shows WSGM's own overlay.
+          // Steam: a hardware button already shows the host's own overlay.
           const deviceId = numberFor(device.id);
           const entry = store.m_mapAudioDevices?.get(deviceId);
           const volumes = [];
@@ -834,7 +834,7 @@
           });
         },
         // (deviceId, DIRECTION, volume) — three arguments. Read off the store's own device class
-        // 2026-08-30: setDeviceVolume(e,t) calls SetDeviceVolume(this.m_id, e, t). WSGM declared
+        // 2026-08-30: setDeviceVolume(e,t) calls SetDeviceVolume(this.m_id, e, t). The host declared
         // two parameters and so read the DIRECTION as the volume: dragging the slider sent
         // Math.round(1 * 100) or Math.round(0 * 100), which is why every drag set 100% or 0% and
         // the log showed "Taskbar volume set to 100%" the moment the slider was touched.
@@ -914,7 +914,7 @@
   registerGate("audio", createAudioNamespace());
   // Bluetooth is a WebUI transport service whose backend does not exist on Windows. The service,
   // its message shapes and every operation are present — GetState round-trips and answers
-  // is_service_available:false with empty adapters and devices — so WSGM replaces the stub's
+  // is_service_available:false with empty adapters and devices — so the host replaces the stub's
   // methods rather than implementing the service. `*Handler` exports are message descriptors,
   // not registration hooks, so implementing it is not on offer.
   //
@@ -923,21 +923,21 @@
   // invalidated. Live-verified 2026-08-30 that RF's methods are writable and configurable and that
   // the query client's invalidateQueries is reachable.
   function createBluetoothService() {
-    const patchId = "wsgm.steam-bluetooth.service";
+    const patchId = "steam-ui.bluetooth";
     const queryKey = ["BluetoothManagerService", "State"];
-    const methodMarker = "__wsgmOwnedBluetoothService";
-    const originalMethodField = "__wsgmOriginalBluetoothServiceMethod";
+    const methodMarker = "__steamUiOwnedBluetoothService";
+    const originalMethodField = "__steamUiOriginalBluetoothServiceMethod";
     const originals = new Map();
     let installed = false;
     let lastError = "";
     let unsubscribe = null;
     // Steam's own device and adapter shapes, which are not ours to describe: the store reads them
-    // and WSGM only carries them through from the state it was given.
+    // and the host only carries them through from the state it was given.
     let latest = { is_service_available: false, adapters: [], devices: [] };
     const modules = () => getWebpackRuntime("bluetooth-service");
     const reply = transportReply;
     const invalidate = (req) => invalidateQuery(req, queryKey);
-    // WSGM sends its own field names and the mapping into Steam's lives here, so the client's
+    // The host sends its own field names and the mapping into Steam's lives here, so the client's
     // schema stays in the half that has to change when the client is rebuilt.
     const onState = (state) => {
       if (!installed || !state) return;
@@ -945,7 +945,7 @@
       latest = {
         is_service_available: state.available === true,
         // One synthetic adapter, because the panel needs something to hang the radio toggle on and
-        // Windows exposes no adapter identity WSGM could pass through truthfully.
+        // Windows exposes no adapter identity the host could pass through truthfully.
         adapters:
           state.available === true
             ? [
@@ -965,7 +965,7 @@
           etype: device.eType ?? 0,
           is_paired: device.isPaired === true,
           is_connected: device.isConnected === true,
-          // Steam sorts by signal and shows a battery when one is reported. WSGM knows neither, and
+          // Steam sorts by signal and shows a battery when one is reported. The host knows neither, and
           // a fabricated strength would order the list by a number that means nothing.
           strength_raw: 0,
           battery_percent: null,
@@ -1071,11 +1071,11 @@
   // Not availability-only, despite the founding comment that said Steam's own backend works on
   // Windows. It does not — device-disproved 2026-08-30: SetBrightness is a native stub and
   // RegisterForBrightnessChanges never fires, so the store's observable sits at its constructed 1
-  // and the revealed slider moves nothing. WSGM is the backend: the gate forwards the slider's
+  // and the revealed slider moves nothing. The host is the backend: the gate forwards the slider's
   // writes over the bridge and feeds the store's observable from the published state, both through
   // the same \\.\LCD interface the host owns.
   function createBrightnessGate() {
-    const patchId = "wsgm.steam-display.brightness";
+    const patchId = "steam-ui.brightness";
     const field = "is_display_brightness_available";
     // A string key on the settings message, because the probe reads it from a separate CDP
     // evaluation where nothing from this scope is reachable. Without it this gate ran the
@@ -1083,12 +1083,12 @@
     // the flag to be hidden, a successful apply made it visible, and the patch manager tore down
     // its own work every poll — the row flickered in and out on a ~25-second cycle on the device.
     const availability = {
-      marker: "__wsgmBrightnessRevealed",
-      original: "__wsgmOriginalBrightnessAvailability",
+      marker: "__steamUiBrightnessRevealed",
+      original: "__steamUiOriginalBrightnessAvailability",
     };
     const setter = {
-      marker: "__wsgmOwnedSetBrightness",
-      original: "__wsgmOriginalSetBrightness",
+      marker: "__steamUiOwnedSetBrightness",
+      original: "__steamUiOriginalSetBrightness",
     };
     let installed = false;
     let lastError = "";
@@ -1107,7 +1107,7 @@
       if (!installed || !state) return;
       const percent = Number(state.percent);
       if (!Number.isInteger(percent) || percent < 0 || percent > 100) return;
-      // Same rule as the volume: write only when WSGM's OWN reading moved, so a publish that
+      // Same rule as the volume: write only when the host's OWN reading moved, so a publish that
       // merely restates the level never fights a drag the store is already ahead on.
       if (percent === lastPercent) return;
       lastPercent = percent;
@@ -1162,7 +1162,7 @@
         lastError = "display settings message unavailable";
         return { ok: false, error: lastError };
       }
-      // A client already reporting brightness available needs nothing from WSGM, and overwriting
+      // A client already reporting brightness available needs nothing from the host, and overwriting
       // the flag would mean restoring a value that was never ours to change. Available AND MARKED
       // is different: that is this gate's own earlier reveal, surviving a bridge replaced in
       // place, and refusing it is the teardown trap. Both cases are the claim primitive's job now.
@@ -1228,14 +1228,14 @@
   // configurable, the override flips the value, and restoring the saved descriptor puts it back.
   function createNetworkGate() {
     const property = "networkManagementAvailable";
-    const patchId = "wsgm.steam-network.gate";
+    const patchId = "steam-ui.network";
     const availability = {
-      marker: "__wsgmOwnedGetter",
-      original: "__wsgmOriginalGetterDescriptor",
+      marker: "__steamUiOwnedGetter",
+      original: "__steamUiOriginalGetterDescriptor",
     };
     const scan = {
-      marker: "__wsgmOwnedNetworkScan",
-      original: "__wsgmOriginalNetworkScan",
+      marker: "__steamUiOwnedNetworkScan",
+      original: "__steamUiOriginalNetworkScan",
     };
     let target = null;
     let lastError = "";
@@ -1350,7 +1350,7 @@
       return { ok: true, installed: true, available: instance[property] === true };
     };
     // Steam's own UI calls these when its network page opens and closes, so they are exactly the
-    // signal for when a scan is worth running. WSGM's radio manager is otherwise driven by WSGM's
+    // signal for when a scan is worth running. The host's radio manager is otherwise driven by the host's
     // own panel, and a list refreshed only then would be stale on Steam's page — which is worse
     // than an empty one, because the user picks a network that is gone and the join fails silently.
     //
@@ -1370,7 +1370,7 @@
         const claim = claimMember(net, name, scan, (original) => {
           inner = original;
           return function (...args) {
-            // A scan request that cannot reach WSGM must not stop Steam's own call. Promise
+            // A scan request that cannot reach the host must not stop Steam's own call. Promise
             // rejection is handled explicitly; a try/catch only sees synchronous construction.
             void request(patchId, command, null).catch(() => {});
             return inner.apply(this, args);
@@ -1414,7 +1414,7 @@
         installed: !!target,
         available: instance ? instance[property] === true : false,
         // Reported because the row can be on while the list is empty: Steam's Windows backend
-        // never populates wireless.aps, so an access point count of zero here means WSGM has not
+        // never populates wireless.aps, so an access point count of zero here means the host has not
         // supplied one, not that the machine cannot see any networks.
         accessPoints: Array.isArray(instance?.accessPoints) ? instance.accessPoints.length : -1,
         hasWirelessDevice: instance?.hasWirelessDevice === true,
@@ -1436,7 +1436,7 @@
   // immediately decode it again. Live-verified 2026-08-30 that the direct write is observed through
   // every accessor the hooks use and restores cleanly.
   function createPerfNamespace() {
-    const patchId = "wsgm.native-qam.perf";
+    const patchId = "steam-ui.performance";
     let installed = false;
     let lastError = "";
     let unsubscribe = null;
@@ -1444,7 +1444,7 @@
     // The message class is never named here — it is taken from an instance the store builds, so
     // this stays correct across minification and client updates. An object argument is still
     // accepted because that is what a caller other than the store would pass, and an
-    // undecodable one is forwarded as-is so WSGM logs a readable rejection instead of nothing.
+    // undecodable one is forwarded as-is so the host logs a readable rejection instead of nothing.
     const decodeSettingsUpdate = (payload) => {
       if (typeof payload !== "string") return payload?.toObject?.() ?? payload ?? {};
       try {
@@ -1495,17 +1495,17 @@
         return { ok: false, error: lastError };
       }
       // Every setter builds a protobuf delta and hands it to UpdateSettings, so that one method is
-      // where all of them arrive. The delta is decoded on WSGM's side rather than here, because the
+      // where all of them arrive. The delta is decoded on the host's side rather than here, because the
       // message shapes belong to the client and this half only forwards.
       const buildApi = () => ({
         // Decode first, always. SystemPerfStore's setters all end in
         // `UpdateSettings(request.serializeBase64String())`, so what arrives here is a BASE64
         // STRING, not the message — live-verified 2026-08-30 by round-tripping a request built by
-        // the store itself. Forwarding it verbatim made WSGM's reader reject every write as
+        // the store itself. Forwarding it verbatim made the host's reader reject every write as
         // "carried no delta object", which is why no control on the Performance tab did anything:
         // the overlay-level selector snapped back to off, the frame cap never took, VRR never
         // toggled. Decoding through the message's OWN deserializeBinary keeps the wire format the
-        // client's business; toObject() then emits snake_case field names, which is what WSGM reads.
+        // client's business; toObject() then emits snake_case field names, which is what the host reads.
         UpdateSettings: (payload) =>
           request(patchId, "updateSettings", { delta: decodeSettingsUpdate(payload) }, 0),
         RegisterForStateChanges: () => ({ unregister: () => {} }),
@@ -1536,7 +1536,7 @@
       if (target?.m_msgState) {
         try {
           // Back to the empty state the Windows client leaves it in, so every control returns to
-          // rendering nothing rather than keeping WSGM's last answer.
+          // rendering nothing rather than keeping the host's last answer.
           target.m_msgState.limits = undefined;
           target.m_msgState.settings = undefined;
           target.m_msgState.current_game_id = undefined;
@@ -1546,7 +1546,7 @@
         }
       }
       // Marker-checked, which this path was not: it deleted whatever was at System.Perf, so a real
-      // backend appearing under a still-installed gate would have been removed by WSGM's own cleanup.
+      // backend appearing under a still-installed gate would have been removed by the host's own cleanup.
       const withdrawn = withdrawNamespace(window.SteamClient?.System, "Perf", ownedMarker);
       if (!withdrawn.ok) {
         lastError = withdrawn.error ?? "perf namespace withdrawal failed";
@@ -1586,10 +1586,10 @@
   // fields, sourced from the same published state the hand-rolled row used; invalidate that query
   // key when the state changes; and watch the one setting Valve writes so the chosen watts reach
   // the device through the existing setPrimaryLimit command. Valve owns the row, the storage and
-  // the write UI — WSGM answers one RPC and observes one number. Live-mapped 2026-08-30: stub
+  // the write UI — the host answers one RPC and observes one number. Live-mapped 2026-08-30: stub
   // export Bd beside the Telemetry service, own-writable GetState, body nested under `state`.
   function createSteamOsManagerGate() {
-    const patchId = "wsgm.native-qam.tdp";
+    const patchId = "steam-ui.power-limit";
     const queryKey = ["SteamOSService", "State", "Manager"];
     let installed = false;
     let lastError = "";
@@ -1636,7 +1636,7 @@
     };
     // Valve's TDP rows do not call a namespace. The toggle and the slider are bound to the
     // steamos_tdp_limit_enabled and steamos_tdp_limit CLIENT SETTINGS, Steam persists them, and
-    // WSGM's job is to notice the number and route it to hardware.
+    // the host's job is to notice the number and route it to hardware.
     //
     // Read from the settings store rather than from a change payload. Live-verified 2026-08-30:
     // Valve's own hooks read (0,a.q3)(() => G.clientSettings[name]) off the store reachable as
@@ -1663,7 +1663,7 @@
       if (forwarding) return;
       forwarding = true;
       // The enabled flag rides along: a limit switched off is not the same as a limit of zero
-      // watts, and WSGM has to release the cap rather than try to apply one.
+      // watts, and the host has to release the cap rather than try to apply one.
       request(patchId, "setPrimaryLimit", { watts: now.watts ?? 0, enabled: now.enabled }).then(
         () => {
           // Latched on SUCCESS, never on the attempt. Recording the value before the answer meant a
@@ -1829,7 +1829,7 @@
     // exports of the perf-components module — re-probed 2026-09-02 after the header rendered with
     // no way to enable a profile: the toggle's token resolves uniquely on its own, so each mounts
     // as its own row under the one valveProfileHeader kind. And Valve's reset button. All are
-    // additive: WSGM built none of them.
+    // additive: the host built none of them.
     let valveProfileHeaderControl;
     let valveProfileToggleControl;
     let valveResetControl;
@@ -1859,7 +1859,7 @@
     };
     // Why each control did or did not draw. A control that renders null leaves no trace anywhere:
     // the row is built and appended, the panel simply has one fewer child, and every other signal
-    // still reports success. This is the difference between "WSGM did not add it" and "WSGM added
+    // still reports success. This is the difference between "the host did not add it" and "the host added
     // it and the device had nothing to show".
     const renderOutcomes = {};
     const note = (kind, reason) => {
@@ -1877,67 +1877,67 @@
     };
     const definitions = Object.freeze({
       autoTdp: Object.freeze({
-        patchId: "wsgm.native-qam.auto-tdp",
+        patchId: "steam-ui.auto-tdp",
         command: "setAutoTdp",
       }),
       // Two commands, because this is SteamOS's unified row: one slider that is the frame cap while
       // a cap is set and the refresh rate once it is switched off.
       frameLimit: Object.freeze({
-        patchId: "wsgm.native-qam.frame-limit",
+        patchId: "steam-ui.frame-limit",
         command: "setFrameLimit",
         refreshCommand: "setRefreshRate",
       }),
       controllerTarget: Object.freeze({
-        patchId: "wsgm.native-qam.controller-target",
+        patchId: "steam-ui.controller-target",
         command: "setControllerTarget",
       }),
       // Hand-built for the same reason resolution is: Valve ships a component, and its gate is a
       // namespace this client does not have. See createVrrControl.
       vrr: Object.freeze({
-        patchId: "wsgm.native-qam.vrr",
+        patchId: "steam-ui.variable-refresh",
         command: "setVariableRefreshRate",
       }),
       // Hand-built, unlike the frame limit and VRR rows. SteamOS drives resolution through
       // gamescope and this client ships no component for it, so there is nothing to mount.
       resolution: Object.freeze({
-        patchId: "wsgm.native-qam.resolution",
+        patchId: "steam-ui.resolution",
         command: "setResolution",
       }),
       deviceControls: Object.freeze({
-        patchId: "wsgm.native-qam.device-controls",
+        patchId: "steam-ui.device-controls",
         chargeCommand: "setChargeLimit",
         brightnessCommand: "setLightingBrightness",
         colorCommand: "setLightingColor",
       }),
-      // Valve's own components. They carry no command because they never call WSGM directly: they
+      // Valve's own components. They carry no command because they never call the host directly: they
       // read SystemPerfStore and write through SteamClient.System.Perf.UpdateSettings, which is the
       // perf patch's vocabulary, not theirs. They still need an entry here — install() refuses any
       // kind that is not a declared definition.
       valveProfileHeader: Object.freeze({
-        patchId: "wsgm.native-qam.valve-profile-header",
+        patchId: "steam-ui.valve-profile-header",
         command: "",
       }),
       valveReset: Object.freeze({
-        patchId: "wsgm.native-qam.valve-reset",
+        patchId: "steam-ui.valve-reset",
         command: "",
       }),
       // Valve's own refresh-rate row, mounted into Quick Settings per S14. It reads
       // limits.display_refresh_manual_hz_* from SystemPerfStore, which the projection supplies only
       // under FrameLimitOnly — the strategy gate is the state, not a check here.
       valveRefreshRate: Object.freeze({
-        patchId: "wsgm.native-qam.valve-refresh-rate",
+        patchId: "steam-ui.valve-refresh-rate",
         command: "",
       }),
       // Valve's performance-overlay selector replaces the retired hand-rolled imitation.
       valveOverlayLevel: Object.freeze({
-        patchId: "wsgm.native-qam.valve-overlay-level",
+        patchId: "steam-ui.valve-overlay-level",
         command: "",
       }),
       // Valve's own power-limit toggle and slider, in place of the hand-rolled row. They carry no
       // command for the same reason the rows above do not: they write the steamos_tdp_limit client
       // settings, which the SteamOS Manager gate watches and forwards.
       valveTdp: Object.freeze({
-        patchId: "wsgm.native-qam.valve-tdp",
+        patchId: "steam-ui.valve-power-limit",
         command: "",
       }),
     });
@@ -2068,7 +2068,7 @@
         if (!item || typeof item !== "object") return null;
         const id = normalizeText(item.id);
         const label = normalizeText(item.label);
-        // Uppercase is allowed because the ids WSGM actually sends are PascalCase —
+        // Uppercase is allowed because the ids the host actually sends are PascalCase —
         // SteamDeckComposite, Xbox360, DualShock4. A lowercase-only pattern rejected every one of
         // them, so the whole state normalised to null and the controller row never drew, with
         // nothing anywhere saying a state had been received and thrown away.
@@ -2322,7 +2322,7 @@
             const normalized = normalize(value);
             // A state that arrives and fails validation is not the same as one that never
             // arrived, and both used to end as a null the control returned on. The controller row
-            // was invisible for exactly this reason: WSGM sends PascalCase target ids and the
+            // was invisible for exactly this reason: the host sends PascalCase target ids and the
             // validator only accepted lowercase, so every delivery was discarded in silence.
             if (normalized === null && value) {
               renderOutcomes[kind] = "state received but rejected by validation";
@@ -2395,7 +2395,7 @@
     // would render "#QuickAccess_..." as a label. Live-verified 2026-08-29: a known token localizes,
     // an unknown one comes straight back.
     //
-    // EVERY label goes through this, not only the WSGM-invented ones. With the rows finally
+    // EVERY label goes through this, not only the host-invented ones. With the rows finally
     // rendering on the reference Claw, "#QuickAccess_Tab_Perf_FramerateLimit" and
     // "#QuickAccess_Tab_Perf_PerfOverlayLevel" both came back raw and were shown to the user as
     // their token text. A bare localize() call here is a bug waiting for the next missing string.
@@ -2406,12 +2406,12 @@
     // and those localize. Both call sites now use the real names, so those two rows are translated
     // rather than permanently English.
     //
-    // The fallback still earns its place, for the labels WSGM invents and Valve has no string for
+    // The fallback still earns its place, for the labels the host invents and Valve has no string for
     // (AutoTDP, the display-resolution row). Those pass no token at all rather than a plausible
     // one: a token that does not exist makes Steam log an unresolved string on every render and
     // still shows the English text.
     // Steam's localizer does not return a string. It returns a React element wrapping one, so
-    // `typeof text === "string"` was false for every token and every WSGM label fell back to its
+    // `typeof text === "string"` was false for every token and every the host label fell back to its
     // English default while Steam's own rows beside them were in the user's language. The element
     // is what should be handed to the field — only the "#" test needs the text inside it.
     const textOf = (value) => {
@@ -2425,13 +2425,13 @@
       const text = textOf(localized);
       return text && text.length > 0 && text[0] !== "#" ? localized : fallback;
     };
-    // WSGM's own variable-refresh switch. Valve ships one, and it cannot be used: its component is
+    // The host's own variable-refresh switch. Valve ships one, and it cannot be used: its component is
     // gated on a react-query over SteamClient.System.DisplayManager, whose GetState this client
     // does not define — the query never succeeds and the component returns null before it reads a
-    // single field WSGM publishes (live-probed 2026-08-30). The device capability behind this row
+    // single field the host publishes (live-probed 2026-08-30). The device capability behind this row
     // is the one already verified on the reference unit through IGCL Arc Sync.
     const createVrrControl = (controlRuntime) =>
-      function WsgmNativeVrrControl() {
+      function SteamUiVrrControl() {
         const state = useSemanticState(controlRuntime, "vrr", normalizeVrrState);
         if (!state) return note("vrr", "no state");
         if (!state.available)
@@ -2441,7 +2441,7 @@
         const definition = definitions.vrr;
         return controlRuntime.react.createElement(controlRuntime.toggle, {
           // Valve's own token for the row, so the label matches the client's language even though
-          // the component behind it is WSGM's.
+          // the component behind it is the host's.
           label: localizeOr(
             controlRuntime,
             "#QuickAccess_Tab_Perf_EnableVRR",
@@ -2465,7 +2465,7 @@
         });
       };
     const createAutoTdpControl = (controlRuntime) =>
-      function WsgmNativeAutoTdpControl() {
+      function SteamUiAutoTdpControl() {
         const state = useSemanticState(controlRuntime, "autoTdp", normalizeAutoTdpState);
         if (!state) return note("autoTdp", "no state");
         if (!state.available)
@@ -2491,7 +2491,7 @@
             ? state.watts + " W · " + state.statusText
             : state.statusText;
         return controlRuntime.react.createElement(controlRuntime.toggle, {
-          // WSGM's own control; Valve has no string for it, so no token is passed.
+          // The host's own control; Valve has no string for it, so no token is passed.
           label: "Automatic TDP",
           description: description || undefined,
           checked: state.enabled,
@@ -2504,7 +2504,7 @@
         });
       };
     const createControllerControl = (controlRuntime) =>
-      function WsgmNativeControllerTargetControl() {
+      function SteamUiControllerTargetControl() {
         const state = useSemanticState(
           controlRuntime,
           "controllerTarget",
@@ -2551,7 +2551,7 @@
         });
       };
     const createResolutionControl = (controlRuntime) =>
-      function WsgmNativeResolutionControl() {
+      function SteamUiResolutionControl() {
         const state = useSemanticState(controlRuntime, "resolution", normalizeResolutionState);
         if (!state) return note("resolution", "no state");
         if (!state.available)
@@ -2604,7 +2604,7 @@
       return notch;
     };
     const createFrameLimitControl = (controlRuntime) =>
-      function WsgmNativeFrameLimitControl() {
+      function SteamUiFrameLimitControl() {
         const state = useSemanticState(controlRuntime, "frameLimit", normalizeFrameLimitState);
         const value = state ? (state.observedFps ?? state.desiredFps) : null;
         const echoed = useEchoedValue(controlRuntime, value);
@@ -2770,7 +2770,7 @@
     };
     const rgbCss = (color) => `#${Number(color).toString(16).padStart(6, "0")}`;
     const createDeviceControlsControl = (controlRuntime) =>
-      function WsgmNativeDeviceControls() {
+      function SteamUiDeviceControls() {
         const state = useSemanticState(
           controlRuntime,
           "deviceControls",
@@ -2816,7 +2816,7 @@
         };
         if (state.chargeLimit?.available && chargeEcho.value !== null) {
           const range = state.chargeLimit;
-          appendSlider("wsgm-native-qam-charge-limit", {
+          appendSlider("steam-ui-charge-limit", {
             label: "Battery charge limit",
             min: range.minimum,
             max: range.maximum,
@@ -2836,7 +2836,7 @@
         }
         if (state.lightingBrightness?.available && brightnessEcho.value !== null) {
           const range = state.lightingBrightness;
-          appendSlider("wsgm-native-qam-lighting-brightness", {
+          appendSlider("steam-ui-lighting-brightness", {
             label: "Lighting brightness",
             min: range.minimum,
             max: range.maximum,
@@ -2862,7 +2862,7 @@
           rows.push(
             controlRuntime.react.createElement(
               controlRuntime.row,
-              { key: "wsgm-native-qam-lighting-zone" },
+              { key: "steam-ui-lighting-zone" },
               controlRuntime.react.createElement(controlRuntime.dropdown, {
                 label: "Lighting zone",
                 rgOptions: options,
@@ -2886,7 +2886,7 @@
           rows.push(
             controlRuntime.react.createElement(
               controlRuntime.row,
-              { key: "wsgm-native-qam-lighting-preview" },
+              { key: "steam-ui-lighting-preview" },
               controlRuntime.react.createElement("div", {
                 title: rgbCss(stagedColor),
                 style: {
@@ -2904,7 +2904,7 @@
               zone: zone.id,
               color: hsvToRgb(hue, saturation, brightness),
             });
-          appendSlider("wsgm-native-qam-lighting-hue", {
+          appendSlider("steam-ui-lighting-hue", {
             label: localizeOr(controlRuntime, "#ColorPicker_Hue", "Hue"),
             min: 0,
             max: 360,
@@ -2927,7 +2927,7 @@
                 ),
               ),
           });
-          appendSlider("wsgm-native-qam-lighting-saturation", {
+          appendSlider("steam-ui-lighting-saturation", {
             label: localizeOr(controlRuntime, "#ColorPicker_Saturation", "Saturation"),
             min: 0,
             max: 100,
@@ -2946,7 +2946,7 @@
                 ),
               ),
           });
-          appendSlider("wsgm-native-qam-lighting-color-brightness", {
+          appendSlider("steam-ui-lighting-color-brightness", {
             label: localizeOr(controlRuntime, "#ColorPicker_Brightness", "Brightness"),
             min: 0,
             max: 100,
@@ -2970,7 +2970,7 @@
         renderOutcomes.deviceControls = `rendered ${rows.length} row(s)`;
         return controlRuntime.react.createElement(controlRuntime.react.Fragment, null, ...rows);
       };
-    // Steam's own FPS counter rows, which WSGM replaces with its RTSS-driven overlay. Identified by
+    // Steam's own FPS counter rows, which the host replaces with its RTSS-driven overlay. Identified by
     // localising the same tokens Steam did rather than by CSS class or visible text: the classes
     // are hashed per client build and the text changes with the user's language, while the token is
     // the one thing that is neither.
@@ -3007,7 +3007,7 @@
         // directly, and wrapping them would change identity for refs.
         let wrapper = descendCache.get(type);
         if (!wrapper) {
-          wrapper = function WsgmNativeQamDescend(props) {
+          wrapper = function SteamUiDescend(props) {
             return hideNativeRows(controlRuntime, type(props), labels, 0);
           };
           descendCache.set(type, wrapper);
@@ -3046,7 +3046,7 @@
       if (!filteredNative || filteredNative.inner !== inner) {
         filteredNative = {
           inner,
-          component: function WsgmNativeQamFilteredPerformance(props) {
+          component: function SteamUiFilteredPerformance(props) {
             lastHidden = 0;
             const filtered = hideNativeRows(controlRuntime, inner(props), labels, 0);
             if (appendDiagnostics.perf) {
@@ -3066,38 +3066,23 @@
       // component and placement are checked in one loop instead of three parallel structures and
       // ten almost-identical append branches.
       const rows = [
-        [
-          "valveProfileHeader",
-          "wsgm-native-qam-valve-profile-header",
-          valveProfileHeaderControl,
-          "perf",
-        ],
-        [
-          "valveProfileHeader",
-          "wsgm-native-qam-valve-profile-toggle",
-          valveProfileToggleControl,
-          "perf",
-        ],
-        [
-          "valveOverlayLevel",
-          "wsgm-native-qam-valve-overlay-level",
-          valveOverlayLevelControl,
-          "perf",
-        ],
-        ["frameLimit", "wsgm-native-qam-frame-limit", frameLimitControl, "perf"],
-        ["vrr", "wsgm-native-qam-vrr", vrrControl, "perf"],
-        ["valveTdp", "wsgm-native-qam-valve-tdp-enabled", valveTdpToggleControl, "perf"],
-        ["valveTdp", "wsgm-native-qam-valve-tdp", valveTdpSliderControl, "perf"],
-        ["autoTdp", "wsgm-native-qam-auto-tdp", autoTdpControl, "perf"],
-        ["resolution", "wsgm-native-qam-resolution", resolutionControl, "quickSettings"],
+        ["valveProfileHeader", "steam-ui-valve-profile-header", valveProfileHeaderControl, "perf"],
+        ["valveProfileHeader", "steam-ui-valve-profile-toggle", valveProfileToggleControl, "perf"],
+        ["valveOverlayLevel", "steam-ui-valve-overlay-level", valveOverlayLevelControl, "perf"],
+        ["frameLimit", "steam-ui-frame-limit", frameLimitControl, "perf"],
+        ["vrr", "steam-ui-vrr", vrrControl, "perf"],
+        ["valveTdp", "steam-ui-valve-tdp-enabled", valveTdpToggleControl, "perf"],
+        ["valveTdp", "steam-ui-valve-tdp", valveTdpSliderControl, "perf"],
+        ["autoTdp", "steam-ui-auto-tdp", autoTdpControl, "perf"],
+        ["resolution", "steam-ui-resolution", resolutionControl, "quickSettings"],
         [
           "valveRefreshRate",
-          "wsgm-native-qam-valve-refresh-rate",
+          "steam-ui-valve-refresh-rate",
           valveRefreshRateControl,
           "quickSettings",
         ],
-        ["controllerTarget", "wsgm-native-qam-controller-target", controllerControl, "perf"],
-        ["valveReset", "wsgm-native-qam-valve-reset", valveResetControl, "perf"],
+        ["controllerTarget", "steam-ui-controller-target", controllerControl, "perf"],
+        ["valveReset", "steam-ui-valve-reset", valveResetControl, "perf"],
       ];
       for (const [kind, key, component, rowPlacement] of rows) {
         if (rowPlacement !== placement || !registrations.has(kind) || !component) continue;
@@ -3116,7 +3101,7 @@
       ) {
         controls.push(
           controlRuntime.react.createElement(deviceControlsControl, {
-            key: "wsgm-native-qam-device-controls",
+            key: "steam-ui-device-controls",
           }),
         );
       }
@@ -3130,7 +3115,7 @@
       if (placement === "quickSettings") {
         const section = controlRuntime.react.createElement(
           controlRuntime.section,
-          { key: "wsgm-native-qam-quick-settings-section" },
+          { key: "steam-ui-quick-settings-section" },
           ...controls,
         );
         appendDiagnostics[placement] = {
@@ -3148,7 +3133,7 @@
           tree,
         );
       }
-      // WSGM's rows go into a PanelSection of their own, appended after whatever the native
+      // The host's rows go into a PanelSection of their own, appended after whatever the native
       // performance panel rendered.
       //
       // The previous implementation searched the tree for a component identical to
@@ -3164,11 +3149,11 @@
       // cannot be broken by a Steam UI change or by the fields Windows hides.
       const own = controlRuntime.react.createElement(
         controlRuntime.section,
-        { key: "wsgm-native-qam-section" },
+        { key: "steam-ui-section" },
         ...controls,
       );
       // Shape of what Steam's performance root returned, so the rows it renders can be identified
-      // without guessing. Needed to suppress Steam's own FPS counter rows in favour of WSGM's
+      // without guessing. Needed to suppress Steam's own FPS counter rows in favour of the host's
       // RTSS overlay: their DOM classes are hashed per client build and unusable as selectors.
       const describe = (element, depth) => {
         if (!controlRuntime.react.isValidElement(element)) return typeof element;
@@ -3179,7 +3164,7 @@
           ? name
           : { [name]: kids.map((k) => describe(k, depth + 1)) };
       };
-      // Steam's FPS rows are suppressed only on this path, which runs when WSGM has rows of its own
+      // Steam's FPS rows are suppressed only on this path, which runs when the host has rows of its own
       // to put in their place. Hiding them and then rendering nothing would leave the user neither.
       const native = withNativeRowsHidden(controlRuntime, tree);
       appendDiagnostics.perf = {
@@ -3241,7 +3226,7 @@
         ? uniqueFunction(perfExports, ["#QuickAccess_Tab_Perf_GameSpecificSettings"])
         : null;
       // The toggle reads current_game_id for availability, current==active for its checked state,
-      // and writes through SetGameSpecificProfileEnabled — all state WSGM already backs. Without
+      // and writes through SetGameSpecificProfileEnabled — all state the host already backs. Without
       // this row nothing in the tab can enable a per-game profile.
       valveProfileToggleControl = perfExports
         ? uniqueFunction(perfExports, ["#QuickAccess_Tab_Perf_ToggleGameSettings"])
@@ -3274,7 +3259,7 @@
       valveTdpSliderControl = tdpExports
         ? uniqueFunction(tdpExports, ["#QuickAccess_Tab_Perf_TDPLimitUnits"])
         : null;
-      function WsgmNativeQamPerformanceRoot(props) {
+      function SteamUiPerformanceRoot(props) {
         const [, setRevision] = controlRuntime.react.useState(0);
         controlRuntime.react.useEffect(
           () => subscribeHost(() => setRevision((value) => value + 1)),
@@ -3288,15 +3273,15 @@
       // performance wrap honest, applied per root rather than to the array as a whole.
       // The performance panel is matched by export identity; the Quick Settings panel CANNOT be —
       // a tap on the tab array (2026-08-30) showed its type is a local function no module exports.
-      // It is matched by its own source instead, on two Valve strings WSGM's gates never touch: the
+      // It is matched by its own source instead, on two Valve strings the host's gates never touch: the
       // Other-section title and the reorder-controllers button. Deliberately NOT the brightness
-      // title, because that is the surface WSGM's own gate reveals, and a selector must not be
+      // title, because that is the surface the host's own gate reveals, and a selector must not be
       // entangled with a thing this code changes.
       const wrappers = [
         {
           match: (type) => type === performanceRoot,
-          component: () => WsgmNativeQamPerformanceRoot,
-          fallbackKey: "wsgm-native-qam-performance-root",
+          component: () => SteamUiPerformanceRoot,
+          fallbackKey: "steam-ui-performance-root",
         },
         {
           match: (type) => {
@@ -3313,7 +3298,7 @@
           component: (original) => {
             let wrapped = quickSettingsWrapCache.get(original);
             if (!wrapped) {
-              wrapped = function WsgmNativeQamQuickSettingsRoot(props) {
+              wrapped = function SteamUiQuickSettingsRoot(props) {
                 const [, setRevision] = controlRuntime.react.useState(0);
                 controlRuntime.react.useEffect(
                   () => subscribeHost(() => setRevision((value) => value + 1)),
@@ -3326,10 +3311,10 @@
             }
             return wrapped;
           },
-          fallbackKey: "wsgm-native-qam-quick-settings-root",
+          fallbackKey: "steam-ui-quick-settings-root",
         },
       ];
-      patchedUseMemo = function WsgmNativeQamUseMemo(factory, dependencies) {
+      patchedUseMemo = function SteamUiUseMemo(factory, dependencies) {
         const value = originalUseMemo(factory, dependencies);
         if (!Array.isArray(value)) return value;
         let result = value;

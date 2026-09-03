@@ -1,5 +1,5 @@
 {
-  "wsgm.native-qam.audio": {
+  "steam-ui.audio": {
     "available": true,
     "devices": [
       {
@@ -23,7 +23,7 @@
     "inputMuted": false,
     "statusText": ""
   },
-  "wsgm.native-qam.device-controls": {
+  "steam-ui.device-controls": {
     "chargeLimit": {
       "available": true,
       "minimum": 60,

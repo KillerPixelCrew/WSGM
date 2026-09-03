@@ -193,7 +193,7 @@ one mechanism, the framework is right; if they end up as two, something is wrong
 
 **Shape, mirroring the Device Plugin because that pattern is proven here:**
 
-- `extension.wsgm.json` — id, name, version, exact API version, entry points.
+- `extension.steam-ui.json` — id, name, version, exact API version, entry points.
 - A frontend fragment: the extension's own TypeScript, compiled and hashed like any module fragment,
   contributing rows or a panel to the Extensions tab.
 - An optional .NET backend implementing an extension contract, reached through the existing
@@ -312,11 +312,18 @@ changed against the plan rather than restating it.
   a `Module(enabled, read, backend)` factory that answers the page's commands with strict payload
   readers before the backend sees a typed value. WSGM's `NativeQam*Service` classes implement the
   backend interfaces and the session host is thirteen one-line module declarations. The composed
-  asset hashes exactly as before (`A5C50862…`), so the injected script is byte-identical to the
-  device-verified one; patch ids, resource keys, gate names and ownership markers are unchanged.
-  Deliberately left alone, for the maintainer to decide: those ids still carry the `wsgm.` prefix
-  inside a library that now owns them, and the Bluetooth stub's per-device payloads are read with
-  the `device` key WSGM always used, which has not been re-read from the client.
+  asset was first moved byte-identical (`A5C50862…`), then every identifier the library now owns
+  was renamed out of the `wsgm` namespace: patch ids and resource keys are `steam-ui.*`, the
+  ownership markers on the live client are `__steamUi*`, the bridge is `__steamUi_v1_28d7c54a`
+  over binding `__steamUiBridge_v1_7b24d11c`, the configuration placeholder, bundle marker and
+  extension manifest name followed. Gate names, fingerprints and the JavaScript logic are
+  untouched. **Because the markers changed, the first deploy onto a Steam client that still carries
+  the old markers needs one Steam restart**: a new bridge unwinds a prior bridge it can see, but an
+  orphaned namespace or overlay left by the old build carries a marker the new build does not
+  recognise and is refused as "already exists" until Steam restarts. WSGM's own ids
+  (`wsgm.native-qam.shell`, `wsgm.download-sort`, `wsgm.steam-input.glyph-style`, `window.__wsgm`)
+  stay. Still open: the Bluetooth stub's per-device payloads are read with the `device` key WSGM
+  always used, which has not been re-read from the client.
 
 **Remaining.**
 
@@ -356,7 +363,7 @@ surface with its traps enforced, then port the existing gates onto them one at a
 will not express itself through one of the three is the signal that a fourth is real — not licence to
 reach past them.
 
-**3. Parameterize the bridge identity.** `__wsgmSteamUi_v1_28d7c54a` is a literal in nine files. It
+**3. Parameterize the bridge identity.** `__steamUi_v1_28d7c54a` is a literal in nine files. It
 becomes `SteamUiBridgeIdentity(Namespace, Version)`, supplied once by the host, along with the
 `wsgm-` DOM marker classes and `__wsgm` globals. A framework with WSGM's namespace compiled in is not
 a framework.

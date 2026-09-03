@@ -11,20 +11,20 @@ public sealed class SteamUiBridgeAuthorizerTests
     private static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> Commands =
         new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
         {
-            ["wsgm.native-qam.tdp"] = ["setPrimaryLimit"],
-            ["wsgm.native-qam.frame-limit"] = ["setFrameLimit"],
+            ["steam-ui.power-limit"] = ["setPrimaryLimit"],
+            ["steam-ui.frame-limit"] = ["setFrameLimit"],
         };
 
     [Fact]
     public void AcceptsOnlyCurrentAllowlistedCommandOnce()
     {
         var authorizer = new SteamUiBridgeAuthorizer(Generations, Commands);
-        var request = Request("wsgm.native-qam.tdp", "setPrimaryLimit", 1, 10);
+        var request = Request("steam-ui.power-limit", "setPrimaryLimit", 1, 10);
 
         Assert.True(authorizer.Authorize(request).Accepted);
         Assert.False(authorizer.Authorize(request).Accepted);
         Assert.False(authorizer.Authorize(
-            Request("wsgm.native-qam.tdp", "readRawWmi", 2, 11)).Accepted);
+            Request("steam-ui.power-limit", "readRawWmi", 2, 11)).Accepted);
     }
 
     [Fact]
@@ -32,11 +32,11 @@ public sealed class SteamUiBridgeAuthorizerTests
     {
         var authorizer = new SteamUiBridgeAuthorizer(Generations, Commands);
         Assert.True(authorizer.Authorize(
-            Request("wsgm.native-qam.frame-limit", "setFrameLimit", 1, 20)).Accepted);
+            Request("steam-ui.frame-limit", "setFrameLimit", 1, 20)).Accepted);
         Assert.False(authorizer.Authorize(
-            Request("wsgm.native-qam.frame-limit", "setFrameLimit", 2, 20)).Accepted);
+            Request("steam-ui.frame-limit", "setFrameLimit", 2, 20)).Accepted);
         Assert.False(authorizer.Authorize(
-            Request("wsgm.native-qam.frame-limit", "setFrameLimit", 3, 21) with
+            Request("steam-ui.frame-limit", "setFrameLimit", 3, 21) with
             {
                 ContextGeneration = 99,
             }).Accepted);
@@ -47,14 +47,14 @@ public sealed class SteamUiBridgeAuthorizerTests
     {
         var authorizer = new SteamUiBridgeAuthorizer(Generations, Commands);
         Assert.False(authorizer.Authorize(
-            Request("wsgm.native-qam.frame-limit", "setFrameLimit", 5, 30) with
+            Request("steam-ui.frame-limit", "setFrameLimit", 5, 30) with
             {
                 Type = "cancel",
             }).Accepted);
         Assert.True(authorizer.Authorize(
-            Request("wsgm.native-qam.frame-limit", "setFrameLimit", 5, 30)).Accepted);
+            Request("steam-ui.frame-limit", "setFrameLimit", 5, 30)).Accepted);
         Assert.True(authorizer.Authorize(
-            Request("wsgm.native-qam.frame-limit", "setFrameLimit", 5, 30) with
+            Request("steam-ui.frame-limit", "setFrameLimit", 5, 30) with
             {
                 Type = "cancel",
             }).Accepted);
@@ -84,7 +84,7 @@ public sealed class SteamUiAssetTests
     {
         var source = SteamUiAssetCatalog.LoadNativeQamBootstrap();
 
-        Assert.Contains("__WSGM_CONFIGURATION_JSON__", source, StringComparison.Ordinal);
+        Assert.Contains("__STEAM_UI_CONFIGURATION_JSON__", source, StringComparison.Ordinal);
         Assert.DoesNotContain("eval(", source, StringComparison.Ordinal);
         Assert.DoesNotContain("fetch(", source, StringComparison.Ordinal);
         Assert.DoesNotContain("WebSocket", source, StringComparison.Ordinal);
@@ -101,10 +101,10 @@ public sealed class SteamUiAssetTests
         Assert.Contains("DropDownField", source, StringComparison.Ordinal);
         Assert.Contains("PanelSectionRow", source, StringComparison.Ordinal);
         Assert.Contains("LocalizeString", source, StringComparison.Ordinal);
-        Assert.Contains("wsgm.native-qam.tdp", source, StringComparison.Ordinal);
-        Assert.Contains("wsgm.native-qam.frame-limit", source, StringComparison.Ordinal);
-        Assert.Contains("wsgm.native-qam.controller-target", source, StringComparison.Ordinal);
-        Assert.Contains("wsgm.native-qam.device-controls", source, StringComparison.Ordinal);
+        Assert.Contains("steam-ui.power-limit", source, StringComparison.Ordinal);
+        Assert.Contains("steam-ui.frame-limit", source, StringComparison.Ordinal);
+        Assert.Contains("steam-ui.controller-target", source, StringComparison.Ordinal);
+        Assert.Contains("steam-ui.device-controls", source, StringComparison.Ordinal);
         Assert.Contains("setPrimaryLimit", source, StringComparison.Ordinal);
         Assert.Contains("setFrameLimit", source, StringComparison.Ordinal);
         Assert.Contains("setControllerTarget", source, StringComparison.Ordinal);
@@ -316,7 +316,7 @@ public sealed class SteamUiSessionHostTests
         await WaitForAsync(() => transport.BridgeConfiguration is not null);
 
         Assert.Contains(
-            "\"wsgm.native-qam.device-controls\":[\"setChargeLimit\","
+            "\"steam-ui.device-controls\":[\"setChargeLimit\","
                 + "\"setLightingBrightness\",\"setLightingColor\"]",
             transport.BridgeConfiguration,
             StringComparison.Ordinal);
@@ -348,7 +348,7 @@ public sealed class SteamUiSessionHostTests
         host.Apply(true);
         await transport.BridgeInstalled.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await WaitForAsync(() => host.GetPatchSnapshots().Any(snapshot =>
-            snapshot.Id == "wsgm.native-qam.bootstrap"
+            snapshot.Id == "steam-ui.bridge"
             && snapshot.State == SteamUiPatchState.Verified));
 
         transport.EmitToggleRequest();
@@ -525,7 +525,7 @@ public sealed class SteamUiSessionHostTests
                 Volatile.Write(ref _bridgeConfiguration, expression);
             }
             string value;
-            if (expression.Contains("wsgm_qam_probe_", StringComparison.Ordinal))
+            if (expression.Contains("steam_ui_bridge_probe_", StringComparison.Ordinal))
             {
                 value = "{\"tdpAvailability\":1,\"tdpComponent\":1,"
                     + "\"performanceActions\":1,\"profileProjection\":1}";
@@ -534,7 +534,7 @@ public sealed class SteamUiSessionHostTests
             {
                 value = "{\"ok\":true,\"version\":1}";
             }
-            else if (expression.Contains("absent:!window.__wsgmSteamUi", StringComparison.Ordinal))
+            else if (expression.Contains("absent:!window.__steamUi", StringComparison.Ordinal))
             {
                 value = "{\"absent\":true}";
             }
@@ -642,7 +642,7 @@ public sealed class SteamUiSessionHostTests
             });
             string parameters = JsonSerializer.Serialize(new
             {
-                name = "__wsgmNativeBridge_v1_7b24d11c",
+                name = "__steamUiBridge_v1_7b24d11c",
                 payload,
             });
             NotificationReceived?.Invoke(this, new SteamUiNotification(

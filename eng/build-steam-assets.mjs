@@ -110,7 +110,7 @@ const maximumAssetBytes = 256 * 1024;
 
 // Everything above this marker is type declaration that exists only to type the
 // injected script. The asset starts at the IIFE.
-const bundleMarker = "// @wsgm-bundle-start";
+const bundleMarker = "// @steam-ui-bundle-start";
 
 const check = process.argv.includes("--check");
 

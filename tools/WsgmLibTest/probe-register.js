@@ -1,7 +1,7 @@
 // Register the component kinds and report what the host says, so "no rows" can be attributed to a
 // specific step rather than guessed at.
 (() => {
-  const b = window.__wsgmSteamUi_v1_28d7c54a;
+  const b = window.__steamUi_v1_28d7c54a;
   if (!b) return JSON.stringify({ error: "bridge absent" });
   const out = { install: {} };
   for (const kind of [
