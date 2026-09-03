@@ -9,16 +9,6 @@ using WindowsDeviceControl;
 
 namespace WSGM.Shell;
 
-/// <summary>One connected access point fed through Steam's own network-store ingestion path.</summary>
-internal sealed record SteamNetworkAccessPointState(
-    string Ssid,
-    int Strength,
-    bool Secured,
-    bool Connected);
-
-/// <summary>The connected network-store projection that drives Steam's header indicator.</summary>
-internal sealed record SteamNetworkState(IReadOnlyList<SteamNetworkAccessPointState> Networks);
-
 /// <summary>
 /// The backend behind the revealed Wi-Fi surface: scan lifetime, the scanned-network projection,
 /// and the polled header indicator.
@@ -27,7 +17,7 @@ internal sealed record SteamNetworkState(IReadOnlyList<SteamNetworkAccessPointSt
 /// The radio manager is borrowed rather than owned — only its scanning lifetime is driven from
 /// here. Joining, forgetting and the radio toggles stay with the surfaces that already own them.
 /// </remarks>
-internal sealed class NativeQamNetworkService : IAsyncDisposable
+internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisposable
 {
     private readonly RadioManager _radios;
     private readonly Func<bool> _indicatorActive;
@@ -55,10 +45,8 @@ internal sealed class NativeQamNetworkService : IAsyncDisposable
             Timeout.InfiniteTimeSpan);
     }
 
-    /// <summary>Answers Steam's <c>startScan</c> command.</summary>
-    internal async Task<SteamUiCommandResult> HandleScanStartAsync(
-        SteamUiBridgeRequest request,
-        CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public async Task<SteamUiCommandResult> StartScanAsync(CancellationToken cancellationToken)
     {
         await NativeQamUi.RunAsync(() =>
         {
@@ -70,10 +58,8 @@ internal sealed class NativeQamNetworkService : IAsyncDisposable
         return SteamUiCommandResult.Applied;
     }
 
-    /// <summary>Answers Steam's <c>stopScan</c> command.</summary>
-    internal async Task<SteamUiCommandResult> HandleScanStopAsync(
-        SteamUiBridgeRequest request,
-        CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public async Task<SteamUiCommandResult> StopScanAsync(CancellationToken cancellationToken)
     {
         await StopScanningAsync().ConfigureAwait(false);
         return SteamUiCommandResult.Applied;
@@ -95,24 +81,26 @@ internal sealed class NativeQamNetworkService : IAsyncDisposable
 
     /// <summary>Reads the network state to publish.</summary>
     /// <param name="indicatorEnabled">Whether the connected AP joins the scanned list.</param>
-    internal async Task<SteamNetworkState> ReadStateAsync(bool indicatorEnabled)
+    internal async ValueTask<SteamNetworkState?> ReadStateAsync(bool indicatorEnabled)
     {
-        List<SteamNetworkAccessPointState> networks = [];
+        List<SteamNetworkAccessPoint> networks = [];
         await NativeQamUi.RunAsync(() =>
         {
             foreach (WifiNetworkEntry entry in _radios.Networks.Take(24))
             {
                 if (!string.IsNullOrWhiteSpace(entry.Ssid))
                 {
-                    networks.Add(new SteamNetworkAccessPointState(
+                    networks.Add(new SteamNetworkAccessPoint(
                         entry.Ssid,
-                        MapNetworkStrength(entry.Signal),
+                        SteamNetworkSurface.StrengthFromPercent(entry.Signal),
                         entry.Secured,
                         entry.Connected));
                 }
             }
         }).ConfigureAwait(false);
 
+        // The connected network is merged in from the live status rather than the scan list, which
+        // is what makes the header Wi-Fi indicator show a signal on Windows at all.
         WindowsRadio.WifiStatus connected = indicatorEnabled
             ? WindowsRadio.GetWifiStatus()
             : default;
@@ -122,9 +110,9 @@ internal sealed class NativeQamNetworkService : IAsyncDisposable
         {
             int existing = networks.FindIndex(network =>
                 string.Equals(network.Ssid, connected.Ssid, StringComparison.Ordinal));
-            var joined = new SteamNetworkAccessPointState(
+            var joined = new SteamNetworkAccessPoint(
                 connected.Ssid,
-                MapNetworkStrength(connected.Signal),
+                SteamNetworkSurface.StrengthFromPercent(connected.Signal),
                 existing >= 0 ? networks[existing].Secured : true,
                 true);
             if (existing >= 0)
@@ -143,14 +131,6 @@ internal sealed class NativeQamNetworkService : IAsyncDisposable
 
         return new SteamNetworkState(networks);
     }
-
-    internal static int MapNetworkStrength(int signalPercent) => signalPercent switch
-    {
-        >= 75 => 4,
-        >= 50 => 3,
-        >= 25 => 2,
-        _ => 1,
-    };
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()

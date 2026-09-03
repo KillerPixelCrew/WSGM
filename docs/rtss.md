@@ -50,8 +50,8 @@ publishing the slot. Zero only clears WSGM's slot and never writes `EnableOSD=0`
 disable the user's other RTSS feeders too — the field regression that turned off every overlay on
 the device on 2026-09-01. On the wire the level is Valve's `EGraphicsPerfOverlayLevel` (Hidden=0,
 Basic=1, Medium=2, Full=3, Minimal=4 — Minimal was added last), NOT the notch order;
-`NativeQamOverlayLevelWire` translates at the QAM boundary in both directions, and everything behind
-it speaks notches.
+`SteamOverlayLevelWire` translates at the QAM boundary in both directions, and everything behind it
+speaks notches.
 
 The shared performance contract already provides:
 

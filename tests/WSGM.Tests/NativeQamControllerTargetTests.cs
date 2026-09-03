@@ -18,7 +18,7 @@ public sealed class NativeQamControllerTargetTests
     [Fact]
     public void ManagementSwitchedOffOffersNothingAndSaysWhy()
     {
-        NativeQamControllerTargetState state = Project(
+        SteamControllerTargetState state = Project(
             enabled: false,
             Status(ControllerManagementState.Off, null, "Controller management is off."));
 
@@ -33,7 +33,7 @@ public sealed class NativeQamControllerTargetTests
     [Fact]
     public void EveryTargetTheBackendCanBuildIsOfferedOnceManagementRuns()
     {
-        NativeQamControllerTargetState state = Project(
+        SteamControllerTargetState state = Project(
             enabled: true,
             Status(ControllerManagementState.Idle, ManagedControllerTarget.Xbox360),
             supportedTargets:
@@ -58,7 +58,7 @@ public sealed class NativeQamControllerTargetTests
         // Offering one is worse than offering fewer: the selection persists, target creation is
         // refused, and controller management reports itself unavailable until the user finds the
         // setting again. The production backend supports only the Deck composite today.
-        NativeQamControllerTargetState state = Project(
+        SteamControllerTargetState state = Project(
             enabled: true,
             Status(ControllerManagementState.Idle, ManagedControllerTarget.SteamDeckComposite),
             supportedTargets: [ManagedControllerTarget.SteamDeckComposite]);
@@ -74,7 +74,7 @@ public sealed class NativeQamControllerTargetTests
     {
         // Idle means the selection is stored and nothing is present for it. Echoing the selection
         // back as observed would make a target that never came up look like it had.
-        NativeQamControllerTargetState state = Project(
+        SteamControllerTargetState state = Project(
             enabled: true,
             Status(ControllerManagementState.Idle, ManagedControllerTarget.DualShock4));
 
@@ -85,7 +85,7 @@ public sealed class NativeQamControllerTargetTests
     [Fact]
     public void AnActiveTargetIsReportedAsBothSelectedAndObserved()
     {
-        NativeQamControllerTargetState state = Project(
+        SteamControllerTargetState state = Project(
             enabled: true,
             Status(ControllerManagementState.Active, ManagedControllerTarget.SteamDeckComposite));
 
@@ -97,7 +97,7 @@ public sealed class NativeQamControllerTargetTests
     [Fact]
     public void AFaultedManagerIsUnavailableRatherThanQuietlySelectable()
     {
-        NativeQamControllerTargetState state = Project(
+        SteamControllerTargetState state = Project(
             enabled: true,
             Status(
                 ControllerManagementState.Faulted,
@@ -114,7 +114,7 @@ public sealed class NativeQamControllerTargetTests
     {
         // A game holds the target it launched with, so a change reaches it only next launch. Saying
         // so is the difference between a control that looks broken and one the user understands.
-        NativeQamControllerTargetState state = Project(
+        SteamControllerTargetState state = Project(
             enabled: true,
             Status(
                 ControllerManagementState.Active,
@@ -127,7 +127,7 @@ public sealed class NativeQamControllerTargetTests
     [Fact]
     public void NoRunningGameNeedsNoRestart()
     {
-        NativeQamControllerTargetState state = Project(
+        SteamControllerTargetState state = Project(
             enabled: true,
             Status(ControllerManagementState.Active, ManagedControllerTarget.Xbox360));
 
@@ -139,7 +139,7 @@ public sealed class NativeQamControllerTargetTests
     {
         // Controller management runs without a plugin, but with nothing capturing the physical
         // controller the result is a target that never moves. That is worth saying.
-        NativeQamControllerTargetState state = Project(
+        SteamControllerTargetState state = Project(
             enabled: true,
             Status(ControllerManagementState.Idle, ManagedControllerTarget.Xbox360, detail: string.Empty),
             packageInstalled: false);
@@ -173,7 +173,7 @@ public sealed class NativeQamControllerTargetTests
         {
             using JsonDocument payload = JsonDocument.Parse($$"""{"target":"{{target}}"}""");
 
-            Assert.True(NativeQamPayload.TryReadTarget(payload.RootElement, out string parsed));
+            Assert.True(SteamUiPayload.TryReadTarget(payload.RootElement, out string parsed));
             Assert.Equal(target.ToString(), parsed);
         }
     }
@@ -187,7 +187,7 @@ public sealed class NativeQamControllerTargetTests
         Assert.Empty(service.Current.Targets);
     }
 
-    private static NativeQamControllerTargetState Project(
+    private static SteamControllerTargetState Project(
         bool enabled,
         ControllerManagerStatus status,
         bool packageInstalled = true,

@@ -17,7 +17,7 @@ public sealed class NativeQamAutoTdpTests
     {
         // Better absent than present and silently ineffective: there is nothing for AutoTDP to
         // drive, so offering the switch would be a promise the device cannot keep.
-        NativeQamAutoTdpState state = Project(enabled: true, status: null, powerLimitAvailable: false);
+        SteamAutoTdpState state = Project(enabled: true, status: null, powerLimitAvailable: false);
 
         Assert.False(state.Available);
         Assert.Contains("No primary power limit", state.StatusText, StringComparison.Ordinal);
@@ -26,7 +26,7 @@ public sealed class NativeQamAutoTdpTests
     [Fact]
     public void SwitchedOnBeforeTheServiceReportsAnythingSaysItIsStarting()
     {
-        NativeQamAutoTdpState state = Project(enabled: true, status: null);
+        SteamAutoTdpState state = Project(enabled: true, status: null);
 
         Assert.True(state.Available);
         Assert.True(state.Enabled);
@@ -38,7 +38,7 @@ public sealed class NativeQamAutoTdpTests
     [Fact]
     public void SwitchedOffIsQuietRatherThanReportingAnythingToExplain()
     {
-        NativeQamAutoTdpState state = Project(enabled: false, status: null);
+        SteamAutoTdpState state = Project(enabled: false, status: null);
 
         Assert.True(state.Available);
         Assert.False(state.Enabled);
@@ -49,7 +49,7 @@ public sealed class NativeQamAutoTdpTests
     [Fact]
     public void ControllingCarriesTheLimitItSettledOn()
     {
-        NativeQamAutoTdpState state = Project(
+        SteamAutoTdpState state = Project(
             enabled: true,
             new AutoTdpStatus(AutoTdpState.Controlling, 17, 14.2, 16.6, "steam:70", "sustained-miss"));
 
@@ -63,7 +63,7 @@ public sealed class NativeQamAutoTdpTests
     {
         // Paused is a state the user caused by moving the slider. Locking the switch would leave
         // them unable to act on what they are being told.
-        NativeQamAutoTdpState state = Project(
+        SteamAutoTdpState state = Project(
             enabled: true,
             new AutoTdpStatus(AutoTdpState.Paused, 22, null, null, null, "Paused by a manual change."));
 
@@ -77,7 +77,7 @@ public sealed class NativeQamAutoTdpTests
     {
         // It means AutoTDP cannot run on this device however the setting is left, so operating the
         // switch could not change anything.
-        NativeQamAutoTdpState state = Project(
+        SteamAutoTdpState state = Project(
             enabled: true,
             new AutoTdpStatus(
                 AutoTdpState.Unavailable,
@@ -94,7 +94,7 @@ public sealed class NativeQamAutoTdpTests
     [Fact]
     public void WaitingForAGameIsNotReportedAsControlling()
     {
-        NativeQamAutoTdpState state = Project(
+        SteamAutoTdpState state = Project(
             enabled: true,
             new AutoTdpStatus(AutoTdpState.Idle, 15, null, null, null, "No application is rendering."));
 
@@ -108,7 +108,7 @@ public sealed class NativeQamAutoTdpTests
     {
         // The switch shows the setting, not the outcome. A user who turned it on and hit an
         // unsupported device should still see their own choice reflected back.
-        NativeQamAutoTdpState state = Project(enabled: true, status: null, powerLimitAvailable: false);
+        SteamAutoTdpState state = Project(enabled: true, status: null, powerLimitAvailable: false);
 
         Assert.True(state.Enabled);
     }
@@ -127,7 +127,7 @@ public sealed class NativeQamAutoTdpTests
         Assert.Equal(service.Current.StatusText, result.Error);
     }
 
-    private static NativeQamAutoTdpState Project(
+    private static SteamAutoTdpState Project(
         bool enabled,
         AutoTdpStatus? status,
         bool powerLimitAvailable = true) =>

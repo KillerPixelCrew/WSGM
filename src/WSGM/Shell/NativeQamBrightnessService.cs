@@ -1,5 +1,4 @@
 using System;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using WindowsDeviceControl;
@@ -7,15 +6,11 @@ using WSGM.Core;
 
 namespace WSGM.Shell;
 
-/// <summary>The panel backlight level Steam's brightness slider shows.</summary>
-/// <param name="Percent">The level, 0 to 100, read from the panel itself.</param>
-internal sealed record SteamBrightnessState(int Percent);
-
 /// <summary>
 /// The backend behind the revealed brightness row: reads and writes the panel backlight, and
 /// watches it for changes made outside Steam so the slider follows them.
 /// </summary>
-internal sealed class NativeQamBrightnessService : IDisposable
+internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDisposable
 {
     /// <summary>
     /// Field-rooted for its lifetime and disposed with this service, per the long-lived-callback
@@ -36,29 +31,19 @@ internal sealed class NativeQamBrightnessService : IDisposable
         _poll = new Timer(OnPoll, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
     }
 
-    /// <summary>Reads the published brightness state, or nothing when the panel refuses.</summary>
-    internal static ValueTask<JsonElement?> ReadPublication() =>
-        Backlight.TryReadBrightness(out int percent)
-            ? ValueTask.FromResult<JsonElement?>(JsonSerializer.SerializeToElement(
-                new SteamBrightnessState(percent),
-                NativeQamSemanticJsonContext.Default.SteamBrightnessState))
-            : ValueTask.FromResult<JsonElement?>(null);
+    /// <summary>Reads the brightness state to publish, or nothing when the panel refuses.</summary>
+    internal static ValueTask<SteamBrightnessState?> ReadAsync() =>
+        ValueTask.FromResult(Backlight.TryReadBrightness(out int percent)
+            ? new SteamBrightnessState(percent)
+            : null);
 
-    /// <summary>Answers Steam's <c>setBrightness</c> command.</summary>
-    internal Task<SteamUiCommandResult> HandleSetBrightnessAsync(
-        SteamUiBridgeRequest request,
-        CancellationToken cancellationToken)
-    {
-        if (!NativeQamPayload.TryReadInt(request.Payload, "percent", 0, 100, out int percent))
-        {
-            return Task.FromResult(new SteamUiCommandResult(
-                false,
-                "The brightness payload is invalid."));
-        }
-        return Task.FromResult(Backlight.TrySetBrightness(percent)
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> SetBrightnessAsync(
+        int percent,
+        CancellationToken cancellationToken) =>
+        Task.FromResult(Backlight.TrySetBrightness(percent)
             ? SteamUiCommandResult.Applied
             : new SteamUiCommandResult(false, "The panel backlight refused the write."));
-    }
 
     /// <inheritdoc />
     public void Dispose() => _poll.Dispose();

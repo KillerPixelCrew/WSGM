@@ -25,7 +25,7 @@ public sealed class NativeQamRefreshRateWriteTests
         });
 
         SteamUiCommandResult result = await adapter.ApplyPerfChangeAsync(
-            new NativeQamPerfChange(NativeQamPerfSetting.RefreshRateHz, 60),
+            new SteamPerformanceChange(SteamPerformanceSetting.RefreshRateHz, 60),
             "test",
             CancellationToken.None);
 
@@ -39,7 +39,7 @@ public sealed class NativeQamRefreshRateWriteTests
         PerformanceServiceNativeQamAdapter adapter = Adapter(_ => false);
 
         SteamUiCommandResult result = await adapter.ApplyPerfChangeAsync(
-            new NativeQamPerfChange(NativeQamPerfSetting.RefreshRateHz, 48),
+            new SteamPerformanceChange(SteamPerformanceSetting.RefreshRateHz, 48),
             "test",
             CancellationToken.None);
 
@@ -55,7 +55,7 @@ public sealed class NativeQamRefreshRateWriteTests
         PerformanceServiceNativeQamAdapter adapter = Adapter(null);
 
         SteamUiCommandResult result = await adapter.ApplyPerfChangeAsync(
-            new NativeQamPerfChange(NativeQamPerfSetting.RefreshRateHz, 60),
+            new SteamPerformanceChange(SteamPerformanceSetting.RefreshRateHz, 60),
             "test",
             CancellationToken.None);
 
@@ -74,7 +74,7 @@ public sealed class NativeQamRefreshRateWriteTests
         PerformanceServiceNativeQamAdapter adapter = Adapter(_ => true);
 
         SteamUiCommandResult result = await adapter.ApplyPerfChangeAsync(
-            new NativeQamPerfChange(NativeQamPerfSetting.AdvancedSettingsEnabled, 1),
+            new SteamPerformanceChange(SteamPerformanceSetting.AdvancedSettingsEnabled, 1),
             "test",
             CancellationToken.None);
 
@@ -96,7 +96,7 @@ public sealed class NativeQamRefreshRateWriteTests
         };
 
         SteamUiCommandResult result = await adapter.ApplyPerfChangeAsync(
-            new NativeQamPerfChange(NativeQamPerfSetting.VariableRefreshRate, value),
+            new SteamPerformanceChange(SteamPerformanceSetting.VariableRefreshRate, value),
             "test",
             CancellationToken.None);
 
@@ -113,7 +113,7 @@ public sealed class NativeQamRefreshRateWriteTests
         adapter.ApplyVariableRefreshRate = (_, _) => Task.FromResult(false);
 
         SteamUiCommandResult result = await adapter.ApplyPerfChangeAsync(
-            new NativeQamPerfChange(NativeQamPerfSetting.VariableRefreshRate, 1),
+            new SteamPerformanceChange(SteamPerformanceSetting.VariableRefreshRate, 1),
             "test",
             CancellationToken.None);
 
@@ -127,7 +127,7 @@ public sealed class NativeQamRefreshRateWriteTests
         PerformanceServiceNativeQamAdapter adapter = Adapter(null);
 
         SteamUiCommandResult result = await adapter.ApplyPerfChangeAsync(
-            new NativeQamPerfChange(NativeQamPerfSetting.VariableRefreshRate, 1),
+            new SteamPerformanceChange(SteamPerformanceSetting.VariableRefreshRate, 1),
             "test",
             CancellationToken.None);
 

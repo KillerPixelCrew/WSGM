@@ -25,9 +25,11 @@ const repositoryRoot = resolve(scriptDirectory, "..");
 const assetDirectory = join(repositoryRoot, "src", "WSGM", "Core", "SteamUiAssets");
 const sourceDirectory = join(assetDirectory, "Source");
 
-// The prelude comes from the toolkit submodule, WSGM's own fragments from here. One script either
-// way: the whole thing is evaluated in a single CDP call, so it is compiled as one unit rather
-// than shipped as separate assets.
+// Everything Steam-shaped comes from the toolkit submodule: the bridge, the ownership primitives,
+// every gate that revives a Valve surface, and the component host that mounts rows into the Quick
+// Access Menu. WSGM's own fragments — there are none today; a consumer-only surface would go under
+// Source/ — are appended after them. One script either way: the whole thing is evaluated in a
+// single CDP call, so it is compiled as one unit rather than shipped as separate assets.
 const toolkitSourceDirectory = join(
   repositoryRoot,
   "external",
@@ -62,16 +64,23 @@ const preludePaths = [
 // for that reason alone — see the file itself.
 const epiloguePath = join(toolkitSourceDirectory, "epilogue.ts");
 
-// components.ts is emitted last by convention rather than by necessity. Nothing depends on it
-// being there — it is the UI layer, and reading the asset top-down as helpers, then gates, then
-// the components they render is worth keeping.
-const componentsPath = join(sourceDirectory, "components.ts");
+// The toolkit's component host is emitted after the toolkit's gates by convention rather than by
+// necessity. Nothing depends on it being there — it is the UI layer, and reading the asset
+// top-down as helpers, then gates, then the components they render is worth keeping.
+const componentsPath = join(toolkitSourceDirectory, "components.ts");
 
 // Order comes from the directory a fragment lives in, not from a list here: shared helpers beside
 // the bridge, then gates, then components. Within each group, sorted, so the emitted asset is
-// byte-stable no matter what order the filesystem reports.
+// byte-stable no matter what order the filesystem reports. A directory that does not exist
+// contributes nothing, which is how WSGM's own fragment directory reads while it is empty.
 async function discoverIn(root) {
-  const entries = await readdir(root, { withFileTypes: true });
+  let entries;
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch (error) {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  }
   return entries
     .filter((entry) => entry.isFile() && entry.name.endsWith(".ts"))
     .map((entry) => join(root, entry.name))
@@ -83,9 +92,11 @@ async function discoverIn(root) {
 
 const sourcePaths = [
   ...preludePaths,
+  ...(await discoverIn(toolkitSourceDirectory)),
+  ...(await discoverIn(join(toolkitSourceDirectory, "gates"))),
+  componentsPath,
   ...(await discoverIn(sourceDirectory)),
   ...(await discoverIn(join(sourceDirectory, "gates"))),
-  componentsPath,
   epiloguePath,
 ];
 
@@ -134,7 +145,9 @@ try {
   await writeFile(
     temporaryProject,
     JSON.stringify({
-      extends: join(sourceDirectory, "tsconfig.json"),
+      // The toolkit's compiler settings, because its fragments are most of the program and the
+      // type-stripping-only contract is its rule.
+      extends: join(toolkitSourceDirectory, "tsconfig.json"),
       compilerOptions: { outDir: outputDirectory, rootDir: inputDirectory },
       files: [combinedSourcePath],
     }),

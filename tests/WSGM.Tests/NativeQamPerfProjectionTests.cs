@@ -1,6 +1,4 @@
-using System.Text.Json;
 using WSGM.Core;
-using WSGM.Shell;
 
 namespace WSGM.Tests;
 
@@ -12,8 +10,8 @@ public sealed class NativeQamPerfProjectionTests
         int[]? options = null) =>
         new(options ?? [30, 60, 120], vrr, refreshSelectable, 30, 120);
 
-    private static string Serialize(NativeQamPerfState state) =>
-        JsonSerializer.Serialize(state, NativeQamSemanticJsonContext.Default.NativeQamPerfState);
+    private static string Serialize(SteamPerformanceState state) =>
+        SteamPerformanceSurface.Serialize(state).GetRawText();
 
     [Theory]
     [InlineData(true, true)]
@@ -27,7 +25,7 @@ public sealed class NativeQamPerfProjectionTests
         //
         // Values are deliberately all null here: an untouched profile is exactly the case that
         // shipped broken.
-        NativeQamPerfState state = NativeQamProjection(
+        SteamPerformanceState state = NativeQamProjection(
             PerformanceValues.Empty,
             Support(vrr: vrr, refreshSelectable: refreshSelectable));
 
@@ -45,7 +43,7 @@ public sealed class NativeQamPerfProjectionTests
         Assert.NotNull(state.Global?.PerfOverlayLevel);
     }
 
-    private static NativeQamPerfState NativeQamProjection(
+    private static SteamPerformanceState NativeQamProjection(
         PerformanceValues values,
         NativeQamPerfSupport support) =>
         NativeQamPerfProjection.Project(
@@ -94,7 +92,7 @@ public sealed class NativeQamPerfProjectionTests
         Assert.Contains("\"is_vrr_supported\":true", json);
         Assert.Contains("\"is_vrr_enabled\":true", json);
         Assert.Contains("\"display_refresh_manual_hz\":120", json);
-        // Notch 2 travels as Valve's enum value Basic=1 (see NativeQamOverlayLevelWire).
+        // Notch 2 travels as Valve's enum value Basic=1 (see SteamOverlayLevelWire).
         Assert.Contains("\"perf_overlay_level\":1", json);
         Assert.Contains("\"currentGameId\":\"42\"", json);
     }
@@ -102,7 +100,7 @@ public sealed class NativeQamPerfProjectionTests
     [Fact]
     public void FrameLimitOptionsAreDeduplicatedAndOrderedBecauseTheyAreTheSlidersNotches()
     {
-        NativeQamPerfState state = NativeQamPerfProjection.Project(
+        SteamPerformanceState state = NativeQamPerfProjection.Project(
             PerformanceValues.Empty,
             Support(options: [120, 30, 60, 30, 0]),
             steamAppId: null,
@@ -117,7 +115,7 @@ public sealed class NativeQamPerfProjectionTests
     [Fact]
     public void NoFrameLimitOptionsHidesTheSliderRatherThanShowingAnEmptyOne()
     {
-        NativeQamPerfState state = NativeQamPerfProjection.Project(
+        SteamPerformanceState state = NativeQamPerfProjection.Project(
             PerformanceValues.Empty,
             Support(options: []),
             steamAppId: null,
@@ -134,7 +132,7 @@ public sealed class NativeQamPerfProjectionTests
     {
         // Steam decides the per-game profile is in use by comparing the two ids, so this pair is
         // the whole of that decision.
-        NativeQamPerfState perGame = NativeQamPerfProjection.Project(
+        SteamPerformanceState perGame = NativeQamPerfProjection.Project(
             new PerformanceValues(60, null),
             Support(),
             steamAppId: 42,
@@ -142,7 +140,7 @@ public sealed class NativeQamPerfProjectionTests
             advancedSettingsEnabled: false,
             variableRefreshRateEnabled: null,
             refreshRateHz: null);
-        NativeQamPerfState global = perGame with { };
+        SteamPerformanceState global = perGame with { };
 
         Assert.Equal("42", perGame.CurrentGameId);
         Assert.Equal("42", perGame.ActiveProfileGameId);
@@ -167,7 +165,7 @@ public sealed class NativeQamPerfProjectionTests
     {
         // The foreground supplies an executable, never an AppID, and Valve's per-game header is
         // built entirely from one. Claiming an id WSGM does not have would name the wrong game.
-        NativeQamPerfState state = NativeQamPerfProjection.Project(
+        SteamPerformanceState state = NativeQamPerfProjection.Project(
             new PerformanceValues(60, null),
             Support(),
             steamAppId: null,
@@ -190,7 +188,7 @@ public sealed class NativeQamPerfProjectionTests
     {
         // Steam draws the slider from the cap and its on/off state from the flag; disagreeing
         // renders a slider sitting at a value it reports as off.
-        NativeQamPerfState state = NativeQamPerfProjection.Project(
+        SteamPerformanceState state = NativeQamPerfProjection.Project(
             new PerformanceValues(cap, null),
             Support(),
             steamAppId: null,

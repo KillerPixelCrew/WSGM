@@ -12,11 +12,11 @@ namespace WSGM.Shell;
 /// </summary>
 /// <remarks>
 /// A thin adapter over <see cref="DisplayResolutionService"/>, which owns discovery, apply, and
-/// restore. This layer exists only to speak the menu's shapes — strings the row can render and a
+/// restore. This layer exists only to speak the row's shapes — strings the row can render and a
 /// command result it can report — so the display policy stays in one place and is testable without
 /// a menu.
 /// </remarks>
-internal sealed class NativeQamResolutionService
+internal sealed class NativeQamResolutionService : ISteamResolutionBackend
 {
     private readonly DisplayResolutionService _display;
 
@@ -26,38 +26,23 @@ internal sealed class NativeQamResolutionService
         => _display = display ?? throw new ArgumentNullException(nameof(display));
 
     /// <summary>The row's current state.</summary>
-    internal NativeQamResolutionState Current => Project(
+    internal SteamResolutionState Current => Project(
         _display.Options(),
         DisplayProfiles.ReadCurrentResolution());
 
-    /// <summary>Answers Steam's <c>setResolution</c> command.</summary>
-    internal async Task<SteamUiCommandResult> HandleSetResolutionAsync(
-        SteamUiBridgeRequest request,
-        CancellationToken cancellationToken)
-    {
-        if (!NativeQamPayload.TryReadTarget(request.Payload, out string value))
-        {
-            return new(false, "The resolution payload is invalid.");
-        }
-        return await ApplyAsync(value, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>Applies a resolution named as <c>WIDTHxHEIGHT</c>.</summary>
-    /// <param name="value">The chosen option, exactly as the row offered it.</param>
-    /// <param name="cancellationToken">Cancels the apply.</param>
-    /// <returns>Whether the display is now at that resolution.</returns>
+    /// <inheritdoc />
     /// <remarks>
     /// Parsed rather than trusted: the value arrives from injected JavaScript, so an unparseable or
     /// unoffered string is refused here rather than reaching the driver. Applied off the calling
     /// thread because a mode change blocks.
     /// </remarks>
-    internal async Task<SteamUiCommandResult> ApplyAsync(
-        string value,
+    public async Task<SteamUiCommandResult> SetResolutionAsync(
+        string option,
         CancellationToken cancellationToken)
     {
-        if (!TryParse(value, out DisplayResolution resolution))
+        if (!TryParse(option, out DisplayResolution resolution))
         {
-            Log.Warn($"Native QAM resolution refused: '{value}' is not a resolution.");
+            Log.Warn($"Native QAM resolution refused: '{option}' is not a resolution.");
             return new SteamUiCommandResult(false, "The resolution value is invalid.");
         }
 
@@ -78,14 +63,14 @@ internal sealed class NativeQamResolutionService
     /// option is still no choice, so the row hides: offering a picker that cannot change anything
     /// reads as a broken control rather than an absent feature.
     /// </remarks>
-    internal static NativeQamResolutionState Project(
+    internal static SteamResolutionState Project(
         IReadOnlyList<DisplayResolution> options,
         DisplayResolution? current)
     {
         ArgumentNullException.ThrowIfNull(options);
         if (options.Count < 2)
         {
-            return new NativeQamResolutionState(
+            return new SteamResolutionState(
                 false,
                 [],
                 current?.ToString() ?? string.Empty,
@@ -94,7 +79,7 @@ internal sealed class NativeQamResolutionService
                     : "This display accepts only one resolution.");
         }
 
-        return new NativeQamResolutionState(
+        return new SteamResolutionState(
             true,
             [.. options.Select(option => option.ToString())],
             current?.ToString() ?? string.Empty,

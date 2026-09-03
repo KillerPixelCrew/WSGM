@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
@@ -11,48 +9,8 @@ using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Shell;
 
-/// <summary>The display-resolution row's state, for the native quick-access menu.</summary>
-/// <param name="Available">Whether the row can be drawn at all.</param>
-/// <param name="Options">
-/// Resolutions to offer, as <c>WIDTHxHEIGHT</c>. Empty hides the row: a picker with nothing to pick
-/// is worse than no picker.
-/// </param>
-/// <param name="Current">The resolution in force, or empty when it cannot be read.</param>
-/// <param name="StatusText">Why the row is unavailable, when it is.</param>
-/// <remarks>
-/// Hand-built rather than reactivated, unlike the frame limit and VRR rows: SteamOS drives
-/// resolution through gamescope and this client ships no component for it, so there is nothing to
-/// mount and the row is WSGM's own.
-/// </remarks>
-internal sealed record NativeQamResolutionState(
-    bool Available,
-    IReadOnlyList<string> Options,
-    string Current,
-    string StatusText);
-
-/// <summary>The unified frame-limit row, shaped like SteamOS's own.</summary>
-/// <remarks>
-/// One continuous slider bookended by the panel's limits, plus a separate switch for off — verified
-/// against a Steam Deck showing "60 FPS (60 Hz)" between bookends 10 and 60. There are no notches
-/// under any strategy: the cap is a free number and the PAIRING is what snaps to a mode the panel
-/// can hold, which is exactly the merge Valve made when it unified the two rows.
-/// </remarks>
-internal sealed record NativeQamFrameLimitState(
-    bool Available,
-    int? MinimumFps,
-    int? MaximumFps,
-    int? DesiredFps,
-    int? ObservedFps,
-    string Progress,
-    string Fault,
-    string StatusText,
-    bool LimitEnabled = false,
-    IReadOnlyDictionary<int, int>? RefreshForCap = null,
-    int? RefreshMinHz = null,
-    int? RefreshMaxHz = null,
-    int? CurrentRefreshHz = null,
-    IReadOnlyList<int>? RefreshRates = null);
-
+/// <summary>The primary power limit as WSGM tracks it: the toolkit's availability and range, plus
+/// the desired, observed and progress detail the overlay and AutoTDP read.</summary>
 internal sealed record NativeQamTdpState(
     bool Available,
     int? MinimumWatts,
@@ -62,97 +20,6 @@ internal sealed record NativeQamTdpState(
     int? ObservedWatts,
     string Progress,
     string StatusText);
-
-/// <summary>One bounded integer device control projected into Quick Settings.</summary>
-internal sealed record NativeQamDeviceRangeState(
-    bool Available,
-    int Minimum,
-    int Maximum,
-    int Step,
-    int? Desired,
-    int? Observed,
-    string Progress,
-    string StatusText);
-
-/// <summary>One independently writable lighting zone.</summary>
-internal sealed record NativeQamLightingZoneState(
-    string Id,
-    string Label,
-    bool Available,
-    int? DesiredColor,
-    int? ObservedColor,
-    string Progress,
-    string StatusText);
-
-/// <summary>Device charging and lighting controls shown in Steam Quick Settings.</summary>
-internal sealed record NativeQamDeviceControlsState(
-    NativeQamDeviceRangeState? ChargeLimit,
-    NativeQamDeviceRangeState? LightingBrightness,
-    IReadOnlyList<NativeQamLightingZoneState> LightingZones);
-
-/// <summary>The variable-refresh switch as WSGM's own row renders it.</summary>
-/// <param name="Available">Whether a device capability backs the switch at all.</param>
-/// <param name="Enabled">What the device reports now, not what was last asked for.</param>
-/// <param name="Progress">Command progress in the shared vocabulary.</param>
-/// <param name="StatusText">One line describing the state, or why the row cannot be operated.</param>
-internal sealed record NativeQamVrrState(
-    bool Available,
-    bool Enabled,
-    string Progress,
-    string StatusText);
-
-/// <summary>AutoTDP as Steam's own menu renders it.</summary>
-/// <remarks>
-/// Deliberately more than a boolean. A switch that only says "on" leaves a user watching the power
-/// limit move with no way to tell control from a fault, so the state carries what AutoTDP is
-/// actually doing: the watts it settled on, whether it is controlling, waiting, paused or unable to
-/// run, and why.
-/// </remarks>
-/// <param name="Available">Whether the switch may be operated at all.</param>
-/// <param name="Enabled">The stored setting, which is what the switch shows.</param>
-/// <param name="Controlling">Whether AutoTDP is currently moving the power limit.</param>
-/// <param name="Watts">The limit AutoTDP settled on, when it has one.</param>
-/// <param name="Progress">Command progress in the shared vocabulary.</param>
-/// <param name="StatusText">One line describing what it is doing, or why it cannot.</param>
-internal sealed record NativeQamAutoTdpState(
-    bool Available,
-    bool Enabled,
-    bool Controlling,
-    int? Watts,
-    string Progress,
-    string StatusText);
-
-internal sealed record NativeQamControllerTargetOption(
-    string Id,
-    string Label,
-    bool Available);
-
-internal sealed record NativeQamControllerTargetState(
-    bool Available,
-    IReadOnlyList<NativeQamControllerTargetOption> Targets,
-    string SelectedTarget,
-    string ObservedTarget,
-    string Progress,
-    string StatusText,
-    bool ApplicationRestartRequired);
-
-/// <summary>Shared shaping for the text these projections hand to Steam's page.</summary>
-internal static class NativeQamText
-{
-    /// <summary>Longest status text a projection sends.</summary>
-    /// <remarks>
-    /// Plugin and driver messages have no useful display length guarantee. The page has one line,
-    /// so longer text is truncated before delivery.
-    /// </remarks>
-    private const int MaximumLength = 240;
-
-    /// <summary>Normalizes an optional detail into bounded, renderable text.</summary>
-    /// <param name="value">The detail, which may be null, blank, or arbitrarily long.</param>
-    /// <returns>The empty string for nothing to say, otherwise the text within the bound.</returns>
-    internal static string Bound(string? value) => string.IsNullOrWhiteSpace(value)
-        ? string.Empty
-        : value.Length <= MaximumLength ? value : value[..MaximumLength];
-}
 
 /// <summary>UI-thread marshalling for services whose backing managers own observable UI state.</summary>
 /// <remarks>
@@ -172,131 +39,21 @@ internal static class NativeQamUi
     }
 }
 
-/// <summary>Readers for the exact wire shapes the injected page sends.</summary>
-/// <remarks>
-/// Exact rather than lenient: the page is WSGM's own script, so anything else arriving here is
-/// either a defect or something that is not WSGM, and neither should reach a setting.
-/// </remarks>
-internal static class NativeQamPayload
-{
-    /// <summary>Reads one required integer within a range, without an object-arity rule.</summary>
-    internal static bool TryReadInt(
-        JsonElement payload,
-        string propertyName,
-        int minimum,
-        int maximum,
-        out int value)
-    {
-        value = default;
-        return payload.ValueKind is JsonValueKind.Object
-            && payload.TryGetProperty(propertyName, out JsonElement property)
-            && property.ValueKind is JsonValueKind.Number
-            && property.TryGetInt32(out value)
-            && value >= minimum
-            && value <= maximum;
-    }
-
-    /// <summary>Reads a payload that is exactly one boolean named <c>enabled</c>.</summary>
-    internal static bool TryReadEnabled(JsonElement payload, out bool enabled)
-    {
-        enabled = false;
-        if (payload.ValueKind != JsonValueKind.Object
-            || !payload.TryGetProperty("enabled", out JsonElement property)
-            || property.ValueKind is not (JsonValueKind.True or JsonValueKind.False)
-            || !HasExactly(payload, 1))
-        {
-            return false;
-        }
-
-        enabled = property.GetBoolean();
-        return true;
-    }
-
-    /// <summary>Reads a payload that is exactly one bounded identifier named <c>target</c>.</summary>
-    internal static bool TryReadTarget(JsonElement payload, out string target)
-    {
-        target = string.Empty;
-        if (payload.ValueKind != JsonValueKind.Object
-            || !payload.TryGetProperty("target", out JsonElement property)
-            || property.ValueKind != JsonValueKind.String)
-        {
-            return false;
-        }
-
-        string? candidate = property.GetString();
-        if (!HasExactly(payload, 1)
-            || candidate is not { Length: >= 1 and <= 64 }
-            || !ValidTargetId(candidate))
-        {
-            return false;
-        }
-
-        target = candidate;
-        return true;
-    }
-
-    /// <summary>Reads one required non-blank string property within a length bound.</summary>
-    internal static bool TryReadBoundedString(
-        JsonElement payload,
-        string propertyName,
-        int maximumLength,
-        out string value)
-    {
-        value = string.Empty;
-        if (payload.ValueKind != JsonValueKind.Object
-            || !payload.TryGetProperty(propertyName, out JsonElement property)
-            || property.ValueKind != JsonValueKind.String)
-        {
-            return false;
-        }
-
-        string? candidate = property.GetString();
-        if (string.IsNullOrWhiteSpace(candidate) || candidate.Length > maximumLength)
-        {
-            return false;
-        }
-
-        value = candidate;
-        return true;
-    }
-
-    /// <summary>Whether the payload object carries exactly this many properties.</summary>
-    internal static bool HasExactly(JsonElement payload, int propertyCount)
-    {
-        int count = 0;
-        foreach (JsonProperty ignored in payload.EnumerateObject())
-        {
-            count++;
-        }
-
-        return count == propertyCount;
-    }
-
-    private static bool ValidTargetId(string target)
-    {
-        foreach (char character in target)
-        {
-            if (!(character is >= 'a' and <= 'z'
-                or >= 'A' and <= 'Z'
-                or >= '0' and <= '9'
-                or '.' or '_' or '-'))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-}
-
-internal sealed class PerformanceServiceNativeQamAdapter
+/// <summary>
+/// Feeds Valve's Performance tab, the unified frame-limit row and the variable-refresh switch from
+/// the RTSS-backed performance service, and applies what they write.
+/// </summary>
+internal sealed class PerformanceServiceNativeQamAdapter :
+    ISteamPerformanceBackend,
+    ISteamFrameLimitBackend,
+    ISteamVariableRefreshBackend
 {
     private readonly PerformanceService _service;
 
     internal PerformanceServiceNativeQamAdapter(PerformanceService service)
         => _service = service ?? throw new ArgumentNullException(nameof(service));
 
-    internal NativeQamFrameLimitState FrameLimit => ProjectFrameLimit(
+    internal SteamFrameLimitState FrameLimit => ProjectFrameLimit(
         _service.Current,
         _service.Enabled,
         PerfSupport?.Invoke());
@@ -306,7 +63,7 @@ internal sealed class PerformanceServiceNativeQamAdapter
     /// Availability follows the plugin's published capability and nothing else: a machine whose
     /// device publishes no VRR capability has no switch, rather than one that refuses every press.
     /// </remarks>
-    internal NativeQamVrrState Vrr
+    internal SteamVariableRefreshState Vrr
     {
         get
         {
@@ -314,7 +71,7 @@ internal sealed class PerformanceServiceNativeQamAdapter
             bool available = support?.VariableRefreshRateSupported == true
                 && ApplyVariableRefreshRate is not null;
             bool enabled = support?.VariableRefreshRateEnabled == true;
-            return new NativeQamVrrState(
+            return new SteamVariableRefreshState(
                 available,
                 enabled,
                 "idle",
@@ -354,85 +111,32 @@ internal sealed class PerformanceServiceNativeQamAdapter
     /// </remarks>
     internal Func<bool, CancellationToken, Task<bool>>? ApplyVariableRefreshRate { get; set; }
 
-    /// <summary>Answers the unified row's <c>setFrameLimit</c> command.</summary>
-    internal async Task<SteamUiCommandResult> HandleFrameLimitAsync(
-        SteamUiBridgeRequest request,
-        CancellationToken cancellationToken)
-    {
-        if (!TryReadPerformancePayload(
-            request.Payload,
-            out int value,
-            out PerformancePersistenceTarget persistence))
-        {
-            return new(false, "The frame-limit payload is invalid.");
-        }
-        return await SetAsync(
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> SetFrameLimitAsync(
+        int fps,
+        SteamSettingPersistence persistence,
+        string correlationId,
+        CancellationToken cancellationToken) =>
+        SetAsync(
             PerformanceControl.FrameLimit,
-            value,
-            persistence,
-            CorrelationId(request),
-            cancellationToken).ConfigureAwait(false);
-    }
+            fps,
+            persistence switch
+            {
+                SteamSettingPersistence.Global => PerformancePersistenceTarget.Global,
+                SteamSettingPersistence.Application => PerformancePersistenceTarget.Application,
+                _ => PerformancePersistenceTarget.Automatic,
+            },
+            correlationId,
+            cancellationToken);
 
-    /// <summary>Answers the unified row's <c>setRefreshRate</c> command.</summary>
-    internal async Task<SteamUiCommandResult> HandleRefreshRateAsync(
-        SteamUiBridgeRequest request,
-        CancellationToken cancellationToken)
-    {
-        if (!TryReadPerformancePayload(
-            request.Payload,
-            out int hz,
-            out PerformancePersistenceTarget _))
-        {
-            return new(false, "The refresh-rate payload is invalid.");
-        }
-        return await ApplyRefreshRateAsync(hz, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>Answers the VRR switch's <c>setVariableRefreshRate</c> command.</summary>
-    internal async Task<SteamUiCommandResult> HandleVrrAsync(
-        SteamUiBridgeRequest request,
-        CancellationToken cancellationToken)
-    {
-        if (!NativeQamPayload.TryReadEnabled(request.Payload, out bool enabled))
-        {
-            return new(false, "The variable-refresh payload is invalid.");
-        }
-        return await ApplyVariableRefreshRateAsync(enabled, cancellationToken)
-            .ConfigureAwait(false);
-    }
-
-    /// <summary>Turns variable refresh on or off through the device capability.</summary>
-    /// <param name="enabled">The wanted state.</param>
-    /// <param name="cancellationToken">Cancels the device write.</param>
-    /// <returns>Whether the device took it.</returns>
-    internal Task<SteamUiCommandResult> ApplyVariableRefreshRateAsync(
-        bool enabled,
-        CancellationToken cancellationToken)
-    {
-        if (ApplyVariableRefreshRate is not { } apply)
-        {
-            const string reason = "This device publishes no variable-refresh capability.";
-            Log.Warn($"Native QAM variable refresh {(enabled ? "on" : "off")} refused: {reason}");
-            return Task.FromResult(new SteamUiCommandResult(false, reason));
-        }
-
-        return ApplyFlagAsync(apply, enabled, "variable refresh rate", cancellationToken);
-    }
-
-    /// <summary>Applies a refresh rate the user chose directly.</summary>
-    /// <param name="hz">The rate to apply.</param>
-    /// <param name="cancellationToken">Unused; the display call is synchronous.</param>
-    /// <returns>Whether the display took it.</returns>
+    /// <inheritdoc />
     /// <remarks>
     /// The unified row's other mode. With the frame limit off there is no cap to pair a rate to, so
     /// the slider becomes the refresh rate itself and writes here — which is why this is available
     /// under every strategy, unlike the manual-refresh row, whose whole problem was fighting a
     /// pairing that was still active.
     /// </remarks>
-    internal Task<SteamUiCommandResult> ApplyRefreshRateAsync(
-        int hz,
-        CancellationToken cancellationToken)
+    public Task<SteamUiCommandResult> SetRefreshRateAsync(int hz, CancellationToken cancellationToken)
     {
         _ = cancellationToken;
         if (ApplyRefreshRate is not { } apply)
@@ -445,6 +149,21 @@ internal sealed class PerformanceServiceNativeQamAdapter
         return Task.FromResult(apply(hz)
             ? new SteamUiCommandResult(true, null)
             : new SteamUiCommandResult(false, $"The display refused {hz} Hz."));
+    }
+
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> SetVariableRefreshRateAsync(
+        bool enabled,
+        CancellationToken cancellationToken)
+    {
+        if (ApplyVariableRefreshRate is not { } apply)
+        {
+            const string reason = "This device publishes no variable-refresh capability.";
+            Log.Warn($"Native QAM variable refresh {(enabled ? "on" : "off")} refused: {reason}");
+            return Task.FromResult(new SteamUiCommandResult(false, reason));
+        }
+
+        return ApplyFlagAsync(apply, enabled, "variable refresh rate", cancellationToken);
     }
 
     /// <summary>The cap the enable toggle applies when no cap is set yet.</summary>
@@ -462,7 +181,7 @@ internal sealed class PerformanceServiceNativeQamAdapter
     }
 
     /// <summary>The state Steam's own performance panel reads every control's value out of.</summary>
-    internal NativeQamPerfState PerfState
+    internal SteamPerformanceState PerfState
     {
         get
         {
@@ -483,33 +202,17 @@ internal sealed class PerformanceServiceNativeQamAdapter
         }
     }
 
-    /// <summary>Applies one <c>UpdateSettings</c> call from Steam's own performance panel.</summary>
-    /// <param name="request">The forwarded request.</param>
-    /// <param name="cancellationToken">Cancels the applies.</param>
-    /// <returns>Whether every recognized change applied, and the first failure if not.</returns>
+    /// <inheritdoc />
     /// <remarks>
-    /// Every setter in Valve's store funnels through the one <c>UpdateSettings</c> method, so a
-    /// single call can carry several changes and each is applied in the order it arrived — a delta
-    /// that turns the cap on and sets it in one message must not apply the two out of order.
-    /// <para>
     /// Failures are collected rather than aborting: refusing the rest of a delta because one field
     /// has no backend would drop settings WSGM can honour, and the panel's own state would then
     /// disagree with the device until the next publish.
-    /// </para>
     /// </remarks>
-    internal async Task<SteamUiCommandResult> HandlePerformanceDeltaAsync(
-        SteamUiBridgeRequest request,
+    public async Task<SteamUiCommandResult> ApplyAsync(
+        SteamPerformanceDelta delta,
+        string correlationId,
         CancellationToken cancellationToken)
     {
-        if (!NativeQamPerfDeltaReader.TryRead(
-                request.Payload,
-                out NativeQamPerfDelta delta,
-                out string? readError))
-        {
-            Log.Warn($"Native QAM performance delta refused: {readError}");
-            return new(false, readError);
-        }
-
         if (delta.Unsupported.Count > 0)
         {
             // Named, because the alternative is a control the user operates that quietly does
@@ -549,12 +252,12 @@ internal sealed class PerformanceServiceNativeQamAdapter
         }
 
         string? failure = null;
-        foreach (NativeQamPerfChange received in delta.Recognized)
+        foreach (SteamPerformanceChange received in delta.Recognized)
         {
             // The overlay level travels as Valve's enum value, not the notch the user picked —
-            // see NativeQamOverlayLevelWire. Everything downstream speaks notches.
-            NativeQamPerfChange change = received.Kind is NativeQamPerfSetting.OverlayLevel
-                ? received with { Value = NativeQamOverlayLevelWire.ToNotch(received.Value) }
+            // see SteamOverlayLevelWire. Everything downstream speaks notches.
+            SteamPerformanceChange change = received.Kind is SteamPerformanceSetting.OverlayLevel
+                ? received with { Value = SteamOverlayLevelWire.ToNotch(received.Value) }
                 : received;
 
             // Echo suppression, the volume/brightness rule: Steam's side re-sends values it did
@@ -574,7 +277,7 @@ internal sealed class PerformanceServiceNativeQamAdapter
 
             SteamUiCommandResult result = await ApplyPerfChangeAsync(
                 change,
-                CorrelationId(request),
+                correlationId,
                 cancellationToken).ConfigureAwait(false);
             if (result.Succeeded)
             {
@@ -596,21 +299,21 @@ internal sealed class PerformanceServiceNativeQamAdapter
     /// <remarks>Only the RTSS-backed settings are judged here: their desired values live in the
     /// performance service and are what the state publication told Steam in the first place. The
     /// display-owned settings pass through; their owners are idempotent.</remarks>
-    private bool RestatesDesired(NativeQamPerfChange change)
+    private bool RestatesDesired(SteamPerformanceChange change)
     {
         PerformanceValues desired = _service.Current.Desired;
         return change.Kind switch
         {
-            NativeQamPerfSetting.OverlayLevel => desired.OverlayLevel == change.Value,
-            NativeQamPerfSetting.FrameLimit => desired.FrameLimit == change.Value,
-            NativeQamPerfSetting.FrameLimitEnabled =>
+            SteamPerformanceSetting.OverlayLevel => desired.OverlayLevel == change.Value,
+            SteamPerformanceSetting.FrameLimit => desired.FrameLimit == change.Value,
+            SteamPerformanceSetting.FrameLimitEnabled =>
                 change.AsFlag == (desired.FrameLimit is > 0),
             _ => false,
         };
     }
 
     /// <summary>Applies one change from Steam's own performance panel.</summary>
-    /// <param name="change">The decoded change.</param>
+    /// <param name="change">The decoded change, with the overlay level already in notches.</param>
     /// <param name="correlationId">Correlates the command across the log.</param>
     /// <param name="cancellationToken">Cancels the command.</param>
     /// <returns>Whether the change was applied.</returns>
@@ -620,11 +323,11 @@ internal sealed class PerformanceServiceNativeQamAdapter
     /// worse than one that never rendered.
     /// </remarks>
     internal Task<SteamUiCommandResult> ApplyPerfChangeAsync(
-        NativeQamPerfChange change,
+        SteamPerformanceChange change,
         string correlationId,
         CancellationToken cancellationToken) => change.Kind switch
         {
-            NativeQamPerfSetting.FrameLimit => SetAsync(
+            SteamPerformanceSetting.FrameLimit => SetAsync(
                 PerformanceControl.FrameLimit,
                 change.Value,
                 PerformancePersistenceTarget.Automatic,
@@ -635,20 +338,20 @@ internal sealed class PerformanceServiceNativeQamAdapter
             // Disabling writes zero. Enabling must WRITE A CAP: Valve's toggle sends only the flag,
             // and treating it as a no-op left the slider grey with a switch that snapped straight
             // back — there is no "enabled with no value" state on the RTSS side for it to mean.
-            NativeQamPerfSetting.FrameLimitEnabled when !change.AsFlag => SetAsync(
+            SteamPerformanceSetting.FrameLimitEnabled when !change.AsFlag => SetAsync(
                 PerformanceControl.FrameLimit,
                 0,
                 PerformancePersistenceTarget.Automatic,
                 correlationId,
                 cancellationToken),
-            NativeQamPerfSetting.FrameLimitEnabled => SetAsync(
+            SteamPerformanceSetting.FrameLimitEnabled => SetAsync(
                 PerformanceControl.FrameLimit,
                 EnableFrameLimitWatts(),
                 PerformancePersistenceTarget.Automatic,
                 correlationId,
                 cancellationToken),
 
-            NativeQamPerfSetting.OverlayLevel => SetAsync(
+            SteamPerformanceSetting.OverlayLevel => SetAsync(
                 PerformanceControl.OverlayLevel,
                 change.Value,
                 PerformancePersistenceTarget.Automatic,
@@ -658,15 +361,15 @@ internal sealed class PerformanceServiceNativeQamAdapter
             // Straight to the service that owns the policy: creating or removing the application
             // layer is policy, not a value write, and routing it through SetAsync would need a
             // control that does not exist.
-            NativeQamPerfSetting.PerApplicationProfileEnabled => ApplyProfileToggleAsync(
+            SteamPerformanceSetting.PerApplicationProfileEnabled => ApplyProfileToggleAsync(
                 change.AsFlag,
                 cancellationToken),
 
-            NativeQamPerfSetting.VariableRefreshRate when
+            SteamPerformanceSetting.VariableRefreshRate when
                 ApplyVariableRefreshRate is { } applyVrr =>
                 ApplyFlagAsync(applyVrr, change.AsFlag, "variable refresh rate", cancellationToken),
 
-            NativeQamPerfSetting.RefreshRateHz when ApplyRefreshRate is { } applyRefresh =>
+            SteamPerformanceSetting.RefreshRateHz when ApplyRefreshRate is { } applyRefresh =>
                 Task.FromResult(applyRefresh(change.Value)
                     ? new SteamUiCommandResult(true, null)
                     : new SteamUiCommandResult(
@@ -701,7 +404,7 @@ internal sealed class PerformanceServiceNativeQamAdapter
             succeeded,
             succeeded
                 ? null
-                : NativeQamText.Bound(result.Diagnostic ?? PhaseFailure(result.Phase)));
+                : SteamUiText.Bound(result.Diagnostic ?? PhaseFailure(result.Phase)));
     }
 
     /// <summary>Resets the profile in force to its defaults.</summary>
@@ -773,7 +476,7 @@ internal sealed class PerformanceServiceNativeQamAdapter
     /// what a cap can usefully be, not the limiter.
     /// </param>
     /// <returns>The row's state.</returns>
-    internal static NativeQamFrameLimitState ProjectFrameLimit(
+    internal static SteamFrameLimitState ProjectFrameLimit(
         PerformanceState state,
         bool enabled,
         NativeQamPerfSupport? support = null)
@@ -798,7 +501,7 @@ internal sealed class PerformanceServiceNativeQamAdapter
 
         int? minimum = panelMinimum > 0 ? panelMinimum : supported ? capabilities!.MinimumFrameLimit : null;
         int? maximum = panelMaximum > 0 ? panelMaximum : supported ? capabilities!.MaximumFrameLimit : null;
-        return new NativeQamFrameLimitState(
+        return new SteamFrameLimitState(
             available,
             minimum,
             maximum,
@@ -823,40 +526,6 @@ internal sealed class PerformanceServiceNativeQamAdapter
             // has 75 Hz or it does not, and asking for 72 gets a refusal, not the nearest thing.
             support?.RefreshRates);
     }
-
-    private static bool TryReadPerformancePayload(
-        JsonElement payload,
-        out int value,
-        out PerformancePersistenceTarget persistence)
-    {
-        value = default;
-        persistence = default;
-        if (payload.ValueKind != JsonValueKind.Object
-            || !payload.TryGetProperty("value", out JsonElement valueProperty)
-            || valueProperty.ValueKind != JsonValueKind.Number
-            || !valueProperty.TryGetInt32(out value)
-            || !payload.TryGetProperty("persistence", out JsonElement persistenceProperty)
-            || persistenceProperty.ValueKind != JsonValueKind.String)
-        {
-            return false;
-        }
-
-        persistence = persistenceProperty.GetString() switch
-        {
-            "automatic" => PerformancePersistenceTarget.Automatic,
-            "global" => PerformancePersistenceTarget.Global,
-            "application" => PerformancePersistenceTarget.Application,
-            _ => (PerformancePersistenceTarget)(-1),
-        };
-        return NativeQamPayload.HasExactly(payload, 2)
-            && persistence is PerformancePersistenceTarget.Automatic
-                or PerformancePersistenceTarget.Global
-                or PerformancePersistenceTarget.Application;
-    }
-
-    internal static string CorrelationId(SteamUiBridgeRequest request) =>
-        $"native-qam:{request.ContextGeneration}:{request.DocumentGeneration}:"
-        + $"{request.Sequence}:{request.ActionGeneration}";
 
     private static int? ValidValue(
         int? value,
@@ -898,7 +567,7 @@ internal sealed class PerformanceServiceNativeQamAdapter
             or PerformanceCommandPhase.TimedOut
             or PerformanceCommandPhase.Indeterminate
             or PerformanceCommandPhase.Failed
-                ? NativeQamText.Bound(command.Diagnostic ?? PhaseFailure(command.Phase))
+                ? SteamUiText.Bound(command.Diagnostic ?? PhaseFailure(command.Phase))
                 : string.Empty;
 
     private static string StatusText(
@@ -914,7 +583,7 @@ internal sealed class PerformanceServiceNativeQamAdapter
 
         if (!available)
         {
-            return NativeQamText.Bound(state.Probe.Diagnostic ?? (state.Probe.Availability switch
+            return SteamUiText.Bound(state.Probe.Diagnostic ?? (state.Probe.Availability switch
             {
                 RtssAvailability.NotInstalled => "RTSS is not installed.",
                 RtssAvailability.NotRunning => "RTSS is not running.",
@@ -928,8 +597,8 @@ internal sealed class PerformanceServiceNativeQamAdapter
         {
             null => "RTSS global profile",
             { RtssProfileName: { Length: > 0 } profile } =>
-                NativeQamText.Bound($"RTSS application profile: {profile}"),
-            { SteamAppId: { } appId } => NativeQamText.Bound(
+                SteamUiText.Bound($"RTSS application profile: {profile}"),
+            { SteamAppId: { } appId } => SteamUiText.Bound(
                 $"Steam AppID {appId}; waiting for its foreground executable."),
             _ => "Waiting for the foreground application's executable profile.",
         };
@@ -951,7 +620,7 @@ internal sealed class PerformanceServiceNativeQamAdapter
 /// unavailable one and every write is refused with its reason, so the surface stays honest without
 /// a separate stand-in implementation.
 /// </remarks>
-internal sealed class DeviceCoordinatorNativeQamTdpService : IDisposable
+internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBackend, IDisposable
 {
     private const string CapabilityId = "power.primary-limit";
     private static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(5);
@@ -982,20 +651,26 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : IDisposable
         ? UnavailableState
         : Project(_coordinator.Capabilities.Snapshot()).State;
 
-    /// <summary>Answers Steam's <c>setPrimaryLimit</c> command: the watts and the switch.</summary>
+    /// <summary>What Valve's TDP rows read: whether a limit exists, and its range.</summary>
+    internal SteamPowerLimitState PowerLimit
+    {
+        get
+        {
+            NativeQamTdpState state = Current;
+            return new SteamPowerLimitState(state.Available, state.MinimumWatts, state.MaximumWatts);
+        }
+    }
+
+    /// <inheritdoc />
     /// <remarks>
-    /// The switch is not optional: a limit switched off still carries the watts the slider holds,
-    /// and reading only the number would apply a cap the user had just turned off. Releasing the
-    /// limit applies the device ceiling, because the hardware has no "no limit" write.
+    /// Releasing the limit applies the device ceiling, because the hardware has no "no limit"
+    /// write.
     /// </remarks>
-    internal async Task<SteamUiCommandResult> HandleSetPrimaryLimitAsync(
-        SteamUiBridgeRequest request,
+    public async Task<SteamUiCommandResult> SetPrimaryLimitAsync(
+        int watts,
+        bool enabled,
         CancellationToken cancellationToken)
     {
-        if (!TryReadPowerLimitPayload(request.Payload, out int watts, out bool enabled))
-        {
-            return new(false, "The primary power-limit payload is invalid.");
-        }
         if (enabled)
         {
             return await SetPrimaryLimitAsync(watts, cancellationToken).ConfigureAwait(false);
@@ -1131,28 +806,6 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : IDisposable
     private void OnCapabilityViewsChanged(IReadOnlyList<DeviceCapabilityView> views) =>
         StateChanged?.Invoke();
 
-    /// <summary>Reads the power-limit payload: the watts and the switch beside them.</summary>
-    private static bool TryReadPowerLimitPayload(
-        JsonElement payload,
-        out int watts,
-        out bool enabled)
-    {
-        watts = default;
-        enabled = false;
-        if (payload.ValueKind != JsonValueKind.Object
-            || !payload.TryGetProperty("watts", out JsonElement wattsProperty)
-            || wattsProperty.ValueKind != JsonValueKind.Number
-            || !wattsProperty.TryGetInt32(out watts)
-            || !payload.TryGetProperty("enabled", out JsonElement enabledProperty)
-            || enabledProperty.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
-        {
-            return false;
-        }
-
-        enabled = enabledProperty.ValueKind is JsonValueKind.True;
-        return true;
-    }
-
     private static int? ValidInteger(
         CapabilityValue? value,
         int minimum,
@@ -1193,7 +846,7 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : IDisposable
             detail = "The desired power limit is outside the current descriptor.";
         }
 
-        return NativeQamText.Bound(detail);
+        return SteamUiText.Bound(detail);
     }
 
     private static NativeQamTdpState Unavailable(string detail) => new(
@@ -1204,7 +857,7 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : IDisposable
         null,
         null,
         string.Empty,
-        NativeQamText.Bound(detail));
+        SteamUiText.Bound(detail));
 
     private static string OutcomeText(CommandOutcome outcome) => outcome switch
     {
@@ -1223,7 +876,9 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : IDisposable
 /// private ids. Commands re-resolve the descriptor at execution time and pass through the same
 /// coordinator validation and readback path as the overlay and profiles.
 /// </remarks>
-internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : IDisposable
+internal sealed class DeviceCoordinatorNativeQamDeviceControlsService :
+    ISteamDeviceControlsBackend,
+    IDisposable
 {
     private static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(5);
     private readonly DeviceCoordinator? _coordinator;
@@ -1240,57 +895,27 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : IDisposa
 
     public event Action? StateChanged;
 
-    public NativeQamDeviceControlsState Current => Project(
+    public SteamDeviceControlsState Current => Project(
         _coordinator?.Capabilities.Snapshot() ?? []);
 
-    internal async Task<SteamUiCommandResult> HandleSetChargeLimitAsync(
-        SteamUiBridgeRequest request,
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> SetChargeLimitAsync(
+        int percent,
+        CancellationToken cancellationToken) =>
+        SetIntegerAsync(CapabilityRole.ChargeLimit, percent, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> SetLightingBrightnessAsync(
+        int percent,
+        CancellationToken cancellationToken) =>
+        SetIntegerAsync(CapabilityRole.LightingBrightness, percent, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<SteamUiCommandResult> SetLightingColorAsync(
+        string zone,
+        int color,
         CancellationToken cancellationToken)
     {
-        if (!NativeQamPayload.TryReadInt(request.Payload, "percent", 0, 100, out int percent)
-            || !NativeQamPayload.HasExactly(request.Payload, 1))
-        {
-            return new(false, "The charge-limit payload is invalid.");
-        }
-
-        return await SetIntegerAsync(
-            CapabilityRole.ChargeLimit,
-            percent,
-            cancellationToken).ConfigureAwait(false);
-    }
-
-    internal async Task<SteamUiCommandResult> HandleSetLightingBrightnessAsync(
-        SteamUiBridgeRequest request,
-        CancellationToken cancellationToken)
-    {
-        if (!NativeQamPayload.TryReadInt(request.Payload, "percent", 0, 100, out int percent)
-            || !NativeQamPayload.HasExactly(request.Payload, 1))
-        {
-            return new(false, "The lighting-brightness payload is invalid.");
-        }
-
-        return await SetIntegerAsync(
-            CapabilityRole.LightingBrightness,
-            percent,
-            cancellationToken).ConfigureAwait(false);
-    }
-
-    internal async Task<SteamUiCommandResult> HandleSetLightingColorAsync(
-        SteamUiBridgeRequest request,
-        CancellationToken cancellationToken)
-    {
-        if (!NativeQamPayload.TryReadBoundedString(request.Payload, "zone", 64, out string zone)
-            || !NativeQamPayload.TryReadInt(
-                request.Payload,
-                "color",
-                0,
-                0xFFFFFF,
-                out int color)
-            || !NativeQamPayload.HasExactly(request.Payload, 2))
-        {
-            return new(false, "The lighting-color payload is invalid.");
-        }
-
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (_coordinator is null)
         {
@@ -1395,16 +1020,16 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : IDisposa
         }
     }
 
-    internal static NativeQamDeviceControlsState Project(
+    internal static SteamDeviceControlsState Project(
         IReadOnlyList<DeviceCapabilityView> views)
     {
-        NativeQamDeviceRangeState? charge = ProjectUniqueRange(
+        SteamDeviceRangeState? charge = ProjectUniqueRange(
             views,
             CapabilityRole.ChargeLimit);
-        NativeQamDeviceRangeState? brightness = ProjectUniqueRange(
+        SteamDeviceRangeState? brightness = ProjectUniqueRange(
             views,
             CapabilityRole.LightingBrightness);
-        List<NativeQamLightingZoneState> zones = [];
+        List<SteamLightingZoneState> zones = [];
         IEnumerable<IGrouping<string, DeviceCapabilityView>> zoneGroups = views
             .Where(candidate => candidate.Descriptor.Role is CapabilityRole.LightingZoneColor
                 && !string.IsNullOrWhiteSpace(candidate.Descriptor.InstanceId)
@@ -1420,11 +1045,11 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : IDisposa
             CapabilityDescriptor descriptor = view.Descriptor;
             string instanceId = group.Key;
             bool compatible = WritableColor(view);
-            zones.Add(new NativeQamLightingZoneState(
+            zones.Add(new SteamLightingZoneState(
                 instanceId,
                 descriptor.Display.Key is DisplayKey.Custom
                     && !string.IsNullOrWhiteSpace(descriptor.Display.CustomLabel)
-                        ? NativeQamText.Bound(descriptor.Display.CustomLabel)
+                        ? SteamUiText.Bound(descriptor.Display.CustomLabel)
                         : instanceId,
                 compatible,
                 ValidColor(view.Projection.DesiredValue),
@@ -1433,10 +1058,10 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : IDisposa
                 StatusText(view, compatible)));
         }
 
-        return new NativeQamDeviceControlsState(charge, brightness, zones);
+        return new SteamDeviceControlsState(charge, brightness, zones);
     }
 
-    private static NativeQamDeviceRangeState? ProjectUniqueRange(
+    private static SteamDeviceRangeState? ProjectUniqueRange(
         IReadOnlyList<DeviceCapabilityView> views,
         CapabilityRole role)
     {
@@ -1450,13 +1075,13 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : IDisposa
         if (matches.Length != 1
             || !WritableRange(matches[0], role, out int minimum, out int maximum, out int step))
         {
-            return new NativeQamDeviceRangeState(
+            return new SteamDeviceRangeState(
                 false, 0, 100, 1, null, null, string.Empty,
                 $"The device published an incompatible or ambiguous {role} control.");
         }
 
         DeviceCapabilityView view = matches[0];
-        return new NativeQamDeviceRangeState(
+        return new SteamDeviceRangeState(
             true,
             minimum,
             maximum,
@@ -1552,7 +1177,7 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : IDisposa
             detail = "The desired value is outside the current descriptor.";
         }
 
-        return NativeQamText.Bound(detail);
+        return SteamUiText.Bound(detail);
     }
 
     private void OnCapabilityViewsChanged(IReadOnlyList<DeviceCapabilityView> views) =>
@@ -1569,9 +1194,9 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : IDisposa
 /// <c>DeviceIntegration.AutoTdpEnabled</c> through the same method, and none of them holds a copy.
 /// A null coordinator projects the constant unavailable state and refuses every write.
 /// </remarks>
-internal sealed class DeviceCoordinatorNativeQamAutoTdpService : IDisposable
+internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBackend, IDisposable
 {
-    private static readonly NativeQamAutoTdpState UnavailableState = new(
+    private static readonly SteamAutoTdpState UnavailableState = new(
         false,
         false,
         false,
@@ -1609,7 +1234,7 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : IDisposable
     public event Action? StateChanged;
 
     /// <summary>The state Steam should currently be rendering.</summary>
-    public NativeQamAutoTdpState Current => _coordinator is null
+    public SteamAutoTdpState Current => _coordinator is null
         ? UnavailableState
         : Project(
             _coordinator.AutoTdpEnabled,
@@ -1617,17 +1242,9 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : IDisposable
             DeviceCoordinatorNativeQamTdpService.Project(_coordinator.Capabilities.Snapshot())
                 .State.Available);
 
-    /// <summary>Answers Steam's <c>setAutoTdp</c> command.</summary>
-    internal async Task<SteamUiCommandResult> HandleSetAutoTdpAsync(
-        SteamUiBridgeRequest request,
-        CancellationToken cancellationToken)
-    {
-        if (!NativeQamPayload.TryReadEnabled(request.Payload, out bool enabled))
-        {
-            return new(false, "The AutoTDP payload is invalid.");
-        }
-        return await SetEnabledAsync(enabled, cancellationToken).ConfigureAwait(false);
-    }
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> SetAutoTdpAsync(bool enabled, CancellationToken cancellationToken) =>
+        SetEnabledAsync(enabled, cancellationToken);
 
     /// <summary>Stores the AutoTDP setting through its one owner.</summary>
     public async Task<SteamUiCommandResult> SetEnabledAsync(
@@ -1635,7 +1252,7 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : IDisposable
         CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        NativeQamAutoTdpState state = Current;
+        SteamAutoTdpState state = Current;
         if (_coordinator is null || !state.Available)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -1676,7 +1293,7 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : IDisposable
     /// <param name="status">The running service's state, or null when it is not running.</param>
     /// <param name="powerLimitAvailable">Whether a primary power limit exists to drive.</param>
     /// <returns>The state the menu renders.</returns>
-    internal static NativeQamAutoTdpState Project(
+    internal static SteamAutoTdpState Project(
         bool enabled,
         AutoTdpStatus? status,
         bool powerLimitAvailable)
@@ -1685,28 +1302,28 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : IDisposable
         // than offered and then silently ineffective.
         if (!powerLimitAvailable)
         {
-            return new NativeQamAutoTdpState(
+            return new SteamAutoTdpState(
                 false,
                 enabled,
                 false,
                 null,
                 string.Empty,
-                NativeQamText.Bound("No primary power limit is available to control."));
+                SteamUiText.Bound("No primary power limit is available to control."));
         }
 
         if (status is null)
         {
-            return new NativeQamAutoTdpState(
+            return new SteamAutoTdpState(
                 true,
                 enabled,
                 false,
                 null,
                 enabled ? "applying" : string.Empty,
-                NativeQamText.Bound(enabled ? "Starting." : string.Empty));
+                SteamUiText.Bound(enabled ? "Starting." : string.Empty));
         }
 
         bool controlling = status.State is AutoTdpState.Controlling;
-        return new NativeQamAutoTdpState(
+        return new SteamAutoTdpState(
             // Unavailable is the one state where the switch must not be operable: it means AutoTDP
             // cannot run on this device however the setting is left.
             status.State is not AutoTdpState.Unavailable,
@@ -1719,7 +1336,7 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : IDisposable
                 AutoTdpState.Unavailable => "failed",
                 _ => string.Empty,
             },
-            NativeQamText.Bound(status.Detail));
+            SteamUiText.Bound(status.Detail));
     }
 
     private void OnCapabilityViewsChanged(IReadOnlyList<DeviceCapabilityView> views) => OnChanged();
@@ -1740,16 +1357,18 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : IDisposable
 /// stored default through the same method, and neither holds a copy of the target. A null
 /// coordinator projects the constant unavailable state and refuses every write.
 /// </remarks>
-internal sealed class DeviceCoordinatorNativeQamControllerTargetService : IDisposable
+internal sealed class DeviceCoordinatorNativeQamControllerTargetService :
+    ISteamControllerTargetBackend,
+    IDisposable
 {
     /// <summary>Why the row is inert, stated as the one cause that can still produce it: the
     /// session is running without device integration. Every build ships the component.</summary>
     internal const string UnavailableDetail =
         "Controller management is unavailable: this session is running without device integration.";
 
-    private static readonly NativeQamControllerTargetState UnavailableState = new(
+    private static readonly SteamControllerTargetState UnavailableState = new(
         false,
-        Array.Empty<NativeQamControllerTargetOption>(),
+        Array.Empty<SteamControllerTargetOption>(),
         string.Empty,
         string.Empty,
         string.Empty,
@@ -1773,7 +1392,7 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService : IDispo
     public event Action? StateChanged;
 
     /// <summary>The state Steam should currently be rendering.</summary>
-    public NativeQamControllerTargetState Current => _coordinator is null
+    public SteamControllerTargetState Current => _coordinator is null
         ? UnavailableState
         : Project(
             _coordinator.ControllerManagementEnabled,
@@ -1781,17 +1400,11 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService : IDispo
             _coordinator.InstalledPackage is not null,
             _coordinator.Controllers.SupportedTargets);
 
-    /// <summary>Answers Steam's <c>setControllerTarget</c> command.</summary>
-    internal async Task<SteamUiCommandResult> HandleSetControllerTargetAsync(
-        SteamUiBridgeRequest request,
-        CancellationToken cancellationToken)
-    {
-        if (!NativeQamPayload.TryReadTarget(request.Payload, out string target))
-        {
-            return new(false, "The controller-target payload is invalid.");
-        }
-        return await SetTargetAsync(target, cancellationToken).ConfigureAwait(false);
-    }
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> SetControllerTargetAsync(
+        string target,
+        CancellationToken cancellationToken) =>
+        SetTargetAsync(target, cancellationToken);
 
     /// <summary>Stores and applies the chosen managed-controller target.</summary>
     public async Task<SteamUiCommandResult> SetTargetAsync(
@@ -1799,7 +1412,7 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService : IDispo
         CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        NativeQamControllerTargetState state = Current;
+        SteamControllerTargetState state = Current;
         if (_coordinator is null || !state.Available)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -1843,7 +1456,7 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService : IDispo
     /// <param name="packageInstalled">Whether a device package is installed.</param>
     /// <param name="supportedTargets">Targets the backend on this machine can create.</param>
     /// <returns>The state the menu renders.</returns>
-    internal static NativeQamControllerTargetState Project(
+    internal static SteamControllerTargetState Project(
         bool enabled,
         ControllerManagerStatus status,
         bool packageInstalled,
@@ -1853,13 +1466,13 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService : IDispo
         ArgumentNullException.ThrowIfNull(supportedTargets);
         if (!enabled)
         {
-            return new NativeQamControllerTargetState(
+            return new SteamControllerTargetState(
                 false,
-                Array.Empty<NativeQamControllerTargetOption>(),
+                Array.Empty<SteamControllerTargetOption>(),
                 string.Empty,
                 string.Empty,
                 string.Empty,
-                NativeQamText.Bound(status.Detail),
+                SteamUiText.Bound(status.Detail),
                 false);
         }
 
@@ -1867,7 +1480,7 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService : IDispo
         // than hardware, but a target still needs an encoder behind it: offering one that has none
         // meant the selection persisted, target creation was refused, and controller management
         // reported itself unavailable until the user found their way back to the setting.
-        NativeQamControllerTargetOption[] targets =
+        SteamControllerTargetOption[] targets =
         [
             .. new[]
             {
@@ -1876,7 +1489,7 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService : IDispo
                 (Target: ManagedControllerTarget.DualShock4, Label: "DualShock 4"),
             }
                 .Where(option => supportedTargets.Contains(option.Target))
-                .Select(option => new NativeQamControllerTargetOption(
+                .Select(option => new SteamControllerTargetOption(
                     option.Target.ToString(),
                     option.Label,
                     true)),
@@ -1896,13 +1509,13 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService : IDispo
             detail = "No device package is installed, so no physical controller is being captured.";
         }
 
-        return new NativeQamControllerTargetState(
+        return new SteamControllerTargetState(
             available,
             targets,
             selected,
             observed,
             ProgressFor(status.State),
-            NativeQamText.Bound(detail),
+            SteamUiText.Bound(detail),
             // A running game holds the target it was launched with, so a change reaches it only on
             // the next launch. Saying so is the difference between a control that looks broken and
             // one the user understands.
@@ -1933,23 +1546,3 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService : IDispo
     private void OnControllerStatusChanged(ControllerManagerStatus status) =>
         StateChanged?.Invoke();
 }
-
-[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
-[JsonSerializable(typeof(SteamBrightnessState))]
-[JsonSerializable(typeof(SteamNetworkState))]
-[JsonSerializable(typeof(SteamNetworkAccessPointState))]
-[JsonSerializable(typeof(NativeQamTdpState))]
-[JsonSerializable(typeof(NativeQamDeviceControlsState))]
-[JsonSerializable(typeof(NativeQamDeviceRangeState))]
-[JsonSerializable(typeof(NativeQamLightingZoneState))]
-[JsonSerializable(typeof(NativeQamAutoTdpState))]
-[JsonSerializable(typeof(NativeQamControllerTargetState))]
-[JsonSerializable(typeof(NativeQamFrameLimitState))]
-[JsonSerializable(typeof(NativeQamResolutionState))]
-[JsonSerializable(typeof(NativeQamVrrState))]
-[JsonSerializable(typeof(SteamBluetoothState))]
-[JsonSerializable(typeof(SteamBluetoothDevice))]
-[JsonSerializable(typeof(NativeQamAudioState))]
-[JsonSerializable(typeof(NativeQamAudioDevice))]
-[JsonSerializable(typeof(NativeQamPerfState))]
-internal sealed partial class NativeQamSemanticJsonContext : JsonSerializerContext;

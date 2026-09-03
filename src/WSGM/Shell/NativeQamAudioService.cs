@@ -2,65 +2,27 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
 
 namespace WSGM.Shell;
 
-/// <summary>One audio endpoint as Steam's own device picker renders it.</summary>
-/// <param name="Id">Stable endpoint identifier.</param>
-/// <param name="Name">Endpoint name as Windows reports it.</param>
-/// <param name="HasOutput">Whether the endpoint can render.</param>
-/// <param name="HasInput">Whether the endpoint can capture.</param>
-internal sealed record NativeQamAudioDevice(
-    string Id,
-    string Name,
-    bool HasOutput,
-    bool HasInput
-);
-
-/// <summary>Audio as Steam's own menu renders it.</summary>
-/// <remarks>
-/// Volume and mute follow Windows' default endpoint independently for render and capture. Steam's
-/// model allows values per device, but reporting a value for an inactive endpoint WSGM cannot
-/// independently move would be a control that lies.
-/// </remarks>
-/// <param name="Available">Whether audio can be observed and changed at all.</param>
-/// <param name="Devices">Every endpoint, output and input.</param>
-/// <param name="ActiveOutputDeviceId">The default render endpoint, or empty.</param>
-/// <param name="ActiveInputDeviceId">The default capture endpoint, or empty.</param>
-/// <param name="VolumePercent">System volume, 0-100.</param>
-/// <param name="Muted">Whether the default render endpoint is muted.</param>
-/// <param name="InputVolumePercent">Default capture volume, 0-100, or null when unavailable.</param>
-/// <param name="InputMuted">Whether the default capture endpoint is muted.</param>
-/// <param name="StatusText">A human-readable fault, or empty.</param>
-internal sealed record NativeQamAudioState(
-    bool Available,
-    IReadOnlyList<NativeQamAudioDevice> Devices,
-    string ActiveOutputDeviceId,
-    string ActiveInputDeviceId,
-    int VolumePercent,
-    bool Muted,
-    int? InputVolumePercent,
-    bool InputMuted,
-    string StatusText
-);
-
 /// <summary>
-/// Projects <see cref="AudioManager"/> into the shape Steam's audio store expects.
+/// Projects <see cref="AudioManager"/> into the state Steam's audio surface renders, and answers
+/// its writes.
 /// </summary>
 /// <remarks>
 /// The backend already exists and is the same one the custom taskbar drives, so this is an adapter
 /// rather than an implementation. Keeping it an adapter is the point: a second audio path would
-/// eventually disagree with the taskbar about which endpoint is default.
+/// eventually disagree with the taskbar about which endpoint is default. The shape Steam sees and
+/// the mapping into Steam's own field names are the toolkit's (<see cref="SteamAudioSurface"/>).
 /// </remarks>
-internal sealed class AudioManagerNativeQamAudioService : IDisposable
+internal sealed class AudioManagerNativeQamAudioService : ISteamAudioBackend, IDisposable
 {
     private readonly AudioManager _audio;
     private readonly object _gate = new();
-    private NativeQamAudioState _current;
+    private SteamAudioState _current;
     private bool _disposed;
 
     /// <summary>Adapts a running audio manager.</summary>
@@ -78,7 +40,7 @@ internal sealed class AudioManagerNativeQamAudioService : IDisposable
     public event Action? StateChanged;
 
     /// <summary>The state Steam should currently be rendering.</summary>
-    public NativeQamAudioState Current
+    public SteamAudioState Current
     {
         get
         {
@@ -89,46 +51,11 @@ internal sealed class AudioManagerNativeQamAudioService : IDisposable
         }
     }
 
-    /// <summary>Answers Steam's <c>getDevices</c> command with the current state.</summary>
-    internal Task<SteamUiCommandResult> HandleGetDevicesAsync(
-        SteamUiBridgeRequest request,
-        CancellationToken cancellationToken) =>
-        Task.FromResult(new SteamUiCommandResult(true, null, SerializeState(Current)));
-
-    /// <summary>Answers Steam's <c>setDefaultDevice</c> command.</summary>
-    internal async Task<SteamUiCommandResult> HandleSetDefaultDeviceAsync(
-        SteamUiBridgeRequest request,
-        CancellationToken cancellationToken)
-    {
-        if (!TryReadDevicePayload(request.Payload, out string id, out bool input))
-        {
-            return new(false, "The audio device payload is invalid.");
-        }
-        return await SetDefaultDeviceAsync(id, input, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>Answers Steam's <c>setVolume</c> command.</summary>
-    internal async Task<SteamUiCommandResult> HandleSetVolumeAsync(
-        SteamUiBridgeRequest request,
-        CancellationToken cancellationToken)
-    {
-        if (!TryReadVolumePayload(request.Payload, out int percent, out bool input))
-        {
-            return new(false, "The audio volume payload is invalid.");
-        }
-        return await SetVolumeAsync(percent, input, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>Makes one endpoint the default for its direction.</summary>
-    /// <param name="deviceId">The endpoint to select.</param>
-    /// <param name="input">Whether the capture default is being set rather than the render one.</param>
-    /// <param name="cancellationToken">Cancels the change.</param>
-    /// <returns>The outcome, as the native QAM reports outcomes.</returns>
+    /// <inheritdoc />
     public async Task<SteamUiCommandResult> SetDefaultDeviceAsync(
         string deviceId,
         bool input,
-        CancellationToken cancellationToken
-    )
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(deviceId))
         {
@@ -179,16 +106,11 @@ internal sealed class AudioManagerNativeQamAudioService : IDisposable
         CancellationToken cancellationToken
     ) => await SetVolumeAsync(percent, input: false, cancellationToken).ConfigureAwait(false);
 
-    /// <summary>Sets the master volume for one audio direction.</summary>
-    /// <param name="percent">Target volume, 0-100.</param>
-    /// <param name="input">Whether to set the default capture endpoint.</param>
-    /// <param name="cancellationToken">Cancels the change.</param>
-    /// <returns>The outcome, as the native QAM reports outcomes.</returns>
+    /// <inheritdoc />
     public async Task<SteamUiCommandResult> SetVolumeAsync(
         int percent,
         bool input,
-        CancellationToken cancellationToken
-    )
+        CancellationToken cancellationToken)
     {
         int clamped = Math.Clamp(percent, 0, 100);
         if (clamped != percent)
@@ -227,54 +149,6 @@ internal sealed class AudioManagerNativeQamAudioService : IDisposable
         _audio.InputEndpoints.CollectionChanged -= OnEndpointsChanged;
     }
 
-    /// <summary>Serializes the audio state into the shape the injected bootstrap maps.</summary>
-    /// <remarks>
-    /// The device shape here is deliberately WSGM's own; the bootstrap maps it into Steam's field
-    /// names. Emitting Steam's names on this side would put its schema in two places, and the one
-    /// that changes with a client rebuild is the injected half.
-    /// </remarks>
-    internal static JsonElement SerializeState(NativeQamAudioState state) =>
-        JsonSerializer.SerializeToElement(
-            state,
-            NativeQamSemanticJsonContext.Default.NativeQamAudioState);
-
-    /// <summary>Reads the endpoint and direction of a default-device change.</summary>
-    private static bool TryReadDevicePayload(JsonElement payload, out string id, out bool input)
-    {
-        input = false;
-        if (!NativeQamPayload.TryReadBoundedString(payload, "id", 512, out id)
-            || !payload.TryGetProperty("input", out JsonElement inputProperty)
-            || inputProperty.ValueKind is not (JsonValueKind.True or JsonValueKind.False)
-            || !NativeQamPayload.HasExactly(payload, 2))
-        {
-            return false;
-        }
-
-        input = inputProperty.ValueKind is JsonValueKind.True;
-        return true;
-    }
-
-    private static bool TryReadVolumePayload(JsonElement payload, out int percent, out bool input)
-    {
-        input = false;
-        if (!NativeQamPayload.TryReadInt(payload, "percent", 0, 100, out percent))
-        {
-            return false;
-        }
-
-        if (!payload.TryGetProperty("input", out JsonElement inputProperty))
-        {
-            return NativeQamPayload.HasExactly(payload, 1);
-        }
-        if (inputProperty.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
-        {
-            return false;
-        }
-
-        input = inputProperty.ValueKind is JsonValueKind.True;
-        return NativeQamPayload.HasExactly(payload, 2);
-    }
-
     /// <summary>
     /// Builds the state Steam should render from the manager's current view.
     /// </summary>
@@ -285,23 +159,23 @@ internal sealed class AudioManagerNativeQamAudioService : IDisposable
     /// device model is one entry with a direction test rather than two entries. Listing it twice
     /// would put the same hardware in the picker under two identities.
     /// </remarks>
-    internal static NativeQamAudioState Project(AudioManager audio)
+    internal static SteamAudioState Project(AudioManager audio)
     {
-        Dictionary<string, NativeQamAudioDevice> byId = new(StringComparer.Ordinal);
+        Dictionary<string, SteamAudioDevice> byId = new(StringComparer.Ordinal);
         foreach (AudioEndpointEntry entry in audio.OutputEndpoints)
         {
-            byId[entry.Id] = new NativeQamAudioDevice(entry.Id, entry.Name, true, false);
+            byId[entry.Id] = new SteamAudioDevice(entry.Id, entry.Name, true, false);
         }
 
         foreach (AudioEndpointEntry entry in audio.InputEndpoints)
         {
-            byId[entry.Id] = byId.TryGetValue(entry.Id, out NativeQamAudioDevice? existing)
+            byId[entry.Id] = byId.TryGetValue(entry.Id, out SteamAudioDevice? existing)
                 ? existing with { HasInput = true }
-                : new NativeQamAudioDevice(entry.Id, entry.Name, false, true);
+                : new SteamAudioDevice(entry.Id, entry.Name, false, true);
         }
 
         bool available = byId.Count > 0;
-        return new NativeQamAudioState(
+        return new SteamAudioState(
             available,
             [.. byId.Values],
             audio.SelectedOutput?.Id ?? string.Empty,
@@ -321,7 +195,7 @@ internal sealed class AudioManagerNativeQamAudioService : IDisposable
 
     private void Publish()
     {
-        NativeQamAudioState next = Project(_audio);
+        SteamAudioState next = Project(_audio);
         lock (_gate)
         {
             if (Same(_current, next))
@@ -341,7 +215,7 @@ internal sealed class AudioManagerNativeQamAudioService : IDisposable
     /// on the manager — including a volume tick — would look like a change to the whole device set
     /// and push a redundant update into Steam.
     /// </remarks>
-    private static bool Same(NativeQamAudioState left, NativeQamAudioState right) =>
+    private static bool Same(SteamAudioState left, SteamAudioState right) =>
         left.Available == right.Available
         && left.VolumePercent == right.VolumePercent
         && left.Muted == right.Muted

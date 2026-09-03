@@ -39,7 +39,7 @@ public sealed class NativeQamSemanticServicesTests
     [Fact]
     public void DeviceControlsProjectionUsesSemanticRolesAndIndependentLightingZones()
     {
-        NativeQamDeviceControlsState state =
+        SteamDeviceControlsState state =
             DeviceCoordinatorNativeQamDeviceControlsService.Project(
             [
                 IntegerDeviceView(
@@ -98,7 +98,7 @@ public sealed class NativeQamSemanticServicesTests
             desired: 80,
             observed: 80);
 
-        NativeQamDeviceControlsState state =
+        SteamDeviceControlsState state =
             DeviceCoordinatorNativeQamDeviceControlsService.Project([first, second]);
 
         Assert.False(state.ChargeLimit?.Available);
@@ -111,7 +111,7 @@ public sealed class NativeQamSemanticServicesTests
     [Fact]
     public void AmbiguousLightingZoneIsDroppedWithoutHidingIndependentControls()
     {
-        NativeQamDeviceControlsState state =
+        SteamDeviceControlsState state =
             DeviceCoordinatorNativeQamDeviceControlsService.Project(
             [
                 IntegerDeviceView(
@@ -128,7 +128,7 @@ public sealed class NativeQamSemanticServicesTests
             ]);
 
         Assert.True(state.ChargeLimit?.Available);
-        NativeQamLightingZoneState zone = Assert.Single(state.LightingZones);
+        SteamLightingZoneState zone = Assert.Single(state.LightingZones);
         Assert.Equal("button zone", zone.Id);
     }
 
@@ -137,7 +137,7 @@ public sealed class NativeQamSemanticServicesTests
     {
         using var service = new DeviceCoordinatorNativeQamControllerTargetService(null);
 
-        NativeQamControllerTargetState state = service.Current;
+        SteamControllerTargetState state = service.Current;
 
         Assert.False(state.Available);
         Assert.Empty(state.Targets);
@@ -157,7 +157,7 @@ public sealed class NativeQamSemanticServicesTests
             new HashSet<int> { 0, 1 },
             PerformanceCommandState.Idle);
 
-        NativeQamFrameLimitState frame =
+        SteamFrameLimitState frame =
             PerformanceServiceNativeQamAdapter.ProjectFrameLimit(state, enabled: true);
         Assert.True(frame.Available);
         Assert.Equal(0, frame.MinimumFps);
@@ -179,7 +179,7 @@ public sealed class NativeQamSemanticServicesTests
             "RTSS readback timed out.");
         PerformanceState state = PerformanceStateFixture(new HashSet<int> { 0, 1 }, command);
 
-        NativeQamFrameLimitState frame =
+        SteamFrameLimitState frame =
             PerformanceServiceNativeQamAdapter.ProjectFrameLimit(state, enabled: true);
         Assert.Equal("timed-out", frame.Progress);
         Assert.Equal("RTSS readback timed out.", frame.Fault);

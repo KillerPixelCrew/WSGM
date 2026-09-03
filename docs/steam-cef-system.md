@@ -25,21 +25,26 @@ Read it together with:
  ShellSession                 the transport gate loop, retract-before-Big-Picture, master switch
    └─ PersistentSteamUiTransport (toolkit)   one CDP connection per role, attached to SteamUiTransportSession
       └─ Shell\SteamUiSessionHost.cs         the one patch/bridge/module owner
-           ├─ SteamUiBridgeHost + NativeQamBootstrap.js (Core\SteamUiAssets)
-           ├─ SteamUiPatchManager: bootstrap, 6 gate patches, 11 component patches, download sort, glyph style
+           ├─ SteamUiBridgeHost + NativeQamBootstrap.js (Core\SteamUiAssets, composed from the toolkit)
+           ├─ SteamUiPatchManager: bridge, 6 gate patches, 11 row patches (toolkit), download sort, glyph style
            ├─ SteamUiModuleRuntime: publications down, commands up
-           └─ NativeQam*Service (Shell\)     TDP, AutoTDP, frame limit, VRR, controller target, device
-                                             controls, audio, network, Bluetooth, brightness, resolution
+           └─ NativeQam*Service (Shell\)     the backends: TDP, AutoTDP, frame limit, VRR, controller
+                                             target, device controls, audio, network, Bluetooth,
+                                             brightness, resolution — each feeds one toolkit surface
  Core\SteamLibraryTabs.cs, SteamPageBridge.cs   legacy resident scripts: tabs and the card badge
  Core\SteamCdp.cs, SteamLaunchConfig.cs, SteamArtwork.cs, SteamCollections.cs, SteamDownloads.cs
                                                 one-shot evaluations through the session transport
  tools\WsgmLibTest\                             live probes and the QAM harness
 ```
 
-Ownership follows decision D16. The toolkit owns how to find, own and remove a thing safely. WSGM
-owns every surface: which module ids it names, which localization tokens it mounts by, which rows
-exist, and the policy about which patches are on when. A plugin owns nothing here; device state
-reaches the QAM only through WSGM's semantic services.
+Ownership follows decision D16. The toolkit owns how to find, own and remove a thing safely, **and
+every revived Valve surface**: the six gates, the eleven Quick Access rows, the module ids and
+localization tokens they name, the wire shape of each state and the readers for each command
+(`external\steam-ui-toolkit\docs\reference.md` §15). WSGM owns the data behind them — its managers,
+RTSS and the device plugin, adapted onto the toolkit's `ISteam*Backend` interfaces by the
+`NativeQam*Service` classes — and the policy about which patches are on when. Its own features
+(library tabs, the card badge, download sorting, glyph delivery) stay WSGM's. A plugin owns nothing
+here; device state reaches the QAM only through WSGM's backend services.
 
 ## 2. Finding and driving Steam
 
@@ -124,39 +129,43 @@ native Quick Access, the network indicator, download sort, glyph delivery.
 
 ### Modules and their commands
 
-| Module                                   | Patch id                                                                    | Commands                                                                                                  |
-| ---------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| shell                                    | `wsgm.native-qam.shell`                                                     | `toggleQuickAccess`                                                                                       |
-| tdp                                      | `wsgm.native-qam.tdp`                                                       | `setPrimaryLimit`                                                                                         |
-| auto-tdp                                 | `wsgm.native-qam.auto-tdp`                                                  | `setAutoTdp`                                                                                              |
-| frame-limit                              | `wsgm.native-qam.frame-limit`                                               | `setFrameLimit`, `setRefreshRate`                                                                         |
-| controller-target                        | `wsgm.native-qam.controller-target`                                         | `setControllerTarget`                                                                                     |
-| vrr                                      | `wsgm.native-qam.vrr` plus the Valve header, reset and refresh-rate patches | `setVariableRefreshRate`                                                                                  |
-| perf                                     | `wsgm.native-qam.perf`                                                      | `updateSettings`                                                                                          |
-| brightness                               | `wsgm.steam-display.brightness`                                             | `setBrightness`                                                                                           |
-| device-controls                          | `wsgm.native-qam.device-controls`                                           | `setChargeLimit`, `setLightingBrightness`, `setLightingColor`                                             |
-| resolution (only with a display service) | `wsgm.native-qam.resolution`                                                | `setResolution`                                                                                           |
-| audio (only with an audio manager)       | `wsgm.native-qam.audio`                                                     | `getDevices`, `setDefaultDevice`, `setVolume`                                                             |
-| network (only with a radio manager)      | `wsgm.steam-network.gate`                                                   | `startScan`, `stopScan`                                                                                   |
-| bluetooth (only with a radio manager)    | `wsgm.steam-bluetooth.service`                                              | `setDiscovering`, `pair`, `cancelPair`, `connect`, `disconnect`, `forget`, `setTrusted`, `setWakeAllowed` |
+Every module but `shell` is a toolkit surface's `Module(enabled, read, backend)`; the patch id and
+command vocabulary are the surface's constants, and WSGM contributes the state reading and the
+backend. The surfaces and their commands are listed in the toolkit reference §15.
+
+| Module                                                                         | Toolkit surface                                     | WSGM backend                                        |
+| ------------------------------------------------------------------------------ | --------------------------------------------------- | --------------------------------------------------- |
+| shell                                                                          | none (`wsgm.native-qam.shell`, `toggleQuickAccess`) | the overlay toggle                                  |
+| tdp                                                                            | `SteamPowerLimitSurface`                            | `DeviceCoordinatorNativeQamTdpService`              |
+| auto-tdp                                                                       | `SteamAutoTdpRow`                                   | `DeviceCoordinatorNativeQamAutoTdpService`          |
+| frame-limit                                                                    | `SteamFrameLimitRow`                                | `PerformanceServiceNativeQamAdapter`                |
+| controller-target                                                              | `SteamControllerTargetRow`                          | `DeviceCoordinatorNativeQamControllerTargetService` |
+| vrr                                                                            | `SteamVariableRefreshRow`                           | `PerformanceServiceNativeQamAdapter`                |
+| perf (with Valve's header, toggle, reset, overlay-level and refresh-rate rows) | `SteamPerformanceSurface`                           | `PerformanceServiceNativeQamAdapter`                |
+| brightness                                                                     | `SteamBrightnessSurface`                            | `NativeQamBrightnessService`                        |
+| device-controls                                                                | `SteamDeviceControlsRow`                            | `DeviceCoordinatorNativeQamDeviceControlsService`   |
+| resolution (only with a display service)                                       | `SteamResolutionRow`                                | `NativeQamResolutionService`                        |
+| audio (only with an audio manager)                                             | `SteamAudioSurface`                                 | `AudioManagerNativeQamAudioService`                 |
+| network (only with a radio manager)                                            | `SteamNetworkSurface`                               | `NativeQamNetworkService`                           |
+| bluetooth (only with a radio manager)                                          | `SteamBluetoothSurface`                             | `NativeQamBluetoothService`                         |
 
 Publications default to "enabled while native Quick Access is on"; the network publication is also
 enabled while the header indicator is on.
 
 ### Patch inventory
 
-| Patch id                                     | Class                       | Target          | Resource key                                 | Enabled by                 |
-| -------------------------------------------- | --------------------------- | --------------- | -------------------------------------------- | -------------------------- |
-| `wsgm.native-qam.bootstrap`                  | `NativeQamBootstrapPatch`   | SharedJSContext | `wsgm.native-qam.bridge`                     | QAM or network indicator   |
-| `wsgm.native-qam.perf`                       | gate `perf`                 | SharedJSContext | `wsgm.native-qam.perf-namespace`             | QAM                        |
-| `wsgm.native-qam.audio`                      | gate `audio`                | SharedJSContext | `wsgm.native-qam.audio-namespace`            | QAM, audio manager present |
-| `wsgm.native-qam.tdp`                        | gate `steamOsManager`       | SharedJSContext | `wsgm.native-qam.steamos-manager-state`      | QAM                        |
-| `wsgm.steam-display.brightness`              | gate `brightness`           | SharedJSContext | `wsgm.steam-display.brightness-availability` | QAM                        |
-| `wsgm.steam-bluetooth.service`               | gate `bluetooth`            | SharedJSContext | `wsgm.steam-bluetooth.manager-service`       | QAM, radio manager present |
-| `wsgm.steam-network.gate`                    | gate `network`              | SharedJSContext | `wsgm.steam-network.availability`            | QAM or network indicator   |
-| eleven `wsgm.native-qam.*` component patches | `NativeQamComponentPatches` | SharedJSContext | `wsgm.native-qam.performance-root`           | QAM                        |
-| `wsgm.download-sort`                         | `SteamDownloadSortPatch`    | SharedJSContext | `steam.downloads.jsx-runtime`                | download sort only         |
-| `wsgm.steam-input.glyph-style`               | `SteamInputGlyphStylePatch` | MainWindow      | `wsgm.steam-input.glyph-style`               | glyph delivery only        |
+| Patch id                               | Class                                | Target          | Resource key                                 | Enabled by                 |
+| -------------------------------------- | ------------------------------------ | --------------- | -------------------------------------------- | -------------------------- |
+| `wsgm.native-qam.bootstrap`            | `SteamUiBridgePatch` (toolkit)       | SharedJSContext | `wsgm.native-qam.bridge`                     | QAM or network indicator   |
+| `wsgm.native-qam.perf`                 | gate `perf`                          | SharedJSContext | `wsgm.native-qam.perf-namespace`             | QAM                        |
+| `wsgm.native-qam.audio`                | gate `audio`                         | SharedJSContext | `wsgm.native-qam.audio-namespace`            | QAM, audio manager present |
+| `wsgm.native-qam.tdp`                  | gate `steamOsManager`                | SharedJSContext | `wsgm.native-qam.steamos-manager-state`      | QAM                        |
+| `wsgm.steam-display.brightness`        | gate `brightness`                    | SharedJSContext | `wsgm.steam-display.brightness-availability` | QAM                        |
+| `wsgm.steam-bluetooth.service`         | gate `bluetooth`                     | SharedJSContext | `wsgm.steam-bluetooth.manager-service`       | QAM, radio manager present |
+| `wsgm.steam-network.gate`              | gate `network`                       | SharedJSContext | `wsgm.steam-network.availability`            | QAM or network indicator   |
+| eleven `wsgm.native-qam.*` row patches | `SteamQuickAccessRowPatch` (toolkit) | SharedJSContext | `wsgm.native-qam.performance-root`           | QAM                        |
+| `wsgm.download-sort`                   | `SteamDownloadSortPatch`             | SharedJSContext | `steam.downloads.jsx-runtime`                | download sort only         |
+| `wsgm.steam-input.glyph-style`         | `SteamInputGlyphStylePatch`          | MainWindow      | `wsgm.steam-input.glyph-style`               | glyph delivery only        |
 
 ### Switching and synchronization
 
@@ -182,11 +191,13 @@ manager, the bridge and the services; the shell detaches and disposes the transp
 
 ### Build
 
-`eng\build-steam-assets.mjs` compiles one script from the toolkit prelude (`types.ts`, `bridge.ts`,
-`ownership.ts`, `rpc.ts`), then WSGM's fragments under `Core\SteamUiAssets\Source` (`gates\*.ts`
-sorted, then `components.ts`), then the toolkit's `epilogue.ts`, and closes the IIFE itself.
-Fragments are discovered by directory: **adding a gate is a new file in `gates\` and nothing else.**
-The combined program is type-checked with TypeScript 7, type-stripped, cut at
+`eng\build-steam-assets.mjs` compiles one script from the toolkit's fragments (`types.ts`,
+`bridge.ts`, `ownership.ts`, `rpc.ts`, `gates\*.ts` sorted, then `components.ts`), then any
+WSGM-only fragments under `Core\SteamUiAssets\Source` (none today), then the toolkit's
+`epilogue.ts`, and closes the IIFE itself. Fragments are discovered by directory: **adding a gate is
+a new file in the toolkit's `gates\` and its `Steam*Surface` class, and nothing else.** Because the
+toolkit's fragments are the ones WSGM shipped before the move, the composed asset hashes exactly as
+it did then. The combined program is type-checked with TypeScript 7, type-stripped, cut at
 `// @wsgm-bundle-start`, formatted with Prettier, and written as
 `Core\SteamUiAssets\NativeQamBootstrap.js`; its SHA-256 is rewritten into
 `Core\SteamUiAssetCatalog.cs`. At runtime the catalog re-hashes the embedded resource and throws on
@@ -200,13 +211,13 @@ Both run in `eng\verify.ps1` and in CI.
 | Region                      | Origin  | Content                                                                                                                  |
 | --------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------ |
 | prelude                     | toolkit | reuse check, request/subscribe/deliver/dispose, gate registry, ownership primitives, `transportReply`, `invalidateQuery` |
-| `gates\audio.ts`            | WSGM    | supplies `SteamClient.System.Audio`                                                                                      |
-| `gates\bluetooth.ts`        | WSGM    | replaces the Bluetooth service stub's methods                                                                            |
-| `gates\brightness.ts`       | WSGM    | reveals brightness and claims `SetBrightness`                                                                            |
-| `gates\network.ts`          | WSGM    | overrides `networkManagementAvailable`, feeds the network store                                                          |
-| `gates\performance.ts`      | WSGM    | supplies `SteamClient.System.Perf`                                                                                       |
-| `gates\steam-os-manager.ts` | WSGM    | overlays the SteamOS manager `GetState` and watches the TDP settings                                                     |
-| `components.ts`             | WSGM    | the React component host that mounts rows into Valve's panels                                                            |
+| `gates\audio.ts`            | toolkit | supplies `SteamClient.System.Audio`                                                                                      |
+| `gates\bluetooth.ts`        | toolkit | replaces the Bluetooth service stub's methods                                                                            |
+| `gates\brightness.ts`       | toolkit | reveals brightness and claims `SetBrightness`                                                                            |
+| `gates\network.ts`          | toolkit | overrides `networkManagementAvailable`, feeds the network store                                                          |
+| `gates\performance.ts`      | toolkit | supplies `SteamClient.System.Perf`                                                                                       |
+| `gates\steam-os-manager.ts` | toolkit | overlays the SteamOS manager `GetState` and watches the TDP settings                                                     |
+| `components.ts`             | toolkit | the React component host that mounts rows into Valve's panels                                                            |
 | `epilogue.ts`               | toolkit | `return installResult;`                                                                                                  |
 
 Every gate returns `{install, remove, status}` and registers itself under its name. The C# side
@@ -259,13 +270,14 @@ which the C# verify reads and logs under `steam.ui.append.<id>`.
 
 ## 6. Gate patches on the C# side
 
-`Core\SteamGatePatch.cs` is data-driven: id, resource key, gate name, fingerprint, a probe
+The toolkit's `SteamGatePatch` is data-driven: id, resource key, gate name, fingerprint, a probe
 expression, a compatibility predicate over the probe JSON, and `verifyOk` / `removeOk` predicates
-over the gate's `status()`. Every phase evaluates a wrapper that fetches the bridge and the named
-gate and calls `install()`, `status()` or `remove()`. The probe skeleton captures the webpack
-runtime by pushing an empty chunk and counts factories whose source contains every token in a
-conjunction, naming each module literally. Every probe accepts "absent or already ours" through the
-markers above; the comments record the teardown loops each fixed.
+over the gate's `status()`; each surface class declares its own instance as `Patch`. Every phase
+evaluates a wrapper that fetches the bridge and the named gate and calls `install()`, `status()` or
+`remove()`. The probe skeleton captures the webpack runtime by pushing an empty chunk and counts
+factories whose source contains every token in a conjunction, naming each module literally. Every
+probe accepts "absent or already ours" through the markers above; the comments record the teardown
+loops each fixed.
 
 | Gate           | Verify                                  | Remove              |
 | -------------- | --------------------------------------- | ------------------- |
@@ -275,12 +287,13 @@ markers above; the comments record the teardown loops each fixed.
 | bluetooth      | `installed && replaced > 0`             | `!installed`        |
 | network        | `installed && available`                | `!available`        |
 
-`NativeQamBootstrapPatch` probes four token conjunctions that must each match exactly one module
-(TDP availability, TDP component, performance actions, read-only profile projection) and never
-retains a module id in C#. Each `NativeQamComponentPatch` shares the same probe conjunctions plus
-five structural ones, applies `install(kind)`, verifies
+`SteamUiBridgePatch` probes four token conjunctions that must each match exactly one module (TDP
+availability, TDP component, performance actions, read-only profile projection) and never retains a
+module id in C#. Each `SteamQuickAccessRowPatch` shares the same probe conjunctions plus five
+structural ones, applies `install(kind)`, verifies
 `registered && hostVersion === 1 && performanceRootWrapped`, and removes with `remove(kind)`. All
-eleven share one resource key so they serialize.
+eleven share one resource key so they serialize. Every command payload is read by the surface's
+module with `SteamUiPayload` before WSGM's backend sees a typed value.
 
 `Core\SteamInputGlyphStylePatch.cs` targets the main window under 8 s, 2 MiB and 2048 bounds, probes
 the parsed stylesheets for the two build-coupled classes rather than the DOM, installs one
@@ -320,10 +333,11 @@ field; a component that cannot mount reports why in `renderOutcomes`.
 
 ### Performance state
 
-`Core\NativeQamPerfState.cs` mirrors Valve's `CMsgSystemPerfState`: `limits`, `settings.global`,
-`settings.per_app`, `current_game_id`, `active_profile_game_id`. Every field is nullable and omitted
-when null, which is how a Valve control is hidden without CSS. Display fields carry an `_external`
-twin because the Claw's built-in panel reports itself as external. The projection never publishes an
+The toolkit's `SteamPerformanceState` mirrors Valve's `CMsgSystemPerfState`: `limits`,
+`settings.global`, `settings.per_app`, `current_game_id`, `active_profile_game_id`. Every field is
+nullable and omitted when null, which is how a Valve control is hidden without CSS. Display fields
+carry an `_external` twin because the Claw's built-in panel reports itself as external.
+`Core\NativeQamPerfProjection.cs` is WSGM's policy about what to put in it; it never publishes an
 fps limit of zero: `fps_limit` is the desired cap or the lowest option and `is_fps_limit_enabled`
 says whether it applies.
 
@@ -333,15 +347,16 @@ header take the per-game branch and render an empty name while a game ran. Both 
 and a delta carrying 0, 769 or an out-of-range id is read as "global".
 
 **Overlay level.** Valve's enum is Hidden 0, Basic 1, Medium 2, Full 3, Minimal 4 while the selector
-shows OFF, Minimal, Basic, Medium, Full; `NativeQamOverlayLevelWire` maps both ways.
+shows OFF, Minimal, Basic, Medium, Full; the toolkit's `SteamOverlayLevelWire` maps both ways.
 
 **Deltas.** `UpdateSettings` receives a base64 protobuf; the gate decodes it with the message's own
-`deserializeBinary` and the host reads `settings_delta.global` and `.per_app`. Recognized fields:
-`fps_limit`, `is_fps_limit_enabled`, `perf_overlay_level`, `is_vrr_enabled`,
-`display_refresh_manual_hz`, `is_game_perf_profile_enabled`, `is_advanced_settings_enabled`, plus
-`reset_to_default`; anything else is logged as unbacked. A delta naming an AppID other than the
-projected one is refused as stale before any write. Fields apply in arrival order, echoes skipped,
-the first failure collected. `AppliedUnverified` counts as success.
+`deserializeBinary` and the toolkit's `SteamPerformanceDeltaReader` reads `settings_delta.global`
+and `.per_app` before WSGM's adapter applies the result. Recognized fields: `fps_limit`,
+`is_fps_limit_enabled`, `perf_overlay_level`, `is_vrr_enabled`, `display_refresh_manual_hz`,
+`is_game_perf_profile_enabled`, `is_advanced_settings_enabled`, plus `reset_to_default`; anything
+else is logged as unbacked. A delta naming an AppID other than the projected one is refused as stale
+before any write. Fields apply in arrival order, echoes skipped, the first failure collected.
+`AppliedUnverified` counts as success.
 
 **Frame limit.** `FrameLimitStrategy` is `FrameLimitOnly` (default; the refresh rate stays the
 user's), `NativeModes` or `FrameDoubling`. The row's bookends are the lowest and highest option,

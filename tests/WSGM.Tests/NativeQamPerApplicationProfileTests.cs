@@ -14,14 +14,14 @@ public sealed class NativeQamPerApplicationProfileTests
             new PerformanceApplicationTarget("steam:42", 42, null));
         PerformanceServiceNativeQamAdapter adapter = new(service);
 
-        NativeQamPerfState global = adapter.PerfState;
+        SteamPerformanceState global = adapter.PerfState;
 
         Assert.Equal("42", global.CurrentGameId);
         Assert.Equal("769", global.ActiveProfileGameId);
         Assert.False(global.PerApp?.IsGamePerfProfileEnabled);
 
         Assert.True(await service.SetApplicationProfileEnabledAsync(true));
-        NativeQamPerfState perApplication = adapter.PerfState;
+        SteamPerformanceState perApplication = adapter.PerfState;
         Assert.Equal("42", perApplication.CurrentGameId);
         Assert.Equal("42", perApplication.ActiveProfileGameId);
         Assert.True(perApplication.PerApp?.IsGamePerfProfileEnabled);
@@ -36,19 +36,14 @@ public sealed class NativeQamPerApplicationProfileTests
         PerformanceServiceNativeQamAdapter adapter = new(service);
         using JsonDocument payload = JsonDocument.Parse(
             """{"delta":{"gameid":41,"settings_delta":{"per_app":{"is_game_perf_profile_enabled":true}}}}""");
-        SteamUiBridgeRequest request = new(
-            SteamUiBridgeHost.SchemaVersion,
-            "request",
-            "wsgm.native-qam.performance",
-            "updateSettings",
-            1,
-            1,
-            1,
-            1,
-            payload.RootElement.Clone());
+        Assert.True(SteamPerformanceDeltaReader.TryRead(
+            payload.RootElement,
+            out SteamPerformanceDelta delta,
+            out _));
 
-        SteamUiCommandResult result = await adapter.HandlePerformanceDeltaAsync(
-            request,
+        SteamUiCommandResult result = await adapter.ApplyAsync(
+            delta,
+            "test",
             CancellationToken.None);
 
         Assert.False(result.Succeeded);

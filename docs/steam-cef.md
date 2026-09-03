@@ -437,11 +437,12 @@ consumers, including the running-application observer, while foreground executab
 remains available.
 
 The injected native-Quick-Access asset is authored as ordered TypeScript source fragments:
-`types.ts`, `bridge.ts`, one file per gate, and `components.ts`. The asset builder concatenates the
-fragments into one lexical scope before compiling because Steam receives one self-contained script;
-this removes the 3,160-line editing surface without adding a runtime module loader or changing one
-byte of the generated asset. The bridge owns the single webpack-runtime resolver and action
-generation allocator, while the component file owns the visible row table and order.
+`types.ts`, `bridge.ts`, one file per gate, and `components.ts`, all of which now live in the
+`steam-ui-toolkit` submodule beside the C# surface that owns each. The asset builder concatenates
+the fragments into one lexical scope before compiling because Steam receives one self-contained
+script; this removes the 3,160-line editing surface without adding a runtime module loader or
+changing one byte of the generated asset. The bridge owns the single webpack-runtime resolver and
+action generation allocator, while the component file owns the visible row table and order.
 
 `SteamUiSessionHost` is the sole state/publication and semantic-request owner. Its state projections
 are a publication table, and its `(patchId, command)` dispatch is a handler table with payload

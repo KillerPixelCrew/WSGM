@@ -19,7 +19,7 @@
 //   node qam-harness.mjs screenshot [file.png]  capture the visible Big Picture window
 //
 // It never runs WSGM and never touches configuration. It talks to Steam's debug port only.
-import { readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,27 +37,12 @@ const assetPath = join(
 const toolkitRoot = join(repositoryRoot, "external", "steam-ui-toolkit", "src", "SteamUiToolkit");
 const bridgeIdentityPath = join(toolkitRoot, "SteamUiBridgeIdentity.cs");
 const bridgeSourcePath = join(toolkitRoot, "SteamUiBridge.cs");
+const surfacesDirectory = join(toolkitRoot, "Surfaces");
 const sessionHostPath = join(repositoryRoot, "src", "WSGM", "Shell", "SteamUiSessionHost.cs");
-const componentPatchesPath = join(
-  repositoryRoot,
-  "src",
-  "WSGM",
-  "Core",
-  "NativeQamComponentPatches.cs",
-);
-const gatePatchesPath = join(repositoryRoot, "src", "WSGM", "Core", "SteamGatePatch.cs");
-const bluetoothServicePath = join(
-  repositoryRoot,
-  "src",
-  "WSGM",
-  "Shell",
-  "NativeQamBluetoothService.cs",
-);
 
-// These three are the host's, and are read from its source rather than copied. The allowlist in
-// particular is what a new control forgets: a patch id missing here makes subscribe() throw
-// "subscription not allowlisted" during render, which Steam's error boundary turns into a blank
-// tab rather than a missing row.
+// These are read from source rather than copied. The allowlist in particular is what a new control
+// forgets: a patch id missing here makes subscribe() throw "subscription not allowlisted" during
+// render, which Steam's error boundary turns into a blank tab rather than a missing row.
 const readSourceConstant = (path, pattern, what) => {
   const source = readFileSync(path, "utf8");
   const match = source.match(pattern);
@@ -65,48 +50,25 @@ const readSourceConstant = (path, pattern, what) => {
   return match[1];
 };
 
+// Every surface the toolkit ships declares its patch id and its exact command vocabulary as two
+// constants, which is the same pair its module puts on the bridge. WSGM's only addition is the
+// shell module, which has no toolkit surface behind it.
 const readAllowlist = () => {
-  const host = readFileSync(sessionHostPath, "utf8");
-  const componentSource = readFileSync(componentPatchesPath, "utf8");
-  const gateSource = readFileSync(gatePatchesPath, "utf8");
-  const ids = new Map();
-  for (const match of componentSource.matchAll(
-    /internal static NativeQamComponentPatch\s+(\w+)\s*\{[^}]*\}\s*=\s*new\(\s*"([^"]+)"/g,
-  )) {
-    ids.set(`NativeQamComponentPatches.${match[1]}.Id`, match[2]);
-  }
-  for (const match of gateSource.matchAll(
-    /internal static ISteamUiPatch\s+(\w+)\s*\{[^}]*\}\s*=\s*new SteamGatePatch\(\s*id:\s*"([^"]+)"/g,
-  )) {
-    ids.set(`SteamGatePatches.${match[1]}.Id`, match[2]);
-  }
-  ids.set(
-    "ShellPatchId",
-    readSourceConstant(
-      sessionHostPath,
-      /private const string ShellPatchId = "([^"]+)"/,
-      "shell id",
-    ),
-  );
-
   const allowed = {};
-  for (const match of host.matchAll(
-    /new\(\s*((?:NativeQamComponentPatches|SteamGatePatches)\.\w+\.Id|ShellPatchId)\s*,\s*"([^"]+)"/g,
-  )) {
-    const patchId = ids.get(match[1]);
-    if (!patchId) throw new Error(`could not resolve command owner ${match[1]}`);
-    (allowed[patchId] ??= []).push(match[2]);
+  for (const name of readdirSync(surfacesDirectory).filter((entry) => entry.endsWith(".cs"))) {
+    const source = readFileSync(join(surfacesDirectory, name), "utf8");
+    const id = source.match(/public const string PatchId = "([^"]+)"/);
+    const commands = source.match(/Commands \{ get; \} =\s*\[([\s\S]*?)\];/);
+    if (!id || !commands) continue;
+    allowed[id[1]] = [...commands[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
   }
+  allowed[
+    readSourceConstant(sessionHostPath, /private const string ShellPatchId = "([^"]+)"/, "shell id")
+  ] = ["toggleQuickAccess"];
 
-  const bluetoothId = ids.get("SteamGatePatches.Bluetooth.Id");
-  const bluetoothSource = readFileSync(bluetoothServicePath, "utf8");
-  const bluetoothBlock = bluetoothSource.match(
-    /internal static readonly string\[\] Commands\s*=\s*\[([\s\S]*?)\];/,
-  );
-  if (!bluetoothId || !bluetoothBlock) throw new Error("could not read Bluetooth commands");
-  allowed[bluetoothId] = [...bluetoothBlock[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
-
-  if (!Object.keys(allowed).length) throw new Error("the allowlist parsed empty");
+  if (Object.keys(allowed).length < 12) {
+    throw new Error(`the allowlist parsed only ${Object.keys(allowed).length} surfaces`);
+  }
   return allowed;
 };
 

@@ -5,21 +5,6 @@ using WSGM.Shell;
 
 namespace WSGM.Tests;
 
-public sealed class SteamUiTargetPolicyTests
-{
-    [Theory]
-    [InlineData(0, 1)]
-    [InlineData(25, 2)]
-    [InlineData(50, 3)]
-    [InlineData(75, 4)]
-    [InlineData(100, 4)]
-    public void NetworkSignalUsesSteamsFourStrengthBands(int percent, int expected)
-    {
-        Assert.Equal(expected, NativeQamNetworkService.MapNetworkStrength(percent));
-    }
-
-}
-
 public sealed class SteamUiBridgeAuthorizerTests
 {
     private static readonly SteamUiGenerations Generations = new(1, 2, 3, 4, 5, 6);
@@ -685,128 +670,12 @@ public sealed class SteamUiSessionHostTests
     }
 }
 
-public sealed class NativeQamComponentPatchTests
+public sealed class SteamDownloadSortPatchTests
 {
-    [Fact]
-    public async Task ValveTdpPatchRequiresEveryUniqueStructuralMatchBeforeInstall()
-    {
-        await using var transport = new NativeQamComponentTransport
-        {
-            PerformanceActionsCount = 2,
-        };
-        await using var manager = new SteamUiPatchManager(transport);
-        manager.Register(NativeQamComponentPatches.ValveTdp);
-
-        await manager.SynchronizeAsync();
-
-        SteamUiPatchSnapshot snapshot = Assert.Single(manager.GetSnapshots());
-        Assert.Equal(SteamUiPatchState.Incompatible, snapshot.State);
-        Assert.Equal(0, transport.InstallCount);
-    }
-
-    [Fact]
-    public async Task PerformancePatchRequiresUniqueNativeActionModuleBeforeInstall()
-    {
-        await using var transport = new NativeQamComponentTransport
-        {
-            PerformanceActionsCount = 2,
-        };
-        await using var manager = new SteamUiPatchManager(transport);
-        manager.Register(NativeQamComponentPatches.ValveOverlayLevel);
-
-        await manager.SynchronizeAsync();
-
-        SteamUiPatchSnapshot snapshot = Assert.Single(manager.GetSnapshots());
-        Assert.Equal(SteamUiPatchState.Incompatible, snapshot.State);
-        Assert.Equal(0, transport.InstallCount);
-    }
-
-    [Fact]
-    public async Task NativeQamComponentsHaveIndependentVerifiedIdentities()
-    {
-        await using var transport = new NativeQamComponentTransport();
-        await using var manager = new SteamUiPatchManager(transport);
-        manager.Register(NativeQamComponentPatches.ValveTdp);
-        manager.Register(NativeQamComponentPatches.FrameLimit);
-        manager.Register(NativeQamComponentPatches.ValveOverlayLevel);
-        manager.Register(NativeQamComponentPatches.ControllerTarget);
-        manager.Register(NativeQamComponentPatches.DeviceControls);
-
-        await manager.SynchronizeAsync();
-
-        IReadOnlyDictionary<string, SteamUiPatchSnapshot> snapshots = manager.GetSnapshots()
-            .ToDictionary(snapshot => snapshot.Id);
-        Assert.Equal(
-            SteamUiPatchState.Verified,
-            snapshots["wsgm.native-qam.valve-tdp"].State);
-        Assert.Equal(
-            SteamUiPatchState.Verified,
-            snapshots["wsgm.native-qam.frame-limit"].State);
-        Assert.Equal(
-            SteamUiPatchState.Verified,
-            snapshots["wsgm.native-qam.valve-overlay-level"].State);
-        Assert.Equal(
-            SteamUiPatchState.Verified,
-            snapshots["wsgm.native-qam.controller-target"].State);
-        Assert.Equal(
-            SteamUiPatchState.Verified,
-            snapshots["wsgm.native-qam.device-controls"].State);
-        Assert.Equal(5, transport.InstallCount);
-        Assert.Equal(5, snapshots.Values.Select(snapshot => snapshot.Fingerprint).Distinct().Count());
-    }
-
-    [Fact]
-    public async Task DisablingTdpLeavesControllerTargetRegistered()
-    {
-        await using var transport = new NativeQamComponentTransport();
-        await using var manager = new SteamUiPatchManager(transport);
-        manager.Register(NativeQamComponentPatches.ValveTdp);
-        manager.Register(NativeQamComponentPatches.ControllerTarget);
-        await manager.SynchronizeAsync();
-
-        manager.SetPatchEnabled("wsgm.native-qam.valve-tdp", false);
-        await manager.SynchronizeAsync();
-
-        IReadOnlyDictionary<string, SteamUiPatchSnapshot> snapshots = manager.GetSnapshots()
-            .ToDictionary(snapshot => snapshot.Id);
-        Assert.Equal(
-            SteamUiPatchState.Disabled,
-            snapshots["wsgm.native-qam.valve-tdp"].State);
-        Assert.Equal(
-            SteamUiPatchState.Verified,
-            snapshots["wsgm.native-qam.controller-target"].State);
-        Assert.Contains("valveTdp", transport.RemovedKinds);
-        Assert.DoesNotContain("controllerTarget", transport.RemovedKinds);
-    }
-
-    [Fact]
-    public async Task DisablingFrameLimitLeavesValveOverlayLevelRegistered()
-    {
-        await using var transport = new NativeQamComponentTransport();
-        await using var manager = new SteamUiPatchManager(transport);
-        manager.Register(NativeQamComponentPatches.FrameLimit);
-        manager.Register(NativeQamComponentPatches.ValveOverlayLevel);
-        await manager.SynchronizeAsync();
-
-        manager.SetPatchEnabled("wsgm.native-qam.frame-limit", false);
-        await manager.SynchronizeAsync();
-
-        IReadOnlyDictionary<string, SteamUiPatchSnapshot> snapshots = manager.GetSnapshots()
-            .ToDictionary(snapshot => snapshot.Id);
-        Assert.Equal(
-            SteamUiPatchState.Disabled,
-            snapshots["wsgm.native-qam.frame-limit"].State);
-        Assert.Equal(
-            SteamUiPatchState.Verified,
-            snapshots["wsgm.native-qam.valve-overlay-level"].State);
-        Assert.Contains("frameLimit", transport.RemovedKinds);
-        Assert.DoesNotContain("valveOverlayLevel", transport.RemovedKinds);
-    }
-
     [Fact]
     public async Task DownloadSortUsesSharedContextPatchLifecycle()
     {
-        await using var transport = new NativeQamComponentTransport();
+        await using var transport = new DownloadSortTransport();
         await using var manager = new SteamUiPatchManager(transport);
         manager.Register(new SteamDownloadSortPatch());
 
@@ -821,10 +690,10 @@ public sealed class NativeQamComponentPatchTests
 
         SteamUiPatchSnapshot removed = Assert.Single(manager.GetSnapshots());
         Assert.Equal(SteamUiPatchState.Disabled, removed.State);
-        Assert.Contains("downloadSort", transport.RemovedKinds);
+        Assert.True(transport.Removed);
     }
 
-    private sealed class NativeQamComponentTransport : ISteamUiTransport
+    private sealed class DownloadSortTransport : ISteamUiTransport
     {
         public event EventHandler<SteamUiNotification>? NotificationReceived
         {
@@ -838,11 +707,7 @@ public sealed class NativeQamComponentPatchTests
             remove { }
         }
 
-        internal int PerformanceActionsCount { get; init; } = 1;
-
-        internal int InstallCount { get; private set; }
-
-        internal List<string> RemovedKinds { get; } = [];
+        internal bool Removed { get; private set; }
 
         public ValueTask<IAsyncDisposable> SubscribeAsync(
             SteamUiTargetRole role,
@@ -856,63 +721,15 @@ public sealed class NativeQamComponentPatchTests
             CancellationToken cancellationToken = default)
         {
             string value;
-            if (expression.Contains("dlSortInstall", StringComparison.Ordinal))
+            if (expression.Contains("dlSortRemove", StringComparison.Ordinal))
             {
-                InstallCount++;
+                Removed = true;
                 value = "{\"ok\":true}";
             }
-            else if (expression.Contains("dlSortRemove", StringComparison.Ordinal))
-            {
-                RemovedKinds.Add("downloadSort");
-                value = "{\"ok\":true}";
-            }
-            else if (expression.Contains("dlSortPatched", StringComparison.Ordinal))
+            else if (expression.Contains("dlSortPatched", StringComparison.Ordinal)
+                || expression.Contains("runtime:!!window.webpackChunksteamui", StringComparison.Ordinal))
             {
                 value = "{\"ok\":true,\"runtime\":true,\"owned\":false}";
-            }
-            else if (expression.Contains("runtime:!!window.webpackChunksteamui", StringComparison.Ordinal))
-            {
-                value = "{\"ok\":true,\"runtime\":true,\"owned\":false}";
-            }
-            else if (expression.Contains(
-                "wsgm_native_controller_target_probe_",
-                StringComparison.Ordinal))
-            {
-                value = """
-                    {"controllerPresentation":1,"performanceRoot":1,"nativeFields":1,"nativeLayout":1,"localization":1,"react":1}
-                    """;
-            }
-            else if (expression.Contains("wsgm_native_frame_limit_probe_", StringComparison.Ordinal)
-                || expression.Contains("wsgm_native_valve_overlay_probe_", StringComparison.Ordinal)
-                || expression.Contains("wsgm_native_valve_tdp_probe_", StringComparison.Ordinal)
-                || expression.Contains("wsgm_native_device_controls_probe_", StringComparison.Ordinal))
-            {
-                value = $$"""
-                    {"performanceActions":{{PerformanceActionsCount}},"performanceRoot":1,"nativeFields":1,"nativeLayout":1,"localization":1,"react":1}
-                    """;
-            }
-            // Gates are reached through the bridge's registry now, so the expression names the gate
-            // once and then calls the operation on the local it was bound to.
-            else if (expression.Contains("gate('nativeComponents')", StringComparison.Ordinal)
-                && expression.Contains("bridge.install(", StringComparison.Ordinal))
-            {
-                InstallCount++;
-                value = "{\"ok\":true}";
-            }
-            else if (expression.Contains("gate('nativeComponents')", StringComparison.Ordinal)
-                && expression.Contains("bridge.remove(", StringComparison.Ordinal))
-            {
-                string kind = expression.Contains("controllerTarget", StringComparison.Ordinal)
-                    ? "controllerTarget"
-                    : expression.Contains("deviceControls", StringComparison.Ordinal)
-                        ? "deviceControls"
-                    : expression.Contains("frameLimit", StringComparison.Ordinal)
-                        ? "frameLimit"
-                        : expression.Contains("valveOverlayLevel", StringComparison.Ordinal)
-                            ? "valveOverlayLevel"
-                            : "valveTdp";
-                RemovedKinds.Add(kind);
-                value = "{\"ok\":true}";
             }
             else
             {

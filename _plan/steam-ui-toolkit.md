@@ -8,7 +8,8 @@ Decky Loader's territory, approached from the other side: not a plugin loader fo
 mechanism for rebuilding SteamOS's front-end anywhere Steam runs. **There is no Decky for Windows**,
 so this is not a port and has no ecosystem to be compatible with. It is the first one.
 
-WSGM keeps **what it changes**. The surfaces are its product; the method is not.
+WSGM keeps **its data and its own features**. The revived Valve surfaces are the toolkit's product
+(step 8 below); WSGM's library manager, download sorting and card badge are WSGM's.
 
 This is the largest extraction so far and the only one needing real architectural change first. The
 others moved code that was already a unit. This boundary runs *through* the existing code.
@@ -304,6 +305,18 @@ changed against the plan rather than restating it.
   register themselves now, and the prelude build fails if that returns. Wiring WSGM back on also
   moved six types from `internal` to `public` — including the four transport seams a consumer needs
   to test against a fake wire — each of which the documentation gate caught as CS1591 first.
+
+- **8. The surfaces moved (2026-09-03).** Every revived Valve surface now lives in the toolkit as
+  a `Steam*Surface` or `Steam*Row`: the six gates and the row host as injected fragments, the
+  probe/verify/remove patch declarations, a typed state record, an `ISteam*Backend` interface, and
+  a `Module(enabled, read, backend)` factory that answers the page's commands with strict payload
+  readers before the backend sees a typed value. WSGM's `NativeQam*Service` classes implement the
+  backend interfaces and the session host is thirteen one-line module declarations. The composed
+  asset hashes exactly as before (`A5C50862…`), so the injected script is byte-identical to the
+  device-verified one; patch ids, resource keys, gate names and ownership markers are unchanged.
+  Deliberately left alone, for the maintainer to decide: those ids still carry the `wsgm.` prefix
+  inside a library that now owns them, and the Bluetooth stub's per-device payloads are read with
+  the `device` key WSGM always used, which has not been re-read from the client.
 
 **Remaining.**
 

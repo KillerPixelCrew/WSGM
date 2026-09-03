@@ -14,7 +14,7 @@ public sealed class NativeQamResolutionServiceTests
     [Fact]
     public void TwoOrMoreResolutionsMakeTheRowAvailable()
     {
-        NativeQamResolutionState state = NativeQamResolutionService.Project(
+        SteamResolutionState state = NativeQamResolutionService.Project(
             Two,
             new DisplayResolution(1920, 1200));
 
@@ -28,7 +28,7 @@ public sealed class NativeQamResolutionServiceTests
     {
         // Offering a picker that cannot change anything reads as a broken control rather than an
         // absent feature.
-        NativeQamResolutionState state = NativeQamResolutionService.Project(
+        SteamResolutionState state = NativeQamResolutionService.Project(
             [new DisplayResolution(1920, 1200)],
             new DisplayResolution(1920, 1200));
 
@@ -40,7 +40,7 @@ public sealed class NativeQamResolutionServiceTests
     [Fact]
     public void NoValidatedModesHidesTheRowAndSaysWhy()
     {
-        NativeQamResolutionState state = NativeQamResolutionService.Project([], null);
+        SteamResolutionState state = NativeQamResolutionService.Project([], null);
 
         Assert.False(state.Available);
         Assert.NotEmpty(state.StatusText);
@@ -50,7 +50,7 @@ public sealed class NativeQamResolutionServiceTests
     public void AnUnreadableCurrentModeStillLeavesTheRowUsable()
     {
         // The options are what the row needs to work; the current value is a label.
-        NativeQamResolutionState state = NativeQamResolutionService.Project(Two, null);
+        SteamResolutionState state = NativeQamResolutionService.Project(Two, null);
 
         Assert.True(state.Available);
         Assert.Empty(state.Current);
@@ -77,7 +77,7 @@ public sealed class NativeQamResolutionServiceTests
             },
             () => new DisplayResolution(1920, 1200)));
 
-        SteamUiCommandResult result = await service.ApplyAsync(value, CancellationToken.None);
+        SteamUiCommandResult result = await service.SetResolutionAsync(value, CancellationToken.None);
 
         Assert.False(result.Succeeded);
         Assert.Empty(applied);
@@ -96,7 +96,7 @@ public sealed class NativeQamResolutionServiceTests
             },
             () => new DisplayResolution(1920, 1200)));
 
-        SteamUiCommandResult result = await service.ApplyAsync(
+        SteamUiCommandResult result = await service.SetResolutionAsync(
             "1280x800",
             CancellationToken.None);
 
@@ -118,7 +118,7 @@ public sealed class NativeQamResolutionServiceTests
             },
             () => new DisplayResolution(1920, 1200)));
 
-        SteamUiCommandResult result = await service.ApplyAsync(
+        SteamUiCommandResult result = await service.SetResolutionAsync(
             "3840x2160",
             CancellationToken.None);
 

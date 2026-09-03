@@ -184,6 +184,14 @@ pinned submodule, so it can be versioned, consumed and reported against on its o
       own removal; the Perf gate deleting its namespace without checking the marker, so WSGM's own
       cleanup would have removed a real backend; `GetState` read before it was validated; and the
       bridge naming its consumer's gates, which only surfaced when the prelude was compiled alone.
+      **The surfaces moved (2026-09-03).** The split had landed the wrong way round: the toolkit
+      carried only the machinery while every revived Valve surface stayed in WSGM. Now the six
+      gates, the Quick Access row host, the patch declarations, the typed state records, the
+      command readers and a backend interface per surface are the toolkit's (`Steam*Surface`,
+      `Steam*Row`, `Module(enabled, read, backend)`), and WSGM's `NativeQam*Service` classes only
+      implement the backends. The composed asset hashes exactly as before, so the injected script
+      is byte-identical to the device-verified one; patch ids, markers and log keys are unchanged.
+      WSGM's library manager, card badge, download sorting and glyph delivery stay WSGM's.
       **Remaining, and deferred by decision: the Extensions tab.** The host is built and tested;
       the surface is not, and it is not next. Also open: whether extensions may carry a .NET
       backend, which should not arrive as a side effect of building the tab. And the attended

@@ -190,17 +190,22 @@ documented for IntelliSense and its build fails on an undocumented member, so a 
 a documentation pass — that is deliberate.
 
 `external\steam-ui-toolkit` is the CDP transport, the probe/apply/verify/remove patch lifecycle,
-the bridge, the module contract and the extension host. **WSGM keeps every surface** — the gates,
-the QAM rows, the components, and the policy about which patches are applied when. The test for
-where something belongs: does it name a Steam module id, a localization token, or a WSGM service?
-Then it is WSGM's. Does it describe how to find and own such a thing safely? Then it is the
-toolkit's.
+the bridge, the module contract, the extension host — **and every revived Steam surface**: the
+audio, Wi-Fi, Bluetooth, brightness, performance and power-limit gates, the Quick Access row host,
+and the typed state each one is fed. The toolkit exists so another host can say "this is our data,
+and it maps to that feature" without repeating the CEF work. The test for where something belongs:
+does it name a Steam module id, a store field, a localization token, or a row? Then it is the
+toolkit's, as a `Steam*Surface`/`Steam*Row` with a state record and a backend interface. Does it
+read WSGM's managers, plugin capabilities or RTSS, or decide which patches are on when? Then it is
+WSGM's. WSGM's own features — library tabs, the card badge, download sorting, glyph delivery — stay
+in WSGM as patches and residents of their own.
 
-The injected asset spans both and is still ONE script, because it is evaluated in one CDP call:
-`eng\build-steam-assets.mjs` takes the prelude from the submodule and WSGM's fragments from
-`Core\SteamUiAssets\Source`, and compiles them together. A gate is a new file in `gates\` and
-nothing else — the builder holds no list. WSGM supplies the three things the toolkit refuses to
-assume: where to log, what script to inject, and where Steam is installed.
+The injected asset is still ONE script, because it is evaluated in one CDP call:
+`eng\build-steam-assets.mjs` takes the prelude, the gates and the row host from the submodule, adds
+any WSGM-only fragments under `Core\SteamUiAssets\Source` (none today), and compiles them together.
+A new surface is a new gate file plus a `Steam*Surface` class in the toolkit and nothing else — the
+builder holds no list. WSGM supplies the three things the toolkit refuses to assume: where to log,
+what script to inject, and where Steam is installed.
 
 `external\WSGM.Device.Sdk` is the plugin contract, and it is **MIT while WSGM is GPL-3.0-or-later**.
 That is deliberate: the assembly is linked into every plugin, so the application's copyleft there
