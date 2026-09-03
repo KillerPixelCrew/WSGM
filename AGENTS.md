@@ -183,6 +183,42 @@ because they are useful on their own and can be developed directly from this rec
 cloning. A dependency change is committed and pushed from inside that submodule first; then commit
 the updated Git link here. The Git link is the dependency lock.
 
+This is direct development across repositories we own. Keep WSGM and the entire recursive
+first-party graph at their latest upstream commits; an intentionally older first-party pin requires
+an explicit maintainer decision. `git pull --recurse-submodules` alone is insufficient because it
+materializes the Git links WSGM already records rather than advancing them.
+
+1. Before starting work, fetch and fast-forward the current WSGM branch with
+   `git pull --ff-only --recurse-submodules`, then materialize its locks with
+   `git submodule update --init --recursive`. Stop on a non-fast-forward or overlapping local edit;
+   do not overwrite it.
+2. Fetch every first-party submodule and compare its checked-out commit with its upstream default
+   branch. Before changing code in a detached submodule checkout, switch its existing default branch
+   and fast-forward it. Make the change there, test it, commit it, and push it to that repository.
+   Never make a parent point at an unpushed child commit.
+3. Move commit targets leaf-first, committing and pushing at every ownership boundary:
+   - commit and push SDK work;
+   - in Device Lab, check out that pushed SDK commit, commit the SDK Git-link move, and push Device
+     Lab;
+   - in the Claw package, check out the pushed SDK and Device Lab commits, update Device Lab's nested
+     checkout, commit both Git-link moves together, and push the Claw package;
+   - commit and push any work made directly in the Steam UI toolkit, Windows device control, or Steam
+     Input lease repositories;
+   - only then check out all those pushed commits in WSGM, stage their Git links, commit WSGM, and
+     push its current branch.
+4. Moving a target means fetching the child repository, checking out the exact pushed commit inside
+   the parent checkout, verifying the parent's diff shows only the intended Git-link change, then
+   staging that submodule path in the parent. Repeat this process outward until WSGM records the new
+   recursive graph.
+5. After selecting new submodule commits, do not run the superproject's `git submodule update` until
+   their Git links are staged or committed: that command restores the old recorded pins. Update a
+   moved submodule's own nested checkout from inside that submodule instead.
+6. Build and verify against the final recursive graph, commit the WSGM Git-link moves, fetch WSGM
+   once more, integrate any newer current-branch commit without discarding work, and push. Finish
+   with `git status --short --branch` and `git submodule status --recursive`; every worktree must be
+   clean, every displayed commit must equal its recorded pin, and every new commit must already
+   exist on its repository's remote.
+
 `external\windows-device-control` is an ordinary project reference and holds every Windows call
 behind Wi-Fi, Bluetooth, pairing, Core Audio endpoints, panel brightness and the volume cue. WSGM
 owns policy and wording on top of it; see `docs\radios.md` for that split. Its public surface is
