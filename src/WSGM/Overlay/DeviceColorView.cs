@@ -31,7 +31,6 @@ public sealed class DeviceColorView : OverlaySubView
     private bool _updating;
 
     private Border? _swatch;
-    private TextBlock? _hexCaption;
     private DeviceColorSpectrum? _spectrum;
     private readonly Slider?[] _channels = new Slider?[3];
     private readonly TextBlock?[] _channelValues = new TextBlock?[3];
@@ -98,8 +97,7 @@ public sealed class DeviceColorView : OverlaySubView
             BorderThickness = new Thickness(1),
         };
         left.Children.Add(_swatch);
-        _hexCaption = Caption(HexCaptionText());
-        left.Children.Add(_hexCaption);
+        left.Children.Add(Caption("Changes are written only when Apply is pressed."));
 
         left.Children.Add(SectionLabel("SPECTRUM"));
         _spectrum = new DeviceColorSpectrum
@@ -124,9 +122,12 @@ public sealed class DeviceColorView : OverlaySubView
         right.Children.Add(ChannelRow(0, "Red", 16));
         right.Children.Add(ChannelRow(1, "Green", 8));
         right.Children.Add(ChannelRow(2, "Blue", 0));
+        // The one row in the panel whose description is a hint rather than its current value: the
+        // swatch, spectrum and channels already show that value, and a hex string beside them read
+        // as debug output.
         right.Children.Add(Row(
             "Exact hexadecimal color",
-            $"#{_color:X6}",
+            "Type a value such as #FF8000",
             Icons.Wrench,
             _applying ? null : EditHex));
 
@@ -204,9 +205,6 @@ public sealed class DeviceColorView : OverlaySubView
         HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
     };
 
-    private string HexCaptionText() =>
-        $"#{_color:X6} · changes are written only when Apply is pressed.";
-
     private int Channel(int shift) => (_color >> shift) & 0xFF;
 
     /// <summary>Moves the staged color and syncs every control except the one that changed it.</summary>
@@ -221,11 +219,6 @@ public sealed class DeviceColorView : OverlaySubView
             if (_swatch is not null)
             {
                 _swatch.Background = new SolidColorBrush(ToAvaloniaColor(_color));
-            }
-
-            if (_hexCaption is not null)
-            {
-                _hexCaption.Text = HexCaptionText();
             }
 
             if (_spectrum is not null && !ReferenceEquals(_spectrum, source))
