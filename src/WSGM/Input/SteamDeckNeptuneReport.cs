@@ -9,9 +9,8 @@ namespace WSGM.Input;
 /// </summary>
 /// <remarks>
 /// This is the wire format WSGM hands to VIIPER, which unmarshals it and re-emits it to the host as
-/// the real device's <c>ID_CONTROLLER_DECK_STATE</c> report. The bit positions are settled
-/// evidence, not a guess: VIIPER's own <c>device/steamdeck/const.go</c>, HandheldCompanion's
-/// <c>SteamDeckTarget</c>, and <c>hhd</c>'s virtual Steam Deck agree exactly.
+/// the real device's <c>ID_CONTROLLER_DECK_STATE</c> report. VIIPER's pinned packet definition and
+/// SDL's Steam Deck driver provide the byte layout, axis decode, and physical scales used here.
 /// </remarks>
 internal static class SteamDeckNeptuneReport
 {
@@ -93,8 +92,8 @@ internal static class SteamDeckNeptuneReport
             | Mask(buttons, CanonicalButtons.LeftShoulder, Byte8L1)
             | Mask(buttons, CanonicalButtons.RightShoulder, Byte8R1)
             // The digital trigger edge must rise in the same frame the analogue value leaves rest
-            // (HandheldCompanion's SteamDeckTarget uses the same > 0 rule). A mid-travel threshold
-            // makes Steam Input register the edge as a second, later activation of the trigger:
+            // with the analogue value. A mid-travel threshold makes Steam Input register the edge
+            // as a second, later activation of the trigger:
             // in desktop mode every normal pull then double-clicks and a held drag is torn loose
             // (device-observed 2026-09-02).
             | (sample.LeftTrigger > 0 ? Byte8L2 : 0)

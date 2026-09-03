@@ -359,27 +359,33 @@ needed.
 
 ## Motion
 
-The verified sources are two projections of the Intel Integrated Sensor Solution
-`VID_8087&PID_0AC2`:
+The verified source is the physical STMicroelectronics LSM6DSO IMU behind Intel Integrated Sensor
+Solution `VID_8087&PID_0AC2`:
 
-- WinRT `Gyrometer` provides three-axis angular velocity in degrees/second. Its minimum report
-  interval is 10 ms, therefore its maximum rate is 100 Hz.
-- The legacy `sensorsapi` COM API provides the STMicroelectronics LSM6DSO `Physical Accelerometer`.
-  Intel's driver classifies it as custom sensor type `e83af229-8640-4d18-a213-e22675ebb2c3`, so
-  WinRT `Accelerometer.GetDefault()` cannot see it.
-- The acceleration values are `VT_R4` custom fields 7, 8, and 9 in property set
-  `b14c764f-07cf-41e8-9d82-ebe3d0776a6f`. The observed values are in g and form a vector of about
-  1 g while the stationary device is tilted.
-- The plugin accepts only the exact friendly name, custom type, ready state, Intel HID identity,
-  and all three supported fields. It reads without configuring the sensor or its driver.
+- The legacy `sensorsapi` COM API exposes `Physical Gyrometer` and `Physical Accelerometer`. Intel's
+  driver classifies both as custom sensor type `e83af229-8640-4d18-a213-e22675ebb2c3`; WinRT cannot
+  project the accelerometer and its gyrometer event path suppresses unchanged readings.
+- Both physical collections expose `VT_R4` axes as fields 7, 8, and 9 in property set
+  `b14c764f-07cf-41e8-9d82-ebe3d0776a6f`. Gyroscope values are degrees/second; acceleration values
+  are g and form a vector of about 1 g while the stationary device is tilted.
+- Gyrometer field 34 is an opaque `VT_UI4` hardware-report counter. It advances even at rest, so the
+  plugin polls every 2 ms but publishes only when this counter changes.
+- Both collections advertise a 10 ms minimum report interval (100 Hz maximum). Each cycle requests
+  that minimum and records the prior current interval; release restores it only if no other client
+  changed the value meanwhile.
+- The plugin accepts only the exact friendly names, custom type, ready state, Intel HID identity,
+  required axes, and gyrometer counter.
 - `SetMotionStatus(0x2F)` produced no reports/ACK and is not another source.
 
-The application-axis transforms are gyro `(X, Y, -Z)` and accelerometer `(X, Z, -Y)`. The latter
-matches the installed Handheld Companion device definition and is covered by the live legacy-Sensor
-API readings. Never synthesize gravity or orientation: if either physical source cannot be opened,
-the motion service stays passive; a transient accelerometer read failure may hold only its last real
-sample for 250 ms. Xbox drops motion; Steam Deck and DS4 receive the measured fields through their
-normal encoders. Final attended axis-direction and suspend/resume validation remains required.
+The die-aligned physical gyro and accelerometer use one application-axis transform `(X, Z, -Y)`.
+The Steam Deck encoder applies its inverse `(X, -Z, Y)` exactly once when filling the controller's
+raw slots; this matches SDL's Deck decode and preserves the Deck ranges of 16 counts per degree per
+second and 16,384 counts per g. A stable 32-report rest window establishes the cycle's zero-rate
+bias, and only residual vectors within 0.15 degrees/second are zeroed. Never synthesize gravity or
+orientation: if either physical source cannot be opened, motion stays passive. A report older than
+50 ms stops contributing angular velocity while its last measured acceleration continues anchoring
+fusion. Xbox drops motion; Steam Deck and DS4 receive the measured fields through their normal
+encoders. Final attended axis-direction and suspend/resume validation remains required.
 
 ## OEM controls and firmware chord suppression
 

@@ -7,10 +7,9 @@ namespace WSGM.Tests;
 /// The Steam Deck controller frame, as an executable specification.
 /// </summary>
 /// <remarks>
-/// Every bit asserted here is agreed by three independent implementations — VIIPER's
-/// <c>device/steamdeck/const.go</c>, HandheldCompanion's <c>SteamDeckTarget</c>, and <c>hhd</c>'s
-/// virtual Steam Deck. The four rear controls and capacitive stick touch are the reason this target
-/// can satisfy WSGM's controller contract at all, so they are pinned rather than left to inspection.
+/// VIIPER's pinned Steam Deck packet definition and SDL's Steam Deck driver establish this frame's
+/// byte layout, application-axis decode, and physical motion scales. The four rear controls and
+/// capacitive stick touch are pinned because this target must carry the complete controller contract.
 /// </remarks>
 public sealed class SteamDeckNeptuneReportTests
 {
@@ -202,6 +201,33 @@ public sealed class SteamDeckNeptuneReportTests
         Assert.Equal(8192, BitConverter.ToInt16(frame, 24));
         Assert.Equal(-16384, BitConverter.ToInt16(frame, 26));
         Assert.Equal(-4096, BitConverter.ToInt16(frame, 28));
+    }
+
+    [Fact]
+    public void ApplicationBasisIsInvertedBackIntoThePhysicalDeckSlotsExactlyOnce()
+    {
+        // These application values are physical (X, Y, Z) transformed to (X, Z, -Y).
+        byte[] frame = Frame(Sample(CanonicalButtons.None) with
+        {
+            Motion = new MotionSample
+            {
+                HasGyro = true,
+                GyroX = 1f,
+                GyroY = 3f,
+                GyroZ = -2f,
+                HasAccelerometer = true,
+                AccelX = 0.25f,
+                AccelY = -0.5f,
+                AccelZ = -0.75f,
+            },
+        });
+
+        Assert.Equal(16, BitConverter.ToInt16(frame, 30));
+        Assert.Equal(32, BitConverter.ToInt16(frame, 32));
+        Assert.Equal(48, BitConverter.ToInt16(frame, 34));
+        Assert.Equal(4096, BitConverter.ToInt16(frame, 24));
+        Assert.Equal(12288, BitConverter.ToInt16(frame, 26));
+        Assert.Equal(-8192, BitConverter.ToInt16(frame, 28));
     }
 
     [Fact]

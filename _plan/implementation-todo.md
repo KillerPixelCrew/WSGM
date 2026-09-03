@@ -648,12 +648,19 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
 - [x] **The Claw accelerometer was approximated even though the physical sensor is available:**
       Intel's IO driver hides the LSM6DSO `Physical Accelerometer` from WinRT by publishing it as a
       legacy `SENSOR_TYPE_CUSTOM` COM sensor. A read-only probe on the reference A2VM confirmed live
-      g values in custom fields 7/8/9, and the installed Handheld Companion device definition
-      confirmed application mapping `(raw X, raw Z, -raw Y)`. The Claw package now owns that exact
-      `sensorsapi` path directly, rejects mismatched identity/type/state/fields, releases every COM
-      object deterministically, and publishes only measured acceleration. The synthetic gravity
-      estimator and its tests are deleted; if either physical sensor is unavailable, motion reports
-      the prerequisite failure honestly.
+      g values in custom fields 7/8/9. The Claw package owns that exact `sensorsapi` path directly,
+      rejects mismatched identity/type/state/fields, releases every COM object deterministically,
+      and publishes only measured acceleration. The synthetic gravity estimator and its tests are
+      deleted; if either physical sensor is unavailable, motion reports the prerequisite failure
+      honestly.
+- [x] **WinRT gyro events suppressed rest and left a jagged non-zero tail:** the same legacy custom
+      collection exposes the LSM6DSO `Physical Gyrometer` in degrees/second plus opaque hardware
+      report counter field 34, which advances at rest. The plugin now reads both physical sensors,
+      requests their driver-minimum 10 ms interval, polls at 2 ms but publishes only fresh counters,
+      restores the prior interval at cycle end, establishes a stationary zero-rate bias over 32
+      fresh reports, and caps a transport-stale gyro at 50 ms. Both die-aligned vectors enter the
+      application as `(X, Z, -Y)`; the Neptune encoder applies SDL's inverse once and retains the
+      Deck's 16 counts/(degree/second) and 16,384 counts/g wire scales.
 - [ ] Attended after deployment: tilt each physical axis and confirm Steam Deck and DS4 targets move
       in the expected direction without a freefall state; then suspend/resume and disable/re-enable
       Device Integration while confirming the legacy sensor handle is released and reacquired.

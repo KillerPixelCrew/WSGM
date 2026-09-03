@@ -762,12 +762,14 @@ maps byte 5 bits 4–7 to X, A, B, Y; byte 6 to LB, RB, View, Menu, L3, R3; byte
 `RearPaddle1` (M1) and bit 3 to `RearPaddle2` (M2), which is the opposite of Handheld Companion's
 reading; sticks are `(v − 128) / 127` with Y negated. Front-button WMI events latch `Guide` and
 `QuickAccess` into the sample for 120 ms. Rear-paddle edges also publish OEM events `oem3` and
-`oem4` with press and release. The 100 Hz gyro comes from WinRT. The physical LSM6DSO accelerometer
-is hidden from WinRT because Intel exposes it as a legacy custom sensor; the package reads
-`Physical Accelerometer` through `sensorsapi` custom fields 7/8/9 and maps raw `(X, Y, Z)` to
-application `(X, Z, -Y)`. Gyro readings older than 250 ms stop contributing and the frame average
-preserves their area. No acceleration is synthesized; only a real acceleration sample may be held
-for up to 250 ms across a transient COM read failure.
+`oem4` with press and release. The package reads both physical LSM6DSO collections through legacy
+`sensorsapi`: `Physical Gyrometer` in degrees/second and `Physical Accelerometer` in g, both from
+custom fields 7/8/9 and both mapped from raw `(X, Y, Z)` to application `(X, Z, -Y)`. The gyro's
+opaque `VT_UI4` field 34 distinguishes fresh hardware reports from repeated polling results. The
+cycle requests each collection's 10 ms minimum report interval, polls every 2 ms, restores the prior
+interval on release when still owned, and calibrates zero-rate bias from 32 stable rest reports.
+Readings older than 50 ms stop contributing angular velocity and the frame average preserves their
+area. No acceleration or orientation is synthesized.
 
 Haptics: low and high frequency native, triggers unsupported, 250 frames per second,
 `MinimumStartIntensity = 56/255` and `MinimumPulse = 10 ms` (Claw sweep, 2026-09-02). Output report
