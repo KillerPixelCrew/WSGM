@@ -491,18 +491,16 @@ public partial class OverlayWindow : Window
             return;
         }
 
+        // Every row on a section page spans the sheet, one per line (maintainer-directed
+        // 2026-09-03). The page used to cap its column at 720 and pair the compact rows two to a
+        // line, which put three different content widths on the merged Power page — a full-bleed
+        // performance slider, a capped device slider, and half-width pairs of each — and no reading
+        // of it made those look deliberate. Nothing here sets MaxWidth or an alignment now, so the
+        // list keeps Avalonia's stretch and the performance section beside it matches by default.
         DeviceOverlaySection? openSection = DeviceOverlaySectionPages.SectionFor(_navigation.Page);
         string? openPluginSection = _navigation.Page is OverlayPage.DevicePluginSection
             ? _navigation.SectionId
             : null;
-        bool onMenu = openSection is null && openPluginSection is null;
-        // Section pages are single columns of rows; uncapped they stretch across the
-        // whole sheet, which is exactly the old-sidebar-scaled-up look. The root's
-        // tile grid wants the full width.
-        DeviceCapabilityList.MaxWidth = onMenu ? double.PositiveInfinity : 720;
-        DeviceCapabilityList.HorizontalAlignment = onMenu
-            ? Avalonia.Layout.HorizontalAlignment.Stretch
-            : Avalonia.Layout.HorizontalAlignment.Left;
         DescriptorStatusRow? restoreFocus = openSection is { } section
             ? RenderDeviceSection(snapshot, section, focusedKey)
             : openPluginSection is { } pluginSectionId
@@ -654,7 +652,6 @@ public partial class OverlayWindow : Window
 
         void AddRows(IEnumerable<DeviceOverlayCapability> rows)
         {
-            var flow = new DeviceRowFlow(DeviceCapabilityList);
             foreach (DeviceOverlayCapability capability in rows)
             {
                 string key = capability.InstanceId is { Length: > 0 }
@@ -662,19 +659,17 @@ public partial class OverlayWindow : Window
                     : capability.CapabilityId;
                 if (TryCreateDeviceControl(capability, key) is { } control)
                 {
-                    flow.Add(control, wide: control is DeviceSliderRow or DeviceCurveRow);
+                    DeviceCapabilityList.Children.Add(control);
                     continue;
                 }
 
                 DescriptorStatusRow button = CreateDeviceCapabilityRow(capability, key, brightness);
-                flow.Add(button, wide: false);
+                DeviceCapabilityList.Children.Add(button);
                 if (string.Equals(key, focusedKey, StringComparison.Ordinal))
                 {
                     restoreFocus = button;
                 }
             }
-
-            flow.Flush();
         }
 
         AddRows(capabilities.Where(capability => capability.CategoryId is null));
@@ -745,7 +740,6 @@ public partial class OverlayWindow : Window
         heading.Classes.Add("eyebrow");
         DeviceCapabilityList.Children.Add(heading);
 
-        var sectionFlow = new DeviceRowFlow(DeviceCapabilityList);
         foreach (DeviceOverlayCapability capability
             in DeviceOverlaySectionPages.CapabilitiesIn(snapshot, section))
         {
@@ -754,7 +748,7 @@ public partial class OverlayWindow : Window
                 : capability.CapabilityId;
             if (TryCreateDeviceControl(capability, key) is { } control)
             {
-                sectionFlow.Add(control, wide: control is DeviceSliderRow or DeviceCurveRow);
+                DeviceCapabilityList.Children.Add(control);
                 continue;
             }
 
@@ -762,14 +756,13 @@ public partial class OverlayWindow : Window
                 capability,
                 key,
                 sectionBrightness);
-            sectionFlow.Add(button, wide: false);
+            DeviceCapabilityList.Children.Add(button);
             if (string.Equals(key, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = button;
             }
         }
 
-        sectionFlow.Flush();
         return RenderOwnedDeviceRows(snapshot, section, focusedKey) ?? restoreFocus;
     }
 
@@ -786,12 +779,6 @@ public partial class OverlayWindow : Window
     /// when the plugin declares a section for the same subject — that declared page, which absorbs
     /// them. One body for both, so the controller target cannot appear on the page the menu counted
     /// it into and be missing from the page it actually opens.
-    /// <para>
-    /// They go through the same <see cref="DeviceRowFlow"/> as the capability rows above them. They
-    /// used to be appended straight to the list, which is how the merged Power page ended up half
-    /// paired and half full width — the plugin's rows pairing two to a line, then AutoTDP and the
-    /// profile rows each taking the whole sheet for a single line of text.
-    /// </para>
     /// </remarks>
     private DescriptorStatusRow? RenderOwnedDeviceRows(
         DeviceOverlaySnapshot snapshot,
@@ -799,7 +786,6 @@ public partial class OverlayWindow : Window
         string? focusedKey)
     {
         DescriptorStatusRow? restoreFocus = null;
-        var flow = new DeviceRowFlow(DeviceCapabilityList);
 
         // AutoTDP moves the power limit rather than being one, so it sits with the limit it moves
         // instead of arriving through the capability list.
@@ -815,7 +801,7 @@ public partial class OverlayWindow : Window
                 autoTdp.CanInvoke,
                 autoTdp.Status));
             row.Click += (_, _) => InvokeAutoTdpToggle();
-            flow.Add(row, wide: false);
+            DeviceCapabilityList.Children.Add(row);
             if (string.Equals(autoTdpFocusKey, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = row;
@@ -837,7 +823,7 @@ public partial class OverlayWindow : Window
                 profile.CanInvoke,
                 profile.Status));
             row.Click += (_, _) => InvokeHardwareProfileCycle();
-            flow.Add(row, wide: false);
+            DeviceCapabilityList.Children.Add(row);
             if (string.Equals(profileFocusKey, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = row;
@@ -859,7 +845,7 @@ public partial class OverlayWindow : Window
                 authored.CanInvoke,
                 authored.Status));
             authoredRow.Click += (_, _) => InvokeAuthoredProfileCycle();
-            flow.Add(authoredRow, wide: false);
+            DeviceCapabilityList.Children.Add(authoredRow);
             if (string.Equals(authoredFocusKey, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = authoredRow;
@@ -881,7 +867,7 @@ public partial class OverlayWindow : Window
                 controller.CanInvoke,
                 controller.Status));
             row.Click += (_, _) => InvokeControllerTargetCycle();
-            flow.Add(row, wide: false);
+            DeviceCapabilityList.Children.Add(row);
             if (string.Equals(controllerFocusKey, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = row;
@@ -902,7 +888,7 @@ public partial class OverlayWindow : Window
                 true,
                 recovery.Status));
             row.Click += (_, _) => InvokeDeviceCycleRetry();
-            flow.Add(row, wide: false);
+            DeviceCapabilityList.Children.Add(row);
             if (string.Equals(recoveryFocusKey, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = row;
@@ -916,16 +902,12 @@ public partial class OverlayWindow : Window
         {
             string glyphFocusKey = glyphSelection.Id;
             DescriptorStatusRow button = CreateGlyphSelectionRow(glyphSelection);
-            flow.Add(button, wide: false);
+            DeviceCapabilityList.Children.Add(button);
             if (string.Equals(glyphFocusKey, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = button;
             }
         }
-
-        // The preview is a full-width block, so any half-line still open above it is closed first
-        // rather than leaving a lone row that reads as a layout mistake.
-        flow.Flush();
 
         // After the selection row it is the result of, so changing the selection and seeing what it
         // produced reads top to bottom.
@@ -1303,45 +1285,6 @@ public partial class OverlayWindow : Window
         }
     }
 
-    /// <summary>Lays a group's rows into the wide sheet while respecting the pad: a slider (or any
-    /// control that keeps Left/Right for its own value) spans the full width so Up/Down alone moves
-    /// between rows, and the remaining compact rows — toggles, dropdowns, buttons, readings — pair
-    /// two to a line. Order is preserved, so a wide row flushes the current pair before it.</summary>
-    private sealed class DeviceRowFlow(StackPanel host)
-    {
-        private const double Gutter = 12;
-        private Grid? _pair;
-
-        public void Add(Control row, bool wide)
-        {
-            if (wide)
-            {
-                Flush();
-                host.Children.Add(row);
-                return;
-            }
-
-            if (_pair is null)
-            {
-                _pair = new Grid
-                {
-                    ColumnDefinitions = new ColumnDefinitions("*,*"),
-                    ColumnSpacing = Gutter,
-                };
-                host.Children.Add(_pair);
-            }
-
-            Grid.SetColumn(row, _pair.Children.Count);
-            _pair.Children.Add(row);
-            if (_pair.Children.Count == 2)
-            {
-                _pair = null;
-            }
-        }
-
-        public void Flush() => _pair = null;
-    }
-
     private void WriteDeviceValue(DeviceOverlayCapability capability, CapabilityValue value)
     {
         IDeviceOverlaySource? bridge = _deviceBridge;
@@ -1581,30 +1524,23 @@ public partial class OverlayWindow : Window
                 .Concat(snapshot.Rows)
             : snapshot.ProfileRows.Concat(snapshot.Rows);
 
-        // The same flow the Device pages use, but only there. These rows share a page with the
-        // capability rows once a declared Power section absorbs them, and a page that pairs those
-        // two to a line and then gives every performance row the full sheet reads as two designs
-        // stacked. On System the section lives in one half of a two-column grid, where pairing
-        // again would put four columns of text across the sheet.
-        var flow = new DeviceRowFlow(PerformanceRows);
         foreach (DescriptorRow descriptor in descriptors)
         {
             string key = $"performance.{descriptor.Id}";
             if (TryCreatePerformanceControl(descriptor, key) is { } control)
             {
-                flow.Add(control, wide: !onDevice || control is DeviceSliderRow);
+                PerformanceRows.Children.Add(control);
                 continue;
             }
 
             DescriptorStatusRow button = CreatePerformanceRow(descriptor, key);
-            flow.Add(button, wide: !onDevice);
+            PerformanceRows.Children.Add(button);
             if (string.Equals(button.Tag as string, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = button;
             }
         }
 
-        flow.Flush();
         restoreFocus?.Focus(NavigationMethod.Directional);
     }
 
