@@ -786,6 +786,12 @@ public partial class OverlayWindow : Window
     /// when the plugin declares a section for the same subject — that declared page, which absorbs
     /// them. One body for both, so the controller target cannot appear on the page the menu counted
     /// it into and be missing from the page it actually opens.
+    /// <para>
+    /// They go through the same <see cref="DeviceRowFlow"/> as the capability rows above them. They
+    /// used to be appended straight to the list, which is how the merged Power page ended up half
+    /// paired and half full width — the plugin's rows pairing two to a line, then AutoTDP and the
+    /// profile rows each taking the whole sheet for a single line of text.
+    /// </para>
     /// </remarks>
     private DescriptorStatusRow? RenderOwnedDeviceRows(
         DeviceOverlaySnapshot snapshot,
@@ -793,6 +799,7 @@ public partial class OverlayWindow : Window
         string? focusedKey)
     {
         DescriptorStatusRow? restoreFocus = null;
+        var flow = new DeviceRowFlow(DeviceCapabilityList);
 
         // AutoTDP moves the power limit rather than being one, so it sits with the limit it moves
         // instead of arriving through the capability list.
@@ -808,7 +815,7 @@ public partial class OverlayWindow : Window
                 autoTdp.CanInvoke,
                 autoTdp.Status));
             row.Click += (_, _) => InvokeAutoTdpToggle();
-            DeviceCapabilityList.Children.Add(row);
+            flow.Add(row, wide: false);
             if (string.Equals(autoTdpFocusKey, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = row;
@@ -830,7 +837,7 @@ public partial class OverlayWindow : Window
                 profile.CanInvoke,
                 profile.Status));
             row.Click += (_, _) => InvokeHardwareProfileCycle();
-            DeviceCapabilityList.Children.Add(row);
+            flow.Add(row, wide: false);
             if (string.Equals(profileFocusKey, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = row;
@@ -852,7 +859,7 @@ public partial class OverlayWindow : Window
                 authored.CanInvoke,
                 authored.Status));
             authoredRow.Click += (_, _) => InvokeAuthoredProfileCycle();
-            DeviceCapabilityList.Children.Add(authoredRow);
+            flow.Add(authoredRow, wide: false);
             if (string.Equals(authoredFocusKey, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = authoredRow;
@@ -874,7 +881,7 @@ public partial class OverlayWindow : Window
                 controller.CanInvoke,
                 controller.Status));
             row.Click += (_, _) => InvokeControllerTargetCycle();
-            DeviceCapabilityList.Children.Add(row);
+            flow.Add(row, wide: false);
             if (string.Equals(controllerFocusKey, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = row;
@@ -895,7 +902,7 @@ public partial class OverlayWindow : Window
                 true,
                 recovery.Status));
             row.Click += (_, _) => InvokeDeviceCycleRetry();
-            DeviceCapabilityList.Children.Add(row);
+            flow.Add(row, wide: false);
             if (string.Equals(recoveryFocusKey, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = row;
@@ -909,12 +916,16 @@ public partial class OverlayWindow : Window
         {
             string glyphFocusKey = glyphSelection.Id;
             DescriptorStatusRow button = CreateGlyphSelectionRow(glyphSelection);
-            DeviceCapabilityList.Children.Add(button);
+            flow.Add(button, wide: false);
             if (string.Equals(glyphFocusKey, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = button;
             }
         }
+
+        // The preview is a full-width block, so any half-line still open above it is closed first
+        // rather than leaving a lone row that reads as a layout mistake.
+        flow.Flush();
 
         // After the selection row it is the result of, so changing the selection and seeing what it
         // produced reads top to bottom.
@@ -1560,7 +1571,8 @@ public partial class OverlayWindow : Window
         // so the Power and thermals rows are the detail (detected application, active layer, reset)
         // plus the shared frame-limit and overlay rows. On System there is no Device root to host the
         // toggle, so it stays inline with the rest.
-        IEnumerable<DescriptorRow> descriptors = _navigation.IsVisible(OverlayDestination.Device)
+        bool onDevice = _navigation.IsVisible(OverlayDestination.Device);
+        IEnumerable<DescriptorRow> descriptors = onDevice
             ? snapshot.ProfileRows
                 .Where(row => !string.Equals(
                     row.Id,
@@ -1568,22 +1580,31 @@ public partial class OverlayWindow : Window
                     StringComparison.Ordinal))
                 .Concat(snapshot.Rows)
             : snapshot.ProfileRows.Concat(snapshot.Rows);
+
+        // The same flow the Device pages use, but only there. These rows share a page with the
+        // capability rows once a declared Power section absorbs them, and a page that pairs those
+        // two to a line and then gives every performance row the full sheet reads as two designs
+        // stacked. On System the section lives in one half of a two-column grid, where pairing
+        // again would put four columns of text across the sheet.
+        var flow = new DeviceRowFlow(PerformanceRows);
         foreach (DescriptorRow descriptor in descriptors)
         {
             string key = $"performance.{descriptor.Id}";
             if (TryCreatePerformanceControl(descriptor, key) is { } control)
             {
-                PerformanceRows.Children.Add(control);
+                flow.Add(control, wide: !onDevice || control is DeviceSliderRow);
                 continue;
             }
 
             DescriptorStatusRow button = CreatePerformanceRow(descriptor, key);
-            PerformanceRows.Children.Add(button);
+            flow.Add(button, wide: !onDevice);
             if (string.Equals(button.Tag as string, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = button;
             }
         }
+
+        flow.Flush();
         restoreFocus?.Focus(NavigationMethod.Directional);
     }
 
