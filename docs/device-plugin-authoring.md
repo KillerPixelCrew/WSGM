@@ -5,7 +5,10 @@ A plugin owns exact device detection, hardware transports, semantic capabilities
 diagnostics, and restoration. It supplies no UI code and cannot use WSGM internals.
 
 Both tools an author needs are MIT submodules: `external\WSGM.Device.Sdk` is the contract and
-`external\WSGM.DeviceLab` is the tool. Their Git links pin exact source commits while still allowing
+`external\WSGM.DeviceLab` is the tool. The contract is described type by type in
+`external\WSGM.Device.Sdk\docs\reference.md`; what WSGM does with each publication, command and
+lifecycle call is in `device-plugin-system.md`, with the built-in Claw package as the worked
+example. Their Git links pin exact source commits while still allowing
 changes to be committed directly in either repository. Build Device Lab from its project in this
 checkout; `wsgm-device` below means that build or an installed Device Lab.
 

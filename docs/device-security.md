@@ -1,8 +1,9 @@
 # Device runtime boundaries
 
 This document is the short boundary checklist for device integration. Runtime behavior, controller
-ordering, profiles, and recovery are described in `device-integration.md`; package construction and
-installation are described in `device-plugin-authoring.md`.
+ordering, profiles, and recovery are described in `device-integration.md` and, mechanism by
+mechanism, in `device-plugin-system.md`; package construction and installation are described in
+`device-plugin-authoring.md`.
 
 ## Ownership
 

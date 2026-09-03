@@ -4,6 +4,10 @@ Device Integration is an optional, process-long WSGM subsystem. It is independen
 Desktop/Game Mode transitions. Turning it off leaves the shell, overlay, Steam Input lease, storage,
 artwork, launch features, RTSS, and core recovery usable.
 
+This document records the decisions and device findings behind the runtime. The mechanism itself,
+step by step and with its deadlines and log lines, is in `device-plugin-system.md`; the contract a
+plugin links against is in `external\WSGM.Device.Sdk\docs\reference.md`.
+
 ## One protected plugin slot
 
 Normal startup counts package roots before manifest validation, device matching, elevation, Explorer
@@ -49,9 +53,9 @@ Device Lab run from starting a second machine hardware cycle. The admitted coord
 sole package and loads its public entry type into one package-local collectible assembly-load
 context inside WSGM. That one runtime stays alive across Steam restarts, games, and desktop/game
 transitions. Runtime discovery and elevated install/removal share the exact crash-recovering
-`Global\WSGM.DevicePackageSlot` mutex. Maintenance reserves the hardware marker before taking that
-gate and keeps both reservations through filesystem replacement, so package bytes cannot change
-under a loaded plugin. Uninstall holds the same objects through package deletion.
+`Global\WSGM.DevicePackageSlot` mutex. Maintenance takes that gate first, then reserves the
+hardware marker, and keeps both reservations through filesystem replacement, so package bytes
+cannot change under a loaded plugin. Uninstall holds the same objects through package deletion.
 
 When setup or uninstall refuses before file mutation, it restores the initially observed
 shell/settings mode and restarts the logon service through its installer-tagged start only when that

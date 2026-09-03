@@ -78,6 +78,8 @@ outcome without re-verifying it is not. Read the relevant topic before editing:
 | `docs\radios.md` | Wi-Fi, Bluetooth, audio and touch keyboard — and the library that owns them |
 | `docs\ui.md` | themes, controls, Settings and splash presentation |
 | `docs\device-integration.md` | one-plugin slot and in-process runtime lifecycle |
+| `docs\device-plugin-system.md` | the host mechanism in detail: slot, gate, stager, load context, cycle, publications, commands, controller path, OEM, glyphs, Claw example, Device Lab |
+| `external\WSGM.Device.Sdk\docs\reference.md` | the public SDK contract, type by type, with every rule and limit |
 | `docs\device-plugin-authoring.md` | plugin implementation, testing, packaging and installation |
 | `docs\device-security.md` | concrete runtime/package boundaries that remain |
 | `docs\decisions.md` | standing product decisions and accepted posture |
