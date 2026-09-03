@@ -113,8 +113,9 @@ public sealed class DeviceOverlaySectionPagesTests
         DeviceOverlaySectionEntry entry = Assert.Single(DeviceOverlaySectionPages.Build(snapshot));
 
         // It is WSGM's own control, not a plugin capability, so it never reaches the capability
-        // list and has to be counted into its section explicitly.
-        Assert.Equal(DeviceOverlaySection.Glyphs, entry.Section);
+        // list and has to be counted into its section explicitly. Glyphs is no longer a page of its
+        // own: the artwork belongs to the controller it draws.
+        Assert.Equal(DeviceOverlaySection.ControllerAndMotion, entry.Section);
         Assert.Equal(1, entry.Count);
     }
 

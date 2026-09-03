@@ -170,7 +170,6 @@ public sealed class DeviceOverlayDirectRowTests
             {
                 DeviceOverlaySection.PowerAndThermals,
                 DeviceOverlaySection.ControllerAndMotion,
-                DeviceOverlaySection.Glyphs,
                 DeviceOverlaySection.Diagnostics,
             },
             DeviceOverlaySectionPages.Build(snapshot).Select(entry => entry.Section).ToArray());

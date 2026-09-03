@@ -51,12 +51,43 @@ internal sealed class CurveEditor : Control
     public static readonly StyledProperty<int> SelectedIndexProperty =
         AvaloniaProperty.Register<CurveEditor, int>(nameof(SelectedIndex), defaultValue: -1);
 
+    /// <summary>The input the device is currently at, drawn as a marker, or null for none.</summary>
+    /// <remarks>
+    /// A fan curve is read to answer "what is it doing right now", and the answer is where the
+    /// current temperature crosses it. HandheldCompanion draws the same line for the same reason.
+    /// </remarks>
+    public static readonly StyledProperty<int?> MarkerInputProperty =
+        AvaloniaProperty.Register<CurveEditor, int?>(nameof(MarkerInput));
+
+    /// <summary>Whether outputs must not decrease along the curve.</summary>
+    /// <remarks>
+    /// Set for a fan table, whose firmware requires it. The rule lives in
+    /// <see cref="CurveEditing.Move"/>; this only says which curves it applies to, because a
+    /// lighting response has no reason to rise.
+    /// </remarks>
+    public static readonly StyledProperty<bool> RisingOutputProperty =
+        AvaloniaProperty.Register<CurveEditor, bool>(nameof(RisingOutput));
+
     private int _dragIndex = -1;
 
     static CurveEditor()
     {
-        AffectsRender<CurveEditor>(PointsProperty, SelectedIndexProperty);
+        AffectsRender<CurveEditor>(PointsProperty, SelectedIndexProperty, MarkerInputProperty);
         FocusableProperty.OverrideDefaultValue<CurveEditor>(true);
+    }
+
+    /// <summary>The input the device is currently at, drawn as a marker, or null for none.</summary>
+    public int? MarkerInput
+    {
+        get => GetValue(MarkerInputProperty);
+        set => SetValue(MarkerInputProperty, value);
+    }
+
+    /// <summary>Whether outputs must not decrease along the curve.</summary>
+    public bool RisingOutput
+    {
+        get => GetValue(RisingOutputProperty);
+        set => SetValue(RisingOutputProperty, value);
     }
 
     /// <summary>Raised when an edit produced a new curve.</summary>
@@ -179,6 +210,26 @@ internal sealed class CurveEditor : Control
             return;
         }
 
+        // The area under the curve, before the curve itself so the stroke stays crisp on top of it.
+        // It is what makes the shape readable at arm's length: two curves that differ by a few
+        // percent are told apart by the filled mass, not by the line.
+        var area = new StreamGeometry();
+        using (StreamGeometryContext fill = area.Open())
+        {
+            Point first = ToScreen(points[0], plot, bounds);
+            fill.BeginFigure(new Point(first.X, plot.Bottom), isFilled: true);
+            fill.LineTo(first);
+            for (int index = 1; index < points.Count; index++)
+            {
+                fill.LineTo(ToScreen(points[index], plot, bounds));
+            }
+
+            fill.LineTo(new Point(ToScreen(points[^1], plot, bounds).X, plot.Bottom));
+            fill.EndFigure(isClosed: true);
+        }
+
+        context.DrawGeometry(new SolidColorBrush(Colors.White, 0.06), null, area);
+
         Pen curvePen = new(accent, 2);
         for (int index = 1; index < points.Count; index++)
         {
@@ -186,6 +237,19 @@ internal sealed class CurveEditor : Control
                 curvePen,
                 ToScreen(points[index - 1], plot, bounds),
                 ToScreen(points[index], plot, bounds));
+        }
+
+        // Drawn over the curve and under the handles: it has to be visible where it crosses the
+        // line, which is the one place it means anything, without covering the point being dragged.
+        if (MarkerInput is { } marker)
+        {
+            double x = plot.X + (plot.Width
+                * (bounds.ClampInput(marker) - bounds.InputMinimum)
+                / (double)(bounds.InputMaximum - bounds.InputMinimum));
+            context.DrawLine(
+                new Pen(accent, 2) { DashStyle = new DashStyle([2, 2], 0) },
+                new Point(x, plot.Y),
+                new Point(x, plot.Bottom));
         }
 
         for (int index = 0; index < points.Count; index++)
@@ -262,7 +326,8 @@ internal sealed class CurveEditor : Control
             _dragIndex,
             input,
             output,
-            EditBounds);
+            EditBounds,
+            RisingOutput);
         TryCommit(updated, "pointer-move");
         e.Handled = true;
     }
@@ -399,7 +464,8 @@ internal sealed class CurveEditor : Control
                 SelectedIndex,
                 point.Input + inputStep,
                 point.Output + outputStep,
-                EditBounds),
+                EditBounds,
+                RisingOutput),
             $"{inputSource}-move");
         return true;
     }

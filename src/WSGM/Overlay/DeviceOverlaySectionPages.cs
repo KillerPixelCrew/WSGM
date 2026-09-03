@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Settings;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
@@ -70,9 +71,68 @@ internal static class DeviceOverlaySectionPages
         DeviceOverlaySection.ControllerAndMotion,
         DeviceOverlaySection.Oem,
         DeviceOverlaySection.LightingAndFeatures,
-        DeviceOverlaySection.Glyphs,
         DeviceOverlaySection.Diagnostics,
     ];
+
+    /// <summary>
+    /// The declared section key a WSGM-owned section is the same subject as, or null when it has
+    /// no plugin counterpart.
+    /// </summary>
+    /// <remarks>
+    /// This is what stops the menu showing two Power cards and two Controller cards. A plugin
+    /// describes its own layout, and WSGM has fixed homes for the rows it owns itself; before this
+    /// the two sat side by side, so a device that declared a Power section produced that page plus
+    /// WSGM's "Power and thermals" — with the power limits on one and the frame limit on the other.
+    /// A WSGM section whose key matches a declared section is folded into it instead, and only
+    /// falls back to a page of its own when the plugin declares nothing that covers it.
+    /// </remarks>
+    private static SettingSectionKey? DeclaredKeyFor(DeviceOverlaySection section) => section switch
+    {
+        DeviceOverlaySection.Overview => SettingSectionKey.General,
+        DeviceOverlaySection.PowerAndThermals => SettingSectionKey.Power,
+        DeviceOverlaySection.ControllerAndMotion => SettingSectionKey.Controller,
+        DeviceOverlaySection.LightingAndFeatures => SettingSectionKey.Lighting,
+        DeviceOverlaySection.Diagnostics => SettingSectionKey.Diagnostics,
+        // OEM assignments are WSGM policy over a plugin's controls, and a plugin has no vocabulary
+        // for that subject, so this one keeps its own page whatever the device declares.
+        _ => null,
+    };
+
+    /// <summary>The declared section a WSGM-owned section folds into, or null to keep its own page.</summary>
+    /// <param name="snapshot">The current Device snapshot.</param>
+    /// <param name="section">The WSGM-owned section.</param>
+    /// <returns>The declared section id that absorbs it.</returns>
+    internal static string? AbsorbedBy(DeviceOverlaySnapshot snapshot, DeviceOverlaySection section)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (DeclaredKeyFor(section) is not { } key)
+        {
+            return null;
+        }
+
+        return snapshot.PluginSections
+            .FirstOrDefault(candidate => candidate.Key == key)?.SectionId;
+    }
+
+    /// <summary>The WSGM-owned section a declared section absorbs, or null when it absorbs none.</summary>
+    /// <param name="snapshot">The current Device snapshot.</param>
+    /// <param name="sectionId">The declared section being drawn.</param>
+    /// <returns>The WSGM-owned section whose rows belong on that page.</returns>
+    internal static DeviceOverlaySection? SectionAbsorbedInto(
+        DeviceOverlaySnapshot snapshot,
+        string sectionId)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        foreach (DeviceOverlaySection section in Order)
+        {
+            if (string.Equals(AbsorbedBy(snapshot, section), sectionId, StringComparison.Ordinal))
+            {
+                return section;
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>The page a section opens.</summary>
     /// <param name="section">The section.</param>
@@ -85,7 +145,6 @@ internal static class DeviceOverlaySectionPages
         DeviceOverlaySection.ControllerAndMotion => OverlayPage.DeviceControllerAndMotion,
         DeviceOverlaySection.Oem => OverlayPage.DeviceOem,
         DeviceOverlaySection.LightingAndFeatures => OverlayPage.DeviceLightingAndFeatures,
-        DeviceOverlaySection.Glyphs => OverlayPage.DeviceGlyphs,
         DeviceOverlaySection.Diagnostics => OverlayPage.DeviceDiagnostics,
         _ => throw new ArgumentOutOfRangeException(nameof(section)),
     };
@@ -101,7 +160,6 @@ internal static class DeviceOverlaySectionPages
         OverlayPage.DeviceControllerAndMotion => DeviceOverlaySection.ControllerAndMotion,
         OverlayPage.DeviceOem => DeviceOverlaySection.Oem,
         OverlayPage.DeviceLightingAndFeatures => DeviceOverlaySection.LightingAndFeatures,
-        OverlayPage.DeviceGlyphs => DeviceOverlaySection.Glyphs,
         OverlayPage.DeviceDiagnostics => DeviceOverlaySection.Diagnostics,
         _ => null,
     };
@@ -125,7 +183,6 @@ internal static class DeviceOverlaySectionPages
             DeviceOverlaySection.ControllerAndMotion => "controller",
             DeviceOverlaySection.Oem => "oem",
             DeviceOverlaySection.LightingAndFeatures => "lighting",
-            DeviceOverlaySection.Glyphs => "glyphs",
             DeviceOverlaySection.Diagnostics => "diagnostics",
             _ => "unknown",
         };
@@ -198,13 +255,35 @@ internal static class DeviceOverlaySectionPages
             }
         }
 
+        // A WSGM-owned section whose subject the plugin already declares is not a page: its rows
+        // and its status move onto the declared one, and the menu shows one card for that subject
+        // instead of two that each hold half of it.
+        Dictionary<string, DeviceOverlaySection> absorbed = [];
+        foreach (DeviceOverlaySection section in Order)
+        {
+            if (AbsorbedBy(snapshot, section) is { } host)
+            {
+                absorbed[host] = section;
+            }
+        }
+
         List<DeviceOverlaySectionEntry> entries = [];
 
         // The plugin's declared layout leads: it is the device describing itself. The WSGM-owned
-        // sections that remain — profiles, glyphs, diagnostics, and any unplaced rows — follow it.
+        // sections that remain — anything the device claimed no subject for — follow it.
         foreach (DeviceOverlayPluginSection pluginSection in snapshot.PluginSections)
         {
             int pluginCount = pluginCounts.GetValueOrDefault(pluginSection.SectionId);
+            DescriptorStatus pluginStatus =
+                pluginStatuses.GetValueOrDefault(pluginSection.SectionId, DescriptorStatus.None);
+            if (absorbed.TryGetValue(pluginSection.SectionId, out DeviceOverlaySection owned))
+            {
+                pluginCount += counts.GetValueOrDefault(owned);
+                pluginStatus = MoreSerious(
+                    pluginStatus,
+                    statuses.GetValueOrDefault(owned, DescriptorStatus.None));
+            }
+
             if (pluginCount == 0)
             {
                 continue;
@@ -216,7 +295,7 @@ internal static class DeviceOverlaySectionPages
                 pluginSection.Title,
                 pluginSection.Description,
                 pluginCount,
-                pluginStatuses.GetValueOrDefault(pluginSection.SectionId, DescriptorStatus.None))
+                pluginStatus)
             {
                 PluginSectionId = pluginSection.SectionId,
                 Icon = pluginSection.Icon,
@@ -226,7 +305,7 @@ internal static class DeviceOverlaySectionPages
         foreach (DeviceOverlaySection section in Order)
         {
             int count = counts.GetValueOrDefault(section);
-            if (count == 0)
+            if (count == 0 || AbsorbedBy(snapshot, section) is not null)
             {
                 continue;
             }
@@ -257,8 +336,9 @@ internal static class DeviceOverlaySectionPages
         yield return (DeviceOverlaySection.PowerAndThermals, snapshot.Profile);
         yield return (DeviceOverlaySection.PowerAndThermals, snapshot.AuthoredProfile);
         yield return (DeviceOverlaySection.ControllerAndMotion, snapshot.Controller);
+        // Glyph selection sits with the controller it draws, not on a page of its own.
+        yield return (DeviceOverlaySection.ControllerAndMotion, snapshot.GlyphSelection);
         yield return (DeviceOverlaySection.Diagnostics, snapshot.Recovery);
-        yield return (DeviceOverlaySection.Glyphs, snapshot.GlyphSelection);
     }
 
     /// <summary>Selects the capabilities belonging to one section.</summary>
@@ -330,11 +410,10 @@ internal static class DeviceOverlaySectionPages
     {
         DeviceOverlaySection.Overview => "Overview",
         DeviceOverlaySection.Profiles => "Profiles",
-        DeviceOverlaySection.PowerAndThermals => "Power and thermals",
-        DeviceOverlaySection.ControllerAndMotion => "Controller and motion",
+        DeviceOverlaySection.PowerAndThermals => "Power",
+        DeviceOverlaySection.ControllerAndMotion => "Controller",
         DeviceOverlaySection.Oem => "OEM buttons",
         DeviceOverlaySection.LightingAndFeatures => "Lighting and features",
-        DeviceOverlaySection.Glyphs => "Glyphs",
         DeviceOverlaySection.Diagnostics => "Diagnostics and recovery",
         _ => "Device",
     };
@@ -343,11 +422,10 @@ internal static class DeviceOverlaySectionPages
     {
         DeviceOverlaySection.Overview => "Device identity and performance mode",
         DeviceOverlaySection.Profiles => "Hardware and per-application performance profiles",
-        DeviceOverlaySection.PowerAndThermals => "Power limits, fans, charging, and temperatures",
-        DeviceOverlaySection.ControllerAndMotion => "Built-in controller, motion, and rumble",
+        DeviceOverlaySection.PowerAndThermals => "Power limits, fans, charging, and frame pacing",
+        DeviceOverlaySection.ControllerAndMotion => "Controller target, button artwork, and input test",
         DeviceOverlaySection.Oem => "Device buttons and their assignments",
         DeviceOverlaySection.LightingAndFeatures => "Lighting and remaining device features",
-        DeviceOverlaySection.Glyphs => "Button artwork, preview, and input test",
         DeviceOverlaySection.Diagnostics => "Health, readings, and recovery",
         _ => string.Empty,
     };

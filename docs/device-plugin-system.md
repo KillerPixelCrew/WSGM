@@ -637,19 +637,43 @@ carries them.
 
 The overlay's Device destination (`DeviceOverlayBridge`, `DeviceOverlaySectionPages`) shows
 plugin-declared sections first, in declared order, dropping empty ones, then WSGM's fixed sections
-`Overview`, `PowerAndThermals`, `ControllerAndMotion`, `Oem`, `LightingAndFeatures`, `Glyphs`,
-`Diagnostics`. An unplaced capability lands in the section its role implies. WSGM's own rows join
-them: AutoTDP, hardware profile and authored profile under power; controller under controller;
-recovery under diagnostics; glyph selection under glyphs.
+`Overview`, `PowerAndThermals`, `ControllerAndMotion`, `Oem`, `LightingAndFeatures`, `Diagnostics`.
+An unplaced capability lands in the section its role implies. WSGM's own rows join them: AutoTDP,
+hardware profile and authored profile under power; controller target and glyph selection, plus the
+glyph preview and input test, under controller; recovery under diagnostics.
 
-| Descriptor                              | Control                                                                          |
-| --------------------------------------- | -------------------------------------------------------------------------------- |
-| Writable integer with minimum < maximum | slider, committing 250 ms after the last change                                  |
-| Boolean                                 | toggle                                                                           |
-| Choice                                  | combo box                                                                        |
-| Text                                    | text box committing on Enter or focus loss                                       |
-| Colour                                  | status row opening the colour editor (spectrum, three channels, brightness, hex) |
-| Action, curve, read-only                | status row; an action shows `RUN`                                                |
+**A WSGM section whose subject the plugin already declares is not a second page.** `DeclaredKeyFor`
+maps each WSGM section to the `SettingSectionKey` that means the same thing — `Power`, `Controller`,
+`Lighting`, `Diagnostics`, `General` — and a declared section carrying that key absorbs it:
+`AbsorbedBy` folds its count and status into the declared card, and `RenderOwnedDeviceRows` draws
+its rows on the declared page after the device's own. Without this a device declaring a Power
+section produced that page **and** WSGM's, with the power limits on one and the frame limit on the
+other; the same split gave two Controller pages. `Oem` deliberately maps to nothing: it is WSGM
+policy over a plugin's controls, and no plugin has a vocabulary for that subject. The shared
+performance rows follow the absorption too, so they stay on whichever page power ended up being.
+
+| Descriptor                              | Control                                                                            |
+| --------------------------------------- | ---------------------------------------------------------------------------------- |
+| Writable integer with minimum < maximum | slider, committing 250 ms after the last change                                    |
+| Boolean                                 | toggle                                                                             |
+| Choice                                  | combo box                                                                          |
+| Text                                    | text box committing on Enter or focus loss                                         |
+| Writable curve                          | `DeviceCurveRow`: the curve editor plus three fan presets, committing after 400 ms |
+| Colour                                  | status row opening the colour editor (spectrum, three channels, brightness, hex)   |
+| Action, read-only curve, read-only      | status row; an action shows `RUN`                                                  |
+
+The curve editor (`Controls\CurveEditor`, shared with Settings authoring) is modelled on
+HandheldCompanion's fan graph: a filled plot, one draggable node per breakpoint, and the live
+temperature drawn as a dashed marker where it crosses the curve. Left/Right selects a node and
+Up/Down moves it, on pad and keyboard alike. Two things differ from HC, both because they are device
+facts rather than design choices: the nodes sit at the breakpoints the firmware actually stores (six
+on the Claw, not HC's fixed eleven), and their inputs are pinned while outputs move, because those
+breakpoints are the fan table. `RisingOutput` holds each output between its neighbours' — the fan
+firmware refuses a table whose duties dip, and a drag that would build one has to be impossible
+rather than reported on apply. The three presets are HandheldCompanion's own `IDevice.fanPresets`
+arrays (Quiet, Default, Aggressive), stored at HC's 11-point resolution in `Core\FanCurvePresets.cs`
+and interpolated onto the device's own temperatures at apply time, so a preset never invents a
+breakpoint the table does not have.
 
 A row's value is the pending value, else the desired value, else the observed value. Its status
 follows the projection: `Progress` while pending; `Faulted` on failure or `TransportFaulted`;
@@ -759,27 +783,44 @@ that suppresses the firmware's orphan key-up chords and fails open.
 
 Capabilities (one descriptor set per cycle, generation 1):
 
-| Id                         | Instances                      | Role                  | Kind        | Bounds                           | R/W    | Persistence      | Section                                       |
-| -------------------------- | ------------------------------ | --------------------- | ----------- | -------------------------------- | ------ | ---------------- | --------------------------------------------- |
-| `power.primary-limit`      | –                              | `PowerSustainedLimit` | Integer W   | 8–37                             | R/W    | Volatile         | power / limits                                |
-| `power.boost-limit`        | –                              | `PowerSlowLimit`      | Integer W   | 8–37                             | R/W    | Volatile         | power / limits                                |
-| `battery.charge-limit`     | –                              | `ChargeLimit`         | Integer %   | 60–100                           | R/W    | DevicePersistent | power / charging                              |
-| `power.scenario`           | –                              | `ScenarioMode`        | Choice      | comfort, green, eco, user, sport | R      | Volatile         | power                                         |
-| `fan.mode`                 | –                              | `FanMode`             | Choice      | automatic, custom, full-speed    | R/W    | Volatile         | power / control                               |
-| `fan.curve`                | left, right                    | `FanCurve`            | Curve       | six points, 0–100                | R/W    | Volatile         | power / control                               |
-| `fan.measured-rpm`         | left, right                    | `FanMeasuredRpm`      | Integer rpm | 0–10000                          | R      | Volatile         | power / readings                              |
-| `telemetry.temperature`    | –                              | `Telemetry`           | Integer °C  | 0–110                            | R      | Volatile         | power / readings                              |
-| `lighting.brightness`      | –                              | `LightingBrightness`  | Integer %   | 0–100                            | R/W    | DevicePersistent | lighting                                      |
-| `lighting.zone-color`      | left-ring, right-ring, buttons | `LightingZoneColor`   | Color       | 24-bit                           | R/W    | DevicePersistent | lighting / zones                              |
-| `controller.source`        | –                              | `ControllerSource`    | Choice      | device, plugin, unavailable      | R      | Volatile         | input                                         |
-| `motion.source`            | –                              | `MotionSource`        | Choice      | device, plugin, unavailable      | R      | Volatile         | input                                         |
-| `haptic.rumble`            | –                              | `HapticSink`          | action      | –                                | action | Volatile         | input                                         |
-| `display.variable-refresh` | –                              | `VariableRefreshRate` | Boolean     | –                                | R/W    | DevicePersistent | display, only when an Arc Sync panel answered |
+| Id                         | Instances                      | Role                  | Kind        | Bounds                           | R/W    | Persistence      | Section                                     |
+| -------------------------- | ------------------------------ | --------------------- | ----------- | -------------------------------- | ------ | ---------------- | ------------------------------------------- |
+| `power.primary-limit`      | –                              | `PowerSustainedLimit` | Integer W   | 8–37                             | R/W    | Volatile         | power / limits                              |
+| `power.boost-limit`        | –                              | `PowerSlowLimit`      | Integer W   | 8–37                             | R/W    | Volatile         | power / limits                              |
+| `battery.charge-limit`     | –                              | `ChargeLimit`         | Integer %   | 60–100                           | R/W    | DevicePersistent | power / charging                            |
+| `power.scenario`           | –                              | `ScenarioMode`        | Choice      | comfort, green, eco, user, sport | R      | Volatile         | power                                       |
+| `fan.mode`                 | –                              | `FanMode`             | Choice      | automatic, custom, full-speed    | R/W    | Volatile         | power / control                             |
+| `fan.curve`                | –                              | `FanCurve`            | Curve %     | six points, 0–100                | R/W    | Volatile         | power / control                             |
+| `fan.measured-rpm`         | left, right                    | `FanMeasuredRpm`      | Integer rpm | 0–10000                          | R      | Volatile         | info / readings                             |
+| `telemetry.temperature`    | –                              | `Telemetry`           | Integer °C  | 0–110                            | R      | Volatile         | info / readings                             |
+| `lighting.brightness`      | –                              | `LightingBrightness`  | Integer %   | 0–100                            | R/W    | DevicePersistent | lighting                                    |
+| `lighting.zone-color`      | left-ring, right-ring, buttons | `LightingZoneColor`   | Color       | 24-bit                           | R/W    | DevicePersistent | lighting / zones                            |
+| `controller.source`        | –                              | `ControllerSource`    | Choice      | device, plugin, unavailable      | R      | Volatile         | info / ownership                            |
+| `motion.source`            | –                              | `MotionSource`        | Choice      | device, plugin, unavailable      | R      | Volatile         | info / ownership                            |
+| `haptic.rumble`            | –                              | `HapticSink`          | action      | –                                | action | Volatile         | info / ownership                            |
+| `display.variable-refresh` | –                              | `VariableRefreshRate` | Boolean     | –                                | R/W    | DevicePersistent | power, only when an Arc Sync panel answered |
 
-The declared sections are `power` (icon Power; categories limits, charging, control titled "Fans",
-readings titled "Thermals"), `lighting` (category zones), `input` (Controller) and `display`. Fan
-RPM is `480000 / raw`. Every WMI write is bracketed by the recovery journal with a 2 s minimum write
+The declared sections are `power` (icon Power; categories limits, charging, control titled "Fans"),
+`lighting` (category zones) and `info` (icon Gauge; categories ownership, readings). Fan RPM is
+`480000 / raw`. Every WMI write is bracketed by the recovery journal with a 2 s minimum write
 budget, and "verified without readback" is normalized to `AppliedUnverified`.
+
+**The fan curve is one capability, not a left and a right.** Both fans sit on one heatsink and the
+firmware ramps them together, so two independently authored curves described a machine that does not
+exist. `ApplyCurveAsync` writes both channels under ONE pre-write snapshot, so a failure on the
+second restores the first; two `ApplyCurveAsync` calls could not, because the second call's snapshot
+would already contain the first call's write. Only the six curve offsets are shared between the
+channels — every other byte in each package is that channel's own and is preserved. The published
+state is the left channel's table, which the pair can only disagree with if something outside WSGM
+wrote one of them. The descriptor declares 0–100 bounds so the curve editor has a stated range to
+draw and clamp against; an undeclared bound means "no limit" to the router.
+
+**The readings are on Info, not Power.** Power is where a person goes mid-game to change how the
+device behaves, and it used to end in a Thermals group of numbers to watch. The CPU temperature is
+still published because the fan-curve editor marks it against the curve, and both fan speeds are
+still measured separately because one failing fan is exactly the fault that page exists to show.
+`info` also holds the three ownership rows that were a Controller page of their own, competing with
+the page that has the actual controller settings on it.
 
 Controller: acquisition requires management enabled, the identity and MCU gates, the same composite
 USB location as first observed, a journaled switch to DirectInput when needed, at least one physical

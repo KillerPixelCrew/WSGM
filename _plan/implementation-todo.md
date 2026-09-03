@@ -751,6 +751,48 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       profile; repeat inside a game and confirm the values are logged against that application,
       survive a restart, and give way to the global ones when the game exits.
 
+## Device page cleanup of 2026-09-03 - fixed in source, attended re-check pending
+
+- [x] **The Device destination showed two Power pages and two Controller pages:** the plugin
+      declares its own layout and WSGM's fixed sections sat beside it rather than merging, so the
+      power limits were on one card and the frame limit on another. `DeclaredKeyFor` now maps each
+      WSGM section to the `SettingSectionKey` that means the same subject, a declared section
+      carrying that key absorbs it, and `RenderOwnedDeviceRows` draws the absorbed rows on the
+      declared page. `Oem` maps to nothing on purpose — it is WSGM policy over a plugin's controls.
+      The shared performance rows follow the absorption, so they stay on whichever page power is.
+- [x] **Glyphs stopped being a page of its own** and joined Controller, preview and input test
+      included: the artwork belongs to the controller it draws, and two cards meant neither held all
+      the controller settings. `OverlayPage.DeviceGlyphs` is gone rather than left unrouted.
+- [x] **The Display page held one toggle labelled "Device control":** `DisplayLabel` mapped every
+      `DisplayKey` except `VariableRefreshRate`, which fell through to the catch-all. The label is
+      fixed, and the toggle moved to Power — one toggle does not earn a page.
+- [x] **Performance overlay read "On" for four different overlays:** `FormatOverlayLevel` named only
+      0 and 1. It is a dropdown now, over the notch names `docs\rtss.md` already defines (Off,
+      Minimal, Extended, Full, Custom), built from the levels the adapter publishes.
+- [x] **Frame limit was a preset ladder that could not reach a rate it did not contain:** a slider
+      over 0-280 FPS, zero reading "Off". `DescriptorRow` carries an optional range or named options
+      so a row can be a control rather than a button, and `SetValueAsync` writes the exact value,
+      refusing anything the adapter rejects. `CyclePerformanceOverlayLevel` still cycles for the OEM
+      button; there is deliberately no frame-limit equivalent.
+- [x] **The two fan curves became one, editable, with HandheldCompanion's presets:** the A2VM's fans
+      share a heatsink and the firmware ramps them together. `DeviceCurveRow` hosts the existing
+      `CurveEditor` — a filled plot, one draggable node per firmware breakpoint, the live CPU
+      temperature as a dashed marker, Left/Right to select and Up/Down to move — plus Quiet, Default
+      and Aggressive from HC's own `IDevice.fanPresets`, stored at HC's 11-point resolution and
+      interpolated onto the device's own temperatures so a preset never invents a breakpoint.
+      `CurveEditing.Move` gained `risingOutput`, because the fan firmware refuses a table whose
+      duties dip and a drag that would build one has to be impossible rather than reported on apply.
+- [x] **Temperature and fan RPM left Power for a new Info page** with the three ownership rows that
+      were a Controller page of their own. The temperature stays published because the curve editor
+      marks it; both fan speeds stay separate because one failing fan is what that page is for.
+- [ ] Attended after deployment: confirm the Device root shows Power, Lighting, Info, Controller,
+      OEM and Diagnostics and no duplicates; that Power carries the limits, charging, fan mode, the
+      curve editor, variable refresh, AutoTDP, both profile rows and the performance rows; drag a
+      curve node and confirm it cannot dip below its neighbour, that the write is one command
+      reaching both channels, and that each preset produces a visibly different curve; confirm the
+      frame-limit slider reaches 280 and reads "Off" at zero, and that the overlay dropdown names
+      all five levels and each renders the overlay it names.
+
 ## Attended/live acceptance still required
 
 These checks intentionally do not run unattended and are not source-completion blockers:

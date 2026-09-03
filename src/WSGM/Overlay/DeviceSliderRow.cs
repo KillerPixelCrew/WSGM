@@ -32,6 +32,7 @@ internal sealed class DeviceSliderRow : Border
     private readonly Slider _slider;
     private readonly TextBlock _value;
     private readonly CapabilityUnit _unit;
+    private readonly Func<int, string>? _format;
     private readonly DispatcherTimer _commit;
     private readonly Action<int> _onCommit;
 
@@ -46,6 +47,10 @@ internal sealed class DeviceSliderRow : Border
     /// <param name="valueNow">The value to show initially.</param>
     /// <param name="enabled">Whether the slider accepts input.</param>
     /// <param name="onCommit">Invoked with the settled integer value to write.</param>
+    /// <param name="format">
+    /// Renders the live value label, for a row whose numbers are not simply "value plus unit" — a
+    /// frame limit reads "Off" at zero rather than "0". Null uses the unit suffix.
+    /// </param>
     internal DeviceSliderRow(
         string key,
         string title,
@@ -56,10 +61,12 @@ internal sealed class DeviceSliderRow : Border
         CapabilityUnit unit,
         int valueNow,
         bool enabled,
-        Action<int> onCommit)
+        Action<int> onCommit,
+        Func<int, string>? format = null)
     {
         ArgumentNullException.ThrowIfNull(onCommit);
         _unit = unit;
+        _format = format;
         _onCommit = onCommit;
         _commit = new DispatcherTimer { Interval = CommitDelay };
         _commit.Tick += OnCommitTick;
@@ -152,8 +159,9 @@ internal sealed class DeviceSliderRow : Border
         _onCommit((int)Math.Round(_slider.Value));
     }
 
-    private string Format(int value) =>
-        $"{value.ToString(CultureInfo.CurrentCulture)}{Suffix(_unit)}";
+    private string Format(int value) => _format is { } custom
+        ? custom(value)
+        : $"{value.ToString(CultureInfo.CurrentCulture)}{Suffix(_unit)}";
 
     private static string Suffix(CapabilityUnit unit) => unit switch
     {

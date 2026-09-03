@@ -281,7 +281,8 @@ public partial class OverlayWindow : Window
         }
 
         UpdateGlyphInputObservation(
-            DeviceOverlaySectionPages.SectionFor(_navigation.Page) is DeviceOverlaySection.Glyphs);
+            DeviceOverlaySectionPages.SectionFor(_navigation.Page)
+                is DeviceOverlaySection.ControllerAndMotion);
         RefreshDevicePanel();
     }
 
@@ -341,7 +342,10 @@ public partial class OverlayWindow : Window
             return false;
         }
 
-        if (focused is not (Slider or ComboBox or ToggleSwitch or TextBox))
+        // The curve editor belongs here for the same reason as the slider, and more urgently: the
+        // live temperature it marks republishes several times a second, so a rebuild would drop the
+        // control out from under a finger that is mid-drag on every single sample.
+        if (focused is not (Slider or ComboBox or ToggleSwitch or TextBox or CurveEditor))
         {
             return false;
         }
@@ -623,7 +627,9 @@ public partial class OverlayWindow : Window
                 StringComparison.Ordinal));
         IReadOnlyList<DeviceOverlayCapability> capabilities =
             DeviceOverlaySectionPages.CapabilitiesInPluginSection(snapshot, sectionId);
-        if (pluginSection is null || capabilities.Count == 0)
+        DeviceOverlaySection? absorbed =
+            DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, sectionId);
+        if (pluginSection is null || (capabilities.Count == 0 && absorbed is null))
         {
             // The section vanished with a descriptor generation while its page was open. Saying so
             // beats rendering an empty page that cannot explain itself.
@@ -656,7 +662,7 @@ public partial class OverlayWindow : Window
                     : capability.CapabilityId;
                 if (TryCreateDeviceControl(capability, key) is { } control)
                 {
-                    flow.Add(control, wide: control is DeviceSliderRow);
+                    flow.Add(control, wide: control is DeviceSliderRow or DeviceCurveRow);
                     continue;
                 }
 
@@ -693,6 +699,13 @@ public partial class OverlayWindow : Window
             label.Classes.Add("eyebrow");
             DeviceCapabilityList.Children.Add(label);
             AddRows(rows);
+        }
+
+        // The WSGM-owned rows for the subject this section claims, drawn after the device's own so
+        // the page reads device first, then what WSGM layers on top of it.
+        if (absorbed is { } owned)
+        {
+            return RenderOwnedDeviceRows(snapshot, owned, focusedKey) ?? restoreFocus;
         }
 
         return restoreFocus;
@@ -741,7 +754,7 @@ public partial class OverlayWindow : Window
                 : capability.CapabilityId;
             if (TryCreateDeviceControl(capability, key) is { } control)
             {
-                sectionFlow.Add(control, wide: control is DeviceSliderRow);
+                sectionFlow.Add(control, wide: control is DeviceSliderRow or DeviceCurveRow);
                 continue;
             }
 
@@ -757,6 +770,29 @@ public partial class OverlayWindow : Window
         }
 
         sectionFlow.Flush();
+        return RenderOwnedDeviceRows(snapshot, section, focusedKey) ?? restoreFocus;
+    }
+
+    /// <summary>
+    /// Draws the rows WSGM owns for one section: the ones that are configuration or policy rather
+    /// than device capabilities, and therefore never arrive through the capability list.
+    /// </summary>
+    /// <param name="snapshot">The current Device snapshot.</param>
+    /// <param name="section">The WSGM-owned section being drawn.</param>
+    /// <param name="focusedKey">The focus key to restore, when one of these rows holds it.</param>
+    /// <returns>The row to restore focus to, or null when none of these held it.</returns>
+    /// <remarks>
+    /// Split out because these rows are drawn on two different pages: the WSGM section's own, and —
+    /// when the plugin declares a section for the same subject — that declared page, which absorbs
+    /// them. One body for both, so the controller target cannot appear on the page the menu counted
+    /// it into and be missing from the page it actually opens.
+    /// </remarks>
+    private DescriptorStatusRow? RenderOwnedDeviceRows(
+        DeviceOverlaySnapshot snapshot,
+        DeviceOverlaySection section,
+        string? focusedKey)
+    {
+        DescriptorStatusRow? restoreFocus = null;
 
         // AutoTDP moves the power limit rather than being one, so it sits with the limit it moves
         // instead of arriving through the capability list.
@@ -868,7 +904,8 @@ public partial class OverlayWindow : Window
 
         // Glyph selection is WSGM's own control rather than a plugin capability, so it is placed
         // here explicitly rather than arriving through the capability list.
-        if (section is DeviceOverlaySection.Glyphs && snapshot.GlyphSelection is { } glyphSelection)
+        if (section is DeviceOverlaySection.ControllerAndMotion
+            && snapshot.GlyphSelection is { } glyphSelection)
         {
             string glyphFocusKey = glyphSelection.Id;
             DescriptorStatusRow button = CreateGlyphSelectionRow(glyphSelection);
@@ -881,7 +918,8 @@ public partial class OverlayWindow : Window
 
         // After the selection row it is the result of, so changing the selection and seeing what it
         // produced reads top to bottom.
-        if (section is DeviceOverlaySection.Glyphs && snapshot.GlyphPreview is { } preview)
+        if (section is DeviceOverlaySection.ControllerAndMotion
+            && snapshot.GlyphPreview is { } preview)
         {
             RenderGlyphPreview(preview);
         }
@@ -1062,7 +1100,12 @@ public partial class OverlayWindow : Window
             return;
         }
 
-        UpdateGlyphInputObservation(false);
+        // A declared section that absorbs the controller page draws the glyph preview and input
+        // test, so it needs the same high-rate lease the WSGM page takes.
+        UpdateGlyphInputObservation(
+            _deviceBridge?.Snapshot() is { } snapshot
+            && DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, sectionId)
+                is DeviceOverlaySection.ControllerAndMotion);
         RefreshDevicePanel();
         RefreshPerformancePanel();
         FocusFirstControl(DeviceCapabilityList);
@@ -1079,7 +1122,7 @@ public partial class OverlayWindow : Window
 
         // The sample stream fires at input rate, so it is leased only for the one page that draws
         // it and released the moment that page is left.
-        UpdateGlyphInputObservation(section is DeviceOverlaySection.Glyphs);
+        UpdateGlyphInputObservation(section is DeviceOverlaySection.ControllerAndMotion);
         RefreshDevicePanel();
 
         // The shared performance rows belong to one Device page, so entering or leaving any page
@@ -1185,6 +1228,11 @@ public partial class OverlayWindow : Window
         if (!capability.Writable)
         {
             return null;
+        }
+
+        if (capability.ValueKind is CapabilityValueKind.Curve)
+        {
+            return CreateDeviceCurveRow(capability, key);
         }
 
         switch (capability.ValueKind)
@@ -1332,6 +1380,46 @@ public partial class OverlayWindow : Window
                     });
             });
         return row;
+    }
+
+    /// <summary>Builds the fan-curve editor for a writable curve capability.</summary>
+    /// <remarks>
+    /// The live temperature marker comes from whichever capability reports one, which is why it is
+    /// looked up rather than passed in: the reading is published as its own descriptor and may not
+    /// exist at all, and a curve without a marker is still a curve worth editing.
+    /// </remarks>
+    private DeviceCurveRow CreateDeviceCurveRow(DeviceOverlayCapability capability, string key)
+    {
+        int? marker = _deviceBridge?.Snapshot().Capabilities
+            .FirstOrDefault(candidate => candidate.Role is CapabilityRole.Telemetry
+                && candidate.Unit is CapabilityUnit.Celsius)
+            ?.CurrentValue?.IntegerValue;
+        return new DeviceCurveRow(
+            key,
+            capability.Title,
+            capability.Description,
+            capability.CurrentValue?.CurveValue ?? [],
+            marker,
+            capability.CanInvoke,
+            curve =>
+            {
+                IDeviceOverlaySource? bridge = _deviceBridge;
+                if (bridge is null || _closed)
+                {
+                    return;
+                }
+
+                _ = CommitDeviceValueAsync(
+                    bridge,
+                    capability with
+                    {
+                        NextValue = new CapabilityValue
+                        {
+                            Kind = CapabilityValueKind.Curve,
+                            CurveValue = curve,
+                        },
+                    });
+            });
     }
 
     private async System.Threading.Tasks.Task CommitDeviceValueAsync(
@@ -1482,9 +1570,14 @@ public partial class OverlayWindow : Window
             : snapshot.ProfileRows.Concat(snapshot.Rows);
         foreach (DescriptorRow descriptor in descriptors)
         {
-            DescriptorStatusRow button = CreatePerformanceRow(
-                descriptor,
-                $"performance.{descriptor.Id}");
+            string key = $"performance.{descriptor.Id}";
+            if (TryCreatePerformanceControl(descriptor, key) is { } control)
+            {
+                PerformanceRows.Children.Add(control);
+                continue;
+            }
+
+            DescriptorStatusRow button = CreatePerformanceRow(descriptor, key);
             PerformanceRows.Children.Add(button);
             if (string.Equals(button.Tag as string, focusedKey, StringComparison.Ordinal))
             {
@@ -1492,6 +1585,98 @@ public partial class OverlayWindow : Window
             }
         }
         restoreFocus?.Focus(NavigationMethod.Directional);
+    }
+
+    /// <summary>
+    /// Builds the control a performance row asks for — a slider for a range, a dropdown for named
+    /// options — or null when the row is a button and should stay one.
+    /// </summary>
+    /// <remarks>
+    /// A disabled control is still drawn rather than falling back to a button: RTSS going away
+    /// should grey the frame-limit slider, not replace it with a different-looking row that appears
+    /// when the service is unhealthy.
+    /// </remarks>
+    private Control? TryCreatePerformanceControl(DescriptorRow descriptor, string key)
+    {
+        if (descriptor.Range is { } range && descriptor.Value is { } current)
+        {
+            return new DeviceSliderRow(
+                key,
+                descriptor.Title,
+                descriptor.Description,
+                range.Minimum,
+                range.Maximum,
+                range.Step,
+                CapabilityUnit.None,
+                current,
+                descriptor.CanInvoke,
+                value => WritePerformanceValue(descriptor.Id, value),
+                FormatFrameRate);
+        }
+
+        if (descriptor.Options.Count > 0)
+        {
+            IReadOnlyList<CapabilityChoice> choices =
+                [.. descriptor.Options.Select(option => new CapabilityChoice(
+                    option.Value.ToString(CultureInfo.InvariantCulture),
+                    new CapabilityDisplay
+                    {
+                        Key = DisplayKey.Custom,
+                        CustomLabel = option.Label,
+                    }))];
+            string? selected = descriptor.Value?.ToString(CultureInfo.InvariantCulture);
+            (Border row, _) = DeviceControlRows.Choice(
+                key,
+                descriptor.Title,
+                descriptor.Description,
+                choices,
+                selected,
+                descriptor.CanInvoke,
+                value =>
+                {
+                    if (int.TryParse(value, CultureInfo.InvariantCulture, out int level))
+                    {
+                        WritePerformanceValue(descriptor.Id, level);
+                    }
+                });
+            return row;
+        }
+
+        return null;
+    }
+
+    /// <summary>A frame limit reads as a rate, and zero means the cap is off rather than "0 FPS".</summary>
+    private static string FormatFrameRate(int value) => value <= 0
+        ? "Off"
+        : $"{value.ToString(CultureInfo.CurrentCulture)} FPS";
+
+    private void WritePerformanceValue(string rowId, int value)
+    {
+        PerformanceOverlayBridge? source = _performanceSource;
+        if (source is null || _closed)
+        {
+            return;
+        }
+
+        _ = WritePerformanceValueAsync(source, rowId, value);
+    }
+
+    private async Task WritePerformanceValueAsync(
+        PerformanceOverlayBridge source,
+        string rowId,
+        int value)
+    {
+        try
+        {
+            await source.SetValueAsync(rowId, value, _deviceLifetime.Token);
+        }
+        catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Performance row '{rowId}' could not be set to {value}: {ex.Message}");
+        }
     }
 
     private DescriptorStatusRow CreatePerformanceRow(DescriptorRow descriptor, string focusKey)
@@ -1557,22 +1742,38 @@ public partial class OverlayWindow : Window
     /// <summary>Whether the performance rows belong on the page currently showing.</summary>
     /// <remarks>
     /// Always, when they live on System. On Device they belong to one page, so that everything on
-    /// Power and thermals is what moves the same thing and nothing else carries them.
+    /// Power is what moves the same thing and nothing else carries them. That page is the plugin's
+    /// declared Power section when the device declares one, which is why this asks where the power
+    /// rows were absorbed to rather than comparing against the WSGM section alone.
     /// </remarks>
-    private bool PerformanceBelongsOnCurrentPage() =>
-        !_navigation.IsVisible(OverlayDestination.Device)
-        || DeviceOverlaySectionPages.SectionFor(_navigation.Page)
-            is DeviceOverlaySection.PowerAndThermals;
+    private bool PerformanceBelongsOnCurrentPage()
+    {
+        if (!_navigation.IsVisible(OverlayDestination.Device))
+        {
+            return true;
+        }
+
+        if (DeviceOverlaySectionPages.SectionFor(_navigation.Page)
+            is DeviceOverlaySection.PowerAndThermals)
+        {
+            return true;
+        }
+
+        return _navigation.Page is OverlayPage.DevicePluginSection
+            && _navigation.SectionId is { } sectionId
+            && _deviceBridge?.Snapshot() is { } snapshot
+            && DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, sectionId)
+                is DeviceOverlaySection.PowerAndThermals;
+    }
 
     private static string DeviceSectionLabel(DeviceOverlaySection section) => section switch
     {
         DeviceOverlaySection.Overview => "OVERVIEW",
         DeviceOverlaySection.Profiles => "PROFILES",
-        DeviceOverlaySection.PowerAndThermals => "POWER AND THERMALS",
-        DeviceOverlaySection.ControllerAndMotion => "CONTROLLER AND MOTION",
+        DeviceOverlaySection.PowerAndThermals => "POWER",
+        DeviceOverlaySection.ControllerAndMotion => "CONTROLLER",
         DeviceOverlaySection.Oem => "OEM BUTTONS",
         DeviceOverlaySection.LightingAndFeatures => "LIGHTING AND FEATURES",
-        DeviceOverlaySection.Glyphs => "GLYPHS",
         DeviceOverlaySection.Diagnostics => "DIAGNOSTICS AND RECOVERY",
         _ => "DEVICE",
     };

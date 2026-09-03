@@ -33,7 +33,33 @@ internal sealed record DescriptorRow(
     string Description,
     string TrailingText,
     bool CanInvoke,
-    DescriptorStatus Status = DescriptorStatus.None);
+    DescriptorStatus Status = DescriptorStatus.None)
+{
+    /// <summary>The range this row is set over, or null when pressing it is the interaction.</summary>
+    /// <remarks>
+    /// A row that carries a range or options is a control, not a button. Cycling was fine while a
+    /// row had four sensible values; a frame limit has hundreds, and stepping to 280 one preset at
+    /// a time is not an interaction anyone completes.
+    /// </remarks>
+    public DescriptorRange? Range { get; init; }
+
+    /// <summary>The named values this row chooses between, empty when it is not a choice.</summary>
+    public IReadOnlyList<DescriptorOption> Options { get; init; } = [];
+
+    /// <summary>The value in force, for a row with a range or options.</summary>
+    public int? Value { get; init; }
+}
+
+/// <summary>The bounds of a row the user sets with a slider.</summary>
+/// <param name="Minimum">Inclusive lower bound.</param>
+/// <param name="Maximum">Inclusive upper bound.</param>
+/// <param name="Step">Movement per pad nudge; at least 1.</param>
+internal readonly record struct DescriptorRange(int Minimum, int Maximum, int Step);
+
+/// <summary>One named value of a row the user picks from a dropdown.</summary>
+/// <param name="Value">The value written when it is chosen.</param>
+/// <param name="Label">What the user reads.</param>
+internal sealed record DescriptorOption(int Value, string Label);
 
 /// <summary>
 /// Renders a closed semantic row descriptor with the shared card appearance and status vocabulary.

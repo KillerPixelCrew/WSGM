@@ -15,7 +15,31 @@ namespace WSGM.Shell;
 /// </summary>
 internal sealed class PerformanceOverlayBridge : IDisposable
 {
-    private static readonly int[] PreferredFrameLimits = [0, 30, 40, 45, 60, 90, 120, 144, 165, 240];
+    /// <summary>
+    /// The top of the frame-limit slider, in frames per second.
+    /// </summary>
+    /// <remarks>
+    /// 280 rather than whatever RTSS reports it will accept (1000). The slider has to be crossable
+    /// on a thumbstick, and a range that reaches a thousand makes every rate anyone actually uses
+    /// live in its first third. This covers every panel a handheld drives, internal or attached.
+    /// </remarks>
+    private const int MaximumFrameLimit = 280;
+
+    /// <summary>The five overlay notches, named as WSGM renders them.</summary>
+    /// <remarks>
+    /// These are WSGM's own OSD levels from <c>Core\RtssOsd.cs</c>, not Valve's wire enum — the
+    /// renderer behind them is ours, and the wire translation happens at the QAM boundary. The row
+    /// showed "On" for every one of 1 to 4 before this, which made four different overlays
+    /// indistinguishable from each other in the one place they are chosen.
+    /// </remarks>
+    private static readonly (int Level, string Label)[] OverlayLevelNames =
+    [
+        (0, "Off"),
+        (1, "Minimal"),
+        (2, "Extended"),
+        (3, "Full"),
+        (4, "Custom"),
+    ];
     private readonly PerformanceService _service;
     private bool _disposed;
 
@@ -50,14 +74,22 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             DescribeLayer(state.FrameLimitLayer, state.Target),
             FormatFrameLimit(state),
             ready && capabilities!.Supports(PerformanceControl.FrameLimit),
-            StatusFor(state, PerformanceControl.FrameLimit)));
+            StatusFor(state, PerformanceControl.FrameLimit)) with
+        {
+            Range = ready ? FrameLimitRange(capabilities!) : null,
+            Value = PreferredValue(state, PerformanceControl.FrameLimit) ?? 0,
+        });
         rows.Add(BuildRow(
             "overlay-level",
             "Performance overlay",
             DescribeLayer(state.OverlayLevelLayer, state.Target),
             FormatOverlayLevel(state),
             ready && capabilities!.Supports(PerformanceControl.OverlayLevel),
-            StatusFor(state, PerformanceControl.OverlayLevel)));
+            StatusFor(state, PerformanceControl.OverlayLevel)) with
+        {
+            Options = ready ? OverlayLevelOptions(capabilities!) : [],
+            Value = PreferredValue(state, PerformanceControl.OverlayLevel),
+        });
         List<DescriptorRow> profileRows =
         [
             BuildApplicationRow(state),
@@ -86,6 +118,45 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         return new PerformanceOverlaySnapshot(true, DescribeStatus(state), rows, profileRows);
     }
 
+    /// <summary>Writes an exact value to the control one of the value rows owns.</summary>
+    /// <param name="rowId">The row being set, <c>frame-limit</c> or <c>overlay-level</c>.</param>
+    /// <param name="value">The value the slider settled on, or the option that was chosen.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>A task completing once the write has been attempted.</returns>
+    /// <remarks>
+    /// The counterpart to <see cref="InvokeAsync"/>, which advances a row that is pressed. A row
+    /// carrying a range or options is not pressed, so it never reaches that path and never needs a
+    /// "what comes next" rule — the control already knows the value the user asked for.
+    /// </remarks>
+    internal async Task SetValueAsync(
+        string rowId,
+        int value,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        PerformanceControl control = rowId switch
+        {
+            "frame-limit" => PerformanceControl.FrameLimit,
+            "overlay-level" => PerformanceControl.OverlayLevel,
+            _ => throw new InvalidOperationException($"The row '{rowId}' carries no value."),
+        };
+
+        PerformanceState state = _service.Current;
+        if (state.Probe.Capabilities?.IsValid(control, value) is not true)
+        {
+            Log.Warn($"Performance {control} not set to {value}: RTSS does not accept that value.");
+            return;
+        }
+
+        await _service.SetAsync(
+            control,
+            value,
+            PerformancePersistenceTarget.Automatic,
+            "overlay",
+            Guid.NewGuid().ToString("N"),
+            cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task InvokeAsync(
         DescriptorRow row,
         CancellationToken cancellationToken = default)
@@ -94,7 +165,6 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         ArgumentNullException.ThrowIfNull(row);
         PerformanceControl? control = row.Id switch
         {
-            "frame-limit" => PerformanceControl.FrameLimit,
             "overlay-level" => PerformanceControl.OverlayLevel,
             _ => null,
         };
@@ -142,6 +212,11 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             or PerformanceCommandPhase.Deferred;
     }
 
+    /// <summary>Advances the overlay level, the one performance control that still cycles.</summary>
+    /// <remarks>
+    /// The frame limit does not: it is a slider now, and an OEM button that stepped it one notch at
+    /// a time through a 280-value range would be a button that does nothing useful.
+    /// </remarks>
     private async Task<PerformanceCommandState> SetNextAsync(
         PerformanceControl control,
         string origin,
@@ -150,9 +225,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         PerformanceState state = _service.Current;
         RtssCapabilities capabilities = state.Probe.Capabilities
             ?? throw new InvalidOperationException("RTSS capabilities are unavailable.");
-        int next = control == PerformanceControl.FrameLimit
-            ? NextFrameLimit(state, capabilities)
-            : NextOverlayLevel(state, capabilities);
+        int next = NextOverlayLevel(state, capabilities);
         return await _service.SetAsync(
             control,
             next,
@@ -344,22 +417,17 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         };
     }
 
-    private static int NextFrameLimit(PerformanceState state, RtssCapabilities capabilities)
-    {
-        int current = PreferredValue(state, PerformanceControl.FrameLimit)
-            ?? capabilities.MinimumFrameLimit;
-        int[] choices = PreferredFrameLimits
-            .Where(value => capabilities.IsValid(PerformanceControl.FrameLimit, value))
-            .Distinct()
-            .Order()
-            .ToArray();
-        if (choices.Length == 0)
-        {
-            throw new InvalidOperationException("RTSS published no usable frame-limit values.");
-        }
+    /// <summary>The slider bounds RTSS will actually accept, clamped to a crossable range.</summary>
+    private static DescriptorRange FrameLimitRange(RtssCapabilities capabilities) => new(
+        Math.Max(0, capabilities.MinimumFrameLimit),
+        Math.Min(MaximumFrameLimit, capabilities.MaximumFrameLimit),
+        Step: 1);
 
-        return choices.FirstOrDefault(value => value > current, choices[0]);
-    }
+    /// <summary>The named notches this RTSS build accepts, in order.</summary>
+    private static IReadOnlyList<DescriptorOption> OverlayLevelOptions(RtssCapabilities capabilities) =>
+        [.. OverlayLevelNames
+            .Where(entry => capabilities.OverlayLevels.Contains(entry.Level))
+            .Select(entry => new DescriptorOption(entry.Level, entry.Label))];
 
     private static int NextOverlayLevel(PerformanceState state, RtssCapabilities capabilities)
     {

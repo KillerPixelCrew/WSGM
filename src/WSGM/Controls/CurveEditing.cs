@@ -58,6 +58,11 @@ internal static class CurveEditing
     /// <param name="input">Requested input.</param>
     /// <param name="output">Requested output.</param>
     /// <param name="bounds">The editing bounds.</param>
+    /// <param name="risingOutput">
+    /// Whether outputs must not decrease along the curve. A fan table is written to firmware that
+    /// requires it, and a curve that dips is refused on apply — so a drag that would produce one is
+    /// held against its neighbours here instead of failing later with nothing to show for it.
+    /// </param>
     /// <returns>The curve with the point moved, or the original if the index is out of range.</returns>
     /// <remarks>
     /// The moved point is held between its neighbours rather than being allowed to swap with them.
@@ -70,7 +75,8 @@ internal static class CurveEditing
         int index,
         int input,
         int output,
-        CurveBounds bounds)
+        CurveBounds bounds,
+        bool risingOutput = false)
     {
         ArgumentNullException.ThrowIfNull(points);
         if (index < 0 || index >= points.Count)
@@ -93,8 +99,22 @@ internal static class CurveEditing
                 ? bounds.InputMaximum
                 : Math.Clamp(bounds.ClampInput(input), lowerLimit, upperLimit);
 
+        int resolvedOutput = bounds.ClampOutput(output);
+        if (risingOutput)
+        {
+            int outputFloor = firstPoint ? bounds.OutputMinimum : points[index - 1].Output;
+            int outputCeiling = lastPoint ? bounds.OutputMaximum : points[index + 1].Output;
+            // A neighbour pair that already dips — a curve stored before this rule, or written by
+            // something else — would give an empty range and clamp to nonsense. Keep the requested
+            // value in that case and let the next move of the offending neighbour settle it.
+            if (outputFloor <= outputCeiling)
+            {
+                resolvedOutput = Math.Clamp(resolvedOutput, outputFloor, outputCeiling);
+            }
+        }
+
         List<CurvePoint> moved = [.. points];
-        moved[index] = new CurvePoint(resolvedInput, bounds.ClampOutput(output));
+        moved[index] = new CurvePoint(resolvedInput, resolvedOutput);
         return moved;
     }
 

@@ -32,10 +32,18 @@ internal enum DeviceOverlaySection
     /// <summary>Named hardware profiles the user selects between.</summary>
     Profiles,
 
-    /// <summary>Power limits, fans, charge behaviour, and temperature readings.</summary>
+    /// <summary>Power limits, fans, charge behaviour, and how the device performs.</summary>
     PowerAndThermals,
 
-    /// <summary>The physical controller, its motion sensors, and haptics.</summary>
+    /// <summary>
+    /// The physical controller and everything that describes it, glyph artwork included.
+    /// </summary>
+    /// <remarks>
+    /// Glyphs were a page of their own next to this one, which meant a user looking for controller
+    /// settings had two cards to guess between and neither held all of it. The preview and input
+    /// test still render here; they are a picture of this controller's buttons, not a separate
+    /// subject.
+    /// </remarks>
     ControllerAndMotion,
 
     /// <summary>Device-specific OEM buttons and their assignments.</summary>
@@ -43,9 +51,6 @@ internal enum DeviceOverlaySection
 
     /// <summary>Lighting and any remaining device features.</summary>
     LightingAndFeatures,
-
-    /// <summary>Physical glyph presentation, preview, and input test.</summary>
-    Glyphs,
 
     /// <summary>Health, recovery, and anything that exists to be read rather than changed.</summary>
     Diagnostics,
@@ -117,7 +122,16 @@ internal sealed record DeviceOverlayPluginSection(
     string Title,
     string Description,
     SectionIcon Icon,
-    IReadOnlyList<DeviceOverlayCategory> Categories);
+    IReadOnlyList<DeviceOverlayCategory> Categories)
+{
+    /// <summary>The subject this section claims, which is how a WSGM-owned section finds its home.</summary>
+    /// <remarks>
+    /// Carried through from the declaration rather than inferred from the title: a plugin may call
+    /// its power page anything, and the key is the only part of the declaration that means the same
+    /// thing to WSGM. <see cref="SettingSectionKey.Custom"/> claims no subject and absorbs nothing.
+    /// </remarks>
+    public SettingSectionKey Key { get; init; } = SettingSectionKey.Custom;
+}
 
 /// <summary>One control in the glyph preview.</summary>
 /// <param name="Control">The physical control this glyph stands for.</param>
@@ -1092,7 +1106,10 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                     .Select(entry => new DeviceOverlayCategory(
                         entry.Category.CategoryId,
                         SectionTitle(entry.Category.Key, entry.Category.CustomTitle)))
-                    .ToList()))
+                    .ToList())
+            {
+                Key = item.Section.Key,
+            })
             .ToList();
 
     /// <summary>The WSGM-owned title behind a section key; custom text is bounded plugin text.</summary>
@@ -1254,6 +1271,10 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         DisplayKey.Controller => "Controller",
         DisplayKey.Motion => "Motion",
         DisplayKey.Rumble => "Rumble",
+        DisplayKey.VariableRefreshRate => "Variable refresh rate",
+        // Reached only by a key this build does not know, which means a plugin compiled against a
+        // newer SDK. A missing arm here is invisible in the worst way — the row renders, with a
+        // label that describes nothing — so every key the SDK declares belongs above.
         _ => "Device control",
     };
 

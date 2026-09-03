@@ -85,6 +85,17 @@ QAM boundary in both directions, and everything behind it speaks notches.
 | 3     | Full (one row per subject)  | Full = 3                 |
 | 4     | Custom                      | Minimal = 4 (added last) |
 
+Those notch names are what the overlay's Performance overlay row offers, as a dropdown built from
+the levels the adapter actually publishes. It used to be a cycling button reading "On" for every one
+of 1 to 4, which made four different overlays indistinguishable in the one place they are chosen.
+The frame limit beside it is a slider over 0 to 280 FPS, zero reading "Off": the preset ladder it
+cycled through could not reach a rate the ladder did not contain, and 280 covers every panel a
+handheld drives while staying crossable on a thumbstick. Both write through
+`PerformanceOverlayBridge.SetValueAsync`, which refuses a value the adapter does not accept rather
+than sending it. `CyclePerformanceOverlayLevel` still cycles for the OEM button; there is
+deliberately no frame-limit equivalent, because stepping a 280-value range one notch at a time is
+not something a button can usefully do.
+
 Nonzero levels are drawn into one claimed RTSS OSD slot. `RtssOsdSlots` is a C# port of
 RTSSSharedMemoryNET's claim/update/release protocol, the library HandheldCompanion ships (vendoring
 its C++/CLI fork was declined). Offsets were verified against RTSS 2.21 on the Claw: OSD array at

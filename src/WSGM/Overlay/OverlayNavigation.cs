@@ -41,7 +41,6 @@ internal enum OverlayPage
     DeviceOem,
     DeviceLightingAndFeatures,
     DeviceColor,
-    DeviceGlyphs,
     DeviceDiagnostics,
 
     /// <summary>One plugin-declared Device section; the route carries which one.</summary>
@@ -211,8 +210,7 @@ internal sealed class OverlayNavigation
         OverlayPage.Device or OverlayPage.DeviceOverview or OverlayPage.DeviceProfiles
             or OverlayPage.DevicePowerAndThermals or OverlayPage.DeviceControllerAndMotion
             or OverlayPage.DeviceOem or OverlayPage.DeviceLightingAndFeatures
-            or OverlayPage.DeviceColor
-            or OverlayPage.DeviceGlyphs or OverlayPage.DeviceDiagnostics
+            or OverlayPage.DeviceColor or OverlayPage.DeviceDiagnostics
             or OverlayPage.DevicePluginSection
             => OverlayDestination.Device,
         OverlayPage.System => OverlayDestination.System,
