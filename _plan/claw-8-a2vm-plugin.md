@@ -395,8 +395,11 @@ drifts the view along one fixed diagonal. The plugin therefore measures the offs
 rest windows — gated on rate span, acceleration span and gravity magnitude, all sized from the
 captures above — and subtracts it. Subtraction only: no deadband and no zero-hold, because both
 replace the drift with a worse artifact. A steady yaw is invisible to every acceleration gate, so an
-implausible offset magnitude is refused and a later window may move a measured offset by at most a
-bounded fraction of a bounded per-axis correction. Never synthesize gravity or
+implausible offset magnitude is refused outright, a nearby window refines by a damped fraction, and
+a run of agreeing distant windows replaces the offset. That last path is what makes a device started
+aboard a moving vehicle recoverable: the turn is measured as the offset, but clamping refinement
+instead would freeze that value for the whole cycle, because every honest window afterwards is
+exactly the one a clamp rejects. Never synthesize gravity or
 orientation: if either physical source cannot be opened, motion stays passive. A report older than
 50 ms stops contributing angular velocity while its last measured acceleration continues anchoring
 fusion. Xbox drops motion; Steam Deck and DS4 receive the measured fields through their normal

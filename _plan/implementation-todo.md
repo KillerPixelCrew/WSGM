@@ -694,8 +694,15 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       acceleration span against a 0.023 peak, the latter also rejecting a slow tilt that holds
       gravity at 1 g. The preceding finding stands — subtraction only, no deadband and no
       zero-hold. A steady yaw is invisible to every acceleration gate, so an implausible offset
-      magnitude is refused and a later window may pull a measured offset by at most a bounded
-      fraction of a bounded per-axis correction.
+      magnitude is refused and a nearby window refines by a damped fraction.
+- [x] **A clamp on refinement would have frozen an offset measured during motion:** a device started
+      aboard a turning vehicle measures the turn as its offset — unavoidable without a heading
+      reference, since a constant-radius turn holds both the rate and the acceleration vector
+      steady. The first design then rejected every window further than the refinement limit, which
+      is exactly what an honest window looks like once the turn stops, so the wrong value survived
+      the whole device cycle. `ReacquireWindowCount` consecutive windows that agree with each other
+      but not with the measured offset now replace it outright, bounding the damage to a few
+      seconds; one distant window, or distant windows that disagree, still move nothing.
 - [ ] Attended after deployment: confirm a stationary device holds still in Steam and that the log
       reports the measured offset once, then tilt each physical axis and confirm Steam Deck and DS4
       targets move in the expected direction without a freefall state; then suspend/resume and
