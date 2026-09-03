@@ -63,11 +63,15 @@ owning Device page and its section-card count, so the Profiles page cannot disap
 no plugin publishes a hardware profile.
 
 Device lighting color opens `DeviceColorView` rather than cycling an opaque integer in the row. The
-hue field, RGB sliders, firmware brightness slider and exact `#RRGGBB` entry are staged locally;
-only the explicit Apply row invokes the capability, color first and then brightness when it changed.
-This is a persistence constraint: the Claw has no volatile RGB path, so a write on every controller
-step would wear and repeatedly commit its non-volatile lighting profile. `DeviceColorSpectrum`
-consumes Left/Right like a horizontal slider, so Up/Down still move focus.
+hue field, RGB sliders and exact `#RRGGBB` entry are staged locally; only the explicit Apply row
+invokes the capability. This is a persistence constraint: the Claw has no volatile RGB path, so a
+write on every controller step would wear and repeatedly commit its non-volatile lighting profile.
+`DeviceColorSpectrum` consumes Left/Right like a horizontal slider, so Up/Down still move focus.
+
+Brightness is not part of that editor. `lighting.brightness` is one device-wide value — the Claw's
+committed lighting profile carries a single brightness byte for all zones and separate colors per
+zone — so it renders as its own debounced slider row on the Lighting page. Repeating it inside each
+zone's color editor claimed a per-zone brightness the firmware does not have.
 
 ## Text entry
 

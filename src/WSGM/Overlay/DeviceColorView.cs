@@ -14,19 +14,17 @@ namespace WSGM.Overlay;
 /// <remarks>
 /// The editor stages every change locally and writes only when Apply is pressed. That is required
 /// for device lighting whose firmware persists every commit: navigating a picker must not stream
-/// writes into non-volatile profile memory. The full-spectrum field, the three channel sliders,
-/// and the firmware brightness slider all edit the same staged state; the overlay keyboard remains
-/// available for an exact hexadecimal value.
+/// writes into non-volatile profile memory. The full-spectrum field and the three channel sliders
+/// edit the same staged state; the overlay keyboard remains available for an exact hexadecimal
+/// value. Brightness is deliberately absent: it is one device-wide value, not a per-zone one, so it
+/// belongs to its own row on the Lighting page rather than to each zone's editor.
 /// </remarks>
 public sealed class DeviceColorView : OverlaySubView
 {
     private IDeviceOverlaySource? _source;
     private DeviceOverlayCapability? _capability;
-    private DeviceOverlayCapability? _brightnessCapability;
     private int _initialColor;
     private int _color;
-    private int _initialBrightness;
-    private int _brightness;
     private bool _applying;
 
     /// <summary>Guards the control↔state sync so one edit cannot echo through the others.</summary>
@@ -37,7 +35,6 @@ public sealed class DeviceColorView : OverlaySubView
     private DeviceColorSpectrum? _spectrum;
     private readonly Slider?[] _channels = new Slider?[3];
     private readonly TextBlock?[] _channelValues = new TextBlock?[3];
-    private TextBlock? _brightnessValue;
 
     /// <inheritdoc />
     protected override string LogScope => "Device color";
@@ -45,15 +42,7 @@ public sealed class DeviceColorView : OverlaySubView
     /// <summary>Stages the capability's observed color and opens its editor.</summary>
     /// <param name="source">The device source that owns command execution.</param>
     /// <param name="capability">A writable color capability.</param>
-    /// <param name="brightness">
-    /// The device's firmware brightness capability from the same snapshot, or null when it has
-    /// none. Staged and applied with the color, because "how bright are the rings" is part of the
-    /// one question this editor answers.
-    /// </param>
-    internal void Open(
-        IDeviceOverlaySource source,
-        DeviceOverlayCapability capability,
-        DeviceOverlayCapability? brightness = null)
+    internal void Open(IDeviceOverlaySource source, DeviceOverlayCapability capability)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(capability);
@@ -65,13 +54,6 @@ public sealed class DeviceColorView : OverlaySubView
 
         _source = source;
         _capability = capability;
-        _brightnessCapability = brightness is
-        { CanInvoke: true, CurrentValue: { Kind: CapabilityValueKind.Integer, IntegerValue: not null } }
-            ? brightness
-            : null;
-        _initialBrightness = Math.Clamp(
-            _brightnessCapability?.CurrentValue?.IntegerValue ?? 0, 0, 100);
-        _brightness = _initialBrightness;
         _initialColor = color & 0xFFFFFF;
         _color = _initialColor;
         _applying = false;
@@ -148,18 +130,10 @@ public sealed class DeviceColorView : OverlaySubView
             Icons.Wrench,
             _applying ? null : EditHex));
 
-        if (_brightnessCapability is not null)
-        {
-            right.Children.Add(SectionLabel("BRIGHTNESS"));
-            right.Children.Add(BrightnessRow());
-        }
-
         right.Children.Add(SectionLabel(""));
         right.Children.Add(PrimaryRow(
             _applying ? "Applying…" : "Apply",
-            _brightnessCapability is null
-                ? "Commit this color to the device"
-                : "Commit this color and brightness to the device",
+            "Commit this color to the device",
             Icons.Play,
             () =>
             {
@@ -201,31 +175,6 @@ public sealed class DeviceColorView : OverlaySubView
             SetColor((_color & ~mask) | (next << shift), source: slider);
         };
         return SliderRow(label, slider, value);
-    }
-
-    private Grid BrightnessRow()
-    {
-        Slider slider = new()
-        {
-            Minimum = 0,
-            Maximum = 100,
-            TickFrequency = 5,
-            Value = _brightness,
-            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-        };
-        TextBlock value = SliderValueText($"{_brightness}%");
-        _brightnessValue = value;
-        slider.ValueChanged += (_, _) =>
-        {
-            if (_updating || _applying)
-            {
-                return;
-            }
-
-            _brightness = Math.Clamp((int)Math.Round(slider.Value), 0, 100);
-            value.Text = $"{_brightness}%";
-        };
-        return SliderRow("Brightness", slider, value);
     }
 
     private static Grid SliderRow(string label, Slider slider, TextBlock value)
@@ -330,10 +279,7 @@ public sealed class DeviceColorView : OverlaySubView
             return;
         }
 
-        bool colorChanged = _color != _initialColor;
-        bool brightnessChanged = _brightnessCapability is not null
-            && _brightness != _initialBrightness;
-        if (!colorChanged && !brightnessChanged)
+        if (_color == _initialColor)
         {
             RequestClose();
             return;
@@ -344,30 +290,14 @@ public sealed class DeviceColorView : OverlaySubView
         bool applied = false;
         try
         {
-            if (colorChanged)
+            await source.InvokeAsync(capability with
             {
-                await source.InvokeAsync(capability with
+                NextValue = new CapabilityValue
                 {
-                    NextValue = new CapabilityValue
-                    {
-                        Kind = CapabilityValueKind.Color,
-                        ColorValue = _color,
-                    },
-                }).ConfigureAwait(true);
-            }
-
-            if (brightnessChanged && _brightnessCapability is { } brightness)
-            {
-                await source.InvokeAsync(brightness with
-                {
-                    NextValue = new CapabilityValue
-                    {
-                        Kind = CapabilityValueKind.Integer,
-                        IntegerValue = _brightness,
-                    },
-                }).ConfigureAwait(true);
-            }
-
+                    Kind = CapabilityValueKind.Color,
+                    ColorValue = _color,
+                },
+            }).ConfigureAwait(true);
             applied = true;
         }
         finally

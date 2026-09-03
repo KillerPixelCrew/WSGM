@@ -641,7 +641,6 @@ public partial class OverlayWindow : Window
         }
 
         DescriptorStatusRow? restoreFocus = null;
-        DeviceOverlayCapability? brightness = FindBrightness(snapshot);
         TextBlock sectionHeading = new()
         {
             Text = pluginSection.Title.ToUpperInvariant(),
@@ -663,7 +662,7 @@ public partial class OverlayWindow : Window
                     continue;
                 }
 
-                DescriptorStatusRow button = CreateDeviceCapabilityRow(capability, key, brightness);
+                DescriptorStatusRow button = CreateDeviceCapabilityRow(capability, key);
                 DeviceCapabilityList.Children.Add(button);
                 if (string.Equals(key, focusedKey, StringComparison.Ordinal))
                 {
@@ -706,11 +705,6 @@ public partial class OverlayWindow : Window
         return restoreFocus;
     }
 
-    /// <summary>The firmware brightness capability paired into the color editor, when one exists.</summary>
-    private static DeviceOverlayCapability? FindBrightness(DeviceOverlaySnapshot snapshot) =>
-        snapshot.Capabilities.FirstOrDefault(capability =>
-            capability.Role is CapabilityRole.LightingBrightness);
-
     /// <summary>WSGM's geometry for a declared section icon, or null for the shared default.</summary>
     private static Avalonia.Media.Geometry? SectionIconFor(SectionIcon icon) => icon switch
     {
@@ -731,7 +725,6 @@ public partial class OverlayWindow : Window
         string? focusedKey)
     {
         DescriptorStatusRow? restoreFocus = null;
-        DeviceOverlayCapability? sectionBrightness = FindBrightness(snapshot);
         TextBlock heading = new()
         {
             Text = DeviceSectionLabel(section),
@@ -752,10 +745,7 @@ public partial class OverlayWindow : Window
                 continue;
             }
 
-            DescriptorStatusRow button = CreateDeviceCapabilityRow(
-                capability,
-                key,
-                sectionBrightness);
+            DescriptorStatusRow button = CreateDeviceCapabilityRow(capability, key);
             DeviceCapabilityList.Children.Add(button);
             if (string.Equals(key, focusedKey, StringComparison.Ordinal))
             {
@@ -1395,8 +1385,7 @@ public partial class OverlayWindow : Window
 
     private DescriptorStatusRow CreateDeviceCapabilityRow(
         DeviceOverlayCapability capability,
-        string key,
-        DeviceOverlayCapability? brightness = null)
+        string key)
     {
         DescriptorStatusRow button = new();
         button.Apply(new DescriptorRow(
@@ -1427,7 +1416,7 @@ public partial class OverlayWindow : Window
             if (capability.CurrentValue is
                 { Kind: CapabilityValueKind.Color, ColorValue: not null })
             {
-                DeviceColorHost.Open(bridge, capability, brightness);
+                DeviceColorHost.Open(bridge, capability);
                 EnterSubView(OverlayPage.DeviceColor);
                 return;
             }
