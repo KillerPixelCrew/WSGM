@@ -331,10 +331,17 @@ public partial class OverlayWindow : Window
 
     private void OnDeviceChanged() => QueueLiveRefresh(DeviceLiveRefresh);
 
-    /// <summary>True while focus is on an interactive value control inside the capability list — a
-    /// slider, dropdown, toggle or textbox the user is adjusting. A telemetry-driven rebuild while
+    /// <summary>True while focus is on an interactive value control inside <paramref name="list"/> —
+    /// a slider, dropdown, toggle or textbox the user is adjusting. A telemetry-driven rebuild while
     /// one is focused would destroy it under the user, so the refresh is skipped until they leave.</summary>
-    private bool IsEditingDeviceValue()
+    /// <param name="list">The panel about to be torn down and rebuilt.</param>
+    /// <remarks>
+    /// Asked for both row lists. The performance rows are a separate panel from the capability list
+    /// but rebuild on the same kind of event — RTSS republishes its readback every poll — so the
+    /// frame-limit slider was the one value control on the Device page with no such protection:
+    /// focus landed on it and the next readback two seconds later deleted the control under it.
+    /// </remarks>
+    private bool IsEditingValueIn(Control list)
     {
         if (TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement()
             is not Control focused)
@@ -352,7 +359,7 @@ public partial class OverlayWindow : Window
 
         for (Visual? node = focused; node is not null; node = node.GetVisualParent())
         {
-            if (ReferenceEquals(node, DeviceCapabilityList))
+            if (ReferenceEquals(node, list))
             {
                 return true;
             }
@@ -467,7 +474,7 @@ public partial class OverlayWindow : Window
         // refresh; rebuilding would destroy the focused slider/dropdown mid-adjust — the pad
         // cannot hold Left/Right across it, and the row's debounced write timer would die with the
         // row before it commits. The next change after the user moves on rebuilds as normal.
-        if (IsEditingDeviceValue())
+        if (IsEditingValueIn(DeviceCapabilityList))
         {
             return;
         }
@@ -1489,14 +1496,24 @@ public partial class OverlayWindow : Window
         PlacePerformanceSection(_navigation.IsVisible(OverlayDestination.Device));
         PerformanceOverlaySnapshot? snapshot = _performanceSource?.Snapshot();
         PerformanceSection.IsVisible = snapshot?.Visible is true && PerformanceBelongsOnCurrentPage();
-        PerformanceRows.Children.Clear();
         if (snapshot is not { Visible: true })
         {
+            PerformanceRows.Children.Clear();
             PerformanceStatus.Text = string.Empty;
             return;
         }
 
         PerformanceStatus.Text = snapshot.Status;
+
+        // The status line above is still worth updating, but the rows are not torn down while the
+        // user is on the frame-limit slider: RTSS raises a state change on every readback whether
+        // anything moved or not, and rebuilding takes the focused slider with it.
+        if (IsEditingValueIn(PerformanceRows))
+        {
+            return;
+        }
+
+        PerformanceRows.Children.Clear();
         string? focusedKey = CurrentSemanticFocusKey();
         DescriptorStatusRow? restoreFocus = null;
         // On Device the per-application enable toggle is promoted to the headline toggle on the root,
