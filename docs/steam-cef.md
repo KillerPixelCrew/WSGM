@@ -5,6 +5,10 @@ section says device-verified or live-verified, it encodes something that only re
 real hardware or against a live Steam client, and changing it without re-verifying is a regression
 waiting to happen.
 
+The mechanism itself, laid out end to end with its patch inventory, gates, rows, deadlines and log
+keys, is in `steam-cef-system.md`; the toolkit it is built on is described in
+`external\steam-ui-toolkit\docs\reference.md`.
+
 ## Steam Input handheld-glyph selector
 
 **Live-verified 2026-08-28 against the local Windows Steam client.** The controller selector is

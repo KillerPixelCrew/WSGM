@@ -71,6 +71,8 @@ outcome without re-verifying it is not. Read the relevant topic before editing:
 | `docs\steam-input.md` | Steam Input lease, proxy DLL, controller blocking |
 | `docs\elevation.md` | elevation, de-elevation, scheduled tasks, `WSGM.Launch` |
 | `docs\steam-cef.md` | CEF transport, QAM/Steam UI patches, tabs, glyphs, downloads, live probes |
+| `docs\steam-cef-system.md` | the CEF host mechanism in detail: Steam discovery, transport gate, session host, injected asset, gates, native QAM, library features, tooling |
+| `external\steam-ui-toolkit\docs\reference.md` | the toolkit: transport, patch lifecycle, bridge, modules, ownership, extensions |
 | `docs\rtss.md` | RTSS discovery/profiles, performance state and AutoTDP |
 | `docs\sd-cards.md` | card identity, formatting, libraries and manager |
 | `docs\overlay-and-input.md` | overlay, SDL/gamepad ownership, touch and raw input |
