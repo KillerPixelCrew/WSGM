@@ -53,6 +53,12 @@ carries the open section's id in the route rather than adding an enum value per 
 grouped under the declared category eyebrows in sort-then-snapshot order. A section that vanishes
 with a descriptor generation while its page is open renders a plain "no longer available" line.
 
+Every one of those pages ends in a Back row that calls the same leave path B does, because a Device
+section has no chrome of its own — the tab strip switches destinations, not levels — and a
+touch-only user had no way off the page they opened. The row carries the device's East face glyph
+where one resolves. It is appended after the render diagnostic, so a section that draws nothing but
+its own way out still logs as an empty page.
+
 Per-application performance profiles belong to Device → Profiles; they are not a second detector and
 not a device-plugin feature. `PerformanceOverlayBridge` projects the session's one
 `PerformanceService` into closed rows. The value rows also sit beside the power controls on Device →

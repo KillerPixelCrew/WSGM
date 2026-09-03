@@ -51,6 +51,10 @@ public partial class OverlayWindow : Window
     private const int DeviceLiveRefresh = 1;
     private const int PerformanceLiveRefresh = 2;
 
+    /// <summary>Focus key of the row that leaves a Device page. One key for every page, because
+    /// only one of those rows exists at a time and a rebuild has to put focus back on it.</summary>
+    private const string DeviceBackFocusKey = "device.back";
+
     /// <summary>Raised when the user requests to start or focus the home application.</summary>
     public event Action? HomeAppRequested;
 
@@ -533,8 +537,34 @@ public partial class OverlayWindow : Window
                 + $"recovery={snapshot.Recovery is not null}",
             DeviceCapabilityList.Children.Count == 0 ? LogLevel.Warn : LogLevel.Info);
 
-        restoreFocus?.Focus(NavigationMethod.Directional);
+        // Added after the line above so it still counts the rows the page actually published: a
+        // section that draws nothing but its way out is an empty page and must keep saying so.
+        Control? focusTarget = restoreFocus;
+        if (openSection is { } leavingSection)
+        {
+            focusTarget = AddDeviceBackRow(focusedKey, () => LeaveDeviceSection(leavingSection))
+                ?? focusTarget;
+        }
+        else if (openPluginSection is not null)
+        {
+            focusTarget = AddDeviceBackRow(focusedKey, LeaveDevicePluginSection) ?? focusTarget;
+        }
+
+        focusTarget?.Focus(NavigationMethod.Directional);
         RenderPins();
+    }
+
+    /// <summary>Appends the leave row to the open Device page.</summary>
+    /// <param name="focusedKey">The focus key held before the rebuild.</param>
+    /// <param name="onBack">Leaves the page.</param>
+    /// <returns>The row, when it is the control focus must be restored to; otherwise null.</returns>
+    private CardButton? AddDeviceBackRow(string? focusedKey, Action onBack)
+    {
+        CardButton back = CreateDeviceBackRow(onBack);
+        DeviceCapabilityList.Children.Add(back);
+        return string.Equals(DeviceBackFocusKey, focusedKey, StringComparison.Ordinal)
+            ? back
+            : null;
     }
 
     /// <summary>
@@ -1129,6 +1159,48 @@ public partial class OverlayWindow : Window
         RefreshDevicePanel();
         RefreshPerformancePanel();
         RestoreRootFocus(returnFocusKey);
+    }
+
+    /// <summary>Leaves a plugin-declared section page for the Device menu.</summary>
+    /// <remarks>
+    /// The same body as <see cref="LeaveDeviceSection"/>, for the page type that has no section
+    /// enum to name. Both redraws are needed: the capability list still holds the section's rows,
+    /// and the shared performance rows belong to one page, so what leaving shows is decided here.
+    /// </remarks>
+    private void LeaveDevicePluginSection()
+    {
+        string? sectionId = _navigation.SectionId;
+        UpdateGlyphInputObservation(false);
+        string? returnFocusKey = _navigation.Pop()
+            ?? (sectionId is null ? null : "device.section.plugin." + sectionId);
+        RefreshDevicePanel();
+        RefreshPerformancePanel();
+        RestoreRootFocus(returnFocusKey);
+    }
+
+    /// <summary>The row that leaves the open Device page, at the end of every one of them.</summary>
+    /// <param name="onBack">Leaves the page — the same call B makes.</param>
+    /// <remarks>
+    /// A Device section is a page with no chrome of its own: the tab strip switches destinations
+    /// rather than levels, so until this row existed the only way out of one was B on a pad or
+    /// Escape on a keyboard, and a touch-only user was stuck on the page they opened. It carries
+    /// the device's own East face glyph where one resolves, so the row and the button that does the
+    /// same thing read as one action.
+    /// </remarks>
+    private CardButton CreateDeviceBackRow(Action onBack)
+    {
+        CardButton back = new()
+        {
+            Tag = DeviceBackFocusKey,
+            Title = "Back",
+            Description = "Return to the Device menu",
+            IconGeometry = Icons.ExitFullscreen,
+            TrailingText = "B",
+            TrailingGlyph = _deviceBridge?.NavigationHint(GlyphControlId.FaceEast),
+            Margin = new Thickness(0, 8, 0, 0),
+        };
+        back.Click += (_, _) => onBack();
+        return back;
     }
 
     /// <summary>Starts or stops the glyph input test's sample observation.</summary>
@@ -2122,6 +2194,11 @@ public partial class OverlayWindow : Window
                 if (DeviceOverlaySectionPages.SectionFor(_navigation.Page) is { } leaving)
                 {
                     LeaveDeviceSection(leaving);
+                    return true;
+                }
+                if (_navigation.Page is OverlayPage.DevicePluginSection)
+                {
+                    LeaveDevicePluginSection();
                     return true;
                 }
 
