@@ -769,7 +769,10 @@ opaque `VT_UI4` field 34 distinguishes fresh hardware reports from repeated poll
 cycle requests the gyro's 10 ms and accelerometer's 2 ms driver minima, polls every 2 ms, restores
 the prior intervals on release when still owned, and calibrates zero-rate bias from 32 stable rest
 reports. Readings older than 50 ms stop contributing angular velocity and the frame average
-preserves their area. No acceleration or orientation is synthesized.
+preserves their area. Fresh reports also enter the non-blocking `%LOCALAPPDATA%\WSGM\gyro.csv`
+diagnostic with raw/corrected vectors, counters, sensor/receive timing, and intervening duplicate or
+failed poll counts. It retains one 16 MiB rotation and never emits per-sample lines into `wsgm.log`.
+No acceleration or orientation is synthesized.
 
 Haptics: low and high frequency native, triggers unsupported, 250 frames per second,
 `MinimumStartIntensity = 56/255` and `MinimumPulse = 10 ms` (Claw sweep, 2026-09-02). Output report

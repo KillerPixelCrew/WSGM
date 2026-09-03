@@ -661,6 +661,10 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       stationary zero-rate bias over 32 fresh reports, and caps a transport-stale gyro at 50 ms.
       Both die-aligned vectors enter the application as `(X, Z, -Y)`; the Neptune encoder applies
       SDL's inverse once and retains the Deck's 16 counts/(degree/second) and 16,384 counts/g scales.
+- [x] Add a separate bounded gyro CSV for the attended jitter investigation. Fresh physical reports
+      are queued away from the poller into `%LOCALAPPDATA%\WSGM\gyro.csv` with one 16 MiB rotation;
+      rows retain raw, bias-corrected and acceleration vectors, hardware-counter deltas, sensor and
+      monotonic receive cadence, intervening duplicate/read-failure counts, and diagnostic drops.
 - [ ] Attended after deployment: tilt each physical axis and confirm Steam Deck and DS4 targets move
       in the expected direction without a freefall state; then suspend/resume and disable/re-enable
       Device Integration while confirming the legacy sensor handle is released and reacquired.

@@ -375,6 +375,10 @@ Solution `VID_8087&PID_0AC2`:
   prior current interval; release restores it only if no other client changed the value meanwhile.
 - The plugin accepts only the exact friendly names, custom type, ready state, Intel HID identity,
   required axes, and gyrometer counter.
+- Fresh physical reports are recorded asynchronously in `%LOCALAPPDATA%\WSGM\gyro.csv`, with one
+  16 MiB predecessor. Each culture-invariant row keeps raw, bias-corrected, and accelerometer
+  vectors plus sensor/receive timing, counter deltas, duplicate polls, read failures, and diagnostic
+  queue drops. The bounded writer never performs file I/O on the sensor polling path.
 - `SetMotionStatus(0x2F)` produced no reports/ACK and is not another source.
 
 The die-aligned physical gyro and accelerometer use one application-axis transform `(X, Z, -Y)`.
