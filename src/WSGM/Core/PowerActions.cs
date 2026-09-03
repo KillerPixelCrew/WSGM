@@ -11,7 +11,8 @@ public static class PowerActions
 {
     /// <summary>Puts the device into standby. The suspend runs off the caller's thread:
     /// SetSuspendState does not return until the system resumes, and the quick-access
-    /// panel's deferred close (invariant 3) needs its dispatcher back immediately.</summary>
+    /// panel's deferred close needs its dispatcher back immediately; see the touch-promotion
+    /// finding in <c>docs\overlay-and-input.md</c>.</summary>
     public static void Standby()
     {
         Suspend(hibernate: false, "standby");

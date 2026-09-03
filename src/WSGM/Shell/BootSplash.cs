@@ -10,7 +10,8 @@ namespace WSGM.Shell;
 /// (short overlap + fade), on timeout, when quick access appears, or by its own
 /// Switch-to-desktop button. Deliberately takes NO Steam Input lease: the splash dies
 /// exactly when Steam's window takes the screen, and a held lease at that moment is
-/// the device-verified state that breaks Big Picture's pad input (invariant 1).</summary>
+/// the device-verified state that breaks Big Picture's pad input; see
+/// <c>docs\steam-input.md</c>, "Steam Input's desktop profile swallows the controller".</summary>
 public sealed class BootSplash
 {
     // Tight poll: Big Picture's UI (steamwebhelper/CEF) SUSPENDS rendering while

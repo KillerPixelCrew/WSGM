@@ -507,7 +507,7 @@ public sealed class OverlayController : IDisposable
         // but it is read HERE, at the top of an open, so it takes effect at the NEXT
         // surface open, not on the surface already on screen. A lease already applied
         // is deliberately NOT released when the opt-out arrives mid-surface: the
-        // release hands the pad back to Steam's desktop profile, which per invariant 1
+        // release hands the pad back to Steam's desktop profile, which per docs\steam-input.md
         // swallows it from SDL system-wide, so a controller user who turned this off
         // from the open Settings window would lose navigation on the very click that
         // saved it. The lease is scoped to the surface lifetime by specification
@@ -524,7 +524,7 @@ public sealed class OverlayController : IDisposable
         // process-wide, so "applied" can just as well mean ANOTHER owner holds it
         // (the settings window this panel opened). Claiming it under our own name is
         // what stops that owner's release from leaving this surface unblocked —
-        // invariant 1. AcquireFor is a no-op inside the blocker when the lease is
+        // docs\steam-input.md. AcquireFor is a no-op inside the blocker when the lease is
         // already live, so an inherited lease still costs no release/re-inject churn.
         if (_leaseAcquireTask is { IsCompleted: false })
         {
@@ -563,7 +563,7 @@ public sealed class OverlayController : IDisposable
                 {
                     // The acquire logs its own failures and does not throw; if one
                     // ever did, the release must still run — a swallowed release is
-                    // a lease that outlives every surface (invariant 1).
+                    // a lease that outlives every surface; see docs\steam-input.md.
                     Log.Warn($"Steam Input lease acquire faulted before release ({owner}): {ex.Message}");
                 }
             }
@@ -573,7 +573,8 @@ public sealed class OverlayController : IDisposable
 
     /// <summary>Picking an Open apps chip dismisses the sheet and brings the app
     /// forward (Steam via the UIPI-proof protocol). The switched-to window must stay
-    /// foreground, so the sheet's focus restore is suppressed (invariant 6).</summary>
+    /// foreground, so the sheet's focus restore is suppressed; see the focus-restore finding in
+    /// <c>docs\overlay-and-input.md</c>.</summary>
     private void PickWindow(AppSwitcherEntry entry)
     {
         Log.Info($"Open apps: focusing '{entry.Title}'.");
@@ -726,7 +727,7 @@ public sealed class OverlayController : IDisposable
                 // handoff that never happens must not make the eventual close skip
                 // the lease release (a lease with no surface on screen), and a
                 // suppressed focus restore must not stay latched for the rest of
-                // this panel's life (invariant 6).
+                // this panel's life; see the focus-restore finding in docs\overlay-and-input.md.
                 _handoffLease = false;
                 _settingsHandoffWindow?.CompleteSteamInputLeaseHandoff();
                 _settingsHandoffWindow = null;
@@ -1274,7 +1275,7 @@ public sealed class OverlayController : IDisposable
     /// <remarks>
     /// The sheet and its panels are all topmost, so between them z-order follows activation. A
     /// touch tap on a pill activates the sheet at the finger, opens the panel on release, and
-    /// then Windows' touch-synthesized mouse click arrives at the sheet (invariant 3 in
+    /// then Windows' touch-synthesized mouse click arrives at the sheet (the touch-promotion finding in
     /// <c>docs\overlay-and-input.md</c>): the hook swallows the click, but its
     /// <c>WM_MOUSEACTIVATE</c> had already re-activated the sheet, which raised it over the panel
     /// that opened one frame earlier. The mouse sends no second activation, so it worked.
@@ -1458,7 +1459,7 @@ public sealed class OverlayController : IDisposable
 
     /// <summary>Closes the radio panel through the same deferred path as the
     /// sheet: the 150 ms grace lets the window's WndProc hook eat
-    /// the touch-promotion ghost click (invariant 3). Closing immediately from
+    /// the touch-promotion ghost click; see docs\overlay-and-input.md. Closing immediately from
     /// the raw-touch callback destroys the window before the synthesized click
     /// arrives, and it then lands on whatever is underneath.</summary>
     private void CloseRadioPanel()
@@ -1647,7 +1648,7 @@ public sealed class OverlayController : IDisposable
     private IDisposable? _pendingEjectClose;
 
     /// <summary>Closes the Safe Eject panel after the touch-promotion grace
-    /// window (invariant 3).</summary>
+    /// window; see the touch-promotion finding in <c>docs\overlay-and-input.md</c>.</summary>
     private void CloseEjectPanel()
     {
         if (_ejectPanel is null || _ejectClosePending)
@@ -1860,7 +1861,8 @@ public sealed class OverlayController : IDisposable
     private void StartSwitcherRefresh()
     {
         StopSwitcherRefresh();
-        // Parameterless ctor + explicit Start (invariant 4).
+        // Parameterless ctor + explicit Start; see the DispatcherTimer finding in
+        // docs\overlay-and-input.md.
         _switcherRefresh = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _switcherRefresh.Tick += (_, _) => RefreshSwitcherEntries();
         _switcherRefresh.Start();

@@ -86,7 +86,7 @@ public static class Program
             try { ConfigStore.Mutate(static c => c.GameModeBootEnabled = false); } catch { }
             // Verify-and-wait: this path returns out of Main straight afterwards, so a
             // queued de-elevation check would be torn down before it ran and the user
-            // would be left with an ELEVATED explorer (breaks UWP — invariant 5).
+            // would be left with an elevated Explorer (breaks UWP); see docs\elevation.md.
             ExplorerControl.StartExplorerAndVerify();
             // A lease is pipe-backed, so a crashed shell releases it when Windows
             // closes its handles. A live shell can still be releasing normally.

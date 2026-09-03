@@ -21,7 +21,7 @@ public static class ExplorerControl
     /// <c>--restore-shell</c> both hand the user a desktop and then exit the process,
     /// so the fire-and-forget verification <see cref="StartExplorer"/> queues would be
     /// torn down before it ever ran, leaving an ELEVATED Explorer behind (which breaks
-    /// UWP: touch keyboard, Store apps — invariant 5). Costs the verification delay,
+    /// UWP: touch keyboard, Store apps; see <c>docs\elevation.md</c>). Costs the verification delay,
     /// which is why the normal transition path keeps using
     /// <see cref="StartExplorer"/>. <c>Panic()</c> deliberately does NOT use this: that
     /// process is already dying.</para></summary>

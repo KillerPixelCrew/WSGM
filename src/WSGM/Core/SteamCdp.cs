@@ -277,7 +277,7 @@ public static class SteamCdp
             // Everything at this path Steam has not mounted is a leftover, and so
             // is any surplus mounted duplicate beyond the one being kept.
             // nFolderIndex is a STABLE ID, not an array position (live-measured
-            // 2026-08-23, invariant 8): removing one entry does not renumber the
+            // live Steam client, 2026-08-23; see docs\steam-cef.md): removing one entry does not renumber the
             // others, so removing several in one pass off a single GetInstallFolders
             // snapshot is correct as written. No descending sort, and no re-fetch
             // between removals.
@@ -321,7 +321,7 @@ public static class SteamCdp
             // stable id, not a position. Steam's own store looks folders up with
             // find(f=>f.nFolderIndex==e) and exposes array position separately, and
             // removing index 2 of [0,1,2,3] leaves 0,1,3 (live-measured 2026-08-23,
-            // invariant 8). Iterating one snapshot in order is therefore correct.
+            // docs\steam-cef.md). Iterating one snapshot in order is therefore correct.
             + "for(const f of same){await SteamClient.InstallFolder.RemoveInstallFolder(f.nFolderIndex);removed++;}"
             + "return JSON.stringify({ok:true,removed:removed});}catch(e){return JSON.stringify({ok:false,result:(e&&e.result),message:(e&&e.message)});}})()";
     }

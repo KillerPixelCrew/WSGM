@@ -105,13 +105,17 @@ try {
     & dotnet @formatArgs
     if ($LASTEXITCODE -ne 0) { throw "C# whitespace format check failed" }
 
-    $styleArgs = @("format", "WSGM.slnx", "style", "--no-restore", "--severity", "warn", "--verbosity", "minimal")
+    # The documentation diagnostics are build errors already (warnaserror below). Left in the
+    # style pass, the fixer for them splices `/// <inheritdoc/>` into the middle of a declaration
+    # under -Fix, which corrupted CardButton.cs on 2026-09-03; they are for a person to write.
+    $documentationDiagnostics = @("--exclude-diagnostics", "CS1591", "CS1573")
+    $styleArgs = @("format", "WSGM.slnx", "style", "--no-restore", "--severity", "warn", "--verbosity", "minimal") + $documentationDiagnostics
     foreach ($path in $notOurs) { $styleArgs += @("--exclude", $path) }
     if (-not $Fix) { $styleArgs += "--verify-no-changes" }
     & dotnet @styleArgs
     if ($LASTEXITCODE -ne 0) { throw "C# style check failed" }
 
-    $analyzerArgs = @("format", "WSGM.slnx", "analyzers", "--no-restore", "--severity", "warn", "--verbosity", "minimal")
+    $analyzerArgs = @("format", "WSGM.slnx", "analyzers", "--no-restore", "--severity", "warn", "--verbosity", "minimal") + $documentationDiagnostics
     foreach ($path in $notOurs) { $analyzerArgs += @("--exclude", $path) }
     if (-not $Fix) { $analyzerArgs += "--verify-no-changes" }
     & dotnet @analyzerArgs

@@ -31,7 +31,7 @@ public partial class SettingsWindow : Window
     // When Settings is the on-screen surface in game mode it must hold the Steam
     // Input lease, exactly like the overlay: without it Steam's desktop profile
     // stays live over this window, grabs the pad from SDL and injects its own
-    // desktop bindings (invariant 1) — the ghost/double input.
+    // desktop bindings; see docs\steam-input.md — the ghost/double input.
     //
     // The lease is HANDED OVER from the sidebar, not re-taken: the overlay keeps
     // its (shared, static SteamInputBlocker) lease held across the open instead of
@@ -49,7 +49,7 @@ public partial class SettingsWindow : Window
     // Owner-scoped, like OverlayController's: the lease is shared static state, so a
     // surface that merely observes IsApplied cannot tell "I hold it" from "someone
     // else does" — and its release then drops the block out from under whichever
-    // surface is still on screen (invariant 1).
+    // surface is still on screen; see docs\steam-input.md.
     private readonly string _leaseOwner =
         $"settings-window#{System.Threading.Interlocked.Increment(ref _nextLeaseOwnerId)}";
     private readonly object _leaseSync = new();
@@ -660,7 +660,8 @@ public partial class SettingsWindow : Window
             // A cleared/restarted recording is the same hazard from the other
             // side — the UI already says nothing is being recorded, so the hook
             // would swallow the user's next keystroke anywhere and silently make
-            // it the hotkey (invariant 2: the hook exists only while recording).
+            // it the hotkey (the hook exists only while recording); see
+            // docs\overlay-and-input.md, "Raw input is observed, never intercepted".
             return;
         }
 

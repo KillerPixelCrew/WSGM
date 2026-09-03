@@ -303,7 +303,9 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             if (!operation.Task.IsCompleted)
             {
                 _ = RemoveCommandWhenCompleteAsync(operation);
-                return new DeviceCommandDispatch(CanceledCommand(command), operation.Task);
+                return new DeviceCommandDispatch(
+                    CanceledCommand(command, operation.DeadlinePassed),
+                    operation.Task);
             }
 
             return new DeviceCommandDispatch(await operation.Task.ConfigureAwait(false));
@@ -721,18 +723,27 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             CompletedAt = DateTimeOffset.UtcNow,
         };
 
-    private static CapabilityCommandResult CanceledCommand(CapabilityCommand command) => new()
-    {
-        CommandId = command.CommandId,
-        Outcome = DateTimeOffset.UtcNow >= command.Deadline
+    /// <param name="command">The command that did not produce a final result.</param>
+    /// <param name="deadlinePassed">Whether the command's own deadline is what cancelled it.</param>
+    /// <remarks>
+    /// Classified from the deadline source, not by comparing the wall clock with the deadline: the
+    /// source fires from a tick-resolution timer that can run ahead of <c>UtcNow</c> by up to one
+    /// tick, so the comparison alone called a deadline that had just fired Indeterminate.
+    /// </remarks>
+    private static CapabilityCommandResult CanceledCommand(
+        CapabilityCommand command,
+        bool deadlinePassed) => new()
+        {
+            CommandId = command.CommandId,
+            Outcome = deadlinePassed || DateTimeOffset.UtcNow >= command.Deadline
             ? CommandOutcome.TimedOut
             : CommandOutcome.Indeterminate,
-        Reason = new CapabilityReason(
+            Reason = new CapabilityReason(
             CapabilityReasonCode.Quiescing,
             "The command was canceled before the plugin produced a final result.",
             Retryable: false),
-        CompletedAt = DateTimeOffset.UtcNow,
-    };
+            CompletedAt = DateTimeOffset.UtcNow,
+        };
 
     private static DeviceCycleState MapOperationalState(PluginOperationalState state) => state switch
     {
@@ -828,6 +839,10 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
 
     private sealed class CommandOperation : IDisposable
     {
+        // The deadline has its own source so a cancellation can be attributed: the caller, the
+        // runtime's lifetime, or the command's own deadline, which is the one that reads as a
+        // timeout rather than an indeterminate result.
+        private readonly CancellationTokenSource _deadline = new();
         private readonly CancellationTokenSource _cancellation;
         private readonly TaskCompletionSource<CapabilityCommandResult> _completion = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -840,20 +855,26 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             CancellationToken lifetime)
         {
             Command = command;
-            _cancellation = CancellationTokenSource.CreateLinkedTokenSource(caller, lifetime);
+            _cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                caller,
+                lifetime,
+                _deadline.Token);
             TimeSpan remaining = command.Deadline - DateTimeOffset.UtcNow;
             if (remaining <= TimeSpan.Zero)
             {
-                _cancellation.Cancel();
+                _deadline.Cancel();
             }
             else
             {
-                _cancellation.CancelAfter(remaining);
+                _deadline.CancelAfter(remaining);
             }
         }
 
         internal CapabilityCommand Command { get; }
         internal CancellationToken Token => _cancellation.Token;
+
+        /// <summary>Whether the command's own deadline has fired.</summary>
+        internal bool DeadlinePassed => _deadline.IsCancellationRequested;
         internal Task<CapabilityCommandResult> Task => _completion.Task;
 
         internal void Start(Task<CapabilityCommandResult> task)
@@ -886,7 +907,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             }
             catch (OperationCanceledException)
             {
-                _completion.TrySetResult(CanceledCommand(Command));
+                _completion.TrySetResult(CanceledCommand(Command, DeadlinePassed));
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
@@ -902,6 +923,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable
             }
 
             _cancellation.Dispose();
+            _deadline.Dispose();
         }
     }
 

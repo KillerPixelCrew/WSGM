@@ -19,7 +19,7 @@ public static class SteamInputBlocker
     // The lease itself is process-wide, but several WSGM surfaces can need it at
     // the same time (the quick-access panel/taskbar and the settings window opened
     // from them). Each names itself here, so one surface closing cannot take the
-    // controller away from another that is still on screen — invariant 1.
+    // controller away from another that is still on screen; see docs\steam-input.md.
     private static readonly HashSet<string> Owners = new(StringComparer.Ordinal);
 
     private static SteamInputClient? _client;
@@ -132,7 +132,7 @@ public static class SteamInputBlocker
     /// <summary>Ends <paramref name="owner"/>'s claim and releases the shared lease
     /// only once no other owner still holds one. A surface closing must never drop
     /// the controller block out from under a surface that is still on screen
-    /// (invariant 1).</summary>
+    /// (see <c>docs\steam-input.md</c>).</summary>
     /// <param name="owner">The owner whose claim ends.</param>
     /// <param name="reason">Why the claim ends; logged for device diagnosis.</param>
     public static void ReleaseFor(string owner, string reason)

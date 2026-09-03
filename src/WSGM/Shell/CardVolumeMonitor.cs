@@ -54,7 +54,7 @@ internal enum CardLibraryAction
 /// rescanned rather than the reported device being resolved back to a mount point.
 /// </para>
 /// <para>
-/// Steam is only ever changed through its own front-end (invariant 8): registrations
+/// Steam is only ever changed through its own front-end (see <c>docs\steam-cef.md</c>): registrations
 /// are removed and added over the CEF bridge, never by hand-writing
 /// <c>libraryfolders.vdf</c> under a live client. With Steam closed there is nothing to
 /// reconcile — its next start reads the file and rebuilds the list correctly by itself.

@@ -261,7 +261,34 @@
       writable: false,
     });
   };
-  const claimed = (host, keys) => !!host && host[keys.marker] === true;
+  // The names a previous build wrote the same markers under, before the library's identifiers left
+  // its first consumer's namespace. A marker is a string key on a live client object, and the client
+  // outlives the bridge that wrote it: refusing the old spelling would strand every surface until
+  // Steam restarted, which is the orphan trap this file exists to close. Read as ours, never written.
+  const legacyKey = (key) => key.replace(/^__steamUi/u, "__wsgm");
+  const claimed = (host, keys) =>
+    !!host && (host[keys.marker] === true || host[legacyKey(keys.marker)] === true);
+  // What a claim stored as the displaced original, under either spelling of the key.
+  const storedOriginal = (host, keys) => {
+    const record = host;
+    if (Object.hasOwn(record, keys.original)) return record[keys.original];
+    if (Object.hasOwn(record, legacyKey(keys.original))) return record[legacyKey(keys.original)];
+    return undefined;
+  };
+  const hasStoredOriginal = (host, keys) =>
+    Object.hasOwn(host, keys.original) || Object.hasOwn(host, legacyKey(keys.original));
+  // Removes both spellings of a claim's markers; releasing what an older build claimed must not
+  // leave its keys behind for the next probe to read as a claim.
+  const dropClaimKeys = (host, keys) => {
+    for (const key of [
+      keys.marker,
+      keys.original,
+      legacyKey(keys.marker),
+      legacyKey(keys.original),
+    ]) {
+      delete host[key];
+    }
+  };
   const captureProperty = (host, property) => ({
     kind: "steam-ui-property-snapshot-v1",
     hadOwn: Object.hasOwn(host, property),
@@ -271,7 +298,9 @@
   const isPropertySnapshot = (value) =>
     !!value &&
     typeof value === "object" &&
-    value.kind === "steam-ui-property-snapshot-v1" &&
+    // Both spellings of the kind, for the same reason claimed() reads both marker spellings.
+    (value.kind === "steam-ui-property-snapshot-v1" ||
+      value.kind === "wsgm-property-snapshot-v1") &&
     typeof value.hadOwn === "boolean";
   // An accessor-backed field is one whose value lives BEHIND the property — a MobX observable, a
   // store's computed flag — and the only safe way to change it is through its own setter.
@@ -353,13 +382,16 @@
     const markerBefore = Object.getOwnPropertyDescriptor(host, keys.marker);
     const originalBefore = Object.getOwnPropertyDescriptor(host, keys.original);
     try {
-      const stored = Object.hasOwn(host, keys.original) ? host[keys.original] : absent;
+      const stored = hasStoredOriginal(host, keys) ? storedOriginal(host, keys) : absent;
       const original = reclaimed
         ? isPropertySnapshot(stored)
           ? stored
           : legacyValueSnapshot(host, field, stored, false)
         : fieldBefore;
       installDataValue(host, field, next);
+      // Rewritten under the current spelling; an older build's keys are dropped so a probe from a
+      // separate evaluation reads one claim, not two.
+      dropClaimKeys(host, keys);
       defineHidden(host, keys.marker, true);
       defineHidden(host, keys.original, original);
       return { ok: true, reclaimed };
@@ -381,13 +413,12 @@
   const releaseValue = (host, field, keys) => {
     if (!host || !claimed(host, keys)) return { ok: true };
     try {
-      const stored = host[keys.original];
+      const stored = storedOriginal(host, keys);
       const original = isPropertySnapshot(stored)
         ? stored
         : legacyValueSnapshot(host, field, stored, false);
       restoreProperty(host, field, original);
-      delete host[keys.marker];
-      delete host[keys.original];
+      dropClaimKeys(host, keys);
       return { ok: true };
     } catch (error) {
       return { ok: false, error: String(error) };
@@ -403,7 +434,7 @@
     const current = host[member];
     const reclaimed = claimed(current, keys);
     try {
-      const stored = reclaimed ? current[keys.original] : undefined;
+      const stored = reclaimed ? storedOriginal(current, keys) : undefined;
       const original = reclaimed
         ? isPropertySnapshot(stored)
           ? stored
@@ -432,7 +463,7 @@
     const current = host[member];
     if (!claimed(current, keys)) return { ok: true };
     try {
-      const stored = current[keys.original];
+      const stored = storedOriginal(current, keys);
       const original = isPropertySnapshot(stored)
         ? stored
         : legacyValueSnapshot(host, member, stored, true);
@@ -515,7 +546,7 @@
     }
     try {
       const reclaimed = claimed(descriptor.get, keys);
-      const original = reclaimed ? descriptor.get[keys.original] : descriptor;
+      const original = reclaimed ? storedOriginal(descriptor.get, keys) : descriptor;
       defineHidden(getter, keys.marker, true);
       defineHidden(getter, keys.original, original);
       Object.defineProperty(host, property, { get: getter, configurable: true });
@@ -530,7 +561,7 @@
     try {
       const descriptor = Object.getOwnPropertyDescriptor(host, property);
       if (!claimed(descriptor?.get, keys)) return { ok: true };
-      const original = descriptor.get[keys.original];
+      const original = storedOriginal(descriptor.get, keys);
       if (original) {
         Object.defineProperty(host, property, original);
       }
@@ -989,7 +1020,9 @@
         );
       const replace = (name, replacement) => {
         const current = RF[name];
-        const original = current?.[methodMarker] === true ? current[originalMethodField] : current;
+        const original = claimed(current, { marker: methodMarker, original: originalMethodField })
+          ? storedOriginal(current, { marker: methodMarker, original: originalMethodField })
+          : current;
         originals.set(name, original);
         Object.defineProperty(replacement, methodMarker, {
           value: true,
@@ -1005,7 +1038,9 @@
       };
       const restore = () => {
         for (const [name, original] of originals) {
-          if (RF[name]?.[methodMarker] === true) RF[name] = original;
+          if (claimed(RF[name], { marker: methodMarker, original: originalMethodField })) {
+            RF[name] = original;
+          }
         }
       };
       try {
@@ -1049,7 +1084,9 @@
       const RF = req?.("60517")?.RF;
       if (RF) {
         for (const [name, original] of originals) {
-          if (RF[name]?.[methodMarker] === true) RF[name] = original;
+          if (claimed(RF[name], { marker: methodMarker, original: originalMethodField })) {
+            RF[name] = original;
+          }
         }
       }
       originals.clear();
@@ -1364,7 +1401,7 @@
         // gate leaves alone entirely, and claiming would mark and reassign something that is not a
         // method at all.
         const current = net[name];
-        const existing = claimed(current, scan) ? current[scan.original] : current;
+        const existing = claimed(current, scan) ? storedOriginal(current, scan) : current;
         if (typeof existing !== "function") return null;
         let inner = null;
         const claim = claimMember(net, name, scan, (original) => {
@@ -1729,7 +1766,7 @@
       const existing = manager.GetState;
       // The carried original is the claim primitive's property snapshot; a bridge older than the
       // snapshot stored the bare function.
-      const carried = claimed(existing, getState) ? existing[getState.original] : existing;
+      const carried = claimed(existing, getState) ? storedOriginal(existing, getState) : existing;
       const recoverable =
         carried && typeof carried === "object" && "value" in carried ? carried.value : carried;
       if (typeof recoverable !== "function") {

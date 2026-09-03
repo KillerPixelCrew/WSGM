@@ -317,13 +317,15 @@ changed against the plan rather than restating it.
   ownership markers on the live client are `__steamUi*`, the bridge is `__steamUi_v1_28d7c54a`
   over binding `__steamUiBridge_v1_7b24d11c`, the configuration placeholder, bundle marker and
   extension manifest name followed. Gate names, fingerprints and the JavaScript logic are
-  untouched. **Because the markers changed, the first deploy onto a Steam client that still carries
-  the old markers needs one Steam restart**: a new bridge unwinds a prior bridge it can see, but an
-  orphaned namespace or overlay left by the old build carries a marker the new build does not
-  recognise and is refused as "already exists" until Steam restarts. WSGM's own ids
-  (`wsgm.native-qam.shell`, `wsgm.download-sort`, `wsgm.steam-input.glyph-style`, `window.__wsgm`)
-  stay. Still open: the Bluetooth stub's per-device payloads are read with the `device` key WSGM
-  always used, which has not been re-read from the client.
+  untouched. The ownership primitives and the five C# probes read the previous spelling
+  (`__wsgm*`, `wsgm-property-snapshot-v1`) as ours too, never write it, and a reclaim rewrites the
+  keys under the current spelling — so a client still carrying the old build's markers is reclaimed
+  rather than refused and no Steam restart is needed; `eng\check-ownership-claims.mjs` covers the
+  three reclaim shapes. WSGM's own ids (`wsgm.native-qam.shell`, `wsgm.download-sort`,
+  `wsgm.steam-input.glyph-style`, `window.__wsgm`) stay. The Bluetooth payload shapes were read
+  from the client bundle on 2026-09-03: `{device}` for every device operation, `{device, trusted}`
+  and `{device, allowed}` for the two BlueZ flags, `{enabled}` for discovery; the surface reads
+  exactly those.
 
 **Remaining.**
 

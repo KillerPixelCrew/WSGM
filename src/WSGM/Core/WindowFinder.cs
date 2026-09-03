@@ -100,7 +100,7 @@ public static class WindowFinder
                 // Catch EVERYTHING, deliberately, and warn only once per name: this
                 // feeds the splash's Big Picture detection poll, where a propagated
                 // exception or an unthrottled log line each broke a boot — see
-                // docs\boot-and-shell.md invariant 7. Do not narrow it.
+                // docs\boot-and-shell.md, "The detection poll must not throw". Do not narrow it.
                 catch (Exception ex)
                 {
                     if (WarnedSessionIdNames.Add(plain))

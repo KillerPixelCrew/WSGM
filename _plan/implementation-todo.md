@@ -191,9 +191,10 @@ pinned submodule, so it can be versioned, consumed and reported against on its o
       `Steam*Row`, `Module(enabled, read, backend)`), and WSGM's `NativeQam*Service` classes only
       implement the backends. The injected JavaScript is unchanged in logic; every identifier the
       library owns is renamed out of the `wsgm` namespace (`steam-ui.*` ids, `__steamUi*` markers,
-      bridge and binding names), so log keys under `steam.ui.patch.*` now carry the new ids and the
-      first deploy onto a client still carrying old markers needs one Steam restart. WSGM's library
-      manager, card badge, download sorting and glyph delivery stay WSGM's, with their `wsgm.` ids.
+      bridge and binding names), so log keys under `steam.ui.patch.*` now carry the new ids; the
+      previous marker spelling is still read as ours, so an upgrade needs no Steam restart. WSGM's
+      library manager, card badge, download sorting and glyph delivery stay WSGM's, with their
+      `wsgm.` ids.
       **Remaining, and deferred by decision: the Extensions tab.** The host is built and tested;
       the surface is not, and it is not next. Also open: whether extensions may carry a .NET
       backend, which should not arrive as a side effect of building the tab. And the attended

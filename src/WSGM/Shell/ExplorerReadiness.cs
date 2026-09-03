@@ -15,8 +15,9 @@ public enum ExplorerReadinessAction
     /// <summary>Logon prep is done — shut explorer down and take over.</summary>
     Proceed,
 
-    /// <summary>A Big Picture window appeared under the opaque boot cover. Invariant 7
-    /// (CEF suspends rendering while fully occluded) forbids staying opaque over it —
+    /// <summary>A Big Picture window appeared under the opaque boot cover. The occlusion finding in
+    /// <c>docs\boot-and-shell.md</c> says CEF suspends rendering while fully occluded, so it forbids
+    /// staying opaque over the window —
     /// skip the remaining settle and take over immediately so the splash's normal
     /// BP-detection fade can lift the occlusion.</summary>
     ProceedAccelerated,

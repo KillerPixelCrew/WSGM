@@ -394,7 +394,8 @@ public sealed unsafe class TrayHost : IDisposable
         // at GetCursorPos and IGNORE the message coordinates entirely — with a
         // gamepad/synthetic activation the physical cursor is somewhere stale, so
         // the menu would pop at a random spot. Park the cursor on the anchor
-        // first. A one-shot cursor MOVE, not input interception (invariant 2).
+        // first. A one-shot cursor MOVE, not input interception; see
+        // docs\overlay-and-input.md, "Raw input is observed, never intercepted".
         NativeMethods.SetCursorPos(screenX, screenY);
 
         // Double-click detection is the HOST's job — Explorer itself watches

@@ -1019,7 +1019,7 @@ public sealed class ShellSession : IAsyncDisposable
             }
             else if (action == ExplorerReadinessAction.ProceedAccelerated)
             {
-                Log.Info("Big Picture appeared during boot cover — accelerating takeover (invariant 7).");
+                Log.Info("Big Picture appeared during boot cover — accelerating takeover.");
                 break;
             }
             else if (action == ExplorerReadinessAction.ProceedTimeout)

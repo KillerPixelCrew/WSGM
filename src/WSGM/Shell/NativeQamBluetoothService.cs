@@ -160,12 +160,18 @@ internal sealed class NativeQamBluetoothService : ISteamBluetoothBackend
     /// <inheritdoc />
     /// <remarks>A BlueZ concept with no Windows equivalent; accepted so Steam's UI does not report
     /// a failure for a control that was never going to change anything.</remarks>
-    public Task<SteamUiCommandResult> SetTrustedAsync(CancellationToken cancellationToken) =>
+    public Task<SteamUiCommandResult> SetTrustedAsync(
+        string deviceId,
+        bool trusted,
+        CancellationToken cancellationToken) =>
         AcceptWithoutEquivalent("setTrusted");
 
     /// <inheritdoc />
     /// <remarks>See <see cref="SetTrustedAsync"/>.</remarks>
-    public Task<SteamUiCommandResult> SetWakeAllowedAsync(CancellationToken cancellationToken) =>
+    public Task<SteamUiCommandResult> SetWakeAllowedAsync(
+        string deviceId,
+        bool allowed,
+        CancellationToken cancellationToken) =>
         AcceptWithoutEquivalent("setWakeAllowed");
 
     private static Task<SteamUiCommandResult> AcceptWithoutEquivalent(string command)

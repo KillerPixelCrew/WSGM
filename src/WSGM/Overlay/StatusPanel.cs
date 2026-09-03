@@ -25,7 +25,7 @@ internal static class StatusPanel
     /// <remarks>
     /// The scroll-into-view is explicit because directional focus navigation does not raise the
     /// request itself, so a controller could otherwise focus a row off-screen. The touch filter and
-    /// the controller's 150 ms deferred close are one mechanism — see invariant 3 in
+    /// the controller's 150 ms deferred close are one mechanism — see the touch-promotion finding in
     /// <c>docs\overlay-and-input.md</c>; removing either brings back ghost clicks on whatever sits
     /// under the panel.
     /// </remarks>

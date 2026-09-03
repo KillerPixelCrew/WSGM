@@ -620,7 +620,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             var log = System.IO.Path.Combine(Log.Directory, "wsgm.log");
             // Game mode has no Explorer in the session, and WSGM is normally elevated:
             // starting explorer.exe here would either break UWP for the session (an
-            // elevated Explorer — invariant 5) or bring its taskbar up next to WSGM's
+            // elevated Explorer; see docs\elevation.md) or bring its taskbar up next to WSGM's
             // own tray host. Show the path instead; the user can open it in desktop mode.
             if (!ExplorerControl.IsRunningInSession())
             {
