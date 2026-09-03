@@ -665,6 +665,11 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       are queued away from the poller into `%LOCALAPPDATA%\WSGM\gyro.csv` with one 16 MiB rotation;
       rows retain raw, bias-corrected and acceleration vectors, hardware-counter deltas, sensor and
       monotonic receive cadence, intervening duplicate/read-failure counts, and diagnostic drops.
+- [x] **A blocking accelerometer read made a fresh gyro look stale:** the CSV isolated a 208.8 ms
+      combined read whose gyrometer report had been acquired 205.0 ms before publication, followed
+      by a 210 ms gyro jump with no duplicate counter, read failure, or queue drop. The physical
+      accelerometer is now read first and the gyrometer last, matching the reviewed HC 1.2.1.1
+      legacy-sensor path, so a stationary accelerometer wait cannot age the published gyro sample.
 - [ ] Attended after deployment: tilt each physical axis and confirm Steam Deck and DS4 targets move
       in the expected direction without a freefall state; then suspend/resume and disable/re-enable
       Device Integration while confirming the legacy sensor handle is released and reacquired.
