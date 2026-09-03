@@ -370,9 +370,9 @@ Solution `VID_8087&PID_0AC2`:
   are g and form a vector of about 1 g while the stationary device is tilted.
 - Gyrometer field 34 is an opaque `VT_UI4` hardware-report counter. It advances even at rest, so the
   plugin polls every 2 ms but publishes only when this counter changes.
-- Both collections advertise a 10 ms minimum report interval (100 Hz maximum). Each cycle requests
-  that minimum and records the prior current interval; release restores it only if no other client
-  changed the value meanwhile.
+- The gyrometer advertises a 10 ms minimum report interval (100 Hz maximum), while the
+  accelerometer advertises 2 ms. Each cycle requests the collection's own minimum and records the
+  prior current interval; release restores it only if no other client changed the value meanwhile.
 - The plugin accepts only the exact friendly names, custom type, ready state, Intel HID identity,
   required axes, and gyrometer counter.
 - `SetMotionStatus(0x2F)` produced no reports/ACK and is not another source.

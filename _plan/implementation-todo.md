@@ -656,11 +656,11 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
 - [x] **WinRT gyro events suppressed rest and left a jagged non-zero tail:** the same legacy custom
       collection exposes the LSM6DSO `Physical Gyrometer` in degrees/second plus opaque hardware
       report counter field 34, which advances at rest. The plugin now reads both physical sensors,
-      requests their driver-minimum 10 ms interval, polls at 2 ms but publishes only fresh counters,
-      restores the prior interval at cycle end, establishes a stationary zero-rate bias over 32
-      fresh reports, and caps a transport-stale gyro at 50 ms. Both die-aligned vectors enter the
-      application as `(X, Z, -Y)`; the Neptune encoder applies SDL's inverse once and retains the
-      Deck's 16 counts/(degree/second) and 16,384 counts/g wire scales.
+      requests the gyrometer's 10 ms and accelerometer's 2 ms driver minima, polls at 2 ms but
+      publishes only fresh gyro counters, restores prior intervals at cycle end, establishes a
+      stationary zero-rate bias over 32 fresh reports, and caps a transport-stale gyro at 50 ms.
+      Both die-aligned vectors enter the application as `(X, Z, -Y)`; the Neptune encoder applies
+      SDL's inverse once and retains the Deck's 16 counts/(degree/second) and 16,384 counts/g scales.
 - [ ] Attended after deployment: tilt each physical axis and confirm Steam Deck and DS4 targets move
       in the expected direction without a freefall state; then suspend/resume and disable/re-enable
       Device Integration while confirming the legacy sensor handle is released and reacquired.
