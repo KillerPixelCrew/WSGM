@@ -1,13 +1,22 @@
 # WSGM.LogonService
 
-This self-contained SYSTEM service reacts to user logon, reads the per-user boot manifest as untrusted
-input, launches WSGM as that user, and provides one-shot Explorer recovery after a dirty boot exit.
+This project is the minimal LocalSystem logon service. Keep it independent of Avalonia, COM
+automation, ServiceBase, and the main application's configuration stack.
 
-- Do not use `ServiceBase`, COM, Avalonia, or user-directory logging. Service logs belong in
-  `%ProgramData%\WSGM\wsgm-service.log`.
-- Launch only the manifest-named WSGM executable as the manifest's user. Use the linked token only
-  when the manifest requests elevation; Explorer recovery always uses the unlinked token.
-- Act on `WTS_SESSION_LOGON`, not console connect. The boot path must start before Explorer and let
-  WSGM's readiness poll wait for it.
-- The watchdog starts Explorer at most once per logon after a dirty exit with no Explorer; it never
-  relaunches WSGM.
+- Use the raw service-control dispatcher and preserve bounded, truthful service status transitions.
+- Read the shared boot manifest as untrusted input. Validate schema, paths, session identity, and
+  file existence before launching anything.
+- React to WTS_SESSION_LOGON and perform the startup sweep so sessions already present when the
+  service starts are not missed.
+- Request a linked token only for the WSGM launch that requires it. Explorer recovery uses the
+  unlinked interactive token.
+- The watchdog waits for the launched WSGM process handle; there is no health handshake. After a
+  dirty exit, give the independent shell anchor five seconds to restore Explorer, then perform the
+  one-shot Explorer fallback if needed. Never relaunch WSGM.
+- Write diagnostics under ProgramData with bounded failure handling. Do not depend on a user profile
+  or interactive UI.
+- Service install, start, stop, and live session tests are attended operations. Do not run them as
+  ordinary validation.
+
+Cover manifest rejection, token selection, session deduplication, watchdog races, and one-shot
+Explorer recovery with seams in WSGM.Tests.

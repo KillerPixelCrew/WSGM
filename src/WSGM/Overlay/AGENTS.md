@@ -1,37 +1,31 @@
 # Overlay
 
-Overlay owns the quick access sheet (the one focus-taking surface: pinned Quick access root,
-Session / Steam / Device / Tools / Power roots with their nested pages, status pills, Open apps
-strip), its radio/audio/eject panels, and their shared Steam Input lease and focus handover. The
-Power root exposes explicit Standby and Hibernate actions; both dismiss the overlay before asking
-Windows to suspend.
+Overlay owns the game-facing sheet, its navigation model, capture and input handoff, Steam
+presentation, and overlay view models. Read docs/overlay-and-input.md, docs/steam-input.md, and
+docs/ui.md before changing behavior.
 
-- `OverlayController` is the lifetime owner of the sheet. Acquire the Steam Input lease before
-  opening it and release it only after it closes.
-- The sheet is deliberately not fullscreen: the game strip left below it is the tap-outside dismiss
-  target. Do not grow it to the full display without adding another dismissal path.
-- Every pinnable row carries its stable id in `Tag`; keep ids stable across releases — they are
-  persisted in `AppConfig.QuickAccessPins`. Device rows are pinned by capability key and are
-  re-rendered from the snapshot, never mirrored.
-- Settings handoff transfers named ownership: Settings registers its claim before the deferred
-  overlay close removes the overlay claim. Never abandon the old owner in the blocker's owner set,
-  and acknowledge the close so Settings can end its temporary deactivation exemption.
-- Preserve the 150 ms deferred close and touch-synthesized mouse filtering; removing either causes
-  ghost clicks on controls behind the overlay.
-- Raw-touch left/right gestures always emit Steam's Ctrl+1/Ctrl+2 Big Picture shortcuts, including
-  while a game is foreground; bringing Steam's menu over the game is their purpose. Top and bottom
-  are WSGM's.
-- Peer keyboard focus is part of the active sub-view: include its bounds in tap hit-testing, keep
-  only one navigation active, and invalidate asynchronous picker loads when navigation changes.
-- Artwork operations snapshot both the target app and navigation generation across awaits; bound
-  thumbnail concurrency, decode thumbnails scaled, and dispose replaced bitmap trees immediately.
-- Dismissal may restore focus only under the existing game-mode and suppression gates. Next-app
-  cycling deliberately suppresses restoration.
-- Only one `GamepadNavigation` may be enabled at a time (the sheet's stands down while a status
-  panel or the keyboard window owns focus), and never rebuild switcher/tray collections wholesale
-  while a gamepad focus target exists.
-- Keep visual styling in `Themes\` tokens and shared controls; consumer XAML must not add literal
-  colours or a second focus-adornment mechanism.
-- Plugin-declared Device sections are pages addressed by route (`OverlayPage.DevicePluginSection`
-  plus its section id), never new enum values; the color editor's spectrum consumes only
-  Left/Right, so Up/Down always escape to the sliders below it.
+- Keep stable page IDs and route semantics. Back, close, and repeated-open behavior must be
+  deterministic across keyboard, controller, and touch input.
+- Quick Access pin IDs persist in AppConfig. Device rows use capability keys, and plugin sections
+  use the DevicePluginSection route plus a section ID rather than new enum values.
+- OverlayController owns lifetime and integration sequencing. Views and controls render state and
+  report intent; they do not mutate ConfigStore or acquire leases directly.
+- Capture, focus, cursor, and input-lease transitions are paired operations. Every close,
+  cancellation, failure, and superseded open must release what it acquired.
+- Preserve the 150 ms deferred close and synthesized-mouse filtering after touch input so a gesture
+  cannot activate a control behind the sheet.
+- The sheet leaves a game strip visible as its tap-outside dismissal target. Do not make it
+  fullscreen without another dismissal path.
+- Only one GamepadNavigation instance may be enabled at a time, with one action per edge or repeat
+  decision. A status panel or keyboard takes ownership while it has focus.
+- Async searches, artwork, Steam state, and telemetry updates carry a generation or cancellation
+  token so stale results cannot replace the current page.
+- UI-observable collections and properties change on the Avalonia dispatcher. High-rate telemetry is
+  sampled or coalesced before reaching controls.
+- Raw-touch left and right gestures send Steam's Big Picture shortcuts even while a game is
+  foreground. Top and bottom gestures remain WSGM-owned.
+- Use shared theme and focus tokens. Overlay-specific layout may be compact, but it must not fork
+  the application's control language.
+
+Test open/close idempotence, route transitions, stale async results, touch/mouse deduplication,
+capture release, and integration-disabled behavior.

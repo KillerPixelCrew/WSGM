@@ -1,16 +1,26 @@
-# WSGM application
+# Main application
 
-This is the self-contained Avalonia executable. It owns Settings, the game-mode shell session, the
-quick access sheet, and the per-user configuration and boot manifest.
+This scope is the tracked CoreCLR desktop application. It owns process startup, Avalonia
+composition, resources, recovery one-shots, and application-wide lifetime. Use the nearer subsystem
+guide for detailed rules.
 
-- Keep OS declarations and managed COM interfaces inside `Interop\`; expose narrow managed results
-  to the rest of the application.
-- Put behavior with its existing owner and call it directly. The folders keep related code findable;
-  they are not a reason to add a facade, message contract, mirror type, or another manager.
-- `--settings` and `--overlay-test` are the only safe local UI modes. Never run `--shell` or `--boot`
-  directly; the root instructions define the one attended reference-device deploy path.
-- Runtime config reload replaces the config object. Keep transient state in its controller/manager,
-  not in `AppConfig` references.
-- Update this file when this executable's responsibilities or safety boundaries change.
-- `SkipNativeArtifacts=true` is a compile/test-only escape hatch for native dependencies that remain;
-  release and supported verification builds must never set it.
+- Keep shell-anchor, restore-shell, and unregister-shell ahead of logging, configuration, Avalonia,
+  and GPU initialization. Other one-shot modes retain their deliberate position after logging, or
+  initialize logging within their own maintenance path. In particular, restore-shell must work when
+  the normal application cannot start.
+- Preserve the explicit mode precedence in Program.Main. Do not make shell or boot behavior an
+  accidental consequence of UI startup.
+- Runtime configuration reload replaces the AppConfig instance. Keep transient state in its owning
+  manager rather than retaining references into an old config object.
+- Application services have one clear owner and deterministic disposal. Background work must observe
+  cancellation and marshal UI state through the dispatcher.
+- Keep policy in Core, Shell, Settings, or Overlay rather than App.axaml.cs. Keep native
+  declarations in Interop and presentation-only primitives in Controls and Themes.
+- Reference SDK and reusable libraries as projects or pinned submodules. Do not copy their source
+  into this project.
+- SkipNativeArtifacts is a compile-only escape hatch. It does not prove a package or installer is
+  complete.
+- Route user-facing behavior documentation through docs/README.md and add focused regression tests
+  under tests/WSGM.Tests.
+
+Validate a narrow change with a filtered test, then run eng/verify.ps1 from the repository root.

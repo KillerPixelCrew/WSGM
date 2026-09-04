@@ -1,27 +1,32 @@
 # Installer
 
-`WSGM.iss` installs the per-user app and the machine-wide SYSTEM logon service. Ordering is a
-recovery boundary, not cosmetic setup code.
+This scope owns installer composition, component selection, privilege boundaries, upgrades,
+rollback, and uninstall. Read docs/boot-and-shell.md, docs/elevation.md, and the relevant device or
+input document before changing behavior.
 
-- Keep `PrivilegesRequired=admin`; the service binary belongs in Program Files while WSGM remains in
-  the elevating user's LocalAppData.
-- Stop the logon service before stopping/killing WSGM during an update, then restore the previous
-  settings/shell mode. On uninstall, uninstall the service before legacy-shell restoration and file
-  deletion.
-- Ship every generated native helper and required license beside WSGM. Update installer entries with
-  any publish-artifact change.
-- Preserve the silent-upgrade no-reboot behavior and do not re-register WSGM as the Windows shell.
+## Invariants
 
-## Steam Input shim
+- The application is per-user while the logon service, drivers, and other machine-wide components
+  require elevation. Keep that boundary explicit.
+- The csproj Version is supplied by build.ps1 through AppVersion. Keep the direct-ISCC fallback
+  synchronized, but do not introduce another version source.
+- Preserve the supported Windows and architecture checks and the Steam prerequisite. Fail with an
+  actionable message before modifying the machine.
+- Component choices must remain coherent across core, device integration, Device Lab, controller
+  support, USB/IP, and HidHide tasks. A device package is installed only when the device-integration
+  owner and package gate agree.
+- Stop the service before replacing runtime files. Stage packages atomically and leave enough state
+  for repair or rollback after an interrupted upgrade.
+- Setup asks running WSGM to perform its bounded Steam and launch-wrapper pre-stop, but setup itself
+  never terminates Steam or a wrapper. Refuse or defer replacement while either still owns a live
+  game tree.
+- Steam Input shim cleanup must ask the runtime ownership logic to reconcile it. Never delete or
+  replace a Steam DLL merely because its filename matches.
+- Restart-required state is reserved for the USB/IP task and genuine operating system requirements.
+  Silent installs must not invent an interactive restart.
+- Uninstall removes only WSGM-owned files and restores shell, service, driver, and input state in a
+  recoverable order.
 
-The shim that goes into **Steam's** install directory is deployed by WSGM at runtime (`--setup`,
-and again before every Steam cold start), never by Inno. Inno cannot read `config.json` to honour
-the Steam Input Management toggle, and cannot tell WSGM's copy from a same-named file ValvePlug or
-Special K owns without a second implementation of that check in Pascal.
-
-Removal is `[UninstallRun]`'s **first** step, `--remove-steam-input-shim`, before the service
-uninstall — it needs `{app}\WSGM.exe` to still exist. Deliberately NOT in `[UninstallDelete]`: a
-blind delete of `XInput1_4.dll` out of Steam's directory would take another tool's file with it.
-
-`SteamInstalled()` still discards the path on purpose. Nothing here needs it, and a second copy of
-the detection logic would drift from `Core\Steam.cs` with no test to catch it.
+Validate installer work with focused tests, eng/verify.ps1, and build.ps1 when a real setup artifact
+is required. Exercise install, upgrade, repair, rollback, and uninstall paths for any ownership or
+sequencing change.

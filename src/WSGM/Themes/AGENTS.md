@@ -1,10 +1,18 @@
 # Themes
 
-Themes define the visual token system and control themes; `App.axaml` should remain includes-only.
+Themes owns shared Avalonia resources and control presentation.
 
-- Use palette resources for every colour. Use `DynamicResource` for the runtime-replaceable accent
-  family and `StaticResource` for stable tokens.
-- Keep the single focus treatment: `FocusAdorner={x:Null}` plus a constant 2 px border that changes
-  to the accent when focused.
-- Put reusable visual behavior in the appropriate shared theme or `Controls\` component rather than
-  copying styles into page/overlay XAML.
+- App.axaml includes theme resources; it does not become a second theme file.
+- Put colors, brushes, typography, spacing, radii, sizing, and focus treatment behind shared
+  semantic tokens.
+- Use DynamicResource for user- or system-changing accent resources. Use StaticResource for stable
+  application tokens.
+- Keep one visible 2-pixel focus border. Disable the framework focus adorner where the themed
+  control supplies that border so focus is not drawn twice.
+- Prefer selectors and control themes over per-page copies. A feature-specific token must have a
+  semantic name and a clear owner.
+- Verify default, hover, pressed, disabled, selected, focused, high-contrast, and accent-changing
+  states for affected controls.
+
+Keep visual policy here and behavioral policy in the owning control or feature. Run focused UI tests
+where available and inspect every changed state at the supported minimum window size.

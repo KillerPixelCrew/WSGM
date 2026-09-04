@@ -1,12 +1,22 @@
 # Controls
 
-Controls contains reusable Avalonia controls: the shared tab strip, card buttons, icons,
-radio icon, and on-screen keyboard.
+Controls are reusable, presentation-focused Avalonia components. Business policy, persistence,
+device access, and long-lived orchestration belong in the owning feature.
 
-- Keep controls presentation-oriented; session, Steam, and device policy belongs in Shell/Core
-  managers, not click handlers or control code-behind.
-- `Icons` are stroke-style `StreamGeometry`: render them with `Fill={x:Null}` or interior detail
-  collapses.
-- When using `Path` with `Stretch=Uniform`, size it by its dominant dimension; Avalonia aligns the
-  scaled geometry at top-left inside an oversized box.
-- Keyboard layer rebuilds must explicitly restore focus to the modifier that initiated the rebuild.
+- Read docs/ui.md and docs/overlay-and-input.md before changing visual or interaction conventions.
+- Consume shared theme tokens instead of embedding page-specific colors, typography, radii, or focus
+  styles.
+- Icons are stroke-style StreamGeometry. Render them with Fill set to null or interior detail
+  collapses. With Uniform stretch, size a Path by its dominant dimension because Avalonia aligns the
+  scaled geometry at the top left of an oversized box.
+- Preserve keyboard, controller, touch, and screen-reader behavior. A custom control must expose
+  stable focus and automation semantics.
+- Curve editors and controller widgets report user intent; the owner validates and persists it.
+  On-screen-keyboard controls do not acquire global hooks or leases themselves.
+- An on-screen-keyboard layer rebuild restores focus to the modifier that initiated it; otherwise
+  controller navigation loses its place.
+- StyledProperty, DirectProperty, and event surfaces are the public contract. Avoid hidden service
+  lookup or application-singleton dependencies.
+
+Add focused control or view-model tests where behavior is separable, and exercise the owning
+settings or overlay flow for integration changes.

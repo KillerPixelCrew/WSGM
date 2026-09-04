@@ -1,46 +1,46 @@
 # Shell
 
-Shell coordinates the Explorer-first boot takeover, Steam lifecycle, desktop/game-mode transitions,
-startup applications, tray host, removable storage, radio, audio, and system status.
+Shell owns Explorer and session transitions, the tray host, live managers and integration
+reconciliation, and destructive storage workflows. Read docs/boot-and-shell.md,
+docs/device-integration.md, and docs/sd-cards.md before changing these paths.
 
-- Shell transitions must fail open to desktop mode. Do not leave a half-transition with Explorer gone
-  and Steam/overlay ownership unresolved.
-- Explorer must finish logon preparation before a takeover; Steam starts only after Explorer exits.
-  Do not change the orderly Exit Explorer mechanism or kill Winlogon replacement processes.
-- The boot splash's Switch to desktop is a recovery path: cancel the service takeover before the
-  orderly exit when possible; if that request already began, skip game-mode setup and restart
-  Explorer through the normal desktop transition. Never drop it at the transition-serialization gate.
-- Keep blocking Explorer work off the UI thread and serialize mode transitions through `SessionModes`.
-- `TrayHost` never coexists with Explorer's tray, and elevated WSGM must retain its `WM_COPYDATA` UIPI
-  allowance for unelevated applications.
-- Radio, audio, and storage managers reconcile state in place. Preserve user focus and surface
-  device-facing failures through logs and retryable UI states.
-- Card-reader paths are reusable identities: discover physical removable/hot-pluggable devices and
-  key registration, removal, and retirement by `contentId`, never by drive letter alone.
-- Steam VDF mutations are shape-checked, renumbered, backed up once, and atomically replaced; a
-  random write-through diskpart script and post-failure compensation protect destructive formats.
-- **The SD format is THREE diskpart runs, not one** (`SdFormatManager`, device-observed 2026-08-16):
-  clean + `create partition primary`, then a wait for the new partition's volume interface
-  (`NativeStorage.ListVolumeInterfaces` mapped back to the disk number, 20 s cap), then
-  `select partition 1` + `format` (3 attempts), then `assign` only if automount did not already
-  put the card on its own letter. In one script, `format` straight after `create partition`
-  fails with "no volume selected" (exit `E_INVALIDARG`) whenever the volume manager surfaces the
-  volume slower than diskpart moves on — a 512 GB card in the Claw's Realtek reader lost that race
-  every time while a 256 GB card won it. Do not merge the scripts back together, and keep the
-  `Format: volume on disk N appeared after … ms` / `no volume appeared` lines — they are how the
-  timing is diagnosed from a pasted log.
-  Every one of the three runs re-verifies the target on fresh DISK handles first
-  (`ReadTargetIdentity` -> `CompareIdentity`): still not a system disk, still removable media,
-  same capacity, same bus type. One check up front was not enough — the pre-erase library removal
-  can spend its whole CEF budget and the volume wait runs up to 20 s, so a card can be swapped
-  after the check and before the run that consumes it. Identity predicates ONLY: `clean` erases
-  the partition table and the WSGM marker, so any filesystem- or partition-based re-check would
-  legitimately fail on runs 2 and 3 and break every format. A failed QUERY is not a mismatch
-  either — `GetDiskLength` returns 0 and `TryGetDeviceDescriptor` reports bus -1 for a reader
-  whose media is still settling, so those keep flowing into the existing waits and retries
-  unchanged. Only the pre-erase abort restores the removed Steam library
-  (`RestoreRemovedLibraryIfCardSurvived`); after the erase that identity is deliberately gone.
-  **Residual, stated honestly:** in a card reader the device instance, the bus type and the
-  hotplug flags all belong to the READER and survive a media swap, so CAPACITY is the only
-  discriminator left — two cards of the same capacity stay indistinguishable. This narrows the
-  swap window; it does not close it.
+## Session and integration
+
+- Startup and teardown are serialized and fail open to a usable Windows session. Explorer recovery
+  is idempotent and never depends on Avalonia, GPU, or a valid user configuration.
+- CEF readiness gates Steam-dependent behavior; it must not block independent shell recovery or core
+  UI indefinitely.
+- Views report intent. Shell managers own the live lifecycle, and configuration stores persistent
+  policy only.
+- Disabling device integration completes the ordered make-safe sequence before disposing the plugin.
+  No manager may recreate a disabled integration.
+- Capability writes are serialized. An uncertain write is reported and is not retried automatically.
+- TrayHost never coexists with Explorer's tray. Preserve the WM_COPYDATA UIPI allowance that lets
+  unelevated applications reach elevated WSGM.
+- Removable-card ownership is keyed by contentId rather than drive letter. Steam VDF edits are
+  shape-checked, renumbered, backed up once, and atomically replaced.
+
+## SD-card formatting
+
+SdFormatManager uses three destructive stages, not a fixed count of diskpart processes:
+
+1. clean and create the partition;
+2. wait up to the bounded volume-appearance deadline, then format, with at most three independently
+   reverified format attempts;
+3. assign a drive letter only when one is still needed.
+
+Before starting, VerifyTarget requires a strict match for the selected removable disk. Before every
+destructive diskpart invocation, reopen the physical drive and reread current identity. A known
+system disk, changed known capacity or bus, or non-removable media aborts. Handle-open and
+size-query failures are recorded as unreadable, while an unavailable bus query (`-1`) is tolerated
+and can still compare as Same; no query failure is proof of a swap. After clean, filesystem and
+partition identity no longer exist and cannot be used as swap evidence; equal-capacity media swaps
+remain inherently indistinguishable.
+
+Only a Steam library removed before erase can be restored. Once erase begins, the old identity is
+retired. Preserve the distinct volume-appearance and no-volume diagnostics, including Format: volume
+on disk N appeared after and no volume appeared, because they distinguish enumeration delay from
+format failure.
+
+Test orchestration with fakes and temporary paths. Never validate shell, hardware, Steam, or disk
+workflows against the user's live session as part of the automated suite.

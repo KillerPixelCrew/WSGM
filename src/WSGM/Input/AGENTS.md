@@ -1,20 +1,26 @@
 # Input
 
-Input converts SDL3 controller state and raw-input observation into navigation, chords, and shortcut
-recording for WSGM's own UI.
+This scope owns process-wide controller observation, action mapping, recording, repeat behavior, and
+source switching.
 
-- `SdlGamepads` is the process-wide SDL event-pump owner. Do not introduce another event pump per
-  window or service instance.
-- Never globally intercept mouse or keyboard input. Raw input is observation-only; the keyboard hook
-  is permitted only for an explicit `KeyRecorder` recording lifetime.
-- Preserve edge-triggered button events, direction repeat, and the TextBox navigation skip so touch
-  keyboard behavior and gamepad focus remain stable.
-- Extend the established diagnostic logs (`Gamepad added:`, `Controller input:`, `Gamepad nav:`) for
-  every device-dependent change; remote device logs are the controller test harness.
-- Peer-window edge callbacks must log the attempted direction before transferring focus.
-- **Device-specific firmware suppression does not belong here.** The Claw's `Win+G`/`Win+Tab`
-  suppressor is exact-device policy for one board's firmware and lives in its plugin
-  (`plugins\WSGM.Device.Msi.Claw8A2Vm\`), which runs only with that installed plugin. Adding it to this module would
-  turn a per-device workaround into general WSGM input interception, which the rule above forbids —
-  and would keep it installed on hardware it was never written for.
+- SdlGamepads has one process-wide event pump. Do not create competing SDL owners or pollers in
+  views.
+- Preserve deterministic switching between managed-controller and SDL sources. Disconnect,
+  cancellation, focus loss, and disposal must release held state.
+- Raw input is observation, not interception. The only low-level keyboard hook is KeyRecorder during
+  its bounded recording lifetime.
+- Keep edge detection and repeat timing explicit. Do not turn a held sample into repeated navigation
+  through accidental resubscription.
+- Gamepad navigation skips ordinary TextBox focus stops so controller users reach the on-screen
+  keyboard path. Log a peer-window edge before transferring focus.
+- High-rate paths avoid per-sample allocation, synchronous I/O, and log spam. Preserve the
+  diagnostic prefixes Gamepad added:, Controller input:, and Gamepad nav:; log lifecycle changes and
+  actionable failures, not every sample.
+- Main-app input code is device-neutral. MSI Claw chord suppression belongs in
+  external/WSGM.Device.Msi.Claw8A2Vm/src/WSGM.Device.Msi.Claw8A2Vm, including
+  FirmwareChordSuppressor.
+- Controls report input intent; Shell, Settings, or Overlay owns the resulting policy and lease
+  transitions.
 
+Add deterministic tests for edges, repeats, cancellation, source changes, and recording cleanup. Do
+not require attached controllers or global hooks in the test suite.

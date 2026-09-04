@@ -1,43 +1,37 @@
 # Settings
 
-Settings is the safe local configuration UI. Its pages are kept alive and switched by visibility so
-scroll position and short-lived editing state survive tab changes.
+Settings owns persistent user policy, setup flows, configuration-facing view models, and its bounded
+input claim while focused. Device-specific implementation and session-long capability ownership
+remain elsewhere.
 
-- Persist through `SettingsViewModel`'s save transaction and the `ConfigStore` mutation lock; never
-  save a stale window snapshot directly or promote image sidecars before the config save succeeds.
-- Tests must use the internal view-model constructor with an explicit `AppConfig` and temporary asset
-  directories. Never invoke parameterless `SettingsViewModel` or real `ConfigStore.Load/Save`.
-- Maintain the layout floor: Settings minimum 1024×640; a page that needs scrolling earns another tab.
-- Per-monitor display profiles own the dedicated Display tab; automatic snapshots are runtime-owned,
-  so an already-open Settings window must never merge its stale profile rows over a newer transition capture.
-- Shortcut recording owns its hook only while recording and must dispose it on every close/cancel path.
-- A game-mode Settings window owns a named Steam Input claim, not merely the native lease result:
-  `AcquireFor` registers that claim before attempting injection, so deactivation/close must run
-  `ReleaseFor` even when Steam was unavailable and the native acquire failed. The overlay handoff
-  uses claim-only `ClaimFor` synchronously, then performs any cold acquire off the UI thread; its
-  transient 150 ms overlap deactivation does not end ownership until the overlay acknowledges close.
-- Any required text credential must have a controller-accessible `OnScreenKeyboard` path; gamepad
-  navigation intentionally skips ordinary `TextBox` controls.
+- Keep the established tab structure and the 1024 by 640 minimum window size. Pages may scroll when
+  their content requires it; do not hide controls to satisfy an arbitrary no-scroll rule.
+- A save operation reads fresh configuration, applies the page's owned fields, validates, and
+  commits through ConfigStore. Do not overwrite fields owned by another page or hold the config lock
+  while doing external work.
+- Write dependent sidecars or manifests atomically and keep them consistent with the committed
+  configuration.
+- Display edits use stable display identities and must handle a disconnected or stale target
+  explicitly.
+- Quick Setup uses an integer revision, disables the settings pages while modal, and applies nothing
+  until Continue. Stamp the answered revision only in the successful save, so Skip means off and a
+  failed save asks again.
+- Steam Input reconciliation happens after configuration is saved and outside the config lock, with
+  the existing elevation and pending-update behavior.
+- Device and Plugin tabs remain available when integration is disabled so users can enable it and
+  manage target, glyph, package, and offline profile policy. Only live controller-management and
+  AutoTDP controls become unavailable. A view model must not probe hardware simply to decide how to
+  render.
+- Input-lease and on-screen-keyboard handoffs are paired and released on close, cancellation,
+  failure, or disposal.
+- A game-mode window registers its named Steam Input claim before acquisition and releases the claim
+  even if native acquisition failed. During overlay handoff, claim before the overlay's deferred
+  release and acknowledge close before ending the temporary deactivation exemption.
+- Required text credentials need a controller-accessible OnScreenKeyboard path; gamepad navigation
+  deliberately skips ordinary TextBox controls.
+- The production parameterless SettingsViewModel intentionally loads the real ConfigStore and
+  installed-package state. Tests and injected constructors use explicit stores, paths, and services
+  and never fall back to the real profile.
 
-## First-run Quick Setup
-
-`SettingsWindow` raises a modal Quick Setup panel over itself when
-`QuickSetup.ShouldShow(config)` is true. The gate is `AppConfig.QuickSetupRevision`, an **int, not a
-bool**: a later build that adds a setting needing an explicit decision raises
-`QuickSetup.CurrentRevision` and the panel returns exactly once. Do not turn it back into a
-"seen it" flag.
-
-Two properties of the panel are deliberate. It **disables `SettingsRoot` while it is up**, because
-gamepad focus would otherwise wander into the pages behind it and answer nothing. And it applies
-**nothing** until Continue: both integrations arrive pre-selected as the recommended setup, but Skip
-means off, so a dismissed panel never leaves a file in Steam's directory the user did not agree to.
-The revision is stamped in `ApplyTo` only when `QuickSetupAnswered` is set, so a save that fails
-leaves the panel due to appear again rather than silently swallowing the answer.
-
-## Steam Input Management
-
-The toggle lives on the Steam page, not Integration — Integration is scoped to what WSGM drives over
-Steam's debug port, and this is an install-level fact about Steam. It is save-scoped rather than
-instant-apply, so the Tools tab's apply-time read of the setting can never see a value that was
-applied but not persisted. Deployment happens in `ApplySteamInputManagementAfterSave`, after the
-config lock is released.
+Add focused view-model and persistence tests for every changed page, including stale state, partial
+failure, repeated save, and integration-disabled cases.
