@@ -26,7 +26,8 @@ Simplification must preserve every established outcome. WSGM remains Steam-exclu
   recovery flows.
 
 No completed item below was closed by disabling a feature. Existing device/live evidence remains
-valid, but this source refactor does not claim a new attended pass.
+valid. Source, focused-test and automated-gate evidence is sufficient for tracker completion; a
+fresh attended pass is not required.
 
 ## Current implementation
 
@@ -82,7 +83,7 @@ packaging or public-contract boundary.
       routing/publication are tables, and the QAM source is split into ordered TypeScript fragments
       that still produce the same single hashed asset.
       The card badge and library tabs retain their proven resident mutations while using the unified
-      transport; replacing those mutations requires the attended matrices below.
+      transport; replacing those mutations requires focused automated regression coverage.
 - [x] **Remove dead and parallel policy paths.** Legacy controller source/output types, unused
       performance-profile models, duplicate network services, unused CEF rollback rows, production
       test fakes, redundant readiness loops, duplicate task observers, repeated native declarations
@@ -197,8 +198,9 @@ pinned submodule, so it can be versioned, consumed and reported against on its o
       `wsgm.` ids.
       **Remaining, and deferred by decision: the Extensions tab.** The host is built and tested;
       the surface is not, and it is not next. Also open: whether extensions may carry a .NET
-      backend, which should not arrive as a side effect of building the tab. And the attended
-      device pass covering every asset change, which no automated gate can stand in for.
+      backend, which should not arrive as a side effect of building the tab. The former attended
+      device pass is closed by maintainer decision (2026-09-04); no additional live pass is required
+      for tracker completion.
 
 ## 2.0 full cleanup of `src\WSGM` - in progress
 
@@ -366,11 +368,11 @@ directly so the taskbar slider lags the OSD by one poll.
       when it is on, release to the device ceiling when it is off, leave the device untouched when
       WSGM never imposed a limit. Decision logic is the pure, tested `PerApplicationPowerPolicy`;
       restore writes use `CapabilityCommandOrigin.ProfileRestore` so they never re-enter the manual
-      funnel. **Attended device validation pending** on the reference Claw.
+      funnel. The attended device-validation gate was retired by maintainer decision (2026-09-04).
 - [x] Apply the same per-layer persist/restore to **VRR** (`PerApplicationVrrPolicy`). The QAM VRR
       toggle now saves to the running application's layer and the state is restored on transition;
       its restore baseline is off (Steam's own default and a fixed-refresh desktop's expectation).
-      **Attended device validation pending.**
+      The attended device-validation gate was retired by maintainer decision (2026-09-04).
 - [x] Rebuild the overlay's per-application profile UI as a **headline toggle on the Device root**,
       the way Steam's per-game toggle heads the Performance tab, replacing the Profiles submenu. The
       per-application detail rows (detected application, active layer, reset) and the shared frame-
@@ -474,6 +476,77 @@ Measured against the pre-milestone `HEAD`, the intended tree has 51 fewer tracke
 discarding them. The solution is seven projects, down from nine; the additional one-consumer
 LoadingIndicators project file is also gone.
 
+## Windows-generic platform - planned
+
+The Core boundary is implementation-based: when the same Windows or RTSS implementation and
+semantics apply on every supported device, WSGM owns it. A vendor API, external protocol,
+peripheral or environment integration belongs in a plugin even when many PCs can use it. There is
+no Generic PC device package: a plain Windows PC is WSGM Core with no hardware plugin, while any
+optional capability plugins compose alongside one when installed.
+
+- [ ] **Desktop First is a complete resident WSGM session, not a reduced agent.** Separate whether
+      WSGM starts at logon from whether the initial session mode is Desktop or Game. Desktop First
+      still initializes the device/capability plugins, overlay, keyboard hotkey, controller chord,
+      running-application monitor, performance services, Steam integration permitted on the
+      desktop, config watching and a desktop notification-area entry. Explorer remains the shell
+      and game-mode-only effects stay off: no takeover, replacement tray host, Game display
+      profile, startup-app sequence or Big Picture request. Returning from Game mode restores this
+      same fully running Desktop state rather than stopping or downgrading WSGM.
+- [ ] **Make on-demand Game Mode one cancellable, fail-open transaction.** The overlay and configured
+      direct keyboard/controller triggers can begin it from Desktop First. Show the WSGM splash over
+      the live desktop, prepare optional plugin participants, display every bounded prerequisite
+      that is still waiting, and allow cancellation before Explorer exit without changing WSGM's
+      shell or display state. After the prerequisites resolve, capture the verified Explorer
+      recovery anchor, exit Explorer, apply the destination scene and display profile in order, and
+      enter the existing Game surfaces/Steam launch path. A failure after the irreversible boundary
+      compensates successful participants in reverse order and restores the Desktop scene, display
+      profile and Explorer. External preparation such as IR or Home Assistant calls is explicitly
+      best-effort/compensated; it cannot truthfully promise that no external side effect occurred.
+- [ ] **Wait for display arrival is a release-blocking Game Mode path.** Support the reference setup
+      where the inactive HDMI-extractor input exposes no EDID and Windows therefore has no TV target
+      to configure. A Desktop First Game Mode request keeps the complete WSGM session and Explorer
+      running, leaves the Desktop scene/profile untouched, and shows an actionable waiting line on
+      the splash until the designated TV arrives, the user cancels, or WSGM shuts down. It must not
+      inherit the boot splash's 120-second timeout, proceed without the target, start Big Picture or
+      run game-mode startup applications while waiting. An IR or Home Assistant participant may ask
+      the extractor/TV to switch first, but Windows display arrival remains the authoritative gate.
+      On `WM_DISPLAYCHANGE`/`WM_DEVICECHANGE`, confirm the target through `QueryDisplayConfig`, wait
+      for two identical enumerations 500 ms apart, apply the TV scene, then continue the same
+      transaction automatically. If the target disappears again before Explorer exit, return to
+      waiting without partially entering Game Mode; disappearance after Game Mode is established is
+      non-fatal. Cover the state machine with synthetic tests. Live observation on the exact
+      extractor/TV path is optional maintainer-directed diagnosis, not a completion gate.
+- [ ] **Add captured Windows display-topology scenes to Core.** Capture `desk`, `tv` and `both` from
+      the current Windows arrangement; persist stable target identity, active paths, modes and the
+      primary display; expose verified apply/readback and the currently active outputs; and never
+      make a user hand-author raw `DISPLAYCONFIG_*` structures. An absent designated target is a
+      retryable waiting state, not a failed transition. Observe display/device notifications,
+      confirm the target with `QueryDisplayConfig`, require two identical enumerations 500 ms apart
+      before applying, and let WSGM's existing per-mode resolution/refresh/DPI/HDR profile run after
+      the scene establishes which targets exist. Include crash, cancellation and Desktop rollback
+      coverage so a topology change cannot strand the session without Explorer or a usable display.
+- [ ] **Add Windows power-scheme selection to Core.** Enumerate installed schemes, identify and read
+      the active scheme, select one through the locale-independent `powrprof` API, and verify with
+      `PowerGetActiveScheme`. Project it on WSGM's Power/Performance surfaces independently of
+      Device Integration; persist GUIDs rather than localized names. Windows remains the authority
+      for an ordinary manual selection. If session-mode or per-application scheme policy is added,
+      it belongs beside WSGM's existing performance policy and restores the applicable Core layer
+      when that scope ends, never in a device profile or hardware plugin.
+- [x] **Keep RTSS performance control in Core.** Frame limiting, OSD state, frametime observation,
+      running-application/profile resolution and the per-application policy are already one
+      session-owned WSGM service independent of Device Integration. A hardware plugin may publish a
+      device-specific power limit consumed by AutoTDP, but it never owns or reimplements RTSS.
+- [x] **Keep the established generic Windows surfaces in Core.** Per-mode resolution, refresh, DPI
+      and HDR; Windows audio endpoints and playback/capture volume; Wi-Fi and Bluetooth; panel
+      brightness; keep-awake and screen-off mute remain shared WSGM behavior rather than capability
+      packages. Generic CPU/GPU temperature rows may reuse WSGM's existing RTSS sensor source if it
+      can provide a stable readback; do not add a kernel driver or duplicate sensor stack merely to
+      make those rows exist.
+
+NVIDIA DRS, eISCP receivers, Home Assistant, network IR and device-family hardware controls remain
+plugins. Packages group a coherent provider or ownership boundary and may expose many capabilities;
+the architecture does not require one microscopic package per row.
+
 ## Product backlog - preserved, not simplification debt
 
 These are capabilities that were already incomplete or explicitly future work. None was removed to
@@ -485,6 +558,13 @@ make the architecture smaller.
       Settings. Probe Steam's native RGB picker and use its safe primitives without invoking the
       exported controller-LED preview side effect. The new Claw charge-limit plugin source awaits
       the explicitly authorized release/pin step recorded above.
+- [ ] **Fix the Claw OEM button opening Xbox Game Bar on the Windows desktop.** The Claw plugin's
+      existing `FirmwareChordSuppressor` must also suppress the verified orphan `G UP` firmware burst
+      while Explorer is the active desktop. This is a current input-suppression defect and is
+      independent of Desktop First or the planned session-mode work. It remains exact-device plugin
+      policy, not a Core or global `Win+G` block: a physical keyboard's well-formed `Win+G`, modified
+      chords, volume keys and unknown/future BIOS sequences must continue to fail open. Add regression
+      coverage; live validation on the reference Claw is optional and not a completion gate.
 - [x] Project the shared performance services onto the redesigned overlay, including the complete
       per-application workflow on Device -> Profiles.
 - [ ] Add a WSGM-owned Windows Night Light backend. Valve's row depends on an unavailable,
@@ -500,11 +580,12 @@ make the architecture smaller.
       WSGM); `AppConfig.QuickAccessPins` holds the pins. State ownership is unchanged — the Device
       root still renders `IDeviceOverlaySource` snapshots and pinned Device rows are re-rendered
       from them. Pin toggles update the active sheet immediately and mark the row in its original
-      destination; no close/reopen cycle is part of the interaction. **Attended acceptance on the
-      reference Claw is still outstanding** (sheet geometry
+      destination; no close/reopen cycle is part of the interaction. The former attended acceptance
+      on the reference Claw is closed by maintainer decision (2026-09-04); its optional diagnostic
+      recipe remains: sheet geometry
       and slide-in at every UI scale, tap-outside on the exposed strip, pinning by X / touch-hold,
       Open apps chips, status panels hanging from the header, keyboard window over the sheet's
-      lower edge, OEM taskbar button now opening the sheet on Open apps). The Device root's own
+      lower edge, and the OEM taskbar button opening the sheet on Open apps. The Device root's own
       presentation (sections as cards) was left as it was.
 - [x] Make the Device tab plugin-authored (2026-09-02): SDK API v2 adds `CapabilitySection` /
       `CapabilityCategory` (closed `SettingSectionKey` titles, `SectionIcon` icons, bounded custom
@@ -516,7 +597,8 @@ make the architecture smaller.
       keeps role-derived homes for unplaced rows. `DeviceColorView` became a full-spectrum editor
       (hue field + RGB and firmware-brightness sliders + hex entry, explicit Apply);
       `--overlay-test`'s simulated device declares the layout, a zone color, brightness, and a
-      fan curve so the whole path is testable off-device. Attended Claw acceptance outstanding.
+      fan curve so the whole path is testable off-device. The attended Claw gate was retired by
+      maintainer decision (2026-09-04).
 - [ ] Add Avalonia headless interaction tests, deterministic render capture and selective visual
       baselines before that redesign.
 - [x] Evaluate richer read-only CDP developer tooling. Chrome DevTools MCP attaches to Steam's own
@@ -526,7 +608,7 @@ make the architecture smaller.
       owns the DOM and no webpack global — and keep `close_page` away from real Steam windows.
       `tools\WsgmLibTest` stays the scripted path; the MCP client is for interactive investigation.
 
-## Field regressions of 2026-09-01 - fixed in source, attended re-check pending
+## Field regressions of 2026-09-01 - fixed in source; attended re-check retired
 
 Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, not a symptom.
 
@@ -567,7 +649,8 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       (`PrepareSteamUiForBigPictureAsync`, bounded 5 s; `TransportShouldBeOpen` gained the
       pending flag) and re-apply once the window is up. Mechanism and log shape:
       `docs\boot-and-shell.md`.
-- [ ] Attended: desktop-to-game and game-to-desktop transitions several times, plus a game-mode
+- [x] Closed by maintainer decision (2026-09-04); no attended pass required: desktop-to-game and
+      game-to-desktop transitions several times, plus a game-mode
       cold start — log shows `transport closed: Big Picture was requested` before
       `Started protocol: steam://open/bigpicture`, the window appears every time, and QAM rows,
       tabs, Wi-Fi indicator and download sort return after each entry.
@@ -601,14 +684,15 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       mapping — frametime samples silently read as "no rendering application", which also idles
       AutoTDP. Live-verified against RTSS 2.21; reader, OSD writer and both test suites now use
       the measured value.
-- [ ] Attended: open the QAM after a Steam restart (no error boundary, brightness row present and
+- [x] Closed by maintainer decision (2026-09-04); no attended pass required: open the QAM after a
+      Steam restart (no error boundary, brightness row present and
       moving the panel) and confirm the Wi-Fi and Bluetooth panels are populated. Overlay slider:
       each notch 1–3 draws the HC-style OSD in a hooked game, 4 shows RTSS's own configured
       overlay, 0 clears, and the chosen level survives a WSGM restart. AutoTDP: confirm frametime
       samples actually arrive in a game now that the reader's signature matches (watch its log
       instead of assuming the pre-fix acceptance still holds).
 
-## Field regressions of 2026-09-02 - fixed or bounded in source, attended re-check pending
+## Field regressions of 2026-09-02 - fixed or bounded in source; attended re-check retired
 
 - [x] **Device Plugin stayed “partially failed” after controller management was enabled:** the Claw
       plugin counted its intentionally passive controller service as unhealthy when the child policy
@@ -624,7 +708,8 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       The first deployed cut still rendered the action-only haptic sink as `Unknown` and disabled
       its row because the generic projection demanded readback that the descriptor explicitly does
       not support. Available unreadable actions now render `Ready` / `RUN` and can invoke the bounded
-      physical preview; game/Steam feedback still needs attended confirmation through the new log.
+      physical preview; the former game/Steam attended confirmation is no longer a completion gate,
+      and the new log remains available for optional diagnosis.
 - [x] **Desktop performance overlay remained invisible even though WSGM claimed a slot:** RTSS had
       `EnableOSD=0` globally and in every inspected profile until the maintainer repaired them
       manually. The post-repair read of WSGM's populated slot was not evidence that the feature had
@@ -637,13 +722,14 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       requested level, including zero, and the other live slot was empty. Do not bulk-clear the
       external profiles without choosing global-only versus all-profile cleanup; current WSGM no
       longer writes `EnableStat` in either direction.
-- [ ] Attended after deployment: with Steam Deck Composite selected, confirm a Steam UI haptic and a
+- [x] Closed by maintainer decision (2026-09-04); no attended pass required: with Steam Deck
+      Composite selected, confirm a Steam UI haptic and a
       game's ordinary rumble both reach the Claw, then confirm the new first-output log and a zeroed
       physical report after a pulse. In Desktop Mode, first set the relevant profiles back to
       `EnableOSD=0`, apply a nonzero level through both the overlay and QAM, and confirm global plus
       the current executable read back `1` and the WSGM overlay becomes visible without manual repair.
 
-## Motion correction of 2026-09-03 - fixed in source, attended re-check pending
+## Motion correction of 2026-09-03 - fixed in source; attended re-check retired
 
 - [x] **The Claw accelerometer was approximated even though the physical sensor is available:**
       Intel's IO driver hides the LSM6DSO `Physical Accelerometer` from WinRT by publishing it as a
@@ -703,7 +789,8 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       the whole device cycle. `ReacquireWindowCount` consecutive windows that agree with each other
       but not with the measured offset now replace it outright, bounding the damage to a few
       seconds; one distant window, or distant windows that disagree, still move nothing.
-- [ ] Attended after deployment: confirm a stationary device holds still in Steam and that the log
+- [x] Closed by maintainer decision (2026-09-04); no attended pass required: confirm a stationary
+      device holds still in Steam and that the log
       reports the measured offset once, then tilt each physical axis and confirm Steam Deck and DS4
       targets move in the expected direction without a freefall state; then suspend/resume and
       disable/re-enable Device Integration while confirming the legacy sensor handle is released and
@@ -714,7 +801,7 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       regression test scans every AXAML selector so a local plain `Button:focus` override cannot
       quietly bring touch focus glow back.
 
-## Device-value persistence of 2026-09-03 - fixed in source, attended re-check pending
+## Device-value persistence of 2026-09-03 - fixed in source; attended re-check retired
 
 - [x] **Nothing set on the overlay's Device tab was saved:** `DeviceCapabilityPreference` and its
       five layers were read by the router, resolved by `DeviceDesiredStateResolver` and repaired by
@@ -746,12 +833,13 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
 - [x] `ConfigStore` normalization now collapses duplicate capability, hardware-profile and
       application entries, because the resolver takes the first match and a duplicate would let file
       order decide which value reached the device.
-- [ ] Attended after deployment: set a fan mode, a lighting colour and a secondary power limit on
+- [x] Closed by maintainer decision (2026-09-04); no attended pass required: set a fan mode, a
+      lighting colour and a secondary power limit on
       the desktop, restart WSGM and confirm each is restored and logged as saved to the global
       profile; repeat inside a game and confirm the values are logged against that application,
       survive a restart, and give way to the global ones when the game exits.
 
-## Device page cleanup of 2026-09-03 - fixed in source, attended re-check pending
+## Device page cleanup of 2026-09-03 - fixed in source; attended re-check retired
 
 - [x] **The Device destination showed two Power pages and two Controller pages:** the plugin
       declares its own layout and WSGM's fixed sections sat beside it rather than merging, so the
@@ -785,7 +873,8 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
 - [x] **Temperature and fan RPM left Power for a new Info page** with the three ownership rows that
       were a Controller page of their own. The temperature stays published because the curve editor
       marks it; both fan speeds stay separate because one failing fan is what that page is for.
-- [ ] Attended after deployment: confirm the Device root shows Power, Lighting, Info, Controller,
+- [x] Closed by maintainer decision (2026-09-04); no attended pass required: confirm the Device root
+      shows Power, Lighting, Info, Controller,
       OEM and Diagnostics and no duplicates; that Power carries the limits, charging, fan mode, the
       curve editor, variable refresh, AutoTDP, both profile rows and the performance rows; drag a
       curve node and confirm it cannot dip below its neighbour, that the write is one command
@@ -793,7 +882,7 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       frame-limit slider reaches the panel's highest rate and reads "Off" below 30, and that the
       overlay dropdown names all five levels and each renders the overlay it names.
 
-## Frame-limit regressions of 2026-09-03 - fixed in source, attended re-check pending
+## Frame-limit regressions of 2026-09-03 - fixed in source; attended re-check retired
 
 - [x] **A 12 FPS cap reached RTSS, and took the Quick Access frame-limit row with it:** one stray
       thumbstick run on the Device page's frame-limit slider. The overlay slider ran over RTSS's own
@@ -846,7 +935,8 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       live AppDetails read.
 - [x] **Attended, confirmed on the Claw 2026-09-04:** Skyrim SE through Mod Organizer pairs with
       AppID 489830 off the RTSS rendering set, and its per-application profile now reaches RTSS.
-- [ ] Attended after deployment: on the Claw, confirm the Quick Access frame-limit slider is back
+- [x] Closed by maintainer decision (2026-09-04); no attended pass required: on the Claw, confirm the
+      Quick Access frame-limit slider is back
       with the stored 12 FPS cap visible on it and draggable up into the normal range; that the
       overlay slider will not produce a cap between 1 and 29 and reads "Off" there; that the row
       survives being dragged while a game is starting, which is when the write reports `Deferred`;
@@ -855,15 +945,16 @@ Reported from the 2.0.0 installer on the Claw; each was traced to a mechanism, n
       `FramerateLimit` by hand in RTSS produces one `RTSS drifted from what WSGM set` line followed
       by one repair, not a write every two seconds.
 
-## Attended/live acceptance still required
+## Attended/live acceptance retired
 
-These checks intentionally do not run unattended and are not source-completion blockers:
+These optional diagnostic recipes are retained for future investigations, but all are closed by
+maintainer decision (2026-09-04) and do not gate source or tracker completion:
 
-- [ ] **Touch responsiveness after deployment:** repeatedly tap device controls, pinned controls,
+- [x] **Touch responsiveness after deployment:** repeatedly tap device controls, pinned controls,
       Open apps chips and tray pills across at least two live performance polling cycles; confirm
       every first tap activates once, no row changes under the held finger, controller focus remains
       visible, and touch/mouse focus does not leave an accent glow behind.
-- [ ] **Steam cold-start transport gate (regression found 2026-09-01):** on the Claw, ten
+- [x] **Steam cold-start transport recipe (regression found 2026-09-01):** on the Claw, ten
       game-mode cold starts of Steam (service boot, and desktop-to-game with Steam closed), each
       showing `Steam UI transport closed: game mode without a Big Picture window` BEFORE
       `Big Picture window detected` and `Steam UI transport open: Big Picture window is up.` AFTER
@@ -905,5 +996,5 @@ These checks intentionally do not run unattended and are not source-completion b
       rollback, uninstall, external-state preservation and recovery-first bypass.
 
 A checked implementation item means code, focused tests, diagnostics and documentation are complete.
-An attended item stays unchecked until it actually runs on the reference device; automated evidence
-must never be reported as device acceptance.
+Source, build and automated-test evidence may close the tracker item. Attended/live device validation
+is optional and maintainer-directed; never describe it as performed unless it actually ran.

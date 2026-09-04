@@ -103,6 +103,8 @@ systems. Preserve their observable behavior and diagnostic coverage while simpli
 - Batch local gates. Do not run builds/tests/verification after every edit. Run them when a coherent
   worklist slice is complete, for an installer hand-off, or when asked. CI runs the same verification
   on every push.
+- Attended/live device validation is optional and maintainer-directed. Do not leave a tracker item
+  or delivery blocked solely because an attended device pass did not run.
 - Iteration on the reference device uses `eng\dev-deploy.ps1`; an installer is for milestone
   hand-off. Never run dev deploy without the machine and attendance checks below.
 - A milestone hand-off runs `build.ps1`, then copies the exact installer named by the checked-in
@@ -342,7 +344,8 @@ the existing injected seams. Never call `ConfigStore.Save/Load` or the parameter
 
 Unattended tests must not run shell takeover, Steam navigation, hardware mutation, display changes,
 lock-screen flows or plugin activation. Test their pure state, serialization, ordering and failure
-decisions; retain the attended verification boundary for the live outcome.
+decisions. Source, build and automated-test evidence is the completion boundary unless the
+maintainer explicitly requests live validation.
 
 At a major milestone:
 
@@ -371,7 +374,8 @@ if ($sourceHash -ne $destinationHash) {
 }
 ```
 
-Report automated/build evidence separately from live or attended acceptance that has not run.
+Report automated/build evidence directly. Mention live or attended evidence only when it actually
+ran; its absence is not a completion gate unless the maintainer explicitly requests it.
 
 ## Requested reviews
 
