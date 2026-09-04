@@ -23,7 +23,7 @@ reviews:
     enabled: true
     drafts: false
     base_branches:
-      - "^2[.]0$"
+      - "^master$"
   path_filters:
     - "!**/bin/**"
     - "!**/obj/**"
