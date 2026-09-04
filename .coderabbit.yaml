@@ -51,6 +51,11 @@ reviews:
         commits. UI-observable state must stay on the Avalonia dispatcher, high-rate input paths must
         remain allocation-light, and configuration reloads must not discard controller-owned runtime
         state. Check shared theme and control changes against every consuming surface.
+    - path: "src/WSGM/Assets/Glyphs/**"
+      instructions: |
+        Keep controller-family names, resolver expectations, packaged files, and CREDITS attribution
+        synchronized. Every referenced asset must exist, while unrelated SVG normalization or artwork
+        replacement stays out of functional changes.
     - path: "src/WSGM/{Interop,SteamInterop}/**"
       instructions: |
         Treat native signatures, structure layout, calling conventions, handles, callbacks, and buffer
@@ -93,6 +98,11 @@ reviews:
         targeting, escaped data, bounded operations, and explicit documentation of mutations. File
         evaluation is allowed only as an explicit attended action; reject automatic registry-wide
         module sweeps, unknown export invocation, or silent evaluation during probes.
+    - path: "{package-lock.json,native/**/Cargo.lock}"
+      instructions: |
+        Require matching intentional manifest changes and flag unrelated transitive churn, unexpected
+        registry sources, or dependency movement that bypasses the pinned .NET, Node, and Rust build
+        contracts.
     - path: "tests/**"
       instructions: |
         Require focused regression coverage for changed normal, failure, cleanup, and recovery paths.
