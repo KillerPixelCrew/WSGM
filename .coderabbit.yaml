@@ -30,9 +30,6 @@ reviews:
     - "!publish/**"
     - "!**/TestResults/**"
     - "!src/WSGM/Native/**"
-    - "package-lock.json"
-    - "native/**/Cargo.lock"
-    - "src/WSGM/Assets/Glyphs/**"
   path_instructions:
     - path: "src/WSGM/Core/**"
       instructions: |
